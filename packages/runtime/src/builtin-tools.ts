@@ -7,9 +7,6 @@
 
 import { z } from 'zod';
 import { promises as fs } from 'node:fs';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-import { glob as nodeGlob } from 'node:fs/promises'; // Node 22+ stable glob
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
 import { truncateToolOutput } from './tool-output.js';
@@ -26,7 +23,6 @@ import type { MakaTool, MakaToolContext } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 
-const execAsync = promisify(exec);
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
 // watchdog is paused during tool execution.
@@ -163,12 +159,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
         assertRelativeGlobPattern(pattern);
         const base = relCwd ? await resolveExistingInsideCwd(cwd, relCwd, 'Glob cwd') : await fs.realpath(cwd);
-        const files: string[] = [];
-        for await (const f of nodeGlob(pattern, { cwd: base })) {
-          files.push(typeof f === 'string' ? f : (f as any).name);
-          if (files.length >= 200) break;
-        }
-        return { files };
+        return await executor.globFiles({ cwd: base, pattern, limit: 200 });
       },
     },
     {
@@ -181,28 +172,21 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
-        const args = ['-n', '--no-heading', '--max-count=50'];
-        if (glob) args.push('--glob', glob);
-        args.push(pattern);
         const searchPath = path ? await resolveExistingInsideCwd(cwd, path, 'Grep') : await fs.realpath(cwd);
-        args.push(searchPath);
-        const cmd = `rg ${args.map(shellEscape).join(' ')}`;
-        try {
-          // Self-bound: ripgrep finishes in well under a second normally, but a
-          // pathological tree (network mount, /proc, a FIFO) could hang it. The
-          // stream watchdog no longer caps tool execution, so each spawning tool
-          // must carry its own wall-clock timeout and honour the turn's abort.
-          const { stdout } = await execAsync(cmd, {
-            cwd,
-            maxBuffer: 5 * 1024 * 1024,
-            timeout: GREP_TIMEOUT_MS,
-            ...(abortSignal ? { signal: abortSignal } : {}),
-          });
-          return { matches: stdout.split('\n').filter(Boolean).slice(0, 200) };
-        } catch (e: any) {
-          if (e?.code === 1) return { matches: [] }; // ripgrep "no match"
-          throw e;
-        }
+        // Self-bound: ripgrep finishes in well under a second normally, but a
+        // pathological tree (network mount, /proc, a FIFO) could hang it. The
+        // stream watchdog no longer caps tool execution, so each spawning tool
+        // must carry its own wall-clock timeout and honour the turn's abort.
+        return await executor.grepFiles({
+          cwd,
+          pattern,
+          path: searchPath,
+          ...(glob ? { glob } : {}),
+          maxCountPerFile: 50,
+          limit: 200,
+          timeoutMs: GREP_TIMEOUT_MS,
+          ...(abortSignal ? { abortSignal } : {}),
+        });
       },
     },
   ];
@@ -216,10 +200,6 @@ function terminalError(
   const error = new Error(message);
   Object.assign(error, { stdout: result.stdout, stderr: result.stderr, code });
   return error;
-}
-
-function shellEscape(arg: string): string {
-  return `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
 async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {

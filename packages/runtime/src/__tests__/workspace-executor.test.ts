@@ -105,14 +105,16 @@ describe('LocalWorkspaceExecutor file operations', () => {
       cwd,
       pattern: 'token',
       path: join(cwd, 'src'),
-      maxMatches: 50,
+      maxCountPerFile: 50,
+      limit: 200,
       timeoutMs: 5_000,
     });
     const miss = await executor.grepFiles({
       cwd,
       pattern: 'absent',
       path: join(cwd, 'src'),
-      maxMatches: 50,
+      maxCountPerFile: 50,
+      limit: 200,
       timeoutMs: 5_000,
     });
 

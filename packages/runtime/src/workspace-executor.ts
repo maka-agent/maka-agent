@@ -77,7 +77,8 @@ export interface WorkspaceGrepInput {
   pattern: string;
   path: string;
   glob?: string;
-  maxMatches: number;
+  maxCountPerFile: number;
+  limit: number;
   timeoutMs: number;
   abortSignal?: AbortSignal;
 }
@@ -138,7 +139,7 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async grepFiles(input: WorkspaceGrepInput): Promise<WorkspaceGrepResult> {
-    const args = ['-n', '--no-heading', `--max-count=${input.maxMatches}`];
+    const args = ['-n', '--no-heading', `--max-count=${input.maxCountPerFile}`];
     if (input.glob) args.push('--glob', input.glob);
     args.push(input.pattern, input.path);
     const command = `rg ${args.map(shellEscape).join(' ')}`;
@@ -149,7 +150,7 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
         timeout: input.timeoutMs,
         ...(input.abortSignal ? { signal: input.abortSignal } : {}),
       });
-      return { matches: stdout.split('\n').filter(Boolean).slice(0, input.maxMatches) };
+      return { matches: stdout.split('\n').filter(Boolean).slice(0, input.limit) };
     } catch (error: any) {
       if (error?.code === 1) return { matches: [] };
       throw error;

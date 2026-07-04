@@ -288,6 +288,51 @@ describe('builtin read tools path containment', () => {
     const grepResult = await runTool(grep, { pattern: 'token', path: 'src' }, root);
     expect(JSON.stringify(grepResult).includes('main.ts')).toBe(true);
   });
+
+  test('Glob delegates matching to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-glob-executor-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    const calls: Array<{ cwd: string; pattern: string; limit?: number }> = [];
+    const glob = buildBuiltinTools({ executor: fakeExecutor({
+      globFiles: async (input) => {
+        calls.push(input);
+        return { files: ['from-executor.ts'] };
+      },
+    }) }).find((candidate) => candidate.name === 'Glob');
+    if (!glob) throw new Error('Glob tool missing');
+
+    const result = await runTool(glob, { pattern: '**/*.ts', cwd: 'src' }, root);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd.endsWith('src')).toBe(true);
+    expect(calls[0]?.pattern).toBe('**/*.ts');
+    expect(calls[0]?.limit).toBe(200);
+    expect(result).toMatchObject({ files: ['from-executor.ts'] });
+  });
+
+  test('Grep delegates searching to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-grep-executor-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'main.ts'), 'local token\n', 'utf8');
+    const calls: Array<{ cwd: string; pattern: string; path: string; glob?: string; maxCountPerFile: number; limit: number }> = [];
+    const grep = buildBuiltinTools({ executor: fakeExecutor({
+      grepFiles: async (input) => {
+        calls.push(input);
+        return { matches: ['from-executor.ts:1:token'] };
+      },
+    }) }).find((candidate) => candidate.name === 'Grep');
+    if (!grep) throw new Error('Grep tool missing');
+
+    const result = await runTool(grep, { pattern: 'token', path: 'src', glob: '*.ts' }, root);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(root);
+    expect(calls[0]?.path.endsWith('src')).toBe(true);
+    expect(calls[0]?.glob).toBe('*.ts');
+    expect(calls[0]?.maxCountPerFile).toBe(50);
+    expect(calls[0]?.limit).toBe(200);
+    expect(result).toMatchObject({ matches: ['from-executor.ts:1:token'] });
+  });
 });
 
 describe('builtin write tools path containment', () => {
