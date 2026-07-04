@@ -10,6 +10,14 @@ function readCssToken(source: string, selector: ':root' | '.dark', token: string
 }
 
 describe('issue #499 state-token governance contract', () => {
+  // Brand tokens banned in interaction-state surfaces (hover/selected/active).
+  // Single-sourced so the hover and selected/active layers stay in sync:
+  // --nav-active / --accent are the primary brand pair; --toast-accent and
+  // --bot-brand-color / --bot-brand-default are --accent aliases used by toast
+  // and per-bot surfaces. Base-brand controls (hover allowlist) and onboarding
+  // brand emphasis (selected/active allowlist) keep a brand state.
+  const BRAND_STATE_TOKEN_RE = /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/;
+
   it('defines --state-hover-bg (4%) and --state-selected-bg (6.5%) in :root', async () => {
     // --state-* are foreground-alpha derivations; like --border/--hover/--active
     // they are defined once in :root and auto-follow .dark via the relative-color
@@ -53,7 +61,7 @@ describe('issue #499 state-token governance contract', () => {
     assert.match(docs, /`--state-selected-bg`/, 'design-system.md must register --state-selected-bg');
   });
 
-  it(':hover backgrounds use --state-hover-bg, not --foreground-N, inline oklch, or --nav-active/--accent brand drift (allowlist: base-brand controls whose hover stays brand)', async () => {
+  it(':hover backgrounds use --state-hover-bg, not --foreground-N, inline oklch, or brand tokens (allowlist: base-brand controls whose hover stays brand)', async () => {
     const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
     // Base-brand controls keep a brand hover (consistent with their brand base);
     // base-neutral controls must use --state-hover-bg. Allowlist is base-brand
@@ -70,16 +78,16 @@ describe('issue #499 state-token governance contract', () => {
         const body = ruleMatch[2];
         for (const bgMatch of body.matchAll(/background(?:-color)?:\s*([^;]+);/g)) {
           const bg = bgMatch[1].trim();
-          if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg) || /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)/.test(bg)) {
+          if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg) || BRAND_STATE_TOKEN_RE.test(bg)) {
             violations.push(`${file}: :hover background ${bg}`);
           }
         }
       }
     }
-    assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N, inline oklch, or --nav-active/--accent (allowlist: base-brand controls):\n${violations.join('\n')}`);
+    assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N, inline oklch, or brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: base-brand controls):\n${violations.join('\n')}`);
   });
 
-  it('selected/active surfaces use neutral tokens, not --nav-active/--accent (allowlist: onboarding brand emphasis + tabs pending tab-spec)', async () => {
+  it('selected/active surfaces use neutral tokens, not brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec)', async () => {
     const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
     // --nav-active stays only for:
     //   - onboarding brand emphasis (selected/active selectors only):
@@ -87,7 +95,7 @@ describe('issue #499 state-token governance contract', () => {
     //   - tab surfaces pending the tab-spec PR (single underline variant):
     //     daily-review-range-tab, catalogTab, catalogPillTabs, skill-tab, plan-tab
     const ALLOWLIST_SELECTOR = /(\.maka-daily-review-range-tab|\.catalogTab|\.catalogPillTabs\b|\.maka-skill-tab|\.maka-plan-tab|\.maka-firstrun-step\b|\.maka-onboarding-setup-steps\b)/;
-    const SELECTED_ACTIVE = /\[data-active|\[data-checked|\[data-default|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
+    const SELECTED_ACTIVE = /\[data-active|\[data-checked|\[data-default|\[data-pressed|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
     const violations: string[] = [];
     for (const file of allCss) {
       const source = stripCssComments(await readFile(file, 'utf8'));
@@ -96,11 +104,11 @@ describe('issue #499 state-token governance contract', () => {
         const body = ruleMatch[2];
         if (!SELECTED_ACTIVE.test(selector)) continue;
         if (ALLOWLIST_SELECTOR.test(selector)) continue;
-        if (/var\(--nav-active\)|var\(--accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/.test(body)) {
-          violations.push(`${file}: ${selector.trim()} uses --nav-active/--accent/--bot-brand-*`);
+        if (BRAND_STATE_TOKEN_RE.test(body)) {
+          violations.push(`${file}: ${selector.trim()} uses brand token (--nav-active/--accent/--toast-accent/--bot-brand-*)`);
         }
       }
     }
-    assert.deepEqual(violations, [], `selected/active must not use --nav-active/--accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
+    assert.deepEqual(violations, [], `selected/active must not use brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
   });
 });
