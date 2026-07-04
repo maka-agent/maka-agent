@@ -13,7 +13,7 @@
  *  - FakeBackend       — text-only stub for UI development
  */
 
-export { SessionManager, BackendRegistry, headerToSummary } from './session-manager.js';
+export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
   SessionManagerDeps,
   SessionStore,

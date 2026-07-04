@@ -3,7 +3,9 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import { effectiveBaseUrl, type LlmConnection } from '@maka/core/llm-connections';
+import { effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
+import { thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import {
   claudeSubscriptionHeaders,
@@ -119,24 +121,32 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
 export function buildProviderOptions(
   connection: LlmConnection,
-  _modelId: string,
+  modelId: string,
+  thinkingLevel?: ThinkingLevel,
 ): Record<string, unknown> {
+  const variants = thinkingVariantsForModel(connection.providerType, modelId);
+  const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
   switch (connection.providerType) {
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
     case 'claude-subscription':
-      return { anthropic: {} };
+      return {
+        anthropic: level
+          ? { thinking: { type: 'enabled' as const, budgetTokens: anthropicBudgetTokens(level) } }
+          : {},
+      };
     case 'codex-subscription':
       return {
         openai: {
           store: false,
           textVerbosity: 'medium',
+          ...(level ? { reasoningEffort: level } : {}),
         },
       };
     case 'openai':
-      return { openai: {} };
+      return { openai: level ? { reasoningEffort: level } : {} };
     case 'google':
       return {
         google: {
@@ -146,9 +156,70 @@ export function buildProviderOptions(
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
           ],
+          ...(level
+            ? isGemini3Model(modelId)
+              ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
+              : { thinkingConfig: { includeThoughts: true, thinkingBudget: googleBudgetTokens(level) } }
+            : {}),
         },
       };
+    case 'deepseek':
+    case 'moonshot':
+    case 'zai-coding-plan':
+    case 'ollama':
+      return level ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } } : {};
+    case 'openai-compatible':
+      return level ? { [connection.slug]: { reasoningEffort: level } } : {};
     default:
       return {};
+  }
+}
+
+/** Anthropic extended-thinking budget for a semantic level. Tunable; conservative defaults. */
+function anthropicBudgetTokens(level: ThinkingLevel): number {
+  switch (level) {
+    case 'low':
+      return 4096;
+    case 'medium':
+      return 10000;
+    case 'high':
+      return 20000;
+    case 'minimal':
+      // Anthropic has no `minimal` effort; map to the smallest budget we send.
+      return 2048;
+  }
+}
+
+/** Gemini 2.5 uses a numeric thinking budget; Gemini 3 uses `thinkingLevel`. */
+function googleBudgetTokens(level: ThinkingLevel): number {
+  switch (level) {
+    case 'minimal':
+      return 512;
+    case 'low':
+      return 2048;
+    case 'medium':
+      return 8000;
+    case 'high':
+      return 16000;
+  }
+}
+
+function isGemini3Model(modelId: string): boolean {
+  return /gemini-3/i.test(modelId);
+}
+
+/** providerOptions namespace matches the `name` passed to `createOpenAICompatible` in `getAIModel`. */
+function openaiCompatibleNamespace(providerType: ProviderType): string {
+  switch (providerType) {
+    case 'deepseek':
+      return 'deepseek';
+    case 'moonshot':
+      return 'moonshot';
+    case 'zai-coding-plan':
+      return 'zai-coding-plan';
+    case 'ollama':
+      return 'ollama';
+    default:
+      return providerType;
   }
 }
