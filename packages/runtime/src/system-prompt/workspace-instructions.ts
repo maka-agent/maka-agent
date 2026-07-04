@@ -1,5 +1,5 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 
 /**
  * Read-only workspace-instruction prompt fragment.
@@ -131,7 +131,7 @@ async function scanWorkspaceInstructions(cwd: string): Promise<Array<
       out.push({ file, text: '', chars: 0, truncated: false, status: 'missing' });
       continue;
     }
-    if (!isInside(root, resolved)) {
+    if (!isPathInside(root, resolved)) {
       out.push({ file, text: '', chars: 0, truncated: false, status: 'blocked' });
       continue;
     }
@@ -158,11 +158,6 @@ async function scanWorkspaceInstructions(cwd: string): Promise<Array<
   return out;
 }
 
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`));
-}
-
 function cleanPromptText(text: string): string {
   return text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
 }
@@ -171,4 +166,20 @@ function truncateCodepoints(text: string, max: number): string {
   const chars = Array.from(text);
   if (chars.length <= max) return text;
   return chars.slice(0, Math.max(0, max)).join('');
+}
+
+export interface PathInsideApi {
+  relative: typeof relative;
+  isAbsolute: typeof isAbsolute;
+  sep: string;
+}
+
+export function isPathInside(root: string, target: string, pathApi: PathInsideApi = { relative, isAbsolute, sep }): boolean {
+  const rel = pathApi.relative(root, target);
+  // path.relative returns the target path unchanged (absolute) when root and
+  // target are on different drives on Windows. An absolute result means the
+  // target is not reachable from root via a relative path, so reject it before
+  // the `..` escape check.
+  if (pathApi.isAbsolute(rel)) return false;
+  return rel === '' || (!rel.startsWith('..') && rel !== '..' && !rel.includes(`..${pathApi.sep}`));
 }

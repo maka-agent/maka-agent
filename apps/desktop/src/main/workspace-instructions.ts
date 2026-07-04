@@ -1,7 +1,7 @@
 import { realpath, stat, writeFile } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { join } from 'node:path';
 
-import { WORKSPACE_INSTRUCTION_FILES } from '@maka/runtime';
+import { isPathInside, WORKSPACE_INSTRUCTION_FILES } from '@maka/runtime';
 
 /**
  * Desktop file-management surface for workspace instructions.
@@ -59,7 +59,7 @@ export async function resolveWorkspaceInstructionFileForOpen(
     return { ok: false, reason: 'missing' };
   }
 
-  if (!isInside(root, resolved)) return { ok: false, reason: 'blocked' };
+  if (!isPathInside(root, resolved)) return { ok: false, reason: 'blocked' };
 
   const fileStat = await stat(resolved).catch(() => null);
   if (!fileStat) return { ok: false, reason: 'missing' };
@@ -85,7 +85,7 @@ export async function createWorkspaceInstructionFile(
   }
 
   const target = join(root, file);
-  if (!isInside(root, target)) return { ok: false, reason: 'blocked' };
+  if (!isPathInside(root, target)) return { ok: false, reason: 'blocked' };
 
   try {
     await writeFile(target, defaultWorkspaceInstructionTemplate(file), { encoding: 'utf8', flag: 'wx', mode: 0o644 });
@@ -100,11 +100,6 @@ export async function createWorkspaceInstructionFile(
 
 function isWorkspaceInstructionFile(file: string): file is (typeof WORKSPACE_INSTRUCTION_FILES)[number] {
   return (WORKSPACE_INSTRUCTION_FILES as readonly string[]).includes(file);
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`));
 }
 
 function defaultWorkspaceInstructionTemplate(file: string): string {
