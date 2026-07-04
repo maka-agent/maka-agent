@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { readFile, mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
@@ -18,11 +18,18 @@ type SessionHistoryModule = {
     streamingSessionIds?: Set<string>;
     staleSessionIds?: Set<string>;
     onSelectSession(sessionId: string): void;
+    rowActions?: {
+      onToggleFlag(sessionId: string, next: boolean): void | Promise<void>;
+      onArchive(sessionId: string): void | Promise<void>;
+      onUnarchive(sessionId: string): void | Promise<void>;
+      onRename(sessionId: string, name: string): void | Promise<void>;
+      onDelete(sessionId: string): void | Promise<void>;
+    };
   }): ReactElement | null;
 };
 type RendererWindow = Window & typeof globalThis;
-type RenderProbeGlobal = typeof globalThis & {
-  __makaSessionRowRenderProbe?: (sessionId: string) => void;
+type MemoTestGlobal = typeof globalThis & {
+  __makaFormatCompactTimestampCount?: number;
   IS_REACT_ACT_ENVIRONMENT?: boolean;
 };
 
@@ -35,50 +42,73 @@ afterEach(() => {
 });
 
 describe('UI render memo boundary contract', () => {
-  it('keeps sidebar session rows from rendering on unrelated parent updates', async () => {
-    const { SessionHistoryList } = await importInstrumentedSessionHistoryList();
+  it('keeps AppShell sidebar row props stable enough for SessionRow memo', async () => {
+    const source = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell.tsx'), 'utf8');
+    const sessionListBlock = source.match(/<SessionListPanel[\s\S]*?\/>/)?.[0] ?? '';
+
+    assert.match(source, /const sessionListSelectSession = useCallback\(\(sessionId: string\) => \{[\s\S]*openSessionInChatRef\.current\(sessionId\);[\s\S]*\}, \[\]\);/);
+    assert.match(source, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\s*\(/);
+    assert.match(sessionListBlock, /onSelectSession=\{sessionListSelectSession\}/);
+    assert.match(sessionListBlock, /rowActions=\{sessionRowActions\}/);
+    assert.doesNotMatch(sessionListBlock, /onSelectSession=\{\(sessionId\)/);
+    assert.doesNotMatch(sessionListBlock, /rowActions=\{\{/);
+  });
+
+  it('keeps sidebar session rows from rendering on unrelated parent updates with row actions present', async () => {
+    const { SessionHistoryList } = await importSessionHistoryListWithCountedTimestamps();
     const root = installReactRenderer();
-    const rowRenderCount = new Map<string, number>();
     const sessions = [
       createSession('session-a', 'Alpha'),
       createSession('session-b', 'Beta'),
     ];
     const streamingSessionIds = new Set<string>();
     const staleSessionIds = new Set<string>();
+    const rowActions = createRowActions();
     const onSelectSession = () => {};
-    (globalThis as RenderProbeGlobal).__makaSessionRowRenderProbe = (sessionId) => {
-      rowRenderCount.set(sessionId, (rowRenderCount.get(sessionId) ?? 0) + 1);
-    };
+    (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount = 0;
 
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
       label: 'first parent render',
       onSelectSession,
+      rowActions,
       sessions,
       staleSessionIds,
       streamingSessionIds,
     }));
-    assert.deepEqual(Object.fromEntries(rowRenderCount), {
-      'session-a': 1,
-      'session-b': 1,
-    });
+    assert.equal((globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount, 2);
 
     await render(root, createElement(RenderHost, {
       SessionHistoryList,
       label: 'unrelated parent render',
       onSelectSession,
+      rowActions,
       sessions,
       staleSessionIds,
       streamingSessionIds,
     }));
 
-    assert.deepEqual(
-      Object.fromEntries(rowRenderCount),
-      {
-        'session-a': 1,
-        'session-b': 1,
-      },
-      'stable session row props should not re-render when only sibling parent content changes',
+    assert.equal(
+      (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount,
+      2,
+      'stable session rows should not recompute row meta when only sibling parent content changes',
+    );
+
+    const nextStreamingSessionIds = new Set<string>(['session-a']);
+    await render(root, createElement(RenderHost, {
+      SessionHistoryList,
+      label: 'streaming session update',
+      onSelectSession,
+      rowActions,
+      sessions,
+      staleSessionIds,
+      streamingSessionIds: nextStreamingSessionIds,
+    }));
+
+    assert.equal(
+      (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount,
+      3,
+      'streaming updates should only recompute the row whose streaming flag changed',
     );
   });
 });
@@ -87,6 +117,7 @@ function RenderHost(props: {
   SessionHistoryList: SessionHistoryModule['SessionHistoryList'];
   label: string;
   onSelectSession(sessionId: string): void;
+  rowActions: NonNullable<Parameters<SessionHistoryModule['SessionHistoryList']>[0]['rowActions']>;
   sessions: SessionSummary[];
   staleSessionIds: Set<string>;
   streamingSessionIds: Set<string>;
@@ -101,6 +132,7 @@ function RenderHost(props: {
       streamingSessionIds: props.streamingSessionIds,
       staleSessionIds: props.staleSessionIds,
       onSelectSession: props.onSelectSession,
+      rowActions: props.rowActions,
     }),
   );
 }
@@ -122,7 +154,17 @@ function createSession(id: string, name: string): SessionSummary {
   };
 }
 
-async function importInstrumentedSessionHistoryList(): Promise<SessionHistoryModule> {
+function createRowActions(): NonNullable<Parameters<SessionHistoryModule['SessionHistoryList']>[0]['rowActions']> {
+  return {
+    onToggleFlag() {},
+    onArchive() {},
+    onUnarchive() {},
+    onRename() {},
+    onDelete() {},
+  };
+}
+
+async function importSessionHistoryListWithCountedTimestamps(): Promise<SessionHistoryModule> {
   const outdir = await mkdtemp(resolve(REPO_ROOT, 'apps/desktop/dist/main/__tests__/session-history-memo-'));
   const outfile = resolve(outdir, 'session-history-list.mjs');
   await mkdir(dirname(outfile), { recursive: true });
@@ -135,27 +177,28 @@ async function importInstrumentedSessionHistoryList(): Promise<SessionHistoryMod
     format: 'esm',
     target: 'node20',
     logLevel: 'silent',
-    plugins: [instrumentSessionRow(), mockOverlayScrollbars()],
+    plugins: [mockCoreTimestampFormatter(), mockOverlayScrollbars()],
   });
   return await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as SessionHistoryModule;
 }
 
-function instrumentSessionRow(): Plugin {
+function mockCoreTimestampFormatter(): Plugin {
   return {
-    name: 'instrument-session-row',
+    name: 'mock-core-timestamp-formatter',
     setup(buildApi) {
-      buildApi.onLoad({ filter: /packages\/ui\/src\/session-history-list\.tsx$/ }, async (args) => {
-        const source = await readFile(args.path, 'utf8');
-        const target = /(function SessionRow\(props: \{[\s\S]*?\n\}\) \{\n)/;
-        assert.match(source, target, 'test instrumentation must find the private SessionRow render boundary');
-        return {
-          loader: 'tsx',
-          contents: source.replace(
-            target,
-            `$1  (globalThis as typeof globalThis & { __makaSessionRowRenderProbe?: (sessionId: string) => void }).__makaSessionRowRenderProbe?.(props.session.id);\n`,
-          ),
-        };
-      });
+      buildApi.onResolve({ filter: /^@maka\/core$/ }, () => ({
+        path: 'maka-core-mock',
+        namespace: 'memo-test',
+      }));
+      buildApi.onLoad({ filter: /^maka-core-mock$/, namespace: 'memo-test' }, () => ({
+        loader: 'js',
+        contents: [
+          'export function formatCompactTimestamp() {',
+          '  globalThis.__makaFormatCompactTimestampCount = (globalThis.__makaFormatCompactTimestampCount ?? 0) + 1;',
+          '  return "just now";',
+          '}',
+        ].join('\n'),
+      }));
     },
   };
 }
@@ -200,8 +243,8 @@ function installFakeDom(): void {
   const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
   const previousHTMLElement = globalThis.HTMLElement;
   const previousHTMLIFrameElement = globalThis.HTMLIFrameElement;
-  const previousProbe = (globalThis as RenderProbeGlobal).__makaSessionRowRenderProbe;
-  const previousActEnvironment = (globalThis as RenderProbeGlobal).IS_REACT_ACT_ENVIRONMENT;
+  const previousCount = (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount;
+  const previousActEnvironment = (globalThis as MemoTestGlobal).IS_REACT_ACT_ENVIRONMENT;
   const fakeDocument = createFakeDocument();
   const fakeWindow = {
     document: fakeDocument,
@@ -219,15 +262,15 @@ function installFakeDom(): void {
     callback(0);
     return 0;
   };
-  (globalThis as RenderProbeGlobal).IS_REACT_ACT_ENVIRONMENT = true;
+  (globalThis as MemoTestGlobal).IS_REACT_ACT_ENVIRONMENT = true;
   cleanupTasks.push(() => {
     globalThis.document = previousDocument;
     globalThis.window = previousWindow;
     globalThis.requestAnimationFrame = previousRequestAnimationFrame;
     globalThis.HTMLElement = previousHTMLElement;
     globalThis.HTMLIFrameElement = previousHTMLIFrameElement;
-    (globalThis as RenderProbeGlobal).__makaSessionRowRenderProbe = previousProbe;
-    (globalThis as RenderProbeGlobal).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    (globalThis as MemoTestGlobal).__makaFormatCompactTimestampCount = previousCount;
+    (globalThis as MemoTestGlobal).IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   });
 }
 

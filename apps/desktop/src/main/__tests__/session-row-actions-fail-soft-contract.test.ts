@@ -27,9 +27,11 @@ describe('session row actions fail soft', () => {
     assert.match(main, /const sessionPrefix = `\$\{sessionId\}:`;/);
     assert.match(main, /Array\.from\(pendingSessionRowActionsRef\.current\)\.some\(\(key\) => key\.startsWith\(sessionPrefix\)\)/);
     assert.match(main, /pendingSessionRowActionsRef\.current\.add\(key\);[\s\S]*catch \(error\) \{[\s\S]*toastApi\.error\(errorTitle, generalizedErrorMessageChinese\(error, '会话操作失败，请稍后重试。'\)\)[\s\S]*finally \{[\s\S]*pendingSessionRowActionsRef\.current\.delete\(key\);/);
-    assert.match(main, /rowActions=\{\{[\s\S]*onToggleFlag: \(sessionId, next\) => flagSession\(sessionId, next\),[\s\S]*onArchive: \(sessionId\) => archiveSession\(sessionId\),[\s\S]*onUnarchive: \(sessionId\) => unarchiveSession\(sessionId\),[\s\S]*onRename: \(sessionId, name\) => renameSession\(sessionId, name\),[\s\S]*onDelete: \(sessionId\) => deleteSession\(sessionId\),/);
-    assert.doesNotMatch(main, /onDelete: \(sessionId\) => void deleteSession\(sessionId\)/);
-    assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void flagSession\(sessionId, next\)/);
+    assert.match(main, /const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>\[0\]\['rowActions'\]>>\([\s\S]*onToggleFlag: \(sessionId, next\) => sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\),[\s\S]*onArchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.archiveSession\(sessionId\),[\s\S]*onUnarchive: \(sessionId\) => sessionRowActionHandlersRef\.current\.unarchiveSession\(sessionId\),[\s\S]*onRename: \(sessionId, name\) => sessionRowActionHandlersRef\.current\.renameSession\(sessionId, name\),[\s\S]*onDelete: \(sessionId\) => sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\),/);
+    assert.match(main, /rowActions=\{sessionRowActions\}/);
+    assert.doesNotMatch(main, /rowActions=\{\{/);
+    assert.doesNotMatch(main, /onDelete: \(sessionId\) => void sessionRowActionHandlersRef\.current\.deleteSession\(sessionId\)/);
+    assert.doesNotMatch(main, /onToggleFlag: \(sessionId, next\) => void sessionRowActionHandlersRef\.current\.flagSession\(sessionId, next\)/);
   });
 
   it('cleans active session renderer state consistently after archive or delete', async () => {

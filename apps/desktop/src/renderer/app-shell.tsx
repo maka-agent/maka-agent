@@ -438,13 +438,7 @@ export function AppShell() {
     clearSessionUiState(sessionId);
   }
 
-  const {
-    flagSession,
-    archiveSession,
-    unarchiveSession,
-    renameSession,
-    deleteSession,
-  } = createAppShellSessionRowActions({
+  const sessionRowActionHandlers = createAppShellSessionRowActions({
     activeIdRef,
     clearSessionRendererState,
     pendingSessionRowActionsRef,
@@ -454,6 +448,18 @@ export function AppShell() {
     setMessages,
     toastApi,
   });
+  const sessionRowActionHandlersRef = useRef(sessionRowActionHandlers);
+  sessionRowActionHandlersRef.current = sessionRowActionHandlers;
+  const sessionRowActions = useMemo<NonNullable<Parameters<typeof SessionListPanel>[0]['rowActions']>>(
+    () => ({
+      onToggleFlag: (sessionId, next) => sessionRowActionHandlersRef.current.flagSession(sessionId, next),
+      onArchive: (sessionId) => sessionRowActionHandlersRef.current.archiveSession(sessionId),
+      onUnarchive: (sessionId) => sessionRowActionHandlersRef.current.unarchiveSession(sessionId),
+      onRename: (sessionId, name) => sessionRowActionHandlersRef.current.renameSession(sessionId, name),
+      onDelete: (sessionId) => sessionRowActionHandlersRef.current.deleteSession(sessionId),
+    }),
+    [],
+  );
 
   const {
     setPermissionMode,
@@ -545,6 +551,9 @@ export function AppShell() {
   }, []);
   const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
     openSessionInChatRef.current(sessionId, turnId);
+  }, []);
+  const sessionListSelectSession = useCallback((sessionId: string) => {
+    openSessionInChatRef.current(sessionId);
   }, []);
 
   // PR109b: chat header lifecycle status badge. Hidden for `active`
@@ -1193,18 +1202,10 @@ export function AppShell() {
             staleSessionIds={staleSessionIds}
             statusGroups={sessionStatusGroups}
             onSelect={setNavSelection}
-            onSelectSession={(sessionId) => {
-              openSessionInChat(sessionId);
-            }}
+            onSelectSession={sessionListSelectSession}
             onOpenSettings={openSettings}
             onNew={createSession}
-            rowActions={{
-              onToggleFlag: (sessionId, next) => flagSession(sessionId, next),
-              onArchive: (sessionId) => archiveSession(sessionId),
-              onUnarchive: (sessionId) => unarchiveSession(sessionId),
-              onRename: (sessionId, name) => renameSession(sessionId, name),
-              onDelete: (sessionId) => deleteSession(sessionId),
-            }}
+            rowActions={sessionRowActions}
             sidebarCollapsed={sessionListCollapsed}
           />
         </div>
