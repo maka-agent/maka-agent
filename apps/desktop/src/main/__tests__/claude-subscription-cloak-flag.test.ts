@@ -11,23 +11,20 @@
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
-const REPO_ROOT = resolve(process.cwd(), '..', '..');
+const DESKTOP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const SERVICE_SOURCE = resolve(
-  REPO_ROOT,
-  'apps',
-  'desktop',
+  DESKTOP_ROOT,
   'src',
   'main',
   'oauth',
   'claude-subscription-service.ts',
 );
 const CLOAK_SOURCE = resolve(
-  REPO_ROOT,
-  'apps',
-  'desktop',
+  DESKTOP_ROOT,
   'src',
   'main',
   'oauth',
@@ -56,27 +53,12 @@ describe('cloaked request module isolation (xuan G-X4)', () => {
     );
   });
 
-  it('cloak module body contains the impersonation strings (positive sanity check)', async () => {
-    // If a future patch removed these by accident, the cloak module
-    // would silently degrade to a no-op. Confirm the headers are
-    // actually built here.
+  it('desktop cloak module reuses the runtime builder instead of duplicating request construction', async () => {
     const src = await readFile(CLOAK_SOURCE, 'utf8');
-    assert.match(src, /claude-cli\//, 'cloak module must build the Claude Code UA');
-    assert.match(
-      src,
-      /CLAUDE_CODE_PRODUCT_VERSION\s*=\s*'2\.1\.153'/,
-      'cloak module must track the current Claude Code product version',
-    );
-    assert.match(src, /X-Stainless-/, 'cloak module must build Stainless headers');
-    assert.match(src, /You are Claude Code/, 'cloak module must inject the Claude Code system prefix');
-    // PR-CLAUDE-OAUTH-RUNTIME-VERSION-PIN-0: pin the Runtime-Version
-    // so a future revert to process.version stays out — Anthropic's
-    // gateway may allowlist this string.
-    assert.match(
-      src,
-      /'X-Stainless-Runtime-Version':\s*'v22\.13\.0'/,
-      'cloak must hardcode X-Stainless-Runtime-Version to the upstream Claude Code pinned v22.13.0',
-    );
+    assert.match(src, /@maka\/runtime\/subscription-cloaked-request/, 'desktop cloak wrapper must import the runtime builder');
+    assert.doesNotMatch(src, /CLAUDE_CODE_PRODUCT_VERSION/, 'desktop wrapper must not duplicate product version constants');
+    assert.doesNotMatch(src, /X-Stainless-/, 'desktop wrapper must not duplicate Stainless header construction');
+    assert.doesNotMatch(src, /You are Claude Code/, 'desktop wrapper must not duplicate the system prefix');
     assert.doesNotMatch(
       src,
       /'X-Stainless-Runtime-Version':\s*process\.version/,
