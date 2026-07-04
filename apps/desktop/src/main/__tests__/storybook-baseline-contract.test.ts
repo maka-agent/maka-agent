@@ -269,7 +269,7 @@ describe('Storybook baseline contract', () => {
       ['Design System/Spacing', 'spacing.stories.tsx', ['Spacing']],
       ['Design System/Elevation', 'elevation.stories.tsx', ['Elevation']],
       ['Design System/Layering', 'layering.stories.tsx', ['Layering']],
-      ['Design System/Interaction States', 'interaction-states.stories.tsx', ['ListRowStates', 'ButtonStates']],
+      ['Design System/Interaction States', 'interaction-states.stories.tsx', ['ListRowStates', 'NeutralButtonStates', 'SolidButtonStates']],
     ];
     for (const [title, file, exports] of expected) {
       const storyPath = join(REPO_ROOT, 'packages', 'ui', 'stories', file);

@@ -48,20 +48,35 @@ export const ListRowStates: Story = {
   ),
 };
 
-export const ButtonStates: Story = {
+export const NeutralButtonStates: Story = {
   render: () => (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-      <Button variant="default">default</Button>
-      <Button variant="default" style={{ background: 'var(--state-hover-bg)' } as React.CSSProperties}>
-        hover (demo)
-      </Button>
-      <Button variant="default" style={{ background: 'var(--state-selected-bg)' } as React.CSSProperties}>
-        pressed (demo)
-      </Button>
-      <Button variant="ghost">ghost default</Button>
-      <Button variant="ghost" style={{ background: 'var(--state-hover-bg)' } as React.CSSProperties}>
-        ghost hover (demo)
-      </Button>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <Button variant="ghost">ghost default</Button>
+        <Button variant="ghost" style={{ background: 'var(--muted)' } as React.CSSProperties}>
+          ghost hover (demo)
+        </Button>
+        <Button variant="ghost" style={{ background: 'var(--state-selected-bg)' } as React.CSSProperties}>
+          ghost pressed (demo)
+        </Button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>
+        Neutral variants (ghost/outline/secondary/quiet) press with state tokens: hover = <code>bg-muted</code> (var(--muted)), pressed = <code>--state-selected-bg</code>. Matches ui.tsx buttonVariants.
+      </p>
+    </div>
+  ),
+};
+
+export const SolidButtonStates: Story = {
+  render: () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480 }}>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <Button variant="default">default</Button>
+        <Button variant="destructive">destructive</Button>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--muted-foreground)', margin: 0 }}>
+        Solid variants (default/destructive) fill with primary/destructive and press to their hover state (<code>hover:bg-primary/90 active:bg-primary/90</code>). They are NOT state-token surfaces — see ui.tsx buttonVariants for the real values.
+      </p>
     </div>
   ),
 };
