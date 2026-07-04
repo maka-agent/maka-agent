@@ -71,7 +71,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const statusLine = new MakaStatusLineComponent(metadata);
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
   const layout = new MakaPiLayoutComponent(transcript, editor, statusLine, terminal);
-  editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd));
 
   const requestRender = () => {
     transcript.invalidate();
@@ -262,93 +261,112 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const slashCommands: MakaSlashCommand[] = [
+    {
+      name: 'model',
+      description: 'Select model',
+      run: (parts: string[]) => {
+        if (parts.length === 1) {
+          void showModelList().catch((error) => {
+            state.entries.push({
+              kind: 'notice',
+              level: 'error',
+              text: error instanceof Error ? error.message : String(error),
+            });
+            requestRender();
+          });
+          return;
+        }
+        const nextModel = parts.length === 2 ? parts[1] : undefined;
+        if (!nextModel) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /model <model-id>',
+          });
+          requestRender();
+          return;
+        }
+        void setModel(nextModel).catch((error) => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+          requestRender();
+        });
+      },
+    },
+    {
+      name: 'permissions',
+      description: 'Set permission mode',
+      run: (parts: string[]) => {
+        const mode = parts.length === 2 ? parts[1] : undefined;
+        if (!isPermissionMode(mode)) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: `Usage: /permissions ${PERMISSION_MODES.join('|')}`,
+          });
+          requestRender();
+          return;
+        }
+        void setPermissionMode(mode).catch((error) => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+          requestRender();
+        });
+      },
+    },
+    {
+      name: 'session',
+      description: 'Resume session',
+      run: (parts: string[]) => {
+        if (parts.length === 1) {
+          void showSessionList().catch((error) => {
+            state.entries.push({
+              kind: 'notice',
+              level: 'error',
+              text: error instanceof Error ? error.message : String(error),
+            });
+            requestRender();
+          });
+          return;
+        }
+        const sessionId = parts.length === 2 ? parts[1] : undefined;
+        if (!sessionId) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /session <session-id>',
+          });
+          requestRender();
+          return;
+        }
+        void switchSession(sessionId).catch((error) => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+          requestRender();
+        });
+      },
+    },
+  ].sort((left, right) => left.name.localeCompare(right.name));
+
   const handleSlashCommand = (prompt: string): boolean => {
     const parts = prompt.trim().split(/\s+/);
-    if (parts[0] === '/model') {
-      if (parts.length === 1) {
-        void showModelList().catch((error) => {
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: error instanceof Error ? error.message : String(error),
-          });
-          requestRender();
-        });
-        return true;
-      }
-      const nextModel = parts.length === 2 ? parts[1] : undefined;
-      if (!nextModel) {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: 'Usage: /model <model-id>',
-        });
-        requestRender();
-        return true;
-      }
-      void setModel(nextModel).catch((error) => {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: error instanceof Error ? error.message : String(error),
-        });
-        requestRender();
-      });
-      return true;
-    }
-    if (parts[0] === '/session') {
-      if (parts.length === 1) {
-        void showSessionList().catch((error) => {
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: error instanceof Error ? error.message : String(error),
-          });
-          requestRender();
-        });
-        return true;
-      }
-      const sessionId = parts.length === 2 ? parts[1] : undefined;
-      if (!sessionId) {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: 'Usage: /session <session-id>',
-        });
-        requestRender();
-        return true;
-      }
-      void switchSession(sessionId).catch((error) => {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: error instanceof Error ? error.message : String(error),
-        });
-        requestRender();
-      });
-      return true;
-    }
-    if (parts[0] !== '/permissions') return false;
-    const mode = parts.length === 2 ? parts[1] : undefined;
-    if (!isPermissionMode(mode)) {
-      state.entries.push({
-        kind: 'notice',
-        level: 'error',
-        text: `Usage: /permissions ${PERMISSION_MODES.join('|')}`,
-      });
-      requestRender();
-      return true;
-    }
-    void setPermissionMode(mode).catch((error) => {
-      state.entries.push({
-        kind: 'notice',
-        level: 'error',
-        text: error instanceof Error ? error.message : String(error),
-      });
-      requestRender();
-    });
+    const command = slashCommands.find((candidate) => `/${candidate.name}` === parts[0]);
+    if (!command) return false;
+    command.run(parts);
     return true;
   };
+
+  editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
 
   tui.addInputListener((data) => {
     if (tui.hasOverlay()) return undefined;
@@ -436,10 +454,11 @@ class MakaPiLayoutComponent extends Container {
 
 class MakaAutocompleteProvider implements AutocompleteProvider {
   private readonly fileProvider: CombinedAutocompleteProvider;
-  private readonly slashCommands = MAKA_SLASH_COMMANDS;
+  private readonly slashCommands: readonly MakaSlashCommandMetadata[];
 
-  constructor(basePath: string) {
+  constructor(basePath: string, slashCommands: readonly MakaSlashCommandMetadata[]) {
     this.fileProvider = new CombinedAutocompleteProvider([], basePath);
+    this.slashCommands = slashCommands;
   }
 
   async getSuggestions(
@@ -487,6 +506,15 @@ class MakaAutocompleteProvider implements AutocompleteProvider {
   shouldTriggerFileCompletion(lines: string[], cursorLine: number, cursorCol: number): boolean {
     return this.fileProvider.shouldTriggerFileCompletion(lines, cursorLine, cursorCol);
   }
+}
+
+interface MakaSlashCommandMetadata {
+  name: string;
+  description: string;
+}
+
+interface MakaSlashCommand extends MakaSlashCommandMetadata {
+  run(parts: string[]): void;
 }
 
 function slashCommandPrefix(lines: string[], cursorLine: number, cursorCol: number): string | null {
@@ -592,12 +620,6 @@ const ansi = {
   accent: rgb(...MAKA_LOGO_BLUE_RGB),
   reverse: style(7, 27),
 };
-
-const MAKA_SLASH_COMMANDS = [
-  { name: 'model', description: 'Select model' },
-  { name: 'permissions', description: 'Set permission mode' },
-  { name: 'session', description: 'Resume session' },
-] as const;
 
 const PICKER_SURFACE_ROWS = 200;
 
