@@ -6,6 +6,8 @@ import {
   SelectList,
   TUI,
   matchesKey,
+  truncateToWidth,
+  visibleWidth,
   type Component,
   type EditorTheme,
   type OverlayHandle,
@@ -176,6 +178,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       minPrimaryColumnWidth: 24,
       maxPrimaryColumnWidth: 40,
     });
+    const picker = new SessionPickerOverlay(list);
     let overlay: OverlayHandle | undefined;
     list.onSelect = (item) => {
       overlay?.hide();
@@ -191,11 +194,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     list.onCancel = () => {
       overlay?.hide();
     };
-    overlay = tui.showOverlay(list, {
-      anchor: 'bottom-center',
+    overlay = tui.showOverlay(picker, {
+      anchor: 'top-center',
+      row: 5,
       width: '80%',
-      maxHeight: 10,
-      offsetY: -3,
+      maxHeight: 12,
     });
   };
 
@@ -332,6 +335,39 @@ class MakaTranscriptComponent implements Component {
   render(width: number): string[] {
     return renderMakaPiTranscript(this.state, this.metadata(), width);
   }
+}
+
+class SessionPickerOverlay implements Component {
+  constructor(private readonly list: SelectList) {}
+
+  invalidate(): void {
+    this.list.invalidate();
+  }
+
+  handleInput(data: string): void {
+    this.list.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(12, width);
+    const innerWidth = Math.max(1, safeWidth - 4);
+    const border = `+${'-'.repeat(safeWidth - 2)}+`;
+    const lines = [
+      border,
+      framedLine('Select session', safeWidth),
+      framedLine('', safeWidth),
+      ...this.list.render(innerWidth).map((line) => framedLine(line, safeWidth)),
+      border,
+    ];
+    return lines;
+  }
+}
+
+function framedLine(text: string, width: number): string {
+  const innerWidth = Math.max(1, width - 4);
+  const trimmed = visibleWidth(text) > innerWidth ? truncateToWidth(text, innerWidth, '') : text;
+  const padding = Math.max(0, innerWidth - visibleWidth(trimmed));
+  return `| ${trimmed}${' '.repeat(padding)} |`;
 }
 
 function editorTheme(): EditorTheme {

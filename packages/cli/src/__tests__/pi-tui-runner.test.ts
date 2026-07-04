@@ -251,6 +251,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
+    await waitFor(() => terminal.output().includes('Select session'));
     await waitFor(() => terminal.output().includes('session-2'));
     terminal.input('\r');
     await waitFor(() => driver.sessionIds.length === 1);
