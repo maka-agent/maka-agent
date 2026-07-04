@@ -20,6 +20,7 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
+import { messageReadErrorMessage } from './session-message-error-copy';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (
@@ -354,7 +355,7 @@ export function useActiveSessionEvents(options: {
       })
       .catch((error) => {
         if (!disposed && activeIdRef.current === activeId) {
-          const message = generalizedErrorMessageChinese(error, '对话内容暂时无法读取，请稍后重试。');
+          const message = messageReadErrorMessage(error);
           setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
           toastApi.error('读取对话失败', message);
         }

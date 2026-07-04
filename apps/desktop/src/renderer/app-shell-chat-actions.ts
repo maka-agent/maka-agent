@@ -6,6 +6,7 @@ import {
   noRealConnectionReasonFromError,
   noRealConnectionSetupDescription,
 } from './model-connection-errors';
+import { messageRefreshErrorMessage } from './session-message-error-copy';
 
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;
@@ -212,7 +213,7 @@ export function createAppShellChatActions(deps: {
       return true;
     } catch (error) {
       if (activeIdRef.current === sessionId) {
-        const message = generalizedErrorMessageChinese(error, '对话内容暂时无法刷新，请稍后重试。');
+        const message = messageRefreshErrorMessage(error);
         setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
         toastApi.error('刷新对话失败', message);
       }

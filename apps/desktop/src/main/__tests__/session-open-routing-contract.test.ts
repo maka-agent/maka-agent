@@ -104,8 +104,8 @@ describe('session open routing contract', () => {
     const searchHandler = main.match(/ipcMain\.handle\('search:thread'[\s\S]*?\n  \}\);/)?.[0] ?? '';
     const gatewayDeps = main.match(/const openGateway = new OpenGatewayService\(\{[\s\S]*?\n\}\);/)?.[0] ?? '';
 
-    assert.match(readMessagesHandler, /runtime\.getMessages\(sessionId\)/);
-    assert.match(readMessagesHandler, /runtime\.markSessionRead\(sessionId, latestStoredMessageTs\(messages\)\)/);
+    assert.match(readMessagesHandler, /try \{[\s\S]*messages = await runtime\.getMessages\(sessionId\);[\s\S]*\} catch \(error\) \{[\s\S]*throw new Error\(sessionReadMessagesFailureMessage\(error\)\);[\s\S]*\}/);
+    assert.match(readMessagesHandler, /try \{[\s\S]*await runtime\.markSessionRead\(sessionId, latestStoredMessageTs\(messages\)\);[\s\S]*\} catch \(error\) \{[\s\S]*throw new Error\(sessionMarkReadFailureMessage\(error\)\);[\s\S]*\}/);
     assert.doesNotMatch(readMessagesHandler, /markSessionRead\(sessionId\)\.catch/);
     assert.doesNotMatch(searchHandler, /markSessionRead/);
     assert.match(gatewayDeps, /readMessages: \(sessionId\) => runtime\.getMessages\(sessionId\)/);

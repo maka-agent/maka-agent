@@ -19,6 +19,7 @@ describe('active session message lifecycle contract', () => {
       'app-shell-effects.ts',
       'app-shell-chat-actions.ts',
       'app-shell.tsx',
+      'session-message-error-copy.ts',
     ]);
     const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
     const activeSessionEffect = src.match(/useEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
@@ -38,12 +39,12 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadCatch,
-      /const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);/,
-      'message read failures should use generalized fallback copy instead of raw backend/path details',
+      /const message = messageReadErrorMessage\(error\);/,
+      'message read failures should preserve trusted diagnostics before falling back to generalized copy',
     );
     assert.match(
       activeReadCatch,
-      /\.catch\(\(error\) => \{[\s\S]*const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
+      /\.catch\(\(error\) => \{[\s\S]*const message = messageReadErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
       'active-session read failures must set a visible per-session load error after the old chat body has already been cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);
@@ -59,10 +60,15 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       refreshMessages,
-      /try \{[\s\S]*readMessages\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*\} catch \(error\) \{[\s\S]*const message = generalizedErrorMessageChinese\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
-      'shared refreshMessages path must surface read failures through the same per-session load error state',
+      /try \{[\s\S]*readMessages\(sessionId\)[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
+      'shared refreshMessages path must surface stage-specific read failures through the same per-session load error state',
     );
     assert.doesNotMatch(refreshMessages, /const message = cleanErrorMessage\(error\)/);
+    assert.match(
+      src,
+      /function messageReadErrorMessage\(error: unknown\): string \{[\s\S]*const message = safeSessionMessageErrorMessage\(error\);[\s\S]*if \(message\) return message;[\s\S]*return generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*\}[\s\S]*function messageRefreshErrorMessage\(error: unknown\): string \{[\s\S]*const message = safeSessionMessageErrorMessage\(error\);[\s\S]*if \(message\) return message;[\s\S]*return generalizedErrorMessageChinese\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*\}/,
+      'refresh failures should preserve trusted Chinese diagnostics emitted by main before falling back to generic copy',
+    );
     assert.doesNotMatch(
       refreshMessages,
       /catch \(error\) \{[\s\S]*setMessages\(\[\]\)/,
