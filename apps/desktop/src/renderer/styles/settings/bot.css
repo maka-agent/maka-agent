@@ -3,21 +3,29 @@
   align-content: start;
   gap: var(--space-1-5);
   border-right: 1px solid var(--border);
-  padding-right: var(--space-6);
+  padding-right: var(--space-4);
 }
 
 .settingsBotList button {
+  width: 100%;
   min-height: 44px;
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) max-content;
   align-items: center;
-  gap: var(--space-2-5);
+  column-gap: var(--space-2);
   border: 0;
   border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground-secondary);
-  padding: var(--space-1-5) var(--space-2-5);
+  padding: var(--space-1-5) var(--space-2);
   text-align: left;
+}
+
+.settingsBotList button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .settingsBotList button[data-active="true"] {
@@ -41,6 +49,7 @@
   font-size: var(--font-size-caption);
   font-style: normal;
   color: var(--muted-foreground);
+  white-space: nowrap;
 }
 
 .settingsBotList em[data-tone="info"] { color: var(--status-running); }
@@ -272,6 +281,54 @@
   align-items: center;
   flex-wrap: wrap;
   gap: var(--space-1-5);
+}
+
+.settingsUsageFilters {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 148px 108px 92px 92px;
+  align-items: center;
+}
+
+.settingsUsageDetailToggle {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settingsUsageRecordCount {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.settingsUsageClearFilter {
+  justify-self: start;
+  min-width: 86px;
+}
+
+.settingsUsageClearFilter[aria-hidden="true"] {
+  visibility: hidden;
+}
+
+@media (max-width: 900px) {
+  .settingsUsageFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsUsageDetailToggle {
+    justify-content: flex-start;
+  }
 }
 
 .settingsSegmented {

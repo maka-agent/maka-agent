@@ -732,14 +732,38 @@
      surface, so it steps DOWN one level (slightly darker = "type into
      here"), not up. foreground-derived so dark mode adapts. */
   background: oklch(from var(--foreground) l c h / 0.03);
+  transition:
+    border-color var(--duration-fast) var(--ease-out-strong),
+    box-shadow var(--duration-fast) var(--ease-out-strong),
+    background var(--duration-fast) var(--ease-out-strong);
+}
+
+.maka-palette-input-wrap:has(input:focus) {
+  border-color: var(--ring);
+  background: oklch(from var(--foreground) l c h / 0.04);
+  box-shadow: none;
 }
 
 .maka-palette-input {
   color: var(--foreground);
   font-size: var(--font-size-ui);
   line-height: 1.4;
+  outline: none;
+  box-shadow: none;
   -webkit-user-select: text;
   user-select: text;
+}
+
+.maka-palette-input:focus,
+.maka-palette-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.maka-palette-input-wrap input:focus,
+.maka-palette-input-wrap input:focus-visible {
+  outline: none;
+  box-shadow: none !important;
 }
 
 .maka-palette-input::placeholder {
@@ -749,7 +773,8 @@
 .maka-palette-input-hint {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1-5);
+  gap: var(--space-1);
+  min-height: 24px;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   white-space: nowrap;
@@ -757,6 +782,7 @@
 
 .maka-palette-input-hint-addon {
   flex-shrink: 0;
+  padding-inline-end: var(--space-1-5);
 }
 
 .maka-shortcut-group {
@@ -782,9 +808,10 @@
 
 .maka-palette-input-hint .maka-shortcut-kbd {
   background: var(--foreground-5);
+  box-shadow: none;
 }
 
-@media (max-width: 560px) {
+@media (max-width: 720px) {
   .maka-palette-input-hint-addon {
     display: none;
   }

@@ -578,12 +578,16 @@
   resize: vertical;
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: var(--space-2-5) var(--space-3);
+  padding: var(--space-4);
   background: var(--background-elevated, var(--background));
   color: var(--foreground);
-  font-family: var(--font-mono);
+  font-family: inherit;
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: 1.75;
+  letter-spacing: 0;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .settingsMemoryEditor textarea:focus-visible {

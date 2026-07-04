@@ -40,8 +40,8 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       src,
-      /<InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"[\s\S]*<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/,
-      'CommandPalette input shell must be shared primitive InputGroup with an accessible input label and trailing hint addon',
+      /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"[\s\S]*<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/,
+      'CommandPalette input shell must be shared primitive InputGroup with an accessible input label, whole-shell click focus, and trailing hint addon',
     );
     assert.doesNotMatch(
       src,
@@ -60,7 +60,7 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       styles,
-      /@media \(max-width: 560px\) \{[\s\S]*\.maka-palette-input-hint-addon \{[\s\S]*display:\s*none;/,
+      /@media \(max-width: 720px\) \{[\s\S]*\.maka-palette-input-hint-addon \{[\s\S]*display:\s*none;/,
       'Palette trailing key hint must collapse on narrow widths instead of squeezing the input',
     );
   });

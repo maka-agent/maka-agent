@@ -759,8 +759,7 @@
 .settingsBotLayout {
   min-height: 470px;
   display: grid;
-  grid-template-columns: 180px minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1fr);
   gap: var(--space-6);
 }
-
 

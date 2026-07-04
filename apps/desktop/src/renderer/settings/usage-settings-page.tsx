@@ -150,24 +150,20 @@ export function UsageSettingsPage(props: {
         onChange={(activeTab) => void updateUsage({ activeTab: activeTab as typeof usageDraft.activeTab })}
       />
 
-      {usageDraft.activeTab === 'requests' && (
+      {showRequestDetails && (
         <div className="settingsUsageFilters" role="group" aria-label="请求记录筛选">
-          {usageDraft.showDetails && (
-            <>
-              <Input value={usageDraft.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />
-              <SettingsSelect
-                value={usageDraft.status}
-                ariaLabel="请求状态筛选"
-                options={[
-                  ['all', '全部状态'],
-                  ['success', '成功'],
-                  ['error', '错误'],
-                ] satisfies Array<readonly [typeof usageDraft.status, string]>}
-                onChange={(status) => void updateUsage({ status })}
-              />
-            </>
-          )}
-          <label>
+          <Input value={usageDraft.modelFilter} onChange={(event) => void updateUsage({ modelFilter: event.currentTarget.value })} placeholder="按模型或工具筛选…" aria-label="按模型或工具筛选请求记录" />
+          <SettingsSelect
+            value={usageDraft.status}
+            ariaLabel="请求状态筛选"
+            options={[
+              ['all', '全部状态'],
+              ['success', '成功'],
+              ['error', '错误'],
+            ] satisfies Array<readonly [typeof usageDraft.status, string]>}
+            onChange={(status) => void updateUsage({ status })}
+          />
+          <label className="settingsUsageDetailToggle">
             <span>详情记录</span>
             <Switch
               ariaLabel="显示使用统计详情记录"
@@ -175,12 +171,19 @@ export function UsageSettingsPage(props: {
               onChange={(showDetails) => void updateUsage({ showDetails })}
             />
           </label>
-          {usageDraft.showDetails && <small>共 {filteredLogs.length} 条记录</small>}
-          {usageDraft.showDetails && hasRequestFilters && (
-            <Button type="button" variant="ghost" size="sm" onClick={clearRequestFilters}>
-              清除筛选
-            </Button>
-          )}
+          <small className="settingsUsageRecordCount">共 {filteredLogs.length} 条记录</small>
+          <Button
+            className="settingsUsageClearFilter"
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!hasRequestFilters}
+            aria-hidden={!hasRequestFilters ? 'true' : undefined}
+            tabIndex={!hasRequestFilters ? -1 : undefined}
+            onClick={hasRequestFilters ? clearRequestFilters : undefined}
+          >
+            清除筛选
+          </Button>
         </div>
       )}
 
