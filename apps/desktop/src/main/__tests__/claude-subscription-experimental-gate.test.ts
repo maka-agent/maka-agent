@@ -271,7 +271,7 @@ describe('experimental kill-switch (kenji 1da909d5 + 45b31e16)', () => {
     assert.match(src, /\{\s*id:\s*'oauth'[\s\S]*label:\s*'OAuth'/, 'model provider catalog must show OAuth as a peer tab');
     assert.match(
       src,
-      /catalogTab === 'oauth'\s*\?\s*\(\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>/,
+      /<PrimitiveTabsPanel value="oauth">\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>\s*<\/PrimitiveTabsPanel>/,
       'OAuth tab must render the real login cards, not an empty roadmap tile',
     );
     assert.doesNotMatch(

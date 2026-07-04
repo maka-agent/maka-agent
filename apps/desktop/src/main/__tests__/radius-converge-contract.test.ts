@@ -174,11 +174,13 @@ const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/ui.tsx', name: 'inputClasses', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
-  { file: 'packages/ui/src/ui.tsx', name: 'TabsTrigger', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'badgeVariants', tier: 'pill' },
   { file: 'packages/ui/src/ui.tsx', name: 'DialogPopup', tier: 'modal' },
-  { file: 'packages/ui/src/ui.tsx', name: 'TabsList', tier: 'surface' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectPopup', tier: 'surface' },
+  // TabsTrigger/TabsList used to be declared in ui.tsx with --radius-* tokens;
+  // #499 P0-3 re-exports them from primitives/tabs.tsx, which uses Tailwind
+  // rounded-md/rounded-sm (governed by primitives-design-contract escape
+  // hatches, not the radius-token convergence contract).
   { file: 'packages/ui/src/ui.tsx', name: 'ToggleGroup', tier: 'surface' },
   { file: 'packages/ui/src/primitives/input-group.tsx', name: 'InputGroup', tier: 'control' },
   { file: 'packages/ui/src/primitives/badge.tsx', name: 'badgeVariants', tier: 'pill' },

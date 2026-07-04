@@ -87,14 +87,13 @@ describe('issue #499 state-token governance contract', () => {
     assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N, inline oklch, or brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: base-brand controls):\n${violations.join('\n')}`);
   });
 
-  it('selected/active surfaces use neutral tokens, not brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec)', async () => {
+  it('selected/active surfaces use neutral tokens, not brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis)', async () => {
     const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
-    // --nav-active stays only for:
-    //   - onboarding brand emphasis (selected/active selectors only):
-    //     .maka-firstrun-step, .maka-onboarding-setup-steps
-    //   - tab surfaces pending the tab-spec PR (single underline variant):
-    //     daily-review-range-tab, catalogTab, catalogPillTabs, skill-tab, plan-tab
-    const ALLOWLIST_SELECTOR = /(\.maka-daily-review-range-tab|\.catalogTab|\.catalogPillTabs\b|\.maka-skill-tab|\.maka-plan-tab|\.maka-firstrun-step\b|\.maka-onboarding-setup-steps\b)/;
+    // --nav-active stays only for onboarding brand emphasis (selected/active
+    // selectors): .maka-firstrun-step, .maka-onboarding-setup-steps. Tab
+    // surfaces migrated to the tab spec (#499 P0-3) now use neutral state
+    // tokens, so they no longer need an allowlist entry.
+    const ALLOWLIST_SELECTOR = /(\.maka-firstrun-step\b|\.maka-onboarding-setup-steps\b)/;
     const SELECTED_ACTIVE = /\[data-active|\[data-checked|\[data-default|\[data-pressed|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
     const violations: string[] = [];
     for (const file of allCss) {
@@ -109,6 +108,6 @@ describe('issue #499 state-token governance contract', () => {
         }
       }
     }
-    assert.deepEqual(violations, [], `selected/active must not use brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
+    assert.deepEqual(violations, [], `selected/active must not use brand tokens --nav-active/--accent/--toast-accent/--bot-brand-* (allowlist: onboarding brand emphasis):\n${violations.join('\n')}`);
   });
 });

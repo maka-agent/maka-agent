@@ -550,6 +550,19 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 - **task list 复选框**（remark-gfm）：禁用态 `<input disabled>`；选中态用
   `--accent` 填充；`cursor: not-allowed`（markdown 是只读的）。
 
+### 3.13 Tabs（`packages/ui/src/primitives/tabs.tsx` + `maka-tab`）
+
+Tab spec 是“一个 primitive + 两个 variant + neutral state token”，不是每 surface 手写。
+
+- **primitive**：`packages/ui/src/primitives/tabs.tsx`（Base UI Tabs）。`TabsTab` 吐 `maka-tab` class；`TabsList` 接受 `variant="underline" | "pill"` 并设 `data-variant`。`ui.tsx` 的 `TabsRoot/TabsList/TabsTrigger/TabsPanel` re-export 这一套，不走第二套手写。
+- **variant**：
+  - `underline`：active = neutral under-bar（Base UI indicator，`--foreground`），无背景填充。用于切 view + 联动 panel 的真 tabs（plan / skill）。
+  - `pill`：active = `--state-selected-bg` 填充 + bold + neutral border，Base UI indicator 藏掉。用于 pill 风格的 view 切换（catalog 供应商分类）。
+- **token**：tab 不引入专属颜色 token，直接复用 `--state-hover-bg` / `--state-selected-bg`（§1.1）。under-bar 用 `--foreground`——structural chrome 保持中性，品牌色只做 garnish。
+- **不要**：手写 `[data-state=active]::after` under-bar、手写 `[data-active="true"]` brand 背景、per-surface 藏 Base UI indicator。active/hover 一律走 `.maka-tab`。
+- **segmented control（切参数，不是切 view）**：用 `SettingsSegmented`（Base UI ToggleGroup，`packages/ui/src/primitives/settings-segmented.tsx`），不是 Tabs。例如 daily-review range（今日/本周/本月切时间窗口，内容是同一个 report 按 range 重新 fetch，不是 3 个 view）。active 是 `.settingsSegmented button[data-pressed]`（neutral 白底 + 阴影）。
+- **contract**：`tab-spec-499-contract.test.ts` 锁每个 surface 用 `maka-tab` / `SettingsSegmented` + 无手写 active/hover CSS；`state-token-governance-499-contract.test.ts` 禁 selected/active 用 brand token（tab 不再是例外，无需 allowlist）。
+
 ---
 
 ## 4. 动效契约（Motion contract）
