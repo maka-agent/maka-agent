@@ -6,7 +6,7 @@
      @import "./maka-tokens.css";
 
    The 6-color philosophy:
-     - background / foreground / accent (purple) / info (amber) / success (green) / destructive (red)
+     - background / foreground / accent (logo blue) / info (amber) / success (green) / destructive (red)
      - All other colors are derived: alpha overlays (foreground/N) or solid mixes (foreground-N).
      - Borders / dividers / hovers / muted text never use a "gray" — they're foreground at low alpha.
 
@@ -85,8 +85,8 @@
   --foreground-rgb: 32, 31, 30; /* light-mode RGB triplet used by shadow rings */
 
   /* Brand accent = logo blue (oklch L0.70 C0.135 h250), sampled from
-     apps/desktop/assets/icon.png (owner decision 2026-07-03, replacing the
-     prior sage-green accent). --success stays an independent green
+     apps/desktop/assets/icon.png (owner decision 2026-07-03). --success stays
+     an independent green
      (connected/ok semantics); running/focus-ring/link/nav-active/selection
      all follow --accent. */
   --accent: oklch(0.70 0.135 250);
@@ -393,8 +393,6 @@
   /* PR-GRAY-CARD-LIFT-0: dark mode follows the same neutral gray
    * (hue 0, no chroma) hierarchy. Lightness anchors keep existing
    * contrast tuning. */
-  /* PR-UI-ALIGN-0: dark mode follows the reference's warm-neutral grays +
-     sage-green accent (matches the reference dark theme's #5cb870 family). */
   --background: oklch(0.205 0.004 286);
   --surface-canvas: oklch(0.14 0.004 286);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
