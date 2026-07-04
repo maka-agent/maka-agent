@@ -201,7 +201,8 @@ describe('permission mode transition guard copy', () => {
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
 
     assert.match(renderer, /const pendingPermissionModeChangesRef = useRef<Set<string>>\(new Set\(\)\);/);
-    assert.match(renderer, /const \[pendingPermissionModeBySession, setPendingPermissionModeBySession\] = useState<Record<string, boolean>>\(\{\}\);/);
+    assert.match(renderer, /const \{[\s\S]*setPendingPermissionModeBySession,[\s\S]*\} = useAppShellSessionUiState\(\);/);
+    assert.match(renderer, /const \{[\s\S]*pendingPermissionModeBySession,[\s\S]*\} = sessionUiState;/);
     assert.match(
       setPermissionModeBlock,
       /const sessionId = activeIdRef\.current;[\s\S]*if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}[\s\S]*pendingPermissionModeChangesRef\.current\.has\(sessionId\)/,

@@ -4,7 +4,6 @@ import type {
   LlmConnection,
   PermissionMode,
   PlanReminder,
-  SessionEventStreamSnapshot,
   SessionSummary,
   SettingsSection,
   StoredMessage,
@@ -13,7 +12,6 @@ import type {
 } from '@maka/core';
 import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
 import {
-  type AssistantStreamSlot,
   type ChatHeaderAlert,
   type ChatModelChoice,
   ChatView,
@@ -26,9 +24,7 @@ import {
   type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
-  type ToolActivityItem,
   activePermissionFor,
-  type PermissionQueues,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
@@ -98,6 +94,7 @@ import { createAppShellImportActions } from './app-shell-import-actions';
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
+import { useAppShellSessionUiState } from './app-shell-session-ui-state';
 import {
   useActiveSessionEvents,
   useAppShellBootstrapSubscriptions,
@@ -143,55 +140,38 @@ export function AppShell() {
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const navSelectionRef = useRef<NavSelection>(navSelection);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
-  const [messageLoadErrorBySession, setMessageLoadErrorBySession] = useState<Record<string, string>>({});
-  const [messageRetryPendingBySession, setMessageRetryPendingBySession] = useState<Record<string, boolean>>({});
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
-  const [stopPendingBySession, setStopPendingBySession] = useState<Record<string, boolean>>({});
   const stopPendingRef = useRef<Set<string>>(new Set());
-  // PR-UI-Cx fixup v2 (@kenji msg 3c01e901 Blocker 2): combined
-  // per-session assistant streaming state. The `text` + `truncated`
-  // pair lives in a SINGLE useState so the `text_delta` handler can
-  // produce both fields from one functional updater — no
-  // cross-mutation between updaters, no closure-variable hack.
-  // `truncated` is monotonic while deltas are streaming; `text_complete`
-  // replaces the slot with the final payload, so the flag then reflects the
-  // final visible text until `clearStreaming` resets the slot.
-  const [streamingBySession, setStreamingBySessionState] = useState<Record<string, AssistantStreamSlot>>({});
-  // Session event handlers are subscribed per activeId; read live stream slots from this ref to avoid stale render closures.
-  const streamingBySessionRef = useRef<Record<string, AssistantStreamSlot>>({});
-  function setStreamingBySession(
-    updater: (current: Record<string, AssistantStreamSlot>) => Record<string, AssistantStreamSlot>,
-  ) {
-    const current = streamingBySessionRef.current;
-    const next = updater(current);
-    if (next === current) return;
-    streamingBySessionRef.current = next;
-    setStreamingBySessionState(next);
-  }
-  /**
-   * PR-UI-LAYOUT-42 (@kenji reference renderer audit, external docs/12-renderer.md §15.3):
-   * The reference design displays Anthropic-style `reasoning_content`
-   * (extended thinking) in a collapsible "Reasoning" panel above the
-   * assistant answer. Maka already emits `ThinkingDeltaEvent` / `ThinkingCompleteEvent`
-   * from `@ai-sdk/anthropic` (events.ts:76-88) but the renderer drops
-   * them on the floor — users with thinking models see nothing while
-   * the model is reasoning. This map accumulates thinking text per
-   * session so the chat surface can render the panel below the
-   * existing streaming text.
-   */
-  const [thinkingBySession, setThinkingBySession] = useState<Record<string, string>>({});
-  // PR-UI-C0 review fixup (@kenji msg 7885a347): per-session monotonic
-  // truncated flag for the thinking buffer. Flipped to `true` when
-  // `applyThinkingDelta` / `applyThinkingComplete` drops content
-  // (per-delta cap or per-session total cap). Stays true until the
-  // panel collapses via `clearStreaming(sessionId)` — same lifecycle
-  // as `thinkingBySession[sessionId]`. The `<ReasoningPanel>` reads
-  // it via the `truncated` prop to render the "已截断" pill.
-  const [thinkingTruncatedBySession, setThinkingTruncatedBySession] = useState<Record<string, boolean>>({});
-  // PR-UI-Cx (@kenji msg 94b0063d → fixup v2 msg 3c01e901):
-  // `streamingTruncatedBySession` is now inlined into the combined
-  // `streamingBySession[sessionId].truncated` slot above. See the
-  // type definition near `useState<Record<string, AssistantStreamSlot>>`.
+  const {
+    state: sessionUiState,
+    streamingBySessionRef,
+    sessionEventHealthBySessionRef,
+    setMessageLoadErrorBySession,
+    setMessageRetryPendingBySession,
+    setStopPendingBySession,
+    setStreamingBySession,
+    setThinkingBySession,
+    setThinkingTruncatedBySession,
+    setLiveToolsBySession,
+    setPermissionBySession,
+    setSessionEventHealthBySession,
+    setPendingPermissionModeBySession,
+    setPendingSessionModelBySession,
+    clearSessionUiState,
+  } = useAppShellSessionUiState();
+  const {
+    messageLoadErrorBySession,
+    messageRetryPendingBySession,
+    stopPendingBySession,
+    streamingBySession,
+    thinkingBySession,
+    thinkingTruncatedBySession,
+    liveToolsBySession,
+    permissionBySession,
+    sessionEventHealthBySession,
+    pendingPermissionModeBySession,
+    pendingSessionModelBySession,
+  } = sessionUiState;
   // PR-MEMORY-VISIBILITY-INDICATOR-0: surface a small pill in the
   // chat header when xuan's MEMORY.md is being injected into the
   // agent's system prompt (PR-MEMORY-PROMPT-INJECT-0). Refreshed
@@ -199,21 +179,6 @@ export function AppShell() {
   // whenever the Settings modal closes (the user may have toggled
   // the agentReadEnabled switch).
   const [memoryActive, setMemoryActive] = useState(false);
-  const [liveToolsBySession, setLiveToolsBySession] = useState<Record<string, ToolActivityItem[]>>({});
-  const [permissionBySession, setPermissionBySession] = useState<PermissionQueues>({});
-  const [sessionEventHealthBySessionState, setSessionEventHealthBySessionState] =
-    useState<Record<string, SessionEventStreamSnapshot>>({});
-  const sessionEventHealthBySessionRef = useRef<Record<string, SessionEventStreamSnapshot>>({});
-  const sessionEventHealthBySession = sessionEventHealthBySessionState;
-  function setSessionEventHealthBySession(
-    updater: (current: Record<string, SessionEventStreamSnapshot>) => Record<string, SessionEventStreamSnapshot>,
-  ): void {
-    setSessionEventHealthBySessionState((current) => {
-      const next = updater(current);
-      sessionEventHealthBySessionRef.current = next;
-      return next;
-    });
-  }
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [defaultConnection, setDefaultConnection] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -410,9 +375,7 @@ export function AppShell() {
   const pendingTurnActionTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const pendingSessionRowActionsRef = useRef<Set<string>>(new Set());
   const pendingPermissionModeChangesRef = useRef<Set<string>>(new Set());
-  const [pendingPermissionModeBySession, setPendingPermissionModeBySession] = useState<Record<string, boolean>>({});
   const pendingSessionModelChangesRef = useRef<Set<string>>(new Set());
-  const [pendingSessionModelBySession, setPendingSessionModelBySession] = useState<Record<string, boolean>>({});
   const pendingKeyOf = (sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']) =>
     `${sessionId}:${turnId}:${actionId}`;
   function addPendingTurnAction(key: string): boolean {
@@ -471,17 +434,7 @@ export function AppShell() {
     clearPendingTurnActionsForSession(sessionId);
     pendingPermissionModeChangesRef.current.delete(sessionId);
     pendingSessionModelChangesRef.current.delete(sessionId);
-    setMessageRetryPendingBySession((current) => omitSessionKey(current, sessionId));
-    setStopPendingBySession((current) => omitSessionKey(current, sessionId));
-    setPendingPermissionModeBySession((current) => omitSessionKey(current, sessionId));
-    setPendingSessionModelBySession((current) => omitSessionKey(current, sessionId));
-    setMessageLoadErrorBySession((current) => omitSessionKey(current, sessionId));
-    setStreamingBySession((current) => omitSessionKey(current, sessionId));
-    setThinkingBySession((current) => omitSessionKey(current, sessionId));
-    setThinkingTruncatedBySession((current) => omitSessionKey(current, sessionId));
-    setLiveToolsBySession((current) => omitSessionKey(current, sessionId));
-    setPermissionBySession((current) => omitSessionKey(current, sessionId));
-    setSessionEventHealthBySession((current) => omitSessionKey(current, sessionId));
+    clearSessionUiState(sessionId);
   }
 
   const {

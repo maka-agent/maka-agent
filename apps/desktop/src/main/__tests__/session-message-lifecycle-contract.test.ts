@@ -81,8 +81,8 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       src,
-      /const \[messageRetryPendingBySession, setMessageRetryPendingBySession\] = useState<Record<string, boolean>>\(\{\}\);[\s\S]*const messageRetryPendingRef = useRef<Set<string>>\(new Set\(\)\)/,
-      'desktop shell must track message retry pending state outside React render timing',
+      /const messageRetryPendingRef = useRef<Set<string>>\(new Set\(\)\);[\s\S]*const \{[\s\S]*setMessageRetryPendingBySession,[\s\S]*\} = useAppShellSessionUiState\(\);[\s\S]*const \{[\s\S]*messageRetryPendingBySession,[\s\S]*\} = sessionUiState;/,
+      'desktop shell must keep the ref-backed duplicate guard while exposing per-session retry pending state from the shell UI reducer',
     );
     assert.match(
       src,
