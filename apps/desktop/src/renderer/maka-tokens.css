@@ -63,7 +63,11 @@
   /* PR-UI-FRAME-4 (2026-06-22): pull back from the heavy gray plate.
      参考实现's sidebar is a light glass-like near-white gradient, with
      depth coming from translucent overlays and active rows, not a dark slab. */
-  --surface-canvas: oklch(0.976 0.002 286);
+  /* PALETTE-LEAK-0: derive from --background instead of hardcoding zinc
+     h286 — palettes never override this token, so the sidebar/shell plate
+     stayed zinc after a palette switch. Default background (l=1.0)
+     resolves to the same 0.976 plate. */
+  --surface-canvas: oklch(from var(--background) calc(l - 0.024) c h);
   /* PR-GRAY-CARD-LIFT-3 (WAWQAQ msg `053ca971`): in the new
      gray-plate / white-card hierarchy, "elevated" cards live on the
      same pure white as base content cards — the lift comes from the
@@ -94,10 +98,17 @@
      controls (--control) use a slightly deeper blue (L0.65, one step below
      the accent) so the near-white glyph clears WCAG 1.4.11 non-text contrast
      3:1 (3.09:1); the logo L0.70 only reaches 2.55:1. */
-  --action: oklch(0.85 0.08 250);
-  --action-foreground: oklch(0.30 0.06 250);
-  --control: oklch(0.65 0.135 250);
-  --control-foreground: oklch(0.985 0.003 250);
+  /* PALETTE-LEAK-0: derive hue/chroma from --accent instead of hardcoding
+     blue h250 — palettes only override the base tokens, so literals here
+     kept the send button, onboarding CTA and every checked control blue
+     after a palette switch (same bug --brand-deep already had and fixed).
+     Lightness anchors stay literal to preserve the WCAG 1.4.11 tuning;
+     min(c, …) keeps the default palette byte-identical while following
+     low-chroma palettes down. */
+  --action: oklch(from var(--accent) 0.85 min(c, 0.08) h);
+  --action-foreground: oklch(from var(--accent) 0.30 min(c, 0.06) h);
+  --control: oklch(from var(--accent) 0.65 min(c, 0.135) h);
+  --control-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
@@ -115,6 +126,11 @@
   --brand-deep: var(--accent);
   --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
   --bot-brand-default: var(--accent);
+  /* PALETTE-LEAK-0: semantic alias for informational system banners (the
+     plan-reminders 系统提醒 banner) — component CSS derives its tint family
+     from this instead of referencing var(--accent) directly (governance
+     contract #406 bans raw accent outside token blocks). */
+  --system-alert-accent: var(--accent);
 
   /* === text variants (mixed toward foreground for better contrast) === */
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
@@ -546,7 +562,9 @@
    * (hue 0, no chroma) hierarchy. Lightness anchors keep existing
    * contrast tuning. */
   --background: oklch(0.205 0.004 286);
-  --surface-canvas: oklch(0.14 0.004 286);
+  /* PALETTE-LEAK-0: derived (see light-mode note) — default background
+     (l=0.205) resolves to the same 0.14 shell. */
+  --surface-canvas: oklch(from var(--background) calc(l - 0.065) c h);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --foreground: oklch(0.92 0.004 286);
 
@@ -555,10 +573,17 @@
      mode, so the "light, fresh button" reads consistently across themes;
      --control uses the same L0.65 blue as light so the white glyph clears
      WCAG 1.4.11 non-text contrast 3:1 (3.09:1) in both themes. */
-  --action: oklch(0.85 0.08 250);
-  --action-foreground: oklch(0.30 0.06 250);
-  --control: oklch(0.65 0.135 250);
-  --control-foreground: oklch(0.985 0.003 250);
+  /* PALETTE-LEAK-0: derive hue/chroma from --accent instead of hardcoding
+     blue h250 — palettes only override the base tokens, so literals here
+     kept the send button, onboarding CTA and every checked control blue
+     after a palette switch (same bug --brand-deep already had and fixed).
+     Lightness anchors stay literal to preserve the WCAG 1.4.11 tuning;
+     min(c, …) keeps the default palette byte-identical while following
+     low-chroma palettes down. */
+  --action: oklch(from var(--accent) 0.85 min(c, 0.08) h);
+  --action-foreground: oklch(from var(--accent) 0.30 min(c, 0.06) h);
+  --control: oklch(from var(--accent) 0.65 min(c, 0.135) h);
+  --control-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
@@ -595,7 +620,7 @@
      PR-DEFAULT-CANVAS-DEYELLOW-0: hue 250 to match the cool-neutral
      canvas in dark mode too. */
   --chat-user-bg: oklch(0.30 0.010 250);
-  --chat-user-foreground: oklch(0.96 0.004 250);
+  --chat-user-foreground: oklch(from var(--foreground) 0.96 min(c, 0.004) h);
   --user-message-bubble: var(--chat-user-bg);
 
   /* foreground-N variants re-derive automatically via color-mix(), so the

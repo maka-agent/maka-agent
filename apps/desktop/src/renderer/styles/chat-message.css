@@ -56,7 +56,7 @@
     width: 62px;
     height: 62px;
     border: var(--border-width-accent) solid oklch(from var(--brand-deep) l c h / 0.12);
-    background: oklch(0.93 0.006 286);
+    background: var(--chat-user-bg);
     color: var(--foreground);
     font-size: 1.4667em;
     font-weight: var(--font-weight-bold);

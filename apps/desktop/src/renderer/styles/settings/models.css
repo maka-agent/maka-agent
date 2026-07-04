@@ -252,7 +252,7 @@
   inset: 0;
   display: flex;
   justify-content: flex-end;
-  background: oklch(0.95 0.003 286 / 0.64);
+  background: oklch(from var(--background) calc(l - 0.05) c h / 0.64);
   backdrop-filter: blur(2px);
   border-radius: var(--radius-modal);
   padding: var(--space-3);

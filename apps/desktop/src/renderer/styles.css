@@ -49,11 +49,11 @@
   --color-muted: var(--foreground-5);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
-  --color-accent-foreground: oklch(0.985 0.003 250);
+  --color-accent-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
   --color-control: var(--control);
   --color-control-foreground: var(--control-foreground);
   --color-destructive: var(--destructive);
-  --color-destructive-foreground: oklch(0.985 0.003 250);
+  --color-destructive-foreground: oklch(from var(--destructive) 0.985 min(c, 0.003) h);
   --color-info: var(--info);
   --color-info-foreground: var(--info-text);
   --color-success: var(--success);
