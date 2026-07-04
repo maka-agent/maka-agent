@@ -37,6 +37,7 @@ import { EmptyState } from './empty-state.js';
 import type {
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
+  ManagedSkillSourceEntry,
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
   SkillEntry,
@@ -239,6 +240,11 @@ export function ChatView(props: {
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
   onOpenSkillsFolder?(): void | Promise<void>;
+  managedSkillSources?: ManagedSkillSourceEntry[];
+  onRefreshManagedSkillSources?(): void | Promise<void>;
+  onImportManagedSkillSource?(): void | Promise<void>;
+  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
   planReminders?: PlanReminder[];
   onRefreshPlanReminders?: () => void | Promise<void>;
   onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
@@ -411,6 +417,11 @@ export function ChatView(props: {
           onCreateSkillTemplate={props.onCreateSkillTemplate}
           onOpenSkill={props.onOpenSkill}
           onOpenSkillsFolder={props.onOpenSkillsFolder}
+          managedSkillSources={props.managedSkillSources}
+          onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
+          onImportManagedSkillSource={props.onImportManagedSkillSource}
+          onInstallManagedSkill={props.onInstallManagedSkill}
+          onUpdateManagedSkill={props.onUpdateManagedSkill}
         />
       </Suspense>
     );

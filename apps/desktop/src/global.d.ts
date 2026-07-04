@@ -68,7 +68,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
@@ -521,6 +521,21 @@ declare global {
       };
       skills: {
         list(): Promise<SkillEntry[]>;
+        sources: {
+          list(): Promise<ManagedSkillSourceEntry[]>;
+          importLocalFile(): Promise<
+            | { ok: true; source: ManagedSkillSourceEntry }
+            | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' }
+          >;
+        };
+        installManaged(sourceId: string): Promise<
+          | { ok: true; skill: SkillEntry }
+          | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+        >;
+        updateManaged(skillId: string): Promise<
+          | { ok: true; skill: SkillEntry }
+          | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
+        >;
         createStarter(): Promise<
           | { ok: true; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }

@@ -68,7 +68,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -890,6 +890,29 @@ contextBridge.exposeInMainWorld('maka', {
   skills: {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
+    },
+    sources: {
+      list(): Promise<ManagedSkillSourceEntry[]> {
+        return ipcRenderer.invoke('skills:sources:list');
+      },
+      importLocalFile(): Promise<
+        | { ok: true; source: ManagedSkillSourceEntry }
+        | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' }
+      > {
+        return ipcRenderer.invoke('skills:sources:importLocalFile');
+      },
+    },
+    installManaged(sourceId: string): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:installManaged', sourceId);
+    },
+    updateManaged(skillId: string): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:updateManaged', skillId);
     },
     createStarter(): Promise<
       | { ok: true; skill: SkillEntry; filePath: string }

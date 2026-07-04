@@ -22,9 +22,10 @@ import {
   type MakaUriDest,
   MakaUriContext,
   type NavSelection,
-	  SessionListPanel,
-	  type SessionViewMode,
-	  type SkillEntry,
+  SessionListPanel,
+  type ManagedSkillSourceEntry,
+  type SessionViewMode,
+  type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
   activePermissionFor,
@@ -239,6 +240,7 @@ export function AppShell({
   // which mode a session is created with.
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
@@ -857,11 +859,16 @@ export function AppShell({
 
   const {
     refreshSkills,
+    refreshManagedSkillSources,
     createSkillTemplate,
+    importManagedSkillSource,
+    installManagedSkill,
+    updateManagedSkill,
     openSkill,
   } = createAppShellSkillActions({
     isSkillsSurfaceActive,
     setSkills,
+    setManagedSkillSources,
     toastApi,
   });
 
@@ -1015,6 +1022,7 @@ export function AppShell({
     refreshPlanReminders,
     refreshShellSettings,
     refreshSkills,
+    refreshManagedSkillSources,
     refreshSessions,
     rendererMountedRef,
     setActiveId,
@@ -1433,10 +1441,15 @@ export function AppShell({
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
                 skills={skills}
+                managedSkillSources={managedSkillSources}
                 onRefreshSkills={() => refreshSkills()}
+                onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
                 onOpenSkillsFolder={() => openSkillsFolder()}
+                onImportManagedSkillSource={() => importManagedSkillSource()}
+                onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                onUpdateManagedSkill={(skillId) => updateManagedSkill(skillId)}
                 planReminders={planReminders}
                 onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
                 onCreatePlanReminder={(input) => createPlanReminder(input)}
