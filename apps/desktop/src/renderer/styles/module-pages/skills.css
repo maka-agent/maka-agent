@@ -634,15 +634,11 @@ color: oklch(0.55 0.015 220);
   font-size: var(--font-size-caption);
   font-weight: 600;
   text-align: center;
-  opacity: 1;
-  transform: none;
-  transition: opacity var(--duration-base) var(--ease-out-strong), transform var(--duration-base) var(--ease-out-strong), background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-skill-library-row:hover .maka-skill-library-action,
 .maka-skill-library-row:focus-visible .maka-skill-library-action {
-  opacity: 1;
-  transform: translateX(0);
   background: var(--state-hover-bg);
   color: var(--foreground);
 }
@@ -696,8 +692,6 @@ color: oklch(0.55 0.015 220);
   .maka-skill-library-action {
     grid-column: 2;
     justify-self: start;
-    opacity: 1;
-    transform: none;
   }
 
   .maka-skill-library-switch {
