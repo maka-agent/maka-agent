@@ -7,7 +7,6 @@ import { Progress as BaseProgress } from '@base-ui/react/progress';
 import { Radio as BaseRadio } from '@base-ui/react/radio';
 import { RadioGroup as BaseRadioGroup } from '@base-ui/react/radio-group';
 import { Switch as BaseSwitch } from '@base-ui/react/switch';
-import { Tabs as BaseTabs } from '@base-ui/react/tabs';
 import { Toggle as BaseToggle } from '@base-ui/react/toggle';
 import { ToggleGroup as BaseToggleGroup } from '@base-ui/react/toggle-group';
 import { Select as BaseSelect } from '@base-ui/react/select';
@@ -254,36 +253,14 @@ export const DialogContent = forwardRef<
   );
 });
 
-export const TabsRoot = BaseTabs.Root;
-export const TabsList = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseTabs.List>>(function TabsList(
-  { className, ...props },
-  ref,
-) {
-  return <BaseTabs.List ref={ref} className={cn('inline-flex items-center rounded-md bg-muted p-1', className)} {...props} />;
-});
-
-export const TabsTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseTabs.Tab>>(function TabsTrigger(
-  { className, ...props },
-  ref,
-) {
-  return (
-    <BaseTabs.Tab
-      ref={ref}
-      className={cn(
-        'inline-flex h-8 items-center justify-center rounded-sm px-3 text-sm font-medium text-foreground-secondary transition-colors data-[selected]:bg-background data-[selected]:text-foreground data-[selected]:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        className,
-      )}
-      {...props}
-    />
-  );
-});
-
-export const TabsPanel = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseTabs.Panel>>(function TabsPanel(
-  { className, ...props },
-  ref,
-) {
-  return <BaseTabs.Panel ref={ref} className={cn('focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', className)} {...props} />;
-});
+// Tabs: re-export the shared tab spec primitive (#499 P0-3). The tab spec
+// (maka-tab class + underline/pill variants + neutral state tokens) lives in
+// primitives/tabs.tsx. ui.tsx used to carry a second hand-rolled set (Base UI
+// + bg-muted plate, no variant, dead data-[selected] active selectors — Base
+// UI sets data-active) which plan-reminder-panel consumed, bypassing the spec.
+// Re-exporting unifies on one primitive so every tab surface gets variant +
+// maka-tab + the correct data-active attribute.
+export { Tabs as TabsRoot, TabsList, TabsTab as TabsTrigger, TabsPanel } from './primitives/tabs.js';
 
 export const SelectRoot = BaseSelect.Root;
 export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Trigger>>(function SelectTrigger(
