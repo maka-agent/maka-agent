@@ -7,7 +7,6 @@ const ACTIVE_PRUNE_ENV_KEYS = [
   'MAKA_CONTEXT_BUDGET',
   'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
   'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS',
-  'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER',
 ] as const;
 
@@ -55,12 +54,6 @@ describe('desktop activeToolResultPrune policy', () => {
     process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS = '4096';
     const policy = buildContextBudgetPolicy(openaiConnection());
     assert.equal(policy?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 4096);
-  });
-
-  test('respects the alias env for max current result estimated tokens', () => {
-    process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS = '1024';
-    const policy = buildContextBudgetPolicy(openaiConnection());
-    assert.equal(policy?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 1024);
   });
 
   test('respects min step number env', () => {

@@ -70,8 +70,7 @@ function buildActiveToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['ac
   return {
     enabled: true,
     maxCurrentResultEstimatedTokens: parsePositiveInt(
-      process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
-        process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
+      process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS,
       2048,
     ),
     minStepNumber: parseOptionalNonNegativeInt(process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER) ?? 1,
