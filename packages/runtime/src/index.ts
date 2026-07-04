@@ -152,6 +152,22 @@ export type { StreamWatchdogInput, StreamWatchdogPhase, StreamWatchdogTimeout } 
 export { getAIModel, buildProviderOptions } from './model-factory.js';
 export type { ModelFactoryInput as GetAIModelInput } from './model-factory.js';
 export {
+  extractOAuthSubscriptionAccessToken,
+  isOAuthSubscriptionProvider,
+  parseOAuthSubscriptionTokens,
+  resolveOAuthSubscriptionAccessToken,
+  resolveOAuthSubscriptionTokens,
+  serializeOAuthSubscriptionTokens,
+} from './subscription-credentials.js';
+export type {
+  OAuthSubscriptionCredentialStore,
+  OAuthSubscriptionProvider,
+  OAuthSubscriptionTokens,
+  ResolveOAuthSubscriptionAccessTokenInput,
+} from './subscription-credentials.js';
+export { buildSubscriptionModelFetch } from './subscription-model-fetch.js';
+export type { SubscriptionModelFetchInput } from './subscription-model-fetch.js';
+export {
   compactionDecisionDiagnosticPatch,
   compactionDecisionToDiagnostic,
   historyCompactBlockToCompactionBoundary,
