@@ -139,7 +139,7 @@
 
 .maka-shell-topbar-button:hover {
   color: var(--foreground);
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-resize-handle {
@@ -272,7 +272,7 @@
 
 .maka-workspace-icon-action:hover {
   color: var(--foreground);
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-session-panel {
@@ -331,7 +331,7 @@
   border-radius: var(--radius-control);
 }
 .maka-search-modal-close:hover {
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 .maka-search-modal-close:focus-visible {
@@ -376,7 +376,7 @@
   color: var(--muted-foreground);
 }
 .maka-search-modal-clear:hover {
-  background: oklch(from var(--foreground) l c h / 0.06);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 .maka-search-modal-clear:focus-visible {

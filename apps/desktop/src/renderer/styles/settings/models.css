@@ -157,7 +157,7 @@
 }
 
 .catalogPillTabs button:hover {
-  background: var(--foreground-10);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 
@@ -376,7 +376,7 @@
 }
 
 .maka-browser-navbtn:hover:not(:disabled) {
-  background: var(--foreground-8);
+  background: var(--state-hover-bg);
 }
 
 .maka-browser-navbtn:disabled {
@@ -460,7 +460,7 @@
 }
 
 .maka-artifact-pane-collapse:hover {
-  background: var(--foreground-3);
+  background: var(--state-hover-bg);
   color: var(--foreground);
   border-color: oklch(from var(--foreground) l c h / 0.08);
 }
@@ -533,7 +533,7 @@
 }
 
 .maka-artifact-error-retry:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-artifact-error-retry:disabled {
@@ -908,7 +908,7 @@
 }
 
 .maka-artifact-toolbar-button:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-artifact-toolbar-button:disabled {

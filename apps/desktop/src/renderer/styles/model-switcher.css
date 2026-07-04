@@ -41,7 +41,7 @@
 }
 
 .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
-  background: var(--foreground-8, var(--foreground-5));
+  background: var(--state-hover-bg);
 }
 
 .maka-model-switcher-trigger:active:not(:disabled):not([data-disabled]) {

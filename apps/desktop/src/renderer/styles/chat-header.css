@@ -263,7 +263,7 @@
 
 .maka-chat-jump-bottom:hover {
     color: var(--foreground);
-    background: var(--foreground-3);
+    background: var(--state-hover-bg);
     transform: translateX(-50%) translateY(-2px);
   }
 
@@ -587,7 +587,7 @@
 
 .maka-toast-close:hover {
   color: var(--foreground);
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-toast-close:active {

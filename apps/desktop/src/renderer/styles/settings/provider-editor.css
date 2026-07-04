@@ -31,7 +31,7 @@
 }
 
 .catalogTab:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .catalogTab[data-active="true"] {

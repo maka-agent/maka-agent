@@ -299,7 +299,7 @@
 
 .settingsThemeOption:hover {
   border-color: oklch(from var(--accent) l c h / 0.22);
-  background: var(--foreground-3);
+  background: var(--state-hover-bg);
 }
 
 .settingsThemeOption[data-checked] {

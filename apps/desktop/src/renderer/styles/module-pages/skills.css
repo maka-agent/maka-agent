@@ -431,7 +431,7 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-template-row:hover {
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: var(--state-hover-bg);
 }
 
 .maka-skill-template-icon {
@@ -533,7 +533,7 @@ color: oklch(0.55 0.015 220);
    The purple-tinted row hover read as "themed"; neutral reads calmer/native.
    See notes/近期 UI study §1.4, §4. */
 .maka-skill-library-row:hover {
-  background: oklch(from var(--foreground) l c h / 0.06);
+  background: var(--state-hover-bg);
   transform: translateX(1px);
 }
 
@@ -646,7 +646,7 @@ color: oklch(0.55 0.015 220);
 .maka-skill-library-row:focus-visible .maka-skill-library-action {
   opacity: 1;
   transform: translateX(0);
-  background: oklch(from var(--foreground) l c h / 0.06);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 

@@ -367,7 +367,7 @@
 }
 
 .settingsCloseButton:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 

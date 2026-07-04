@@ -63,7 +63,7 @@
   transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
 }
 .settingsPermissionRefresh:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
   border-color: var(--border-strong);
   color: var(--foreground);
 }

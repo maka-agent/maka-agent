@@ -210,7 +210,7 @@
 
 .maka-composer-mode-chip:hover,
 .maka-composer-model-chip:hover {
-  background: var(--foreground-3);
+  background: var(--state-hover-bg);
   color: var(--foreground);
   border-color: oklch(from var(--foreground) l c h / 0.16);
 }
@@ -299,7 +299,7 @@
 }
 
 .maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
-  background: var(--foreground-3);
+  background: var(--state-hover-bg);
   color: var(--foreground);
   border-color: oklch(from var(--foreground) l c h / 0.16);
 }
@@ -370,7 +370,7 @@
    so they match the rest of the app. */
 .maka-composer-tool-button:hover:not(:disabled) {
   color: var(--foreground);
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
   transform: scale(1.02);
 }
 

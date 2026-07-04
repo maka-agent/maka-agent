@@ -1337,7 +1337,7 @@
   }
   .maka-code-block-copy:hover {
     color: var(--foreground);
-    background: var(--foreground-10);
+    background: var(--state-hover-bg);
   }
   .maka-code-block-copy:focus-visible {
     outline: none;
@@ -1533,7 +1533,7 @@
   }
   .maka-message-copy:hover {
     color: var(--foreground);
-    background: oklch(from var(--foreground) l c h / 0.05);
+    background: var(--state-hover-bg);
     box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.08);
   }
   .maka-message-copy[data-copied="true"] {

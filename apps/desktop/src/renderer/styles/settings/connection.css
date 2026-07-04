@@ -270,7 +270,7 @@
     border-bottom: 0;
   }
 .settingsRow:hover {
-    background: oklch(from var(--foreground) l c h / 0.025);
+    background: var(--state-hover-bg);
   }
 .settingsRow > div {
     min-width: 0;

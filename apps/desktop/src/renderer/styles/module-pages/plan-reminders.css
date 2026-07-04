@@ -174,7 +174,7 @@
 
 .maka-plan-template-card:hover {
   border-color: transparent;
-  background: oklch(from var(--foreground) l c h / 0.04);
+  background: var(--state-hover-bg);
 }
 
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-card:hover {
@@ -562,7 +562,7 @@
 }
 
 .maka-plan-card-menu-trigger:hover {
-  background: oklch(from var(--foreground) l c h / 0.06);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 
@@ -651,7 +651,7 @@
 }
 
 .maka-plan-preset:hover {
-  background: var(--foreground-2);
+  background: var(--state-hover-bg);
 }
 
 .maka-plan-validation {

@@ -49,7 +49,7 @@
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 .settingsBackButton:hover {
-  background: oklch(from var(--foreground) l c h / 0.05);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 .settingsBackButton:focus-visible {
@@ -190,7 +190,7 @@
 }
 
 .settingsNavItem:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
   color: var(--foreground);
 }
 
@@ -612,7 +612,7 @@
 }
 
 .settingsFormRow:hover {
-  background: oklch(from var(--foreground) l c h / 0.025);
+  background: var(--state-hover-bg);
 }
 
 /* PR-SETTINGS-MOTION-TYPO-TOKENS-0 (round 15/15) — tactile press

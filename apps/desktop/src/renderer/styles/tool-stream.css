@@ -677,7 +677,7 @@
 }
 
 .maka-first-run-checklist-error-action:hover {
-  background: var(--foreground-5);
+  background: var(--state-hover-bg);
 }
 
 .maka-first-run-checklist-error-action:disabled {

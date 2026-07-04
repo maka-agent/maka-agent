@@ -78,13 +78,8 @@
 }
 
 .maka-composer-workspace-picker:hover {
-  /* PR-REFERENCE-PIXEL-1 (WAWQAQ msg `f79de85f`): same gray-plate hover
-     visibility fix as nav-row — `--foreground-3` (3% mix into
-     background ≈ #f7f7f7) was indistinguishable from the gray plate
-     (≈ #ebebeb). Alpha overlay reads consistently regardless of
-     plate tone. */
   color: var(--foreground-secondary);
-  background: oklch(from var(--foreground) l c h / 0.06);
+  background: var(--state-hover-bg);
 }
 
 .maka-composer-workspace-picker:focus-visible {

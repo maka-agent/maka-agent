@@ -461,7 +461,7 @@
                 transform var(--duration-quick) var(--ease-out-strong);
   }
 .maka-daily-review-list-item:hover {
-    background: oklch(from var(--foreground) l c h / 0.045);
+    background: var(--state-hover-bg);
   }
 .maka-daily-review-list-item:active:not(:has(button:disabled)) {
     background: var(--state-selected-bg);
