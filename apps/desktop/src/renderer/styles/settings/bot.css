@@ -50,10 +50,10 @@
    options. Clicking still navigates so the user can read the
    unavailable-state notice on the detail pane. */
 .settingsBotList button[data-support="planned"] {
-  opacity: 0.55;
+  opacity: var(--opacity-disabled);
 }
 .settingsBotList button[data-support="planned"]:hover {
-  opacity: 0.75;
+  opacity: var(--opacity-pending);
 }
 .settingsBotList button[data-support="planned"][data-active="true"] {
   opacity: 1;

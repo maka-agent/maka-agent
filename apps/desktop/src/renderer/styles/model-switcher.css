@@ -8,11 +8,11 @@
 }
 
 .maka-model-switcher[data-disabled="true"] {
-  opacity: 0.56;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-model-switcher[data-pending="true"] {
-  opacity: 0.78;
+  opacity: var(--opacity-pending);
   cursor: progress;
 }
 

@@ -83,7 +83,7 @@
     color: var(--destructive-text, var(--destructive, red));
   }
 .settingsConnectionRow[data-status="disabled"] {
-    opacity: 0.72;
+    opacity: var(--opacity-pending);
   }
 .settingsConnectionRow[data-default="true"] {
     box-shadow: 0 0 0 2px oklch(from var(--control) l c h / 0.12);

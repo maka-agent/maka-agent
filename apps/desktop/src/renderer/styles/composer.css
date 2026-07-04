@@ -42,7 +42,7 @@
 .maka-composer-send-button:disabled {
   background: oklch(from var(--foreground) 0.72 0 h / 0.18);
   color: oklch(1 0 0);
-  opacity: 0.72;
+  opacity: var(--opacity-pending);
   cursor: not-allowed;
 }
 
@@ -151,7 +151,7 @@
 @keyframes maka-composer-stream-bounce {
   0%, 60%, 100% {
     transform: translateY(0);
-    opacity: 0.55;
+    opacity: var(--opacity-disabled);
   }
   30% {
     transform: translateY(-3px);

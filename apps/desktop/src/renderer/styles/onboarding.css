@@ -542,7 +542,7 @@
 .maka-onboarding-quickchat-submit:disabled {
   background: color-mix(in srgb, var(--action) 58%, white);
   color: var(--action-foreground);
-  opacity: 0.6;
+  opacity: var(--opacity-muted);
   cursor: not-allowed;
 }
 
@@ -618,7 +618,7 @@
 }
 
 .maka-first-run-task-suggestion:disabled {
-  opacity: 0.55;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -665,7 +665,7 @@
   top: 66px;
   width: min(460px, calc(100% - 48px));
   height: 12px;
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 
 .maka-list-row-name {
@@ -781,7 +781,7 @@
  *   rebind makes these sessions still functional.
  */
 .maka-list-row[data-stale="true"] {
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 
 .maka-list-row[data-stale="true"][data-active="true"] {

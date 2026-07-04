@@ -410,6 +410,20 @@
   --duration-emphasized: 180ms;
   --duration-large: 280ms;
 
+   /* === opacity (visual state) ===
+      Semantic opacity tiers for element-state visibility, not arbitrary
+      alpha. Three "dimmed" tiers cover disabled / muted / pending; live (1)
+      and hidden (0) are literal defaults (1 is opacity's default, 0 is the
+      absolute boundary — neither needs a token). --opacity-overlay is the
+      subtle decorative overlay on body::after (light 0.04 / dark 0.06).
+      Keyframe opacity (animation in/out) is excluded — it's animation
+      intent, not element state.
+      PR-OPACITY-CONVERGE-0 (issue #520 PR2). */
+   --opacity-disabled: 0.5;    /* disabled controls / strongly dimmed text */
+   --opacity-muted: 0.65;     /* secondary text / icons / muted affordances */
+   --opacity-pending: 0.8;    /* pending / active / in-progress states */
+   --opacity-overlay: 0.04;   /* body::after subtle overlay (light) */
+
    /* === page-card recipe ===
       Single source of truth for the lifted "page card" chrome used by every
       top-level module page (Skills, Plan/Reminder, future Settings). Atlas
@@ -540,6 +554,7 @@
 
   --shadow-border-opacity: 0.15;
   --shadow-blur-opacity:   0.12;
+  --opacity-overlay: 0.06;
 
   /* P-SHADOW dark collapse (roadmap D2): blur shadows are nearly
      invisible on a dark shell but still cost compositing and, worse,
@@ -914,12 +929,12 @@
     inset: 0;
     pointer-events: none;
     z-index: var(--z-overlay);
-    opacity: 0.04;
+    opacity: var(--opacity-overlay);
     mix-blend-mode: overlay;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.9'/></svg>");
     background-size: 200px 200px;
   }
-  .dark body::after { opacity: 0.06; }
+  .dark body::after { opacity: var(--opacity-overlay); }
   @media (prefers-reduced-motion: reduce) {
     body::after { display: none; }
   }
@@ -1233,7 +1248,7 @@
     margin-top: var(--space-1-5);
     line-height: var(--leading-normal);
     font-style: italic;
-    opacity: 0.9;
+    opacity: var(--opacity-pending);
   }
 
   .maka-turn-thinking-actions {
@@ -1474,7 +1489,7 @@
   }
   .maka-code-block-copy[data-pending="true"] {
     cursor: progress;
-    opacity: 0.78;
+    opacity: var(--opacity-pending);
   }
   .maka-code-block-copy[data-copy-feedback="failed"] {
     color: var(--destructive);
@@ -1812,7 +1827,7 @@
     transition: opacity 180ms var(--ease-out-strong);
   }
   .maka-composer textarea:focus::placeholder {
-    opacity: 0.55;
+    opacity: var(--opacity-disabled);
   }
   .maka-composer-toolbar {
     display: flex;
@@ -1849,7 +1864,7 @@
     box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.16);
   }
   .maka-button[disabled],
-  .maka-button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+  .maka-button[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }
 
   /* ---- Tabs ------------------------------------------------------- */
 

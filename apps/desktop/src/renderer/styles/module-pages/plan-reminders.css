@@ -490,7 +490,7 @@
 }
 
 .maka-plan-card[data-status="completed"] {
-  opacity: 0.62;
+  opacity: var(--opacity-muted);
 }
 
 .maka-plan-card-chrome,
@@ -549,7 +549,7 @@
 
 .maka-plan-card-menu-trigger:disabled {
   cursor: default;
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-plan-card-menu {

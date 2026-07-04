@@ -140,7 +140,7 @@
   }
 
 .settingsHealthSummaryTile[data-empty="true"] {
-    opacity: 0.55;
+    opacity: var(--opacity-disabled);
   }
 
 .settingsHealthSummaryTile[data-tone="success"] {

@@ -113,7 +113,7 @@
 }
 
 .enabledConnRow[data-disabled="true"] {
-  opacity: 0.6;
+  opacity: var(--opacity-muted);
 }
 
 .enabledConnTitle {
@@ -350,7 +350,7 @@
 }
 
 .maka-browser-navbtn:disabled {
-  opacity: 0.35;
+  opacity: var(--opacity-disabled);
   cursor: default;
 }
 
@@ -508,7 +508,7 @@
 
 .maka-artifact-error-retry:disabled {
   cursor: default;
-  opacity: 0.56;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-artifact-error-retry:disabled:hover {
@@ -516,7 +516,7 @@
 }
 
 .maka-artifact-error-retry[data-pending="true"] {
-  opacity: 0.78;
+  opacity: var(--opacity-pending);
 }
 
 .maka-artifact-error-retry:focus-visible {
@@ -581,7 +581,7 @@
 }
 
 .maka-artifact-row[data-deleted="true"] {
-  opacity: 0.6;
+  opacity: var(--opacity-muted);
 }
 
 .maka-artifact-row-icon {
@@ -873,7 +873,7 @@
 
 .maka-artifact-toolbar-button:disabled {
   cursor: default;
-  opacity: 0.56;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-artifact-toolbar-button:disabled:hover {
@@ -881,7 +881,7 @@
 }
 
 .maka-artifact-toolbar-button[data-pending="true"] {
-  opacity: 0.78;
+  opacity: var(--opacity-pending);
 }
 
 .maka-artifact-toolbar-destructive {

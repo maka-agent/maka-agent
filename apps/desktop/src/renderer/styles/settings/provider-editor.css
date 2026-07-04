@@ -62,7 +62,7 @@
 /* Gated providers (preview / not-yet-open) stay inert and muted; the
  * provider-surface gate forbids rendering them as actionable. */
 .providerCatalogRow[data-disabled="true"] {
-  opacity: 0.66;
+  opacity: var(--opacity-muted);
   cursor: not-allowed;
   filter: grayscale(0.28);
 }

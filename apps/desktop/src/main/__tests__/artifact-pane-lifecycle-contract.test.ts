@@ -104,8 +104,8 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(src, /aria-busy=\{pendingArtifactListRetry \? 'true' : undefined\}/);
     assert.match(src, /data-pending=\{pendingArtifactListRetry \? 'true' : undefined\}/);
     assert.match(src, /pendingArtifactListRetry \? '重试中…' : '重试'/);
-    assert.match(css, /\.maka-artifact-error-retry:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: 0\.56;[\s\S]*\}/);
-    assert.match(css, /\.maka-artifact-error-retry\[data-pending="true"\] \{[\s\S]*opacity: 0\.78;[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-error-retry:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: var\(--opacity-disabled\);[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-error-retry\[data-pending="true"\] \{[\s\S]*opacity: var\(--opacity-pending\);[\s\S]*\}/);
     assert.doesNotMatch(src, /className="maka-artifact-error-retry"[\s\S]*onClick=\{\(\) => void refresh\(\)\}/);
     assert.match(
       subscriptionEffect,
@@ -211,7 +211,7 @@ describe('ArtifactPane async lifecycle contract', () => {
     assert.match(toolbarBlock, /另存中…/);
     assert.match(toolbarBlock, /复制中…/);
     assert.match(toolbarBlock, /删除中…/);
-    assert.match(css, /\.maka-artifact-toolbar-button:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: 0\.56;[\s\S]*\}/);
-    assert.match(css, /\.maka-artifact-toolbar-button\[data-pending="true"\] \{[\s\S]*opacity: 0\.78;[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-toolbar-button:disabled \{[\s\S]*cursor: default;[\s\S]*opacity: var\(--opacity-disabled\);[\s\S]*\}/);
+    assert.match(css, /\.maka-artifact-toolbar-button\[data-pending="true"\] \{[\s\S]*opacity: var\(--opacity-pending\);[\s\S]*\}/);
   });
 });

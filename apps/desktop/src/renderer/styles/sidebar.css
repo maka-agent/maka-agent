@@ -469,7 +469,7 @@
 }
 .maka-search-modal-result[disabled] {
   cursor: default;
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 .maka-search-modal-result-title {
   min-width: 0;

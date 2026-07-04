@@ -80,7 +80,7 @@
 }
 
 .maka-daily-review-quick-run[data-pending="true"] {
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 
 .maka-daily-review-archives {

@@ -436,7 +436,7 @@
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.22);
 }
 .settingsBotAction[disabled] {
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -711,7 +711,7 @@
 }
 
 .settingsWechatQrSecondary:disabled {
-  opacity: 0.58;
+  opacity: var(--opacity-disabled);
   cursor: progress;
 }
 
