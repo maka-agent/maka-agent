@@ -1,12 +1,12 @@
 import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
+import { messageRefreshErrorMessage } from './app-shell-copy';
 import {
   isNoRealConnectionError,
   noRealConnectionReasonFromError,
   noRealConnectionSetupDescription,
 } from './model-connection-errors';
-import { messageRefreshErrorMessage } from './session-message-error-copy';
 
 const USER_MESSAGE_VISIBLE_TIMEOUT_MS = 1_200;
 const USER_MESSAGE_VISIBLE_POLL_MS = 40;

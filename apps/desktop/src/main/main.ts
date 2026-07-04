@@ -99,7 +99,6 @@ import {
   requireReadyConnection,
 } from './chat-readiness.js';
 import {
-  sessionMarkReadFailureMessage,
   sessionReadMessagesFailureMessage,
 } from './session-read-error-copy.js';
 import { createFileCredentialStore, migrateLegacyCredentials } from './credential-store.js';
@@ -1027,8 +1026,9 @@ function registerIpc(): void {
     }
     try {
       await runtime.markSessionRead(sessionId, latestStoredMessageTs(messages));
-    } catch (error) {
-      throw new Error(sessionMarkReadFailureMessage(error));
+    } catch {
+      // Reading the content already succeeded. Leave the persisted unread
+      // state for a later refresh instead of turning this into a load error.
     }
     return messages;
   });

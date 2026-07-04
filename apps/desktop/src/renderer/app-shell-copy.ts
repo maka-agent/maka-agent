@@ -2,10 +2,28 @@ import type { ConnectionTestResult, PermissionMode, TextFileImportPreflightFailu
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { openPathActionLabel } from './open-path';
 
+const SESSION_READ_MESSAGES_ERROR_MARKER = 'MAKA_SESSION_READ_MESSAGES_ERROR:';
+
 export function basenameFromPath(value: string): string {
   const trimmed = value.replace(/[\\/]+$/, '');
   const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
   return name || trimmed || '当前项目';
+}
+
+export function messageReadErrorMessage(error: unknown): string {
+  return sessionMessageErrorMessage(error, '对话内容暂时无法读取，请稍后重试。');
+}
+
+export function messageRefreshErrorMessage(error: unknown): string {
+  return sessionMessageErrorMessage(error, '对话内容暂时无法刷新，请稍后重试。');
+}
+
+function sessionMessageErrorMessage(error: unknown, fallback: string): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const markerIndex = raw.indexOf(SESSION_READ_MESSAGES_ERROR_MARKER);
+  if (markerIndex < 0) return generalizedErrorMessageChinese(error, fallback);
+  const marked = raw.slice(markerIndex + SESSION_READ_MESSAGES_ERROR_MARKER.length).trim();
+  return marked.split(/\r?\n/, 1)[0]?.trim() || fallback;
 }
 
 export function commandPaletteActionErrorMessage(error: unknown, fallback: string): string {

@@ -12,6 +12,7 @@ import type {
 } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection, PermissionQueues } from '@maka/ui';
+import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
 import {
@@ -20,7 +21,6 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
-import { messageReadErrorMessage } from './session-message-error-copy';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (

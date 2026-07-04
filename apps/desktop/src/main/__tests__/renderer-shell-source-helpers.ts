@@ -36,7 +36,6 @@ const sourcePaths = [
   'daily-review-actions.ts',
   'model-connection-errors.ts',
   'nav-selection.ts',
-  'session-message-error-copy.ts',
   'session-list-layout.ts',
 ] as const;
 

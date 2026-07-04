@@ -19,7 +19,7 @@ describe('active session message lifecycle contract', () => {
       'app-shell-effects.ts',
       'app-shell-chat-actions.ts',
       'app-shell.tsx',
-      'session-message-error-copy.ts',
+      'app-shell-copy.ts',
     ]);
     const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
     const activeSessionEffect = src.match(/useEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
@@ -66,8 +66,13 @@ describe('active session message lifecycle contract', () => {
     assert.doesNotMatch(refreshMessages, /const message = cleanErrorMessage\(error\)/);
     assert.match(
       src,
-      /function messageReadErrorMessage\(error: unknown\): string \{[\s\S]*const message = safeSessionMessageErrorMessage\(error\);[\s\S]*if \(message\) return message;[\s\S]*return generalizedErrorMessageChinese\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*\}[\s\S]*function messageRefreshErrorMessage\(error: unknown\): string \{[\s\S]*const message = safeSessionMessageErrorMessage\(error\);[\s\S]*if \(message\) return message;[\s\S]*return generalizedErrorMessageChinese\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*\}/,
-      'refresh failures should preserve trusted Chinese diagnostics emitted by main before falling back to generic copy',
+      /const SESSION_READ_MESSAGES_ERROR_MARKER = 'MAKA_SESSION_READ_MESSAGES_ERROR:';[\s\S]*function messageReadErrorMessage\(error: unknown\): string \{[\s\S]*return sessionMessageErrorMessage\(error, '对话内容暂时无法读取，请稍后重试。'\);[\s\S]*\}[\s\S]*function messageRefreshErrorMessage\(error: unknown\): string \{[\s\S]*return sessionMessageErrorMessage\(error, '对话内容暂时无法刷新，请稍后重试。'\);[\s\S]*\}[\s\S]*function sessionMessageErrorMessage\(error: unknown, fallback: string\): string \{[\s\S]*const markerIndex = raw\.indexOf\(SESSION_READ_MESSAGES_ERROR_MARKER\);[\s\S]*if \(markerIndex < 0\) return generalizedErrorMessageChinese\(error, fallback\);/,
+      'read and refresh failures should trust only the machine marker emitted by main before falling back to generic copy',
+    );
+    assert.doesNotMatch(
+      src,
+      /TRUSTED_SESSION_MESSAGE_ERROR_PREFIXES|safeSessionMessageErrorMessage|读取进行中的对话缓存失败：|读取对话运行记录失败：|对话内容已读取，但标记已读失败：/,
+      'renderer must not treat Chinese user-facing copy as the trust protocol',
     );
     assert.doesNotMatch(
       refreshMessages,
