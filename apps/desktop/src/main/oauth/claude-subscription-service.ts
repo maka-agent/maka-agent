@@ -44,11 +44,13 @@ import {
   type SubscriptionActionResult,
 } from '@maka/core';
 import {
-  parseOAuthSubscriptionTokens,
   serializeOAuthSubscriptionTokens,
 } from '@maka/runtime';
 import type { CredentialStore } from '@maka/storage';
-import { trySaveSharedOAuthToken } from './shared-credential-bridge.js';
+import {
+  tryDeleteSharedOAuthToken,
+  trySaveSharedOAuthToken,
+} from './shared-credential-bridge.js';
 
 // =============================================================
 // Endpoints + client id — mirror Claude Code's current OAuth
@@ -160,8 +162,8 @@ export interface ClaudeSubscriptionServiceDeps {
   now?: () => number;
   /** fetch implementation. Defaults to global fetch (Node 18+). */
   fetchFn?: typeof fetch;
-  /** Shared workspace credential store used by pure-Node callers such as the CLI. */
-  credentialStore?: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
+  /** Shared workspace credential store used as a one-way export for pure-Node callers such as the CLI. */
+  credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
 }
 
 export class ClaudeSubscriptionService {
@@ -169,7 +171,7 @@ export class ClaudeSubscriptionService {
   private readonly deviceIdFilePath: string;
   private readonly now: () => number;
   private readonly fetchFn: typeof fetch;
-  private readonly credentialStore?: Pick<CredentialStore, 'getSecret' | 'setSecret' | 'deleteSecret'>;
+  private readonly credentialStore?: Pick<CredentialStore, 'setSecret' | 'deleteSecret'>;
 
   private cachedTokens: PersistedTokens | null = null;
   private cachedQuota: QuotaSnapshot | null = null;
@@ -488,14 +490,12 @@ export class ClaudeSubscriptionService {
         localDeleteFailed = true;
       }
     }
-    let sharedDeleteFailed = false;
-    try {
-      await this.credentialStore?.deleteSecret('claude-subscription', 'oauth_token');
-    } catch {
-      sharedDeleteFailed = true;
-    }
+    const sharedDeleted = await tryDeleteSharedOAuthToken({
+      credentialStore: this.credentialStore,
+      slug: 'claude-subscription',
+    });
     if (localDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除本地凭据失败，请手动清理。' };
-    if (sharedDeleteFailed) return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
+    if (!sharedDeleted) return { ok: false, reason: 'storage_failed', message: '删除共享凭据失败，请手动清理。' };
     return { ok: true };
   }
 
@@ -669,12 +669,6 @@ export class ClaudeSubscriptionService {
 
   private async loadTokens(): Promise<PersistedTokens | null> {
     if (this.cachedTokens) return this.cachedTokens;
-    const sharedTokens = await this.loadSharedTokens();
-    if (sharedTokens) {
-      this.cachedTokens = sharedTokens;
-      this.lastStorageFailedMessage = null;
-      return sharedTokens;
-    }
     let buffer: Buffer;
     try {
       buffer = await fs.readFile(this.tokenFilePath);
@@ -704,21 +698,6 @@ export class ClaudeSubscriptionService {
       try { await fs.unlink(this.tokenFilePath); } catch { /* best-effort */ }
       return null;
     }
-  }
-
-  private async loadSharedTokens(): Promise<PersistedTokens | null> {
-    const raw = await this.credentialStore?.getSecret('claude-subscription', 'oauth_token').catch(() => null);
-    if (!raw) return null;
-    const parsed = parseOAuthSubscriptionTokens(raw);
-    if (!parsed) return null;
-    return {
-      access_token: parsed.access_token,
-      refresh_token: parsed.refresh_token,
-      expires_at: parsed.expires_at,
-      token_type: parsed.token_type ?? 'Bearer',
-      scope: parsed.scope ?? '',
-      account_uuid: parsed.account_uuid ?? '',
-    };
   }
 
   private async trySaveSharedTokens(tokens: PersistedTokens): Promise<void> {
