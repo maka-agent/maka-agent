@@ -115,7 +115,7 @@ background / foreground / accent (purple) / info (amber) / success (green) / des
 | `--hover` | sidebar row / button ghost hover 填充 | 不要用作 active（那是 `--active`） |
 | `--active` | sidebar row active / button :active | 不要做 hover（视觉会"提前"） |
 
-不 flip 到 `--foreground`：黑/白 primary 只会救主按钮对比度，选中控件继续留在原 accent 绿时仍是约 2.46:1，不达标。主操作用深绿 `--action`，选中/进度用 `--control`，链接、focus ring、在线点、nav active、toast accent 继续走 emphasis alias。
+主操作是浅蓝片 + 深蓝字：`--action oklch(0.85 0.08 250)` 配 `--action-foreground oklch(0.30 0.06 250)`（8.64:1，light/fresh CTA，不再是深色实心按钮）。选中/进度用 `--control oklch(0.65 0.135 250)`——比 accent L0.70 低一档，让近白 glyph 过 WCAG 1.4.11 非文本 3:1（3.09:1；logo L0.70 只到 2.55:1，故 control 单独取 L0.65）。链接、focus ring、在线点、nav active、toast accent 走 `--accent`（logo 蓝 `oklch(0.70 0.135 250)`，emphasis alias 族）。`--success` 是独立绿 token（connected/ok 语义），不挂 accent，迁蓝后仍保持绿色。
 | `--chat-user-bg` / `--user-message-bubble` | user 气泡背景（slate，区别于 accent） | 不要用作 assistant 气泡（assistant 不要气泡） |
 | `--chat-user-foreground` | user 气泡文字 | 仅在 user-bubble 内部 |
 | `--selection` | text selection 高亮 | 不要做 hover |
