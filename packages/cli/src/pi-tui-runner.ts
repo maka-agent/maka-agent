@@ -15,6 +15,7 @@ import {
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
   submitPromptToTranscript,
+  toggleLatestToolExpansion,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
 } from './pi-transcript.js';
@@ -123,6 +124,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   tui.addInputListener((data) => {
+    if (matchesKey(data, Key.ctrl('o'))) {
+      if (toggleLatestToolExpansion(state)) {
+        requestRender();
+        return { consume: true };
+      }
+    }
     if (state.pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
         respondToPendingPermission('allow');

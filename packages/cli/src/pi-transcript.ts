@@ -12,6 +12,7 @@ export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
   pendingPermission?: PermissionRequestEvent;
+  expandedToolUseId?: string;
 }
 
 export type MakaPiTranscriptEntry =
@@ -49,6 +50,17 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
 
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
   state.entries.push({ kind: 'user', text });
+}
+
+export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean {
+  const latestTool = [...state.entries]
+    .reverse()
+    .find((entry): entry is MakaPiToolEntry => entry.kind === 'tool');
+  if (!latestTool) return false;
+  state.expandedToolUseId = state.expandedToolUseId === latestTool.toolUseId
+    ? undefined
+    : latestTool.toolUseId;
+  return true;
 }
 
 export async function submitPromptToTranscript(input: {
@@ -215,7 +227,7 @@ export function renderMakaPiTranscript(
         lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.green }));
         break;
       case 'tool':
-        lines.push(...renderToolBlock(entry, safeWidth));
+        lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
         break;
       case 'notice':
         lines.push(...renderNotice(entry, safeWidth));
@@ -265,7 +277,7 @@ function renderTextBlock(
   return lines;
 }
 
-function renderToolBlock(entry: MakaPiToolEntry, width: number): string[] {
+function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolean): string[] {
   const status = entry.status === 'running'
     ? ansi.yellow('running')
     : entry.status === 'error'
@@ -275,16 +287,41 @@ function renderToolBlock(entry: MakaPiToolEntry, width: number): string[] {
   const lines = [
     fitLine(`${ansi.yellow('Tool')} ${entry.title ?? entry.toolName} ${status}${duration}`, width),
   ];
-  if (entry.input !== undefined) {
-    lines.push(...renderIndented(`input: ${formatUnknown(entry.input)}`, width, 2).map(ansi.dim));
-  }
+  const inputSummary = toolInputSummary(entry);
+  if (inputSummary) lines.push(...renderIndented(inputSummary, width, 2).map(ansi.dim));
   if (entry.progress.length > 0) {
-    lines.push(...renderIndented(limitText(entry.progress.join(''), 1200), width, 2).map(ansi.dim));
+    lines.push(...renderToolText(entry.progress.join(''), width, expanded).map(ansi.dim));
   }
   if (entry.output) {
-    lines.push(...renderIndented(limitText(entry.output, 4000), width, 2));
+    lines.push(...renderToolText(entry.output, width, expanded));
+  }
+  if (!expanded && toolHasHiddenDetail(entry)) {
+    lines.push(fitLine(ansi.dim('Ctrl+O expand'), width));
   }
   return lines.map((line) => fitLine(line, width));
+}
+
+function renderToolText(text: string, width: number, expanded: boolean): string[] {
+  const limit = expanded ? 12_000 : 600;
+  return renderIndented(limitText(text, limit), width, 2);
+}
+
+function toolHasHiddenDetail(entry: MakaPiToolEntry): boolean {
+  return entry.progress.join('').length > 600 || (entry.output?.length ?? 0) > 600;
+}
+
+function toolInputSummary(entry: MakaPiToolEntry): string {
+  const input = entry.input;
+  if (entry.toolName === 'Bash' && input !== null && typeof input === 'object') {
+    const command = (input as { command?: unknown }).command;
+    if (typeof command === 'string' && command.trim()) return `command: ${command}`;
+  }
+  if ((entry.toolName === 'Write' || entry.toolName === 'Edit') && input !== null && typeof input === 'object') {
+    const path = (input as { path?: unknown }).path;
+    if (typeof path === 'string' && path.trim()) return `path: ${path}`;
+  }
+  if (input === undefined) return '';
+  return `input: ${limitText(formatUnknown(input), 600)}`;
 }
 
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {

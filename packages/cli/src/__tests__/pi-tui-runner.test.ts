@@ -108,6 +108,39 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
   });
+
+  test('toggles the latest tool detail with Ctrl-O', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ToolOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('r');
+    terminal.input('u');
+    terminal.input('n');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Ctrl+O expand'));
+    assert.equal(terminal.output().includes('expanded-tail'), false);
+
+    terminal.input('\x0f');
+    await waitFor(() => terminal.output().includes('expanded-tail'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -180,11 +213,55 @@ class PermissionPromptDriver implements MakaSessionDriver {
   }
 }
 
+class ToolOutputDriver implements MakaSessionDriver {
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start',
+      id: 'event-tool-start',
+      turnId: 'turn-1',
+      ts: 1,
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: { command: 'npm test' },
+    };
+    yield {
+      type: 'tool_result',
+      id: 'event-tool-result',
+      turnId: 'turn-1',
+      ts: 2,
+      toolUseId: 'tool-1',
+      isError: false,
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'npm test',
+        exitCode: 0,
+        stdout: `${'x'.repeat(900)}\nexpanded-tail`,
+        stderr: '',
+      },
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
 class FakeTerminal implements Terminal {
   readonly columns = 80;
   readonly rows = 24;
   readonly kittyProtocolActive = false;
   readonly progressStates: boolean[] = [];
+  readonly writes: string[] = [];
   stopCalls = 0;
   private onInput: ((data: string) => void) | null = null;
 
@@ -200,7 +277,9 @@ class FakeTerminal implements Terminal {
     return Promise.resolve();
   }
 
-  write(_data: string): void {}
+  write(data: string): void {
+    this.writes.push(data);
+  }
   moveBy(_lines: number): void {}
   hideCursor(): void {}
   showCursor(): void {}
@@ -215,6 +294,10 @@ class FakeTerminal implements Terminal {
 
   input(data: string): void {
     this.onInput?.(data);
+  }
+
+  output(): string {
+    return this.writes.join('');
   }
 }
 

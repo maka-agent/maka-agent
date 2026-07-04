@@ -8,6 +8,7 @@ import {
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
   submitPromptToTranscript,
+  toggleLatestToolExpansion,
 } from '../pi-transcript.js';
 
 describe('Maka Pi TUI transcript', () => {
@@ -152,6 +153,55 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('npm test')));
     assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
+
+  test('keeps tool cards compact until the latest tool is expanded', () => {
+    const state = createMakaPiTranscriptState();
+    const longStdout = `${'x'.repeat(900)}\nexpanded-tail`;
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: { command: 'npm test' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      isError: false,
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'npm test',
+        exitCode: 0,
+        stdout: longStdout,
+        stderr: '',
+      },
+    }));
+
+    const compact = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+    }, 100).map(stripAnsi).join('\n');
+
+    assert.match(compact, /Tool Bash done/);
+    assert.match(compact, /command: npm test/);
+    assert.match(compact, /Ctrl\+O expand/);
+    assert.doesNotMatch(compact, /expanded-tail/);
+
+    assert.equal(toggleLatestToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+    }, 100).map(stripAnsi).join('\n');
+
+    assert.match(expanded, /expanded-tail/);
   });
 });
 
