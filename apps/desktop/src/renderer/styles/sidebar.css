@@ -1040,3 +1040,41 @@
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
 }
+
+/* View-mode toggle for the sidebar session list (按状态 / 按项目). */
+.maka-view-mode-toggle {
+  display: flex;
+  gap: 1px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) var(--space-2);
+}
+
+.maka-view-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui-sm);
+  cursor: pointer;
+  transition: background var(--duration-quick) var(--ease-out-strong),
+              color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-view-mode-btn.active {
+  background: var(--surface-primary);
+  color: var(--foreground-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.maka-view-mode-btn:hover:not(.active) {
+  background: var(--surface-tertiary);
+  color: var(--foreground-primary);
+}
