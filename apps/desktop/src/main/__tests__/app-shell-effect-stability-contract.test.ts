@@ -231,6 +231,7 @@ function ActiveSessionEventProbe(props: {
     handleEvent: props.onSessionEvent,
     markSessionReadLocally: () => {},
     setMessageLoadErrorBySession: () => {},
+    setMessageLoadPending: () => {},
     setMessages: () => {},
     setSessionEventHealthBySession: () => {},
     toastApi: {

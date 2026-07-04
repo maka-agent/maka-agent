@@ -115,6 +115,7 @@ export interface ChatHeaderAlert {
 
 export function ChatView(props: {
   messages: StoredMessage[];
+  messageLoading?: boolean;
   streamingText: string;
   /** True after upstream emitted the final assistant text, while the UI is draining the smoother. */
   streamingComplete?: boolean;
@@ -559,7 +560,7 @@ export function ChatView(props: {
           onScroll={onScroll}
         >
           {chat.length === 0 && !props.streamingText && (
-            props.messageLoadError ? (
+            props.messageLoading ? null : props.messageLoadError ? (
               <div role="alert" aria-busy={props.messageLoadRetryPending ? 'true' : undefined}>
                 <EmptyState
                   Icon={AlertTriangle}

@@ -84,14 +84,21 @@ describe('Claude subscription runtime wiring', () => {
     }
   });
 
-  test('model factory gives API-key Anthropic the /v1 SDK base without changing Kimi', async () => {
-    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
-    const anthropicCase = src.slice(src.indexOf("case 'anthropic'"), src.indexOf("case 'kimi-coding-plan'"));
-    const kimiCase = src.slice(src.indexOf("case 'kimi-coding-plan'"), src.indexOf("case 'claude-subscription'"));
+  test('anthropicV1BaseUrl normalizes base URLs to a single /v1 suffix', async () => {
+    const { anthropicV1BaseUrl } = await import('../subscription-auth.js');
+    assert.equal(anthropicV1BaseUrl('https://api.anthropic.com'), 'https://api.anthropic.com/v1', 'bare root gains /v1');
+    assert.equal(anthropicV1BaseUrl('https://api.anthropic.com/'), 'https://api.anthropic.com/v1', 'trailing slash is stripped before re-appending /v1');
+    assert.equal(anthropicV1BaseUrl('https://api.anthropic.com/v1'), 'https://api.anthropic.com/v1', 'already-versioned root is idempotent');
+    assert.equal(anthropicV1BaseUrl('https://api.kimi.com/coding/v1'), 'https://api.kimi.com/coding/v1', 'already-versioned override is idempotent');
+    assert.equal(anthropicV1BaseUrl('https://api.kimi.com/coding/'), 'https://api.kimi.com/coding/v1', 'override omitting /v1 gets it filled in');
+  });
 
-    assert.match(anthropicCase, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Anthropic API-key sends must use the SDK /v1 base URL');
-    assert.match(kimiCase, /baseURL,\s*[\s\S]*headers:/, 'Kimi Anthropic-compatible endpoint must keep its provider-specific base URL');
-    assert.doesNotMatch(kimiCase, /anthropicV1BaseUrl/, 'Kimi endpoint must not be blindly rewritten to /v1');
+  test('model factory routes Anthropic and Kimi sends through the /v1 base URL helper', async () => {
+    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
+    // anthropic and kimi-coding-plan share one case body; slice the whole region
+    // up to the next distinct provider (MiniMax) so a shared case is not a failure.
+    const region = src.slice(src.indexOf("case 'anthropic'"), src.indexOf("case 'MiniMax'"));
+    assert.match(region, /baseURL:\s*anthropicV1BaseUrl\(baseURL\)/, 'Anthropic API-key and Kimi sends must use the SDK /v1 base URL');
   });
 
   test('model factory sends MiniMax over Bearer (authToken), not x-api-key', async () => {

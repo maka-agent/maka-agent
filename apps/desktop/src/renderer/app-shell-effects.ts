@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent } from 'react';
+import { useEffect, useEffectEvent, useLayoutEffect } from 'react';
 import type {
   ConnectionEvent,
   PlanReminder,
@@ -303,6 +303,7 @@ export function useActiveSessionEvents(options: {
   setMessageLoadErrorBySession: (
     updater: (current: Record<string, string>) => Record<string, string>,
   ) => void;
+  setMessageLoadPending: (pending: boolean) => void;
   setMessages: (messages: StoredMessage[]) => void;
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: Pick<ToastApi, 'error'>;
@@ -315,13 +316,19 @@ export function useActiveSessionEvents(options: {
   ) => {
     if (!isDisposed() && options.activeIdRef.current === sessionId) {
       options.markSessionReadLocally(sessionId, next);
-      options.setMessages(next);
+      // Ignore an empty read: it can race a just-sent message's save and wipe
+      // the optimistic copy shown to the user. length is enough only because
+      // sends are serialized (one optimistic per session); parallel sends
+      // would need a merge instead.
+      if (next.length > 0) options.setMessages(next);
+      options.setMessageLoadPending(false);
     }
   });
   const applyReadError = useEffectEvent((sessionId: string, error: unknown, isDisposed: () => boolean) => {
     if (!isDisposed() && options.activeIdRef.current === sessionId) {
       const message = messageReadErrorMessage(error);
       options.setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
+      options.setMessageLoadPending(false);
       options.toastApi.error('读取对话失败', message);
     }
   });
@@ -349,11 +356,10 @@ export function useActiveSessionEvents(options: {
     });
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
-    options.setMessages([]);
     options.setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
       const next = { ...current };

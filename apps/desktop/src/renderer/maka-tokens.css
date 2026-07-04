@@ -379,6 +379,20 @@
      left the in-header pills overlapping. */
   --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 126px);
 
+  /* PR-WINDOW-TITLEBAR-0: Electron exposes the titlebar safe area through
+     `titlebar-area-*` CSS env vars. The safe area is the usable titlebar
+     rectangle next to the native controls, so the right-side control overlay is
+     the viewport width minus the safe-area x/width pair. `env()` fallbacks keep
+     the overlay inset at 0px on platforms/windows without titleBarOverlay. */
+  --maka-titlebar-area-x: env(titlebar-area-x, 0px);
+  --maka-titlebar-area-width: env(titlebar-area-width, 100vw);
+  --maka-titlebar-area-height: env(titlebar-area-height, var(--h-titlebar));
+  --maka-titlebar-overlay-right-width: max(
+    0px,
+    calc(100vw - var(--maka-titlebar-area-x) - var(--maka-titlebar-area-width))
+  );
+  --maka-workspace-top-actions-right: calc(24px + var(--maka-titlebar-overlay-right-width));
+
   /* session list geometry */
   --w-sessionlist: 240px;
   --h-list-header: 52px;
