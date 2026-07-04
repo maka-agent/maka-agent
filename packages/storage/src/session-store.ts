@@ -89,6 +89,7 @@ class FileSessionStore implements SessionStore {
       connectionLocked: false,
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
+      ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
 

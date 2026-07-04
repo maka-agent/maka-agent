@@ -34,6 +34,7 @@
     "./incognito": "./dist/incognito.js",
     "./backend-types": "./dist/backend-types.js",
     "./llm-connections": "./dist/llm-connections.js",
+    "./model-thinking": "./dist/model-thinking.js",
     "./connection-readiness": "./dist/connection-readiness.js",
     "./provider-auth": "./dist/provider-auth.js",
     "./onboarding": "./dist/onboarding.js",

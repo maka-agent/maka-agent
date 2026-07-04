@@ -109,6 +109,14 @@ export {
   isTurnStatus,
 } from './session.js';
 
+// model-thinking.ts
+export type { ThinkingLevel } from './model-thinking.js';
+export {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  thinkingVariantsForModel,
+} from './model-thinking.js';
+
 // agent-run.ts
 export type {
   AgentRunEvent,
