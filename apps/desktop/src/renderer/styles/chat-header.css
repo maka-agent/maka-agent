@@ -268,7 +268,8 @@
   }
 
 .maka-chat-jump-bottom:active {
-    transform: translateX(-50%) scale(0.97);
+    transform: translateX(-50%);
+    background: var(--state-selected-bg);
   }
 
 .maka-error-surface {

@@ -1716,10 +1716,10 @@
     font-size: var(--font-size-ui);
     font-weight: 500;
     line-height: 1.2;
-    transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), transform 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
+    transition: background 120ms var(--ease-out-strong), border-color 120ms var(--ease-out-strong), color 120ms var(--ease-out-strong), box-shadow 120ms var(--ease-out-strong);
   }
   .maka-button:hover  { background: var(--state-hover-bg); }
-  .maka-button:active { background: var(--state-selected-bg); transform: translateY(0.5px); }
+  .maka-button:active { background: var(--state-selected-bg); }
   .maka-button:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.16);

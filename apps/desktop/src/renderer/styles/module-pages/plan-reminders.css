@@ -124,7 +124,7 @@
 }
 
 .maka-plan-new-task-button:active:not(:disabled) {
-  transform: scale(0.97);
+  background: oklch(0.14 0 0);
 }
 
 .maka-plan-refresh-button {

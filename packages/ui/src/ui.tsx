@@ -27,20 +27,20 @@ export { cn } from './utils.js';
 export const buttonVariants = cva(
   [
     'inline-flex shrink-0 items-center justify-center gap-2 rounded-sm font-medium',
-    'transition-[background,border-color,box-shadow,transform,opacity] duration-150 ease-[var(--ease-out-strong)]',
+    'transition-[background,border-color,box-shadow,opacity] duration-150 ease-[var(--ease-out-strong)]',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-    'active:scale-[0.98] disabled:pointer-events-none disabled:opacity-45',
+    'disabled:pointer-events-none disabled:opacity-45',
     '[&_svg]:size-[var(--icon-size,1rem)] [&_svg]:shrink-0',
   ],
   {
     variants: {
       variant: {
-        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90',
-        secondary: 'border border-border bg-secondary text-secondary-foreground hover:bg-muted',
-        ghost: 'bg-transparent text-foreground hover:bg-muted',
-        outline: 'border border-border bg-background text-foreground hover:bg-muted',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
-        quiet: 'bg-transparent text-foreground-secondary hover:bg-muted hover:text-foreground',
+        default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:bg-primary/90',
+        secondary: 'border border-border bg-secondary text-secondary-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
+        ghost: 'bg-transparent text-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
+        outline: 'border border-border bg-background text-foreground hover:bg-muted active:bg-[var(--state-selected-bg)]',
+        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/90',
+        quiet: 'bg-transparent text-foreground-secondary hover:bg-muted hover:text-foreground active:bg-[var(--state-selected-bg)]',
       },
       size: {
         sm: 'h-8 rounded-sm px-2.5 text-xs',
