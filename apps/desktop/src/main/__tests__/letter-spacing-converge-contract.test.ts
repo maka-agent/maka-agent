@@ -25,7 +25,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertTokenPinnedOnce } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -95,18 +95,18 @@ describe('PR-TRACKING-CONVERGE-0 contract', () => {
 
   it('--tracking-{normal,wide,wider,widest} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assertTokenPinnedOnce(tokens, '--tracking-normal', '0');
-    assertTokenPinnedOnce(tokens, '--tracking-wide', '0.025em');
-    assertTokenPinnedOnce(tokens, '--tracking-wider', '0.05em');
-    assertTokenPinnedOnce(tokens, '--tracking-widest', '0.1em');
+    assertCustomPropPinnedOnce(tokens, '--tracking-normal', '0');
+    assertCustomPropPinnedOnce(tokens, '--tracking-wide', '0.025em');
+    assertCustomPropPinnedOnce(tokens, '--tracking-wider', '0.05em');
+    assertCustomPropPinnedOnce(tokens, '--tracking-widest', '0.1em');
   });
 
-  it('Tailwind --tracking-* aliases map to var(--tracking-*) in @theme inline', async () => {
+  it('Tailwind --tracking-* aliases are declared exactly once mapping to var(--tracking-*) in @theme inline', async () => {
     const styles = await readFile(STYLES_FILE, 'utf8');
-    assert.match(styles, /--tracking-normal:\s*var\(--tracking-normal\)/, '--tracking-normal must alias var(--tracking-normal)');
-    assert.match(styles, /--tracking-wide:\s*var\(--tracking-wide\)/, '--tracking-wide must alias var(--tracking-wide)');
-    assert.match(styles, /--tracking-wider:\s*var\(--tracking-wider\)/, '--tracking-wider must alias var(--tracking-wider)');
-    assert.match(styles, /--tracking-widest:\s*var\(--tracking-widest\)/, '--tracking-widest must alias var(--tracking-widest)');
+    assertCustomPropPinnedOnce(styles, '--tracking-normal', 'var(--tracking-normal)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--tracking-wide', 'var(--tracking-wide)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--tracking-wider', 'var(--tracking-wider)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--tracking-widest', 'var(--tracking-widest)', 'styles.css');
   });
 });
 

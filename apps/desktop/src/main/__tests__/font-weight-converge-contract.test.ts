@@ -27,7 +27,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertTokenPinnedOnce } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -101,18 +101,18 @@ describe('PR-FONT-WEIGHT-CONVERGE-0 contract', () => {
 
   it('--font-weight-{normal,medium,semibold,bold} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assertTokenPinnedOnce(tokens, '--font-weight-normal', '400');
-    assertTokenPinnedOnce(tokens, '--font-weight-medium', '500');
-    assertTokenPinnedOnce(tokens, '--font-weight-semibold', '600');
-    assertTokenPinnedOnce(tokens, '--font-weight-bold', '700');
+    assertCustomPropPinnedOnce(tokens, '--font-weight-normal', '400');
+    assertCustomPropPinnedOnce(tokens, '--font-weight-medium', '500');
+    assertCustomPropPinnedOnce(tokens, '--font-weight-semibold', '600');
+    assertCustomPropPinnedOnce(tokens, '--font-weight-bold', '700');
   });
 
-  it('Tailwind --font-weight-* aliases map to var(--font-weight-*) in @theme inline', async () => {
+  it('Tailwind --font-weight-* aliases are declared exactly once mapping to var(--font-weight-*) in @theme inline', async () => {
     const styles = await readFile(STYLES_FILE, 'utf8');
-    assert.match(styles, /--font-weight-normal:\s*var\(--font-weight-normal\)/, '--font-weight-normal must alias var(--font-weight-normal)');
-    assert.match(styles, /--font-weight-medium:\s*var\(--font-weight-medium\)/, '--font-weight-medium must alias var(--font-weight-medium)');
-    assert.match(styles, /--font-weight-semibold:\s*var\(--font-weight-semibold\)/, '--font-weight-semibold must alias var(--font-weight-semibold)');
-    assert.match(styles, /--font-weight-bold:\s*var\(--font-weight-bold\)/, '--font-weight-bold must alias var(--font-weight-bold)');
+    assertCustomPropPinnedOnce(styles, '--font-weight-normal', 'var(--font-weight-normal)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--font-weight-medium', 'var(--font-weight-medium)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--font-weight-semibold', 'var(--font-weight-semibold)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--font-weight-bold', 'var(--font-weight-bold)', 'styles.css');
   });
 });
 

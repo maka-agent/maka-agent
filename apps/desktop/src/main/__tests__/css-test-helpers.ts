@@ -99,18 +99,22 @@ export function parseCssCustomProps(css: string): Map<string, string[]> {
 
 /** Assert a custom property is declared exactly once with the expected value.
  *
- * Stronger than `assert.match(tokens, /--token:\s*value\s*;/)`: that only proves
- * a correct declaration exists somewhere — a later overriding declaration
- * (e.g. `--font-weight-normal: 400; --font-weight-normal: 450;`) still passes
- * because the first match satisfies `assert.match`. This helper fails on
- * duplicate declarations and on a single declaration with a drifted value. */
-export function assertTokenPinnedOnce(
-  tokensCss: string,
-  token: string,
+ * Works for both token definitions in maka-tokens.css (e.g.
+ * `--font-weight-normal: 400`) and Tailwind bridge aliases in styles.css
+ * `@theme inline` (e.g. `--leading-normal: var(--leading-normal)`). Stronger
+ * than `assert.match(css, /--prop:\s*value\s*;/)`: that only proves a correct
+ * declaration exists somewhere — a later overriding declaration (e.g.
+ * `--font-weight-normal: 400; --font-weight-normal: 450;`, or
+ * `--leading-normal: var(--leading-normal); --leading-normal: 1.55;`) still
+ * passes because the first match satisfies `assert.match`. This helper fails
+ * on duplicate declarations and on a single declaration with a drifted value. */
+export function assertCustomPropPinnedOnce(
+  css: string,
+  prop: string,
   expected: string,
   label = 'maka-tokens.css',
 ): void {
-  const values = parseCssCustomProps(tokensCss).get(token) ?? [];
-  assert.equal(values.length, 1, `${label}: ${token} must be declared exactly once with ${expected}; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
-  assert.equal(values[0], expected, `${label}: ${token} must be ${expected}; got ${values[0]}`);
+  const values = parseCssCustomProps(css).get(prop) ?? [];
+  assert.equal(values.length, 1, `${label}: ${prop} must be declared exactly once with ${expected}; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
+  assert.equal(values[0], expected, `${label}: ${prop} must be ${expected}; got ${values[0]}`);
 }

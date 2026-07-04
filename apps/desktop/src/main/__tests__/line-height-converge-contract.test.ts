@@ -26,7 +26,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertTokenPinnedOnce } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -105,18 +105,18 @@ describe('PR-LEADING-CONVERGE-0 contract', () => {
 
   it('--leading-{none,tight,snug,normal} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assertTokenPinnedOnce(tokens, '--leading-none', '1');
-    assertTokenPinnedOnce(tokens, '--leading-tight', '1.25');
-    assertTokenPinnedOnce(tokens, '--leading-snug', '1.375');
-    assertTokenPinnedOnce(tokens, '--leading-normal', '1.5');
+    assertCustomPropPinnedOnce(tokens, '--leading-none', '1');
+    assertCustomPropPinnedOnce(tokens, '--leading-tight', '1.25');
+    assertCustomPropPinnedOnce(tokens, '--leading-snug', '1.375');
+    assertCustomPropPinnedOnce(tokens, '--leading-normal', '1.5');
   });
 
-  it('Tailwind --leading-* aliases map to var(--leading-*) in @theme inline', async () => {
+  it('Tailwind --leading-* aliases are declared exactly once mapping to var(--leading-*) in @theme inline', async () => {
     const styles = await readFile(STYLES_FILE, 'utf8');
-    assert.match(styles, /--leading-none:\s*var\(--leading-none\)/, '--leading-none must alias var(--leading-none)');
-    assert.match(styles, /--leading-tight:\s*var\(--leading-tight\)/, '--leading-tight must alias var(--leading-tight)');
-    assert.match(styles, /--leading-snug:\s*var\(--leading-snug\)/, '--leading-snug must alias var(--leading-snug)');
-    assert.match(styles, /--leading-normal:\s*var\(--leading-normal\)/, '--leading-normal must alias var(--leading-normal)');
+    assertCustomPropPinnedOnce(styles, '--leading-none', 'var(--leading-none)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--leading-tight', 'var(--leading-tight)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--leading-snug', 'var(--leading-snug)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--leading-normal', 'var(--leading-normal)', 'styles.css');
   });
 });
 

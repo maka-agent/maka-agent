@@ -22,7 +22,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, after } from 'node:test';
-import { expandCssImports, findFontShorthandOffenders, assertTokenPinnedOnce } from './css-test-helpers.js';
+import { expandCssImports, findFontShorthandOffenders, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 describe('css-test-helpers', () => {
   describe('expandCssImports (fail closed on bad @import)', () => {
@@ -74,42 +74,57 @@ describe('css-test-helpers', () => {
     });
   });
 
-  describe('assertTokenPinnedOnce', () => {
+  describe('assertCustomPropPinnedOnce', () => {
     it('accepts a single declaration with the exact value', () => {
-      assert.doesNotThrow(() => assertTokenPinnedOnce('--font-weight-normal: 400;', '--font-weight-normal', '400'));
+      assert.doesNotThrow(() => assertCustomPropPinnedOnce('--font-weight-normal: 400;', '--font-weight-normal', '400'));
     });
 
-    it('rejects duplicate declarations (a later override drifts undetected by assert.match)', () => {
+    it('rejects duplicate token declarations (a later override drifts undetected by assert.match)', () => {
       assert.throws(
-        () => assertTokenPinnedOnce('--font-weight-normal: 400;\n  --font-weight-normal: 450;', '--font-weight-normal', '400'),
+        () => assertCustomPropPinnedOnce('--font-weight-normal: 400;\n  --font-weight-normal: 450;', '--font-weight-normal', '400'),
         /exactly once/,
       );
       assert.throws(
-        () => assertTokenPinnedOnce('--leading-normal: 1.5;\n  --leading-normal: 1.55;', '--leading-normal', '1.5'),
+        () => assertCustomPropPinnedOnce('--leading-normal: 1.5;\n  --leading-normal: 1.55;', '--leading-normal', '1.5'),
         /exactly once/,
       );
       assert.throws(
-        () => assertTokenPinnedOnce('--tracking-normal: 0;\n  --tracking-normal: 0.02em;', '--tracking-normal', '0'),
+        () => assertCustomPropPinnedOnce('--tracking-normal: 0;\n  --tracking-normal: 0.02em;', '--tracking-normal', '0'),
+        /exactly once/,
+      );
+    });
+
+    it('rejects duplicate bridge alias declarations (override drifts undetected by assert.match)', () => {
+      assert.throws(
+        () => assertCustomPropPinnedOnce('--font-weight-normal: var(--font-weight-normal);\n  --font-weight-normal: 450;', '--font-weight-normal', 'var(--font-weight-normal)'),
+        /exactly once/,
+      );
+      assert.throws(
+        () => assertCustomPropPinnedOnce('--leading-normal: var(--leading-normal);\n  --leading-normal: 1.55;', '--leading-normal', 'var(--leading-normal)'),
+        /exactly once/,
+      );
+      assert.throws(
+        () => assertCustomPropPinnedOnce('--tracking-normal: var(--tracking-normal);\n  --tracking-normal: 0.02em;', '--tracking-normal', 'var(--tracking-normal)'),
         /exactly once/,
       );
     });
 
     it('rejects a single declaration with a drifted value', () => {
       assert.throws(
-        () => assertTokenPinnedOnce('--font-weight-normal: 450;', '--font-weight-normal', '400'),
+        () => assertCustomPropPinnedOnce('--font-weight-normal: 450;', '--font-weight-normal', '400'),
         /must be 400/,
       );
     });
 
-    it('rejects a missing token', () => {
+    it('rejects a missing prop', () => {
       assert.throws(
-        () => assertTokenPinnedOnce('--other: 1;', '--font-weight-normal', '400'),
+        () => assertCustomPropPinnedOnce('--other: 1;', '--font-weight-normal', '400'),
         /exactly once/,
       );
     });
 
     it('strips comments before parsing (inline comment after value)', () => {
-      assert.doesNotThrow(() => assertTokenPinnedOnce('--leading-none: 1;        /* single-line: kbd */', '--leading-none', '1'));
+      assert.doesNotThrow(() => assertCustomPropPinnedOnce('--leading-none: 1;        /* single-line: kbd */', '--leading-none', '1'));
     });
   });
 });
