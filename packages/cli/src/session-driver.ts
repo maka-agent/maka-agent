@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { SessionEvent } from '@maka/core/events';
+import type { PermissionMode } from '@maka/core/permission';
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary } from '@maka/core/session';
 
@@ -14,6 +15,7 @@ export interface MakaSessionDriverInput {
   cwd: string;
   llmConnectionSlug: string;
   model: string;
+  permissionMode?: PermissionMode;
   newId?: () => string;
 }
 
@@ -60,7 +62,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       backend: 'ai-sdk',
       llmConnectionSlug: this.input.llmConnectionSlug,
       model: this.input.model,
-      permissionMode: 'bypass',
+      permissionMode: this.input.permissionMode ?? 'ask',
     });
     this.sessionId = session.id;
     return session.id;

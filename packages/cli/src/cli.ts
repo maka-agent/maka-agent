@@ -65,6 +65,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         cwd: context.cwd,
         llmConnectionSlug: context.target.connection.slug,
         model: context.target.model,
+        permissionMode: 'ask',
       });
       await runMakaPiTui({
         driver,
@@ -72,7 +73,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         cwd: context.cwd,
         model: context.target.model,
         connectionSlug: context.target.connection.slug,
-        permissionMode: 'bypass',
+        permissionMode: 'ask',
       });
       return 0;
     }

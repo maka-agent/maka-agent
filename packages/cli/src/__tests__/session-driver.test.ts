@@ -4,7 +4,7 @@ import type { CreateSessionInput, SessionEvent, SessionSummary, UserMessageInput
 import { createMakaSessionDriver } from '../session-driver.js';
 
 describe('Maka session driver', () => {
-  test('creates a bypass session from the first prompt and streams the turn', async () => {
+  test('creates an ask-permission session from the first prompt and streams the turn', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
       runtime,
@@ -23,13 +23,29 @@ describe('Maka session driver', () => {
       backend: 'ai-sdk',
       llmConnectionSlug: 'anthropic',
       model: 'claude-sonnet-4-5',
-      permissionMode: 'bypass',
+      permissionMode: 'ask',
     }]);
     assert.deepEqual(runtime.sent, [{
       sessionId: 'session-1',
       input: { turnId: 'turn-1', text: 'please inspect this workspace' },
     }]);
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
+  });
+
+  test('can still create a bypass session when explicitly requested', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      permissionMode: 'bypass',
+      newId: nextId('turn'),
+    });
+
+    await collect(driver.sendPrompt('ship fast'));
+
+    assert.equal(runtime.created[0]?.permissionMode, 'bypass');
   });
 
   test('uses the default turn id generator when one is not injected', async () => {
