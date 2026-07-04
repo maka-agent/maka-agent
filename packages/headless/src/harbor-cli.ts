@@ -230,6 +230,7 @@ async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.ProcessEn
   if (parsed.positional.length > 0) throw new Error(`unexpected positional argument: ${parsed.positional[0]}`);
   const env = cliEnv(parsed, baseEnv);
   applyConnectionDefaults(env);
+  applyApiKeyFile(parsed, env);
   const mode = harborMode(valueOf(parsed, env, 'mode', 'MAKA_HARBOR_MODE') ?? 'task-run');
   const backend = backendKind(valueOf(parsed, env, 'backend', 'MAKA_BACKEND') ?? 'ai-sdk');
   const isolation = optionalIsolation(valueOf(parsed, env, 'isolation', 'MAKA_HARBOR_ISOLATION') ?? env.MAKA_ISOLATION);
@@ -470,11 +471,17 @@ function cliEnv(parsed: ParsedArgs, baseEnv: NodeJS.ProcessEnv): RunHarborCellEn
   if (parsed.flags.benchmark && parsed.flags.benchmark !== 'terminal-bench') {
     throw new Error('--benchmark currently supports only terminal-bench');
   }
-  if (parsed.flags['api-key-file']) {
-    const provider = providerFromValue(parsed.flags.provider ?? env.MAKA_PROVIDER ?? providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL));
-    env[apiKeyFileEnvName(provider)] = parsed.flags['api-key-file'];
-  }
   return env;
+}
+
+/**
+ * Apply --api-key-file AFTER applyConnectionDefaults so that provider
+ * inference uses the final resolved MAKA_MODEL, not the pre-defaults value.
+ */
+function applyApiKeyFile(parsed: ParsedArgs, env: RunHarborCellEnv): void {
+  if (!parsed.flags['api-key-file']) return;
+  const provider = providerFromValue(parsed.flags.provider ?? env.MAKA_PROVIDER ?? providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL));
+  env[apiKeyFileEnvName(provider)] = parsed.flags['api-key-file'];
 }
 
 async function instructionFromOptions(parsed: ParsedArgs, env: RunHarborCellEnv): Promise<string> {
@@ -541,12 +548,23 @@ function backendKind(value: string): BackendKind {
 }
 
 /**
- * When no explicit MAKA_MODEL is set, read the desktop workspace's
- * llm-connections.json and inject the default connection's provider, model,
- * slug, and baseUrl into env so downstream code resolves them naturally.
+ * When no explicit model/provider/connection input is set, read the desktop
+ * workspace's llm-connections.json and inject the default connection's
+ * provider, model, slug, and baseUrl into env so downstream code resolves
+ * them naturally.
+ *
+ * Guards:
+ * - Skip if any explicit model/provider/connection input is already set
+ * - Skip for non-ai-sdk backends (fake, pi-agent)
+ * - Validate providerType against PROVIDER_DEFAULTS before writing
+ * - Only write MAKA_LLM_CONNECTION_SLUG / MAKA_BASE_URL if they are undefined
  */
 export function applyConnectionDefaults(env: Record<string, string | undefined>): void {
-  if (env.MAKA_MODEL || env.HARBOR_MODEL) return;
+  // Skip if any explicit model/provider/connection input is set
+  if (env.MAKA_MODEL || env.HARBOR_MODEL || env.MAKA_PROVIDER || env.MAKA_LLM_CONNECTION_SLUG) return;
+  // Skip for non-ai-sdk backends
+  if (env.MAKA_BACKEND === 'fake' || env.MAKA_BACKEND === 'pi-agent') return;
+
   const connectionsPath = env.MAKA_CONNECTIONS_PATH ?? resolveDefaultConnectionsPath();
   try {
     const file = JSON.parse(readFileSync(connectionsPath, 'utf8')) as {
@@ -556,9 +574,12 @@ export function applyConnectionDefaults(env: Record<string, string | undefined>)
     if (!file.defaultSlug || !Array.isArray(file.connections)) return;
     const conn = file.connections.find(c => c.slug === file.defaultSlug && c.enabled !== false);
     if (!conn?.providerType || !conn.defaultModel) return;
+    // Validate providerType against known providers
+    if (!(conn.providerType in PROVIDER_DEFAULTS)) return;
+
     env.MAKA_MODEL = `${conn.providerType}/${conn.defaultModel}`;
-    env.MAKA_LLM_CONNECTION_SLUG = conn.slug;
-    if (conn.baseUrl) env.MAKA_BASE_URL = conn.baseUrl;
+    if (env.MAKA_LLM_CONNECTION_SLUG === undefined) env.MAKA_LLM_CONNECTION_SLUG = conn.slug;
+    if (env.MAKA_BASE_URL === undefined && conn.baseUrl) env.MAKA_BASE_URL = conn.baseUrl;
   } catch {
     // File doesn't exist or is malformed — fall through to existing hardcoded defaults
   }

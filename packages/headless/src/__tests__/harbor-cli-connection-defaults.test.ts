@@ -231,4 +231,152 @@ describe('applyConnectionDefaults', () => {
     assert.equal(env.MAKA_MODEL, undefined);
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
   });
+
+  test('MAKA_PROVIDER set without MAKA_MODEL → no override (respects explicit provider)', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+      MAKA_PROVIDER: 'deepseek',
+    };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, undefined);
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
+    assert.equal(env.MAKA_BASE_URL, undefined);
+  });
+
+  test('MAKA_BASE_URL set without MAKA_MODEL → base-url not overwritten', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+      MAKA_BASE_URL: 'http://custom-url:9999',
+    };
+    applyConnectionDefaults(env);
+
+    // Model gets set since no MAKA_MODEL/HARBOR_MODEL/MAKA_PROVIDER/MAKA_LLM_CONNECTION_SLUG guard triggered
+    assert.equal(env.MAKA_MODEL, 'anthropic/claude-sonnet-4-20250514');
+    // But MAKA_BASE_URL is NOT overwritten (per-field respect)
+    assert.equal(env.MAKA_BASE_URL, 'http://custom-url:9999');
+  });
+
+  test('MAKA_LLM_CONNECTION_SLUG set without MAKA_MODEL → no override (respects explicit slug)', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+      MAKA_LLM_CONNECTION_SLUG: 'my-custom-slug',
+    };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, undefined);
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'my-custom-slug');
+    assert.equal(env.MAKA_BASE_URL, undefined);
+  });
+
+  test('MAKA_BACKEND=fake → no defaults applied', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+      MAKA_BACKEND: 'fake',
+    };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, undefined);
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
+    assert.equal(env.MAKA_BASE_URL, undefined);
+  });
+
+  test('MAKA_BACKEND=pi-agent → no defaults applied', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        {
+          slug: 'harbor-anthropic',
+          providerType: 'anthropic',
+          defaultModel: 'claude-sonnet-4-20250514',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = {
+      MAKA_CONNECTIONS_PATH: connectionsPath,
+      MAKA_BACKEND: 'pi-agent',
+    };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, undefined);
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
+    assert.equal(env.MAKA_BASE_URL, undefined);
+  });
+
+  test('invalid providerType in connections file → no-op', () => {
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-invalid',
+      connections: [
+        {
+          slug: 'harbor-invalid',
+          providerType: 'totally-unknown-provider',
+          defaultModel: 'some-model',
+          baseUrl: 'http://127.0.0.1:8537',
+          enabled: true,
+        },
+      ],
+    });
+
+    const env: Record<string, string | undefined> = { MAKA_CONNECTIONS_PATH: connectionsPath };
+    applyConnectionDefaults(env);
+
+    assert.equal(env.MAKA_MODEL, undefined);
+    assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
+    assert.equal(env.MAKA_BASE_URL, undefined);
+  });
 });
