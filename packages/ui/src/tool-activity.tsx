@@ -9,6 +9,13 @@ import { LiveIndicator, previewVariants, streamVariants, toolVariants } from './
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
+import {
+  TOOL_LINE_CAP,
+  capLines,
+  formatBytes,
+  formatDuration,
+  formatUserVisibleToolText,
+} from './tool-activity/preview-utils.js';
 
 // Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
 // so the always-on group-activation connector's name is duplicated here as the
@@ -91,21 +98,8 @@ function extractErrorText(result: ToolActivityItem['result']): string {
   }
 }
 
-function formatUserVisibleToolText(text: string): string {
-  return text.replace(/\bUser denied permission\b/g, '用户已拒绝权限请求');
-}
-
 function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boolean {
   return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
-}
-
-function formatDuration(ms: number | undefined): string | null {
-  if (ms === undefined || ms < 0) return null;
-  if (ms < 1000) return `${ms} ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
-  const minutes = Math.floor(ms / 60_000);
-  const seconds = Math.round((ms % 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
 }
 
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
@@ -355,17 +349,6 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
  * chat surface visually. We slice, then append a single explainer line that
  * lets the user know the rest exists.
  */
-const TOOL_LINE_CAP = 500;
-
-function capLines(text: string): { body: string; capped: number } {
-  const lines = text.split('\n');
-  if (lines.length <= TOOL_LINE_CAP) return { body: text, capped: 0 };
-  return {
-    body: lines.slice(0, TOOL_LINE_CAP).join('\n'),
-    capped: lines.length - TOOL_LINE_CAP,
-  };
-}
-
 function OverlayPreview(props: { content: ToolResultContent }) {
   const { content } = props;
 
@@ -1144,19 +1127,7 @@ function presentExploreAgentCandidateReasons(reasons: string[]): string {
   }).join(', ');
 }
 
-/* PR-FORMAT-BYTES-DEDUP-0 (round 21/30): made exported so
-   `apps/desktop/src/renderer/artifact-pane.tsx` can drop its
-   local duplicate. Standardized on KB/MB labels (artifact-pane
-   was already user-visible with KB/MB) plus the robust
-   non-finite/<=0 guard from the previous components.tsx form.
-   Both consumers now produce identical output for the same
-   `bytes` input. */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
-  if (bytes < 1024) return `${Math.round(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+export { formatBytes } from './tool-activity/preview-utils.js';
 
 function OfficeDocumentPreview(props: {
   result: Extract<ToolResultContent, { kind: 'office_document' }>;
