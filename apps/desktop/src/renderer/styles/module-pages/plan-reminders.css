@@ -363,6 +363,19 @@
   white-space: nowrap;
 }
 
+/* Static 「即将支持」 tag (was a permanently-disabled Switch). Tinted
+   to the info-alert family so it reads as part of the banner. */
+.maka-plan-system-alert-soon {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 var(--space-2);
+  border: 1px solid oklch(0.56 0.08 245 / 0.4);
+  border-radius: var(--radius-pill);
+  background: oklch(0.56 0.08 245 / 0.10);
+  font-weight: 600;
+}
+
 .dark .maka-plan-system-alert {
   border-color: oklch(0.56 0.08 245 / 0.44);
   background: oklch(0.25 0.04 245 / 0.52);
@@ -528,6 +541,12 @@
   gap: var(--space-1);
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Terminal-state badge replacing the toggle on completed one-shot
+   reminders (a disabled OFF switch read as "paused", not "done"). */
+.maka-plan-card-done-badge {
+  height: 20px;
 }
 
 .maka-plan-card-menu-trigger {

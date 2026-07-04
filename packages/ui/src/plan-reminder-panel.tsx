@@ -374,9 +374,13 @@ export function PlanReminderPanel(props: {
               </AlertDescription>
             </div>
           </div>
+          {/* Static tag, not a disabled Switch — the wake-lock isn't wired
+              yet, and a dead toggle promises interactivity it can't deliver
+              (same precedent as the skills marketplace 即将上线 pill and the
+              static filter pills). */}
           <div className="maka-plan-system-alert-switch">
             <span>保持系统唤醒</span>
-            <Switch checked={false} disabled aria-label="保持系统唤醒暂未启用" />
+            <span className="maka-plan-system-alert-soon" data-static="true">即将支持</span>
           </div>
         </Alert>
 
@@ -508,12 +512,20 @@ export function PlanReminderPanel(props: {
                   return (
                     <article key={reminder.id} className="maka-plan-card" data-status={reminder.status}>
                       <div className="maka-plan-card-chrome">
-                        <Switch
-                          checked={reminder.enabled}
-                          disabled={reminderActionPending || reminder.status === 'completed'}
-                          aria-label={reminder.enabled ? '暂停提醒' : '启用提醒'}
-                          onCheckedChange={() => void runPlanReminderAction(`${reminder.id}:toggle`, () => props.onToggle?.(reminder.id, !reminder.enabled))}
-                        />
+                        {/* Completed one-shot reminders can never be
+                            re-enabled — a disabled OFF switch there read
+                            as "paused", not "done". Show the terminal
+                            state instead of a dead control. */}
+                        {reminder.status === 'completed' ? (
+                          <Badge variant="secondary" className="maka-plan-card-done-badge">已完成</Badge>
+                        ) : (
+                          <Switch
+                            checked={reminder.enabled}
+                            disabled={reminderActionPending}
+                            aria-label={reminder.enabled ? '暂停提醒' : '启用提醒'}
+                            onCheckedChange={() => void runPlanReminderAction(`${reminder.id}:toggle`, () => props.onToggle?.(reminder.id, !reminder.enabled))}
+                          />
+                        )}
                         <Menu>
                           <MenuTrigger
                             className="maka-plan-card-menu-trigger"
