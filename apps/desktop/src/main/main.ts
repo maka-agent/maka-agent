@@ -12,6 +12,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isThinkingLevel,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -585,7 +586,7 @@ backends.register('ai-sdk', async (ctx) => {
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
-    providerOptions: buildProviderOptions(connection, model),
+    providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
     contextBudget: buildContextBudgetPolicy(connection),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
@@ -1215,6 +1216,8 @@ function registerIpc(): void {
       backend: 'ai-sdk',
       llmConnectionSlug: ready.connection.slug,
       model: ready.model,
+      // Switching model clears the per-model thinking variant (see model-thinking.ts).
+      thinkingLevel: undefined,
       connectionLocked: true,
       status: 'active',
       blockedReason: undefined,
@@ -1224,6 +1227,22 @@ function registerIpc(): void {
       connectionSlug: ready.connection.slug,
       modelId: ready.model,
     });
+    return next;
+  });
+  ipcMain.handle('sessions:setThinkingLevel', async (_event, sessionId: string, input: unknown) => {
+    const thinkingLevel = input === undefined || input === null ? undefined : input;
+    if (thinkingLevel !== undefined && !isThinkingLevel(thinkingLevel)) {
+      throw new Error(`Invalid thinking level: ${String(input)}`);
+    }
+    const header = await store.readHeader(sessionId);
+    if (header.status === 'running') {
+      throw new Error('当前对话正在运行，等结束后再切换思考级别。');
+    }
+    if (header.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，处理后再切换思考级别。');
+    }
+    const next = await runtime.updateSession(sessionId, thinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel });
+    emitSessionsChanged('updated', sessionId);
     return next;
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {

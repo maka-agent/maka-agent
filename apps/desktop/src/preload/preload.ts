@@ -21,6 +21,7 @@ import type {
   SessionListFilter,
   SessionSummary,
   StoredMessage,
+  ThinkingLevel,
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -206,6 +207,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setModel', sessionId, input);
+    },
+    setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setThinkingLevel', sessionId, level ?? undefined);
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);

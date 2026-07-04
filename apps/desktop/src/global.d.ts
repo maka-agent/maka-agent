@@ -20,6 +20,7 @@ import type {
   SessionListFilter,
   SessionSummary,
   StoredMessage,
+  ThinkingLevel,
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -152,6 +153,7 @@ declare global {
         rename(sessionId: string, name: string): Promise<void>;
         setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
         setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
+        setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
       };
       connections: {

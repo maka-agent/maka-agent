@@ -1,4 +1,4 @@
-import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage } from '@maka/core';
+import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
@@ -28,6 +28,8 @@ type PendingNewChatModel = {
 } | null;
 
 type PendingNewChatPermissionMode = PermissionMode | null;
+
+type PendingNewChatThinkingLevel = ThinkingLevel | null;
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -105,6 +107,7 @@ export function createAppShellChatActions(deps: {
   pendingNewChatPermissionMode: PendingNewChatPermissionMode;
   setPendingNewChatPermissionMode: (mode: PendingNewChatPermissionMode) => void;
   validPendingNewChatModel: PendingNewChatModel;
+  pendingNewChatThinkingLevel: PendingNewChatThinkingLevel;
 }): AppShellChatActions {
   const {
     activeIdRef,
@@ -126,6 +129,7 @@ export function createAppShellChatActions(deps: {
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
     validPendingNewChatModel,
+    pendingNewChatThinkingLevel,
   } = deps;
 
   function optimisticUserMessage(turnId: string, text: string): StoredMessage {
@@ -183,6 +187,7 @@ export function createAppShellChatActions(deps: {
           ...(validPendingNewChatModel
             ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
             : {}),
+          ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
         });
         setPendingNewChatPermissionMode(null);
         upsertSessionSummary(session);

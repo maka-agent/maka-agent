@@ -123,6 +123,13 @@ export const Composer = forwardRef<
     renderProviderMark?(type: ProviderType): ReactNode;
     modelChangePending?: boolean;
     onModelChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
+    /** Per-model thinking-level variants for the active model; empty/undefined hides the switcher. */
+    activeThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    activeThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
+    newChatThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    newChatThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onNewChatThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
     /**
      * Home / empty-state composer only (no active session yet): the model
      * the next new chat will start with, and the picker callback. When set,
@@ -670,6 +677,9 @@ export const Composer = forwardRef<
                     disabledReason={modelSwitcherDisabledReason}
                     renderProviderMark={props.renderProviderMark}
                     onChange={props.onModelChange}
+                    thinkingLevels={props.activeThinkingLevels}
+                    thinkingLevel={props.activeThinkingLevel}
+                    onThinkingLevelChange={props.onThinkingLevelChange}
                   />
                 ) : props.onPickNewChatModel && (props.modelChoices?.length ?? 0) > 0 ? (
                   <NewChatModelPicker
@@ -682,6 +692,9 @@ export const Composer = forwardRef<
                     }
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
+                    thinkingLevels={props.newChatThinkingLevels}
+                    thinkingLevel={props.newChatThinkingLevel}
+                    onThinkingLevelChange={props.onNewChatThinkingLevelChange}
                   />
                 ) : (
                   <ModelChipStatic label={modelChipLabel} onOpenSettings={props.onOpenModelSettings} />

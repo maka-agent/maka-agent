@@ -10,8 +10,9 @@ import type {
   StoredMessage,
   ThemePalette,
   ThemePreference,
+  ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -299,6 +300,7 @@ export function AppShell({
   // it never mutates the persisted Settings · 模型 default.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(null);
   const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(null);
+  const [pendingNewChatThinkingLevel, setPendingNewChatThinkingLevel] = useState<ThinkingLevel | null>(null);
   // A pick only stays in effect while it is still an offered choice. If the user
   // later disables/removes that connection or model, fall back to the default so
   // the home chip never shows — nor sends — a model that no longer exists.
@@ -322,6 +324,20 @@ export function AppShell({
   const activeModelLabel = activeSession?.backend === 'fake'
     ? undefined
     : chatModelChoiceLabel(chatModelChoices, activeSession?.llmConnectionSlug, activeModel);
+  const activeThinkingLevels = useMemo(
+    () => (activeConnection && activeModel) ? thinkingVariantsForModel(activeConnection.providerType, activeModel) : [],
+    [activeConnection, activeModel],
+  );
+  const activeThinkingLevel = activeSession?.thinkingLevel;
+  const newChatThinkingLevels = useMemo(
+    () => {
+      if (!newChatModel) return [];
+      const c = connections.find((entry) => entry.slug === newChatModel.llmConnectionSlug);
+      return c ? thinkingVariantsForModel(c.providerType, newChatModel.model) : [];
+    },
+    [newChatModel, connections],
+  );
+  const newChatThinkingLevel = pendingNewChatThinkingLevel ?? undefined;
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
   // Surface a credential-lifecycle alert directly in the chat header when
@@ -479,6 +495,7 @@ export function AppShell({
   const {
     setPermissionMode,
     setSessionModel,
+    setSessionThinkingLevel,
   } = createAppShellSessionSettingsActions({
     activeIdRef,
     connections,
@@ -819,6 +836,7 @@ export function AppShell({
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
     validPendingNewChatModel,
+    pendingNewChatThinkingLevel,
   });
 
   const { handleTurnFooterAction } = createAppShellTurnActions({
@@ -1425,8 +1443,14 @@ export function AppShell({
                 renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
                 onModelChange={(input) => setSessionModel(input)}
+                activeThinkingLevels={activeThinkingLevels}
+                activeThinkingLevel={activeThinkingLevel}
+                onThinkingLevelChange={(level) => setSessionThinkingLevel(level)}
                 newChatModel={newChatModel}
                 onPickNewChatModel={(input) => setPendingNewChatModel(input)}
+                newChatThinkingLevels={newChatThinkingLevels}
+                newChatThinkingLevel={newChatThinkingLevel}
+                onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
                   label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,

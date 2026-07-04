@@ -176,6 +176,7 @@ describe('assistant streaming handoff', () => {
         pendingNewChatPermissionMode: null,
         setPendingNewChatPermissionMode: () => {},
         validPendingNewChatModel: null,
+        pendingNewChatThinkingLevel: null,
       });
 
       const handlers = createAppShellSessionEventHandlers({

@@ -34,6 +34,8 @@ export interface ModelPickerProps {
   popupClassName?: string;
   ariaLabel: string;
   title?: string;
+  /** Static popup footer, outside the scrollable model list. */
+  footer?(context: { open: boolean; close(): void }): ReactNode;
   /** Trigger button inner content; the chevron is added by ModelPicker. */
   children: ReactNode;
 }
@@ -171,7 +173,17 @@ export function ModelPicker(props: ModelPickerProps) {
       value={selectedItem}
       inputValue={query}
       open={open}
-      onOpenChange={(nextOpen) => {
+      onOpenChange={(nextOpen, details) => {
+        const target = details.event?.target;
+        if (
+          !nextOpen &&
+          details.reason === 'outside-press' &&
+          target instanceof Element &&
+          target.closest('[data-model-picker-nested-popup]')
+        ) {
+          details.cancel();
+          return;
+        }
         setOpen(nextOpen);
         if (!nextOpen) setQuery('');
       }}
@@ -209,6 +221,13 @@ export function ModelPicker(props: ModelPickerProps) {
               emptyMessage={props.emptyMessage}
               renderProviderMark={props.renderProviderMark}
             />
+            {props.footer?.({
+              open,
+              close: () => {
+                setOpen(false);
+                setQuery('');
+              },
+            })}
           </ModelPickerPopup>
         </BaseCombobox.Positioner>
       </BaseCombobox.Portal>
