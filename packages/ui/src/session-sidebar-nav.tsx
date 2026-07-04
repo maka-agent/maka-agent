@@ -30,7 +30,7 @@ const navRowVariants = cva(
   },
 );
 
-type ModuleNavId = NavSelection['section'];
+type ModuleNavId = 'daily-review' | 'skills' | 'automations';
 
 const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 ' +
@@ -39,7 +39,6 @@ const settingsButtonClass =
   'hover:bg-foreground/6 hover:text-foreground';
 
 const MODULE_NAV_LABEL: Record<ModuleNavId, string> = {
-  sessions: '会话',
   automations: '定时任务',
   skills: '技能',
   'daily-review': '每日回顾',
@@ -57,13 +56,7 @@ export function SessionSidebarNav(props: {
     .length;
 
   function selectModule(id: ModuleNavId) {
-    if (id === 'sessions') {
-      props.onSelect({ section: 'sessions', filter: 'chats' });
-      return;
-    }
-    if (id === 'automations') props.onSelect({ section: 'automations' });
-    else if (id === 'skills') props.onSelect({ section: 'skills' });
-    else if (id === 'daily-review') props.onSelect({ section: 'daily-review' });
+    props.onSelect({ section: id });
   }
 
   return (
