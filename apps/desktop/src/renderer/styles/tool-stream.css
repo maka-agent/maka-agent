@@ -156,8 +156,8 @@
     background: var(--foreground-3);
   }
 .settingsMemoryPromptPreview[data-active="true"] {
-    border-color: oklch(from var(--nav-active) l c h / 0.35);
-    background: oklch(from var(--nav-active) l c h / 0.06);
+    border-color: var(--border-strong);
+    background: var(--state-selected-bg);
   }
 .settingsMemoryPromptPreviewHeader {
     display: flex;
@@ -180,7 +180,7 @@
     font-size: var(--font-size-caption);
   }
 .settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
-    color: var(--nav-active);
+    color: var(--foreground);
   }
 .settingsMemoryPromptPreview small {
     color: var(--muted-foreground);

@@ -880,8 +880,8 @@
 }
 
 .maka-palette-item[data-active="true"] .maka-palette-icon {
-  background: oklch(from var(--nav-active) l c h / 0.10);
-  color: var(--nav-active);
+  background: var(--state-selected-bg);
+  color: var(--foreground);
 }
 
 .maka-palette-label {
