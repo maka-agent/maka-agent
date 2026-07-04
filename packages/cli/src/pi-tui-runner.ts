@@ -494,6 +494,8 @@ class MakaPiLayoutComponent extends Container {
 }
 
 class MakaAutocompleteAboveEditorComponent implements Component {
+  private autocompleteSlotRows = 0;
+
   constructor(private readonly editor: Editor) {}
 
   get focused(): boolean {
@@ -514,13 +516,52 @@ class MakaAutocompleteAboveEditorComponent implements Component {
 
   render(width: number): string[] {
     const lines = this.editor.render(width);
-    if (!this.editor.isShowingAutocomplete()) return lines;
-    const sections = splitTrailingAutocomplete(lines);
-    return [
+    const result = arrangeAutocompleteAboveEditor({
+      lines,
+      autocompleteShowing: this.editor.isShowingAutocomplete(),
+      autocompleteSlotRows: this.autocompleteSlotRows,
+    });
+    this.autocompleteSlotRows = result.autocompleteSlotRows;
+    return result.lines;
+  }
+}
+
+export interface MakaAutocompleteArrangementInput {
+  lines: string[];
+  autocompleteShowing: boolean;
+  autocompleteSlotRows: number;
+}
+
+export interface MakaAutocompleteArrangementResult {
+  lines: string[];
+  autocompleteSlotRows: number;
+}
+
+export function arrangeAutocompleteAboveEditor(
+  input: MakaAutocompleteArrangementInput,
+): MakaAutocompleteArrangementResult {
+  if (!input.autocompleteShowing) {
+    return { lines: input.lines, autocompleteSlotRows: 0 };
+  }
+  const sections = splitTrailingAutocomplete(input.lines);
+  if (sections.autocompleteLines.length === 0) {
+    return { lines: sections.editorLines, autocompleteSlotRows: 0 };
+  }
+  const autocompleteSlotRows = Math.max(
+    input.autocompleteSlotRows,
+    sections.autocompleteLines.length,
+  );
+  return {
+    lines: [
+      ...Array.from(
+        { length: autocompleteSlotRows - sections.autocompleteLines.length },
+        () => '',
+      ),
       ...sections.autocompleteLines,
       ...sections.editorLines,
-    ];
-  }
+    ],
+    autocompleteSlotRows,
+  };
 }
 
 interface MakaAutocompleteSections {

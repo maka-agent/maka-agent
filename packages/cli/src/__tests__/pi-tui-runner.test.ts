@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import { visibleWidth, type Terminal } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from '../session-driver.js';
-import { runMakaPiTui } from '../pi-tui-runner.js';
+import { arrangeAutocompleteAboveEditor, runMakaPiTui } from '../pi-tui-runner.js';
 
 describe('Maka Pi TUI runner', () => {
   test('restores the terminal when driver stop rejects during close', async () => {
@@ -404,6 +404,83 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close after Ctrl-C');
       }),
     ]);
+  });
+
+  test('keeps slash autocomplete filtering pinned to the bottom after scrollback', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new LongTranscriptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('fill');
+    terminal.input('\r');
+
+    await waitFor(() => driver.prompts.length === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('filler line 40'));
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
+    const beforeLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const beforeRows = inputSurfaceRows(beforeLines);
+
+    terminal.input('s');
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/s'));
+    const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    const afterRows = inputSurfaceRows(afterLines);
+    const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
+
+    assert.deepEqual(afterRows, beforeRows);
+    assert.equal(afterRows[1], terminal.rows - 2);
+    assert.equal(afterSessionRow, afterRows[0] - 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('bottom-aligns filtered autocomplete inside a stable slot', () => {
+    const expanded = arrangeAutocompleteAboveEditor({
+      lines: [
+        '────────',
+        '/ ',
+        '────────',
+        '→ /exit',
+        '  /model',
+        '  /permissions',
+        '  /session',
+      ],
+      autocompleteShowing: true,
+      autocompleteSlotRows: 0,
+    });
+
+    const filtered = arrangeAutocompleteAboveEditor({
+      lines: [
+        '────────',
+        '/s ',
+        '────────',
+        '→ /session',
+      ],
+      autocompleteShowing: true,
+      autocompleteSlotRows: expanded.autocompleteSlotRows,
+    });
+
+    assert.equal(filtered.lines.length, expanded.lines.length);
+    assert.deepEqual(filtered.lines.slice(0, 4), ['', '', '', '→ /session']);
+    assert.deepEqual(filtered.lines.slice(4), ['────────', '/s ', '────────']);
   });
 
   test('handles /exit without sending a prompt', async () => {
@@ -940,6 +1017,27 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
 }
 
+class LongTranscriptDriver extends SlashCommandDriver {
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'text_complete',
+      id: 'event-text-complete',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: Array.from({ length: 40 }, (_, index) => `filler line ${index + 1}`).join('\n'),
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+}
+
 function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): MakaSessionSwitchResult {
   return { summary, messages };
 }
@@ -1131,7 +1229,7 @@ function renderTerminalScreen(writes: readonly string[], rows: number): string {
   }
 
   while (screen.length < rows) screen.push('');
-  return screen.slice(0, rows).join('\n');
+  return screen.slice(Math.max(0, screen.length - rows)).join('\n');
 }
 
 interface ScreenEscapeActions {
