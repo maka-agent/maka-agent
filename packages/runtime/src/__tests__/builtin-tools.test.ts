@@ -4,8 +4,94 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import {
+  LOCAL_WORKSPACE_EXECUTOR_FACTS,
+  type WorkspaceExecInput,
+  type WorkspaceExecutor,
+} from '../workspace-executor.js';
 
 describe('builtin Bash streaming output', () => {
+  test('delegates Bash execution to an injected workspace executor', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-executor-'));
+    const calls: WorkspaceExecInput[] = [];
+    const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
+    const bash = buildBuiltinTools({ executor: fakeExecutor({
+      exec: async (input) => {
+        calls.push(input);
+        input.emitOutput?.('stdout', 'delegated-out');
+        return {
+          exitCode: 0,
+          stdout: 'delegated-out',
+          stderr: 'delegated-err',
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    }) }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: 'npm test', timeout_ms: 12_345 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: (stream, chunk) => events.push({ stream, chunk }),
+      },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe('npm test');
+    expect(calls[0]?.cwd).toBe(cwd);
+    expect(calls[0]?.timeoutMs).toBe(12_345);
+    expect(events).toEqual([{ stream: 'stdout', chunk: 'delegated-out' }]);
+    expect(result).toMatchObject({
+      kind: 'terminal',
+      cwd,
+      cmd: 'npm test',
+      exitCode: 0,
+      stdout: 'delegated-out',
+      stderr: 'delegated-err',
+    });
+  });
+
+  test('preserves Bash failure contract when the executor reports non-zero exit', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-executor-'));
+    const bash = buildBuiltinTools({ executor: fakeExecutor({
+      exec: async () => ({
+        exitCode: 4,
+        stdout: 'out-data',
+        stderr: 'err-data',
+        timedOut: false,
+        aborted: false,
+      }),
+    }) }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
+    try {
+      await bash.impl(
+        { command: 'fail', timeout_ms: 5_000 },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
+    } catch (e: unknown) {
+      err = e as { code?: number; stdout?: string; stderr?: string };
+    }
+
+    expect(err?.code).toBe(4);
+    expect(err?.stdout).toBe('out-data');
+    expect(err?.stderr).toBe('err-data');
+  });
+
   test('emits stdout/stderr chunks before returning terminal result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
@@ -310,4 +396,24 @@ function runTool(tool: ReturnType<typeof buildBuiltinTools>[number], args: unkno
     abortSignal: new AbortController().signal,
     emitOutput: () => {},
   }));
+}
+
+function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor {
+  return {
+    facts: LOCAL_WORKSPACE_EXECUTOR_FACTS,
+    exec: async () => ({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+      aborted: false,
+    }),
+    readFile: async () => ({ content: '' }),
+    writeFile: async ({ path, content }) => ({
+      ok: true,
+      path,
+      bytes: Buffer.byteLength(content, 'utf8'),
+    }),
+    ...overrides,
+  };
 }

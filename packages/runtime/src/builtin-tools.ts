@@ -13,7 +13,11 @@ import { glob as nodeGlob } from 'node:fs/promises'; // Node 22+ stable glob
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
 import { truncateToolOutput } from './tool-output.js';
-import { runShellWithBoundedTail } from './shell-exec.js';
+import {
+  createLocalWorkspaceExecutor,
+  type WorkspaceExecResult,
+  type WorkspaceExecutor,
+} from './workspace-executor.js';
 
 // Single source of truth for tool shape. AiSdkBackend exports them; we just
 // re-export here for back-compat with external callers that imported from
@@ -38,7 +42,12 @@ async function fileWriteLockKey(cwd: string, inputPath: string): Promise<string>
   return resolve(await fs.realpath(cwd), inputPath);
 }
 
-export function buildBuiltinTools(): MakaTool[] {
+export interface BuildBuiltinToolsOptions {
+  executor?: WorkspaceExecutor;
+}
+
+export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
+  const executor = options.executor ?? createLocalWorkspaceExecutor();
   return [
     {
       name: 'Bash',
@@ -49,12 +58,19 @@ export function buildBuiltinTools(): MakaTool[] {
       }),
       permissionRequired: true,
       impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
-        const result = await runStreamingShell(command, {
+        const timeout = timeout_ms ?? 120_000;
+        const result = await executor.exec({
+          command,
           cwd,
-          timeout: timeout_ms ?? 120_000,
-          abortSignal,
+          timeoutMs: timeout,
+          ...(abortSignal ? { abortSignal } : {}),
           emitOutput,
         });
+        if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
+        if (result.aborted) throw terminalError('Command aborted', result, 130);
+        if (result.exitCode !== 0) {
+          throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
+        }
         return {
           kind: 'terminal',
           cwd,
@@ -193,39 +209,9 @@ export function buildBuiltinTools(): MakaTool[] {
   ];
 }
 
-// Thin wrapper over the shared runShellWithBoundedTail (the one place a shell
-// command actually runs — see shell-exec.ts). Keeps the builtin's contract:
-// throw on timeout / abort / non-zero exit (with stdout+stderr+code attached),
-// stream live via emitOutput, and return the bounded tail on success.
-async function runStreamingShell(
-  command: string,
-  options: {
-    cwd: string;
-    timeout: number;
-    abortSignal: AbortSignal;
-    emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
-  },
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const result = await runShellWithBoundedTail(command, {
-    cwd: options.cwd,
-    timeoutMs: options.timeout,
-    abortSignal: options.abortSignal,
-    emitOutput: options.emitOutput,
-  });
-  // Attach the captured (bounded) stdout/stderr + an exit code to EVERY failure,
-  // not just non-zero exit. coerceTerminalFailure only folds the tail into the
-  // model-facing result when error.code is a number, so without a code on
-  // timeout/abort the model would be blind to the logs leading up to the failure
-  // (124 = timeout, 130 = aborted, both conventional).
-  if (result.timedOut) throw terminalError(`Command timed out after ${options.timeout}ms`, result, 124);
-  if (result.aborted) throw terminalError('Command aborted', result, 130);
-  if (result.exitCode !== 0) throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
-  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
-}
-
 function terminalError(
   message: string,
-  result: { stdout: string; stderr: string },
+  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr'>,
   code: number,
 ): Error {
   const error = new Error(message);
