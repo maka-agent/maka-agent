@@ -363,7 +363,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('keeps slash autocomplete filtering from collapsing the input area', async () => {
+  test('keeps slash autocomplete filtering anchored to the input editor', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -381,7 +381,6 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/session'));
     const beforeLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const beforeRows = inputSurfaceRows(beforeLines);
-    const beforeFirstSuggestionRow = beforeLines.findIndex((line) => line.includes('/exit'));
     const beforeSessionRow = beforeLines.findIndex((line) => line.includes('/session'));
 
     terminal.input('s');
@@ -394,10 +393,9 @@ describe('Maka Pi TUI runner', () => {
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
 
-    assert.ok(beforeFirstSuggestionRow >= 0);
     assert.ok(beforeSessionRow >= 0);
     assert.deepEqual(afterRows, beforeRows);
-    assert.equal(afterSessionRow, beforeFirstSuggestionRow);
+    assert.equal(afterSessionRow, afterRows[0] - 1);
 
     terminal.input('\x03');
     await Promise.race([

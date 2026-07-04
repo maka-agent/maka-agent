@@ -494,8 +494,6 @@ class MakaPiLayoutComponent extends Container {
 }
 
 class MakaAutocompleteAboveEditorComponent implements Component {
-  private autocompleteSlotRows = 0;
-
   constructor(private readonly editor: Editor) {}
 
   get focused(): boolean {
@@ -516,19 +514,10 @@ class MakaAutocompleteAboveEditorComponent implements Component {
 
   render(width: number): string[] {
     const lines = this.editor.render(width);
-    if (!this.editor.isShowingAutocomplete()) {
-      this.autocompleteSlotRows = 0;
-      return lines;
-    }
+    if (!this.editor.isShowingAutocomplete()) return lines;
     const sections = splitTrailingAutocomplete(lines);
-    if (sections.autocompleteLines.length === 0) {
-      this.autocompleteSlotRows = 0;
-      return sections.editorLines;
-    }
-    this.autocompleteSlotRows = Math.max(this.autocompleteSlotRows, sections.autocompleteLines.length);
     return [
       ...sections.autocompleteLines,
-      ...Array.from({ length: this.autocompleteSlotRows - sections.autocompleteLines.length }, () => ''),
       ...sections.editorLines,
     ];
   }
