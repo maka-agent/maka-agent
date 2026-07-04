@@ -211,6 +211,17 @@ describe('issue #406 design-system governance contract', () => {
     // .dark via re-resolved var() refs. Parse it so a ratio tweak flows through.
     const fgSecDef = readCssToken(tokens, ':root', 'foreground-secondary');
     const fgSecPct = Number(fgSecDef.match(/var\(--foreground\)\s+(\d+)%/)?.[1] ?? 80) / 100;
+    // Lock the *-text token definitions to the readable formula (tone 50% +
+    // foreground 50%). If a token is deleted or rewired (e.g. --info-text ->
+    // var(--info)), this fails before the contrast check — closing the gap
+    // where the test computed a theoretical readable color while the chip
+    // silently used something else. .dark inherits these from :root (the
+    // color-mix re-resolves with dark's tone/foreground), so also assert no
+    // .dark override sneaks in.
+    assert.match(readCssToken(tokens, ':root', 'info-text'), /^color-mix\(in oklab,\s*var\(--info\)\s+50%,\s*var\(--foreground\)\)$/, ':root --info-text must be color-mix(info 50%, foreground)');
+    assert.match(readCssToken(tokens, ':root', 'destructive-text'), /^color-mix\(in oklab,\s*var\(--destructive\)\s+50%,\s*var\(--foreground\)\)$/, ':root --destructive-text must be color-mix(destructive 50%, foreground)');
+    assert.equal(readCssToken(tokens, '.dark', 'info-text'), '', '.dark must not override --info-text (inherit :root formula)');
+    assert.equal(readCssToken(tokens, '.dark', 'destructive-text'), '', '.dark must not override --destructive-text (inherit :root formula)');
     for (const selector of [':root', '.dark'] as const) {
       const info = parseOklch(readCssToken(tokens, selector, 'info'));
       const destr = parseOklch(readCssToken(tokens, selector, 'destructive'));
