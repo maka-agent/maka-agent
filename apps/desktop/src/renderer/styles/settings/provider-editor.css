@@ -171,7 +171,7 @@
 .providerEditor select:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
   background: var(--background);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.10);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.10);
 }
 
 .providerActions {
@@ -210,7 +210,7 @@
 .providerExternalLink:focus-visible {
   outline: none;
   background: oklch(from var(--focus-ring) l c h / 0.06);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 /* UI-02 model table: per-row default radio, capability chips, search box,
@@ -287,7 +287,7 @@
   /* PR-UI-LAYOUT-22: brought into the focus-ring family — was
    * border-color only, now 3px accent halo to match the rest. */
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.10);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.10);
 }
 
 .modelTableEmpty {
@@ -369,7 +369,7 @@
   outline: none;
   background: var(--background);
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .modelTableRow[data-default="true"] {

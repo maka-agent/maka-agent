@@ -478,7 +478,7 @@
   border-color: oklch(from var(--focus-ring) l c h / 0.46);
   background: oklch(from var(--focus-ring) 0.98 calc(c * 0.20) h / 0.35);
   box-shadow:
-    0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22),
+    0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.22),
     0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08);
 }
 /* PR-UI-15 (@yuejing 2026-05-22): small example hint shown below the

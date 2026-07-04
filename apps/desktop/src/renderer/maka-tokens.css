@@ -1441,7 +1441,7 @@
   .maka-bubble-assistant a:focus-visible {
     outline: none;
     background: oklch(from var(--link) l c h / 0.06);
-    box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.20);
+    box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20);
   }
   .maka-bubble-assistant code {
     font-family: var(--font-mono);
@@ -1504,7 +1504,7 @@
     outline: none;
     color: var(--foreground);
     background: var(--foreground-10);
-    box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+    box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
   }
   .maka-code-block-copy[data-copied="true"] {
     color: var(--success-text);
@@ -1812,7 +1812,7 @@
     border-color: oklch(from var(--focus-ring) l c h / 0.40);
     background: var(--background);
     box-shadow:
-      0 0 0 1px oklch(from var(--focus-ring) l c h / 0.20),
+      0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20),
       0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
   }
@@ -1820,7 +1820,7 @@
     border-color: oklch(from var(--focus-ring) l c h / 0.46);
     background: oklch(from var(--focus-ring) 0.98 calc(c * 0.20) h / 0.35);
     box-shadow:
-      0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22),
+      0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.22),
       0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
   }
@@ -1883,7 +1883,7 @@
   .maka-button:active { background: var(--state-selected-bg); }
   .maka-button:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.16);
+    box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.16);
   }
   .maka-button[disabled],
   .maka-button[aria-disabled="true"] { opacity: var(--opacity-disabled); cursor: not-allowed; }

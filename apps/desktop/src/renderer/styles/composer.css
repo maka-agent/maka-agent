@@ -85,7 +85,7 @@
 .maka-composer-workspace-picker:focus-visible {
   outline: none;
   border-radius: var(--radius-control);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-composer-workspace-picker svg {

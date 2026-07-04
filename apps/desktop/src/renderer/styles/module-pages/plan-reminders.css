@@ -613,7 +613,7 @@
 .maka-plan-field input:focus,
 .maka-plan-field textarea:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.55);
-  box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.12);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .maka-plan-presets {
@@ -715,7 +715,7 @@
 
 .maka-plan-search input:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.55);
-  box-shadow: 0 0 0 2px oklch(from var(--focus-ring) l c h / 0.12);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.12);
 }
 
 .maka-plan-search-summary {

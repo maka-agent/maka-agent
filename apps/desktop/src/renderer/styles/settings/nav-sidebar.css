@@ -636,7 +636,7 @@
 .settingsFormGrid select:focus-visible {
   outline: none;
   border-color: var(--focus-ring);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.18);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
 }
 
 /* PR-SETTINGS-A11Y-POLISH-0 — respect prefers-reduced-motion. Strip

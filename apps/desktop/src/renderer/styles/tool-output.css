@@ -114,7 +114,7 @@
    rather than sitting flat (study §8.1, §8.4). */
 .composer .maka-composer-inner:focus-within {
   box-shadow:
-    0 0 0 1px oklch(from var(--focus-ring) l c h / 0.24),
+    0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.24),
     0 14px 34px -28px oklch(from var(--foreground) l c h / 0.24);
 }
 

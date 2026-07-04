@@ -438,7 +438,7 @@
 .maka-artifact-pane-collapse:focus-visible {
   outline: none;
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-artifact-pane-title {
@@ -522,7 +522,7 @@
 .maka-artifact-error-retry:focus-visible {
   outline: none;
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-artifact-list {
@@ -960,7 +960,7 @@
 .maka-turn[data-search-highlight="true"] {
   border-radius: var(--radius-surface);
   outline: 1px solid oklch(from var(--link) l c h / 0.34);
-  outline-offset: var(--focus-ring-offset);
+  outline-offset: 6px;
   background: oklch(from var(--link) l c h / 0.045);
 }
 
