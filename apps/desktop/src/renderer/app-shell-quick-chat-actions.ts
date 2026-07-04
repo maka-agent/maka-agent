@@ -1,5 +1,6 @@
 import type { QuickChatMode } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
+import { saveGlobalInputHistoryEntry } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 
 type ComposerImportOwner = {
@@ -54,6 +55,9 @@ export function createAppShellQuickChatActions(deps: {
     try {
       const result = await window.maka.quickChat.start({ prompt, mode });
       if (result.ok) {
+        // Save to global input history so the prompt is recallable
+        // from the main Composer via up-arrow navigation.
+        saveGlobalInputHistoryEntry(prompt);
         if (isShellSurfaceOwnerActive(owner)) {
           openSessionInChat(result.sessionId);
         }

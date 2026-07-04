@@ -118,3 +118,17 @@ test('clearGlobalInputHistory is a no-op when nothing is stored', () => {
   clearGlobalInputHistory();
   assert.deepEqual(readGlobalInputHistory(), []);
 });
+
+test('clear after seeding — read returns empty (mounted Composer regression guard)', () => {
+  // Simulates: user sends prompts -> opens Settings -> clicks 清空 ->
+  // returns to a still-mounted Composer without refreshing.
+  // The Composer re-reads from readGlobalInputHistory() before every
+  // navigation, so after clear it gets an empty array and cannot
+  // return old entries.
+  saveGlobalInputHistoryEntry('问题一');
+  saveGlobalInputHistoryEntry('问题二');
+  saveGlobalInputHistoryEntry('问题三');
+  assert.equal(readGlobalInputHistory().length, 3);
+  clearGlobalInputHistory();
+  assert.deepEqual(readGlobalInputHistory(), [], 'after clear, read returns empty even when previously seeded');
+});

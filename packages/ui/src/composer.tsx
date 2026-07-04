@@ -356,6 +356,18 @@ export const Composer = forwardRef<
         const isNavigatingHistory = promptHistoryRef.current.index >= 0;
         const canStartHistory = Boolean(el && !el.value.trim());
         if (el && (explicit || isNavigatingHistory || canStartHistory)) {
+          // Re-read global history from localStorage on every
+          // navigation so a clear from Settings (an overlay that
+          // keeps the Composer mounted) is picked up immediately.
+          // Without this, the stale in-memory ref would still
+          // return old entries after the user hit "清空输入历史".
+          const synced = readGlobalInputHistory();
+          promptHistoryRef.current = {
+            entries: synced,
+            index: synced.length === 0 ? -1 : Math.min(promptHistoryRef.current.index, synced.length - 1),
+            savedDraft: synced.length === 0 ? '' : promptHistoryRef.current.savedDraft,
+          };
+          if (synced.length === 0 && !explicit) return;
           const next = navigateComposerHistory(
             promptHistoryRef.current,
             event.key === 'ArrowUp' ? 'previous' : 'next',
