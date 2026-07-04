@@ -66,7 +66,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
     assert.match(tabs, /value=\{catalogTab\}[\s\S]*onValueChange=\{\(value\) => setCatalogTab\(value as CatalogTab\)\}/);
     assert.match(tabs, /<PrimitiveTabsList[^>]*variant="pill"[^>]*aria-label="模型供应商分类">/);
-    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*className="maka-tab"[\s\S]*value=\{tab\.id\}/);
+    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*value=\{tab\.id\}/, 'catalog tabs use PrimitiveTabsTrigger as a real tablist (maka-tab comes from the primitive)');
     assert.match(tabs, /data-catalog-tab=\{tab\.id\}/);
   });
 

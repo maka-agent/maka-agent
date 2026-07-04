@@ -295,7 +295,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             {CATALOG_TABS.map((tab) => (
               <PrimitiveTabsTrigger
                 key={tab.id}
-                className="maka-tab"
                 value={tab.id}
                 data-catalog-tab={tab.id}
               >

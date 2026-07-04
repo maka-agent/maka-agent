@@ -88,11 +88,6 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /TabsList[^>]*variant="underline"/,
       'plan TabsList must pass variant="underline"',
     );
-    assert.match(
-      panel,
-      /TabsTrigger[^>]*className="[^"]*\bmaka-tab\b/,
-      'plan TabsTrigger must carry the maka-tab class',
-    );
     const css = stripCssComments(await readFile(PLAN_CSS_FILE, 'utf8'));
     // The active state + under-bar move to .maka-tab; surface-specific layout
     // rules (.maka-plan-tab height/padding/font-size) may remain, but the
@@ -116,11 +111,6 @@ describe('issue #499 P0-3 tab spec contract', () => {
       panel,
       /PrimitiveTabsList[^>]*variant="pill"/,
       'catalog TabsList must pass variant="pill"',
-    );
-    assert.match(
-      panel,
-      /PrimitiveTabsTrigger[^>]*className="[^"]*\bmaka-tab\b/,
-      'catalog TabsTrigger must carry the maka-tab class',
     );
     assert.match(
       panel,
@@ -177,11 +167,6 @@ describe('issue #499 P0-3 tab spec contract', () => {
       panel,
       /TabsList[^>]*variant="underline"/,
       'skill TabsList must pass variant="underline"',
-    );
-    assert.match(
-      panel,
-      /TabsTrigger[^>]*className="[^"]*\bmaka-tab\b/,
-      'skill TabsTrigger must carry the maka-tab class',
     );
     assert.match(
       panel,

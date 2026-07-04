@@ -74,7 +74,7 @@ function SkillLibraryPanel(props: {
         ] as const).map(([tab, label, count]) => (
           <TabsTrigger
             key={tab}
-            className="maka-tab maka-skill-tab"
+            className="maka-skill-tab"
             value={tab}
           >
             {label}
@@ -235,20 +235,6 @@ function SkillLibraryPanel(props: {
     </section>
   );
 
-  if (!props.skills || props.skills.length === 0) {
-    return (
-      <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
-        {banner}
-        <TabsRoot value={activeSkillTab} onValueChange={(v) => setActiveSkillTab(v as 'market' | 'builtin' | 'installed')}>
-          {tabs}
-          <TabsPanel value="market">{market}</TabsPanel>
-          <TabsPanel value="builtin">{skillList([], skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
-          <TabsPanel value="installed">{skillList([], skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
-        </TabsRoot>
-      </div>
-    );
-  }
-
   return (
     <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
       {banner}
@@ -258,9 +244,11 @@ function SkillLibraryPanel(props: {
         <TabsPanel value="builtin">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
         <TabsPanel value="installed">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
       </TabsRoot>
-      <span className="maka-skill-tool-summary-hidden" aria-hidden="true">
-        {`${skillCount} 个 Skill · ${new Set((props.skills ?? []).flatMap((skill) => skill.declaredTools ?? [])).size} 类工具`}
-      </span>
+      {props.skills && props.skills.length > 0 ? (
+        <span className="maka-skill-tool-summary-hidden" aria-hidden="true">
+          {`${skillCount} 个 Skill · ${new Set((props.skills ?? []).flatMap((skill) => skill.declaredTools ?? [])).size} 类工具`}
+        </span>
+      ) : null}
     </div>
   );
 }
