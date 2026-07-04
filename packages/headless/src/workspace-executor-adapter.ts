@@ -15,6 +15,14 @@ import type {
 import type { IsolatedToolExecutor } from './isolation.js';
 
 export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
+  isolation: 'none',
+  writesAffectHost: true,
+  writeBack: 'direct',
+  network: 'host',
+  secrets: 'host_env',
+};
+
+export const EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
   isolation: 'remote',
   writesAffectHost: false,
   writeBack: 'diff_review',

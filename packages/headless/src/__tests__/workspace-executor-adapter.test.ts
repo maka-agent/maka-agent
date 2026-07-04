@@ -1,9 +1,49 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { isolatedToolExecutorToWorkspaceExecutor } from '../workspace-executor-adapter.js';
+import {
+  EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS,
+  isolatedToolExecutorToWorkspaceExecutor,
+} from '../workspace-executor-adapter.js';
 import type { IsolatedToolExecutor } from '../isolation.js';
 
 describe('isolatedToolExecutorToWorkspaceExecutor', () => {
+  test('defaults to conservative local-impact facts unless isolation is explicitly asserted', async () => {
+    const isolated: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
+
+    assert.deepEqual(executor.facts, {
+      isolation: 'none',
+      writesAffectHost: true,
+      writeBack: 'direct',
+      network: 'host',
+      secrets: 'host_env',
+    });
+  });
+
+  test('accepts explicit external sandbox facts', async () => {
+    const isolated: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const executor = isolatedToolExecutorToWorkspaceExecutor(
+      isolated,
+      EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS,
+    );
+
+    assert.deepEqual(executor.facts, {
+      isolation: 'remote',
+      writesAffectHost: false,
+      writeBack: 'diff_review',
+      network: 'sandbox',
+      secrets: 'brokered',
+    });
+  });
+
   test('adapts isolated exec into workspace exec', async () => {
     const calls: unknown[] = [];
     const isolated: IsolatedToolExecutor = {
@@ -20,13 +60,6 @@ describe('isolatedToolExecutorToWorkspaceExecutor', () => {
       timeoutMs: 12_000,
     });
 
-    assert.deepEqual(executor.facts, {
-      isolation: 'remote',
-      writesAffectHost: false,
-      writeBack: 'diff_review',
-      network: 'sandbox',
-      secrets: 'brokered',
-    });
     assert.deepEqual(calls, [{
       command: 'npm test',
       cwd: '/workspace',
