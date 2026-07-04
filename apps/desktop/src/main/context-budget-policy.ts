@@ -15,6 +15,7 @@ export function buildContextBudgetPolicy(connection: LlmConnection): ContextBudg
   const historyCompact = buildHistoryCompactPolicy();
   const historyRewrite = buildHistoryRewriteGatePolicy();
   const semanticCompact = buildSemanticCompactPolicy();
+  const activeToolResultPrune = buildActiveToolResultPrunePolicy();
   if (
     maxHistoryEstimatedTokens === undefined &&
     maxHistoryTurns === undefined &&
@@ -24,7 +25,8 @@ export function buildContextBudgetPolicy(connection: LlmConnection): ContextBudg
     synthesisCache === undefined &&
     historyCompact === undefined &&
     semanticCompact === undefined &&
-    historyRewrite === undefined
+    historyRewrite === undefined &&
+    activeToolResultPrune === undefined
   ) {
     return undefined;
   }
@@ -38,6 +40,7 @@ export function buildContextBudgetPolicy(connection: LlmConnection): ContextBudg
     ...(synthesisCache !== undefined ? { synthesisCache } : {}),
     ...(historyCompact !== undefined ? { historyCompact } : {}),
     ...(semanticCompact !== undefined ? { semanticCompact } : {}),
+    ...(activeToolResultPrune !== undefined ? { activeToolResultPrune } : {}),
     ...(historyRewrite !== undefined ? { historyRewrite } : {}),
     minRecentTurns,
   };
@@ -55,6 +58,23 @@ function buildStaleToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['sta
       process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS,
       parsePositiveInt(process.env.MAKA_CONTEXT_MIN_RECENT_TURNS, 2),
     ),
+  };
+}
+
+function buildActiveToolResultPrunePolicy(): NonNullable<ContextBudgetPolicy['activeToolResultPrune']> | undefined {
+  const enabled = parseOptionalBoolean(
+    process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE,
+    'MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE',
+  );
+  if (enabled === false) return undefined;
+  return {
+    enabled: true,
+    maxCurrentResultEstimatedTokens: parsePositiveInt(
+      process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS ??
+        process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE_MAX_ESTIMATED_TOKENS,
+      2048,
+    ),
+    minStepNumber: parseOptionalNonNegativeInt(process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER) ?? 1,
   };
 }
 
