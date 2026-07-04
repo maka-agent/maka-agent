@@ -5,6 +5,7 @@ export * from './chat-model-helpers.js';
 export * from './clipboard-feedback.js';
 export * from './components.js';
 export * from './composer-helpers.js';
+export * from './input-history.js';
 export * from './daily-review-helpers.js';
 export * from './locale-helpers.js';
 export * from './markdown.js';
