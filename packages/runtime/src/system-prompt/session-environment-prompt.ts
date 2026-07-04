@@ -1,5 +1,13 @@
 import type { ProjectGitInfo } from './project-context.js';
 
+/**
+ * Per-turn environment tail fragment (cwd / git repo / branch / platform /
+ * date). This is volatile per-turn context, NOT durable system prompt: date
+ * and branch change between turns, and pinning it in the system prefix would
+ * churn the prefix hash. Moved here from apps/desktop/src/main/session-environment-prompt.ts
+ * so the CLI/TUI turnTailPrompt can reuse it.
+ */
+
 export interface SessionEnvironmentPromptInput {
   cwd: string;
   projectGit: ProjectGitInfo;

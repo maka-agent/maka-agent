@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { buildSessionEnvironmentPromptFragment } from '../session-environment-prompt.js';
+import { buildSessionEnvironmentPromptFragment } from '@maka/runtime';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 describe('session environment prompt', () => {

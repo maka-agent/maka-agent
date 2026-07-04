@@ -510,3 +510,10 @@ export {
   collectPersonalizationWarnings,
 } from './system-prompt/personalization-prompt.js';
 export type { PersonalizationPromptFragment } from './system-prompt/personalization-prompt.js';
+export {
+  resolveProjectGitInfo,
+  resolveProjectRoot,
+} from './system-prompt/project-context.js';
+export type { ProjectGitInfo } from './system-prompt/project-context.js';
+export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
+export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';

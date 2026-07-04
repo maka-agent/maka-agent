@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveProjectGitInfo, resolveProjectRoot } from '../project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';

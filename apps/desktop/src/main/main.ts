@@ -107,7 +107,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { resolveProjectGitInfo, resolveProjectRoot } from './project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
