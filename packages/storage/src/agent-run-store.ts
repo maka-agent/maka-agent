@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { chainWrite } from './write-queue.js';
 import {
   AGENT_RUN_STATUSES,
   isPermissionMode,
@@ -150,16 +151,7 @@ class FileAgentRunStore implements AgentRunStore {
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    const key = `${sessionId}:${runId}`;
-    const previous = this.writeQueues.get(key) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
-    this.writeQueues.set(
-      key,
-      next.catch(() => {
-        // Keep the chain alive after failures.
-      }),
-    );
-    return next;
+    return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
   }
 }
 
@@ -230,16 +222,7 @@ class FileRuntimeEventStore implements RuntimeEventStore {
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    const key = `${sessionId}:${runId}`;
-    const previous = this.writeQueues.get(key) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
-    this.writeQueues.set(
-      key,
-      next.catch(() => {
-        // Keep the chain alive after failures.
-      }),
-    );
-    return next;
+    return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
   }
 }
 

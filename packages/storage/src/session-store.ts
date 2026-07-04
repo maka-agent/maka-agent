@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { chainWrite } from './write-queue.js';
 import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus, normalizeUserSessionName } from '@maka/core';
 import type {
   CreateSessionInput,
@@ -362,15 +363,7 @@ class FileSessionStore implements SessionStore {
 
   private withQueue(sessionId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeSessionId(sessionId);
-    const previous = this.writeQueues.get(sessionId) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
-    this.writeQueues.set(
-      sessionId,
-      next.catch(() => {
-        // Keep the chain alive after failures.
-      }),
-    );
-    return next;
+    return chainWrite(this.writeQueues, sessionId, operation);
   }
 }
 
