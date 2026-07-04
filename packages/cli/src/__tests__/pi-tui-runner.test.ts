@@ -270,6 +270,43 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('renders slash autocomplete above the input editor', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
+    const lines = plainTerminalOutput(terminal.output()).split(/\r?\n/);
+    const suggestionIndex = lines.findIndex((line) => line.includes('/model'));
+    const statusLineIndex = lines.findIndex((line) => line.includes('Maka deepseek-v4-flash deepseek ask /repo'));
+    const editorBorderIndexes = lines
+      .map((line, index) => (/^─+$/.test(line) ? index : -1))
+      .filter((index) => index >= 0);
+
+    assert.ok(suggestionIndex >= 0);
+    assert.ok(editorBorderIndexes.length >= 2);
+    assert.ok(suggestionIndex < editorBorderIndexes[editorBorderIndexes.length - 2]!);
+    assert.equal(editorBorderIndexes[editorBorderIndexes.length - 1], statusLineIndex - 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

@@ -70,7 +70,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const transcript = new MakaTranscriptComponent(state, metadata);
   const statusLine = new MakaStatusLineComponent(metadata);
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
-  const layout = new MakaPiLayoutComponent(transcript, editor, statusLine, terminal);
+  const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
+  const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
 
   const requestRender = () => {
     transcript.invalidate();
@@ -395,7 +396,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   terminal.setTitle(input.title);
   tui.addChild(layout);
-  tui.setFocus(editor);
+  tui.setFocus(editorSurface);
   tui.start();
 
   return closedPromise;
@@ -450,6 +451,56 @@ class MakaPiLayoutComponent extends Container {
       ...statusLines,
     ];
   }
+}
+
+class MakaAutocompleteAboveEditorComponent implements Component {
+  constructor(private readonly editor: Editor) {}
+
+  get focused(): boolean {
+    return this.editor.focused;
+  }
+
+  set focused(value: boolean) {
+    this.editor.focused = value;
+  }
+
+  invalidate(): void {
+    this.editor.invalidate();
+  }
+
+  handleInput(data: string): void {
+    this.editor.handleInput(data);
+  }
+
+  render(width: number): string[] {
+    const lines = this.editor.render(width);
+    if (!this.editor.isShowingAutocomplete()) return lines;
+    return moveTrailingAutocompleteAboveEditor(lines);
+  }
+}
+
+function moveTrailingAutocompleteAboveEditor(lines: string[]): string[] {
+  const bottomBorderIndex = findLastIndex(lines, isEditorChromeLine);
+  if (bottomBorderIndex < 1 || bottomBorderIndex === lines.length - 1) return lines;
+  const topBorderIndex = findLastIndex(lines.slice(0, bottomBorderIndex), isEditorChromeLine);
+  if (topBorderIndex < 0) return lines;
+
+  return [
+    ...lines.slice(bottomBorderIndex + 1),
+    ...lines.slice(0, bottomBorderIndex + 1),
+  ];
+}
+
+function isEditorChromeLine(line: string): boolean {
+  const text = stripAnsi(line);
+  return /^─+$/.test(text) || /^─── [↑↓] \d+ more ─*$/.test(text);
+}
+
+function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (predicate(items[index]!)) return index;
+  }
+  return -1;
 }
 
 class MakaAutocompleteProvider implements AutocompleteProvider {
