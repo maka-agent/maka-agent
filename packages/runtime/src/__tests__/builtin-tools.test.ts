@@ -234,6 +234,25 @@ describe('builtin Bash streaming output', () => {
 });
 
 describe('builtin read tools path containment', () => {
+  test('Read delegates file loading to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-read-executor-'));
+    await writeFile(join(root, 'inside.txt'), 'local-content', 'utf8');
+    const readPaths: string[] = [];
+    const read = buildBuiltinTools({ executor: fakeExecutor({
+      readFile: async ({ path }) => {
+        readPaths.push(path);
+        return { content: 'executor-line-1\nexecutor-line-2\nexecutor-line-3' };
+      },
+    }) }).find((candidate) => candidate.name === 'Read');
+    if (!read) throw new Error('Read tool missing');
+
+    const result = await runTool(read, { path: 'inside.txt', offset: 1, limit: 1 }, root);
+
+    expect(readPaths).toHaveLength(1);
+    expect(readPaths[0]?.endsWith('inside.txt')).toBe(true);
+    expect(result).toMatchObject({ content: 'executor-line-2' });
+  });
+
   test('Read rejects absolute, parent traversal, and symlink escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-read-outside-'));
@@ -399,7 +418,7 @@ function runTool(tool: ReturnType<typeof buildBuiltinTools>[number], args: unkno
 }
 
 function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor {
-  return {
+  const base: WorkspaceExecutor = {
     facts: LOCAL_WORKSPACE_EXECUTOR_FACTS,
     exec: async () => ({
       exitCode: 0,
@@ -414,6 +433,8 @@ function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor 
       path,
       bytes: Buffer.byteLength(content, 'utf8'),
     }),
-    ...overrides,
+    globFiles: async () => ({ files: [] }),
+    grepFiles: async () => ({ matches: [] }),
   };
+  return Object.assign(base, overrides);
 }

@@ -92,7 +92,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       permissionRequired: false,
       impl: async ({ path, offset, limit }, { cwd }) => {
         const abs = await resolveExistingInsideCwd(cwd, path, 'Read');
-        const content = await fs.readFile(abs, 'utf8');
+        const { content } = await executor.readFile({ path: abs });
         if (offset === undefined && limit === undefined) return { content };
         const lines = content.split('\n');
         const start = offset ?? 0;
