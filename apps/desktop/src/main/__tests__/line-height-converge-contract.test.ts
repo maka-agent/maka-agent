@@ -26,7 +26,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertTokenPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -103,12 +103,12 @@ describe('PR-LEADING-CONVERGE-0 contract', () => {
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('--leading-{none,tight,snug,normal} tokens are defined with pinned values', async () => {
+  it('--leading-{none,tight,snug,normal} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--leading-none:\s*1\s*;/, '--leading-none must be 1');
-    assert.match(tokens, /--leading-tight:\s*1\.25\s*;/, '--leading-tight must be 1.25');
-    assert.match(tokens, /--leading-snug:\s*1\.375\s*;/, '--leading-snug must be 1.375');
-    assert.match(tokens, /--leading-normal:\s*1\.5\s*;/, '--leading-normal must be 1.5');
+    assertTokenPinnedOnce(tokens, '--leading-none', '1');
+    assertTokenPinnedOnce(tokens, '--leading-tight', '1.25');
+    assertTokenPinnedOnce(tokens, '--leading-snug', '1.375');
+    assertTokenPinnedOnce(tokens, '--leading-normal', '1.5');
   });
 
   it('Tailwind --leading-* aliases map to var(--leading-*) in @theme inline', async () => {
@@ -155,9 +155,4 @@ describe('leading whitelist negative cases', () => {
     assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
   });
 
-  it('pin regex rejects drifted token values (no prefix matching)', () => {
-    assert.ok(!/--leading-none:\s*1\s*;/.test('--leading-none: 1.5;'), '1.5 must not satisfy 1');
-    assert.ok(!/--leading-normal:\s*1\.5\s*;/.test('--leading-normal: 1.55;'), '1.55 must not satisfy 1.5');
-    assert.ok(!/--leading-snug:\s*1\.375\s*;/.test('--leading-snug: 1.3;'), '1.3 must not satisfy 1.375');
-  });
 });

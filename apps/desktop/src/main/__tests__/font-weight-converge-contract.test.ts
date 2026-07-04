@@ -27,7 +27,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertTokenPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -99,12 +99,12 @@ describe('PR-FONT-WEIGHT-CONVERGE-0 contract', () => {
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('--font-weight-{normal,medium,semibold,bold} tokens are defined with pinned values', async () => {
+  it('--font-weight-{normal,medium,semibold,bold} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--font-weight-normal:\s*400\s*;/, '--font-weight-normal must be 400');
-    assert.match(tokens, /--font-weight-medium:\s*500\s*;/, '--font-weight-medium must be 500');
-    assert.match(tokens, /--font-weight-semibold:\s*600\s*;/, '--font-weight-semibold must be 600');
-    assert.match(tokens, /--font-weight-bold:\s*700\s*;/, '--font-weight-bold must be 700');
+    assertTokenPinnedOnce(tokens, '--font-weight-normal', '400');
+    assertTokenPinnedOnce(tokens, '--font-weight-medium', '500');
+    assertTokenPinnedOnce(tokens, '--font-weight-semibold', '600');
+    assertTokenPinnedOnce(tokens, '--font-weight-bold', '700');
   });
 
   it('Tailwind --font-weight-* aliases map to var(--font-weight-*) in @theme inline', async () => {
@@ -152,9 +152,4 @@ describe('font-weight whitelist negative cases', () => {
     assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
   });
 
-  it('pin regex rejects drifted token values (no prefix matching)', () => {
-    assert.ok(!/--font-weight-normal:\s*400\s*;/.test('--font-weight-normal: 4000;'), '4000 must not satisfy 400');
-    assert.ok(!/--font-weight-semibold:\s*600\s*;/.test('--font-weight-semibold: 650;'), '650 must not satisfy 600');
-    assert.ok(!/--font-weight-bold:\s*700\s*;/.test('--font-weight-bold: 70;'), '70 must not satisfy 700');
-  });
 });

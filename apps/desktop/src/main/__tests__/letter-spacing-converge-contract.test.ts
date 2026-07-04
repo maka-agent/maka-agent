@@ -25,7 +25,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertTokenPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -93,12 +93,12 @@ describe('PR-TRACKING-CONVERGE-0 contract', () => {
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('--tracking-{normal,wide,wider,widest} tokens are defined with pinned values', async () => {
+  it('--tracking-{normal,wide,wider,widest} tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--tracking-normal:\s*0\s*;/, '--tracking-normal must be 0');
-    assert.match(tokens, /--tracking-wide:\s*0\.025em\s*;/, '--tracking-wide must be 0.025em');
-    assert.match(tokens, /--tracking-wider:\s*0\.05em\s*;/, '--tracking-wider must be 0.05em');
-    assert.match(tokens, /--tracking-widest:\s*0\.1em\s*;/, '--tracking-widest must be 0.1em');
+    assertTokenPinnedOnce(tokens, '--tracking-normal', '0');
+    assertTokenPinnedOnce(tokens, '--tracking-wide', '0.025em');
+    assertTokenPinnedOnce(tokens, '--tracking-wider', '0.05em');
+    assertTokenPinnedOnce(tokens, '--tracking-widest', '0.1em');
   });
 
   it('Tailwind --tracking-* aliases map to var(--tracking-*) in @theme inline', async () => {
@@ -132,9 +132,4 @@ describe('tracking whitelist negative cases', () => {
     assert.ok(findCssOffenders('letter-spacing: -0.01em', 'test').length > 0, 'negative must fail (CJK ban, snap --tracking-normal)');
   });
 
-  it('pin regex rejects drifted token values (no prefix matching)', () => {
-    assert.ok(!/--tracking-normal:\s*0\s*;/.test('--tracking-normal: 0.02em;'), '0.02em must not satisfy --tracking-normal: 0');
-    assert.ok(!/--tracking-wide:\s*0\.025em\s*;/.test('--tracking-wide: 0.3em;'), '0.3em must not satisfy --tracking-wide: 0.025em');
-    assert.ok(!/--tracking-wider:\s*0\.05em\s*;/.test('--tracking-wider: 0.5em;'), '0.5em must not satisfy --tracking-wider: 0.05em');
-  });
 });

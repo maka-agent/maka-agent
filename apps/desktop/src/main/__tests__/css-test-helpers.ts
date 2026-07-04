@@ -1,3 +1,4 @@
+import { strict as assert } from 'node:assert';
 import { readdir, readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
@@ -76,4 +77,40 @@ export function findFontShorthandOffenders(css: string, label: string): string[]
     offenders.push(`${label}: ${decl} (non-literal font: shorthand — use longhand + tokens)`);
   }
   return offenders;
+}
+
+// --- token pin (exact-once) -----------------------------------------------
+
+/** Parse all custom property declarations (`--token: value;`) from CSS.
+ * Returns token name → array of declared values, one entry per occurrence
+ * (so duplicates are visible). Comments are stripped first; values trimmed. */
+export function parseCssCustomProps(css: string): Map<string, string[]> {
+  const stripped = stripCssComments(css);
+  const map = new Map<string, string[]>();
+  for (const m of stripped.matchAll(/(--[\w-]+)\s*:\s*([^;{}]+?)\s*;/g)) {
+    const name = m[1];
+    const value = m[2].trim();
+    const list = map.get(name);
+    if (list) list.push(value);
+    else map.set(name, [value]);
+  }
+  return map;
+}
+
+/** Assert a custom property is declared exactly once with the expected value.
+ *
+ * Stronger than `assert.match(tokens, /--token:\s*value\s*;/)`: that only proves
+ * a correct declaration exists somewhere — a later overriding declaration
+ * (e.g. `--font-weight-normal: 400; --font-weight-normal: 450;`) still passes
+ * because the first match satisfies `assert.match`. This helper fails on
+ * duplicate declarations and on a single declaration with a drifted value. */
+export function assertTokenPinnedOnce(
+  tokensCss: string,
+  token: string,
+  expected: string,
+  label = 'maka-tokens.css',
+): void {
+  const values = parseCssCustomProps(tokensCss).get(token) ?? [];
+  assert.equal(values.length, 1, `${label}: ${token} must be declared exactly once with ${expected}; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
+  assert.equal(values[0], expected, `${label}: ${token} must be ${expected}; got ${values[0]}`);
 }
