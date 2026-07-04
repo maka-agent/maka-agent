@@ -719,8 +719,13 @@ contextBridge.exposeInMainWorld('maka', {
     setTitlebarControlsVisible(visible: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitlebarControlsVisible', visible);
     },
-    setThemeSource(themePref: ThemePreference): Promise<void> {
-      return ipcRenderer.invoke('window:setThemeSource', themePref);
+	    setThemeSource(themePref: ThemePreference): Promise<void> {
+	      return ipcRenderer.invoke('window:setThemeSource', themePref);
+	    },
+	    // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
+	    // color/symbolColor to the current app theme. No-op on non-Windows.
+	    setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
+	      return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
     },
   },
   app: {

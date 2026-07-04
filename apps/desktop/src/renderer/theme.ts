@@ -67,6 +67,12 @@ function setDarkClass(isDark: boolean): void {
   // Lets native form controls and scrollbars pick up the right base colors per
   // the Vercel Web Interface Guidelines dark-mode rule.
   root.style.colorScheme = isDark ? 'dark' : 'light';
+  // PR-WINDOW-TITLEBAR-0: keep the native Windows titleBarOverlay color in
+  // sync with the resolved theme. The IPC handler is a no-op on non-Windows,
+  // and `window.maka` is only defined in the Electron renderer, so guard for
+  // both. Swallowed errors (window torn down mid-toggle, etc.) never block
+  // the in-app `.dark` toggle above.
+  void window.maka?.appWindow?.setTitleBarOverlayTheme?.(isDark).catch(() => {});
 }
 
 /**
