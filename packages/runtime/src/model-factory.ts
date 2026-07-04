@@ -40,8 +40,11 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
     case 'MiniMax':
     case 'MiniMax-cn':
+      // MiniMax's Anthropic-compatible API accepts both x-api-key and Bearer,
+      // but documents Bearer as recommended (and it takes precedence when both
+      // are sent), so pass the key as authToken to emit `Authorization: Bearer`.
       return createAnthropic({
-        apiKey,
+        authToken: apiKey,
         baseURL,
         headers: { 'anthropic-beta': ANTHROPIC_BETA },
       }).chat(modelId);
