@@ -65,7 +65,7 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyBackupReference(backup)}', minW: '4rem', note: '复制中… ↔ 复制引用 (备份候选行)' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void reloadDraftFromDisk()}', minW: '4rem', note: '载入中… ↔ 重新载入 (settingsActionRow)' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onCopyReference?.(entry)}', minW: '4rem', note: '复制中… ↔ 复制引用 (记忆条目行)' },
-  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onStatusChange?.(entry', minW: '4rem', note: '归档切换 statusActionLabel (记忆条目行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onStatusChange?.(entry', minW: '5rem', note: '归档到草稿/恢复到草稿 ↔ 归档/恢复 (draftDirty 5字最宽)' },
   // open-gateway-settings-page.tsx — settingsActionRow copy buttons
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyBaseUrl()}', minW: '4rem', note: '复制中… ↔ 复制地址' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOverviewCurl()}', minW: '8rem', note: '复制总览 curl' },
@@ -171,33 +171,61 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
     }
   });
 
-  it('no state-swap Button with a string-ternary child slips through without min-w-[Nrem] (scoped scan)', () => {
-    const missing: Array<{ file: string; line: number; snippet: string }> = [];
+  it('no state-swap Button with a string-ternary child slips through without min-w-[Nrem] + whitelist value pin', () => {
+    // Two failure modes, both must fail closed:
+    //  (a) no min-w-[Nrem] at all — the width lock is missing;
+    //  (b) has some min-w-[Nrem] but the button isn't in TEXT_SWAP_BUTTONS
+    //      (or EXCEPTIONS) — the value lock can be bypassed by setting
+    //      min-w-[1rem]. The scan finds the button; the whitelist pins the
+    //      exact value. Both must hold.
+    const WHITELIST_ANCHORS = TEXT_SWAP_BUTTONS.map((b) => b.onClick);
+    const EXCEPTION_ANCHORS: string[] = [
+      // (none — every state-swap button in the PR3 scope files is
+      // whitelisted. Add an onClick substring here only if a scanned button
+      // is intentionally not value-pinned, with a comment saying why.)
+    ];
+    const missingMinW: Array<{ file: string; line: number; snippet: string }> = [];
+    const notPinned: Array<{ file: string; line: number; snippet: string }> = [];
     for (const file of SCAN_FILES) {
       const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
       BUTTON_BLOCK_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = BUTTON_BLOCK_RE.exec(src)) !== null) {
+        const block = m[0];
         const attrs = m[2];
         const children = m[3];
         if (!STRING_TERNARY_RE.test(children)) continue;
         const clsMatch = attrs.match(/className="([^"]*)"/);
-        if (!clsMatch || !MIN_W_REM_RE.test(clsMatch[1])) {
-          const line = src.slice(0, m.index).split('\n').length;
-          missing.push({
-            file,
-            line,
-            snippet: children.trim().replace(/\s+/g, ' ').slice(0, 80),
-          });
+        const hasMinW = clsMatch != null && MIN_W_REM_RE.test(clsMatch[1]);
+        const line = src.slice(0, m.index).split('\n').length;
+        const snippet = children.trim().replace(/\s+/g, ' ').slice(0, 80);
+        if (!hasMinW) {
+          missingMinW.push({ file, line, snippet });
+        }
+        // Even with a min-w, the button must be value-pinned by the
+        // whitelist (or an explicit exception) so a too-small min-w can't
+        // bypass the value lock.
+        const pinned =
+          WHITELIST_ANCHORS.some((oc) => block.includes(oc)) ||
+          EXCEPTION_ANCHORS.some((oc) => block.includes(oc));
+        if (!pinned) {
+          notPinned.push({ file, line, snippet });
         }
       }
     }
-    const msgs = missing.map((m) => `  ${m.file}:${m.line} — ${m.snippet}`);
+    const fmt = (arr: typeof missingMinW) =>
+      arr.map((m) => `  ${m.file}:${m.line} — ${m.snippet}`).join('\n');
     assert.equal(
-      missing.length,
+      missingMinW.length,
       0,
-      `Found ${missing.length} state-swap button(s) without min-w-[Nrem] in the PR3 scope files. Each <Button>/<UiButton> whose children contain a string ternary (? 'A' : 'B', the state-swap signal) must keep min-w-[Nrem] in its className. Add the lock sized to the widest state + a TEXT_SWAP_BUTTONS entry:\n` +
-        msgs.join('\n'),
+      `Found ${missingMinW.length} state-swap button(s) without min-w-[Nrem] in the PR3 scope files. Each <Button>/<UiButton> whose children contain a string ternary (? 'A' : 'B', the state-swap signal) must keep min-w-[Nrem] in its className:\n` +
+        fmt(missingMinW),
+    );
+    assert.equal(
+      notPinned.length,
+      0,
+      `Found ${notPinned.length} state-swap button(s) with a min-w but no TEXT_SWAP_BUTTONS value pin (and not in EXCEPTIONS). A too-small min-w-[1rem] would bypass the value lock. Add a TEXT_SWAP_BUTTONS entry (file + onClick anchor + min-w sized to the widest state):\n` +
+        fmt(notPinned),
     );
   });
 });

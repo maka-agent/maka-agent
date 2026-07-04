@@ -1076,7 +1076,7 @@ function MemoryEntryList(props: {
                         type="button"
                         variant="quiet"
                         size="sm"
-                        className="settingsInlineTextButton min-w-[4rem]"
+                        className="settingsInlineTextButton min-w-[5rem]"
                         aria-label={statusActionAriaLabel}
                         disabled={props.busy}
                         onClick={() => void props.onStatusChange?.(entry, props.archived ? 'active' : 'archived')}
