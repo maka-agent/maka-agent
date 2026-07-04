@@ -26,7 +26,7 @@ import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readRendererShellSources } from './renderer-shell-source-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
-import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
+import { readMainTsSource } from './main-process-contract-source-helpers.js';
 
 describe('default permission mode contract', () => {
   it('renderer omits permissionMode unless the user explicitly picked one', async () => {
@@ -50,7 +50,11 @@ describe('default permission mode contract', () => {
     // (see permission-mode-default.test.ts). main.ts must import it and route
     // EVERY permission-mode fallback through it by injecting settingsStore.get
     // — no inline definition and no unguarded inline settings read may remain.
-    const src = await readMainProcessCombinedSource();
+    // Read main.ts only (not the combined source): the resolver now lives in
+    // ./permission-mode-default.ts, which is part of the combined list, and
+    // its `export async function resolveDefaultPermissionMode` would falsely
+    // trip the no-inline assertion below.
+    const src = await readMainTsSource();
 
     assert.match(
       src,
@@ -79,7 +83,7 @@ describe('default permission mode contract', () => {
   });
 
   it('quick chat resolves the default in parallel with the connection check', async () => {
-    const src = await readMainProcessCombinedSource();
+    const src = await readMainTsSource();
     assert.match(
       src,
       /await Promise\.all\(\[\s*getReadyConnection\(input\.defaultConnectionSlug, input\.defaultModel\),\s*input\.mode === 'deep_research'/,
