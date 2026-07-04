@@ -800,8 +800,8 @@
   background: linear-gradient(
     to right,
     transparent 0%,
-    var(--foreground-3) 24%,
-    var(--foreground-3) 100%
+    var(--state-hover-bg) 24%,
+    var(--state-hover-bg) 100%
   );
   opacity: 0;
   transform: translateX(8px);
@@ -839,8 +839,8 @@
   background: linear-gradient(
     to right,
     transparent 0%,
-    var(--foreground-5) 24%,
-    var(--foreground-5) 100%
+    var(--state-selected-bg) 24%,
+    var(--state-selected-bg) 100%
   );
 }
 
