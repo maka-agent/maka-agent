@@ -176,6 +176,21 @@ import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 
+// Electron does not enforce single-instance by default — without this, every
+// separate launch (a second `npm run dev`, a user double-clicking the dock
+// icon, etc.) spawns a fully independent process with its own window, and
+// none of them know about each other. Two instances sharing the same
+// `workspaceRoot`/settings/session-store files concurrently risks file-lock
+// contention and lost writes, on top of the confusing "why are there two
+// windows" UX. `requestSingleInstanceLock()` must run before any workspace
+// setup below — a losing second process quits immediately rather than
+// touching shared state at all. The 'second-instance' listener (registered
+// once `mainWindowController` exists) focuses the existing window instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
 // PR-VISUAL-SMOKE-HEADLESS: resolve the fixture defensively. An unknown
@@ -304,6 +319,12 @@ const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
+});
+// A second launch quit itself immediately (see requestSingleInstanceLock
+// above) without ever creating a window — focus the surviving instance's
+// window instead of silently doing nothing.
+app.on('second-instance', () => {
+  mainWindowController.focus();
 });
 const safeSendToRenderer = mainWindowController.send;
 const openGateway = new OpenGatewayService({
