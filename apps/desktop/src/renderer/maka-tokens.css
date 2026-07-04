@@ -84,12 +84,13 @@
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --foreground-rgb: 32, 31, 30; /* light-mode RGB triplet used by shadow rings */
 
-  /* PR-UI-ALIGN-0: brand accent is now 参考实现 SAGE GREEN (#5cb870), not
-     purple — the single biggest reason maka didn't *feel* like the reference.
-     Green is used as a garnish (live dot, focus ring, active accents); hovers
-     stay neutral gray per the reference's restraint. */
-  --accent: oklch(0.70 0.135 152);
-  --accent-rgb: 92, 184, 112;
+  /* Brand accent = logo blue (oklch L0.70 C0.135 h250), sampled from
+     apps/desktop/assets/icon.png (owner decision 2026-07-03, replacing the
+     prior sage-green accent). --success stays an independent green
+     (connected/ok semantics); running/focus-ring/link/nav-active/selection
+     all follow --accent. */
+  --accent: oklch(0.70 0.135 250);
+  --accent-rgb: 77, 169, 220;
   --action: oklch(0.46 0.135 152);
   --action-foreground: oklch(0.985 0.003 250);
   --control: oklch(0.52 0.135 152);
@@ -396,8 +397,8 @@
   --foreground: oklch(0.92 0.004 286);
   --foreground-rgb: 224, 222, 218;
 
-  --accent: oklch(0.74 0.15 152);
-  --accent-rgb: 140, 229, 161;
+  --accent: oklch(0.74 0.15 250);
+  --accent-rgb: 77, 182, 241;
   --action: oklch(0.46 0.135 152);
   --action-foreground: oklch(0.985 0.003 250);
   --control: oklch(0.52 0.135 152);
