@@ -49,7 +49,6 @@ export function evaluateHeavyTaskSelfCheckGate(input: HeavyTaskSelfCheckGateInpu
   const reason = gateBlockerReason(
     selfCheck,
     input.projection.latestHeavyTaskSelfCheckPlan,
-    input.projection.latestHeavyTaskWorkspaceObservation,
     completion.semantic.reason,
     checklist,
   );
@@ -81,6 +80,7 @@ export function evaluateHeavyTaskSelfCheckGate(input: HeavyTaskSelfCheckGateInpu
       reason: blockedReason,
       checklist,
       selfCheck,
+      workspaceObservation: input.projection.latestHeavyTaskWorkspaceObservation,
       attempt: attemptsUsed + 1,
       maxAttempts,
     }),
@@ -189,6 +189,7 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
   reason: string;
   checklist: readonly HeavyTaskAcceptanceCheck[];
   selfCheck?: HeavyTaskSemanticSelfCheckState;
+  workspaceObservation?: HeavyTaskWorkspaceObservationState;
   attempt: number;
   maxAttempts: number;
 }): string {
@@ -205,6 +206,7 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
     }),
     '',
     latestSelfCheckSummary(input.selfCheck),
+    ...latestWorkspaceObservationSummary(input.workspaceObservation),
     '',
     'Required action: run public commands or artifact inspections in the current workspace or under /tmp/maka-self-check, repair only if those checks fail, then call self_check_submit with concrete command/artifact evidence, executionHygiene.sandbox, and executionHygiene.workspaceGuard.',
     'Constraints: do not inspect hidden, private, evaluator, official verifier, or scorer-only material. Keep scratch outputs under /tmp/maka-self-check/... and clean or report any workspace side effects.',
@@ -215,7 +217,6 @@ export function renderHeavyTaskSelfCheckGatePrompt(input: {
 function gateBlockerReason(
   selfCheck: HeavyTaskSemanticSelfCheckState | undefined,
   plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
-  workspaceObservation: HeavyTaskWorkspaceObservationState | undefined,
   semanticReason: string,
   checklist: readonly HeavyTaskAcceptanceCheck[],
 ): string | undefined {
@@ -227,8 +228,6 @@ function gateBlockerReason(
   }
   const strongPassBlocker = heavyTaskSelfCheckStrongPassBlocker(selfCheck, plan);
   if (strongPassBlocker) return strongPassBlocker;
-  const workspaceObservationBlocker = machineWorkspaceObservationBlocker(plan, workspaceObservation);
-  if (workspaceObservationBlocker) return workspaceObservationBlocker;
   if (!selfCheckAddressesRequiredArtifacts(selfCheck, checklist)) {
     return 'latest self-check does not address visible required artifact contract';
   }
@@ -256,44 +255,6 @@ function selfCheckAddressesRequiredArtifacts(
     ...selfCheck.artifactEvidence.map((evidence) => evidence.path),
   ].join('\n').toLowerCase();
   return requiredPaths.some((path) => evidenceText.includes(path.toLowerCase()) || evidenceText.includes(basename(path).toLowerCase()));
-}
-
-function machineWorkspaceObservationBlocker(
-  plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan'],
-  observation: HeavyTaskWorkspaceObservationState | undefined,
-): string | undefined {
-  if (!observation || observation.status !== 'ok') return undefined;
-  for (const expectedPath of plannedSingleArtifactDirectoryPaths(plan)) {
-    const expectedDir = dirname(expectedPath);
-    const entries = observation.entries.filter((entry) => dirname(entry.path) === expectedDir);
-    if (entries.length === 0 || !entries.some((entry) => entry.path === expectedPath)) continue;
-    const extras = entries
-      .map((entry) => entry.path)
-      .filter((path) => path !== expectedPath);
-    if (extras.length > 0) {
-      return [
-        `machine workspace observation found extra final paths in single-file deliverable directory ${expectedDir}`,
-        `- expected only: ${expectedPath}`,
-        `- observed extras: ${extras.join(', ')}`,
-      ].join('\n');
-    }
-  }
-  return undefined;
-}
-
-function plannedSingleArtifactDirectoryPaths(plan: TaskRunProjection['latestHeavyTaskSelfCheckPlan']): string[] {
-  if (!plan) return [];
-  const byDir = new Map<string, string[]>();
-  for (const artifact of plan.finalArtifacts) {
-    if (!artifact.path.startsWith('/app/')) continue;
-    const dir = dirname(artifact.path);
-    byDir.set(dir, [...(byDir.get(dir) ?? []), artifact.path]);
-  }
-  const paths: string[] = [];
-  for (const artifacts of byDir.values()) {
-    if (artifacts.length === 1) paths.push(artifacts[0]!);
-  }
-  return paths;
 }
 
 function parseCheckForPath(
@@ -336,6 +297,29 @@ function latestSelfCheckSummary(selfCheck: HeavyTaskSemanticSelfCheckState | und
   ].join('\n');
 }
 
+function latestWorkspaceObservationSummary(observation: HeavyTaskWorkspaceObservationState | undefined): string[] {
+  if (!observation) return [];
+  if (observation.status !== 'ok') {
+    return [
+      '',
+      'Machine workspace observation facts: unavailable.',
+      `- roots: ${observation.roots.join(', ') || '(none)'}`,
+      `- error: ${cleanOneLine(observation.errorExcerpt ?? 'unknown observation error', 240)}`,
+    ];
+  }
+  const entries = observation.entries.slice(0, 40).map((entry) => {
+    const suffix = entry.kind === 'symlink' && entry.symlinkTarget ? ` -> ${entry.symlinkTarget}` : '';
+    return `- ${entry.kind} ${entry.path}${suffix}`;
+  });
+  return [
+    '',
+    'Machine workspace observation facts (directory listing only; compare with the task instructions and your accepted plan):',
+    `- roots: ${observation.roots.join(', ') || '(none)'}`,
+    ...entries,
+    ...(observation.entries.length > entries.length ? [`- ... ${observation.entries.length - entries.length} more entries omitted`] : []),
+  ];
+}
+
 function publicMetadata(metadata: Record<string, unknown> | undefined): Record<string, unknown> {
   if (!metadata) return {};
   const output: Record<string, unknown> = {};
@@ -358,10 +342,4 @@ function shellQuote(value: string): string {
 function basename(path: string): string {
   const parts = path.split('/');
   return parts.at(-1) ?? path;
-}
-
-function dirname(path: string): string {
-  const index = path.lastIndexOf('/');
-  if (index <= 0) return '.';
-  return path.slice(0, index);
 }

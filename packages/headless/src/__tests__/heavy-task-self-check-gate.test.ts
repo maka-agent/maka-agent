@@ -189,7 +189,7 @@ describe('heavy-task self-check gate', () => {
     assert.doesNotMatch(decision.reason, /fix|repair|rerun|submit a revised plan/i);
   });
 
-  test('machine workspace observation remains diagnostic after bounded repair in a single-file deliverable directory', () => {
+  test('machine workspace observation facts do not block an otherwise passing self-check', () => {
     const polyglotTask: Task = {
       id: 'polyglot-task',
       instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
@@ -212,16 +212,14 @@ describe('heavy-task self-check gate', () => {
           { path: '/app/polyglot/main.py', kind: 'symlink', symlinkTarget: 'main.py.c' },
         ]),
       ),
-      repairAttemptsUsed: 1,
+      repairAttemptsUsed: 0,
       maxRepairAttempts: 1,
     });
 
-    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
-    assert.match(decision.reason, /machine workspace observation found extra final paths/);
-    assert.match(decision.reason, /\/app\/polyglot\/main\.py/);
+    assert.equal(decision.action, 'allow_finalize');
   });
 
-  test('bounded repair records observed extra sibling diagnostic without local rejection', () => {
+  test('gate prompt includes neutral machine observation facts when blocked for a separate reason', () => {
     const polyglotTask: Task = {
       id: 'polyglot-task',
       instruction: 'Write me a single file in /app/polyglot/main.py.c which is a polyglot.',
@@ -235,6 +233,8 @@ describe('heavy-task self-check gate', () => {
       refs: ['/app/polyglot/main.py.c'],
       artifactPath: '/app/polyglot/main.py.c',
     });
+    selfCheckState.commandEvidence = [];
+    selfCheckState.artifactEvidence = [];
 
     const decision = evaluateHeavyTaskSelfCheckGate({
       task: polyglotTask,
@@ -247,13 +247,17 @@ describe('heavy-task self-check gate', () => {
           { path: '/app/polyglot/cmain', kind: 'file' },
         ]),
       ),
-      repairAttemptsUsed: 1,
+      repairAttemptsUsed: 0,
       maxRepairAttempts: 1,
     });
 
-    assert.equal(decision.action, 'allow_official_verifier_after_bounded_attempt');
-    assert.match(decision.reason, /expected only: \/app\/polyglot\/main\.py\.c/);
-    assert.match(decision.reason, /observed extras: \/app\/polyglot\/cmain/);
+    assert.equal(decision.action, 'repair_prompt');
+    assert.match(decision.reason, /lacks concrete command or artifact evidence/);
+    assert.match(decision.prompt, /Machine workspace observation facts/);
+    assert.match(decision.prompt, /file \/app\/polyglot\/main\.py\.c/);
+    assert.match(decision.prompt, /file \/app\/polyglot\/cmain/);
+    assert.doesNotMatch(decision.reason, /expected only|observed extras|single-file deliverable/);
+    assert.doesNotMatch(decision.prompt, /expected only|observed extras|single-file deliverable/);
   });
 
   test('weak pass without command or artifact evidence stays blocked', () => {

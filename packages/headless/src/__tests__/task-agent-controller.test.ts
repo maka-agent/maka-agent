@@ -862,7 +862,7 @@ describe('runTaskOnce', () => {
     });
   });
 
-  test('bounded repair records machine-observed extra final path diagnostic before official verifier', async () => {
+  test('bounded repair records model-reported workspace side-effect diagnostic before official verifier', async () => {
     await withDirs(async (fixtureDir, storageRoot) => {
       const prompts: string[] = [];
       const config: Config = {
@@ -898,7 +898,7 @@ describe('runTaskOnce', () => {
       assert.equal(prompts.length, 2);
       assert.equal(result.projection.latestHeavyTaskSelfCheckGate?.action, 'allow_official_verifier_after_bounded_attempt');
       assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /\/app\/polyglot\/cmain/);
-      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /unplanned_added_path|observed extras/);
+      assert.match(result.projection.latestHeavyTaskSelfCheckGate?.reason ?? '', /unplanned_added_path/);
       assert.equal(result.projection.latestVerifierResult?.passed, true);
       assert.equal(result.projection.latestScoreResult?.taxonomy, 'passed');
       assert.equal(result.resultRecord.status, 'completed');
