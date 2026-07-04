@@ -969,6 +969,107 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('blocks prompts while the session list is loading', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredListSessionsDriver([fakeSessionSummary('session-2')]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => driver.listCalls === 1);
+
+    // While the list is still loading, a submitted prompt must not go through.
+    terminal.input('hello');
+    terminal.input('\r');
+    await delay(20);
+    assert.deepEqual(driver.prompts, []);
+
+    driver.releaseList();
+    await delay(30);
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('refuses to switch when the driver returns a mismatched folder', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InconsistentSwitchDriver([fakeSessionSummary('session-2', '/repo')]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('no longer matches'));
+
+    assert.deepEqual(driver.sessionIds, ['session-2']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('clears the permission prompt when the turn errors', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionThenErrorDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Permission required'));
+    driver.continueToError();
+    await waitFor(() => terminal.output().includes('turn failed'));
+
+    // The turn errored: the permission prompt must be gone from the screen.
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('Permission required'), false);
+
+    // y must not trigger a response for the now-dead request.
+    terminal.input('y');
+    await delay(20);
+    assert.equal(driver.respondCalls, 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -1253,6 +1354,87 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.responses.push(response);
     throw new Error('permission response rejected');
+  }
+
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class DeferredListSessionsDriver extends SlashCommandDriver {
+  listCalls = 0;
+  private resolveList: (() => void) | null = null;
+
+  override async listSessions(): Promise<SessionSummary[]> {
+    this.listCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveList = resolve;
+    });
+    return super.listSessions();
+  }
+
+  releaseList(): void {
+    this.resolveList?.();
+    this.resolveList = null;
+  }
+}
+
+class InconsistentSwitchDriver extends SlashCommandDriver {
+  override async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    const result = await super.switchSession(sessionId);
+    return { summary: { ...result.summary, cwd: '/unexpected' }, messages: result.messages };
+  }
+}
+
+class PermissionThenErrorDriver implements MakaSessionDriver {
+  respondCalls = 0;
+  private resolveContinue: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'permission_request',
+      id: 'event-permission',
+      turnId: 'turn-1',
+      ts: 1,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+    };
+    await new Promise<void>((resolve) => {
+      this.resolveContinue = resolve;
+    });
+    yield {
+      type: 'error',
+      id: 'event-error',
+      turnId: 'turn-1',
+      ts: 2,
+      message: 'turn failed',
+      recoverable: false,
+    };
+  }
+
+  continueToError(): void {
+    this.resolveContinue?.();
+    this.resolveContinue = null;
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {
+    this.respondCalls += 1;
   }
 
   async setModel(): Promise<void> {}

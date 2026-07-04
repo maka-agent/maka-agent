@@ -197,6 +197,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'error':
+      state.pendingPermission = undefined;
       state.entries.push({
         kind: 'notice',
         level: 'error',
@@ -205,6 +206,7 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'abort':
+      state.pendingPermission = undefined;
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -213,6 +215,8 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'complete':
+      // The turn is over; any unresolved permission request is no longer actionable.
+      state.pendingPermission = undefined;
       if (event.stopReason === 'max_tokens') {
         state.entries.push({
           kind: 'notice',

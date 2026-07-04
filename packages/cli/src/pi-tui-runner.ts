@@ -93,6 +93,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Run them through a single serial lock so a prompt submitted mid-switch can
   // not race the switch and land on the old session/model/permission mode.
   const runControl = async (action: () => Promise<void>): Promise<void> => {
+    // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
+    // so without this guard a switch could start while a prompt is still running.
+    if (busy) return;
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -136,6 +139,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     })
       .then(() => {
         permissionInFlight = false;
+        // The turn may have ended (error/abort/complete) and cleared the pending
+        // prompt while this response was in flight; only record success if the
+        // request is still the active one.
+        if (state.pendingPermission?.requestId !== request.requestId) return;
         state.pendingPermission = undefined;
         state.entries.push({
           kind: 'notice',
@@ -205,6 +212,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const switchSession = async (sessionId: string) => {
     await assertSwitchable(sessionId);
     const { summary, messages } = await input.driver.switchSession(sessionId);
+    // Re-check against the driver's authoritative summary: the list snapshot we
+    // validated in assertSwitchable can be stale by the time the switch returns.
+    if (summary.cwd !== cwd || summary.llmConnectionSlug !== connectionSlug) {
+      throw new Error('Session no longer matches the current folder or connection.');
+    }
     cwd = summary.cwd ?? cwd;
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
@@ -379,7 +391,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Resume session',
       run: (parts: string[]) => {
         if (parts.length === 1) {
-          void showSessionList().catch(reportError);
+          void runControl(showSessionList);
           return;
         }
         const sessionId = parts.length === 2 ? parts[1] : undefined;
