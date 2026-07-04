@@ -11,6 +11,8 @@
     "./permission-engine": "./dist/permission-engine.js",
     "./ai-sdk-backend": "./dist/ai-sdk-backend.js",
     "./builtin-tools": "./dist/builtin-tools.js",
+    "./shell-tools": "./dist/shell-tools.js",
+    "./shell-run-manager": "./dist/shell-run-manager.js",
     "./tool-artifacts": "./dist/tool-artifacts.js",
     "./tool-output-delta": "./dist/tool-output-delta.js",
     "./stream-watchdog": "./dist/stream-watchdog.js",

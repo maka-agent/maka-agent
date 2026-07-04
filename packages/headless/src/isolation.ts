@@ -27,6 +27,8 @@ export interface IsolatedCommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }
 
 export interface IsolatedReadFileInput {

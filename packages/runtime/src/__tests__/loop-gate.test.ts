@@ -106,9 +106,9 @@ function makeFlakyTool(name: string, impl: string[], box: { fail: boolean }, mes
   };
 }
 
-// A tool that RETURNS a terminal result (the headless Bash shape) instead of
-// throwing. A non-zero exitCode must be classified as a failure by
-// deriveToolResultStatus() for the loop-gate to see it.
+// A tool that RETURNS a terminal result instead of throwing. Terminal status
+// must be classified by deriveToolResultStatus() for the loop-gate to see
+// failures.
 function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaTool {
   return {
     name,
@@ -121,9 +121,12 @@ function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaT
         kind: 'terminal',
         cwd: '/tmp/maka',
         cmd: 'cmd',
+        status: exitCode === 0 ? 'completed' : 'failed',
         exitCode,
         stdout: '',
         stderr: exitCode === 0 ? '' : 'boom\n',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       };
     },
   };

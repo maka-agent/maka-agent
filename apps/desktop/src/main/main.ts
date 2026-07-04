@@ -80,6 +80,7 @@ import {
   getWechatBridgeQrCode,
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
+  ShellRunProcessManager,
 } from '@maka/runtime';
 import type {
   ToolAvailabilityConfig,
@@ -91,7 +92,17 @@ import type {
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import {
+  createAgentRunStore,
+  createArtifactStore,
+  createConnectionStore,
+  createPlanReminderStore,
+  createRuntimeEventStore,
+  createSessionStore,
+  createSettingsStore,
+  createShellRunStore,
+  createTelemetryRepo,
+} from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -221,6 +232,7 @@ const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFix
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
@@ -361,6 +373,11 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+const shellRuns = new ShellRunProcessManager({
+  store: shellRunStore,
+  newId: randomUUID,
+  now: Date.now,
+});
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -386,7 +403,7 @@ const toolAvailability: ToolAvailabilityConfig = {
   ],
 };
 const builtinTools = [
-  ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({ shellRuns }).filter((tool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -592,6 +609,7 @@ backends.register('ai-sdk', async (ctx) => {
       childInstruction: ctx.systemPrompt,
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
+    shellRunContextSummary: ctx.shellRunContextSummary,
     lookupPricing,
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
@@ -658,6 +676,7 @@ const runtime = new SessionManager({
   store,
   runStore,
   runtimeEventStore,
+  shellRuns,
   backends,
   childTools: childAgentTools,
   listArtifactsForTurn: async (sessionId, turnId) =>
@@ -1786,12 +1805,32 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let beforeQuitCleanupComplete = false;
+let beforeQuitCleanupStarted = false;
+
+app.on('before-quit', (event) => {
+  if (beforeQuitCleanupComplete) return;
+  event.preventDefault();
+  if (beforeQuitCleanupStarted) return;
+  beforeQuitCleanupStarted = true;
+  void runBeforeQuitCleanup().finally(() => {
+    beforeQuitCleanupComplete = true;
+    app.quit();
+  });
+});
+
+async function runBeforeQuitCleanup(): Promise<void> {
   planReminders.stopTimers();
   dailyReview.stopScheduler();
-  void botRegistry.stopAll();
-  void openGateway.stop();
-  void mainWindowController.disposeBrowserViews();
-});
+  const results = await Promise.allSettled([
+    botRegistry.stopAll(),
+    openGateway.stop(),
+    Promise.resolve(mainWindowController.disposeBrowserViews()),
+    shellRuns.terminateAll(),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
+  }
+}
 
 app.on('activate', focusOrCreateMainWindow);

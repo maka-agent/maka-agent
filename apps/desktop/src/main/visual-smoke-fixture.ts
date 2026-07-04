@@ -910,9 +910,12 @@ function turnMessages(now: number): StoredMessage[] {
         kind: 'terminal',
         cwd: '/workspace/maka',
         cmd: 'npm test --workspaces --if-present',
+        status: 'completed',
         exitCode: 0,
         stdout: 'core 41 passing\nstorage 17 passing\nruntime 70 passing\ndesktop 74 passing\n',
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     },
     {

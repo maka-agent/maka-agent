@@ -49,9 +49,12 @@ describe('isolated headless tools', () => {
       kind: 'terminal',
       cwd: '/workspace',
       cmd: 'npm test',
+      status: 'failed',
       exitCode: 7,
       stdout: 'out\n',
       stderr: 'err\n',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     });
   });
 
@@ -101,6 +104,22 @@ describe('isolated headless tools', () => {
     assert.ok(result.stdout.includes('truncated'));
     assert.ok(!result.stdout.includes('line1\n'));
     assert.ok(result.stdout.length < big.length);
+  });
+
+  test('Bash preserves retained-tail truncation flags from the isolated executor', async () => {
+    const bash = buildIsolatedBashTool({
+      async exec() {
+        return { exitCode: 0, stdout: 'tail', stderr: '', stdoutTruncated: true, stderrTruncated: false };
+      },
+    });
+
+    const result = await bash.impl(
+      { command: 'noisy' },
+      toolCtx('/workspace'),
+    ) as { stdoutTruncated: boolean; stderrTruncated: boolean };
+
+    assert.equal(result.stdoutTruncated, true);
+    assert.equal(result.stderrTruncated, false);
   });
 
   test('Bash delegates cleanup commands to the isolated executor', async () => {
@@ -177,6 +196,9 @@ describe('isolated headless tools', () => {
     assert.ok(!names.includes('todo_update'));
     assert.ok(!names.includes('self_check_plan_submit'));
     assert.ok(!names.includes('self_check_submit'));
+    assert.ok(!names.includes('ShellStatus'));
+    assert.ok(!names.includes('ShellWait'));
+    assert.ok(!names.includes('ShellCancel'));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
     assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));

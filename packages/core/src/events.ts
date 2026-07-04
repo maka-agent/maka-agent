@@ -10,6 +10,7 @@
  */
 
 import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
+import type { ShellRunStatus, ShellRunTerminalStatus } from './shell-run.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -19,6 +20,7 @@ import type {
 
 export const TOOL_OUTPUT_STREAMS = ['stdout', 'stderr'] as const;
 export const TOOL_OUTPUT_DELTA_MAX_CHARS = 8192;
+type TerminalToolResultStatus = Exclude<ShellRunTerminalStatus, 'orphaned'>;
 
 // ============================================================================
 // Storage refs (shared by attachments, image tool results, etc.)
@@ -159,11 +161,49 @@ export type ToolResultContent =
     }
   | {
       kind: 'terminal';
+      shellRunId?: string;
       cwd: string;
       cmd: string;
+      status: TerminalToolResultStatus;
       exitCode: number;
       stdout: string;
       stderr: string;
+      stdoutTruncated: boolean;
+      stderrTruncated: boolean;
+    }
+  | {
+      kind: 'shell_run';
+      shellRunId: string;
+      status: ShellRunStatus;
+      cwd: string;
+      cmd: string;
+      startedAt: number;
+      updatedAt: number;
+      completedAt?: number;
+      exitCode?: number;
+      failureMessage?: string;
+      stdout: string;
+      stderr: string;
+      stdoutTruncated: boolean;
+      stderrTruncated: boolean;
+      timeoutMs?: number;
+      observedAt?: number;
+      orphanedReason?: string;
+      cancelled?: boolean;
+    }
+  | {
+      kind: 'shell_run_list';
+      shellRuns: ReadonlyArray<{
+        shellRunId: string;
+        status: ShellRunStatus;
+        cwd: string;
+        cmd: string;
+        startedAt: number;
+        updatedAt: number;
+        completedAt?: number;
+        observed: boolean;
+      }>;
+      overflow: number;
     }
   | { kind: 'image'; mimeType: string; ref: StorageRef }
   | { kind: 'summary'; original: string; summarized: string; reason: 'too_large' }

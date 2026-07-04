@@ -67,6 +67,37 @@ export type {
 
 export { buildBuiltinTools } from './builtin-tools.js';
 export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';
+export {
+  buildBackgroundBashTool,
+  buildForegroundBashTool,
+  buildLocalForegroundBashTool,
+  buildShellRunControlTools,
+  shapeTerminalResult,
+} from './shell-tools.js';
+export type {
+  BuildForegroundBashToolOptions,
+  ForegroundBashExecuteInput,
+  ForegroundBashResult,
+  ShellRunToolController,
+} from './shell-tools.js';
+export {
+  DEFAULT_BASH_YIELD_TIME_MS,
+  DEFAULT_MAX_LIVE_SHELL_RUNS,
+  DEFAULT_SHELL_RUN_FLUSH_BYTES,
+  DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
+  DEFAULT_SHELL_WAIT_YIELD_TIME_MS,
+  MAX_BASH_YIELD_TIME_MS,
+  MAX_SHELL_RUN_TIMEOUT_MS,
+  MAX_SHELL_WAIT_YIELD_TIME_MS,
+  MIN_BASH_YIELD_TIME_MS,
+  MIN_SHELL_WAIT_YIELD_TIME_MS,
+  SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
+  ShellRunProcessManager,
+} from './shell-run-manager.js';
+export type {
+  ShellRunBashInput,
+  ShellRunProcessManagerInput,
+} from './shell-run-manager.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';

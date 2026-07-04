@@ -15,6 +15,7 @@ import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
 import type { BackendRegistry, SessionStore, StopSessionInput } from './session-manager.js';
+import type { ShellRunProcessManager } from './shell-run-manager.js';
 import {
   buildStatusPatch,
   buildTurnStateMessage,
@@ -48,6 +49,7 @@ export interface RuntimeKernelDeps {
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
+  shellRuns?: ShellRunProcessManager;
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -331,6 +333,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordSemanticCompactBlock(block);
       },
+      shellRunContextSummary: () => this.deps.shellRuns?.buildContextSummary(sessionId) ?? Promise.resolve(undefined),
     });
     const entry: ActiveSession = {
       sessionId,

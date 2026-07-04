@@ -4,8 +4,74 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import type { ShellRunToolController } from '../shell-tools.js';
 
 describe('builtin Bash streaming output', () => {
+  test('background-capable Bash registers ShellRun controls and forwards yield_time_ms', async () => {
+    const calls: unknown[] = [];
+    const shellRuns = {
+      async runBash(input: unknown) {
+        calls.push(input);
+        return {
+          kind: 'shell_run',
+          shellRunId: 'shell-run-1',
+          status: 'running',
+          cwd: '/workspace',
+          cmd: 'sleep 60',
+          startedAt: 1,
+          updatedAt: 1,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        };
+      },
+      async status() {
+        return { kind: 'shell_run_list', shellRuns: [], overflow: 0 };
+      },
+      async wait() {
+        throw new Error('not used');
+      },
+      async cancel() {
+        throw new Error('not used');
+      },
+    } satisfies ShellRunToolController;
+    const tools = buildBuiltinTools({ shellRuns });
+    const names = tools.map((tool) => tool.name);
+
+    expect(names.includes('ShellStatus')).toBe(true);
+    expect(names.includes('ShellWait')).toBe(true);
+    expect(names.includes('ShellCancel')).toBe(true);
+    expect(tools.find((tool) => tool.name === 'ShellStatus')?.permissionRequired).toBe(false);
+
+    const bash = tools.find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+    const result = await bash.impl(
+      { command: 'sleep 60', timeout_ms: 2_000, yield_time_ms: 1_234 },
+      {
+        sessionId: 'session-1',
+        runId: 'run-1',
+        turnId: 'turn-1',
+        cwd: '/workspace',
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    );
+
+    expect((result as { kind: string }).kind).toBe('shell_run');
+    expect((calls[0] as { yieldTimeMs?: number }).yieldTimeMs).toBe(1_234);
+    expect((calls[0] as { timeoutMs?: number }).timeoutMs).toBe(2_000);
+    expect((calls[0] as { sourceRunId?: string }).sourceRunId).toBe('run-1');
+  });
+
+  test('foreground-only Bash does not register ShellRun controls', () => {
+    const names = buildBuiltinTools().map((tool) => tool.name);
+    expect(names.includes('ShellStatus')).toBe(false);
+    expect(names.includes('ShellWait')).toBe(false);
+    expect(names.includes('ShellCancel')).toBe(false);
+  });
+
   test('emits stdout/stderr chunks before returning terminal result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
@@ -39,7 +105,7 @@ describe('builtin Bash streaming output', () => {
     });
   });
 
-  test('aborted Bash command rejects and keeps already emitted output', async () => {
+  test('aborted Bash command returns cancelled terminal result and keeps already emitted output', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
     const abort = new AbortController();
@@ -63,7 +129,10 @@ describe('builtin Bash streaming output', () => {
     await waitFor(() => events.length > 0);
     abort.abort();
 
-    await expectRejects(Promise.resolve(run), /Command aborted/);
+    const result = await run as { status: string; exitCode: number; stdout: string };
+    expect(result.status).toBe('cancelled');
+    expect(result.exitCode).toBe(130);
+    expect(result.stdout).toContain('started');
     expect(events.some((event) => event.stream === 'stdout' && event.chunk.includes('started'))).toBe(true);
   });
 
@@ -82,68 +151,80 @@ describe('builtin Bash streaming output', () => {
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
       },
-    ) as { exitCode: number; stdout: string };
+    ) as { exitCode: number; stdout: string; stdoutTruncated: boolean };
 
     expect(result.exitCode).toBe(0); // no reject — the old code threw away everything past the cap
     expect(result.stdout.includes('line5000')).toBe(true); // tail preserved
     expect(result.stdout.includes('truncated')).toBe(true); // truncation marker present
     expect(result.stdout.includes('line1\n')).toBe(false); // head dropped, not the whole output
+    expect(result.stdoutTruncated).toBe(true);
   });
 
-  test('a failing command surfaces stdout/stderr on the rejection error', async () => {
+  test('foreground Bash marks retained-tail truncation even when model shaping does not truncate again', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
 
-    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
-    try {
-      await bash.impl(
-        { command: 'printf "out-data"; printf "err-data" >&2; exit 3', timeout_ms: 5_000 },
-        {
-          sessionId: 'session-1',
-          turnId: 'turn-1',
-          cwd,
-          toolCallId: 'tool-1',
-          abortSignal: new AbortController().signal,
-          emitOutput: () => {},
-        },
-      );
-    } catch (e: unknown) {
-      err = e as { code?: number; stdout?: string; stderr?: string };
-    }
+    const result = await bash.impl(
+      { command: "perl -e 'print \"x\" x 2000000'", timeout_ms: 10_000 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    ) as { stdout: string; stdoutTruncated: boolean };
 
-    expect(err?.code).toBe(3);
-    expect(err?.stdout).toBe('out-data');
-    expect(err?.stderr).toBe('err-data');
+    expect(result.stdoutTruncated).toBe(true);
+    expect(result.stdout).toContain('omitted for safety');
   });
 
-  test('a timed-out command still surfaces the stdout/stderr captured before the timeout', async () => {
+  test('a failing command returns stdout/stderr in a structured terminal result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
 
-    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
-    try {
-      await bash.impl(
-        { command: 'printf "out-before"; printf "err-before" >&2; sleep 5', timeout_ms: 200 },
-        {
-          sessionId: 'session-1',
-          turnId: 'turn-1',
-          cwd,
-          toolCallId: 'tool-1',
-          abortSignal: new AbortController().signal,
-          emitOutput: () => {},
-        },
-      );
-    } catch (e: unknown) {
-      err = e as { code?: number; stdout?: string; stderr?: string };
-    }
+    const result = await bash.impl(
+      { command: 'printf "out-data"; printf "err-data" >&2; exit 3', timeout_ms: 5_000 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    ) as { status: string; exitCode: number; stdout: string; stderr: string };
 
-    // Without the fix the model would see a bare "timed out" with no logs; now
-    // the error carries a code (124) and the bounded tail captured pre-timeout.
-    expect(err?.code).toBe(124);
-    expect(err?.stdout).toBe('out-before');
-    expect(err?.stderr).toBe('err-before');
+    expect(result.status).toBe('failed');
+    expect(result.exitCode).toBe(3);
+    expect(result.stdout).toBe('out-data');
+    expect(result.stderr).toBe('err-data');
+  });
+
+  test('a timed-out command returns stdout/stderr captured before the timeout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
+    const bash = buildBuiltinTools().find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: 'printf "out-before"; printf "err-before" >&2; sleep 5', timeout_ms: 200 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    ) as { status: string; exitCode: number; stdout: string; stderr: string };
+
+    expect(result.status).toBe('timed_out');
+    expect(result.exitCode).toBe(124);
+    expect(result.stdout).toBe('out-before');
+    expect(result.stderr).toBe('err-before');
   });
 });
 

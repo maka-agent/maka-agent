@@ -12,8 +12,12 @@ import { promisify } from 'node:util';
 import { glob as nodeGlob } from 'node:fs/promises'; // Node 22+ stable glob
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
-import { truncateToolOutput } from './tool-output.js';
-import { runShellWithBoundedTail } from './shell-exec.js';
+import {
+  buildBackgroundBashTool,
+  buildLocalForegroundBashTool,
+  buildShellRunControlTools,
+} from './shell-tools.js';
+import type { ShellRunToolController } from './shell-tools.js';
 
 // Single source of truth for tool shape. AiSdkBackend exports them; we just
 // re-export here for back-compat with external callers that imported from
@@ -28,6 +32,10 @@ const execAsync = promisify(exec);
 // watchdog is paused during tool execution.
 const GREP_TIMEOUT_MS = 120_000;
 
+export interface BuildBuiltinToolsOptions {
+  shellRuns?: ShellRunToolController;
+}
+
 // Key Write and Edit on the lexically resolved absolute path so both lock the
 // same file and spellings ("a", "./a", "d//a") collapse onto one key. realpath
 // canonicalizes only the cwd (which always exists); the path itself stays lexical,
@@ -38,33 +46,12 @@ async function fileWriteLockKey(cwd: string, inputPath: string): Promise<string>
   return resolve(await fs.realpath(cwd), inputPath);
 }
 
-export function buildBuiltinTools(): MakaTool[] {
+export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
+  const bashTools = options.shellRuns
+    ? [buildBackgroundBashTool(options.shellRuns), ...buildShellRunControlTools(options.shellRuns)]
+    : [buildLocalForegroundBashTool()];
   return [
-    {
-      name: 'Bash',
-      description: 'Run a shell command in the session cwd. Subject to permission policy.',
-      parameters: z.object({
-        command: z.string().describe('The shell command to execute'),
-        timeout_ms: z.number().int().positive().max(600_000).optional(),
-      }),
-      permissionRequired: true,
-      impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
-        const result = await runStreamingShell(command, {
-          cwd,
-          timeout: timeout_ms ?? 120_000,
-          abortSignal,
-          emitOutput,
-        });
-        return {
-          kind: 'terminal',
-          cwd,
-          cmd: command,
-          exitCode: result.exitCode,
-          stdout: truncateToolOutput(result.stdout, { direction: 'tail' }).content,
-          stderr: truncateToolOutput(result.stderr, { direction: 'tail' }).content,
-        };
-      },
-    },
+    ...bashTools,
     {
       name: 'Read',
       description: 'Read a file from disk by path relative to session cwd.',
@@ -191,46 +178,6 @@ export function buildBuiltinTools(): MakaTool[] {
       },
     },
   ];
-}
-
-// Thin wrapper over the shared runShellWithBoundedTail (the one place a shell
-// command actually runs — see shell-exec.ts). Keeps the builtin's contract:
-// throw on timeout / abort / non-zero exit (with stdout+stderr+code attached),
-// stream live via emitOutput, and return the bounded tail on success.
-async function runStreamingShell(
-  command: string,
-  options: {
-    cwd: string;
-    timeout: number;
-    abortSignal: AbortSignal;
-    emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
-  },
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const result = await runShellWithBoundedTail(command, {
-    cwd: options.cwd,
-    timeoutMs: options.timeout,
-    abortSignal: options.abortSignal,
-    emitOutput: options.emitOutput,
-  });
-  // Attach the captured (bounded) stdout/stderr + an exit code to EVERY failure,
-  // not just non-zero exit. coerceTerminalFailure only folds the tail into the
-  // model-facing result when error.code is a number, so without a code on
-  // timeout/abort the model would be blind to the logs leading up to the failure
-  // (124 = timeout, 130 = aborted, both conventional).
-  if (result.timedOut) throw terminalError(`Command timed out after ${options.timeout}ms`, result, 124);
-  if (result.aborted) throw terminalError('Command aborted', result, 130);
-  if (result.exitCode !== 0) throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
-  return { stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode };
-}
-
-function terminalError(
-  message: string,
-  result: { stdout: string; stderr: string },
-  code: number,
-): Error {
-  const error = new Error(message);
-  Object.assign(error, { stdout: result.stdout, stderr: result.stderr, code });
-  return error;
 }
 
 function shellEscape(arg: string): string {

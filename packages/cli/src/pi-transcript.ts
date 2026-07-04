@@ -483,6 +483,22 @@ function formatToolResultContent(content: ToolResultContent): string {
         content.stdout ? `stdout:\n${content.stdout}` : '',
         content.stderr ? `stderr:\n${content.stderr}` : '',
       ].filter(Boolean).join('\n\n');
+    case 'shell_run':
+      return [
+        `$ ${content.cmd}`,
+        `cwd: ${content.cwd}`,
+        `shellRunId: ${content.shellRunId}`,
+        `status: ${content.status}`,
+        content.exitCode !== undefined ? `exit: ${content.exitCode}` : '',
+        content.stdout ? `stdout:\n${content.stdout}` : '',
+        content.stderr ? `stderr:\n${content.stderr}` : '',
+      ].filter(Boolean).join('\n\n');
+    case 'shell_run_list':
+      return content.shellRuns.length > 0
+        ? content.shellRuns.map((run) =>
+          `${run.shellRunId} ${run.status} ${run.cmd}`
+        ).join('\n')
+        : 'No background shell runs';
     case 'file_diff':
       return content.diff;
     case 'file_write':

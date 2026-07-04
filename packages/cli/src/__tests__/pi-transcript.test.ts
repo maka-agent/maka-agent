@@ -242,9 +242,12 @@ describe('Maka Pi TUI transcript', () => {
         kind: 'terminal',
         cwd: '/repo',
         cmd: 'npm test',
+        status: 'completed',
         exitCode: 0,
         stdout: longStdout,
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     }));
 
