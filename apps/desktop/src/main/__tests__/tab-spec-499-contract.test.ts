@@ -33,6 +33,8 @@ const PROVIDER_EDITOR_CSS_FILE = resolve(
 );
 const SKILLS_PANEL_FILE = resolve(REPO_ROOT, 'packages/ui/src/skills-panel.tsx');
 const SKILLS_CSS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/module-pages/skills.css');
+const DAILY_REVIEW_PANEL_FILE = resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx');
+const DAILY_REVIEW_CSS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/daily-review.css');
 
 const BRAND_STATE_TOKEN_RE =
   /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/;
@@ -208,6 +210,36 @@ describe('issue #499 P0-3 tab spec contract', () => {
       css,
       /\.maka-skill-tab\[data-state\s*=\s*"active"\]::after/,
       'skill hand-written under-bar ::after must be removed (underline variant uses the Base UI indicator)',
+    );
+  });
+
+  it('daily-review range uses SettingsSegmented (Base UI ToggleGroup), not hand-rolled buttons; active is neutral', async () => {
+    // daily-review range (今日/本周/本月) switches a time-window parameter —
+    // the report re-fetches for the chosen range, it is not 3 distinct views.
+    // So it is a segmented control, not tabs: SettingsSegmented (Base UI
+    // ToggleGroup, single-select, roving tabindex + arrow keys + data-pressed)
+    // is the a11y-correct primitive, not Tabs/TabsPanel.
+    const panel = await readFile(DAILY_REVIEW_PANEL_FILE, 'utf8');
+    assert.match(
+      panel,
+      /SettingsSegmented/,
+      'daily-review range must use SettingsSegmented (Base UI ToggleGroup), not hand-rolled buttons',
+    );
+    assert.doesNotMatch(
+      panel,
+      /aria-pressed=\{range === option\}/,
+      'daily-review hand-rolled aria-pressed switcher must be removed',
+    );
+    assert.doesNotMatch(
+      panel,
+      /data-active=\{range === option \? 'true' : undefined\}/,
+      'daily-review hand-rolled data-active switcher must be removed',
+    );
+    const css = stripCssComments(await readFile(DAILY_REVIEW_CSS_FILE, 'utf8'));
+    assert.doesNotMatch(
+      css,
+      /\.maka-daily-review-range-tab\[data-active/,
+      'daily-review hand-written .maka-daily-review-range-tab[data-active] (brand --nav-active) must be removed (active is neutral via .settingsSegmented button[data-pressed])',
     );
   });
 });

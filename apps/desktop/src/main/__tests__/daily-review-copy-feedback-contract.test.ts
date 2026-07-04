@@ -96,13 +96,13 @@ describe('Daily Review copy feedback contract', () => {
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
 
     assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
-    assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className="maka-daily-review-range-tab"/);
+    assert.match(panelBlock, /<SettingsSegmented[\s\S]*?className="maka-daily-review-range-tabs"/);
     assert.match(panelBlock, /className="maka-daily-review-copy"/);
     assert.match(panelBlock, /className="maka-daily-review-append"/);
     assert.match(panelBlock, /className="maka-daily-review-save"/);
     assert.match(panelBlock, /className="maka-daily-review-alert-retry"/);
     assert.doesNotMatch(panelBlock, /className="[^"]*\bmaka-button\b[^"]*"/);
-    assert.match(css, /\.maka-daily-review-range-tab\[data-active="true"\]/);
+    assert.doesNotMatch(css, /\.maka-daily-review-range-tab\[data-active/);
     assert.match(css, /\.maka-daily-review-copy,\s*\.maka-daily-review-append,\s*\.maka-daily-review-save/);
     assert.doesNotMatch(css, /\.maka-daily-review-range-tabs > button/);
     assert.doesNotMatch(css, /\.maka-daily-review-actions > button/);

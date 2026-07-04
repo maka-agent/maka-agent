@@ -17,6 +17,7 @@ import {
   formatDailyReviewMarkdown,
 } from './daily-review-helpers.js';
 import { Button as UiButton } from './ui.js';
+import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
@@ -288,25 +289,16 @@ export function DailyReviewPanel(props: {
             ›
           </UiButton>
         </div>
-        <div className="maka-daily-review-range-tabs" role="group" aria-label="时间范围切换">
-          {([1, 7, 30] as const).map((option) => (
-            <UiButton
-              key={option}
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="maka-daily-review-range-tab"
-              data-active={range === option ? 'true' : undefined}
-              aria-pressed={range === option}
-              onClick={() => {
-                setRange(option);
-                setOffsetDays(0);
-              }}
-            >
-              {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
-            </UiButton>
-          ))}
-        </div>
+        <SettingsSegmented
+          value={String(range)}
+          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
+          onChange={(v) => {
+            setRange(Number(v) as DailyReviewRange);
+            setOffsetDays(0);
+          }}
+          ariaLabel="时间范围切换"
+          className="maka-daily-review-range-tabs"
+        />
       </header>
       <section className="maka-daily-review-info" aria-label="每日回顾说明">
         <p className="maka-daily-review-info-hint">

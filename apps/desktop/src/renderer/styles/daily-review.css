@@ -316,9 +316,6 @@
     color: var(--foreground);
   }
 
-/* PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs. Active tab uses
-   the same accent-emphasis as the surrounding Settings nav so the
-   visual language stays consistent. */
 .maka-daily-review-range-tabs,
   .maka-daily-review-actions {
     display: flex;
@@ -331,21 +328,11 @@
     justify-content: flex-end;
   }
 
-.maka-daily-review-range-tab {
-  font-size: var(--font-size-ui);
-}
-
 .maka-daily-review-copy,
 .maka-daily-review-append,
 .maka-daily-review-save {
   font-size: var(--font-size-ui);
   white-space: nowrap;
-}
-
-.maka-daily-review-range-tab[data-active="true"] {
-  background: oklch(from var(--nav-active) l c h / 0.12);
-  color: var(--nav-active);
-  font-weight: 600;
 }
 
 .maka-daily-review-alert {
