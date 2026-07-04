@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { normalizeSearchUrl, type ToolResultContent } from '@maka/core';
+import { type ToolResultContent } from '@maka/core';
 import { AlertOctagon, Check, Copy, X } from './icons.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
@@ -16,6 +16,8 @@ import {
   formatDuration,
   formatUserVisibleToolText,
 } from './tool-activity/preview-utils.js';
+import { FileDiffPreview } from './tool-activity/file-diff-preview.js';
+import { WebSearchErrorPreview, WebSearchPreview } from './tool-activity/web-search-preview.js';
 
 // Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
 // so the always-on group-activation connector's name is duplicated here as the
@@ -1209,152 +1211,6 @@ function presentOfficeDocumentReason(reason: string | undefined): string | undef
     default:
       return '未知诊断';
   }
-}
-
-/**
- * Line-level diff coloring. Splits the unified-diff text on newlines and
- * tags each line with `data-line="add" | "del" | "hunk" | "meta" | "ctx"`
- * for CSS to color. Doesn't try to parse the hunk semantics — we leave
- * that to a future inline editor view; this is just a readable preview.
- */
-/**
- * PR-CHAT-WEB-SEARCH-RENDER-0 — plain-text card list for the gated
- * WebSearch agent tool result. Matches the Settings → 联网搜索 live-query
- * verification layout so the user gets the same shape whether the search came
- * from a manual verification run or the agent. Never renders markdown / HTML;
- * each cell is `redactSecrets`'d as a belt-and-braces guard against
- * a provider response that happened to echo a token.
- */
-function WebSearchPreview(props: {
-  query: string;
-  provider: string;
-  rows: ReadonlyArray<{ title: string; url: string; snippet: string; source: string }>;
-}) {
-  const rows = props.rows
-    .map((row) => {
-      const normalizedUrl = normalizeSearchUrl(row.url);
-      if (!normalizedUrl.ok) return null;
-      return { ...row, url: redactSecrets(normalizedUrl.value) };
-    })
-    .filter((row): row is { title: string; url: string; snippet: string; source: string } => row !== null);
-
-  if (rows.length === 0) {
-    return (
-      <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }))} data-kind="web_search">
-        <header>
-          <strong>{redactSecrets(props.query)}</strong>
-          <small>{props.provider} · 没有结果</small>
-        </header>
-      </div>
-    );
-  }
-  return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }))} data-kind="web_search">
-      <header>
-        <strong>{redactSecrets(props.query)}</strong>
-        <small>
-          {props.provider} · {rows.length} 条结果
-        </small>
-      </header>
-      <ul>
-        {rows.map((row, idx) => (
-          <li key={`${row.url}-${idx}`}>
-            <a href={row.url} target="_blank" rel="noreferrer noopener">
-              {redactSecrets(row.title)}
-            </a>
-            <small>{redactSecrets(row.source)}</small>
-            <p>{redactSecrets(row.snippet)}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function WebSearchErrorPreview(props: {
-  query?: string;
-  provider: string;
-  reason: string;
-  message: string;
-  credentialSource?: string;
-}) {
-  const sourceCopy =
-    props.credentialSource === 'env'
-      ? '环境变量'
-      : props.credentialSource === 'saved'
-        ? '本机已保存 key'
-        : props.credentialSource === 'none'
-          ? '未配置'
-          : '来源未知';
-  const repairCopy =
-    props.reason === 'invalid_credentials' && props.credentialSource === 'env'
-      ? '请检查 TAVILY_API_KEY / MAKA_TAVILY_API_KEY 后重启。'
-      : props.reason === 'invalid_credentials'
-        ? '请在 设置 · 联网搜索 中更新 Tavily key。'
-        : props.reason === 'rate_limited'
-          ? 'Tavily 当前限流，请稍后重试或更换可用凭据。'
-          : props.reason === 'not_configured'
-            ? '请先完成联网搜索配置后再重试。'
-            : props.reason === 'timeout'
-              ? '请求超时，请稍后重试。'
-              : props.reason === 'incognito_active'
-                ? '隐私模式下不会发起联网搜索。'
-                : '请检查网络或稍后重试。';
-  return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }), previewVariants({ part: 'web-search-error' }))} data-kind="web_search_error">
-      <header>
-        <strong>{redactSecrets(props.query ?? '联网搜索')}</strong>
-        <small>{redactSecrets(props.provider)} · 搜索失败 · {sourceCopy}</small>
-      </header>
-      <p className={previewVariants({ part: 'web-search-error-message' })}>{redactSecrets(props.message)}</p>
-      <p className={previewVariants({ part: 'web-search-error-repair' })}>{repairCopy}</p>
-    </div>
-  );
-}
-
-function FileDiffPreview(props: { diff: string; paths: string[] }) {
-  // Apply UI-level redaction then cap the displayed lines. Both are
-  // @kenji's PR76 review items: never echo a token a tool happened to dump
-  // into a diff (commit body, .env file diff, etc.), and never let a
-  // 10k-line diff create 10k React elements.
-  const { body, capped } = capLines(redactSecrets(props.diff));
-  const lines = body.split('\n');
-  return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'diff' }))} data-kind="file_diff">
-      {props.paths.length > 0 && (
-        <div className={previewVariants({ part: 'diff-paths' })}>
-          {props.paths.map((path) => (
-            <code key={path}>{path}</code>
-          ))}
-        </div>
-      )}
-      <pre className={previewVariants({ part: 'diff-body' })}>
-        {lines.map((line, index) => (
-          <span
-            key={`${index}:${line.slice(0, 16)}`}
-            className={previewVariants({ part: 'diff-line' })}
-            data-line={diffLineKind(line)}
-          >
-            {line || ' '}
-            {'\n'}
-          </span>
-        ))}
-        {capped > 0 && (
-          <span className={previewVariants({ part: 'diff-line' })} data-line="meta">
-            {`\n… 已隐藏 ${capped} 行\n`}
-          </span>
-        )}
-      </pre>
-    </div>
-  );
-}
-
-function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'ctx' {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'meta';
-  if (line.startsWith('@@')) return 'hunk';
-  if (line.startsWith('+')) return 'add';
-  if (line.startsWith('-')) return 'del';
-  return 'ctx';
 }
 
 /**
