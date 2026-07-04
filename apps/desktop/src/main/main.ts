@@ -775,8 +775,8 @@ function registerIpc(): void {
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
   });
-  ipcMain.handle('window:setThemeSource', (event, themeSource: unknown): void => {
-    mainWindowController.setThemeSource(event.sender, themeSource);
+  ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
+    mainWindowController.setThemeSource(event.sender, themePref);
   });
   ipcMain.handle('app:info', async () => {
     const projectPath = await currentProjectRoot();

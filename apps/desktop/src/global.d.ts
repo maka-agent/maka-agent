@@ -54,6 +54,7 @@ import type {
   WebSearchResponse,
   BrowserState,
   BrowserViewRect,
+  ThemePreference,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -394,7 +395,7 @@ declare global {
       appWindow: {
         subscribeOpenSettings(handler: () => void): () => void;
         setTitlebarControlsVisible(visible: boolean): Promise<void>;
-        setThemeSource(themeSource: 'system' | 'light' | 'dark'): Promise<void>;
+        setThemeSource(themePref: ThemePreference): Promise<void>;
       };
       app: {
         info(): Promise<{

@@ -29,17 +29,10 @@ export function applyTheme(pref: ThemePreference): () => void {
   // pre-React paint reapplies the auto → system-matchMedia branch itself.
   safeLocalStorageSet('maka-theme-v1', pref);
 
-  // This only flips the DOM (`.dark` + `color-scheme`) — it does not touch
-  // Electron's own native chrome. On macOS the window's `vibrancy: 'sidebar'`
-  // material (main-window.ts) reads its light/dark tint from
-  // `nativeTheme.themeSource`, which otherwise stays on its default
-  // ('system') regardless of what's picked here. Without this call, an
-  // in-app preference that disagrees with the OS appearance leaves the
-  // vibrancy-backed sidebar showing the *system* theme while the rest of
-  // the (opaque) UI repaints correctly.
-  void window.maka.appWindow
-    .setThemeSource(pref === 'auto' ? 'system' : pref)
-    .catch(() => {});
+  // Also syncs Electron's own native chrome (nativeTheme.themeSource) --
+  // see toNativeThemeSource() in main-window.ts for why this DOM-only flip
+  // isn't enough on its own.
+  void window.maka.appWindow.setThemeSource(pref).catch(() => {});
 
   if (pref === 'auto') {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');

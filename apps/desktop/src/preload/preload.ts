@@ -56,6 +56,7 @@ import type {
   WebSearchResponse,
   BrowserState,
   BrowserViewRect,
+  ThemePreference,
 } from '@maka/core';
 import type {
   PricingConfig,
@@ -718,8 +719,8 @@ contextBridge.exposeInMainWorld('maka', {
     setTitlebarControlsVisible(visible: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitlebarControlsVisible', visible);
     },
-    setThemeSource(themeSource: 'system' | 'light' | 'dark'): Promise<void> {
-      return ipcRenderer.invoke('window:setThemeSource', themeSource);
+    setThemeSource(themePref: ThemePreference): Promise<void> {
+      return ipcRenderer.invoke('window:setThemeSource', themePref);
     },
   },
   app: {
