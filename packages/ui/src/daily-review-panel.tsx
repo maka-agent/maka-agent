@@ -322,7 +322,7 @@ export function DailyReviewPanel(props: {
             type="button"
             variant="default"
             size="sm"
-            className="maka-daily-review-quick-run"
+            className="maka-daily-review-quick-run min-w-[6rem]"
             onClick={() => void triggerManualRun('daily')}
             disabled={dailyReviewActionBusy}
             data-pending={pendingDailyReviewAction === 'run:daily' ? 'true' : undefined}
@@ -334,7 +334,7 @@ export function DailyReviewPanel(props: {
             type="button"
             variant="outline"
             size="sm"
-            className="maka-daily-review-quick-run"
+            className="maka-daily-review-quick-run min-w-[6rem]"
             onClick={() => void triggerManualRun('deep')}
             disabled={dailyReviewActionBusy}
             data-pending={pendingDailyReviewAction === 'run:deep' ? 'true' : undefined}
@@ -417,7 +417,7 @@ export function DailyReviewPanel(props: {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="maka-daily-review-copy"
+                className="maka-daily-review-copy min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('copy', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onCopyMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });
@@ -453,7 +453,7 @@ export function DailyReviewPanel(props: {
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="maka-daily-review-save"
+                className="maka-daily-review-save min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('save', async () => {
                   const md = formatDailyReviewMarkdown(visibleSummary, dayLabel);
                   await props.onSaveMarkdown?.({ markdown: md, label: dayLabel, summary: visibleSummary });

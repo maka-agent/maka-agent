@@ -285,22 +285,22 @@ export function OpenGatewaySettingsPage(props: {
         <Button variant="secondary" type="button" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
           {isCopyingGatewayAction('base-url') ? '复制中…' : '复制地址'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[8rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
           {isCopyingGatewayAction('overview-curl') ? '复制中…' : '复制总览 curl'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
           {isCopyingGatewayAction('openapi-curl') ? '复制中…' : '复制接口说明 curl'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[9.5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
           {isCopyingGatewayAction('session-state-curl') ? '复制中…' : '复制单会话状态 curl'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[8.5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
           {isCopyingGatewayAction('event-stream-curl') ? '复制中…' : '复制事件流 curl'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
           {isCopyingGatewayAction('recent-events-curl') ? '复制中…' : '复制最近事件 curl'}
         </Button>
-        <Button variant="secondary" type="button" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
+        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
           {isCopyingGatewayAction('recent-requests-curl') ? '复制中…' : '复制最近请求 curl'}
         </Button>
       </div>

@@ -151,6 +151,7 @@ const markerVariants = cva("", {
         + " data-[kind=model]:[&_code]:text-[color:var(--foreground-secondary)] data-[kind=model]:[&_code]:font-semibold"
         + " data-[kind=tools]:text-[color:var(--muted-foreground)]"
         + " data-[kind=duration]:[font-variant-numeric:tabular-nums]"
+        + " data-[kind=tools]:min-w-[5rem] data-[kind=duration]:min-w-[4rem]"
         + " data-[kind=tokens]:[font-variant-numeric:tabular-nums] data-[kind=tokens]:[font-family:var(--font-mono)] data-[kind=tokens]:text-[12px]"
         + " data-[state=in-progress]:text-[color:var(--status-running)] data-[state=in-progress]:font-semibold"
         + " data-[kind=model]:data-[switched=true]:[&_code]:text-[color:var(--foreground-secondary)]",
@@ -300,7 +301,7 @@ const streamVariants = cva("", {
       // `.maka-tool-output-stream-truncated-tag` class (no rule of its own) is
       // dropped.
       count:
-        "[font-variant-numeric:tabular-nums]"
+        "min-w-[5rem] [font-variant-numeric:tabular-nums]"
         + " data-[stream=stderr]:text-[color:var(--destructive-text)]"
         + " data-[redacted=true]:text-[color:var(--warning-text,var(--info-text))]"
         + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-1 data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",

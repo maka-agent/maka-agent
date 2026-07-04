@@ -123,7 +123,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               <UiButton
                 type="button"
                 variant="outline"
-                className="maka-error-copy-action"
+                className="maka-error-copy-action min-w-[5.5rem]"
                 data-copy-state={copyState}
                 disabled={copyPending}
                 aria-busy={copyPending ? 'true' : undefined}
