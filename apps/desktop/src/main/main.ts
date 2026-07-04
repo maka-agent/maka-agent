@@ -221,6 +221,7 @@ const credentialStore = createFileCredentialStore(workspaceRoot);
 // and lives in a separate module not statically imported here.
 const claudeSubscription = new ClaudeSubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 // PR-MODEL-OAUTH-ALL-0: Codex / Cursor / Antigravity subscription
 // services. Same shape as `claudeSubscription` — main-process only,
@@ -229,6 +230,7 @@ const claudeSubscription = new ClaudeSubscriptionService({
 // until the Google client_id question is resolved.
 const codexSubscription = new CodexSubscriptionService({
   userDataDir: app.getPath('userData'),
+  credentialStore,
 });
 const buildSubscriptionModelFetch = createSubscriptionModelFetch({
   claudeSubscription,
