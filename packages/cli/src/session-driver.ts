@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
 import type { SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
@@ -99,6 +100,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   async switchSession(sessionId: string): Promise<SessionSummary> {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
+    if (summary.cwd) await assertSessionCwdExists(summary.cwd);
     this.sessionId = summary.id;
     this.model = summary.model;
     this.permissionMode = summary.permissionMode;
@@ -126,4 +128,16 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
 function cwdRank(session: SessionSummary, cwd: string): number {
   return session.cwd === cwd ? 0 : 1;
+}
+
+async function assertSessionCwdExists(cwd: string): Promise<void> {
+  try {
+    await realpath(cwd);
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') {
+      throw new Error(`Session cwd no longer exists: ${cwd}`);
+    }
+    throw error;
+  }
 }

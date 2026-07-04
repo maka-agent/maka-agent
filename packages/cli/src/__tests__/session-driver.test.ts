@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput, PermissionMode, PermissionResponse, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
@@ -142,6 +145,27 @@ describe('Maka session driver', () => {
     assert.equal(summary.id, 'session-2');
     assert.deepEqual(runtime.created, []);
     assert.equal(runtime.sent[0]?.sessionId, 'session-2');
+  });
+
+  test('rejects switching to a session whose cwd no longer exists', async () => {
+    const missingCwd = await mkdtemp(join(tmpdir(), 'maka-missing-session-cwd-'));
+    await rm(missingCwd, { recursive: true, force: true });
+    const runtime = new RecordingRuntime();
+    runtime.sessionSummaries = [
+      sessionSummary({ id: 'deleted-worktree', cwd: missingCwd }),
+    ];
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await assert.rejects(
+      driver.switchSession('deleted-worktree'),
+      new RegExp(`Session cwd no longer exists: ${escapeRegExp(missingCwd)}`),
+    );
+    assert.equal(driver.getSessionId(), null);
   });
 
   test('lists current-cwd sessions before other recent sessions', async () => {
@@ -319,6 +343,10 @@ function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
     permissionMode: 'ask',
     ...overrides,
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
