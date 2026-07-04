@@ -62,11 +62,11 @@ describe('issue #499 state-token governance contract', () => {
       // contains :hover, check its background declaration.
       for (const ruleMatch of source.matchAll(/([^{}]*?):hover[^{]*\{([^}]*)\}/g)) {
         const body = ruleMatch[2];
-        const bgMatch = body.match(/background(?:-color)?:\s*([^;]+);/);
-        if (!bgMatch) continue;
-        const bg = bgMatch[1].trim();
-        if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg)) {
-          violations.push(`${file}: :hover background ${bg}`);
+        for (const bgMatch of body.matchAll(/background(?:-color)?:\s*([^;]+);/g)) {
+          const bg = bgMatch[1].trim();
+          if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg)) {
+            violations.push(`${file}: :hover background ${bg}`);
+          }
         }
       }
     }
