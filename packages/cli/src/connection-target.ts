@@ -28,20 +28,23 @@ export async function resolveDefaultSessionTarget(
   const connection = await input.connectionStore.get(slug);
   if (!connection) throw noRealConnection('connection_missing');
 
-  const credentialKind = credentialKindForConnection(connection);
-  const secret = credentialKind
-    ? await input.credentialStore.getSecret(connection.slug, credentialKind)
-    : '';
-  const oauthTokens = isOAuthSubscriptionProvider(connection.providerType)
+  const oauthProviderType = isOAuthSubscriptionProvider(connection.providerType)
+    ? connection.providerType
+    : null;
+  const oauthTokens = oauthProviderType
     ? await resolveOAuthSubscriptionTokens({
-      providerType: connection.providerType,
+      providerType: oauthProviderType,
       slug: connection.slug,
       credentialStore: input.credentialStore,
       now: input.now,
       fetchFn: input.fetchFn,
     })
     : undefined;
-  const apiKey = oauthTokens?.access_token ?? secret;
+  const credentialKind = credentialKindForConnection(connection);
+  const secret = !oauthProviderType && credentialKind
+    ? await input.credentialStore.getSecret(connection.slug, credentialKind)
+    : '';
+  const apiKey = oauthProviderType ? oauthTokens?.access_token : secret;
   const verdict = isConnectionReady({
     connection,
     hasSecret: typeof apiKey === 'string' && apiKey.length > 0,

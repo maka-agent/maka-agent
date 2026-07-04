@@ -97,6 +97,40 @@ describe('default session target resolver', () => {
     assert.equal(JSON.parse(stored).access_token, 'fresh-access-token');
   });
 
+  test('rejects unusable OAuth subscription credentials instead of using the raw secret as an API key', async () => {
+    const connection = makeConnection({
+      slug: 'codex-subscription',
+      providerType: 'codex-subscription',
+      defaultModel: 'gpt-5.5',
+    });
+    const expiredToken = JSON.stringify({
+      access_token: 'expired-access-token',
+      refresh_token: 'oauth-refresh-token',
+      expires_at: 1_000,
+      account_id: 'acct_123',
+    });
+
+    for (const secret of ['not-json', expiredToken]) {
+      await assert.rejects(
+        resolveDefaultSessionTarget({
+          connectionStore: {
+            getDefault: async () => 'codex-subscription',
+            get: async (slug) => slug === 'codex-subscription' ? connection : null,
+          },
+          credentialStore: {
+            getSecret: async () => secret,
+            setSecret: async () => {
+              throw new Error('refresh should fail before storing');
+            },
+          },
+          now: () => 10_000,
+          fetchFn: async () => new Response('refresh failed', { status: 500 }),
+        }),
+        /NO_REAL_CONNECTION:missing_api_key/,
+      );
+    }
+  });
+
   test('fails before session creation when no default connection exists', async () => {
     await assert.rejects(
       resolveDefaultSessionTarget({
