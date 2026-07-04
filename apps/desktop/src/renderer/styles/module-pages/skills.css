@@ -386,7 +386,7 @@ color: oklch(0.55 0.015 220);
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-2);
-  color: var(--foreground-50);
+  color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
   padding: 0 var(--space-2-5);
