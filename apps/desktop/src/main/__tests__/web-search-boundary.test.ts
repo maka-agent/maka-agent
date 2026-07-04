@@ -22,6 +22,7 @@ import {
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
+const TOOL_RESULT_PREVIEW = join(REPO_ROOT, 'packages/ui/src/tool-activity/tool-result-preview.tsx');
 
 const RENDERER_FILES = [
   ...RENDERER_SHELL_SOURCE_REPO_PATHS,
@@ -422,32 +423,32 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
   });
 
   it('WebSearch shared tool-result source uses live-query naming instead of demo language', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/tool-activity.tsx'), 'utf8');
+    const previewSource = await readFile(TOOL_RESULT_PREVIEW, 'utf8');
     const coreEvents = await readFile(join(REPO_ROOT, 'packages/core/src/events.ts'), 'utf8');
-    const webSearchPreview = ui.match(/function WebSearchPreview[\s\S]*?function FileDiffPreview/);
+    const webSearchPreview = previewSource.match(/function WebSearchPreview[\s\S]*?function WebSearchErrorPreview/);
     const webSearchContent = coreEvents.match(/PR-CHAT-WEB-SEARCH-RENDER-0[\s\S]*?kind:\s*'web_search'/);
 
     assert.ok(webSearchPreview, 'WebSearchPreview block must exist');
     assert.ok(webSearchContent, 'web_search ToolResultContent block must exist');
-    assert.match(ui, /live-query[\s\S]*verification/);
+    assert.match(previewSource, /live-query[\s\S]*verification/);
     assert.match(coreEvents, /live-query[\s\S]*verification/);
     assert.doesNotMatch(webSearchPreview![0], /试一下|demo|manual try-out/i);
     assert.doesNotMatch(webSearchContent![0], /试一下|demo|manual try-out/i);
   });
 
   it('WebSearch agent errors render as repair-oriented cards, not raw JSON', async () => {
-    const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/tool-activity.tsx'), 'utf8');
+    const previewSource = await readFile(TOOL_RESULT_PREVIEW, 'utf8');
     const runtime = await readFile(join(REPO_ROOT, 'packages/runtime/src/tool-runtime.ts'), 'utf8');
     const agentTool = await readFile(join(REPO_ROOT, 'apps/desktop/src/main/web-search/agent-tool.ts'), 'utf8');
     const coreEvents = await readFile(join(REPO_ROOT, 'packages/core/src/events.ts'), 'utf8');
-    const overlay = ui.match(/function OverlayPreview[\s\S]*?if \(content\.kind === 'json'\)/);
-    const errorPreview = ui.match(/function WebSearchErrorPreview[\s\S]*?function FileDiffPreview/);
+    const toolResultPreview = previewSource.match(/export function ToolResultPreview[\s\S]*?if \(content\.kind === 'json'\)/);
+    const errorPreview = previewSource.match(/function WebSearchErrorPreview[\s\S]*$/);
 
     assert.match(coreEvents, /kind:\s*'web_search_error'/);
     assert.match(agentTool, /kind:\s*'web_search_error'/);
     assert.match(runtime, /content\.kind === 'web_search_error'\) return 'error'/);
-    assert.ok(overlay, 'OverlayPreview block must exist');
-    assert.match(overlay![0], /content\.kind === 'web_search_error'/);
+    assert.ok(toolResultPreview, 'ToolResultPreview block must exist');
+    assert.match(toolResultPreview![0], /content\.kind === 'web_search_error'/);
     assert.ok(errorPreview, 'WebSearchErrorPreview block must exist');
     assert.match(errorPreview![0], /环境变量/);
     assert.match(errorPreview![0], /设置 · 联网搜索/);

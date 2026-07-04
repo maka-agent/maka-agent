@@ -696,7 +696,16 @@ export function CommandPalette(props: {
         aria-label="命令面板"
         onClick={(event) => event.stopPropagation()}
       >
-        <InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">
+        <InputGroup
+          className="maka-palette-input-wrap"
+          aria-label="命令面板搜索"
+          onMouseDown={(event) => {
+            const target = event.target as HTMLElement;
+            if (target.closest('input')) return;
+            event.preventDefault();
+            inputRef.current?.focus();
+          }}
+        >
           <InputGroupInput
             ref={inputRef}
             className="maka-palette-input"
@@ -713,7 +722,10 @@ export function CommandPalette(props: {
           />
           <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
             <span className="maka-palette-input-hint" aria-hidden="true">
-              <Kbd className="maka-shortcut-kbd">↵</Kbd> 执行 · <Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭
+              <Kbd className="maka-shortcut-kbd">↵</Kbd>
+              <span>执行</span>
+              <Kbd className="maka-shortcut-kbd">Esc</Kbd>
+              <span>关闭</span>
             </span>
           </InputGroupAddon>
         </InputGroup>

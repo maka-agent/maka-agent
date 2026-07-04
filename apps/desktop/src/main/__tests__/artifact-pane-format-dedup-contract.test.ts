@@ -100,13 +100,31 @@ describe('PR-FORMAT-DEDUP-CONTRACT-TEST-0', () => {
   });
 
   it('shared formatBytes stays an exported helper on @maka/ui', async () => {
-    const ui = await readFile(
+    const components = await readFile(
+      resolve(REPO_ROOT, 'packages/ui/src/components.tsx'),
+      'utf8',
+    );
+    const toolActivity = await readFile(
       resolve(REPO_ROOT, 'packages/ui/src/tool-activity.tsx'),
+      'utf8',
+    );
+    const previewUtils = await readFile(
+      resolve(REPO_ROOT, 'packages/ui/src/tool-activity/preview-utils.ts'),
       'utf8',
     );
 
     assert.match(
-      ui,
+      components,
+      /export \{[\s\S]*?\bformatBytes\b[\s\S]*?\} from '\.\/tool-activity\.js';/,
+      'formatBytes must remain exported from @maka/ui so callers do not refork it',
+    );
+    assert.match(
+      toolActivity,
+      /export \{ formatBytes \} from '\.\/tool-activity\/preview-utils\.js';/,
+      'tool-activity must preserve the public formatBytes re-export',
+    );
+    assert.match(
+      previewUtils,
       /export function formatBytes\(bytes: number\): string \{/,
       'formatBytes must remain an exported function so callers do not refork it',
     );

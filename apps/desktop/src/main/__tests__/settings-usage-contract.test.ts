@@ -25,20 +25,21 @@ describe('Settings usage dashboard contract', () => {
     assert.match(usagePage![0], /status: 'all', modelFilter: ''/);
     assert.match(
       usagePage![0],
-      /\{usageDraft\.activeTab === 'requests' && \([\s\S]*?<div className="settingsUsageFilters" role="group" aria-label="请求记录筛选">/,
-      'Usage filters must live under the requests-only conditional block',
+      /\{showRequestDetails && \([\s\S]*?<div className="settingsUsageFilters" role="group" aria-label="请求记录筛选">/,
+      'Usage filters must render only when request details are visible',
     );
     assert.doesNotMatch(
       usagePage![0],
       /<div className="settingsUsageFilters">\s*\{usageDraft\.showDetails/,
       'Usage request filters must not regress to an anonymous control cluster',
     );
-    assert.match(
-      usagePage![0],
-      /\{usageDraft\.showDetails && \([\s\S]*?<Input value=\{usageDraft\.modelFilter\}/,
-      'model/status request filters must be hidden until detail records are enabled',
-    );
+    assert.match(usagePage![0], /<Input value=\{usageDraft\.modelFilter\}/);
     assert.match(usagePage![0], /按模型或工具筛选/);
+    assert.match(usagePage![0], /className="settingsUsageDetailToggle"/);
+    assert.match(usagePage![0], /className="settingsUsageRecordCount"/);
+    assert.match(usagePage![0], /className="settingsUsageClearFilter"/);
+    assert.match(usagePage![0], /disabled=\{!hasRequestFilters\}/);
+    assert.match(usagePage![0], /tabIndex=\{!hasRequestFilters \? -1 : undefined\}/);
     assert.match(usagePage![0], /log\.model\.toLowerCase\(\)\.includes\(normalizedModelFilter\)/);
     assert.match(usagePage![0], /\(log\.toolName \?\? ''\)\.toLowerCase\(\)\.includes\(normalizedModelFilter\)/);
   });

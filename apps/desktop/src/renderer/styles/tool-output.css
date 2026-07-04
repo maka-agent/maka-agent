@@ -229,15 +229,15 @@
 }
 .maka-composer-mode-chip[data-tone="accent"] {
   border-color: oklch(from var(--nav-active) l c h / 0.32);
-  color: oklch(from var(--nav-active) l c h);
+  color: var(--foreground-secondary);
 }
-.maka-composer-mode-chip[data-tone="caution"] {
-  border-color: oklch(from var(--success) l c h / 0.32);
-  color: oklch(from var(--success) l c h);
+.maka-composer-mode-chip[data-tone="destructive"] {
+  border-color: oklch(from var(--destructive) l c h / 0.32);
+  color: var(--destructive-text);
 }
 .maka-composer-mode-chip[data-tone="info"] {
   border-color: oklch(from var(--info) l c h / 0.32);
-  color: oklch(from var(--info) l c h);
+  color: var(--info-text);
 }
 .maka-composer-mode-chip[data-pending="true"] {
   opacity: 0.7;

@@ -48,6 +48,8 @@ const PROVIDER_SHORT_LABEL = {
   ollama: 'Ollama',
   'kimi-coding-plan': 'Kimi',
   'zai-coding-plan': 'Z.AI',
+  MiniMax: 'MiniMax',
+  'MiniMax-cn': 'MiniMax 中国站',
   'openai-compatible': '自定义',
   'claude-subscription': 'Claude 订阅',
   'codex-subscription': 'OpenAI OAuth',

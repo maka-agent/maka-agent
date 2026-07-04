@@ -293,8 +293,8 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
 
 describe('terminal truncation handoff contract', () => {
   it('shows a deep-research handoff when terminal output is capped', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity.tsx');
-    const src = await readFile(componentsPath, 'utf8');
+    const terminalPreviewPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity', 'tool-result-preview.tsx');
+    const src = await readFile(terminalPreviewPath, 'utf8');
 
     assert.match(
       src,
@@ -343,7 +343,7 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /import \{ Button as UiButton[^}]*\} from '\.\/ui\.js';/,
+      /import \{ Button as UiButton[^}]*\} from '\.\.\/ui\.js';/,
       'The capped-output handoff copy action should use the shared UiButton from ui.tsx.',
     );
     assert.match(

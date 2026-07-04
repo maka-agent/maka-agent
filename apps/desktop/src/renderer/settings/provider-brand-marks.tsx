@@ -103,6 +103,17 @@ function ZAI(): ReactElement {
   );
 }
 
+// MiniMax ships no vendored logo in `@lobehub/icons-static-svg`, so we render
+// a neutral monochrome "M" glyph (currentColor) as an identifying placeholder
+// rather than misusing a trademarked asset. Swap in the official mark later.
+function MiniMaxMark(): ReactElement {
+  return (
+    <svg viewBox="0 0 24 24" role="img" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" xmlns="http://www.w3.org/2000/svg">
+      <path d="M4 18V6l5 8 5-8v12M20 6v12" />
+    </svg>
+  );
+}
+
 function Ollama(): ReactElement {
   return (
     <svg viewBox="0 0 24 24" role="img" fill="currentColor" fillRule="evenodd" xmlns="http://www.w3.org/2000/svg">
@@ -134,6 +145,9 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <Moonshot />;
     case 'zai-coding-plan':
       return <ZAI />;
+    case 'MiniMax':
+    case 'MiniMax-cn':
+      return <MiniMaxMark />;
     case 'ollama':
       return <Ollama />;
   }

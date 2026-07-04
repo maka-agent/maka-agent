@@ -70,6 +70,19 @@ function contrastRatio(a: [number, number, number], b: [number, number, number])
   return (high + 0.05) / (low + 0.05);
 }
 
+// color-mix(in oklab, c1 p%, c2 (1-p)%) → sRGB. Used to test the *-text token
+// variants (--info-text / --destructive-text = <tone> 50% + --foreground 50%).
+function mixOklchToSrgb(c1: [number, number, number], c2: [number, number, number], p: number): [number, number, number] {
+  const a1 = c1[1] * Math.cos((c1[2] * Math.PI) / 180);
+  const b1 = c1[1] * Math.sin((c1[2] * Math.PI) / 180);
+  const a2 = c2[1] * Math.cos((c2[2] * Math.PI) / 180);
+  const b2 = c2[1] * Math.sin((c2[2] * Math.PI) / 180);
+  const L = p * c1[0] + (1 - p) * c2[0];
+  const a = p * a1 + (1 - p) * a2;
+  const b = p * b1 + (1 - p) * b2;
+  return oklchToSrgb([L, Math.sqrt(a * a + b * b), (Math.atan2(b, a) * 180) / Math.PI]);
+}
+
 describe('issue #406 design-system governance contract', () => {
   it('does not ship decorative enter/exit motion by default', async () => {
     const rendererCss = stripCssComments(await readAllRendererCss());
@@ -135,15 +148,20 @@ describe('issue #406 design-system governance contract', () => {
 
       assert.notEqual(action, 'var(--accent)', `${selector} action must be independently tunable`);
       assert.notEqual(control, 'var(--accent)', `${selector} control must be independently tunable`);
-      assert.match(actionForeground, /^oklch\(0\.985 0\.003 250\)$/);
+      // A's CTA is a pale-blue chip with deep-blue text (was dark-green + near-white).
+      assert.match(actionForeground, /^oklch\(0\.30 0\.06 250\)$/);
       assert.match(controlForeground, /^oklch\(0\.985 0\.003 250\)$/);
       assert.ok(
         contrastRatio(oklchToSrgb(parseOklch(action)), oklchToSrgb(parseOklch(actionForeground))) >= 4.5,
         `${selector} action/action-foreground contrast must clear 4.5:1`,
       );
+      // control/foreground paints graphical objects (checkbox check, switch
+      // knob, radio dot, progress fill), not text — so the WCAG 2.1 SC 1.4.11
+      // non-text contrast bar (3:1) applies, not the 4.5:1 text bar used for
+      // action above. --control is tuned (L0.65) to clear 3:1 with a small margin.
       assert.ok(
-        contrastRatio(oklchToSrgb(parseOklch(control)), oklchToSrgb(parseOklch(controlForeground))) >= 4.5,
-        `${selector} control/control-foreground contrast must clear 4.5:1`,
+        contrastRatio(oklchToSrgb(parseOklch(control)), oklchToSrgb(parseOklch(controlForeground))) >= 3.0,
+        `${selector} control/control-foreground contrast must clear 3:1 (WCAG 1.4.11 non-text)`,
       );
       for (const token of emphasisTokens) {
         assert.equal(readCssToken(tokens, selector, token), 'var(--accent)', `${selector} ${token} must start as a thin accent alias`);
@@ -172,8 +190,56 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(tabs, /bg-primary data-\[orientation=horizontal\]:h-0\.5/);
 
     const docs = await readFile(resolve(REPO_ROOT, 'docs/design-system.md'), 'utf8');
-    assert.match(docs, /不 flip 到 `--foreground`/);
-    assert.match(docs, /选中控件继续.*2\.46:1/);
+    // Direction A: pale-blue CTA chip + deep-blue text (8.64:1) and control
+    // L0.65 for WCAG 1.4.11 non-text 3:1 (3.09:1) replace the old
+    // "don't flip to --foreground / 2.46:1" rationale.
+    assert.match(docs, /8\.64:1/);
+    assert.match(docs, /3\.09:1/);
+    assert.match(docs, /WCAG 1\.4\.11/);
+  });
+
+  it('permission-mode chip text is readable across all tones (>=4.5:1)', async () => {
+    // Review fixes: raw --info (L0.75) as the "自动执行" chip text was 2.29:1
+    // on white, and raw --nav-active (= --accent, L0.70) as the default "询问"
+    // chip text was 2.66:1 — both fail WCAG AA text (4.5:1). Chip text now uses
+    // readable variants: info/destructive use the *-text color-mix (50% with
+    // --foreground, 7.25:1 / 10.83:1); accent (the default mode) uses
+    // --foreground-secondary (color-mix foreground 80% + background 20%,
+    // ~8:1 light / ~7.5:1 dark). Raw tones stay on borders only.
+    const tokens = await readFile(TOKENS_FILE, 'utf8');
+    // --foreground-secondary ratio is defined once in :root and inherited by
+    // .dark via re-resolved var() refs. Parse it so a ratio tweak flows through.
+    const fgSecDef = readCssToken(tokens, ':root', 'foreground-secondary');
+    const fgSecPct = Number(fgSecDef.match(/var\(--foreground\)\s+(\d+)%/)?.[1] ?? 80) / 100;
+    // Lock the *-text token definitions to the readable formula (tone 50% +
+    // foreground 50%). If a token is deleted or rewired (e.g. --info-text ->
+    // var(--info)), this fails before the contrast check — closing the gap
+    // where the test computed a theoretical readable color while the chip
+    // silently used something else. .dark inherits these from :root (the
+    // color-mix re-resolves with dark's tone/foreground), so also assert no
+    // .dark override sneaks in.
+    assert.match(readCssToken(tokens, ':root', 'info-text'), /^color-mix\(in oklab,\s*var\(--info\)\s+50%,\s*var\(--foreground\)\)$/, ':root --info-text must be color-mix(info 50%, foreground)');
+    assert.match(readCssToken(tokens, ':root', 'destructive-text'), /^color-mix\(in oklab,\s*var\(--destructive\)\s+50%,\s*var\(--foreground\)\)$/, ':root --destructive-text must be color-mix(destructive 50%, foreground)');
+    assert.equal(readCssToken(tokens, '.dark', 'info-text'), '', '.dark must not override --info-text (inherit :root formula)');
+    assert.equal(readCssToken(tokens, '.dark', 'destructive-text'), '', '.dark must not override --destructive-text (inherit :root formula)');
+    for (const selector of [':root', '.dark'] as const) {
+      const info = parseOklch(readCssToken(tokens, selector, 'info'));
+      const destr = parseOklch(readCssToken(tokens, selector, 'destructive'));
+      const fg = parseOklch(readCssToken(tokens, selector, 'foreground'));
+      const bgOklch = parseOklch(readCssToken(tokens, selector, 'background'));
+      const bg = oklchToSrgb(bgOklch);
+      const infoText = mixOklchToSrgb(info, fg, 0.5);
+      const destrText = mixOklchToSrgb(destr, fg, 0.5);
+      const accentText = mixOklchToSrgb(fg, bgOklch, fgSecPct);
+      assert.ok(contrastRatio(infoText, bg) >= 4.5, `${selector} --info-text contrast < 4.5:1`);
+      assert.ok(contrastRatio(destrText, bg) >= 4.5, `${selector} --destructive-text contrast < 4.5:1`);
+      assert.ok(contrastRatio(accentText, bg) >= 4.5, `${selector} accent chip (foreground-secondary) contrast < 4.5:1`);
+    }
+    // Structural: chip text color must be the readable variant, not the raw tone.
+    const chipCss = stripCssComments(await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'));
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="info"\]\s*\{[^}]*color:\s*var\(--info-text\)/);
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="destructive"\]\s*\{[^}]*color:\s*var\(--destructive-text\)/);
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="accent"\]\s*\{[^}]*color:\s*var\(--foreground-secondary\)/);
   });
 
   it('uses radius tokens for preview card surfaces', async () => {
@@ -253,7 +319,7 @@ describe('issue #406 design-system governance contract', () => {
       '--toast-accent',
       '--brand-deep', '--brand-deep-hover', '--bot-brand-default',
       '--selection',
-      '--accent', '--accent-rgb',
+      '--accent',
       '--color-accent',
     ]);
 
@@ -347,6 +413,11 @@ describe('issue #406 design-system governance contract', () => {
         }
       }
     }
+
+    // Anti-regression: --accent-rgb was removed (unused, and the values were
+    // wrong). Fail loudly if it creeps back into maka-tokens.css.
+    const tokensSource = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    assert.ok(!tokensSource.includes('--accent-rgb'), 'maka-tokens.css must not re-introduce --accent-rgb (deleted as unused)');
 
     assert.deepEqual(violations, [], `raw var(--accent) must only appear inside token definition blocks (maka-tokens.css :root/.dark/[data-maka-theme], styles.css @theme) or palette display (theme-preview.css). Component call sites must use semantic aliases. Found:\n${violations.join('\n')}`);
   });

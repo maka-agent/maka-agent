@@ -87,7 +87,7 @@
 .enabledRollup.is-ok,
 .enabledConnStatus.is-verified { color: var(--success); }
 .enabledRollup.is-warn,
-.enabledConnStatus.is-needs_reauth { color: var(--info); }
+.enabledConnStatus.is-needs_reauth { color: var(--info-text); }
 .enabledRollup.is-err,
 .enabledConnStatus.is-error { color: var(--destructive); }
 .enabledRollup.is-idle,
@@ -503,7 +503,7 @@
 }
 
 .maka-artifact-list-error svg {
-  color: var(--warning);
+  color: var(--warning-text, var(--info-text));
 }
 
 .maka-artifact-list-error strong {
@@ -1038,7 +1038,7 @@
 .maka-session-branch-banner:hover {
   background: oklch(from var(--info) l c h / 0.14);
   border-color: oklch(from var(--info) l c h / 0.38);
-  color: var(--info);
+  color: var(--info-text);
 }
 .maka-session-branch-banner:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -1054,6 +1054,6 @@
 .maka-session-branch-banner[data-from-aborted]:hover {
   background: oklch(from var(--warning) l c h / 0.14);
   border-color: oklch(from var(--warning) l c h / 0.42);
-  color: var(--warning);
+  color: var(--warning-text, var(--info-text));
 }
 

@@ -197,15 +197,15 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
             )}
           </div>
           {loadError ? (
-            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => void reload()}>
+            <Button className="enabledEmptyChip enabledEmptyAction" type="button" variant="ghost" onClick={() => void reload()}>
               <strong>模型连接载入失败</strong>
               <small>{loadError} · 点击重试。</small>
             </Button>
           ) : connections.length === 0 ? (
-            <Button className="enabledEmptyChip" type="button" variant="ghost" onClick={() => startAdd('zai-coding-plan')}>
+            <div className="enabledEmptyChip" role="note">
               <strong>等待添加供应商</strong>
               <small>从下面选择一个开始配置。</small>
-            </Button>
+            </div>
           ) : (
             <PrimitiveAccordion className="enabledAccordion" multiple defaultValue={defaultOpenGroups}>
               {providerGroups.map((group) => {

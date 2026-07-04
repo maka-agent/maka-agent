@@ -17,6 +17,8 @@ export const BUILTIN_PRICING: readonly PricingConfig[] = [
   { modelKey: 'zai-coding-plan:glm-4.7', inputUsdPer1M: 0.6, outputUsdPer1M: 2.2 },
   { modelKey: 'zai-coding-plan:glm-4.6', inputUsdPer1M: 0.6, outputUsdPer1M: 2.2 },
   { modelKey: 'zai-coding-plan:glm-4.5-air', inputUsdPer1M: 0.2, outputUsdPer1M: 0.8 },
+  { modelKey: 'MiniMax:MiniMax-M3', inputUsdPer1M: 0.3, outputUsdPer1M: 1.2, cacheReadUsdPer1M: 0.06 },
+  { modelKey: 'MiniMax-cn:MiniMax-M3', inputUsdPer1M: 0.3, outputUsdPer1M: 1.2, cacheReadUsdPer1M: 0.06 },
 ];
 
 const byKey = new Map(BUILTIN_PRICING.map((pricing) => [pricing.modelKey, pricing]));

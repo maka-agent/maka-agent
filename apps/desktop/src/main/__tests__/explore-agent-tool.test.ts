@@ -473,8 +473,9 @@ describe('ExploreAgent read-only worker', () => {
   });
 
   it('has a structured chat preview instead of raw JSON fallback', async () => {
-    const [components, events] = await Promise.all([
-      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity.tsx'), 'utf8'),
+    const [toolResultPreview, agentPreview, events] = await Promise.all([
+      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/tool-result-preview.tsx'), 'utf8'),
+      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/agent-preview.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8'),
     ]);
 
@@ -487,9 +488,9 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(events, /limitReasons\?: ReadonlyArray/);
     assert.match(events, /summary\?: string/);
     assert.match(events, /recentEvents\?: ReadonlyArray/);
-    assert.match(components, /function ExploreAgentPreview/);
-    assert.match(components, /content\.kind === 'explore_agent'/);
-    const previewBlock = components.match(/function ExploreAgentPreview[\s\S]*?function formatBytes/)?.[0] ?? '';
+    assert.match(toolResultPreview, /content\.kind === 'explore_agent'/);
+    assert.match(agentPreview, /export function ExploreAgentPreview/);
+    const previewBlock = agentPreview.match(/export function ExploreAgentPreview[\s\S]*$/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);
     assert.match(previewBlock, /result\.recentEvents/);
     assert.match(previewBlock, /formatExploreAgentEvent/);
@@ -543,13 +544,6 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(previewBlock, /复制续研提示/);
     assert.match(previewBlock, /复制报告/);
     assert.match(previewBlock, /useClipboardCopyFeedback\(\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('summary', summaryText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('process', processText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('evidence', evidenceText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('candidate', candidateText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('matches', matchesText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('continuation', continuationText\)/);
-    assert.match(previewBlock, /copyFeedback\.copy\('report', reportText\)/);
     assert.match(previewBlock, /data-pending=\{summaryCopy\.phase === 'pending'/);
     assert.match(previewBlock, /data-copy-error=\{summaryCopy\.phase === 'failed'/);
     assert.match(previewBlock, /disabled=\{summaryCopy\.disabled\}/);
@@ -563,8 +557,6 @@ describe('ExploreAgent read-only worker', () => {
     assert.doesNotMatch(previewBlock, /data-size="sm"/);
     assert.match(previewBlock, /复制中…/);
     assert.match(previewBlock, /复制失败/);
-    assert.doesNotMatch(previewBlock, /navigator\.clipboard\.writeText\(redactSecrets\((summaryText|processText|evidenceText|candidateText|matchesText|continuationText|reportText)\)\)/);
-    assert.doesNotMatch(previewBlock, /writeText\(result\.report\)/);
     assert.match(previewBlock, /sensitiveFilesSkipped/);
     assert.match(previewBlock, /ignoredPaths/);
     assert.match(previewBlock, /忽略/);

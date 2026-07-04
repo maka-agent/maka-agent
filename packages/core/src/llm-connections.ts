@@ -17,6 +17,8 @@ export type ProviderType =
   | 'deepseek'
   | 'moonshot'
   | 'zai-coding-plan'
+  | 'MiniMax'
+  | 'MiniMax-cn'
   | 'ollama'
   | 'openai-compatible'
   | 'claude-subscription'
@@ -208,6 +210,32 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
     catalogBadge: 'Coding',
     signupUrl: 'https://bigmodel.cn/usercenter/proj-mgmt/apikeys',
   },
+  MiniMax: {
+    label: 'MiniMax',
+    description: 'MiniMax M-series over Anthropic-compatible protocol.',
+    baseUrl: 'https://api.minimax.io/anthropic/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: ['MiniMax-M3'],
+    status: 'ready',
+    protocol: 'anthropic',
+    category: 'overseas',
+    catalogBadge: 'API',
+    signupUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
+  },
+  'MiniMax-cn': {
+    label: 'MiniMax 中国站',
+    description: 'MiniMax M-series (China) over Anthropic-compatible protocol.',
+    baseUrl: 'https://api.minimaxi.com/anthropic/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: ['MiniMax-M3'],
+    status: 'ready',
+    protocol: 'anthropic',
+    category: 'domestic',
+    catalogBadge: 'API',
+    signupUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -281,6 +309,8 @@ export const READY_PROVIDER_TYPES: ProviderType[] = [
   'deepseek',
   'moonshot',
   'zai-coding-plan',
+  'MiniMax',
+  'MiniMax-cn',
   'ollama',
   'kimi-coding-plan',
   'openai-compatible',
@@ -291,6 +321,8 @@ export const CATALOG_PROVIDER_TYPES: ProviderType[] = [
   'deepseek',
   'moonshot',
   'zai-coding-plan',
+  'MiniMax',
+  'MiniMax-cn',
   'anthropic',
   'openai',
   'google',

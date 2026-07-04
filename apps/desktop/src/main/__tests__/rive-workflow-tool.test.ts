@@ -222,8 +222,9 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
 
   it('has a bounded UI preview and error text for rive_workflow results', async () => {
     const root = await repoRoot();
-    const [components, events] = await Promise.all([
+    const [toolActivity, previewSource, events] = await Promise.all([
       readFile(join(root, 'packages/ui/src/tool-activity.tsx'), 'utf8'),
+      readFile(join(root, 'packages/ui/src/tool-activity/tool-result-preview.tsx'), 'utf8'),
       readFile(join(root, 'packages/core/src/events.ts'), 'utf8'),
     ]);
     assert.match(events, /kind: 'rive_workflow'/);
@@ -231,10 +232,10 @@ describe('RiveWorkflow tool and CLI bridge', { concurrency: false }, () => {
     assert.match(events, /nodes\?: ReadonlyArray/);
     assert.doesNotMatch(events, /protocol\?: unknown/);
     assert.doesNotMatch(events, /display\?: unknown/);
-    assert.match(components, /case 'rive_workflow'/);
-    assert.match(components, /function RiveWorkflowPreview/);
-    assert.match(components, /content\.kind === 'rive_workflow'/);
-    const previewBlock = components.match(/function RiveWorkflowPreview[\s\S]*?function formatRiveWorkflowNode/)?.[0] ?? '';
+    assert.match(toolActivity, /case 'rive_workflow'/);
+    assert.match(previewSource, /content\.kind === 'rive_workflow'/);
+    assert.match(previewSource, /function RiveWorkflowPreview/);
+    const previewBlock = previewSource.match(/function RiveWorkflowPreview[\s\S]*?function formatRiveWorkflowNode/)?.[0] ?? '';
     assert.match(previewBlock, /workflow_run/);
     assert.match(previewBlock, /scheduler_run/);
     assert.match(previewBlock, /root_work/);

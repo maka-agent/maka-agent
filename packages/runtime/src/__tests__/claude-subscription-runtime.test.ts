@@ -94,6 +94,25 @@ describe('Claude subscription runtime wiring', () => {
     assert.doesNotMatch(kimiCase, /anthropicV1BaseUrl/, 'Kimi endpoint must not be blindly rewritten to /v1');
   });
 
+  test('model factory sends MiniMax over Bearer (authToken), not x-api-key', async () => {
+    const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
+    const caseIdx = src.indexOf("case 'MiniMax'");
+    assert.notEqual(caseIdx, -1, 'MiniMax case must exist');
+    const caseRegion = src.slice(caseIdx, src.indexOf("case 'claude-subscription'", caseIdx));
+    assert.match(
+      caseRegion,
+      /createAnthropic\(\{[\s\S]*authToken:\s*apiKey/,
+      'MiniMax must pass the key as authToken so the request uses Authorization: Bearer (MiniMax-recommended auth)',
+    );
+    assert.doesNotMatch(
+      caseRegion,
+      /\n\s*apiKey,/,
+      'MiniMax must not send the key as x-api-key via the bare apiKey shorthand',
+    );
+    assert.match(caseRegion, /baseURL,/, 'MiniMax must keep its provider-specific Anthropic-compatible base URL');
+    assert.doesNotMatch(caseRegion, /anthropicV1BaseUrl/, 'MiniMax base URL must not be rewritten to /v1');
+  });
+
   test('model factory wires codex-subscription to OpenAI Responses with account-scoped fetch/header shape', async () => {
     const src = await readFile(new URL('../../src/model-factory.ts', import.meta.url), 'utf8');
     const caseIdx = src.indexOf("case 'codex-subscription'");

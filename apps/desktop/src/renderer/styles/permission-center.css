@@ -583,7 +583,7 @@
   }
 
 .settingsPermissionSummaryTile[data-tone="warning"] .settingsPermissionSummaryValue {
-    color: oklch(from var(--warning, var(--info)) l c h);
+    color: var(--warning-text, var(--info-text));
   }
 
 .settingsPermissionSummaryTile[data-tone="destructive"] .settingsPermissionSummaryValue {

@@ -138,7 +138,7 @@ export function buildWebSearchAgentTool(deps: {
         });
       }
       // PR-CHAT-WEB-SEARCH-RENDER-0: wrap the success result as
-      // `kind: 'web_search'` so the chat-side OverlayPreview can
+      // `kind: 'web_search'` so the chat-side ToolResultPreview can
       // render plain-text cards instead of dumping JSON. The LLM
       // still reads the rows directly — same fields, just nested.
       return {

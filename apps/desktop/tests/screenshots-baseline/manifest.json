@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "capturedAt": "2026-05-21T20:13:23.207Z",
-  "mainSha": "5f64fe8dfdbe",
+  "capturedAt": "2026-07-04T07:19:11.613Z",
+  "mainSha": "7a8708cce9c4",
   "variants": [
     "light-1280-motion",
     "light-990-motion",
@@ -23,11 +23,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 296861
     },
     {
       "scenario": "artifact-errors",
@@ -39,11 +40,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 235802
     },
     {
       "scenario": "artifact-errors",
@@ -55,11 +57,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 296861
     },
     {
       "scenario": "artifact-errors",
@@ -71,11 +74,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 235802
     },
     {
       "scenario": "artifact-errors",
@@ -87,11 +91,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 859736
     },
     {
       "scenario": "artifact-errors",
@@ -103,11 +108,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 654377
     },
     {
       "scenario": "artifact-errors",
@@ -119,11 +125,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 859736
     },
     {
       "scenario": "artifact-errors",
@@ -135,11 +142,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 654377
     },
     {
       "scenario": "artifact-pane",
@@ -151,11 +159,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 271803
     },
     {
       "scenario": "artifact-pane",
@@ -167,11 +176,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 237955
     },
     {
       "scenario": "artifact-pane",
@@ -183,11 +193,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 271803
     },
     {
       "scenario": "artifact-pane",
@@ -199,11 +210,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 237955
     },
     {
       "scenario": "artifact-pane",
@@ -215,11 +227,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 828925
     },
     {
       "scenario": "artifact-pane",
@@ -231,11 +244,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 663468
     },
     {
       "scenario": "artifact-pane",
@@ -247,11 +261,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 248274
+      "bytes": 828925
     },
     {
       "scenario": "artifact-pane",
@@ -263,11 +278,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 242332
+      "bytes": 663461
     },
     {
       "scenario": "first-run",
@@ -279,11 +295,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 371340
+      "bytes": 230129
     },
     {
       "scenario": "first-run",
@@ -295,11 +312,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 355442
+      "bytes": 223810
     },
     {
       "scenario": "first-run",
@@ -311,11 +329,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 371340
+      "bytes": 230129
     },
     {
       "scenario": "first-run",
@@ -327,11 +346,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 355442
+      "bytes": 223810
     },
     {
       "scenario": "first-run",
@@ -343,11 +363,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 371340
+      "bytes": 712442
     },
     {
       "scenario": "first-run",
@@ -359,11 +380,12 @@
       },
       "reducedMotion": false,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 355442
+      "bytes": 671055
     },
     {
       "scenario": "first-run",
@@ -375,11 +397,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 2560,
         "height": 1640
       },
-      "bytes": 371340
+      "bytes": 712442
     },
     {
       "scenario": "first-run",
@@ -391,11 +414,12 @@
       },
       "reducedMotion": true,
       "ok": true,
+      "locale": "zh",
       "dimensions": {
         "width": 1980,
         "height": 1640
       },
-      "bytes": 355442
+      "bytes": 671055
     }
   ]
 }

@@ -122,7 +122,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
     assert.doesNotMatch(source, /<input\b/, 'Command palette search must use shared Input');
     assert.doesNotMatch(source, /<button\b/, 'Command palette rows must use shared Button');
     assert.doesNotMatch(source, /<kbd\b/, 'Command palette shortcut glyphs must use shared primitive Kbd');
-    assert.match(source, /<InputGroup className="maka-palette-input-wrap" aria-label="命令面板搜索">/);
+    assert.match(source, /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{/);
     assert.match(source, /<InputGroupInput[\s\S]*className="maka-palette-input"/);
     assert.match(source, /<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/);
     assert.match(source, /<Button[\s\S]*role="option"[\s\S]*className="maka-palette-item"/);

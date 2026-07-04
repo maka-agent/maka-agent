@@ -6,7 +6,7 @@
      @import "./maka-tokens.css";
 
    The 6-color philosophy:
-     - background / foreground / accent (purple) / info (amber) / success (green) / destructive (red)
+     - background / foreground / accent (logo blue) / info (amber) / success (green) / destructive (red)
      - All other colors are derived: alpha overlays (foreground/N) or solid mixes (foreground-N).
      - Borders / dividers / hovers / muted text never use a "gray" — they're foreground at low alpha.
 
@@ -84,15 +84,20 @@
   --foreground-dimmed: color-mix(in srgb, var(--foreground) 80%, var(--background));
   --foreground-rgb: 32, 31, 30; /* light-mode RGB triplet used by shadow rings */
 
-  /* PR-UI-ALIGN-0: brand accent is now 参考实现 SAGE GREEN (#5cb870), not
-     purple — the single biggest reason maka didn't *feel* like the reference.
-     Green is used as a garnish (live dot, focus ring, active accents); hovers
-     stay neutral gray per the reference's restraint. */
-  --accent: oklch(0.70 0.135 152);
-  --accent-rgb: 92, 184, 112;
-  --action: oklch(0.46 0.135 152);
-  --action-foreground: oklch(0.985 0.003 250);
-  --control: oklch(0.52 0.135 152);
+  /* Brand accent = logo blue (oklch L0.70 C0.135 h250), sampled from
+     apps/desktop/assets/icon.png (owner decision 2026-07-03). --success stays
+     an independent green
+     (connected/ok semantics); running/focus-ring/link/nav-active/selection
+     all follow --accent. */
+  --accent: oklch(0.70 0.135 250);
+  /* The primary CTA (--action) is a pale blue chip (L0.85, low chroma) with
+     deep-blue text — a light, fresh button instead of a heavy solid. Checked
+     controls (--control) use a slightly deeper blue (L0.65, one step below
+     the accent) so the near-white glyph clears WCAG 1.4.11 non-text contrast
+     3:1 (3.09:1); the logo L0.70 only reaches 2.55:1. */
+  --action: oklch(0.85 0.08 250);
+  --action-foreground: oklch(0.30 0.06 250);
+  --control: oklch(0.65 0.135 250);
   --control-foreground: oklch(0.985 0.003 250);
   --link: var(--accent);
   --focus-ring: var(--accent);
@@ -388,19 +393,20 @@
   /* PR-GRAY-CARD-LIFT-0: dark mode follows the same neutral gray
    * (hue 0, no chroma) hierarchy. Lightness anchors keep existing
    * contrast tuning. */
-  /* PR-UI-ALIGN-0: dark mode follows the reference's warm-neutral grays +
-     sage-green accent (matches the reference dark theme's #5cb870 family). */
   --background: oklch(0.205 0.004 286);
   --surface-canvas: oklch(0.14 0.004 286);
   --background-elevated: color-mix(in srgb, var(--foreground) 2%, var(--background));
   --foreground: oklch(0.92 0.004 286);
   --foreground-rgb: 224, 222, 218;
 
-  --accent: oklch(0.74 0.15 152);
-  --accent-rgb: 140, 229, 161;
-  --action: oklch(0.46 0.135 152);
-  --action-foreground: oklch(0.985 0.003 250);
-  --control: oklch(0.52 0.135 152);
+  --accent: oklch(0.74 0.15 250);
+  /* Dark mode keeps the same pale-blue CTA chip + deep-blue text as light
+     mode, so the "light, fresh button" reads consistently across themes;
+     --control uses the same L0.65 blue as light so the white glyph clears
+     WCAG 1.4.11 non-text contrast 3:1 (3.09:1) in both themes. */
+  --action: oklch(0.85 0.08 250);
+  --action-foreground: oklch(0.30 0.06 250);
+  --control: oklch(0.65 0.135 250);
   --control-foreground: oklch(0.985 0.003 250);
   --link: var(--accent);
   --focus-ring: var(--accent);

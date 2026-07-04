@@ -38,6 +38,17 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         headers: { 'anthropic-beta': ANTHROPIC_BETA },
       }).chat(modelId);
 
+    case 'MiniMax':
+    case 'MiniMax-cn':
+      // MiniMax's Anthropic-compatible API accepts both x-api-key and Bearer,
+      // but documents Bearer as recommended (and it takes precedence when both
+      // are sent), so pass the key as authToken to emit `Authorization: Bearer`.
+      return createAnthropic({
+        authToken: apiKey,
+        baseURL,
+        headers: { 'anthropic-beta': ANTHROPIC_BETA },
+      }).chat(modelId);
+
     case 'claude-subscription':
       return createAnthropic({
         authToken: apiKey,
@@ -113,6 +124,8 @@ export function buildProviderOptions(
   switch (connection.providerType) {
     case 'anthropic':
     case 'kimi-coding-plan':
+    case 'MiniMax':
+    case 'MiniMax-cn':
     case 'claude-subscription':
       return { anthropic: {} };
     case 'codex-subscription':

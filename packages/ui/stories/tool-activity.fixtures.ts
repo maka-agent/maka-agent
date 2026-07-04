@@ -132,7 +132,7 @@ const exploreAgentResult = {
     { type: 'aborted', at: NOW, message: 'Canceled with partial findings preserved.' },
   ],
   evidence: [
-    { type: 'match', path: 'packages/ui/src/tool-activity.tsx', line: 370, label: 'OverlayPreview kind routing', score: 0.95 },
+    { type: 'match', path: 'packages/ui/src/tool-activity.tsx', line: 370, label: 'ToolResultPreview kind routing', score: 0.95 },
     { type: 'candidate', path: 'packages/ui/src/materialize.ts', label: 'ToolActivityItem shape', score: 0.87 },
   ],
   summary: 'ToolActivity already renders every important preview branch; Storybook needs fixed fixture states.',

@@ -34,6 +34,10 @@ export function providerDisplay(type: ProviderType): { name: string; description
       return { name: 'Moonshot', description: 'Moonshot 官方接入', badge: 'API' };
     case 'zai-coding-plan':
       return { name: 'Z.AI Coding Plan', description: '智谱 · OpenAI 兼容', badge: 'Coding' };
+    case 'MiniMax':
+      return { name: 'MiniMax', description: 'MiniMax · Anthropic 兼容', badge: 'API' };
+    case 'MiniMax-cn':
+      return { name: 'MiniMax 中国站', description: 'MiniMax 中国站 · Anthropic 兼容', badge: 'API' };
     case 'ollama':
       return { name: 'Ollama', description: '本机运行 · 离线可用', badge: 'Local' };
     case 'openai-compatible':

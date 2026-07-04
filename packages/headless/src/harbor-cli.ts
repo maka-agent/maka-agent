@@ -575,6 +575,9 @@ function apiKeyFileEnvName(provider: ProviderType): string {
       return 'ANTHROPIC_API_KEY_FILE';
     case 'zai-coding-plan':
       return 'ZAI_API_KEY_FILE';
+    case 'MiniMax':
+    case 'MiniMax-cn':
+      return 'MINIMAX_API_KEY_FILE';
     case 'openai':
     case 'openai-compatible':
     default:
