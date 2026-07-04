@@ -351,15 +351,15 @@ function RiveWorkflowPreview(props: {
     ? [
         '',
         '错误',
-        `reason: ${redactSecrets(result.error.reason)}`,
-        `message: ${redactSecrets(result.error.message)}`,
-        result.error.code ? `code: ${redactSecrets(result.error.code)}` : '',
-        result.error.suggestedAction ? `suggested_action: ${redactSecrets(result.error.suggestedAction)}` : '',
+        `reason: ${result.error.reason}`,
+        `message: ${result.error.message}`,
+        result.error.code ? `code: ${result.error.code}` : '',
+        result.error.suggestedAction ? `suggested_action: ${result.error.suggestedAction}` : '',
       ].filter(Boolean)
     : [];
   const diagnosticLines = [
-    result.stdoutTail ? `stdout_tail:\n${redactSecrets(result.stdoutTail)}` : '',
-    result.stderrTail ? `stderr_tail:\n${redactSecrets(result.stderrTail)}` : '',
+    result.stdoutTail ? `stdout_tail:\n${result.stdoutTail}` : '',
+    result.stderrTail ? `stderr_tail:\n${result.stderrTail}` : '',
   ].filter(Boolean);
   const body = [
     result.ok ? 'Rive workflow completed' : 'Rive workflow failed',
@@ -370,7 +370,7 @@ function RiveWorkflowPreview(props: {
     ...failureLines,
     ...(diagnosticLines.length > 0 ? ['', '诊断片段', ...diagnosticLines] : []),
   ].join('\n');
-  const cappedPreview = capLines(body);
+  const cappedPreview = capLines(redactSecrets(body));
   return (
     <pre className={previewVariants({ part: 'overlay' })} data-kind="rive_workflow">
       {cappedPreview.body}
