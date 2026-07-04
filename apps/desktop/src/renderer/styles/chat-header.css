@@ -763,7 +763,7 @@
 .maka-palette-input-wrap input:focus,
 .maka-palette-input-wrap input:focus-visible {
   outline: none;
-  box-shadow: none !important;
+  box-shadow: none;
 }
 
 .maka-palette-input::placeholder {
