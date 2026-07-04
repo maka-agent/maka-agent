@@ -36,6 +36,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const tui = new TUI(terminal);
   const state = createMakaPiTranscriptState();
   let model = input.model;
+  let connectionSlug = input.connectionSlug;
   let permissionMode = input.permissionMode;
   let busy = false;
   let closed = false;
@@ -48,7 +49,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     title: input.title,
     cwd: input.cwd,
     model,
-    connectionSlug: input.connectionSlug,
+    connectionSlug,
     permissionMode,
     sessionId: input.driver.getSessionId(),
     busy,
@@ -138,6 +139,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const switchSession = async (sessionId: string) => {
+    const summary = await input.driver.switchSession(sessionId);
+    model = summary.model;
+    connectionSlug = summary.llmConnectionSlug;
+    permissionMode = summary.permissionMode;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Session: ${summary.id}`,
+    });
+    requestRender();
+  };
+
   const setPermissionMode = async (mode: PermissionMode) => {
     await input.driver.setPermissionMode(mode);
     permissionMode = mode;
@@ -163,6 +177,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return true;
       }
       void setModel(nextModel).catch((error) => {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+        requestRender();
+      });
+      return true;
+    }
+    if (parts[0] === '/session') {
+      const sessionId = parts.length === 2 ? parts[1] : undefined;
+      if (!sessionId) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Usage: /session <session-id>',
+        });
+        requestRender();
+        return true;
+      }
+      void switchSession(sessionId).catch((error) => {
         state.entries.push({
           kind: 'notice',
           level: 'error',
