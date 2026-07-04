@@ -70,6 +70,19 @@ function contrastRatio(a: [number, number, number], b: [number, number, number])
   return (high + 0.05) / (low + 0.05);
 }
 
+// color-mix(in oklab, c1 p%, c2 (1-p)%) → sRGB. Used to test the *-text token
+// variants (--info-text / --destructive-text = <tone> 50% + --foreground 50%).
+function mixOklchToSrgb(c1: [number, number, number], c2: [number, number, number], p: number): [number, number, number] {
+  const a1 = c1[1] * Math.cos((c1[2] * Math.PI) / 180);
+  const b1 = c1[1] * Math.sin((c1[2] * Math.PI) / 180);
+  const a2 = c2[1] * Math.cos((c2[2] * Math.PI) / 180);
+  const b2 = c2[1] * Math.sin((c2[2] * Math.PI) / 180);
+  const L = p * c1[0] + (1 - p) * c2[0];
+  const a = p * a1 + (1 - p) * a2;
+  const b = p * b1 + (1 - p) * b2;
+  return oklchToSrgb([L, Math.sqrt(a * a + b * b), (Math.atan2(b, a) * 180) / Math.PI]);
+}
+
 describe('issue #406 design-system governance contract', () => {
   it('does not ship decorative enter/exit motion by default', async () => {
     const rendererCss = stripCssComments(await readAllRendererCss());
@@ -177,8 +190,34 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(tabs, /bg-primary data-\[orientation=horizontal\]:h-0\.5/);
 
     const docs = await readFile(resolve(REPO_ROOT, 'docs/design-system.md'), 'utf8');
-    assert.match(docs, /不 flip 到 `--foreground`/);
-    assert.match(docs, /选中控件继续.*2\.46:1/);
+    // Direction A: pale-blue CTA chip + deep-blue text (8.64:1) and control
+    // L0.65 for WCAG 1.4.11 non-text 3:1 (3.09:1) replace the old
+    // "don't flip to --foreground / 2.46:1" rationale.
+    assert.match(docs, /8\.64:1/);
+    assert.match(docs, /3\.09:1/);
+    assert.match(docs, /WCAG 1\.4\.11/);
+  });
+
+  it('permission-mode chip text uses readable *-text variants (>=4.5:1)', async () => {
+    // Review fix: raw --info (L0.75) as chip text was 2.29:1 on white — fails
+    // WCAG AA text (4.5:1). Chip text must use the *-text variants
+    // (--info-text / --destructive-text = color-mix 50% with --foreground),
+    // which clear 4.5:1; the raw tone may stay on the border.
+    const tokens = await readFile(TOKENS_FILE, 'utf8');
+    for (const selector of [':root', '.dark'] as const) {
+      const info = parseOklch(readCssToken(tokens, selector, 'info'));
+      const destr = parseOklch(readCssToken(tokens, selector, 'destructive'));
+      const fg = parseOklch(readCssToken(tokens, selector, 'foreground'));
+      const bg = oklchToSrgb(parseOklch(readCssToken(tokens, selector, 'background')));
+      const infoText = mixOklchToSrgb(info, fg, 0.5);
+      const destrText = mixOklchToSrgb(destr, fg, 0.5);
+      assert.ok(contrastRatio(infoText, bg) >= 4.5, `${selector} --info-text contrast < 4.5:1`);
+      assert.ok(contrastRatio(destrText, bg) >= 4.5, `${selector} --destructive-text contrast < 4.5:1`);
+    }
+    // Structural: chip text color must be the *-text variant, not the raw tone.
+    const chipCss = stripCssComments(await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'));
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="info"\]\s*\{[^}]*color:\s*var\(--info-text\)/);
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="destructive"\]\s*\{[^}]*color:\s*var\(--destructive-text\)/);
   });
 
   it('uses radius tokens for preview card surfaces', async () => {

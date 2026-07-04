@@ -467,7 +467,7 @@
 .settingsBotInfoNoticeIcon {
   font-style: normal;
   font-weight: 500;
-  color: var(--info);
+  color: var(--info-text);
   line-height: 1.4;
 }
 

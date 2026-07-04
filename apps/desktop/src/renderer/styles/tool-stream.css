@@ -418,7 +418,7 @@
   }
 
 .settingsMemoryDirtyState[data-dirty="true"] {
-    color: var(--warning);
+    color: var(--warning-text, var(--info-text));
     font-weight: 600;
   }
 
