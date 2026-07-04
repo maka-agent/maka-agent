@@ -303,8 +303,8 @@
 }
 
 .settingsThemeOption[data-checked] {
-  border-color: oklch(from var(--accent) l c h / 0.45);
-  background: oklch(from var(--accent) l c h / 0.06);
+  border-color: var(--border-strong);
+  background: var(--state-selected-bg);
 }
 
 /* PR-THEME-PRODUCT-PALETTES-0: palette picker. Each option shows a

@@ -73,7 +73,7 @@ describe('issue #499 state-token governance contract', () => {
     assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N or inline oklch:\n${violations.join('\n')}`);
   });
 
-  it('selected/active surfaces use neutral tokens, not --nav-active (allowlist: onboarding brand emphasis + tabs pending tab-spec)', async () => {
+  it('selected/active surfaces use neutral tokens, not --nav-active/--accent (allowlist: onboarding brand emphasis + tabs pending tab-spec)', async () => {
     const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
     // --nav-active stays only for:
     //   - onboarding brand emphasis (selected/active selectors only):
@@ -81,7 +81,7 @@ describe('issue #499 state-token governance contract', () => {
     //   - tab surfaces pending the tab-spec PR (single underline variant):
     //     daily-review-range-tab, catalogTab, catalogPillTabs, skill-tab, plan-tab
     const ALLOWLIST_SELECTOR = /(\.maka-daily-review-range-tab|\.catalogTab|\.catalogPillTabs\b|\.maka-skill-tab|\.maka-plan-tab|\.maka-firstrun-step\b|\.maka-onboarding-setup-steps\b)/;
-    const SELECTED_ACTIVE = /\[data-active|\[data-default|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
+    const SELECTED_ACTIVE = /\[data-active|\[data-checked|\[data-default|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
     const violations: string[] = [];
     for (const file of allCss) {
       const source = stripCssComments(await readFile(file, 'utf8'));
@@ -90,11 +90,11 @@ describe('issue #499 state-token governance contract', () => {
         const body = ruleMatch[2];
         if (!SELECTED_ACTIVE.test(selector)) continue;
         if (ALLOWLIST_SELECTOR.test(selector)) continue;
-        if (/var\(--nav-active\)/.test(body)) {
-          violations.push(`${file}: ${selector.trim()} uses --nav-active`);
+        if (/var\(--nav-active\)|var\(--accent\)/.test(body)) {
+          violations.push(`${file}: ${selector.trim()} uses --nav-active/--accent`);
         }
       }
     }
-    assert.deepEqual(violations, [], `selected/active must not use --nav-active (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
+    assert.deepEqual(violations, [], `selected/active must not use --nav-active/--accent (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
   });
 });
