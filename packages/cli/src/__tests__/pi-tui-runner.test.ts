@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
-import type { Terminal } from '@earendil-works/pi-tui';
+import { visibleWidth, type Terminal } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary } from '@maka/core';
 import type { MakaSessionDriver } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
@@ -251,8 +251,11 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Select session'));
+    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
     await waitFor(() => terminal.output().includes('session-2'));
+    const titleLine = latestPlainLineContaining(terminal.output(), 'Resume Session (Current Folder)');
+    assert.equal(titleLine.startsWith('Resume Session (Current Folder)'), true);
+    assert.equal(visibleWidth(titleLine), terminal.columns);
     terminal.input('\r');
     await waitFor(() => driver.sessionIds.length === 1);
     await waitFor(() => terminal.output().includes('Session: session-2'));
@@ -268,6 +271,7 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
   });
+
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -464,6 +468,19 @@ function fakeSessionSummary(sessionId: string): SessionSummary {
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
   };
+}
+
+function latestPlainLineContaining(output: string, text: string): string {
+  const line = plainTerminalOutput(output)
+    .split(/\r?\n/)
+    .reverse()
+    .find((candidate) => candidate.includes(text));
+  assert.ok(line, `Expected terminal output to contain ${text}`);
+  return line;
+}
+
+function plainTerminalOutput(output: string): string {
+  return output.replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 class FakeTerminal implements Terminal {

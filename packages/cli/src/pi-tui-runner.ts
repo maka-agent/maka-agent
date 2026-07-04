@@ -195,10 +195,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       overlay?.hide();
     };
     overlay = tui.showOverlay(picker, {
-      anchor: 'top-center',
-      row: 5,
-      width: '80%',
-      maxHeight: 12,
+      anchor: 'top-left',
+      row: 0,
+      col: 0,
+      width: '100%',
+      maxHeight: '100%',
     });
   };
 
@@ -349,25 +350,44 @@ class SessionPickerOverlay implements Component {
   }
 
   render(width: number): string[] {
-    const safeWidth = Math.max(12, width);
-    const innerWidth = Math.max(1, safeWidth - 4);
-    const border = `+${'-'.repeat(safeWidth - 2)}+`;
+    const safeWidth = Math.max(1, width);
     const lines = [
-      border,
-      framedLine('Select session', safeWidth),
-      framedLine('', safeWidth),
-      ...this.list.render(innerWidth).map((line) => framedLine(line, safeWidth)),
-      border,
+      alignColumns('Resume Session (Current Folder)', ansi.cyan('Current Folder'), safeWidth),
+      padLine(ansi.dim('enter select / esc close'), safeWidth),
+      padLine('', safeWidth),
+      ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
+      padLine(ansi.cyan('-'.repeat(safeWidth)), safeWidth),
     ];
+    while (lines.length < SESSION_PICKER_SURFACE_ROWS) {
+      lines.push(' '.repeat(safeWidth));
+    }
     return lines;
   }
 }
 
-function framedLine(text: string, width: number): string {
-  const innerWidth = Math.max(1, width - 4);
-  const trimmed = visibleWidth(text) > innerWidth ? truncateToWidth(text, innerWidth, '') : text;
-  const padding = Math.max(0, innerWidth - visibleWidth(trimmed));
-  return `| ${trimmed}${' '.repeat(padding)} |`;
+function alignColumns(left: string, right: string, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const rightWidth = visibleWidth(right);
+  if (rightWidth + 1 >= safeWidth) return padLine(left, safeWidth);
+  const leftMaxWidth = Math.max(1, safeWidth - rightWidth - 1);
+  const clippedLeft = visibleWidth(left) > leftMaxWidth ? truncateToWidth(left, leftMaxWidth, '') : left;
+  const gap = Math.max(1, safeWidth - visibleWidth(clippedLeft) - rightWidth);
+  return `${clippedLeft}${' '.repeat(gap)}${right}`;
+}
+
+function formatPickerItemLine(line: string, width: number): string {
+  const padded = padLine(line, width);
+  return stripAnsi(line).startsWith('→ ') ? ansi.reverse(padded) : padded;
+}
+
+function padLine(text: string, width: number): string {
+  const safeWidth = Math.max(1, width);
+  const trimmed = visibleWidth(text) > safeWidth ? truncateToWidth(text, safeWidth, '') : text;
+  return `${trimmed}${' '.repeat(Math.max(0, safeWidth - visibleWidth(trimmed)))}`;
+}
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
 function editorTheme(): EditorTheme {
@@ -391,7 +411,10 @@ const ansi = {
   bold: style(1, 22),
   dim: style(2, 22),
   cyan: style(36, 39),
+  reverse: style(7, 27),
 };
+
+const SESSION_PICKER_SURFACE_ROWS = 200;
 
 function style(open: number, close: number): (text: string) => string {
   return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
