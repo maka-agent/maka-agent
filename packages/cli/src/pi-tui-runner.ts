@@ -512,11 +512,11 @@ class PickerOverlay implements Component {
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
     const lines = [
-      alignColumns(this.input.title, ansi.cyan(this.input.rightLabel), safeWidth),
+      alignColumns(this.input.title, ansi.accent(this.input.rightLabel), safeWidth),
       padLine(ansi.dim('enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
-      padLine(ansi.cyan('-'.repeat(safeWidth)), safeWidth),
+      padLine(ansi.accent('-'.repeat(safeWidth)), safeWidth),
     ];
     while (lines.length < PICKER_SURFACE_ROWS) {
       lines.push(' '.repeat(safeWidth));
@@ -568,14 +568,14 @@ function stripAnsi(text: string): string {
 
 function editorTheme(): EditorTheme {
   return {
-    borderColor: ansi.cyan,
+    borderColor: ansi.accent,
     selectList: selectListTheme(),
   };
 }
 
 function selectListTheme(): SelectListTheme {
   return {
-    selectedPrefix: ansi.cyan,
+    selectedPrefix: ansi.accent,
     selectedText: ansi.bold,
     description: ansi.dim,
     scrollInfo: ansi.dim,
@@ -583,10 +583,13 @@ function selectListTheme(): SelectListTheme {
   };
 }
 
+// PR #496: desktop --accent = oklch(0.70 0.135 250), rendered here as truecolor ANSI.
+const MAKA_LOGO_BLUE_RGB = [87, 163, 239] as const;
+
 const ansi = {
   bold: style(1, 22),
   dim: style(2, 22),
-  cyan: style(36, 39),
+  accent: rgb(...MAKA_LOGO_BLUE_RGB),
   reverse: style(7, 27),
 };
 
@@ -600,4 +603,8 @@ const PICKER_SURFACE_ROWS = 200;
 
 function style(open: number, close: number): (text: string) => string {
   return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
+}
+
+function rgb(red: number, green: number, blue: number): (text: string) => string {
+  return (text) => `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
 }

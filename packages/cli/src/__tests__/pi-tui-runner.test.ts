@@ -175,6 +175,32 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('uses logo blue for TUI accent chrome', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => terminal.output().includes('\x1b[38;2;87;163;239m'));
+
+    assert.doesNotMatch(terminal.output(), /\x1b\[36m─/);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps the input editor and statusline at the terminal bottom', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

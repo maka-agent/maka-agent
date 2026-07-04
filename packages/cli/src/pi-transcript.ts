@@ -216,10 +216,10 @@ export function renderMakaPiTranscript(
     lines.push('');
     switch (entry.kind) {
       case 'user':
-        lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.cyan }));
+        lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
         break;
       case 'assistant':
-        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.green }));
+        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
         break;
       case 'tool':
         lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
@@ -429,6 +429,9 @@ function limitText(text: string, maxChars: number): string {
   return `${text.slice(0, maxChars)}\n... ${text.length - maxChars} chars truncated`;
 }
 
+// PR #496: desktop --accent = oklch(0.70 0.135 250), rendered here as truecolor ANSI.
+const MAKA_LOGO_BLUE_RGB = [87, 163, 239] as const;
+
 const ansi = {
   bold: style(1, 22),
   dim: style(2, 22),
@@ -438,15 +441,19 @@ const ansi = {
   red: style(31, 39),
   green: style(32, 39),
   yellow: style(33, 39),
-  cyan: style(36, 39),
+  accent: rgb(...MAKA_LOGO_BLUE_RGB),
 };
 
 function style(open: number, close: number): (text: string) => string {
   return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
 }
 
+function rgb(red: number, green: number, blue: number): (text: string) => string {
+  return (text) => `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
+}
+
 const markdownTheme: MarkdownTheme = {
-  heading: ansi.cyan,
+  heading: ansi.accent,
   link: ansi.underline,
   linkUrl: ansi.dim,
   code: ansi.yellow,
@@ -455,7 +462,7 @@ const markdownTheme: MarkdownTheme = {
   quote: ansi.dim,
   quoteBorder: ansi.dim,
   hr: ansi.dim,
-  listBullet: ansi.cyan,
+  listBullet: ansi.accent,
   bold: ansi.bold,
   italic: ansi.italic,
   strikethrough: ansi.strikethrough,

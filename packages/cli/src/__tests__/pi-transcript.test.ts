@@ -125,6 +125,26 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(!visibleLines.includes('Assistant'));
   });
 
+  test('uses logo blue instead of green for assistant headings', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'text_delta',
+      messageId: 'message-1',
+      text: 'hello',
+    }));
+
+    const rawOutput = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'bypass',
+    }, 80).join('\n');
+
+    assert.match(rawOutput, /\x1b\[38;2;87;163;239mmaka\x1b\[39m/);
+    assert.doesNotMatch(rawOutput, /\x1b\[32mmaka/);
+  });
+
   test('surfaces pending permission requests with terminal decision hints', () => {
     const state = createMakaPiTranscriptState();
 
