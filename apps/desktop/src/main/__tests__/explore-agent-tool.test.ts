@@ -473,8 +473,8 @@ describe('ExploreAgent read-only worker', () => {
   });
 
   it('has a structured chat preview instead of raw JSON fallback', async () => {
-    const [overlayPreview, agentPreview, events] = await Promise.all([
-      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/overlay-preview.tsx'), 'utf8'),
+    const [toolResultPreview, agentPreview, events] = await Promise.all([
+      readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/tool-result-preview.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/ui/src/tool-activity/agent-preview.tsx'), 'utf8'),
       readFile(join(process.cwd(), '../../packages/core/src/events.ts'), 'utf8'),
     ]);
@@ -488,7 +488,7 @@ describe('ExploreAgent read-only worker', () => {
     assert.match(events, /limitReasons\?: ReadonlyArray/);
     assert.match(events, /summary\?: string/);
     assert.match(events, /recentEvents\?: ReadonlyArray/);
-    assert.match(overlayPreview, /content\.kind === 'explore_agent'/);
+    assert.match(toolResultPreview, /content\.kind === 'explore_agent'/);
     assert.match(agentPreview, /export function ExploreAgentPreview/);
     const previewBlock = agentPreview.match(/export function ExploreAgentPreview[\s\S]*$/)?.[0] ?? '';
     assert.match(previewBlock, /result\.progress/);

@@ -293,7 +293,7 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
 
 describe('terminal truncation handoff contract', () => {
   it('shows a deep-research handoff when terminal output is capped', async () => {
-    const terminalPreviewPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity', 'terminal-preview.tsx');
+    const terminalPreviewPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity', 'tool-result-preview.tsx');
     const src = await readFile(terminalPreviewPath, 'utf8');
 
     assert.match(

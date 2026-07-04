@@ -10,7 +10,7 @@ import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
-import { OverlayPreview } from './tool-activity/overlay-preview.js';
+import { ToolResultPreview } from './tool-activity/tool-result-preview.js';
 
 // Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
 // so the always-on group-activation connector's name is duplicated here as the
@@ -36,7 +36,7 @@ function resolveToolDisplayName(item: ToolActivityItem): string {
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
   const desc = describeLoadToolResult(props.args, props.value, detectUiLocale());
   if (!desc) {
-    return <OverlayPreview content={{ kind: 'json', value: props.value }} />;
+    return <ToolResultPreview content={{ kind: 'json', value: props.value }} />;
   }
   return (
     <div className={previewVariants({ part: 'load-tool' })} data-kind="load_tool">
@@ -142,7 +142,7 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
                 isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
                   <LoadToolResultPreview args={item.args} value={item.result.value} />
                 ) : (
-                  <OverlayPreview content={item.result} />
+                  <ToolResultPreview content={item.result} />
                 )
               )}
             </div>
@@ -318,7 +318,7 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
         <X size={14} strokeWidth={1.75} aria-hidden="true" />
         <span>关闭</span>
       </UiButton>
-      <OverlayPreview content={props.content} />
+      <ToolResultPreview content={props.content} />
     </div>
   );
 }
