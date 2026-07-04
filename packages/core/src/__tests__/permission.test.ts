@@ -13,7 +13,16 @@ import {
   PERMISSION_POLICY,
   type PermissionMode,
   type ToolCategory,
+  type ToolExecutionFacts,
 } from '../permission.js';
+
+const LOCAL_EXECUTION_FACTS: ToolExecutionFacts = {
+  isolation: 'none',
+  writesAffectHost: true,
+  writeBack: 'direct',
+  network: 'host',
+  secrets: 'host_env',
+};
 
 function evaluate(
   toolName: string,
@@ -237,6 +246,23 @@ describe('preToolUse — execute mode', () => {
     const r = evaluate('Bash', { command: 'sudo systemctl stop foo' }, 'execute');
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('privileged');
+  });
+
+  test('execution facts are accepted without changing current policy decisions', () => {
+    const input = {
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute' as const,
+      turnRemembered: new Set<string>(),
+    };
+
+    const baseline = preToolUse(input);
+    const withFacts = preToolUse({
+      ...input,
+      executionFacts: LOCAL_EXECUTION_FACTS,
+    });
+
+    expect(withFacts).toEqual(baseline);
   });
 });
 

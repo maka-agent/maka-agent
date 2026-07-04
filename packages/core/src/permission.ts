@@ -56,6 +56,23 @@ export function isToolCategory(value: unknown): value is ToolCategory {
 }
 
 // ============================================================================
+// Tool execution environment facts
+// ============================================================================
+
+export type ToolExecutionIsolation = 'none' | 'worktree' | 'container' | 'remote';
+export type ToolExecutionWriteBack = 'direct' | 'diff_review';
+export type ToolExecutionNetwork = 'host' | 'sandbox' | 'disabled';
+export type ToolExecutionSecrets = 'host_env' | 'brokered' | 'none';
+
+export interface ToolExecutionFacts {
+  isolation: ToolExecutionIsolation;
+  writesAffectHost: boolean;
+  writeBack: ToolExecutionWriteBack;
+  network: ToolExecutionNetwork;
+  secrets: ToolExecutionSecrets;
+}
+
+// ============================================================================
 // Policy matrix
 // ============================================================================
 
@@ -265,6 +282,12 @@ export interface PreToolUseInput {
   turnRemembered: ReadonlySet<string>;
   /** Optional trusted runtime hint for custom tools that map to a canonical category. */
   categoryHint?: ToolCategory;
+  /**
+   * Trusted runtime facts about where the tool would execute. The current
+   * policy accepts this for forward compatibility; sandbox-aware decisions are
+   * intentionally introduced in a later policy change.
+   */
+  executionFacts?: ToolExecutionFacts;
 }
 
 export interface PreToolUseResult {

@@ -29,6 +29,7 @@ import {
   type PermissionResponse,
   type PreToolUseResult,
   type ToolCategory,
+  type ToolExecutionFacts,
 } from '@maka/core/permission';
 import type { PermissionRequestEvent } from '@maka/core/events';
 
@@ -82,6 +83,8 @@ export interface EvaluateInput {
   mode: PermissionMode;
   /** Optional hint shown to user in the dialog. */
   hint?: string;
+  /** Optional trusted facts about the executor that would run this tool. */
+  executionFacts?: ToolExecutionFacts;
 }
 
 // ============================================================================
@@ -131,6 +134,7 @@ export class PermissionEngine {
       toolName: input.toolName,
       args: input.args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
+      ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
       mode: input.mode,
       turnRemembered: state.remembered,
     });

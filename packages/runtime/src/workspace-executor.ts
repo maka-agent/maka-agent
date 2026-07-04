@@ -2,22 +2,16 @@ import { promises as fs } from 'node:fs';
 import { exec } from 'node:child_process';
 import { glob as nodeGlob } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runShellWithBoundedTail } from './shell-exec.js';
 
 const execAsync = promisify(exec);
 
-export type WorkspaceIsolationKind = 'none' | 'worktree' | 'container' | 'remote';
-export type WorkspaceWriteBackMode = 'direct' | 'diff_review';
-export type WorkspaceNetworkMode = 'host' | 'sandbox' | 'disabled';
-export type WorkspaceSecretMode = 'host_env' | 'brokered' | 'none';
-
-export interface WorkspaceExecutorFacts {
-  isolation: WorkspaceIsolationKind;
-  writesAffectHost: boolean;
-  writeBack: WorkspaceWriteBackMode;
-  network: WorkspaceNetworkMode;
-  secrets: WorkspaceSecretMode;
-}
+export type WorkspaceIsolationKind = ToolExecutionFacts['isolation'];
+export type WorkspaceWriteBackMode = ToolExecutionFacts['writeBack'];
+export type WorkspaceNetworkMode = ToolExecutionFacts['network'];
+export type WorkspaceSecretMode = ToolExecutionFacts['secrets'];
+export type WorkspaceExecutorFacts = ToolExecutionFacts;
 
 export const LOCAL_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
   isolation: 'none',
