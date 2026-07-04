@@ -613,8 +613,8 @@
 }
 
 .maka-first-run-task-suggestion:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-first-run-task-suggestion:disabled {
@@ -850,8 +850,8 @@
   text-align: left;
 }
 .maka-list-group-toggle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
   border-radius: var(--radius-control);
 }
 .maka-list-group-count {

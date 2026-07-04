@@ -424,6 +424,15 @@
    --opacity-pending: 0.8;    /* pending / active / in-progress states */
    --opacity-overlay: 0.04;   /* body::after subtle overlay (light) */
 
+   /* === focus-ring recipe ===
+      --focus-ring is the strong accent color (existing); --ring is the
+      subtle foreground-derived color (existing, for compact/secondary
+      focus). These two geometry tokens converge outline width/offset so
+      every focus ring shares one recipe instead of hand-written 2px.
+      PR-FOCUS-RING-RECIPE-0 (issue #520 PR2). */
+   --focus-ring-width: 2px;
+   --focus-ring-offset: 2px;
+
    /* === page-card recipe ===
       Single source of truth for the lifted "page card" chrome used by every
       top-level module page (Skills, Plan/Reminder, future Settings). Atlas
@@ -917,7 +926,7 @@
 
   *:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--ring);
+    box-shadow: 0 0 0 var(--focus-ring-width) var(--ring);
   }
 
   /* Subtle film-grain overlay. Per the taste-skill and frontend-design

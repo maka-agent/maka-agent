@@ -333,8 +333,8 @@
   color: var(--foreground);
 }
 .maka-search-modal-close:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--ring);
+  outline-offset: var(--focus-ring-offset);
 }
 /* PR-UX-POLISH-1 commit 5: real search modal layout.
  * - input-row: text input + leading magnifier icon, sits below the
@@ -378,8 +378,8 @@
   color: var(--foreground);
 }
 .maka-search-modal-clear:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-search-modal-body {

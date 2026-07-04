@@ -73,8 +73,8 @@
   color: var(--foreground);
 }
 .settingsHealthRefresh:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .settingsHealthError {

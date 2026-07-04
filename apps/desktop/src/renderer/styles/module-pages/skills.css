@@ -524,8 +524,8 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-library-row:focus-visible {
-  outline: 3px solid oklch(from var(--focus-ring) l c h / 0.35);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid oklch(from var(--focus-ring) l c h / 0.35);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* PR-UI-PIXEL-1: skill rows are anchored by a reference-style icon tile —

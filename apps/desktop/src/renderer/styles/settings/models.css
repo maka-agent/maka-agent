@@ -960,7 +960,7 @@
 .maka-turn[data-search-highlight="true"] {
   border-radius: var(--radius-surface);
   outline: 1px solid oklch(from var(--link) l c h / 0.34);
-  outline-offset: 6px;
+  outline-offset: var(--focus-ring-offset);
   background: oklch(from var(--link) l c h / 0.045);
 }
 
@@ -1001,8 +1001,8 @@
   color: var(--info-text);
 }
 .maka-session-branch-banner:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 .maka-session-branch-banner[data-from-aborted] {
   /* Muted-warning tone so the user sees the branch starts from before

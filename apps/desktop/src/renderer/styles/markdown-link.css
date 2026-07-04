@@ -37,8 +37,8 @@
     text-decoration-color: var(--link);
   }
 .maka-markdown-link-internal:focus-visible {
-    outline: 2px solid oklch(from var(--focus-ring) l c h / 0.42);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid oklch(from var(--focus-ring) l c h / 0.42);
+    outline-offset: var(--focus-ring-offset);
   }
 .maka-markdown-link-internal:active {
     background: var(--state-selected-bg);

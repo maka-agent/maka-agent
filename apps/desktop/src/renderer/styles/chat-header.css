@@ -87,8 +87,8 @@
 }
 
 .maka-chat-header-memory-pill:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-chat-header-mode-pill {
@@ -135,8 +135,8 @@
   }
 
 .maka-chat-header-alert:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
   }
 
 .maka-chat-header-alert[data-tone="info"] {
@@ -867,8 +867,8 @@
 }
 
 .maka-palette-item:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-palette-item[data-disabled="true"] {
