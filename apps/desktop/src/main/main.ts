@@ -123,6 +123,7 @@ import {
 } from './workspace-instructions.js';
 import { buildCapabilitySnapshotCollection, buildPermissionSnapshot } from './capability-snapshot.js';
 import { openSystemPermissionPane, requestPermissionAccess } from './permissions-actions.js';
+import { resolveDefaultPermissionMode } from './permission-mode-default.js';
 import {
   getVisualSmokeState,
   resolveVisualSmokeFixture,
@@ -1023,7 +1024,7 @@ function registerIpc(): void {
         backend: 'fake',
         llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
         model: input.model ?? 'fake-model',
-        permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode()),
+        permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
         name: input.name ?? 'New Chat',
         labels: input.labels,
       });
@@ -1039,7 +1040,7 @@ function registerIpc(): void {
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
       model,
-      permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode()),
+      permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
       name: input?.name ?? 'New Chat',
       labels: input?.labels,
     });
@@ -1541,23 +1542,6 @@ function getReadyConnection(slug: string | null | undefined, model?: string) {
 }
 
 /**
- * Settings → 通用 → 默认权限模式, hardened: session creation must never
- * fail because settings.json is unreadable/corrupted (settingsStore.get()
- * rethrows anything but ENOENT). Before this fallback existed the mode was
- * a synchronous `'ask'` literal with zero settings dependency — keep that
- * never-fails guarantee by falling back to the safest mode on any error.
- * This is the SINGLE authority for a new session's default: the renderer
- * intentionally omits permissionMode unless the user explicitly picked one.
- */
-async function resolveDefaultPermissionMode(): Promise<PermissionMode> {
-  try {
-    return (await settingsStore.get()).chatDefaults.permissionMode;
-  } catch {
-    return 'ask';
-  }
-}
-
-/**
  * PR110b: Quick Chat entry — thin adapter over the extracted helper.
  * The discriminated-union logic + readiness gating lives in
  * `./quick-chat.ts` so it can be unit-tested without spinning up an
@@ -1579,7 +1563,7 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
         getReadyConnection(input.defaultConnectionSlug, input.defaultModel),
         input.mode === 'deep_research'
           ? Promise.resolve<PermissionMode>('explore')
-          : resolveDefaultPermissionMode(),
+          : resolveDefaultPermissionMode(() => settingsStore.get()),
       ]);
       return runtime.createSession({
         cwd: process.cwd(),

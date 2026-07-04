@@ -44,26 +44,32 @@ describe('default permission mode contract', () => {
     );
   });
 
-  it('main.ts resolves the default through a hardened helper that can never reject', async () => {
+  it('main.ts routes every session-creation fallback through the extracted resolver (single authority)', async () => {
+    // The resolver lives in ./permission-mode-default.ts as an injected pure
+    // function so its never-rejects fallback is unit-testable in isolation
+    // (see permission-mode-default.test.ts). main.ts must import it and route
+    // EVERY permission-mode fallback through it by injecting settingsStore.get
+    // — no inline definition and no unguarded inline settings read may remain.
     const src = await readMainProcessCombinedSource();
 
-    const helperMatch = src.match(
-      /async function resolveDefaultPermissionMode\(\): Promise<PermissionMode> \{([\s\S]*?)\n\}/,
-    );
-    assert.ok(helperMatch, 'resolveDefaultPermissionMode() must exist in main.ts');
-    const helperBody = helperMatch![1];
     assert.match(
-      helperBody,
-      /try \{[\s\S]*settingsStore\.get\(\)[\s\S]*chatDefaults\.permissionMode[\s\S]*\} catch \{[\s\S]*return 'ask';/,
-      'the helper must read chatDefaults.permissionMode inside try/catch and fall back to \'ask\' -- session creation must never fail because settings.json is unreadable',
+      src,
+      /import \{ resolveDefaultPermissionMode \} from '\.\/permission-mode-default\.js';/,
+      'main.ts must import the extracted resolver',
+    );
+    assert.doesNotMatch(
+      src,
+      /async function resolveDefaultPermissionMode/,
+      'the resolver must live in ./permission-mode-default.ts, not inline in main.ts (so its never-rejects fallback is unit-testable)',
     );
 
-    // Both sessions:create branches + quick chat must use the helper, and no
-    // raw (unguarded) settings read for the permission mode may remain.
-    const helperUses = src.match(/resolveDefaultPermissionMode\(\)/g) ?? [];
+    // Both sessions:create branches (fake + ai-sdk) + quick chat must inject
+    // settingsStore.get into the resolver — proving they route through the
+    // single authority instead of reading settings inline.
+    const routedCalls = src.match(/resolveDefaultPermissionMode\(\(\) => settingsStore\.get\(\)\)/g) ?? [];
     assert.ok(
-      helperUses.length >= 4, // definition + fake branch + ai-sdk branch + quick chat
-      `all session-creation fallbacks must route through resolveDefaultPermissionMode() (found ${helperUses.length} references, expected >= 4)`,
+      routedCalls.length >= 3, // fake branch + ai-sdk branch + quick chat
+      `all session-creation fallbacks must route through resolveDefaultPermissionMode(() => settingsStore.get()) (found ${routedCalls.length}, expected >= 3)`,
     );
     assert.doesNotMatch(
       src,
@@ -86,8 +92,8 @@ describe('default permission mode contract', () => {
 
     assert.match(
       src,
-      /const \[defaultPermissionMode, setDefaultPermissionMode\] = useState<PermissionMode>\('ask'\);/,
-      'app-shell.tsx must track the configured default for composer-chip display',
+      /const \[defaultPermissionMode, setDefaultPermissionMode\] = useState<ChatDefaultPermissionMode>\('ask'\);/,
+      'app-shell.tsx must track the configured default for composer-chip display (typed as ChatDefaultPermissionMode — the configured default can never be explore)',
     );
     assert.match(
       src,

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
+  ChatDefaultPermissionMode,
   ConnectionEvent,
   LlmConnection,
   PermissionMode,
@@ -193,7 +194,7 @@ export function AppShell() {
   // (the renderer omits permissionMode unless the user explicitly picked),
   // so a stale value here can briefly mislabel the chip but never changes
   // which mode a session is created with.
-  const [defaultPermissionMode, setDefaultPermissionMode] = useState<PermissionMode>('ask');
+  const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
