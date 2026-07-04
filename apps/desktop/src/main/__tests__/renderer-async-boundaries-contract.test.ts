@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { readSessionListCombinedSource } from './session-list-source-helpers.js';
+import { readUiSourceTree } from './ui-source-tree-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const CHAT_MODEL_SWITCHER_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-model-switcher.tsx');
@@ -36,7 +36,7 @@ describe('renderer async action boundary contract', () => {
 
   it('keeps session row actions on a rejection-safe local async boundary', async () => {
     const [source, rowActions] = await Promise.all([
-      readSessionListCombinedSource(),
+      readUiSourceTree(),
       readFile(SESSION_ROW_ACTIONS_PATH, 'utf8'),
     ]);
 

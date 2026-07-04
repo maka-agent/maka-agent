@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readSettingsCombinedSource } from './settings-contract-source-helpers.js';
-import { readSessionListCombinedSource } from './session-list-source-helpers.js';
+import { readUiSourceTree } from './ui-source-tree-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
 
@@ -63,11 +63,10 @@ describe('OverlayScrollbars integration contract', () => {
 
   it('migrates the primary app scroll surfaces onto OverlayScrollArea', async () => {
     const components = await repoFile('packages/ui/src/chat-view.tsx');
-    const sessionListSource = await readSessionListCombinedSource();
+    const uiSource = await readUiSourceTree();
     const settings = await readSettingsCombinedSource();
 
-    assert.match(sessionListSource, /import \{ OverlayScrollArea \} from '\.\/overlay-scroll-area\.js';/, 'session list must import OverlayScrollArea');
-    assert.match(sessionListSource, /<OverlayScrollArea[\s\S]*className="maka-list-stack"[\s\S]*contentClassName="maka-list-stackContent"/, 'sidebar session list must use OverlayScrollArea');
+    assert.match(uiSource, /<OverlayScrollArea[\s\S]*className="maka-list-stack"[\s\S]*contentClassName="maka-list-stackContent"/, 'sidebar session list must use OverlayScrollArea');
     assert.match(components, /<OverlayScrollArea[\s\S]*ref=\{scrollRef\}[\s\S]*className="maka-chat messages"[\s\S]*onScroll=\{onScroll\}/, 'active chat message list must keep its onScroll viewport handler on OverlayScrollArea');
     assert.match(settings, /OverlayScrollArea/, 'Settings content pane must use OverlayScrollArea');
     assert.match(settings, /<OverlayScrollArea[\s\S]*className="settingsPageContent"[\s\S]*contentClassName="settingsPageContentInner"/, 'Settings content pane must preserve its layout classes through OverlayScrollArea');

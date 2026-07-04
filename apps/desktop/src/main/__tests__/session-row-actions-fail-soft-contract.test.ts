@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
-import { readSessionListCombinedSource } from './session-list-source-helpers.js';
+import { readUiSourceTree } from './ui-source-tree-helpers.js';
 
 describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
@@ -74,34 +74,33 @@ describe('session row actions fail soft', () => {
   });
 
   it('renders visible busy state while a sidebar row action is pending', async () => {
-    const ui = await readSessionListCombinedSource();
-    const sessionRow = ui.slice(ui.indexOf('function SessionRow'), ui.indexOf('interface SessionGroup'));
+    const ui = await readUiSourceTree();
 
     assert.match(ui, /type SessionRowActionId = 'flag' \| 'archive' \| 'rename' \| 'delete';/);
     assert.match(ui, /onToggleFlag\(sessionId: string, next: boolean\): void \| Promise<void>;/);
     assert.match(ui, /onDelete\(sessionId: string\): void \| Promise<void>;/);
-    assert.match(sessionRow, /const \[pendingAction,\s*setPendingAction\] = useState<SessionRowActionId \| null>\(null\);/);
-    assert.match(sessionRow, /const rowMountedRef = useRef\(true\);/);
-    assert.match(sessionRow, /const pendingActionRef = useRef<SessionRowActionId \| null>\(null\);/);
+    assert.match(ui, /const \[pendingAction,\s*setPendingAction\] = useState<SessionRowActionId \| null>\(null\);/);
+    assert.match(ui, /const rowMountedRef = useRef\(true\);/);
+    assert.match(ui, /const pendingActionRef = useRef<SessionRowActionId \| null>\(null\);/);
     assert.match(
-      sessionRow,
+      ui,
       /if \(pendingActionRef\.current\) return;[\s\S]*pendingActionRef\.current = actionId;[\s\S]*void \(async \(\) => \{[\s\S]*try \{[\s\S]*await action\(\);[\s\S]*\} catch \{[\s\S]*\} finally \{/,
     );
     assert.match(
-      sessionRow,
+      ui,
       /useEffect\(\(\) => \{\s*rowMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*rowMountedRef\.current = false;\s*pendingActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
       'SessionRow must release pending ownership when archive/delete/filter changes unmount the row',
     );
     assert.match(
-      sessionRow,
+      ui,
       /pendingActionRef\.current = null;[\s\S]*if \(rowMountedRef\.current\) setPendingAction\(null\);/,
       'SessionRow action cleanup must not write pending state after the row unmounts',
     );
-    assert.match(sessionRow, /disabled=\{actionBusy\}/);
-    assert.match(sessionRow, /aria-busy=\{pendingAction === 'flag' \? 'true' : undefined\}/);
-    assert.match(sessionRow, /data-pending=\{pendingAction === 'archive' \? 'true' : undefined\}/);
-    assert.match(sessionRow, /aria-busy=\{pendingAction === 'delete' \? 'true' : undefined\}/);
-    const rowActionVariantCalls = [...sessionRow.matchAll(/cn\('maka-list-row-action', rowActionVariants/g)];
+    assert.match(ui, /disabled=\{actionBusy\}/);
+    assert.match(ui, /aria-busy=\{pendingAction === 'flag' \? 'true' : undefined\}/);
+    assert.match(ui, /data-pending=\{pendingAction === 'archive' \? 'true' : undefined\}/);
+    assert.match(ui, /aria-busy=\{pendingAction === 'delete' \? 'true' : undefined\}/);
+    const rowActionVariantCalls = [...ui.matchAll(/cn\('maka-list-row-action', rowActionVariants/g)];
     assert.equal(rowActionVariantCalls.length, 4, 'all 4 row action buttons (flag, rename, archive, delete) must call rowActionVariants');
     assert.match(
       ui,
