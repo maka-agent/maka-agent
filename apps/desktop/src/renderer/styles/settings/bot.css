@@ -291,6 +291,7 @@
 }
 
 .settingsUsageRecordCount {
+  font-variant-numeric: tabular-nums;
   min-height: 34px;
   display: inline-flex;
   align-items: center;
@@ -353,6 +354,7 @@
 }
 
 .settingsMetricCard {
+  font-variant-numeric: tabular-nums;
   min-height: 52px;
   display: grid;
   align-content: center;
@@ -383,6 +385,7 @@
 
 .settingsStatsTable th,
 .settingsStatsTable td {
+  font-variant-numeric: tabular-nums;
   border-bottom: 1px solid var(--border);
   color: var(--foreground-secondary);
   padding: var(--space-1) var(--space-2);

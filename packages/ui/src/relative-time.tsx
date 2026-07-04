@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { formatAbsoluteTimestamp } from './chat-display-helpers.js';
 import { formatRelativeTimestamp, nextRelativeRefreshDelay } from '@maka/core';
+import { cn } from './utils.js';
 
 /**
  * PR-RELATIVE-TIME-0: a self-refreshing relative-time label. Sidebar +
@@ -20,7 +21,7 @@ export function RelativeTime(props: { ts: number; className?: string; suppressTi
   });
   return (
     <small
-      className={props.className ?? 'maka-message-time'}
+      className={cn('tabular-nums', props.className ?? 'maka-message-time')}
       aria-hidden="true"
       title={props.suppressTitle ? undefined : formatAbsoluteTimestamp(props.ts)}
     >

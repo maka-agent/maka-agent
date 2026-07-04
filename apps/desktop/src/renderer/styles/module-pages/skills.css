@@ -222,6 +222,7 @@ color: oklch(0.55 0.015 220);
   padding: 0 1px;
 }
 .maka-skill-tab span {
+  font-variant-numeric: tabular-nums;
   min-width: 16px;
   height: 16px;
   display: inline-flex;
@@ -271,6 +272,7 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-section-row small {
+  font-variant-numeric: tabular-nums;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);

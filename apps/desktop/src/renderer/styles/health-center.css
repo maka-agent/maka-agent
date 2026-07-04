@@ -126,6 +126,7 @@
   }
 
 .settingsHealthSummaryTile strong {
+    font-variant-numeric: tabular-nums;
     font-size: 1.4em;
     font-weight: var(--font-weight-semibold);
     line-height: var(--leading-tight);

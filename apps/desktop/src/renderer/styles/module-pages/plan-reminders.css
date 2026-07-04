@@ -718,6 +718,7 @@
 }
 
 .maka-plan-search-summary {
+  font-variant-numeric: tabular-nums;
   display: flex;
   min-width: 0;
   align-items: center;

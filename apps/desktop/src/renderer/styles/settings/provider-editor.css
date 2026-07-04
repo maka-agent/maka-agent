@@ -252,6 +252,7 @@
 }
 
 .modelTableHeaderText small {
+  font-variant-numeric: tabular-nums;
   font-size: var(--font-size-caption);
   line-height: var(--leading-normal);
   color: var(--foreground-secondary);
@@ -599,6 +600,7 @@
 .enabledStripHeader span,
 .providerMarketHeader p,
 .customProviderEntry p {
+  font-variant-numeric: tabular-nums;
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);

@@ -426,6 +426,7 @@
 }
 
 .maka-search-modal-result-summary {
+  font-variant-numeric: tabular-nums;
   display: flex;
   align-items: center;
   justify-content: space-between;
