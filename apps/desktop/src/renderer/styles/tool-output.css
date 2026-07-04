@@ -7,7 +7,7 @@
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   font-weight: 500;
-  line-height: 1;
+  line-height: var(--leading-none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -137,7 +137,7 @@
   color: var(--foreground);
   font-family: var(--font-default);
   font-size: var(--font-size-base);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .maka-composer-streaming-hint .maka-shortcut-kbd {
@@ -274,7 +274,7 @@
 .maka-composer-mode-menu-hint {
   font-size: var(--font-size-caption);
   color: var(--muted-foreground);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   white-space: normal;
 }
 .maka-composer-mode-menu [data-active="true"] {

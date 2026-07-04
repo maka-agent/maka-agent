@@ -261,7 +261,7 @@
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   width: fit-content;
   max-width: 100%;
 }
@@ -311,7 +311,7 @@
   max-width: 56ch;
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .settingsFeatureStatusList {
@@ -321,7 +321,7 @@
   gap: var(--space-1);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .settingsFeatureStatusList li::marker {
@@ -484,7 +484,7 @@
   font-size: 1.7333em;
   font-weight: 650;
   letter-spacing: -0.012em;
-  line-height: 1.2;
+  line-height: var(--leading-tight);
   text-wrap: balance;
 }
 
@@ -496,7 +496,7 @@
   max-width: 56ch;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   text-wrap: pretty;
 }
 
@@ -701,7 +701,7 @@
   color: var(--foreground);
   font-size: var(--font-size-base);
   font-weight: 500;
-  line-height: 1.35;
+  line-height: var(--leading-snug);
 }
 
 .settingsFormRow small,
@@ -712,7 +712,7 @@
   /* Hint is the most-read body text on the page; use the base scale so
      it clears the 14px legibility floor. */
   font-size: var(--font-size-base);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .settingsFieldWarning {

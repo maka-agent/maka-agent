@@ -42,7 +42,7 @@
   color: var(--foreground);
   font-size: 1.2em;
   font-weight: 650;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
   letter-spacing: 0;
 }
 
@@ -111,7 +111,7 @@
   max-width: none;
   font-size: 1.7333em;
   font-weight: 680;
-  line-height: 1.2;
+  line-height: var(--leading-tight);
   letter-spacing: -0.01em;
   color: var(--foreground);
 }
@@ -119,7 +119,7 @@
 .maka-firstrun-sub {
   margin: var(--space-2) 0 0;
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   color: var(--muted-foreground);
 }
 
@@ -236,7 +236,7 @@
   flex: 0 0 auto;
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1;
+  line-height: var(--leading-none);
   color: var(--nav-active);
   background: oklch(from var(--nav-active) l c h / 0.12);
   padding: var(--space-0-5) var(--space-1-5);
@@ -327,13 +327,13 @@
   color: var(--foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: var(--leading-tight);
 }
 
 .maka-onboarding-setup-step-copy small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.3;
+  line-height: var(--leading-snug);
 }
 
 .maka-onboarding-setup-step-state {
@@ -380,7 +380,7 @@
 .maka-onboarding-setup header p {
   margin-top: var(--space-2);
   color: var(--foreground-secondary);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 .maka-onboarding-setup[data-tone="warning"] header h1 {
   color: var(--warning, var(--info-text));
@@ -418,14 +418,14 @@
   font-size: 1.9333em;
   font-weight: 680;
   letter-spacing: 0;
-  line-height: 1.18;
+  line-height: var(--leading-tight);
 }
 .maka-onboarding-ready header p {
   /* Slightly larger subtitle so it carries the meaning without
      reading like fine print under the now-heavier h1. */
   margin-top: var(--space-1-5);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   max-width: 56ch;
 }
 .maka-onboarding-quickchat {
@@ -470,7 +470,7 @@
   min-height: 90px;
   color: var(--foreground);
   font-size: var(--font-size-base);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 /* Drag-active feedback lives on the wrapper, not the inner textarea, because
    the wrapper owns the visible field chrome for this bare textarea. */
@@ -490,7 +490,7 @@
   padding-inline: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   font-style: italic;
 }
 .maka-onboarding-quickchat-example[data-pending="true"] {
@@ -508,7 +508,7 @@
   color: var(--nav-active);
   background: color-mix(in srgb, var(--nav-active) 10%, transparent);
   font-size: var(--font-size-caption);
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 .maka-onboarding-quickchat-submit {
   display: inline-flex;
@@ -601,7 +601,7 @@
   min-height: 38px;
   padding: var(--space-2) var(--space-4);
   font-size: var(--font-size-ui);
-  line-height: 1.2;
+  line-height: var(--leading-tight);
   text-align: center;
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);
 }
@@ -875,7 +875,7 @@
   color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 .maka-list-row:hover .maka-list-row-name {
@@ -917,7 +917,7 @@
   max-width: 30ch;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   text-wrap: pretty;
 }
 

@@ -77,7 +77,7 @@
   color: var(--foreground);
   font-size: var(--font-size-ui); /* text-sm on the 15px root — same scale as headings */
   font-weight: 500;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* Heading: same 13px as the rows; hierarchy comes from weight 500 + muted ink
@@ -91,7 +91,7 @@
   padding: var(--space-1-5) var(--space-3) var(--space-1);
   font-size: var(--font-size-ui);
   font-weight: 500;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   color: var(--muted-foreground);
 }
 

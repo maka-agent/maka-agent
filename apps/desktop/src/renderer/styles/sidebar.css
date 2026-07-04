@@ -327,7 +327,7 @@
   background: transparent;
   color: var(--foreground-secondary);
   font-size: 1.0667em;
-  line-height: 1;
+  line-height: var(--leading-none);
   border-radius: var(--radius-control);
 }
 .maka-search-modal-close:hover {
@@ -361,7 +361,7 @@
   width: 100%;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 .maka-search-modal-input::placeholder {
   color: var(--muted-foreground);
@@ -490,7 +490,7 @@
 .maka-search-modal-result-snippet {
   font-size: var(--font-size-caption);
   color: var(--foreground-secondary);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
   /* Plain text snippet — backend redacts secrets + bounds to
    * SNIPPET_MAX_CODE_POINTS. We cap visual lines at 3 so very
    * long snippets don't blow up the row height. */
@@ -936,7 +936,7 @@
 .maka-prompt-chip-hint {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -973,7 +973,7 @@
   display: block;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-deep-research-report,
@@ -993,7 +993,7 @@
   margin: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.3;
+  line-height: var(--leading-snug);
 }
 
 .maka-deep-research-report ul,
@@ -1035,5 +1035,5 @@
   min-width: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }

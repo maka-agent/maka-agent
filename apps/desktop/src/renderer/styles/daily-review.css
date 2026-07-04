@@ -46,7 +46,7 @@
 .maka-daily-review-info-hint {
     margin: 0;
     font-size: var(--font-size-caption);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     color: var(--muted-foreground);
   }
 .maka-daily-review-info-hint strong {
@@ -186,7 +186,7 @@
   .maka-daily-review-archive-empty {
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
 .maka-daily-review-archive-body-header {
@@ -208,7 +208,7 @@
     margin: var(--space-0-5) 0 0;
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     overflow-wrap: anywhere;
   }
 
@@ -218,7 +218,7 @@
     border-radius: var(--radius-pill);
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
-    line-height: 1;
+    line-height: var(--leading-none);
     padding: var(--space-1) var(--space-1-5);
     white-space: nowrap;
   }
@@ -238,7 +238,7 @@
     margin: 0;
     color: var(--destructive, var(--foreground));
     font-size: var(--font-size-ui);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
 .maka-daily-review-archive-sections {
@@ -273,7 +273,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.6;
+    line-height: var(--leading-normal);
     overflow-wrap: anywhere;
     white-space: pre-wrap;
   }
@@ -284,7 +284,7 @@
 .maka-daily-review-archive-section-body {
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.6;
+    line-height: var(--leading-normal);
     overflow-wrap: anywhere;
   }
 

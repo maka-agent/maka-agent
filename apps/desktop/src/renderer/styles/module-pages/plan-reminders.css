@@ -64,14 +64,14 @@
   font-size: 2em;
   font-weight: 600;
   letter-spacing: -0.012em;
-  line-height: 1.15;
+  line-height: var(--leading-tight);
 }
 
 .maka-plan-heading p:last-child {
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-plan-top-actions {
@@ -191,7 +191,7 @@
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
   letter-spacing: 1px;
-  line-height: 20px;
+  line-height: var(--leading-normal);
 }
 
 .maka-plan-template-icon {
@@ -249,12 +249,12 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: var(--leading-tight);
 }
 
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-title {
   font-size: var(--font-size-base);
-  line-height: 1.3;
+  line-height: var(--leading-snug);
 }
 
 .maka-plan-template-note {
@@ -264,7 +264,7 @@
   white-space: nowrap;
   font-size: var(--font-size-caption);
   font-weight: 500;
-  line-height: 1.35;
+  line-height: var(--leading-snug);
 }
 
 .maka-plan-template-strip[data-layout="cards"] .maka-plan-template-note {
@@ -274,7 +274,7 @@
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .maka-plan-template-schedule {
@@ -288,7 +288,7 @@
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1;
+  line-height: var(--leading-none);
   padding: var(--space-0-5) var(--space-1-5);
   white-space: nowrap;
 }
@@ -577,7 +577,7 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
-  line-height: 1.2;
+  line-height: var(--leading-tight);
 }
 
 .maka-plan-form-grid {
@@ -642,7 +642,7 @@
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   padding: var(--space-1) var(--space-2);
 }
 
@@ -657,7 +657,7 @@
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 500;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 .maka-plan-submit {
@@ -753,7 +753,7 @@
   color: var(--foreground);
   font-size: var(--font-size-base);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: var(--leading-snug);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -790,7 +790,7 @@
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1;
+  line-height: var(--leading-none);
   padding: var(--space-0-5) var(--space-2);
 }
 
@@ -818,7 +818,7 @@
 .maka-plan-card-note {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   margin: 0;
   padding: 0;
   overflow: hidden;
@@ -877,7 +877,7 @@
 .maka-plan-run-row time {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.35;
+  line-height: var(--leading-snug);
 }
 
 .maka-plan-run-row time {

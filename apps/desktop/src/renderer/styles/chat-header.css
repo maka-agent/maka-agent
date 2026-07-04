@@ -169,7 +169,7 @@
     border: 1px solid transparent;
     font-size: var(--font-size-caption);
     font-weight: 600;
-    line-height: 1.4;
+    line-height: var(--leading-snug);
     /* Spacing from neighboring badges comes from the parent
        .maka-chat-status-cluster's `gap`, not a local margin. */
     -webkit-app-region: no-drag;
@@ -321,7 +321,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
     max-width: 56ch;
   }
 
@@ -336,7 +336,7 @@
     overflow: auto;
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -379,7 +379,7 @@
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .maka-fake-backend-banner svg {
@@ -544,7 +544,7 @@
 .maka-toast-copy small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   text-wrap: pretty;
 }
 
@@ -661,7 +661,7 @@
 .maka-help-section dt {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-help-section dd {
@@ -741,7 +741,7 @@
 .maka-palette-input {
   color: var(--foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   outline: none;
   box-shadow: none;
   -webkit-user-select: text;
@@ -799,7 +799,7 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 
 .maka-palette-input-hint .maka-shortcut-kbd {

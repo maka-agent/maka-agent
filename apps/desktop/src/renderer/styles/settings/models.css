@@ -342,7 +342,7 @@
   background: transparent;
   color: var(--foreground);
   font-size: var(--font-size-base);
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 
 .maka-browser-navbtn:hover:not(:disabled) {
@@ -643,7 +643,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-artifact-preview-diff {
@@ -722,7 +722,7 @@
 .maka-artifact-preview-unsupported-body {
   margin: 0;
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
   color: var(--foreground-secondary);
 }
 
@@ -814,7 +814,7 @@
 .maka-artifact-preview-fail-body {
   margin: 0;
   font-size: var(--font-size-caption);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .maka-artifact-toolbar {
@@ -991,7 +991,7 @@
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--info-text);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   transition: background var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong), border-color var(--duration-base) var(--ease-out-strong);
   align-self: flex-start;
 }

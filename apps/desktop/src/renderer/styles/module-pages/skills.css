@@ -101,7 +101,7 @@
   color: oklch(0.26 0.025 224);
   font-size: 1.2em;
   font-weight: 600;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-banner p {
@@ -109,7 +109,7 @@
   margin: var(--space-2-5) 0 0;
   color: oklch(0.42 0.02 220);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-skill-featured-art {
@@ -152,14 +152,14 @@
 color: oklch(0.34 0.02 224);
   font-size: var(--font-size-caption);
   font-weight: 650;
-  line-height: 1.1;
+  line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-art small {
 color: oklch(0.55 0.015 220);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1.1;
+  line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-art span:first-child {
@@ -317,7 +317,7 @@ color: oklch(0.55 0.015 220);
   color: var(--foreground);
   font-size: var(--font-size-base);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
 }
 
 .maka-skill-market-card small,
@@ -332,7 +332,7 @@ color: oklch(0.55 0.015 220);
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -443,14 +443,14 @@ color: oklch(0.55 0.015 220);
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 600;
-  line-height: 1.3;
+  line-height: var(--leading-snug);
 }
 
 .maka-skill-template-copy span {
   min-width: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-skill-template-row small {
@@ -461,7 +461,7 @@ color: oklch(0.55 0.015 220);
   white-space: nowrap;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1.35;
+  line-height: var(--leading-snug);
 }
 
 .maka-skill-library-list {
@@ -576,7 +576,7 @@ color: oklch(0.55 0.015 220);
   white-space: nowrap;
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-skill-library-meta {

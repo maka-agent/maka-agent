@@ -33,7 +33,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     max-width: 52ch;
   }
 
@@ -178,7 +178,7 @@
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
 .settingsCapabilityLayers {
@@ -311,7 +311,7 @@
     padding-left: var(--space-4);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }
 
 .settingsCapabilityGuidanceActions {
@@ -458,7 +458,7 @@
 .settingsOsPermissionPurpose {
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }
 
 .settingsOsPermissionImpact {
@@ -467,7 +467,7 @@
     gap: var(--space-1-5);
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 
 .settingsOsPermissionImpactLabel {
@@ -567,7 +567,7 @@
 .settingsPermissionSummaryValue {
     font-size: 1.5em;
     font-weight: 600;
-    line-height: 1.1;
+    line-height: var(--leading-tight);
     font-variant-numeric: tabular-nums;
     color: var(--foreground);
   }
@@ -615,5 +615,5 @@
     background: var(--foreground-3);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }

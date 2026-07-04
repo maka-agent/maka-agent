@@ -93,7 +93,7 @@
      the same visual family. */
 .maka-reasoning-panel-chevron {
     font-size: var(--font-size-ui);
-    line-height: 1;
+    line-height: var(--leading-none);
     color: var(--muted-foreground);
     transition: transform var(--duration-base) var(--ease-out-strong);
   }
@@ -108,7 +108,7 @@
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     max-height: 280px;
     overflow-y: auto;
     white-space: pre-wrap;

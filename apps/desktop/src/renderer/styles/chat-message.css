@@ -21,7 +21,7 @@
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
     font-weight: 600;
-    line-height: 1;
+    line-height: var(--leading-none);
     white-space: nowrap;
     padding: 0 var(--space-3);
   }
@@ -84,7 +84,7 @@
     font-size: 2.1333em;
     font-weight: 550;
     letter-spacing: -0.018em;
-    line-height: 1.1;
+    line-height: var(--leading-tight);
     font-variation-settings: "wght" 550, "wdth" 105;
     text-wrap: balance;
   }
@@ -93,7 +93,7 @@
     max-width: 54ch;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     text-wrap: pretty;
   }
 @media (max-width: 820px) {

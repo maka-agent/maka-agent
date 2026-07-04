@@ -161,7 +161,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 .settingsAuthContract {
     display: flex;
@@ -187,7 +187,7 @@
 .settingsAuthContractText span {
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 .settingsAuthContractBadge,
   .settingsAuthActionPill {
@@ -280,7 +280,7 @@
     margin-top: var(--space-1);
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
-    line-height: 1.4;
+    line-height: var(--leading-snug);
   }
 .providersPanel {
     min-height: 420px;

@@ -17,7 +17,7 @@
   color: var(--foreground);
   padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   outline: none;
   transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
 }
@@ -25,7 +25,7 @@
 .settingsField textarea {
   border-radius: var(--radius-control);
   padding: var(--space-2) var(--space-2-5);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   font-family: inherit;
   font-size: var(--font-size-ui);
 }
@@ -50,7 +50,7 @@
   color: var(--info-text);
   padding: var(--space-3) var(--space-3);
   font-size: var(--font-size-ui);
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .settingsNotice[data-tone="passive"] {
@@ -133,7 +133,7 @@
   margin: 0;
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .settingsAboutPrivacy {
@@ -161,7 +161,7 @@
   gap: var(--space-1-5);
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.55;
+  line-height: var(--leading-normal);
 }
 
 .settingsAboutPrivacy li::marker {
@@ -462,13 +462,13 @@
   border: 1px solid oklch(from var(--info) l c h / 0.18);
   color: var(--info-text);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 .settingsBotInfoNoticeIcon {
   font-style: normal;
   font-weight: 500;
   color: var(--info-text);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* PR-BOT-WECHAT-QR-MODAL-0 (WAWQAQ msg `10ec1fbe`): scan-login modal —
@@ -606,7 +606,7 @@
   margin: 0;
   color: var(--muted-foreground);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .settingsWechatQrClose {
@@ -669,7 +669,7 @@
   color: var(--foreground-secondary);
   padding: var(--space-4);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
 }
 
 .settingsWechatQrState strong {
@@ -733,7 +733,7 @@
 .settingsThemeLabel small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
   overflow-wrap: anywhere;
 }
 

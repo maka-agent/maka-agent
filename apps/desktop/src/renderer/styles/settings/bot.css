@@ -170,7 +170,7 @@
   .settingsHelpText {
     color: var(--muted-foreground);
     font-size: var(--font-size-ui);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 .settingsBotEnableHint {
     display: block;
@@ -247,7 +247,7 @@
     border-left: 2px solid var(--focus-ring);
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
     padding-left: var(--space-2-5);
   }
 /* PR-BOT-CHAT-POLISH-0: error tone for persisted lastError so the
@@ -286,7 +286,7 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 500;
-  line-height: 1;
+  line-height: var(--leading-none);
   white-space: nowrap;
 }
 
@@ -296,7 +296,7 @@
   align-items: center;
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
-  line-height: 1;
+  line-height: var(--leading-none);
   white-space: nowrap;
 }
 
@@ -403,7 +403,7 @@
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--muted-foreground);
-  line-height: 1;
+  line-height: var(--leading-none);
 }
 
 .settingsCloseButton svg {

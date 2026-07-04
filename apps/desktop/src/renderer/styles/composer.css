@@ -72,7 +72,7 @@
   color: var(--muted-foreground);
   font: inherit;
   font-size: var(--font-size-caption);
-  line-height: 1.25;
+  line-height: var(--leading-tight);
   text-align: left;
   transition: color var(--duration-quick) var(--ease-out-strong);
 }
@@ -334,7 +334,7 @@
   color: var(--info-text);
   padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-caption);
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 /* Single-line emphasis under the "记住本轮" checkbox when the action is
@@ -344,6 +344,6 @@
   margin: 0;
   color: var(--destructive);
   font-size: var(--font-size-ui);
-  line-height: 1.5;
+  line-height: var(--leading-normal);
   font-weight: 600;
 }

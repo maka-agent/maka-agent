@@ -34,7 +34,7 @@
     margin: 0;
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
     max-width: 60ch;
   }
 
@@ -128,7 +128,7 @@
 .settingsHealthSummaryTile strong {
     font-size: 1.4em;
     font-weight: 600;
-    line-height: 1.1;
+    line-height: var(--leading-tight);
   }
 
 .settingsHealthSummaryTile small {
@@ -261,13 +261,13 @@
     margin: 0;
     font-size: var(--font-size-ui);
     color: var(--foreground-secondary);
-    line-height: 1.5;
+    line-height: var(--leading-normal);
   }
 
 .settingsHealthSignalDetail {
     font-size: var(--font-size-caption);
     color: var(--foreground-secondary);
-    line-height: 1.45;
+    line-height: var(--leading-normal);
   }
 
 .settingsHealthSignalMeta {
@@ -314,5 +314,5 @@
     background: var(--foreground-3);
     color: var(--foreground-secondary);
     font-size: var(--font-size-caption);
-    line-height: 1.55;
+    line-height: var(--leading-normal);
   }

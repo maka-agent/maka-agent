@@ -29,14 +29,14 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: 700;
-  line-height: 1.25;
+  line-height: var(--leading-tight);
 }
 
 .maka-capability-audit-copy small {
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 600;
-  line-height: 1.45;
+  line-height: var(--leading-normal);
 }
 
 .maka-capability-audit-metrics {
@@ -68,7 +68,7 @@
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
   font-weight: 700;
-  line-height: 1.3;
+  line-height: var(--leading-snug);
   overflow-wrap: anywhere;
 }
 
