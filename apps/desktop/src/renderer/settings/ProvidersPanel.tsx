@@ -9,7 +9,7 @@ import {
 } from '@maka/core';
 import {
   Button,
-  PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger,
+  PrimitiveTabs, PrimitiveTabsList, PrimitiveTabsTrigger, PrimitiveTabsPanel,
   PrimitiveAccordion, PrimitiveAccordionItem, PrimitiveAccordionHeader, PrimitiveAccordionTrigger, PrimitiveAccordionPanel,
   Item, ItemContent, ItemTitle, ItemActions,
   useToast,
@@ -138,9 +138,6 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
     [providerGroups, defaultSlug],
   );
 
-  const catalogProviders = CATALOG_PROVIDER_TYPES.filter(
-    (type) => PROVIDER_DEFAULTS[type].category === catalogTab,
-  );
   const customProviders = CATALOG_PROVIDER_TYPES.filter(
     (type) => PROVIDER_DEFAULTS[type].category === 'custom',
   );
@@ -294,35 +291,36 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
           value={catalogTab}
           onValueChange={(value) => setCatalogTab(value as CatalogTab)}
         >
-          <PrimitiveTabsList className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">
+          <PrimitiveTabsList variant="pill" className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">
             {CATALOG_TABS.map((tab) => (
               <PrimitiveTabsTrigger
                 key={tab.id}
-                className="catalogTab"
+                className="maka-tab"
                 value={tab.id}
-                data-active={catalogTab === tab.id}
                 data-catalog-tab={tab.id}
               >
                 <strong>{tab.label}</strong>
               </PrimitiveTabsTrigger>
             ))}
           </PrimitiveTabsList>
+          <PrimitiveTabsPanel value="oauth">
+            <ModelOAuthSection onConnectionsChanged={async () => { await reload(); }} />
+          </PrimitiveTabsPanel>
+          {(['domestic', 'overseas', 'local'] as const).map((cat) => (
+            <PrimitiveTabsPanel key={cat} value={cat}>
+              <div className="catalogGrid providerMarketGrid">
+                {CATALOG_PROVIDER_TYPES.filter((type) => PROVIDER_DEFAULTS[type].category === cat).map((type) => (
+                  <ProviderCatalogCard
+                    key={type}
+                    type={type}
+                    count={configuredByType(type)}
+                    onSelect={() => startAdd(type)}
+                  />
+                ))}
+              </div>
+            </PrimitiveTabsPanel>
+          ))}
         </PrimitiveTabs>
-
-        {catalogTab === 'oauth' ? (
-          <ModelOAuthSection onConnectionsChanged={async () => { await reload(); }} />
-        ) : (
-          <div className="catalogGrid providerMarketGrid">
-            {catalogProviders.map((type) => (
-              <ProviderCatalogCard
-                key={type}
-                type={type}
-                count={configuredByType(type)}
-                onSelect={() => startAdd(type)}
-              />
-            ))}
-          </div>
-        )}
 
         <div className="customProviderEntry">
           <div>

@@ -33,8 +33,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(tabs[0], /id:\s*'oauth'[\s\S]*label:\s*'OAuth'/, 'OAuth must be a catalog tab');
     assert.match(
       src,
-      /catalogTab === 'oauth'\s*\?\s*\(\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>/,
-      'OAuth login UI must render from the tab content branch and refresh enabled models',
+      /<PrimitiveTabsPanel value="oauth">\s*<ModelOAuthSection\s+onConnectionsChanged=\{async \(\) => \{ await reload\(\); \}\}\s*\/>\s*<\/PrimitiveTabsPanel>/,
+      'OAuth login UI must render inside the oauth TabsPanel and refresh enabled models',
     );
     const marketStart = src.indexOf('<section className="providerMarket">');
     const firstOAuthRender = src.indexOf('<ModelOAuthSection');
@@ -65,8 +65,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.doesNotMatch(src, /function onCatalogTabsKeyDown/, 'provider catalog tabs should not keep a custom keyboard handler');
     assert.doesNotMatch(src, /data-catalog-tab="\$\{CSS\.escape/, 'provider catalog tabs should not use manual focus queries');
     assert.match(tabs, /value=\{catalogTab\}[\s\S]*onValueChange=\{\(value\) => setCatalogTab\(value as CatalogTab\)\}/);
-    assert.match(tabs, /<PrimitiveTabsList className="catalogTabs catalogPillTabs" aria-label="模型供应商分类">/);
-    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*className="catalogTab"[\s\S]*value=\{tab\.id\}/);
+    assert.match(tabs, /<PrimitiveTabsList[^>]*variant="pill"[^>]*aria-label="模型供应商分类">/);
+    assert.match(tabs, /<PrimitiveTabsTrigger[\s\S]*className="maka-tab"[\s\S]*value=\{tab\.id\}/);
     assert.match(tabs, /data-catalog-tab=\{tab\.id\}/);
   });
 

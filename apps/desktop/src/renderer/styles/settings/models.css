@@ -145,36 +145,6 @@
   gap: var(--space-2);
 }
 
-.catalogPillTabs button {
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  padding: 0 var(--space-4);
-}
-
-.catalogPillTabs button:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
-.catalogPillTabs button[data-active="true"] {
-  border-color: oklch(from var(--nav-active) l c h / 0.22);
-  background: oklch(from var(--nav-active) l c h / 0.13);
-  color: var(--nav-active);
-}
-
-/* Base UI's Tabs renders a sliding rounded-md indicator behind the active
- * tab. These pills supply their own active fill, and the indicator's square
- * radius pokes out from behind the 999px pill (the warped selected look).
- * Hide it; the pill background is the single source of the active state. */
-.catalogPillTabs [data-slot="tab-indicator"] {
-  display: none;
-}
-
 .catalogPillTabs strong {
   font-size: var(--font-size-ui);
   font-weight: 700;

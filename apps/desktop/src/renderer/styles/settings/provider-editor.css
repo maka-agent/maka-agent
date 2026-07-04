@@ -30,15 +30,6 @@
   text-align: left;
 }
 
-.catalogTab:hover {
-  background: var(--state-hover-bg);
-}
-
-.catalogTab[data-active="true"] {
-  border-color: oklch(from var(--nav-active) l c h / 0.16);
-  background: oklch(from var(--nav-active) l c h / 0.08);
-}
-
 .catalogTabs strong {
   font-size: var(--font-size-caption);
   font-weight: 600;

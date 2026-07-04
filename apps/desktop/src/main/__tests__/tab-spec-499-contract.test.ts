@@ -25,6 +25,12 @@ const PLAN_CSS_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/styles/module-pages/plan-reminders.css',
 );
+const PROVIDERS_PANEL_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/settings/ProvidersPanel.tsx');
+const MODELS_CSS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/settings/models.css');
+const PROVIDER_EDITOR_CSS_FILE = resolve(
+  REPO_ROOT,
+  'apps/desktop/src/renderer/styles/settings/provider-editor.css',
+);
 
 const BRAND_STATE_TOKEN_RE =
   /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/;
@@ -97,6 +103,67 @@ describe('issue #499 P0-3 tab spec contract', () => {
       css,
       /\.maka-plan-tab\[data-state\s*=\s*"active"\]::after/,
       'plan hand-written under-bar ::after must be removed',
+    );
+  });
+
+  it('catalog tabs consume maka-tab + pill variant + TabsPanel; no hand-written catalogTab/catalogPillTabs active/hover/indicator CSS', async () => {
+    const panel = await readFile(PROVIDERS_PANEL_FILE, 'utf8');
+    assert.match(
+      panel,
+      /PrimitiveTabsList[^>]*variant="pill"/,
+      'catalog TabsList must pass variant="pill"',
+    );
+    assert.match(
+      panel,
+      /PrimitiveTabsTrigger[^>]*className="[^"]*\bmaka-tab\b/,
+      'catalog TabsTrigger must carry the maka-tab class',
+    );
+    assert.match(
+      panel,
+      /PrimitiveTabsPanel/,
+      'catalog content must render through PrimitiveTabsPanel (not bare conditional render)',
+    );
+    // data-active hand-written boolean removed (Base UI sets data-active on the
+    // active tab); data-catalog-tab stays (locked by model-oauth-section contract
+    // as the tab identifier, not a manual focus query).
+    assert.doesNotMatch(
+      panel,
+      /data-active=\{catalogTab === tab\.id\}/,
+      'catalog hand-written data-active={catalogTab === tab.id} must be removed (Base UI sets data-active)',
+    );
+    assert.match(
+      panel,
+      /data-catalog-tab=\{tab\.id\}/,
+      'data-catalog-tab={tab.id} must stay (tab identifier used by model-oauth contract)',
+    );
+
+    const modelsCss = stripCssComments(await readFile(MODELS_CSS_FILE, 'utf8'));
+    assert.doesNotMatch(
+      modelsCss,
+      /\.catalogPillTabs button\[data-active/,
+      'catalog hand-written .catalogPillTabs button[data-active] must be removed (active moves to .maka-tab)',
+    );
+    assert.doesNotMatch(
+      modelsCss,
+      /\.catalogPillTabs button:hover/,
+      'catalog hand-written .catalogPillTabs button:hover must be removed (hover moves to .maka-tab)',
+    );
+    assert.doesNotMatch(
+      modelsCss,
+      /\.catalogPillTabs \[data-slot="tab-indicator"\]/,
+      'catalog hand-written indicator display:none must be removed (pill variant hides the indicator in tabs.tsx)',
+    );
+
+    const providerEditorCss = stripCssComments(await readFile(PROVIDER_EDITOR_CSS_FILE, 'utf8'));
+    assert.doesNotMatch(
+      providerEditorCss,
+      /\.catalogTab\[data-active/,
+      'catalog hand-written .catalogTab[data-active] must be removed (active moves to .maka-tab)',
+    );
+    assert.doesNotMatch(
+      providerEditorCss,
+      /\.catalogTab:hover/,
+      'catalog hand-written .catalogTab:hover must be removed (hover moves to .maka-tab)',
     );
   });
 });
