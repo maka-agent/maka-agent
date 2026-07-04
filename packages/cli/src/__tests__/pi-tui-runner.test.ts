@@ -172,6 +172,37 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
   });
+
+  test('handles /model without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+
+    await waitFor(() => driver.models.length === 1);
+    await waitFor(() => terminal.output().includes('Model: claude-opus-4-1'));
+
+    assert.deepEqual(driver.models, ['claude-opus-4-1']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -295,6 +326,7 @@ class ToolOutputDriver implements MakaSessionDriver {
 
 class SlashCommandDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
+  readonly models: string[] = [];
   readonly permissionModes: PermissionMode[] = [];
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
@@ -310,7 +342,9 @@ class SlashCommandDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
-  async setModel(): Promise<void> {}
+  async setModel(model: string): Promise<void> {
+    this.models.push(model);
+  }
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
   }

@@ -35,6 +35,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const terminal = input.terminal ?? new ProcessTerminal();
   const tui = new TUI(terminal);
   const state = createMakaPiTranscriptState();
+  let model = input.model;
   let permissionMode = input.permissionMode;
   let busy = false;
   let closed = false;
@@ -46,7 +47,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const metadata = (): MakaPiTranscriptMetadata => ({
     title: input.title,
     cwd: input.cwd,
-    model: input.model,
+    model,
     connectionSlug: input.connectionSlug,
     permissionMode,
     sessionId: input.driver.getSessionId(),
@@ -126,6 +127,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     });
   };
 
+  const setModel = async (nextModel: string) => {
+    await input.driver.setModel(nextModel);
+    model = nextModel;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Model: ${nextModel}`,
+    });
+    requestRender();
+  };
+
   const setPermissionMode = async (mode: PermissionMode) => {
     await input.driver.setPermissionMode(mode);
     permissionMode = mode;
@@ -139,6 +151,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const handleSlashCommand = (prompt: string): boolean => {
     const parts = prompt.trim().split(/\s+/);
+    if (parts[0] === '/model') {
+      const nextModel = parts.length === 2 ? parts[1] : undefined;
+      if (!nextModel) {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: 'Usage: /model <model-id>',
+        });
+        requestRender();
+        return true;
+      }
+      void setModel(nextModel).catch((error) => {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+        requestRender();
+      });
+      return true;
+    }
     if (parts[0] !== '/permissions') return false;
     const mode = parts.length === 2 ? parts[1] : undefined;
     if (!isPermissionMode(mode)) {
