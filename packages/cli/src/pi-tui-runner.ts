@@ -264,6 +264,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const slashCommands: MakaSlashCommand[] = [
     {
+      name: 'exit',
+      description: 'Exit Maka',
+      run: () => {
+        void close();
+      },
+    },
+    {
       name: 'model',
       description: 'Select model',
       run: (parts: string[]) => {
@@ -387,7 +394,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.escape)) {
+    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       void close();
       return { consume: true };
     }

@@ -234,6 +234,59 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('does not close the main TUI on Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka deepseek-v4-flash deepseek ask /repo'));
+
+    terminal.input('\x1b');
+    await delay(30);
+
+    assert.equal(terminal.stopCalls, 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('closes the main TUI on Ctrl-D', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('\x04');
+
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-D');
+      }),
+    ]);
+    assert.equal(terminal.stopCalls, 1);
+  });
+
   test('shows slash commands alphabetically when typing /', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -251,13 +304,16 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
     const output = plainTerminalOutput(terminal.output());
+    const exitIndex = output.indexOf('/exit');
     const modelIndex = output.indexOf('/model');
     const permissionsIndex = output.indexOf('/permissions');
     const sessionIndex = output.indexOf('/session');
 
+    assert.ok(exitIndex >= 0);
     assert.ok(modelIndex >= 0);
     assert.ok(permissionsIndex >= 0);
     assert.ok(sessionIndex >= 0);
+    assert.ok(exitIndex < modelIndex);
     assert.ok(modelIndex < permissionsIndex);
     assert.ok(permissionsIndex < sessionIndex);
 
@@ -307,6 +363,33 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /exit without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/exit');
+    terminal.input('\r');
+
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after /exit');
+      }),
+    ]);
+
+    assert.deepEqual(driver.prompts, []);
+    assert.equal(terminal.stopCalls, 1);
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -321,9 +404,9 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    terminal.input('/');
+    terminal.input('/m');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/session'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/model'));
     terminal.input('\r');
     await waitFor(() => terminal.output().includes('Select Model'));
 
