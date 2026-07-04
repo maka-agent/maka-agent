@@ -29,6 +29,8 @@ const targets = [
   'packages/runtime/tsconfig.tsbuildinfo',
   'packages/headless/dist',
   'packages/headless/tsconfig.tsbuildinfo',
+  'packages/cli/dist',
+  'packages/cli/tsconfig.tsbuildinfo',
   'packages/ui/dist',
   'packages/ui/tsconfig.tsbuildinfo',
   'apps/desktop/dist',

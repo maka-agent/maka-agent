@@ -1,0 +1,25 @@
+{
+  "name": "maka-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "maka": "./dist/cli.js",
+    "maka-agent": "./dist/cli.js"
+  },
+  "scripts": {
+    "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
+    "build": "tsc -p tsconfig.json && node scripts/chmod-bin.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build",
+    "test": "npm run clean && npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "0.80.3",
+    "@maka/core": "0.1.0",
+    "@maka/runtime": "0.1.0",
+    "@maka/storage": "0.1.0"
+  }
+}
