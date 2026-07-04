@@ -38,7 +38,7 @@ import { describe, it } from 'node:test';
 import { join, resolve } from 'node:path';
 import { readRendererContractCss } from './contract-css-helpers.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
-import { readUiSourceTree } from './ui-source-tree-helpers.js';
+import { renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
@@ -437,10 +437,10 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   });
 
   it('session time buckets use product labels without unfinished-state wording', async () => {
-    const ui = await readUiSourceTree();
+    const markup = renderSessionListPanel({ session: { lastMessageAt: undefined } });
 
-    assert.match(ui, /label:\s*'待发送'/, 'Sessions with no messages should live in the concise pending-send bucket');
-    assert.doesNotMatch(ui, /尚未发送/, 'Session group labels should not read like unfinished implementation copy');
+    assert.match(markup, /待发送/, 'Sessions with no messages should live in the concise pending-send bucket');
+    assert.doesNotMatch(markup, /尚未发送/, 'Session group labels should not read like unfinished implementation copy');
   });
 });
 

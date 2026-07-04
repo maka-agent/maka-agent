@@ -13,7 +13,7 @@ import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { SESSION_BLOCKED_REASONS, SESSION_STATUSES } from '@maka/core';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
-import { readUiSourceTree } from './ui-source-tree-helpers.js';
+import { renderSessionListPanel } from './session-list-render-helpers.js';
 import {
   deriveFailedTurnRecovery,
   describeBlockedReason,
@@ -105,10 +105,15 @@ describe('describeBlockedReason (@kenji generalized copy contract)', () => {
   });
 
   it('keeps the shared UI blocked-reason tooltip in sync with actionable waiting copy', async () => {
-    const ui = await readUiSourceTree();
+    const markup = renderSessionListPanel({
+      session: {
+        status: 'blocked',
+        blockedReason: 'NO_REAL_CONNECTION',
+      },
+    });
 
-    assert.match(ui, /NO_REAL_CONNECTION:\s*'等待配置可用模型连接'/);
-    assert.doesNotMatch(ui, /NO_REAL_CONNECTION:\s*'缺少可用模型连接'/);
+    assert.match(markup, /等待配置可用模型连接/);
+    assert.doesNotMatch(markup, /缺少可用模型连接/);
   });
 
   it('auth maps to re-login phrasing', () => {

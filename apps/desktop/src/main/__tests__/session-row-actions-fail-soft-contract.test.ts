@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
-import { readUiSourceTree } from './ui-source-tree-helpers.js';
+import { readRenderedSessionHistorySource } from './session-history-owner-source-helpers.js';
 
 describe('session row actions fail soft', () => {
   it('surfaces sidebar session action failures instead of leaving fire-and-forget rejections', async () => {
@@ -74,7 +74,7 @@ describe('session row actions fail soft', () => {
   });
 
   it('renders visible busy state while a sidebar row action is pending', async () => {
-    const ui = await readUiSourceTree();
+    const ui = await readRenderedSessionHistorySource();
 
     assert.match(ui, /type SessionRowActionId = 'flag' \| 'archive' \| 'rename' \| 'delete';/);
     assert.match(ui, /onToggleFlag\(sessionId: string, next: boolean\): void \| Promise<void>;/);
