@@ -26,7 +26,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -44,10 +44,6 @@ const LITERAL_OK = /^(?:inherit|initial|unset|revert|0)$/;
 function extractLineHeightValue(decl: string): string {
   return decl.replace(/^line-height:\s*/i, '').replace(/;$/, '').trim();
 }
-
-/** Bare numeric line-height inside `font:` shorthand, e.g. `font: 12px/1.4 sans-serif`.
- *  Catches the shorthand bypass that `line-height:` scanning misses. */
-const FONT_SHORTHAND_LH_RE = /\bfont:\s*[^;}\n]*\d+(?:\.\d+)?(?:px|rem)\s*\/\s*\d+(?:\.\d+)?/gi;
 
 // --- CSS scanning -----------------------------------------------------------
 
@@ -79,11 +75,9 @@ function findCssOffenders(css: string, label: string): string[] {
     offenders.push(`${label}: ${raw}`);
   }
 
-  // Catch `font:` shorthand with bare numeric line-height — bypasses
-  // line-height scanning. Format: font: <size>/<line-height> <family>.
-  for (const m of stripped.matchAll(FONT_SHORTHAND_LH_RE)) {
-    offenders.push(`${label}: ${m[0].trim()} (bare line-height in font shorthand)`);
-  }
+  // Catch non-literal `font:` shorthand — shared helper bans any `font:` that
+  // isn't inherit/initial/unset/revert, covering line-height/weight/size bypass.
+  offenders.push(...findFontShorthandOffenders(stripped, label));
 
   return offenders;
 }
@@ -111,10 +105,10 @@ describe('PR-LEADING-CONVERGE-0 contract', () => {
 
   it('--leading-{none,tight,snug,normal} tokens are defined with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--leading-none:\s*1/, '--leading-none must be 1');
-    assert.match(tokens, /--leading-tight:\s*1\.25/, '--leading-tight must be 1.25');
-    assert.match(tokens, /--leading-snug:\s*1\.375/, '--leading-snug must be 1.375');
-    assert.match(tokens, /--leading-normal:\s*1\.5/, '--leading-normal must be 1.5');
+    assert.match(tokens, /--leading-none:\s*1\s*;/, '--leading-none must be 1');
+    assert.match(tokens, /--leading-tight:\s*1\.25\s*;/, '--leading-tight must be 1.25');
+    assert.match(tokens, /--leading-snug:\s*1\.375\s*;/, '--leading-snug must be 1.375');
+    assert.match(tokens, /--leading-normal:\s*1\.5\s*;/, '--leading-normal must be 1.5');
   });
 
   it('Tailwind --leading-* aliases map to var(--leading-*) in @theme inline', async () => {
@@ -150,12 +144,20 @@ describe('leading whitelist negative cases', () => {
     assert.ok(findCssOffenders('line-height: normal', 'test').length > 0, 'normal must fail (use --leading-normal)');
   });
 
-  it('rejects bare numeric line-height in font: shorthand', () => {
+  it('rejects non-literal font: shorthand (bare line-height, var() size, weight bypass)', () => {
     assert.ok(findCssOffenders('font: 12px/1.4 var(--font-sans)', 'test').length > 0, 'shorthand numeric line-height must fail');
+    assert.ok(findCssOffenders('font: var(--font-size-ui)/1.4 var(--font-sans)', 'test').length > 0, 'shorthand with var() size must fail (line-height bypass)');
+    assert.ok(findCssOffenders('font: 600 var(--font-size-ui) var(--font-sans)', 'test').length > 0, 'shorthand with bare weight must fail');
   });
 
   it('accepts font: inherit and font: initial', () => {
     assert.deepEqual(findCssOffenders('font: inherit', 'test'), []);
     assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
+  });
+
+  it('pin regex rejects drifted token values (no prefix matching)', () => {
+    assert.ok(!/--leading-none:\s*1\s*;/.test('--leading-none: 1.5;'), '1.5 must not satisfy 1');
+    assert.ok(!/--leading-normal:\s*1\.5\s*;/.test('--leading-normal: 1.55;'), '1.55 must not satisfy 1.5');
+    assert.ok(!/--leading-snug:\s*1\.375\s*;/.test('--leading-snug: 1.3;'), '1.3 must not satisfy 1.375');
   });
 });

@@ -27,7 +27,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -45,11 +45,6 @@ const LITERAL_OK = /^(?:inherit|initial|unset|revert)$/;
 function extractFontWeightValue(decl: string): string {
   return decl.replace(/^font-weight:\s*/i, '').replace(/;$/, '').trim();
 }
-
-/** Bare numeric or keyword weight inside `font:` shorthand, e.g.
- *  `font: 600 12px sans-serif` or `font: bold 12px sans-serif`. Catches the
- *  shorthand bypass that `font-weight:` scanning misses. */
-const FONT_SHORTHAND_WEIGHT_RE = /\bfont:\s*[^;}\n]*\b(\d{3}|normal|bold|lighter|bolder)\b\s+\d+(?:\.\d+)?(?:px|rem)/gi;
 
 // --- CSS scanning -----------------------------------------------------------
 
@@ -77,10 +72,9 @@ function findCssOffenders(css: string, label: string): string[] {
     offenders.push(`${label}: ${raw}`);
   }
 
-  // Catch `font:` shorthand with bare weight
-  for (const m of stripped.matchAll(FONT_SHORTHAND_WEIGHT_RE)) {
-    offenders.push(`${label}: ${m[0].trim()} (bare weight in font shorthand)`);
-  }
+  // Catch non-literal `font:` shorthand — shared helper bans any `font:` that
+  // isn't inherit/initial/unset/revert, covering weight/size/line-height bypass.
+  offenders.push(...findFontShorthandOffenders(stripped, label));
 
   return offenders;
 }
@@ -107,10 +101,10 @@ describe('PR-FONT-WEIGHT-CONVERGE-0 contract', () => {
 
   it('--font-weight-{normal,medium,semibold,bold} tokens are defined with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--font-weight-normal:\s*400/, '--font-weight-normal must be 400');
-    assert.match(tokens, /--font-weight-medium:\s*500/, '--font-weight-medium must be 500');
-    assert.match(tokens, /--font-weight-semibold:\s*600/, '--font-weight-semibold must be 600');
-    assert.match(tokens, /--font-weight-bold:\s*700/, '--font-weight-bold must be 700');
+    assert.match(tokens, /--font-weight-normal:\s*400\s*;/, '--font-weight-normal must be 400');
+    assert.match(tokens, /--font-weight-medium:\s*500\s*;/, '--font-weight-medium must be 500');
+    assert.match(tokens, /--font-weight-semibold:\s*600\s*;/, '--font-weight-semibold must be 600');
+    assert.match(tokens, /--font-weight-bold:\s*700\s*;/, '--font-weight-bold must be 700');
   });
 
   it('Tailwind --font-weight-* aliases map to var(--font-weight-*) in @theme inline', async () => {
@@ -146,8 +140,21 @@ describe('font-weight whitelist negative cases', () => {
     assert.ok(findCssOffenders('font-weight: lighter', 'test').length > 0, 'lighter must fail');
   });
 
-  it('rejects bare weight in font: shorthand', () => {
+  it('rejects non-literal font: shorthand (bare weight, var() size, line-height bypass)', () => {
     assert.ok(findCssOffenders('font: 600 12px sans-serif', 'test').length > 0, 'shorthand numeric weight must fail');
     assert.ok(findCssOffenders('font: bold 12px sans-serif', 'test').length > 0, 'shorthand bold must fail');
+    assert.ok(findCssOffenders('font: 600 var(--font-size-ui) var(--font-sans)', 'test').length > 0, 'shorthand with var() size must fail (weight bypass)');
+    assert.ok(findCssOffenders('font: var(--font-size-ui)/1.4 var(--font-sans)', 'test').length > 0, 'shorthand with bare line-height must fail');
+  });
+
+  it('accepts font: inherit and font: initial', () => {
+    assert.deepEqual(findCssOffenders('font: inherit', 'test'), []);
+    assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
+  });
+
+  it('pin regex rejects drifted token values (no prefix matching)', () => {
+    assert.ok(!/--font-weight-normal:\s*400\s*;/.test('--font-weight-normal: 4000;'), '4000 must not satisfy 400');
+    assert.ok(!/--font-weight-semibold:\s*600\s*;/.test('--font-weight-semibold: 650;'), '650 must not satisfy 600');
+    assert.ok(!/--font-weight-bold:\s*700\s*;/.test('--font-weight-bold: 70;'), '70 must not satisfy 700');
   });
 });

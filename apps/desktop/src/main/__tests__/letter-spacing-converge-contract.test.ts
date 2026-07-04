@@ -95,10 +95,10 @@ describe('PR-TRACKING-CONVERGE-0 contract', () => {
 
   it('--tracking-{normal,wide,wider,widest} tokens are defined with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--tracking-normal:\s*0/, '--tracking-normal must be 0');
-    assert.match(tokens, /--tracking-wide:\s*0\.025em/, '--tracking-wide must be 0.025em');
-    assert.match(tokens, /--tracking-wider:\s*0\.05em/, '--tracking-wider must be 0.05em');
-    assert.match(tokens, /--tracking-widest:\s*0\.1em/, '--tracking-widest must be 0.1em');
+    assert.match(tokens, /--tracking-normal:\s*0\s*;/, '--tracking-normal must be 0');
+    assert.match(tokens, /--tracking-wide:\s*0\.025em\s*;/, '--tracking-wide must be 0.025em');
+    assert.match(tokens, /--tracking-wider:\s*0\.05em\s*;/, '--tracking-wider must be 0.05em');
+    assert.match(tokens, /--tracking-widest:\s*0\.1em\s*;/, '--tracking-widest must be 0.1em');
   });
 
   it('Tailwind --tracking-* aliases map to var(--tracking-*) in @theme inline', async () => {
@@ -130,5 +130,11 @@ describe('tracking whitelist negative cases', () => {
     assert.ok(findCssOffenders('letter-spacing: 1px', 'test').length > 0, 'px must fail');
     assert.ok(findCssOffenders('letter-spacing: normal', 'test').length > 0, 'normal must fail (use --tracking-normal)');
     assert.ok(findCssOffenders('letter-spacing: -0.01em', 'test').length > 0, 'negative must fail (CJK ban, snap --tracking-normal)');
+  });
+
+  it('pin regex rejects drifted token values (no prefix matching)', () => {
+    assert.ok(!/--tracking-normal:\s*0\s*;/.test('--tracking-normal: 0.02em;'), '0.02em must not satisfy --tracking-normal: 0');
+    assert.ok(!/--tracking-wide:\s*0\.025em\s*;/.test('--tracking-wide: 0.3em;'), '0.3em must not satisfy --tracking-wide: 0.025em');
+    assert.ok(!/--tracking-wider:\s*0\.05em\s*;/.test('--tracking-wider: 0.5em;'), '0.5em must not satisfy --tracking-wider: 0.05em');
   });
 });
