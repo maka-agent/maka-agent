@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent } from 'react';
 import type {
   ConnectionEvent,
   PlanReminder,
@@ -38,14 +38,6 @@ type ToastApi = {
     action?: { label: string; onClick: () => void };
   }): void;
 };
-
-// Long-lived subscriptions below mount once; their callbacks read this ref so
-// AppShell handlers can change across renders without resubscribing.
-function useLatestRef<T>(value: T): RefBox<T> {
-  const ref = useRef(value);
-  ref.current = value;
-  return ref;
-}
 
 export function useAppShellRefSync(options: {
   activeId: string | undefined;
@@ -191,108 +183,117 @@ export function useAppShellBootstrapSubscriptions(options: {
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: ToastApi;
 }) {
-  const latestOptionsRef = useLatestRef(options);
+  const runDeferredStartupRefreshes = useEffectEvent(() => {
+    void options.refreshAppInfo();
+    void options.refreshMemoryActive('载入本地记忆状态失败');
+    void options.refreshSkills();
+    void options.refreshPlanReminders();
+    void options.applyVisualSmokeFixture();
+  });
+  const handleConnectionSubscriptionEvent = useEffectEvent((event: ConnectionEvent) => {
+    options.handleConnectionEvent(event);
+  });
+  const handleSessionChange = useEffectEvent((event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
+    void options.refreshSessions();
+    if (event.sessionId) {
+      options.setSessionEventHealthBySession((current) => {
+        const previous = current[event.sessionId!];
+        if (!previous) return current;
+        return {
+          ...current,
+          [event.sessionId!]: recordSessionEventStreamChange(previous, event.ts),
+        };
+      });
+    }
+    if (
+      event.sessionId &&
+      (event.reason === 'turn-status-change' || event.reason === 'message-appended' || event.reason === 'deleted')
+    ) {
+      options.clearPendingTurnActionsForSession(event.sessionId);
+    }
+    const changedSessionId = event.sessionId;
+    if (event.reason === 'message-appended' && changedSessionId && changedSessionId === options.activeIdRef.current) {
+      void options.refreshMessages(changedSessionId);
+    }
+    if (event.reason === 'rebound') {
+      const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
+      options.toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
+    }
+    if (event.reason === 'deleted' && event.sessionId && event.sessionId === options.activeIdRef.current) {
+      const deletedSessionId = event.sessionId;
+      options.setActiveId(undefined);
+      options.setMessages([]);
+      options.clearSessionRendererState(deletedSessionId);
+    }
+  });
+  const handleOpenSettings = useEffectEvent(() => {
+    options.openSettings();
+  });
+  const handlePlanChange = useEffectEvent(() => {
+    void options.refreshPlanReminders();
+  });
+  const openAutomations = useEffectEvent(() => {
+    options.setNavSelection({ section: 'automations' });
+  });
+  const handlePlanDue = useEffectEvent((reminder: PlanReminder) => {
+    void options.refreshPlanReminders();
+    options.toastApi.toast({
+      title: '计划提醒',
+      description: reminder.title,
+      variant: 'info',
+      duration: 8000,
+      action: {
+        label: '查看定时任务',
+        onClick: openAutomations,
+      },
+    });
+  });
+  const handleKeyDown = useEffectEvent((event: globalThis.KeyboardEvent) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === ',') {
+      event.preventDefault();
+      options.openSettings();
+    }
+  });
+  const markRendererMounted = useEffectEvent(() => {
+    options.rendererMountedRef.current = true;
+  });
+  const cleanupPendingRefs = useEffectEvent(() => {
+    options.rendererMountedRef.current = false;
+    options.projectPickerRequestRef.current += 1;
+    options.projectPickerPendingRef.current = false;
+    for (const timeoutHandle of options.pendingTurnActionTimersRef.current.values()) {
+      clearTimeout(timeoutHandle);
+    }
+    options.pendingTurnActionTimersRef.current.clear();
+    options.pendingTurnActionsRef.current.clear();
+    options.pendingPermissionModeChangesRef.current.clear();
+    options.pendingSessionModelChangesRef.current.clear();
+  });
 
   useEffect(() => {
-    const latest = latestOptionsRef.current;
     // Critical data: sessions + connections are seeded from the onboarding
     // snapshot (see AppShell useEffect above).  `refreshShellSettings` is
     // waited because it drives theme + locale before first paint settles.
     // Everything else is fire-and-forget on a rAF to keep the critical
     // render path as short as possible.
-    void latest.refreshShellSettings();
+    void options.refreshShellSettings();
     // Non-critical: defer to next frame so the first paint isn't blocked.
-    requestAnimationFrame(() => {
-      const latest = latestOptionsRef.current;
-      void latest.refreshAppInfo();
-      void latest.refreshMemoryActive('载入本地记忆状态失败');
-      void latest.refreshSkills();
-      void latest.refreshPlanReminders();
-      void latest.applyVisualSmokeFixture();
-    });
-    const unsubscribeConnections = window.maka.connections.subscribeEvents((event) => {
-      latestOptionsRef.current.handleConnectionEvent(event);
-    });
-    const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
-      const latest = latestOptionsRef.current;
-      void latest.refreshSessions();
-      if (event.sessionId) {
-        latest.setSessionEventHealthBySession((current) => {
-          const previous = current[event.sessionId!];
-          if (!previous) return current;
-          return {
-            ...current,
-            [event.sessionId!]: recordSessionEventStreamChange(previous, event.ts),
-          };
-        });
-      }
-      if (
-        event.sessionId &&
-        (event.reason === 'turn-status-change' || event.reason === 'message-appended' || event.reason === 'deleted')
-      ) {
-        latest.clearPendingTurnActionsForSession(event.sessionId);
-      }
-      const changedSessionId = event.sessionId;
-      if (event.reason === 'message-appended' && changedSessionId && changedSessionId === latest.activeIdRef.current) {
-        void latest.refreshMessages(changedSessionId);
-      }
-      if (event.reason === 'rebound') {
-        const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
-        latest.toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
-      }
-      if (event.reason === 'deleted' && event.sessionId && event.sessionId === latest.activeIdRef.current) {
-        const deletedSessionId = event.sessionId;
-        latest.setActiveId(undefined);
-        latest.setMessages([]);
-        latest.clearSessionRendererState(deletedSessionId);
-      }
-    });
-    const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(() => {
-      latestOptionsRef.current.openSettings();
-    });
-    const unsubscribePlanChanges = window.maka.plans.subscribeChanges(() => {
-      void latestOptionsRef.current.refreshPlanReminders();
-    });
-    const unsubscribePlanDue = window.maka.plans.subscribeDue((reminder: PlanReminder) => {
-      const latest = latestOptionsRef.current;
-      void latest.refreshPlanReminders();
-      latest.toastApi.toast({
-        title: '计划提醒',
-        description: reminder.title,
-        variant: 'info',
-        duration: 8000,
-        action: {
-          label: '查看定时任务',
-          onClick: () => latestOptionsRef.current.setNavSelection({ section: 'automations' }),
-        },
-      });
-    });
-    function onKeyDown(event: globalThis.KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key === ',') {
-        event.preventDefault();
-        latestOptionsRef.current.openSettings();
-      }
-    }
-    latest.rendererMountedRef.current = true;
-    window.addEventListener('keydown', onKeyDown);
+    requestAnimationFrame(runDeferredStartupRefreshes);
+    const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionSubscriptionEvent);
+    const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges(handleSessionChange);
+    const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(handleOpenSettings);
+    const unsubscribePlanChanges = window.maka.plans.subscribeChanges(handlePlanChange);
+    const unsubscribePlanDue = window.maka.plans.subscribeDue(handlePlanDue);
+    markRendererMounted();
+    window.addEventListener('keydown', handleKeyDown);
     return () => {
-      const latest = latestOptionsRef.current;
-      latest.rendererMountedRef.current = false;
-      latest.projectPickerRequestRef.current += 1;
-      latest.projectPickerPendingRef.current = false;
+      cleanupPendingRefs();
       unsubscribeConnections();
       unsubscribeSessionChanges();
       unsubscribeOpenSettings();
       unsubscribePlanChanges();
       unsubscribePlanDue();
-      for (const timeoutHandle of latest.pendingTurnActionTimersRef.current.values()) {
-        clearTimeout(timeoutHandle);
-      }
-      latest.pendingTurnActionTimersRef.current.clear();
-      latest.pendingTurnActionsRef.current.clear();
-      latest.pendingPermissionModeChangesRef.current.clear();
-      latest.pendingSessionModelChangesRef.current.clear();
-      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
 }
@@ -309,72 +310,77 @@ export function useActiveSessionEvents(options: {
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: Pick<ToastApi, 'error'>;
 }) {
-  const latestOptionsRef = useLatestRef(options);
   const activeId = options.activeId;
+  const applyReadMessages = useEffectEvent((
+    sessionId: string,
+    next: StoredMessage[],
+    isDisposed: () => boolean,
+  ) => {
+    if (!isDisposed() && options.activeIdRef.current === sessionId) {
+      options.markSessionReadLocally(sessionId, next);
+      options.setMessages(next);
+    }
+  });
+  const applyReadError = useEffectEvent((sessionId: string, error: unknown, isDisposed: () => boolean) => {
+    if (!isDisposed() && options.activeIdRef.current === sessionId) {
+      const message = messageReadErrorMessage(error);
+      options.setMessageLoadErrorBySession((current) => ({ ...current, [sessionId]: message }));
+      options.toastApi.error('读取对话失败', message);
+    }
+  });
+  const handleSessionEvent = useEffectEvent((sessionId: string, event: SessionEvent) => {
+    options.setSessionEventHealthBySession((current) => {
+      const previous = current[sessionId];
+      if (!previous) return current;
+      return { ...current, [sessionId]: recordSessionEventStreamEvent(previous, Date.now()) };
+    });
+    options.handleEvent(sessionId, event);
+  });
+  const markSessionEventStreamClosed = useEffectEvent((sessionId: string) => {
+    options.setSessionEventHealthBySession((current) => {
+      const previous = current[sessionId];
+      if (!previous) return current;
+      return {
+        ...current,
+        [sessionId]: {
+          ...previous,
+          status: 'closed',
+          checkedAt: Date.now(),
+          staleSince: undefined,
+        },
+      };
+    });
+  });
 
   useEffect(() => {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
-    const latest = latestOptionsRef.current;
-    const {
-      setMessageLoadErrorBySession,
-      setMessages,
-      setSessionEventHealthBySession,
-    } = latest;
-    setMessages([]);
-    setMessageLoadErrorBySession((current) => {
+    options.setMessages([]);
+    options.setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
       const next = { ...current };
       delete next[activeId];
       return next;
     });
-    setSessionEventHealthBySession((current) => ({
+    options.setSessionEventHealthBySession((current) => ({
       ...current,
       [activeId]: createSessionEventStreamSubscription({ sessionId: activeId, now: subscribedAt }),
     }));
     void window.maka.sessions.readMessages(activeId)
       .then((next) => {
-        const { activeIdRef, markSessionReadLocally, setMessages } = latestOptionsRef.current;
-        if (!disposed && activeIdRef.current === activeId) {
-          markSessionReadLocally(activeId, next);
-          setMessages(next);
-        }
+        applyReadMessages(activeId, next, () => disposed);
       })
       .catch((error) => {
-        const { activeIdRef, setMessageLoadErrorBySession, toastApi } = latestOptionsRef.current;
-        if (!disposed && activeIdRef.current === activeId) {
-          const message = messageReadErrorMessage(error);
-          setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
-          toastApi.error('读取对话失败', message);
-        }
+        applyReadError(activeId, error, () => disposed);
       });
     const unsubscribe = window.maka.sessions.subscribeEvents(activeId, (event) => {
-      const { handleEvent, setSessionEventHealthBySession } = latestOptionsRef.current;
-      setSessionEventHealthBySession((current) => {
-        const previous = current[activeId];
-        if (!previous) return current;
-        return { ...current, [activeId]: recordSessionEventStreamEvent(previous, Date.now()) };
-      });
-      handleEvent(activeId, event);
+      handleSessionEvent(activeId, event);
     });
     return () => {
       disposed = true;
       unsubscribe();
-      const { setSessionEventHealthBySession } = latestOptionsRef.current;
-      setSessionEventHealthBySession((current) => {
-        const previous = current[activeId];
-        if (!previous) return current;
-        return {
-          ...current,
-          [activeId]: {
-            ...previous,
-            status: 'closed',
-            checkedAt: Date.now(),
-            staleSince: undefined,
-          },
-        };
-      });
+      markSessionEventStreamClosed(activeId);
     };
   }, [activeId]);
 }

@@ -23,7 +23,8 @@ describe('active session message lifecycle contract', () => {
     ]);
     const ui = await readFile(join(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
     const activeSessionEffect = src.match(/useEffect\(\(\) => \{\s*if \(!activeId\) return;[\s\S]*?readMessages\(activeId\)[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
-    const activeReadCatch = activeSessionEffect.match(/readMessages\(activeId\)[\s\S]*?\.catch\(\(error\) => \{[\s\S]*?\n      \}\);/)?.[0] ?? '';
+    const activeReadSuccess = src.match(/const applyReadMessages = useEffectEvent\([\s\S]*?const applyReadError = useEffectEvent/)?.[0] ?? '';
+    const activeReadCatch = src.match(/const applyReadError = useEffectEvent[\s\S]*?const handleSessionEvent = useEffectEvent/)?.[0] ?? '';
     const refreshMessages = src.match(/async function refreshMessages\(sessionId: string\)(?:: Promise<boolean>)? \{[\s\S]*?\n  \}/)?.[0] ?? '';
     const retryMessages = src.match(/async function retryMessages\(sessionId: string\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
@@ -33,9 +34,14 @@ describe('active session message lifecycle contract', () => {
       'selecting a new active session must clear the old chat body before async message read resolves',
     );
     assert.match(
-      activeSessionEffect,
-      /if \(!disposed && activeIdRef\.current === activeId\) \{[\s\S]*markSessionReadLocally\(activeId, next\);[\s\S]*setMessages\(next\);[\s\S]*\}/,
+      activeReadSuccess,
+      /if \(!isDisposed\(\) && options\.activeIdRef\.current === sessionId\) \{[\s\S]*options\.markSessionReadLocally\(sessionId, next\);[\s\S]*options\.setMessages\(next\);[\s\S]*\}/,
       'late active-session reads may set messages only while the same session is still active',
+    );
+    assert.match(
+      activeSessionEffect,
+      /applyReadMessages\(activeId, next, \(\) => disposed\)/,
+      'active-session reads must pass the current disposed guard into the late-read effect event',
     );
     assert.match(
       activeReadCatch,
@@ -44,7 +50,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadCatch,
-      /\.catch\(\(error\) => \{[\s\S]*const message = messageReadErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[activeId\]: message \}\)\);[\s\S]*toastApi\.error\('读取对话失败', message\)/,
+      /const message = messageReadErrorMessage\(error\);[\s\S]*options\.setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*options\.toastApi\.error\('读取对话失败', message\)/,
       'active-session read failures must set a visible per-session load error after the old chat body has already been cleared',
     );
     assert.doesNotMatch(activeReadCatch, /const message = cleanErrorMessage\(error\)/);

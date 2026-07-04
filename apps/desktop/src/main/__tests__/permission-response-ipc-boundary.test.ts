@@ -260,7 +260,7 @@ describe('permission response IPC boundary', () => {
     // doesn't rot when the implementation tweaks the guard shape.
     assert.match(
       renderer,
-      /event\.reason === 'message-appended'[\s\S]{0,120}?(?:event\.sessionId|changedSessionId) === (?:latest\.)?activeIdRef\.current[\s\S]*?(?:latest\.)?refreshMessages\((?:event\.sessionId|changedSessionId)\)/,
+      /event\.reason === 'message-appended'[\s\S]{0,160}?(?:event\.sessionId|changedSessionId) === (?:options\.|latest\.)?activeIdRef\.current[\s\S]*?(?:options\.|latest\.)?refreshMessages\((?:event\.sessionId|changedSessionId)\)/,
     );
   });
 

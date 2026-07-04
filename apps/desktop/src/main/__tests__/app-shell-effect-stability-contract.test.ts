@@ -1,94 +1,371 @@
 import { strict as assert } from 'node:assert';
-import { describe, it } from 'node:test';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { afterEach, describe, it } from 'node:test';
+import type { ConnectionEvent, SessionEvent, StoredMessage } from '@maka/core';
+import { build } from 'esbuild';
+import { act, createElement, type ReactElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import type * as AppShellEffects from '../../renderer/app-shell-effects.js';
 import { readRendererShellSource } from './renderer-shell-source-helpers.js';
 
+const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
+
+type RefBox<T> = { current: T };
+type RendererWindow = Window & typeof globalThis & { maka: RendererMakaStub };
+type AppShellEffectsModule = Pick<
+  typeof AppShellEffects,
+  'useActiveSessionEvents' | 'useAppShellBootstrapSubscriptions'
+>;
+type CapturedSubscriptions = {
+  activeSessionEvent?: (event: SessionEvent) => void;
+  activeSessionSubscribeCount: number;
+  connectionEvent?: (event: ConnectionEvent) => void;
+  connectionSubscribeCount: number;
+};
+type RendererMakaStub = {
+  appWindow: {
+    subscribeOpenSettings(callback: () => void): () => void;
+  };
+  connections: {
+    subscribeEvents(callback: (event: ConnectionEvent) => void): () => void;
+  };
+  plans: {
+    subscribeChanges(callback: () => void): () => void;
+    subscribeDue(callback: (reminder: never) => void): () => void;
+  };
+  sessions: {
+    readMessages(sessionId: string): Promise<StoredMessage[]>;
+    subscribeChanges(callback: (event: { reason: string; sessionId?: string; ts: number }) => void): () => void;
+    subscribeEvents(sessionId: string, callback: (event: SessionEvent) => void): () => void;
+  };
+};
+
+const cleanupTasks: Array<() => void> = [];
+
+afterEach(() => {
+  while (cleanupTasks.length > 0) {
+    cleanupTasks.pop()?.();
+  }
+});
+
 describe('AppShell effect stability contract', () => {
-  it('keeps long-lived subscriptions on latest options instead of render-time callback closures', async () => {
+  it('keeps bootstrap subscriptions stable while invoking the latest connection handler', async () => {
+    const effects = await importAppShellEffects();
+    const refs = createBootstrapRefs();
+    const captured: CapturedSubscriptions = {
+      activeSessionSubscribeCount: 0,
+      connectionSubscribeCount: 0,
+    };
+    const root = installReactRenderer(captured);
+    const calls: string[] = [];
+    const event = { provider: 'sentinel' } as unknown as ConnectionEvent;
+
+    await render(root, createElement(BootstrapSubscriptionProbe, {
+      effects,
+      onConnectionEvent: () => calls.push('first'),
+      refs,
+    }));
+    assert.equal(captured.connectionSubscribeCount, 1);
+
+    await render(root, createElement(BootstrapSubscriptionProbe, {
+      effects,
+      onConnectionEvent: () => calls.push('second'),
+      refs,
+    }));
+    assert.equal(captured.connectionSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
+
+    await act(async () => {
+      captured.connectionEvent?.(event);
+    });
+
+    assert.deepEqual(calls, ['second']);
+  });
+
+  it('keeps active-session subscriptions stable while invoking the latest event handler', async () => {
+    const effects = await importAppShellEffects();
+    const captured: CapturedSubscriptions = {
+      activeSessionSubscribeCount: 0,
+      connectionSubscribeCount: 0,
+    };
+    const root = installReactRenderer(captured);
+    const refs = { activeIdRef: { current: 'session-1' } };
+    const calls: string[] = [];
+    const event = { type: 'sentinel' } as unknown as SessionEvent;
+
+    await render(root, createElement(ActiveSessionEventProbe, {
+      effects,
+      onSessionEvent: () => calls.push('first'),
+      refs,
+    }));
+    assert.equal(captured.activeSessionSubscribeCount, 1);
+
+    await render(root, createElement(ActiveSessionEventProbe, {
+      effects,
+      onSessionEvent: () => calls.push('second'),
+      refs,
+    }));
+    assert.equal(captured.activeSessionSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
+
+    await act(async () => {
+      captured.activeSessionEvent?.(event);
+    });
+
+    assert.deepEqual(calls, ['second']);
+  });
+
+  it('uses React effect events instead of a local latest-ref helper', async () => {
     const src = await readRendererShellSource('app-shell-effects.ts');
-    const bootstrapHook = extractFunction(src, 'useAppShellBootstrapSubscriptions');
-    const activeSessionHook = extractFunction(src, 'useActiveSessionEvents');
 
-    assert.match(
-      src,
-      /function useLatestRef<T>\(value: T\): RefBox<T> \{/,
-      'AppShell effect hooks need a single latest-ref helper for long-lived subscriptions',
-    );
-
-    assert.match(
-      bootstrapHook,
-      /const latestOptionsRef = useLatestRef\(options\);/,
-      'bootstrap subscriptions must read callbacks through a latest options ref',
-    );
-    assert.doesNotMatch(
-      bootstrapHook,
-      /const\s*\{[\s\S]*\}\s*=\s*options;/,
-      'bootstrap subscriptions must not close over a hook-scope options destructure',
-    );
-    assert.match(
-      extractUseEffect(bootstrapHook, '[]'),
-      /latestOptionsRef\.current/,
-      'the one-shot bootstrap effect must dereference latest options inside the mounted subscription boundary',
-    );
-
-    assert.match(
-      activeSessionHook,
-      /const latestOptionsRef = useLatestRef\(options\);/,
-      'active-session subscriptions must read callbacks through a latest options ref',
-    );
-    assert.doesNotMatch(
-      activeSessionHook,
-      /const\s*\{[\s\S]*\b(?:handleEvent|markSessionReadLocally|setMessages|setMessageLoadErrorBySession|setSessionEventHealthBySession|toastApi)\b[\s\S]*\}\s*=\s*options;/,
-      'active-session event effects may depend on activeId, but callbacks and setters must stay behind the latest options ref',
-    );
-    assert.match(
-      extractUseEffect(activeSessionHook, '[activeId]'),
-      /latestOptionsRef\.current/,
-      'the active-session effect must resubscribe by activeId while reading current callbacks from latest options',
-    );
+    assert.match(src, /\buseEffectEvent\(/);
+    assert.doesNotMatch(src, /\buseLatestRef\b|\blatestOptionsRef\b/);
   });
 });
 
-function extractFunction(src: string, functionName: string): string {
-  const signatureIndex = src.indexOf(`function ${functionName}`);
-  assert.notEqual(signatureIndex, -1, `${functionName} must exist`);
-  const paramsStart = src.indexOf('(', signatureIndex);
-  assert.notEqual(paramsStart, -1, `${functionName} must have params`);
-  const paramsEnd = findMatchingPair(src, paramsStart, '(', ')');
-  const bodyStart = src.indexOf('{', paramsEnd);
-  assert.notEqual(bodyStart, -1, `${functionName} must have a body`);
-  const bodyEnd = findMatchingBrace(src, bodyStart);
-  return src.slice(signatureIndex, bodyEnd + 1);
+function BootstrapSubscriptionProbe(props: {
+  effects: AppShellEffectsModule;
+  onConnectionEvent(event: ConnectionEvent): void;
+  refs: ReturnType<typeof createBootstrapRefs>;
+}) {
+  props.effects.useAppShellBootstrapSubscriptions({
+    activeIdRef: props.refs.activeIdRef,
+    applyVisualSmokeFixture: async () => {},
+    bootstrapSessions: async () => {},
+    clearPendingTurnActionsForSession: () => {},
+    clearSessionRendererState: () => {},
+    handleConnectionEvent: props.onConnectionEvent,
+    openSettings: () => {},
+    pendingPermissionModeChangesRef: props.refs.pendingPermissionModeChangesRef,
+    pendingSessionModelChangesRef: props.refs.pendingSessionModelChangesRef,
+    pendingTurnActionTimersRef: props.refs.pendingTurnActionTimersRef,
+    pendingTurnActionsRef: props.refs.pendingTurnActionsRef,
+    projectPickerPendingRef: props.refs.projectPickerPendingRef,
+    projectPickerRequestRef: props.refs.projectPickerRequestRef,
+    refreshAppInfo: async () => {},
+    refreshConnections: async () => {},
+    refreshMemoryActive: async () => {},
+    refreshMessages: async () => true,
+    refreshPlanReminders: async () => {},
+    refreshShellSettings: async () => {},
+    refreshSkills: async () => {},
+    refreshSessions: async () => [],
+    rendererMountedRef: props.refs.rendererMountedRef,
+    setActiveId: () => {},
+    setMessages: () => {},
+    setNavSelection: () => {},
+    setSessionEventHealthBySession: () => {},
+    toastApi: {
+      error: () => {},
+      info: () => {},
+      toast: () => {},
+    },
+  });
+  return null;
 }
 
-function extractUseEffect(src: string, deps: string): string {
-  const marker = 'useEffect(() => {';
-  let searchFrom = 0;
-  while (true) {
-    const effectIndex = src.indexOf(marker, searchFrom);
-    assert.notEqual(effectIndex, -1, `expected a useEffect with deps ${deps}`);
-    const bodyStart = src.indexOf('{', effectIndex);
-    const bodyEnd = findMatchingBrace(src, bodyStart);
-    const afterBody = src.slice(bodyEnd, src.indexOf(');', bodyEnd) + 2);
-    if (afterBody.includes(`}, ${deps});`)) {
-      return src.slice(effectIndex, bodyEnd + 1);
-    }
-    searchFrom = bodyEnd + 1;
+function ActiveSessionEventProbe(props: {
+  effects: AppShellEffectsModule;
+  onSessionEvent(sessionId: string, event: SessionEvent): void;
+  refs: { activeIdRef: RefBox<string | undefined> };
+}) {
+  props.effects.useActiveSessionEvents({
+    activeId: 'session-1',
+    activeIdRef: props.refs.activeIdRef,
+    handleEvent: props.onSessionEvent,
+    markSessionReadLocally: () => {},
+    setMessageLoadErrorBySession: () => {},
+    setMessages: () => {},
+    setSessionEventHealthBySession: () => {},
+    toastApi: {
+      error: () => {},
+    },
+  });
+  return null;
+}
+
+async function importAppShellEffects(): Promise<AppShellEffectsModule> {
+  const outdir = await mkdtemp(resolve(REPO_ROOT, 'apps/desktop/dist/main/__tests__/app-shell-effects-'));
+  const outfile = resolve(outdir, 'app-shell-effects.mjs');
+  await mkdir(dirname(outfile), { recursive: true });
+  await build({
+    entryPoints: [resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell-effects.ts')],
+    outfile,
+    bundle: true,
+    external: ['react'],
+    platform: 'node',
+    format: 'esm',
+    target: 'node20',
+    logLevel: 'silent',
+  });
+  return await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as AppShellEffectsModule;
+}
+
+function createBootstrapRefs() {
+  return {
+    activeIdRef: { current: 'session-1' as string | undefined },
+    pendingPermissionModeChangesRef: { current: new Set<string>() },
+    pendingSessionModelChangesRef: { current: new Set<string>() },
+    pendingTurnActionTimersRef: { current: new Map<string, ReturnType<typeof setTimeout>>() },
+    pendingTurnActionsRef: { current: new Set<string>() },
+    projectPickerPendingRef: { current: false },
+    projectPickerRequestRef: { current: 0 },
+    rendererMountedRef: { current: false },
+  };
+}
+
+function installReactRenderer(captured: CapturedSubscriptions): Root {
+  installFakeDom();
+  installFakeMaka(captured);
+  const container = new FakeElement('div', document);
+  const root = createRoot(container as unknown as Element);
+  cleanupTasks.push(() => {
+    act(() => {
+      root.unmount();
+    });
+  });
+  return root;
+}
+
+async function render(root: Root, element: ReactElement): Promise<void> {
+  await act(async () => {
+    root.render(element);
+  });
+}
+
+function installFakeMaka(captured: CapturedSubscriptions): void {
+  window.maka = {
+    appWindow: {
+      subscribeOpenSettings: () => noop,
+    },
+    connections: {
+      subscribeEvents(callback: (event: ConnectionEvent) => void) {
+        captured.connectionSubscribeCount += 1;
+        captured.connectionEvent = callback;
+        return noop;
+      },
+    },
+    plans: {
+      subscribeChanges: () => noop,
+      subscribeDue: () => noop,
+    },
+    sessions: {
+      readMessages: async () => [],
+      subscribeChanges: () => noop,
+      subscribeEvents(_sessionId: string, callback: (event: SessionEvent) => void) {
+        captured.activeSessionSubscribeCount += 1;
+        captured.activeSessionEvent = callback;
+        return noop;
+      },
+    },
+  } as unknown as RendererWindow['maka'];
+}
+
+function installFakeDom(): void {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  const previousActEnvironment = (globalThis as typeof globalThis & {
+    IS_REACT_ACT_ENVIRONMENT?: boolean;
+  }).IS_REACT_ACT_ENVIRONMENT;
+  const fakeDocument = createFakeDocument();
+  const fakeWindow = {
+    document: fakeDocument,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    HTMLElement: class HTMLElement {},
+    HTMLIFrameElement: class HTMLIFrameElement {},
+  } as unknown as RendererWindow;
+  Object.defineProperty(fakeDocument, 'defaultView', { value: fakeWindow });
+  globalThis.document = fakeDocument;
+  globalThis.window = fakeWindow;
+  globalThis.requestAnimationFrame = (callback) => {
+    callback(0);
+    return 0;
+  };
+  (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  cleanupTasks.push(() => {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+    globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
+      previousActEnvironment;
+  });
+}
+
+function createFakeDocument(): Document {
+  const fakeDocument = {
+    nodeType: 9,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    createElement(tagName: string) {
+      return new FakeElement(tagName, fakeDocument as unknown as Document);
+    },
+    createElementNS(_namespace: string, tagName: string) {
+      return new FakeElement(tagName, fakeDocument as unknown as Document);
+    },
+    createTextNode(text: string) {
+      return new FakeText(text, fakeDocument as unknown as Document);
+    },
+  };
+  Object.defineProperty(fakeDocument, 'documentElement', {
+    value: new FakeElement('html', fakeDocument as unknown as Document),
+  });
+  return fakeDocument as unknown as Document;
+}
+
+class FakeElement {
+  readonly childNodes: Array<FakeElement | FakeText> = [];
+  readonly namespaceURI = 'http://www.w3.org/1999/xhtml';
+  readonly nodeName: string;
+  readonly nodeType = 1;
+  readonly tagName: string;
+  parentNode: FakeElement | null = null;
+  textContent = '';
+
+  constructor(tagName: string, readonly ownerDocument: Document) {
+    this.tagName = tagName.toUpperCase();
+    this.nodeName = this.tagName;
   }
-}
 
-function findMatchingBrace(src: string, openIndex: number): number {
-  return findMatchingPair(src, openIndex, '{', '}');
-}
+  addEventListener(): void {}
 
-function findMatchingPair(src: string, openIndex: number, open: string, close: string): number {
-  let depth = 0;
-  for (let index = openIndex; index < src.length; index += 1) {
-    const char = src[index];
-    if (char === open) depth += 1;
-    if (char === close) {
-      depth -= 1;
-      if (depth === 0) return index;
-    }
+  appendChild<T extends FakeElement | FakeText>(node: T): T {
+    this.childNodes.push(node);
+    node.parentNode = this;
+    return node;
   }
-  assert.fail(`missing matching ${close}`);
+
+  insertBefore<T extends FakeElement | FakeText>(node: T, before: FakeElement | FakeText | null): T {
+    const index = before ? this.childNodes.indexOf(before) : -1;
+    if (index < 0) return this.appendChild(node);
+    this.childNodes.splice(index, 0, node);
+    node.parentNode = this;
+    return node;
+  }
+
+  removeAttribute(): void {}
+
+  removeChild<T extends FakeElement | FakeText>(node: T): T {
+    const index = this.childNodes.indexOf(node);
+    if (index >= 0) {
+      this.childNodes.splice(index, 1);
+    }
+    node.parentNode = null;
+    return node;
+  }
+
+  removeEventListener(): void {}
+
+  setAttribute(): void {}
 }
+
+class FakeText {
+  readonly nodeName = '#text';
+  readonly nodeType = 3;
+  parentNode: FakeElement | null = null;
+
+  constructor(readonly nodeValue: string, readonly ownerDocument: Document) {}
+}
+
+function noop(): void {}

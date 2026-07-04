@@ -15,7 +15,7 @@ describe('renderer startup fail-soft contract', () => {
     const refreshMemoryActive = main.match(/async function refreshMemoryActive[\s\S]*?\n  \}/)?.[0] ?? '';
     const refreshShellSettings = main.match(/async function refreshShellSettings\(\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(mountEffect, /void (?:latest\.)?refreshAppInfo\(\)/);
+    assert.match(mountEffect, /void (?:options\.|latest\.)?refreshAppInfo\(\)/);
     assert.match(
       refreshAppInfo,
       /try \{[\s\S]*window\.maka\.app\.info\(\)[\s\S]*setAppInfo\(\{ projectPath: next\.projectPath, projectGit: next\.projectGit \}\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('读取项目路径失败', generalizedErrorMessageChinese\(error, '项目路径暂时无法读取，请稍后重试。'\)\)/,
@@ -27,7 +27,7 @@ describe('renderer startup fail-soft contract', () => {
       /setAppInfo\(null\)/,
       'app-info refresh failure must not silently hide the existing project badge',
     );
-    assert.match(mountEffect, /void (?:latest\.)?refreshMemoryActive\('载入本地记忆状态失败'\)/);
+    assert.match(mountEffect, /void (?:options\.|latest\.)?refreshMemoryActive\('载入本地记忆状态失败'\)/);
     assert.match(
       refreshMemoryActive,
       /try \{[\s\S]*window\.maka\.memory\.getState\(\)[\s\S]*setMemoryActive\(next\.agentReadEnabled && next\.status === 'ok' && next\.content\.trim\(\)\.length > 0\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\(failureTitle, generalizedErrorMessageChinese\(error, '本地记忆状态暂时无法刷新，请稍后重试。'\)\)/,
@@ -39,7 +39,7 @@ describe('renderer startup fail-soft contract', () => {
       /catch\(\(\) => setMemoryActive\(false\)\)|catch \(error\) \{[\s\S]*setMemoryActive\(false\)/,
       'memory-active refresh failures must not silently hide the existing memory pill',
     );
-    assert.match(mountEffect, /void (?:latest\.)?refreshShellSettings\(\)/);
+    assert.match(mountEffect, /void (?:options\.|latest\.)?refreshShellSettings\(\)/);
     assert.match(
       refreshShellSettings,
       /try \{[\s\S]*window\.maka\.settings\.get\(\)[\s\S]*applyUiLocale\(uiLocale\)[\s\S]*applyTheme\(pref\)[\s\S]*applyThemePalette\(palette\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('载入外观设置失败', generalizedErrorMessageChinese\(error, '外观设置暂时无法载入，请稍后重试。'\)\)/,
