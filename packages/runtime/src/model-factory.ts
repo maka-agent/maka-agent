@@ -25,16 +25,14 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
   switch (connection.providerType) {
     case 'anthropic':
+    case 'kimi-coding-plan':
+      // Both send through the Anthropic SDK, normalizing the base URL to /v1
+      // (anthropicV1BaseUrl) so a baseUrl override omitting `/v1` sends to
+      // `<root>/v1/messages` instead of 404ing on `<root>/messages`, matching
+      // the probe/model-fetch paths.
       return createAnthropic({
         apiKey,
         baseURL: anthropicV1BaseUrl(baseURL),
-        headers: { 'anthropic-beta': ANTHROPIC_BETA },
-      }).chat(modelId);
-
-    case 'kimi-coding-plan':
-      return createAnthropic({
-        apiKey,
-        baseURL,
         headers: { 'anthropic-beta': ANTHROPIC_BETA },
       }).chat(modelId);
 

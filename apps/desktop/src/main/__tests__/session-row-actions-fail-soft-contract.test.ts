@@ -44,17 +44,11 @@ describe('session row actions fail soft', () => {
     assert.match(cleanupBlock, /clearPendingTurnActionsForSession\(sessionId\);/);
     assert.match(cleanupBlock, /pendingPermissionModeChangesRef\.current\.delete\(sessionId\);/);
     assert.match(cleanupBlock, /pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
-    assert.match(cleanupBlock, /setMessageRetryPendingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setStopPendingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setPendingPermissionModeBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setPendingSessionModelBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setMessageLoadErrorBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setStreamingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setThinkingBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setThinkingTruncatedBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setLiveToolsBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setPermissionBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
-    assert.match(cleanupBlock, /setSessionEventHealthBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
+    assert.match(
+      cleanupBlock,
+      /clearSessionUiState\(sessionId\);/,
+      'archive/delete cleanup must use the centralized per-session UI state cleanup',
+    );
 
     assert.match(
       main,

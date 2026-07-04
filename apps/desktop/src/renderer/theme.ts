@@ -29,6 +29,11 @@ export function applyTheme(pref: ThemePreference): () => void {
   // pre-React paint reapplies the auto → system-matchMedia branch itself.
   safeLocalStorageSet('maka-theme-v1', pref);
 
+  // Also syncs Electron's own native chrome (nativeTheme.themeSource) --
+  // see toNativeThemeSource() in main-window.ts for why this DOM-only flip
+  // isn't enough on its own.
+  void window.maka.appWindow.setThemeSource(pref).catch(() => {});
+
   if (pref === 'auto') {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     setDarkClass(mq.matches);
@@ -62,6 +67,12 @@ function setDarkClass(isDark: boolean): void {
   // Lets native form controls and scrollbars pick up the right base colors per
   // the Vercel Web Interface Guidelines dark-mode rule.
   root.style.colorScheme = isDark ? 'dark' : 'light';
+  // PR-WINDOW-TITLEBAR-0: keep the native Windows titleBarOverlay color in
+  // sync with the resolved theme. The IPC handler is a no-op on non-Windows,
+  // and `window.maka` is only defined in the Electron renderer, so guard for
+  // both. Swallowed errors (window torn down mid-toggle, etc.) never block
+  // the in-app `.dark` toggle above.
+  void window.maka?.appWindow?.setTitleBarOverlayTheme?.(isDark).catch(() => {});
 }
 
 /**

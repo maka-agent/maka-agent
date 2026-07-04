@@ -179,6 +179,14 @@ import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 
+// Electron does not enforce single-instance by default. Must run before any
+// workspace/store setup below -- a losing second process exits immediately,
+// before touching shared state. See the 'second-instance' listener below for
+// what the surviving process does about it.
+if (!app.requestSingleInstanceLock()) {
+  app.exit(0);
+}
+
 const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 
 // PR-VISUAL-SMOKE-HEADLESS: resolve the fixture defensively. An unknown
@@ -309,6 +317,17 @@ const mainWindowController = createMainWindowController({
   visualSmokeFixture,
   settingsStore,
 });
+// Shared by 'second-instance' and 'activate': focus the existing window, or
+// create one if all windows were closed while the app (macOS: still in the
+// dock) stayed running -- a second launch attempt must not be a silent no-op.
+function focusOrCreateMainWindow(): void {
+  if (mainWindowController.hasOpenWindows()) {
+    mainWindowController.focus();
+  } else {
+    void mainWindowController.createWindow();
+  }
+}
+app.on('second-instance', focusOrCreateMainWindow);
 const safeSendToRenderer = mainWindowController.send;
 const openGateway = new OpenGatewayService({
   getSettings: () => settingsStore.get(),
@@ -778,6 +797,15 @@ function registerIpc(): void {
 
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
+  });
+  ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
+    mainWindowController.setThemeSource(event.sender, themePref);
+  });
+  // PR-WINDOW-TITLEBAR-0: re-sync the native titleBarOverlay color when the
+  // renderer resolves a new light/dark theme (user toggle or `auto` following
+  // the system). No-op outside Windows.
+  ipcMain.handle('window:setTitleBarOverlayTheme', (event, isDark: unknown): void => {
+    mainWindowController.setTitleBarOverlayTheme(event.sender, isDark);
   });
   ipcMain.handle('app:info', async () => {
     const projectPath = await currentProjectRoot();
@@ -1747,6 +1775,4 @@ app.on('before-quit', () => {
   void mainWindowController.disposeBrowserViews();
 });
 
-app.on('activate', () => {
-  if (!mainWindowController.hasOpenWindows()) void mainWindowController.createWindow();
-});
+app.on('activate', focusOrCreateMainWindow);
