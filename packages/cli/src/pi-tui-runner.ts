@@ -73,6 +73,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     resolveClosed();
   };
 
+  const respondToPendingPermission = (decision: 'allow' | 'deny'): boolean => {
+    const request = state.pendingPermission;
+    if (!request) return false;
+    state.pendingPermission = undefined;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Permission ${decision}ed for ${request.toolName}`,
+    });
+    requestRender();
+    void input.driver.respondToPermission({
+      requestId: request.requestId,
+      decision,
+      ...(decision === 'allow' ? { rememberForTurn: true } : {}),
+    }).catch((error) => {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: error instanceof Error ? error.message : String(error),
+      });
+      requestRender();
+    });
+    return true;
+  };
+
   editor.onSubmit = (prompt) => {
     if (busy || !prompt.trim()) {
       requestRender();
@@ -98,6 +123,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   tui.addInputListener((data) => {
+    if (state.pendingPermission) {
+      if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
+        respondToPendingPermission('allow');
+        return { consume: true };
+      }
+      if (matchesKey(data, 'n') || matchesKey(data, Key.escape)) {
+        respondToPendingPermission('deny');
+        return { consume: true };
+      }
+    }
     if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.escape)) {
       void close();
       return { consume: true };
