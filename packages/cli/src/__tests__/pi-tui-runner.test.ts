@@ -235,7 +235,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('lists sessions for /session without an id', async () => {
+  test('selects a session from /session', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -251,10 +251,12 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Recent sessions'));
     await waitFor(() => terminal.output().includes('session-2'));
+    terminal.input('\r');
+    await waitFor(() => driver.sessionIds.length === 1);
+    await waitFor(() => terminal.output().includes('Session: session-2'));
 
-    assert.deepEqual(driver.sessionIds, []);
+    assert.deepEqual(driver.sessionIds, ['session-2']);
     assert.deepEqual(driver.prompts, []);
 
     terminal.input('\x03');

@@ -3,10 +3,13 @@ import {
   Editor,
   Key,
   ProcessTerminal,
+  SelectList,
   TUI,
   matchesKey,
   type Component,
   type EditorTheme,
+  type OverlayHandle,
+  type SelectItem,
   type SelectListTheme,
   type Terminal,
 } from '@earendil-works/pi-tui';
@@ -154,16 +157,46 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const items = sessions.slice(0, 10).map((session) => {
-      const marker = session.cwd === input.cwd ? '*' : ' ';
-      return `${marker} ${session.id} ${session.name} ${session.model}`;
+    if (sessions.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: 'No sessions found.',
+      });
+      requestRender();
+      return;
+    }
+
+    const items: SelectItem[] = sessions.slice(0, 10).map((session) => ({
+      value: session.id,
+      label: `${session.cwd === input.cwd ? '* ' : ''}${session.id}`,
+      description: `${session.name} ${session.model}`,
+    }));
+    const list = new SelectList(items, 10, selectListTheme(), {
+      minPrimaryColumnWidth: 24,
+      maxPrimaryColumnWidth: 40,
     });
-    state.entries.push({
-      kind: 'notice',
-      level: 'info',
-      text: ['Recent sessions:', ...(items.length > 0 ? items : ['No sessions found.'])].join('\n'),
+    let overlay: OverlayHandle | undefined;
+    list.onSelect = (item) => {
+      overlay?.hide();
+      void switchSession(item.value).catch((error) => {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+        requestRender();
+      });
+    };
+    list.onCancel = () => {
+      overlay?.hide();
+    };
+    overlay = tui.showOverlay(list, {
+      anchor: 'bottom-center',
+      width: '80%',
+      maxHeight: 10,
+      offsetY: -3,
     });
-    requestRender();
   };
 
   const setPermissionMode = async (mode: PermissionMode) => {
@@ -255,6 +288,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   tui.addInputListener((data) => {
+    if (tui.hasOverlay()) return undefined;
     if (matchesKey(data, Key.ctrl('o'))) {
       if (toggleLatestToolExpansion(state)) {
         requestRender();
