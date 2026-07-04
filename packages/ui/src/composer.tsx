@@ -30,7 +30,7 @@ import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 interface PermissionModeMeta {
   label: string;
   hint: string;
-  tone: 'info' | 'accent' | 'caution';
+  tone: 'info' | 'accent' | 'destructive';
 }
 
 /**
@@ -62,12 +62,12 @@ const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
   execute: {
     label: '自动执行',
     hint: '常见工具直通，破坏性操作、特权操作和浏览器操作仍会停下来确认。',
-    tone: 'caution',
+    tone: 'info',
   },
   bypass: {
     label: '跳过确认',
     hint: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。只在完全信任本轮任务时使用。',
-    tone: 'caution',
+    tone: 'destructive',
   },
 };
 
