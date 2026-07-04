@@ -75,6 +75,10 @@ const ALLOW = new Map([
     'Harbor CLI subcommand prints usage and command failures to stderr by design.',
   ],
   [
+    'apps/desktop/src/main/config-file-watcher.ts',
+    'watcher startup failure is a main-process diagnostic; non-fatal, no secrets.',
+  ],
+  [
     'scripts/check-console.mjs',
     'this script — explicit allow.',
   ],

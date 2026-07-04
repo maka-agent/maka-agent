@@ -587,6 +587,11 @@ contextBridge.exposeInMainWorld('maka', {
     update(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult> {
       return ipcRenderer.invoke('settings:update', patch);
     },
+    subscribeExternalChanged(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on('settings:externalChanged', listener);
+      return () => ipcRenderer.off('settings:externalChanged', listener);
+    },
     testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult> {
       return ipcRenderer.invoke('settings:testNetworkProxy', input);
     },

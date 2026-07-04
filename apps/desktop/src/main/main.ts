@@ -2,6 +2,7 @@ import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
   generalizedErrorMessage,
@@ -215,6 +216,7 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
+let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
@@ -1761,6 +1763,10 @@ async function runBackgroundStartup(): Promise<void> {
   await openGateway.sync(settings.openGateway);
   await planReminders.refreshTimers();
   dailyReview.startScheduler();
+  configWatcher = startConfigFileWatcher(workspaceRoot, {
+    onConnectionsChanged: () => emitConnectionListChanged(),
+    onSettingsChanged: () => safeSendToRenderer('settings:externalChanged', { ts: Date.now() }),
+  });
 }
 
 app.on('window-all-closed', () => {
@@ -1768,6 +1774,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   void botRegistry.stopAll();
