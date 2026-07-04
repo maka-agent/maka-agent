@@ -62,6 +62,29 @@ describe('subscription model fetch', () => {
     assert.equal(modelFetch, undefined);
   });
 
+  test('rejects Claude subscription cloaking without complete metadata', () => {
+    assert.throws(
+      () => buildSubscriptionModelFetch({
+        connection: claudeSubscriptionConnection(),
+        sessionId: 'session-123',
+        modelId: 'claude-sonnet-4-5',
+      }),
+      /Claude subscription cloaking requires deviceId and accountUuid metadata/,
+    );
+    assert.throws(
+      () => buildSubscriptionModelFetch({
+        connection: claudeSubscriptionConnection(),
+        sessionId: 'session-123',
+        modelId: 'claude-sonnet-4-5',
+        claude: {
+          deviceId: 'device-123',
+          accountUuid: '',
+        },
+      }),
+      /Claude subscription cloaking requires deviceId and accountUuid metadata/,
+    );
+  });
+
   test('maps Codex OAuth requests into the ChatGPT backend request shape', async () => {
     let observedHeaders = new Headers();
     let observedBody = '';

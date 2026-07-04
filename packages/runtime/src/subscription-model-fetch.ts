@@ -14,13 +14,31 @@ export interface SubscriptionModelFetchInput {
 }
 
 export function buildSubscriptionModelFetch(input: SubscriptionModelFetchInput): typeof fetch | undefined {
-  if (input.connection.providerType === 'claude-subscription' && input.claude?.cloakEnabled !== false) {
-    return buildClaudeSubscriptionCloakedFetch(input);
+  if (input.connection.providerType === 'claude-subscription') {
+    if (input.claude?.cloakEnabled === false) return undefined;
+    return buildClaudeSubscriptionCloakedFetch(input, requireClaudeCloakMetadata(input.claude));
   }
   if (input.connection.providerType === 'codex-subscription') {
     return buildCodexSubscriptionFetch(input.sessionId, input.fetchFn ?? fetch);
   }
   return undefined;
+}
+
+function requireClaudeCloakMetadata(
+  claude: SubscriptionModelFetchInput['claude'],
+): NonNullable<SubscriptionModelFetchInput['claude']> {
+  if (
+    !claude
+    || !isNonEmptyString(claude.deviceId)
+    || !isNonEmptyString(claude.accountUuid)
+  ) {
+    throw new Error('Claude subscription cloaking requires deviceId and accountUuid metadata.');
+  }
+  return claude;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
 }
 
 function buildCodexSubscriptionFetch(sessionId: string, fetchFn: typeof fetch): typeof fetch {
@@ -124,7 +142,10 @@ function formatCodexSubscriptionHttpError(statusCode: number, detail: string): s
     : `Codex OAuth request failed: HTTP ${statusCode}`;
 }
 
-function buildClaudeSubscriptionCloakedFetch(input: SubscriptionModelFetchInput): typeof fetch {
+function buildClaudeSubscriptionCloakedFetch(
+  input: SubscriptionModelFetchInput,
+  claude: NonNullable<SubscriptionModelFetchInput['claude']>,
+): typeof fetch {
   const fetchFn = input.fetchFn ?? fetch;
   return async (url: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const rawBody = init?.body;
@@ -150,8 +171,8 @@ function buildClaudeSubscriptionCloakedFetch(input: SubscriptionModelFetchInput)
       sessionKey: input.sessionId,
       streaming: parsedBody.stream === true,
       timeoutMs: 600_000,
-      deviceId: input.claude?.deviceId ?? '',
-      accountUuid: input.claude?.accountUuid ?? '',
+      deviceId: claude.deviceId,
+      accountUuid: claude.accountUuid,
       sessionId: input.sessionId,
     });
 
