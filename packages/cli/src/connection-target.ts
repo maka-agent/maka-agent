@@ -11,6 +11,24 @@ export interface ReadySessionTarget {
   oauthTokens?: OAuthSubscriptionTokens;
 }
 
+export function selectableModelIdsForTarget(target: Pick<ReadySessionTarget, 'connection' | 'model'>): string[] {
+  const defaults = PROVIDER_DEFAULTS[target.connection.providerType];
+  const candidates = [
+    target.model,
+    target.connection.defaultModel,
+    ...(target.connection.models?.map((model) => model.id) ?? defaults?.fallbackModels ?? []),
+  ];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    const id = candidate.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
 export interface ResolveDefaultSessionTargetInput {
   connectionStore: Pick<ConnectionStore, 'get' | 'getDefault'>;
   credentialStore: Pick<CredentialStore, 'getSecret'> & Partial<Pick<CredentialStore, 'setSecret'>>;

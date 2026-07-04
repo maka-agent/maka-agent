@@ -237,6 +237,45 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('selects a model from /model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      models: ['deepseek-v4-flash', 'gpt-5.3-codex-spark'],
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => terminal.output().includes('gpt-5.3-codex-spark'));
+    const titleLine = latestPlainLineContaining(terminal.output(), 'Select Model');
+    assert.equal(titleLine.startsWith('Select Model'), true);
+    assert.equal(visibleWidth(titleLine), terminal.columns);
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    await waitFor(() => terminal.output().includes('Model: gpt-5.3-codex-spark'));
+
+    assert.deepEqual(driver.models, ['gpt-5.3-codex-spark']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/other-repo')]);

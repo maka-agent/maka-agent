@@ -32,6 +32,7 @@ export interface MakaPiTuiInput {
   driver: MakaSessionDriver;
   cwd: string;
   model: string;
+  models?: readonly string[];
   connectionSlug: string;
   permissionMode: PermissionMode;
   terminal?: Terminal;
@@ -183,11 +184,48 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       minPrimaryColumnWidth: 24,
       maxPrimaryColumnWidth: 40,
     });
-    const picker = new SessionPickerOverlay(list);
+    const picker = new PickerOverlay(list, {
+      title: 'Resume Session (Current Folder)',
+      rightLabel: 'Current Folder',
+    });
     let overlay: OverlayHandle | undefined;
     list.onSelect = (item) => {
       overlay?.hide();
       void switchSession(item.value).catch((error) => {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+        requestRender();
+      });
+    };
+    list.onCancel = () => {
+      overlay?.hide();
+    };
+    overlay = tui.showOverlay(picker, {
+      anchor: 'top-left',
+      row: 0,
+      col: 0,
+      width: '100%',
+      maxHeight: '100%',
+    });
+  };
+
+  const showModelList = async () => {
+    const items = modelPickerItems(model, input.models);
+    const list = new SelectList(items, 10, selectListTheme(), {
+      minPrimaryColumnWidth: 24,
+      maxPrimaryColumnWidth: 48,
+    });
+    const picker = new PickerOverlay(list, {
+      title: 'Select Model',
+      rightLabel: connectionSlug,
+    });
+    let overlay: OverlayHandle | undefined;
+    list.onSelect = (item) => {
+      overlay?.hide();
+      void setModel(item.value).catch((error) => {
         state.entries.push({
           kind: 'notice',
           level: 'error',
@@ -222,6 +260,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const handleSlashCommand = (prompt: string): boolean => {
     const parts = prompt.trim().split(/\s+/);
     if (parts[0] === '/model') {
+      if (parts.length === 1) {
+        void showModelList().catch((error) => {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: error instanceof Error ? error.message : String(error),
+          });
+          requestRender();
+        });
+        return true;
+      }
       const nextModel = parts.length === 2 ? parts[1] : undefined;
       if (!nextModel) {
         state.entries.push({
@@ -354,8 +403,11 @@ class MakaStatusLineComponent implements Component {
   }
 }
 
-class SessionPickerOverlay implements Component {
-  constructor(private readonly list: SelectList) {}
+class PickerOverlay implements Component {
+  constructor(
+    private readonly list: SelectList,
+    private readonly input: { title: string; rightLabel: string },
+  ) {}
 
   invalidate(): void {
     this.list.invalidate();
@@ -368,17 +420,33 @@ class SessionPickerOverlay implements Component {
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
     const lines = [
-      alignColumns('Resume Session (Current Folder)', ansi.cyan('Current Folder'), safeWidth),
+      alignColumns(this.input.title, ansi.cyan(this.input.rightLabel), safeWidth),
       padLine(ansi.dim('enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
       padLine(ansi.cyan('-'.repeat(safeWidth)), safeWidth),
     ];
-    while (lines.length < SESSION_PICKER_SURFACE_ROWS) {
+    while (lines.length < PICKER_SURFACE_ROWS) {
       lines.push(' '.repeat(safeWidth));
     }
     return lines;
   }
+}
+
+function modelPickerItems(currentModel: string, models: readonly string[] | undefined): SelectItem[] {
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of [currentModel, ...(models ?? [])]) {
+    const id = candidate.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids.map((id) => ({
+    value: id,
+    label: id,
+    ...(id === currentModel ? { description: 'current' } : {}),
+  }));
 }
 
 function alignColumns(left: string, right: string, width: number): string {
@@ -430,7 +498,7 @@ const ansi = {
   reverse: style(7, 27),
 };
 
-const SESSION_PICKER_SURFACE_ROWS = 200;
+const PICKER_SURFACE_ROWS = 200;
 
 function style(open: number, close: number): (text: string) => string {
   return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
