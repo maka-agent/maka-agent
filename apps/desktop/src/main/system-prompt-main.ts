@@ -8,7 +8,7 @@ import {
   type AppSettings,
   type SessionHeader,
 } from '@maka/core';
-import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
+import { buildPersonalizationPromptFragment } from '@maka/runtime';
 import { resolveProjectGitInfo } from './project-context.js';
 import { buildSessionEnvironmentPromptFragment } from './session-environment-prompt.js';
 import { buildSkillsPromptFragment } from './skills.js';

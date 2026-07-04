@@ -503,3 +503,10 @@ export type {
   WorkspaceInstructionFileState,
   WorkspaceInstructionsState,
 } from './system-prompt/workspace-instructions.js';
+export {
+  buildPersonalizationPromptFragment,
+  sanitizeDisplayName,
+  sanitizeAssistantTone,
+  collectPersonalizationWarnings,
+} from './system-prompt/personalization-prompt.js';
+export type { PersonalizationPromptFragment } from './system-prompt/personalization-prompt.js';

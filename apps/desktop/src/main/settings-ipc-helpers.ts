@@ -8,7 +8,7 @@ import type {
 import { botDisplayLabel, generalizedErrorMessageChinese, redactSecrets } from '@maka/core';
 import { SENSITIVE_PLACEHOLDER, maskSensitive } from '@maka/core/settings/network-settings';
 import type { BotTestResult } from '@maka/runtime';
-import { collectPersonalizationWarnings } from './personalization-prompt.js';
+import { collectPersonalizationWarnings } from '@maka/runtime';
 import { getTavilyCredentialSource } from './web-search/credentials.js';
 
 export function preserveSensitivePlaceholders(
