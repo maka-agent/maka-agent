@@ -258,39 +258,59 @@ export function DailyReviewPanel(props: {
 
   return (
     <div className="maka-daily-review-panel" data-loading={loading ? 'true' : undefined}>
+      {/* IA restructure (owner: 页面太乱不直观): time context — the
+          day/week/month tabs and the date stepper — now lives in ONE
+          header bar instead of the tabs floating mid-page above the
+          stats they control. */}
       <header className="maka-daily-review-header">
-        <UiButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="maka-daily-review-stepper"
-          onClick={() => setOffsetDays((n) => n - range)}
-          aria-label={`查看更早一${stepperLabel}`}
-        >
-          ‹
-        </UiButton>
-        <div className="maka-daily-review-day">{dayLabel}</div>
-        <UiButton
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="maka-daily-review-stepper"
-          onClick={() => setOffsetDays((n) => Math.min(0, n + range))}
-          disabled={offsetDays >= 0}
-          aria-label={`查看更晚一${stepperLabel}`}
-        >
-          ›
-        </UiButton>
+        <div className="maka-daily-review-header-time">
+          <UiButton
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="maka-daily-review-stepper"
+            onClick={() => setOffsetDays((n) => n - range)}
+            aria-label={`查看更早一${stepperLabel}`}
+          >
+            ‹
+          </UiButton>
+          <div className="maka-daily-review-day">{dayLabel}</div>
+          <UiButton
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="maka-daily-review-stepper"
+            onClick={() => setOffsetDays((n) => Math.min(0, n + range))}
+            disabled={offsetDays >= 0}
+            aria-label={`查看更晚一${stepperLabel}`}
+          >
+            ›
+          </UiButton>
+        </div>
+        <div className="maka-daily-review-range-tabs" role="group" aria-label="时间范围切换">
+          {([1, 7, 30] as const).map((option) => (
+            <UiButton
+              key={option}
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="maka-daily-review-range-tab"
+              data-active={range === option ? 'true' : undefined}
+              aria-pressed={range === option}
+              onClick={() => {
+                setRange(option);
+                setOffsetDays(0);
+              }}
+            >
+              {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
+            </UiButton>
+          ))}
+        </div>
       </header>
       <section className="maka-daily-review-info" aria-label="每日回顾说明">
-        <p className="maka-daily-review-info-body">
-          每日回顾会自动汇总本机的对话历史，生成
-          <strong>对话摘要</strong>和
-          <strong>遗漏提醒</strong>；开启
-          <strong>深度分析</strong>后还会做更长周期的项目趋势与技术调研。
-        </p>
         <p className="maka-daily-review-info-hint">
-          在设置中开启<strong>定时执行</strong>，或在此页面手动触发一次。
+          自动汇总本机对话历史，生成<strong>对话摘要</strong>与<strong>遗漏提醒</strong>；
+          <strong>深度分析</strong>覆盖更长周期的趋势与调研。可在设置中开启<strong>定时执行</strong>。
         </p>
       </section>
       {canManualRun && (
@@ -395,29 +415,11 @@ export function DailyReviewPanel(props: {
           )}
         </section>
       )}
-      <nav className="maka-daily-review-range" aria-label="时间范围切换">
-        <div className="maka-daily-review-range-tabs">
-          {([1, 7, 30] as const).map((option) => (
-            <UiButton
-              key={option}
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="maka-daily-review-range-tab"
-              data-active={range === option ? 'true' : undefined}
-              aria-pressed={range === option}
-              onClick={() => {
-                setRange(option);
-                setOffsetDays(0);
-              }}
-            >
-              {option === 1 ? '今日' : option === 7 ? '本周' : '本月'}
-            </UiButton>
-          ))}
-        </div>
-        {visibleSummary && visibleSummary.totals.sessionCount + visibleSummary.totals.requestCount > 0 && hasDailyReviewActions && (
-          <div className="maka-daily-review-actions" aria-label="回顾导出操作">
-            {props.onCopyMarkdown && (
+      {/* Export actions ride with the stats they export (tabs moved to
+          the header above), so the old mid-page nav bar is gone. */}
+      {visibleSummary && visibleSummary.totals.sessionCount + visibleSummary.totals.requestCount > 0 && hasDailyReviewActions && (
+        <div className="maka-daily-review-actions" aria-label="回顾导出操作">
+          {props.onCopyMarkdown && (
               <UiButton
                 type="button"
                 variant="ghost"
@@ -471,9 +473,8 @@ export function DailyReviewPanel(props: {
                 {pendingDailyReviewAction === 'save' ? '保存中…' : '保存'}
               </UiButton>
             )}
-          </div>
-        )}
-      </nav>
+        </div>
+      )}
 
       {error && visibleSummary ? (
         <Alert variant="warning" className="maka-daily-review-alert">

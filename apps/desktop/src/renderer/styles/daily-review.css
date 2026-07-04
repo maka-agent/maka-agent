@@ -13,36 +13,35 @@
       var(--card-shadow),
       var(--card-highlight);
   }
+/* IA restructure: header is now the single time-context bar —
+   stepper + day label on the left, 今日/本周/本月 tabs on the right
+   (the tabs used to float mid-page above the stats). */
 .maka-daily-review-header {
-    display: grid;
-    grid-template-columns: 24px 1fr 24px;
+    display: flex;
     align-items: center;
-    gap: var(--space-1);
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-2);
     padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
     border-bottom: 1px solid var(--foreground-10);
+  }
+
+.maka-daily-review-header-time {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
   }
 
 /* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
    manual-trigger row. Banner uses the page-card recipe with a softer
    tint so it reads as supporting context, not a primary surface. */
+/* Unboxed: the old two-paragraph banner card pushed real content
+   below the fold; the explanation is now a single quiet hint line. */
 .maka-daily-review-info {
     display: grid;
     gap: var(--space-1);
-    padding: var(--space-2-5) var(--space-3);
-    border: 1px solid var(--card-border-color);
-    border-radius: var(--radius-surface);
-    background: oklch(from var(--foreground) l c h / 0.03);
-    box-shadow: var(--card-highlight);
-  }
-.maka-daily-review-info-body {
-    margin: 0;
-    font-size: var(--font-size-ui);
-    line-height: 1.55;
-    color: var(--foreground-secondary);
-  }
-.maka-daily-review-info-body strong {
-    font-weight: 600;
-    color: var(--foreground);
+    padding: 0 var(--space-0-5);
   }
 .maka-daily-review-info-hint {
     margin: 0;
@@ -281,14 +280,6 @@
 /* PR-DAILY-REVIEW-RANGE-0: 今日 / 本周 / 本月 tabs. Active tab uses
    the same accent-emphasis as the surrounding Settings nav so the
    visual language stays consistent. */
-.maka-daily-review-range {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-1-5);
-    padding: var(--space-0-5) 0 var(--space-1-5);
-    border-bottom: 1px solid var(--foreground-10);
-  }
 .maka-daily-review-range-tabs,
   .maka-daily-review-actions {
     display: flex;
@@ -296,8 +287,12 @@
     min-width: 0;
   }
 
+/* Export row sits directly above the stats it exports. */
+.maka-daily-review-actions {
+    justify-content: flex-end;
+  }
+
 .maka-daily-review-range-tab {
-  flex: 1;
   font-size: var(--font-size-ui);
 }
 
@@ -337,10 +332,6 @@
 }
 
 @media (max-width: 720px) {
-    .maka-daily-review-range {
-      grid-template-columns: 1fr;
-    }
-
     .maka-daily-review-archive-layout {
       grid-template-columns: 1fr;
     }
