@@ -18,6 +18,7 @@ const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
 const PERMISSION = join(REPO_ROOT, 'packages', 'core', 'src', 'permission.ts');
 const CORE_EVENTS = join(REPO_ROOT, 'packages', 'core', 'src', 'events.ts');
 const TOOL_ACTIVITY = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity.tsx');
+const OFFICE_DOCUMENT_PREVIEW = join(REPO_ROOT, 'packages', 'ui', 'src', 'tool-activity', 'office-document-preview.tsx');
 const PERMISSION_DIALOG = join(REPO_ROOT, 'packages', 'ui', 'src', 'permission-dialog.tsx');
 
 describe('Office document capability contract', () => {
@@ -141,30 +142,31 @@ describe('Office document capability contract', () => {
   });
 
   it('renders Office document tool results through a structured preview, not raw JSON', async () => {
-    const [events, components, styles] = await Promise.all([
+    const [events, toolActivity, officePreview, styles] = await Promise.all([
       readFile(CORE_EVENTS, 'utf8'),
       readFile(TOOL_ACTIVITY, 'utf8'),
+      readFile(OFFICE_DOCUMENT_PREVIEW, 'utf8'),
       readAllRendererCss(),
     ]);
 
     assert.match(events, /kind:\s*'office_document'/);
-    assert.match(components, /content\.kind === 'office_document'/);
-    assert.match(components, /function OfficeDocumentPreview/);
-    assert.match(components, /redactSecrets\(result\.stdout/);
-    assert.match(components, /redactSecrets\(result\.stderr/);
-    assert.match(components, /capLines\(redactSecrets\(result\.stdout/);
-    assert.match(components, /data-kind="office_document"/);
-    assert.match(components, /function presentOfficeDocumentReason/);
-    assert.match(components, /officecli 未安装/);
-    assert.match(components, /Office 文档操作未完成。/);
-    assert.match(components, /操作超时/);
-    assert.match(components, /操作失败/);
-    const officePreviewBlock = components.match(/function OfficeDocumentPreview[\s\S]*?function presentOfficeDocumentReason/)?.[0] ?? '';
-    const officeReasonBlock = components.match(/function presentOfficeDocumentReason[\s\S]*?\n\}/)?.[0] ?? '';
+    assert.match(toolActivity, /content\.kind === 'office_document'/);
+    assert.match(officePreview, /export function OfficeDocumentPreview/);
+    assert.match(officePreview, /redactSecrets\(result\.stdout/);
+    assert.match(officePreview, /redactSecrets\(result\.stderr/);
+    assert.match(officePreview, /capLines\(redactSecrets\(result\.stdout/);
+    assert.match(officePreview, /data-kind="office_document"/);
+    assert.match(officePreview, /function presentOfficeDocumentReason/);
+    assert.match(officePreview, /officecli 未安装/);
+    assert.match(officePreview, /Office 文档操作未完成。/);
+    assert.match(officePreview, /操作超时/);
+    assert.match(officePreview, /操作失败/);
+    const officePreviewBlock = officePreview.match(/export function OfficeDocumentPreview[\s\S]*?function presentOfficeDocumentReason/)?.[0] ?? '';
+    const officeReasonBlock = officePreview.match(/function presentOfficeDocumentReason[\s\S]*?\n\}/)?.[0] ?? '';
     assert.doesNotMatch(`${officePreviewBlock}\n${officeReasonBlock}`, /Office 文档读取未完成。|读取超时|读取失败|read-only Office adapter/, 'Office result preview must describe read and edit operations, not only reads');
-    assert.doesNotMatch(components, /诊断：\{redactSecrets\(result\.reason\)\}/);
-    const officeBranch = components.indexOf("content.kind === 'office_document'");
-    const jsonBranch = components.indexOf("content.kind === 'json'");
+    assert.doesNotMatch(officePreview, /诊断：\{redactSecrets\(result\.reason\)\}/);
+    const officeBranch = toolActivity.indexOf("content.kind === 'office_document'");
+    const jsonBranch = toolActivity.indexOf("content.kind === 'json'");
     assert.ok(officeBranch > 0, 'Office document branch must exist');
     assert.ok(jsonBranch > 0, 'JSON branch must exist');
     assert.ok(officeBranch < jsonBranch, 'Office document results must be intercepted before raw JSON rendering');
@@ -173,8 +175,8 @@ describe('Office document capability contract', () => {
     // the governed parts instead.
     assert.doesNotMatch(styles, /\.maka-office-document-preview/, 'retired office preview selector must be gone post-migration');
     assert.doesNotMatch(styles, /\.maka-office-document-stream/, 'retired office stream selector must be gone post-migration');
-    assert.match(components, /previewVariants\(\{ part: 'office' \}\)/, 'office preview must render the governed previewVariants office surface');
-    assert.match(components, /previewVariants\(\{ part: 'office-stream' \}\)/, 'office stdout/stderr must render the governed previewVariants office-stream surface');
+    assert.match(officePreview, /previewVariants\(\{ part: 'office' \}\)/, 'office preview must render the governed previewVariants office surface');
+    assert.match(officePreview, /previewVariants\(\{ part: 'office-stream' \}\)/, 'office stdout/stderr must render the governed previewVariants office-stream surface');
   });
 
   it('summarizes Office document edits in the permission dialog before raw args', async () => {
