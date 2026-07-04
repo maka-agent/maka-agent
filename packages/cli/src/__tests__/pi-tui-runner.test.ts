@@ -498,6 +498,45 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('selects a permission mode from /permissions', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/permissions');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Select Permission Mode'));
+    assertBottomPickerPlacement(
+      terminal,
+      'Select Permission Mode',
+      'Maka claude-sonnet-4-5 claude-subscription ask /repo',
+    );
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionModes.length === 1);
+    await waitFor(() => terminal.output().includes('Permission mode: execute'));
+
+    assert.deepEqual(driver.permissionModes, ['execute']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /model without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

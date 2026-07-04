@@ -261,6 +261,36 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const showPermissionModeList = () => {
+    const items = permissionModePickerItems(permissionMode);
+    const list = new SelectList(items, 10, selectListTheme(), {
+      minPrimaryColumnWidth: 16,
+      maxPrimaryColumnWidth: 24,
+    });
+    list.setSelectedIndex(items.findIndex((item) => item.value === permissionMode));
+    const picker = new PickerOverlay(list, {
+      title: 'Select Permission Mode',
+      rightLabel: permissionMode,
+    });
+    let overlay: OverlayHandle | undefined;
+    list.onSelect = (item) => {
+      overlay?.hide();
+      if (!isPermissionMode(item.value)) return;
+      void setPermissionMode(item.value).catch((error) => {
+        state.entries.push({
+          kind: 'notice',
+          level: 'error',
+          text: error instanceof Error ? error.message : String(error),
+        });
+        requestRender();
+      });
+    };
+    list.onCancel = () => {
+      overlay?.hide();
+    };
+    overlay = showBottomPicker(picker);
+  };
+
   const slashCommands: MakaSlashCommand[] = [
     {
       name: 'exit',
@@ -308,6 +338,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       name: 'permissions',
       description: 'Set permission mode',
       run: (parts: string[]) => {
+        if (parts.length === 1) {
+          showPermissionModeList();
+          return;
+        }
         const mode = parts.length === 2 ? parts[1] : undefined;
         if (!isPermissionMode(mode)) {
           state.entries.push({
@@ -641,6 +675,14 @@ function modelPickerItems(currentModel: string, models: readonly string[] | unde
     value: id,
     label: id,
     ...(id === currentModel ? { description: 'current' } : {}),
+  }));
+}
+
+function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {
+  return PERMISSION_MODES.map((mode) => ({
+    value: mode,
+    label: mode,
+    ...(mode === currentMode ? { description: 'current' } : {}),
   }));
 }
 
