@@ -41,6 +41,7 @@ import {
   serializeOAuthSubscriptionTokens,
 } from '@maka/runtime';
 import type { CredentialStore } from '@maka/storage';
+import { trySaveSharedOAuthToken } from './shared-credential-bridge.js';
 import {
   CODEX_OAUTH_CONFIG,
   buildCodexAuthorizationUrl,
@@ -578,7 +579,7 @@ export class CodexSubscriptionService {
     const buffer = safeStorage.encryptString(serialized);
     await fs.writeFile(this.tokenFilePath, buffer, { mode: 0o600 });
     await fs.chmod(this.tokenFilePath, 0o600);
-    await this.saveSharedTokens(tokens);
+    await this.trySaveSharedTokens(tokens);
     this.lastStorageFailedMessage = null;
   }
 
@@ -636,21 +637,12 @@ export class CodexSubscriptionService {
     return tokens;
   }
 
-  private async saveSharedTokens(tokens: PersistedTokens): Promise<void> {
-    await this.credentialStore?.setSecret(
-      'codex-subscription',
-      'oauth_token',
-      serializeOAuthSubscriptionTokens(tokens),
-    );
-  }
-
   private async trySaveSharedTokens(tokens: PersistedTokens): Promise<void> {
-    try {
-      await this.saveSharedTokens(tokens);
-    } catch {
-      // Legacy safeStorage reads should remain usable even if the
-      // shared CLI bridge cannot be backfilled yet.
-    }
+    await trySaveSharedOAuthToken({
+      credentialStore: this.credentialStore,
+      slug: 'codex-subscription',
+      value: serializeOAuthSubscriptionTokens(tokens),
+    });
   }
 
   private failureFromError(
