@@ -239,6 +239,10 @@ describe('Maka Pi TUI runner', () => {
 class RejectingStopDriver implements MakaSessionDriver {
   stopCalls = 0;
 
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
   async *sendPrompt(_prompt: string): AsyncIterable<never> {}
 
   async stop(): Promise<void> {
@@ -262,6 +266,10 @@ class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
   private continueAfterPermission: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     this.permissionRequests += 1;
@@ -317,6 +325,10 @@ class PermissionPromptDriver implements MakaSessionDriver {
 }
 
 class ToolOutputDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
       type: 'tool_start',
@@ -370,6 +382,10 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly permissionModes: PermissionMode[] = [];
   readonly sessionIds: string[] = [];
   private sessionId = 'session-1';
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [fakeSessionSummary('session-2')];
+  }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);

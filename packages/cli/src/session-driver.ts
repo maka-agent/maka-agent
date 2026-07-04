@@ -24,6 +24,7 @@ export interface MakaSessionDriverInput {
 }
 
 export interface MakaSessionDriver {
+  listSessions(): Promise<SessionSummary[]>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   setModel(model: string): Promise<void>;
@@ -57,6 +58,16 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     });
   }
 
+  async listSessions(): Promise<SessionSummary[]> {
+    return (await this.input.runtime.listSessions())
+      .map((session, index) => ({ session, index }))
+      .sort((left, right) => {
+        const cwdDelta = cwdRank(left.session, this.input.cwd) - cwdRank(right.session, this.input.cwd);
+        return cwdDelta !== 0 ? cwdDelta : left.index - right.index;
+      })
+      .map(({ session }) => session);
+  }
+
   async stop(): Promise<void> {
     if (!this.sessionId) return;
     await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
@@ -86,7 +97,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async switchSession(sessionId: string): Promise<SessionSummary> {
-    const summary = (await this.input.runtime.listSessions()).find((session) => session.id === sessionId);
+    const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
     this.sessionId = summary.id;
     this.model = summary.model;
@@ -111,4 +122,8 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.sessionId = session.id;
     return session.id;
   }
+}
+
+function cwdRank(session: SessionSummary, cwd: string): number {
+  return session.cwd === cwd ? 0 : 1;
 }

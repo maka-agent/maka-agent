@@ -144,6 +144,29 @@ describe('Maka session driver', () => {
     assert.equal(runtime.sent[0]?.sessionId, 'session-2');
   });
 
+  test('lists current-cwd sessions before other recent sessions', async () => {
+    const runtime = new RecordingRuntime();
+    runtime.sessionSummaries = [
+      sessionSummary({ id: 'other-newer', cwd: '/other', lastMessageAt: 30 }),
+      sessionSummary({ id: 'cwd-newer', cwd: '/repo', lastMessageAt: 20 }),
+      sessionSummary({ id: 'cwd-older', cwd: '/repo', lastMessageAt: 10 }),
+    ];
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    const sessions = await driver.listSessions();
+
+    assert.deepEqual(sessions.map((session) => session.id), [
+      'cwd-newer',
+      'cwd-older',
+      'other-newer',
+    ]);
+  });
+
   test('uses the default turn id generator when one is not injected', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -278,6 +301,24 @@ class RecordingRuntime {
 function nextId(prefix: string): () => string {
   let count = 0;
   return () => `${prefix}-${++count}`;
+}
+
+function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
+  return {
+    id: 'session',
+    cwd: '/repo',
+    name: 'Existing chat',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: false,
+    status: 'active',
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'anthropic',
+    model: 'claude-sonnet-4-5',
+    permissionMode: 'ask',
+    ...overrides,
+  };
 }
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
