@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
+import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
@@ -444,7 +444,7 @@ const BLOCKED_REASON_TOOLTIP = {
   unknown: '运行中断，可重试',
 } as const;
 
-function SessionRow(props: {
+const SessionRow = memo(function SessionRow(props: {
   session: SessionSummary;
   active: boolean;
   /** This session has a live streaming delta in flight. */
@@ -785,7 +785,7 @@ function SessionRow(props: {
       )}
     </div>
   );
-}
+});
 
 interface SessionGroup {
   label: string;
