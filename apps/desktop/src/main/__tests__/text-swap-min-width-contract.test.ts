@@ -15,9 +15,15 @@
  *    stops a new state-swap button in those files from shipping without a
  *    lock: the test fails closed. A whitelist-only contract kept missing
  *    buttons nobody had audited by hand (reload, backup-candidate actions,
- *    instruction-file actions all slipped through); the scan makes "did we
- *    forget one in these files?" a question the test answers, not a
- *    question a reviewer has to keep answering.
+ *    instruction-file actions all slipped through). The scan closes that
+ *    gap for INLINE string ternaries (`? 'A' : 'B'` in children). It does
+ *    NOT cover COMPUTED-LABEL state-swap buttons (children is a variable
+ *    holding a ternary result, e.g. `{copyLabel}` / `{statusActionLabel}`)
+ *    — those have no inline ternary for the scan to find, so they MUST be
+ *    hand-pinned in TEXT_SWAP_BUTTONS (see the COMPUTED-LABEL note above
+ *    TEXT_SWAP_BUTTONS). So the claim is narrower than "no reviewer needed":
+ *    inline-ternary omissions in these files are auto-caught; computed-label
+ *    omissions are still on the whitelist author.
  *
  *    The scan is deliberately scoped to the PR3 files, not the whole
  *    renderer. `? 'A' : 'B'` is only the state-swap SIGNAL — it can't tell
@@ -32,9 +38,10 @@
  *
  * 2. Whitelist per-element pin (VALUE LOCK): each known state-swap button
  *    keeps a SPECIFIC `min-w-[Nrem]` sized to its widest state, located by
- *    its onClick handler. The scan only checks "has any min-w-[Nrem]";
- *    the whitelist stops a refactor from shrinking a real lock to the
- *    wrong value. Chat summary-chip / stream-count variant locks live in
+ *    its onClick handler. The scan also requires every discovered button to
+ *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
+ *    can't bypass the value lock; the whitelist pins the exact value so a
+ *    refactor can't shrink a real lock to the wrong value. Chat summary-chip / stream-count variant locks live in
  *    the variant definition, so they're pinned by their literal declaration
  *    substrings.
  */
@@ -47,6 +54,21 @@ import { REPO_ROOT } from './css-test-helpers.js';
 
 // State-swap buttons: file + a unique onClick substring that identifies the
 // exact button + the min-w-[Nrem] the button's className must keep.
+// COMPUTED-LABEL state-swap buttons (children is a variable holding a ternary
+// result, NOT an inline `? 'A' : 'B'`): the scan CANNOT discover these (no
+// inline ternary in children), so they MUST be hand-pinned in TEXT_SWAP_BUTTONS.
+// Known cases — keep this list in sync with the whitelist entries that pin
+// them:
+// - error-boundary copyLabel (onClick={this.handleCopyReport}): children is
+//   {copyLabel}; copyLabel = copyPending ? '复制中…' : copyState === 'copied'
+//   ? '已复制' : copyState === 'failed' ? '复制失败' : '复制诊断信息'.
+// - memory onStatusChange (onClick={() => void props.onStatusChange?.(...)}):
+//   children is {statusActionLabel}; statusActionLabel = draftDirty
+//   ? (archived ? '恢复到草稿' : '归档到草稿') : (archived ? '恢复' : '归档').
+//   NB: the scan happens to flag this one too because its onClick contains a
+//   `props.archived ? 'active' : 'archived'` ternary that BUTTON_BLOCK_RE
+//   leaks into children via the `=>` boundary — a regex artifact, not a real
+//   discovery; keep the whitelist pin regardless.
 const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; note: string }> = [
   // memory-settings-page.tsx — settingsActionRow + the inline 复制上下文 button
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void save()}', minW: '3.5rem', note: '保存 ↔ 保存中… ↔ 已保存' },
@@ -226,6 +248,27 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
       0,
       `Found ${notPinned.length} state-swap button(s) with a min-w but no TEXT_SWAP_BUTTONS value pin (and not in EXCEPTIONS). A too-small min-w-[1rem] would bypass the value lock. Add a TEXT_SWAP_BUTTONS entry (file + onClick anchor + min-w sized to the widest state):\n` +
         fmt(notPinned),
+    );
+  });
+
+  it('scan does NOT discover computed-label state-swap (children is a variable, not inline ternary)', () => {
+    // Computed-label buttons (children is {someVariable} holding a ternary
+    // result) are NOT auto-discovered: STRING_TERNARY_RE looks for
+    // ? 'A' : 'B' IN children, and {label} has none. These buttons MUST be
+    // hand-pinned in TEXT_SWAP_BUTTONS — see the COMPUTED-LABEL note above.
+    const computedLabelButton = [
+      '<Button type="button" className="min-w-[1rem]" onClick={() => void fn()}">',
+      '  {label}',
+      '</Button>',
+    ].join('\n');
+    BUTTON_BLOCK_RE.lastIndex = 0;
+    const blockMatch = BUTTON_BLOCK_RE.exec(computedLabelButton);
+    assert.ok(blockMatch, 'BUTTON_BLOCK_RE should match the button block');
+    const children = blockMatch[3];
+    assert.equal(
+      STRING_TERNARY_RE.test(children),
+      false,
+      'STRING_TERNARY_RE must NOT match a computed-label child ({label}); if it did, the scan would wrongly claim to cover computed-label buttons. They must stay hand-pinned in TEXT_SWAP_BUTTONS.',
     );
   });
 });
