@@ -68,11 +68,7 @@ html[data-os="darwin"] .maka-session-panel {
    extracted by @maka-审美专家 from `/tmp/qoder-asar/out/renderer/`
    reference bundle. Component-level CSS plugs into these so palette
    swaps don't need callsite rewrites. Scoped to macOS so non-glass
-   platforms keep their existing neutral tokens. Also adds the
-   `--color-state-selected` row-selection accent that L3 below uses —
-   prefixed `state` rather than `row` so it can be reused for chip /
-   tab / nav selected states later (per @maka-审美专家 token-naming
-   suggestion). */
+   platforms keep their existing neutral tokens. */
 /* UNLAYERED on purpose: reference-shell.css defines the same custom
    properties in an unlayered :root block, and unlayered declarations
    beat @layer ones regardless of specificity — inside @layer base this
@@ -83,44 +79,25 @@ html[data-os="darwin"] {
   /* Neutral-cool glass (owner decision 2026-07-03): the QoderWork
      light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
      which read beige against vibrancy blur. zinc-family equivalents
-     keep the same lightness steps but zero warm cast. Mint selection
-     stays — sage is the accent, not the neutral. */
+     keep the same lightness steps but zero warm cast. */
   --color-bg-layout: #fcfcfd;
   --color-bg-highlight: #d4d4d8;
   --color-bg-container: #fafafa;
   --color-bg-element: #f4f4f5;
-  --color-state-selected: #8ee5a1;
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
 
 /* Dark-mode variants for the darwin glass palette. The light hexes above
-   are QoderWork light-glass extractions; reused verbatim in dark mode the
-   mint selected-row fill sat under near-white foreground text (unreadable)
-   and the parchment surfaces glowed against the dark shell. Deep sage keeps
-   the selected row's "color block IS the signal" behavior with ~7:1
-   contrast against the dark foreground. */
+   are QoderWork light-glass extractions; reused verbatim in dark mode they
+   sat under near-white foreground text and the parchment surfaces glowed
+   against the dark shell, so the dark variants below re-tune lightness. */
 html[data-os="darwin"].dark {
   --color-bg-layout: oklch(0.22 0.004 286);
   --color-bg-highlight: oklch(0.34 0.005 286);
   --color-bg-container: oklch(0.24 0.004 286);
   --color-bg-element: oklch(0.27 0.004 286);
-  --color-state-selected: oklch(0.42 0.075 152);
 }
 
-/* L3 — selected list-row uses the QoderWork mint state fill instead of
-   the 6% foreground wash that's indistinguishable from :hover (active
-   session reads at a glance now instead of "where's the cursor again").
-   Font-weight stays normal — the color block IS the signal, not the
-   weight stacking. Scoped to macOS glass so non-glass builds keep their
-   neutral selection. */
-html[data-os="darwin"] .maka-list-row[data-active="true"] {
-  background: var(--color-state-selected);
-  color: var(--foreground);
-  font-weight: 500;
-}
-html[data-os="darwin"] .maka-list-row[data-active="true"] .maka-list-row-name {
-  font-weight: 500;
-}
 
 /* L7 — group label was 9.5px UPPERCASE + 0.08em tracking on the
    sidebar, which read as "old Windows admin tool" not "macOS native

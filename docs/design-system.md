@@ -420,7 +420,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   - default：text + meta
   - hover：`--state-hover-bg` 背景 + 微小 translate（PR40）
   - focus：focus-visible ring
-  - active（current session）：`data-active="true"` → `--state-selected-bg` + 左侧 accent bar
+  - active（current session）：`data-active="true"` → `--state-selected-bg` 背景 + name weight 600
   - editing：rename input + select-all on focus
   - streaming：`data-streaming="true"` → 顶部加 pulse dot + 副文本 "Maka 正
     在思考…" 覆盖 lastMessagePreview
