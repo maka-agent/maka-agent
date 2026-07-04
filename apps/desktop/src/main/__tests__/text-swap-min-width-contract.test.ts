@@ -4,21 +4,43 @@
  * changes between states (复制 ↔ 已复制, 保存 ↔ 保存中…, token counts
  * 9 → 10 → 100) can't shrink and push its right-hand siblings.
  *
- * Invariant (per-element pin, not a coarse file count): every known
- * state-swap button keeps a `min-w-[Nrem]` in the className of the very
- * `<Button>`/`<UiButton>` that owns the swapping onClick handler, and the
- * chat summary-chip / stream-count variants keep their `min-w-[Nrem]`
- * declarations. Dropping a lock from a real surface fails here; moving a
- * lock onto an unrelated element (different handler / different variant
- * string) also fails.
+ * Two layers, complementary:
  *
- * Adding a new state-swap surface: give the swapping element
- * `min-w-[Nrem]` sized to its widest state, and add an entry to
- * TEXT_SWAP_BUTTONS (file + a unique onClick substring + the min-w) or
- * CHAT_VARIANT_LOCKS (the literal declaration substring).
+ * 1. Heuristic scan (DISCOVERY, scoped): every `<Button>`/`<UiButton>`
+ *    whose children contain a string-ternary (`? 'A' : 'B'` with
+ *    string/template branches — the state-swap signal) must keep
+ *    `min-w-[Nrem]` in its className. The scan runs over the PR3 text-swap
+ *    audit scope (the files #520 PR3 touched: memory/open-gateway settings
+ *    action rows, daily-review actions, error-boundary). This is what
+ *    stops a new state-swap button in those files from shipping without a
+ *    lock: the test fails closed. A whitelist-only contract kept missing
+ *    buttons nobody had audited by hand (reload, backup-candidate actions,
+ *    instruction-file actions all slipped through); the scan makes "did we
+ *    forget one in these files?" a question the test answers, not a
+ *    question a reviewer has to keep answering.
+ *
+ *    The scan is deliberately scoped to the PR3 files, not the whole
+ *    renderer. `? 'A' : 'B'` is only the state-swap SIGNAL — it can't tell
+ *    whether the button actually sits in a multi-element row where width
+ *    change pushes siblings (the real bug condition needs layout context,
+ *    unlike min-w-0's mechanical ellipsis+nowrap signal). A repo-wide scan
+ *    would flag ~77 buttons, most of them toggles/accordion headers/stand-
+ *    alone retry buttons with no right-hand sibling to push. Those are a
+ *    separate, broader text-swap convergence effort, not this contract.
+ *    Adding a state-swap button to one of the SCAN_FILES below: give it
+ *    min-w-[Nrem] or the scan fails.
+ *
+ * 2. Whitelist per-element pin (VALUE LOCK): each known state-swap button
+ *    keeps a SPECIFIC `min-w-[Nrem]` sized to its widest state, located by
+ *    its onClick handler. The scan only checks "has any min-w-[Nrem]";
+ *    the whitelist stops a refactor from shrinking a real lock to the
+ *    wrong value. Chat summary-chip / stream-count variant locks live in
+ *    the variant definition, so they're pinned by their literal declaration
+ *    substrings.
  */
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { REPO_ROOT } from './css-test-helpers.js';
@@ -36,6 +58,14 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void restoreLatestBackup()}', minW: '5rem', note: '恢复中… ↔ 恢复上一版' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyLocalMemoryPromptPreview()}', minW: '5rem', note: 'settingsInlineTextButton: 复制中… ↔ 复制上下文' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyPath()}', minW: '4rem', note: '复制中… ↔ 复制路径' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void openWorkspaceInstructionFile(file.file)}', minW: '4rem', note: '打开中… ↔ 打开 (项目指令文件行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void createWorkspaceInstructionFile(file.file)}', minW: '4rem', note: '创建中… ↔ 创建 (项目指令文件行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void openBackupCandidate(backup)}', minW: '4rem', note: '打开中… ↔ 打开 (备份候选行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void restoreBackupCandidate(backup)}', minW: '4rem', note: '恢复中… ↔ 恢复 (备份候选行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void copyBackupReference(backup)}', minW: '4rem', note: '复制中… ↔ 复制引用 (备份候选行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void reloadDraftFromDisk()}', minW: '4rem', note: '载入中… ↔ 重新载入 (settingsActionRow)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onCopyReference?.(entry)}', minW: '4rem', note: '复制中… ↔ 复制引用 (记忆条目行)' },
+  { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onStatusChange?.(entry', minW: '4rem', note: '归档切换 statusActionLabel (记忆条目行)' },
   // open-gateway-settings-page.tsx — settingsActionRow copy buttons
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyBaseUrl()}', minW: '4rem', note: '复制中… ↔ 复制地址' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOverviewCurl()}', minW: '8rem', note: '复制总览 curl' },
@@ -44,13 +74,15 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyEventStreamCurl()}', minW: '8.5rem', note: '复制事件流 curl' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentEventsCurl()}', minW: '9rem', note: '复制最近事件 curl' },
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentRequestsCurl()}', minW: '9rem', note: '复制最近请求 curl' },
-  // daily-review-panel.tsx — quick-run + 复制/保存 actions
+  // daily-review-panel.tsx — quick-run + 复制/保存/粘到输入框 actions
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "triggerManualRun('daily')", minW: '6rem', note: '生成中… ↔ 生成每日回顾' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "triggerManualRun('deep')", minW: '6rem', note: '生成中… ↔ 生成深度分析' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('copy'", minW: '4rem', note: '复制中… ↔ 复制' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('save'", minW: '4rem', note: '保存中… ↔ 保存' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "runDailyReviewAction('append'", minW: '5rem', note: '追加中… ↔ 粘到输入框' },
-  // error-boundary.tsx — maka-error-copy-action
+  // error-boundary.tsx — maka-error-copy-action (children is {copyLabel}, a
+  // variable holding the ternary result, so the scan won't catch it; the
+  // whitelist does.)
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];
 
@@ -65,9 +97,32 @@ const CHAT_VARIANT_LOCKS: Array<{ file: string; substr: string; note: string }> 
 
 const BUTTON_OPEN_RE = /<(?:Ui)?Button\b/g;
 
+// --- Heuristic scan (DISCOVERY, scoped to PR3 files) ------------------------
+// Files this contract governs: the surfaces #520 PR3 touched. A new
+// state-swap button in any of these is caught by the scan and must get a
+// min-w-[Nrem] (or the test fails). State-swap buttons in other files
+// (other settings pages, onboarding, etc.) are a separate, broader
+// text-swap convergence effort — not this contract's scope — so they
+// aren't scanned here and won't false-positive.
+const SCAN_FILES = [
+  'apps/desktop/src/renderer/settings/memory-settings-page.tsx',
+  'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx',
+  'apps/desktop/src/renderer/error-boundary.tsx',
+  'packages/ui/src/daily-review-panel.tsx',
+];
+// Match a full <Button>/<UiButton> element (opening attrs + children +
+// closing tag). `[^>]*` is fine here because these tags never put a `>`
+// inside an attribute; nested <Button> is handled by the non-greedy
+// children matching the nearest close.
+const BUTTON_BLOCK_RE = /<(Ui)?Button\b([^>]*)>([\s\S]*?)<\/\1Button>/g;
+// A string-ternary child: `? 'A' : 'B'` / `? "A" : "B"` / `? `A` : `B``
+// (template literals allowed). This is the state-swap signal: the button's
+// text depends on runtime state, so its width can change between states.
+const STRING_TERNARY_RE = /\?\s*['"`][^'"`]+['"`]\s*:\s*['"`][^'"`]+['"`]/;
+const MIN_W_REM_RE = /min-w-\[\d+(?:\.\d+)?rem\]/;
+
 describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
-  it('every state-swap button keeps min-w-[Nrem] in its own className', async () => {
-    // Group by file so we read each file once.
+  it('every whitelisted state-swap button keeps its exact min-w-[Nrem]', async () => {
     const byFile = new Map<string, typeof TEXT_SWAP_BUTTONS>();
     for (const b of TEXT_SWAP_BUTTONS) {
       const arr = byFile.get(b.file) ?? [];
@@ -79,8 +134,6 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
       for (const { onClick, minW, note } of buttons) {
         const handlerIdx = src.indexOf(onClick);
         assert.ok(handlerIdx >= 0, `${file}: onClick anchor "${onClick}" not found (${note})`);
-        // Find the nearest <Button / <UiButton opening tag at or before the
-        // handler — that is the element the handler belongs to.
         let tagStart = -1;
         BUTTON_OPEN_RE.lastIndex = 0;
         let m: RegExpExecArray | null;
@@ -89,8 +142,6 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
           tagStart = m.index;
         }
         assert.ok(tagStart >= 0, `${file}: no <Button>/<UiButton> opens before "${onClick}" (${note})`);
-        // Slice from the tag open to the handler; the className must sit in
-        // that span (className always precedes onClick in these tags).
         const tagSpan = src.slice(tagStart, handlerIdx);
         const clsMatch = tagSpan.match(/className="([^"]*)"/);
         assert.ok(clsMatch, `${file}: button for "${onClick}" has no className (${note})`);
@@ -118,5 +169,35 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
         );
       }
     }
+  });
+
+  it('no state-swap Button with a string-ternary child slips through without min-w-[Nrem] (scoped scan)', () => {
+    const missing: Array<{ file: string; line: number; snippet: string }> = [];
+    for (const file of SCAN_FILES) {
+      const src = readFileSync(resolve(REPO_ROOT, file), 'utf8');
+      BUTTON_BLOCK_RE.lastIndex = 0;
+      let m: RegExpExecArray | null;
+      while ((m = BUTTON_BLOCK_RE.exec(src)) !== null) {
+        const attrs = m[2];
+        const children = m[3];
+        if (!STRING_TERNARY_RE.test(children)) continue;
+        const clsMatch = attrs.match(/className="([^"]*)"/);
+        if (!clsMatch || !MIN_W_REM_RE.test(clsMatch[1])) {
+          const line = src.slice(0, m.index).split('\n').length;
+          missing.push({
+            file,
+            line,
+            snippet: children.trim().replace(/\s+/g, ' ').slice(0, 80),
+          });
+        }
+      }
+    }
+    const msgs = missing.map((m) => `  ${m.file}:${m.line} — ${m.snippet}`);
+    assert.equal(
+      missing.length,
+      0,
+      `Found ${missing.length} state-swap button(s) without min-w-[Nrem] in the PR3 scope files. Each <Button>/<UiButton> whose children contain a string ternary (? 'A' : 'B', the state-swap signal) must keep min-w-[Nrem] in its className. Add the lock sized to the widest state + a TEXT_SWAP_BUTTONS entry:\n` +
+        msgs.join('\n'),
+    );
   });
 });
