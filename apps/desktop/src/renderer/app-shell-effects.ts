@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import type {
   ConnectionEvent,
   PlanReminder,
@@ -38,6 +38,14 @@ type ToastApi = {
     action?: { label: string; onClick: () => void };
   }): void;
 };
+
+// Long-lived subscriptions below mount once; their callbacks read this ref so
+// AppShell handlers can change across renders without resubscribing.
+function useLatestRef<T>(value: T): RefBox<T> {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
 
 export function useAppShellRefSync(options: {
   activeId: string | undefined;
@@ -183,56 +191,33 @@ export function useAppShellBootstrapSubscriptions(options: {
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: ToastApi;
 }) {
-  const {
-    activeIdRef,
-    applyVisualSmokeFixture,
-    bootstrapSessions,
-    clearPendingTurnActionsForSession,
-    clearSessionRendererState,
-    handleConnectionEvent,
-    openSettings,
-    pendingPermissionModeChangesRef,
-    pendingSessionModelChangesRef,
-    pendingTurnActionTimersRef,
-    pendingTurnActionsRef,
-    projectPickerPendingRef,
-    projectPickerRequestRef,
-    refreshAppInfo,
-    refreshConnections,
-    refreshMemoryActive,
-    refreshMessages,
-    refreshPlanReminders,
-    refreshShellSettings,
-    refreshSkills,
-    refreshSessions,
-    rendererMountedRef,
-    setActiveId,
-    setMessages,
-    setNavSelection,
-    setSessionEventHealthBySession,
-    toastApi,
-  } = options;
+  const latestOptionsRef = useLatestRef(options);
 
   useEffect(() => {
+    const latest = latestOptionsRef.current;
     // Critical data: sessions + connections are seeded from the onboarding
     // snapshot (see AppShell useEffect above).  `refreshShellSettings` is
     // waited because it drives theme + locale before first paint settles.
     // Everything else is fire-and-forget on a rAF to keep the critical
     // render path as short as possible.
-    void refreshShellSettings();
+    void latest.refreshShellSettings();
     // Non-critical: defer to next frame so the first paint isn't blocked.
     requestAnimationFrame(() => {
-      void refreshAppInfo();
-      void refreshMemoryActive('载入本地记忆状态失败');
-      void refreshSkills();
-      void refreshPlanReminders();
-      void applyVisualSmokeFixture();
+      const latest = latestOptionsRef.current;
+      void latest.refreshAppInfo();
+      void latest.refreshMemoryActive('载入本地记忆状态失败');
+      void latest.refreshSkills();
+      void latest.refreshPlanReminders();
+      void latest.applyVisualSmokeFixture();
     });
-    const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionEvent);
+    const unsubscribeConnections = window.maka.connections.subscribeEvents((event) => {
+      latestOptionsRef.current.handleConnectionEvent(event);
+    });
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges((event) => {
-      void refreshSessions();
+      const latest = latestOptionsRef.current;
+      void latest.refreshSessions();
       if (event.sessionId) {
-        setSessionEventHealthBySession((current) => {
+        latest.setSessionEventHealthBySession((current) => {
           const previous = current[event.sessionId!];
           if (!previous) return current;
           return {
@@ -245,64 +230,68 @@ export function useAppShellBootstrapSubscriptions(options: {
         event.sessionId &&
         (event.reason === 'turn-status-change' || event.reason === 'message-appended' || event.reason === 'deleted')
       ) {
-        clearPendingTurnActionsForSession(event.sessionId);
+        latest.clearPendingTurnActionsForSession(event.sessionId);
       }
       const changedSessionId = event.sessionId;
-      if (event.reason === 'message-appended' && changedSessionId && changedSessionId === activeIdRef.current) {
-        void refreshMessages(changedSessionId);
+      if (event.reason === 'message-appended' && changedSessionId && changedSessionId === latest.activeIdRef.current) {
+        void latest.refreshMessages(changedSessionId);
       }
       if (event.reason === 'rebound') {
         const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
-        toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
+        latest.toastApi.info('已切换到默认模型', `原会话使用的连接已不可用${modelSuffix}`);
       }
-      if (event.reason === 'deleted' && event.sessionId && event.sessionId === activeIdRef.current) {
+      if (event.reason === 'deleted' && event.sessionId && event.sessionId === latest.activeIdRef.current) {
         const deletedSessionId = event.sessionId;
-        setActiveId(undefined);
-        setMessages([]);
-        clearSessionRendererState(deletedSessionId);
+        latest.setActiveId(undefined);
+        latest.setMessages([]);
+        latest.clearSessionRendererState(deletedSessionId);
       }
     });
-    const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(openSettings);
+    const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(() => {
+      latestOptionsRef.current.openSettings();
+    });
     const unsubscribePlanChanges = window.maka.plans.subscribeChanges(() => {
-      void refreshPlanReminders();
+      void latestOptionsRef.current.refreshPlanReminders();
     });
     const unsubscribePlanDue = window.maka.plans.subscribeDue((reminder: PlanReminder) => {
-      void refreshPlanReminders();
-      toastApi.toast({
+      const latest = latestOptionsRef.current;
+      void latest.refreshPlanReminders();
+      latest.toastApi.toast({
         title: '计划提醒',
         description: reminder.title,
         variant: 'info',
         duration: 8000,
         action: {
           label: '查看定时任务',
-          onClick: () => setNavSelection({ section: 'automations' }),
+          onClick: () => latestOptionsRef.current.setNavSelection({ section: 'automations' }),
         },
       });
     });
     function onKeyDown(event: globalThis.KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key === ',') {
         event.preventDefault();
-        openSettings();
+        latestOptionsRef.current.openSettings();
       }
     }
-    rendererMountedRef.current = true;
+    latest.rendererMountedRef.current = true;
     window.addEventListener('keydown', onKeyDown);
     return () => {
-      rendererMountedRef.current = false;
-      projectPickerRequestRef.current += 1;
-      projectPickerPendingRef.current = false;
+      const latest = latestOptionsRef.current;
+      latest.rendererMountedRef.current = false;
+      latest.projectPickerRequestRef.current += 1;
+      latest.projectPickerPendingRef.current = false;
       unsubscribeConnections();
       unsubscribeSessionChanges();
       unsubscribeOpenSettings();
       unsubscribePlanChanges();
       unsubscribePlanDue();
-      for (const timeoutHandle of pendingTurnActionTimersRef.current.values()) {
+      for (const timeoutHandle of latest.pendingTurnActionTimersRef.current.values()) {
         clearTimeout(timeoutHandle);
       }
-      pendingTurnActionTimersRef.current.clear();
-      pendingTurnActionsRef.current.clear();
-      pendingPermissionModeChangesRef.current.clear();
-      pendingSessionModelChangesRef.current.clear();
+      latest.pendingTurnActionTimersRef.current.clear();
+      latest.pendingTurnActionsRef.current.clear();
+      latest.pendingPermissionModeChangesRef.current.clear();
+      latest.pendingSessionModelChangesRef.current.clear();
       window.removeEventListener('keydown', onKeyDown);
     };
   }, []);
@@ -320,21 +309,19 @@ export function useActiveSessionEvents(options: {
   setSessionEventHealthBySession: SessionEventHealthUpdater;
   toastApi: Pick<ToastApi, 'error'>;
 }) {
-  const {
-    activeId,
-    activeIdRef,
-    handleEvent,
-    markSessionReadLocally,
-    setMessageLoadErrorBySession,
-    setMessages,
-    setSessionEventHealthBySession,
-    toastApi,
-  } = options;
+  const latestOptionsRef = useLatestRef(options);
+  const activeId = options.activeId;
 
   useEffect(() => {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
+    const latest = latestOptionsRef.current;
+    const {
+      setMessageLoadErrorBySession,
+      setMessages,
+      setSessionEventHealthBySession,
+    } = latest;
     setMessages([]);
     setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
@@ -348,12 +335,14 @@ export function useActiveSessionEvents(options: {
     }));
     void window.maka.sessions.readMessages(activeId)
       .then((next) => {
+        const { activeIdRef, markSessionReadLocally, setMessages } = latestOptionsRef.current;
         if (!disposed && activeIdRef.current === activeId) {
           markSessionReadLocally(activeId, next);
           setMessages(next);
         }
       })
       .catch((error) => {
+        const { activeIdRef, setMessageLoadErrorBySession, toastApi } = latestOptionsRef.current;
         if (!disposed && activeIdRef.current === activeId) {
           const message = messageReadErrorMessage(error);
           setMessageLoadErrorBySession((current) => ({ ...current, [activeId]: message }));
@@ -361,6 +350,7 @@ export function useActiveSessionEvents(options: {
         }
       });
     const unsubscribe = window.maka.sessions.subscribeEvents(activeId, (event) => {
+      const { handleEvent, setSessionEventHealthBySession } = latestOptionsRef.current;
       setSessionEventHealthBySession((current) => {
         const previous = current[activeId];
         if (!previous) return current;
@@ -371,6 +361,7 @@ export function useActiveSessionEvents(options: {
     return () => {
       disposed = true;
       unsubscribe();
+      const { setSessionEventHealthBySession } = latestOptionsRef.current;
       setSessionEventHealthBySession((current) => {
         const previous = current[activeId];
         if (!previous) return current;
