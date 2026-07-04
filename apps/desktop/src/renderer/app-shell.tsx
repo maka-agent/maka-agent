@@ -187,9 +187,12 @@ export function AppShell() {
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [userLabel, setUserLabel] = useState<string>('');
-  // Settings → 通用 → 默认权限模式. Seeds new chats (see app-shell-chat-
-  // actions.ts) and is what the composer's picker shows before the user
-  // makes their own per-session choice.
+  // Settings → 通用 → 默认权限模式 — DISPLAY-ONLY mirror. The composer's
+  // picker shows it before the user makes a per-session choice; the actual
+  // authority for a new session's mode is main.ts's sessions:create fallback
+  // (the renderer omits permissionMode unless the user explicitly picked),
+  // so a stale value here can briefly mislabel the chip but never changes
+  // which mode a session is created with.
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<PermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
@@ -798,7 +801,6 @@ export function AppShell() {
     upsertSessionSummary,
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
-    defaultPermissionMode,
     validPendingNewChatModel,
   });
 

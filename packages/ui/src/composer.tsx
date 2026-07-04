@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, Mic, Plus } from './icons.js';
+import { ArrowUp, ChevronDown, FileEdit, FolderOpen, Mic, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
@@ -26,56 +26,7 @@ import type { PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
 import { Kbd } from './primitives/kbd.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
-
-export interface PermissionModeMeta {
-  label: string;
-  hint: string;
-  tone: 'info' | 'accent' | 'destructive';
-}
-
-/**
- * PR-MOVE-PERMISSION-MODE (WAWQAQ msgs 47fe0d0e / 21993dcc / a667cf6c
- * 2026-06-23): the user-facing permission-mode picker is now a
- * three-option dropdown sitting in the composer left-controls instead
- * of a 3-chip switcher at the chat header. The `explore` (read-only)
- * mode was retired from the picker — for an agent that can't write
- * or run anything, the mode is "not useful". Internally `explore`
- * still exists in the `PermissionMode` enum because Deep Research
- * sessions and Bot-incoming guards use it as their default; the
- * picker collapses those sessions to display `询问权限` so the user
- * sees a coherent option.
- *
- * Labels follow WAWQAQ's a667cf6c renaming — direct, action-led copy
- * instead of engineering shorthand.
- *
- * Exported (via components.tsx) so the Settings → General "默认权限模式"
- * picker can reuse the exact same labels/hints instead of a second,
- * driftable copy of this table.
- */
-export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
-  explore: {
-    label: '只读模式',
-    hint: '只读模式：读取、列表、搜索直通，写入或网络仍需明确确认。Deep Research 默认走这档；不再出现在用户切换里。',
-    tone: 'info',
-  },
-  ask: {
-    label: '询问权限',
-    hint: '每次工具调用前都弹出对话框让你确认。最稳健，适合需要盯着 agent 干活的场景。',
-    tone: 'accent',
-  },
-  execute: {
-    label: '自动执行',
-    hint: '常见工具直通，破坏性操作、特权操作和浏览器操作仍会停下来确认。',
-    tone: 'info',
-  },
-  bypass: {
-    label: '跳过确认',
-    hint: '跳过全部工具确认，包括破坏性操作、特权操作和浏览器操作。只在完全信任本轮任务时使用。',
-    tone: 'destructive',
-  },
-};
-
-export const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute', 'bypass'];
+import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -633,30 +584,13 @@ export const Composer = forwardRef<
                       </UiButton>
                     )}
                   />
-                  <MenuPopup className="maka-composer-mode-menu" align="start">
-                    {PERMISSION_MODE_ORDER.map((mode) => {
-                      const optionMeta = PERMISSION_MODE_META[mode];
-                      return (
-                        <MenuItem
-                          key={mode}
-                          onClick={() => {
-                            if (mode === displayMode) return;
-                            void props.onPermissionModeChange?.(mode);
-                          }}
-                          data-active={mode === displayMode}
-                          data-tone={optionMeta.tone}
-                        >
-                          <div className="maka-composer-mode-menu-item">
-                            <span className="maka-composer-mode-menu-label">{optionMeta.label}</span>
-                            <span className="maka-composer-mode-menu-hint">{optionMeta.hint}</span>
-                          </div>
-                          {mode === displayMode ? (
-                            <Check size={12} strokeWidth={2} aria-hidden="true" />
-                          ) : null}
-                        </MenuItem>
-                      );
-                    })}
-                  </MenuPopup>
+                  <PermissionModeMenuPopup
+                    activeMode={displayMode}
+                    onSelect={(mode) => {
+                      void props.onPermissionModeChange?.(mode);
+                    }}
+                    align="start"
+                  />
                 </Menu>
               );
             })() : null}

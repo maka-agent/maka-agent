@@ -179,21 +179,30 @@ describe('permission mode transition guard copy', () => {
 
   it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
+    const menuModule = await readFile(join(REPO_ROOT, 'packages/ui/src/permission-mode-menu.tsx'), 'utf8');
 
     // Three-mode picker: explore is retired from the picker entirely
     // (read-only mode has no useful runtime toggle for normal chat —
-    // Deep-Research sessions set it internally). The picker shows
-    // 'ask' (询问权限), 'execute' (自动执行), and 'bypass' (Bypass permissions).
-    assert.match(ui, /const PERMISSION_MODE_ORDER: PermissionMode\[\] = \['ask', 'execute', 'bypass'\];/);
+    // Deep-Research sessions set it internally). The list is DERIVED from
+    // @maka/core's canonical CHAT_DEFAULT_PERMISSION_MODES (itself derived
+    // from PERMISSION_MODES minus 'explore') — not a hand-copied literal
+    // that can drift when a new mode is added.
+    assert.match(
+      menuModule,
+      /export const PERMISSION_MODE_ORDER: readonly ChatDefaultPermissionMode\[\] = CHAT_DEFAULT_PERMISSION_MODES;/,
+    );
 
     // Mode chip uses base-ui Menu (not a custom radiogroup) — keyboard
-    // arrow / Home / End navigation is delegated to the primitive.
+    // arrow / Home / End navigation is delegated to the primitive. The
+    // popup body is the shared PermissionModeMenuPopup so the composer and
+    // Settings pickers render identical option markup.
     const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
     assert.match(dropdownBlock, /<Menu>/);
     assert.match(dropdownBlock, /<MenuTrigger/);
-    assert.match(dropdownBlock, /<MenuPopup className="maka-composer-mode-menu"/);
-    assert.match(dropdownBlock, /PERMISSION_MODE_ORDER\.map\(\(mode\) =>/);
+    assert.match(dropdownBlock, /<PermissionModeMenuPopup/);
     assert.match(dropdownBlock, /void props\.onPermissionModeChange\?\.\(mode\);/);
+    assert.match(menuModule, /<MenuPopup className="maka-composer-mode-menu"/);
+    assert.match(menuModule, /PERMISSION_MODE_ORDER\.map\(\(mode\) =>/);
   });
 
   it('scrubs thrown permission-mode IPC failures before toast', async () => {
@@ -246,8 +255,8 @@ describe('permission mode transition guard copy', () => {
     );
     assert.match(
       renderer,
-      /permissionMode:\s*pendingNewChatPermissionMode \?\? defaultPermissionMode,/,
-      'New session creation must use the no-session permission mode pick, falling back to the configured Settings → 通用 default (not a hardcoded \'ask\')',
+      /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
+      'New session creation must send the no-session pick when made, and OMIT permissionMode otherwise so main.ts resolves the configured Settings → 通用 default as the single authority',
     );
     assert.match(
       renderer,

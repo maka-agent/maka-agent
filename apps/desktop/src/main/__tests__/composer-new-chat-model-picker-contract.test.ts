@@ -130,8 +130,8 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       sendBlock,
-      /permissionMode: pendingNewChatPermissionMode \?\? defaultPermissionMode,/,
-      'new-chat sessions.create must receive the picked pending permission mode, falling back to the configured Settings → 通用 default',
+      /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
+      'new-chat sessions.create must send the picked pending permission mode when one exists, and omit the field otherwise (main.ts resolves the configured default)',
     );
     assert.match(
       sendBlock,

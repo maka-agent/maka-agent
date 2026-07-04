@@ -6,16 +6,15 @@ import type {
   NetworkProxySettings,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { CHAT_DEFAULT_PERMISSION_MODES, generalizedErrorMessageChinese } from '@maka/core';
+import { generalizedErrorMessageChinese } from '@maka/core';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import {
   Button,
   Input,
   Menu,
-  MenuItem,
-  MenuPopup,
   MenuTrigger,
   PERMISSION_MODE_META,
+  PermissionModeMenuPopup,
   SettingsSelect,
   SettingsSwitch as Switch,
   modelChoiceValue,
@@ -23,7 +22,7 @@ import {
   parseModelChoiceValue,
   useToast,
 } from '@maka/ui';
-import { Check, ChevronDown } from '@maka/ui/icons';
+import { ChevronDown } from '@maka/ui/icons';
 import { ProviderLogo } from './ProvidersPanel';
 import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
@@ -103,6 +102,7 @@ function GeneralDefaultsCard(props: {
   const mountedRef = useRef(true);
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
+  const savingPermissionModeRef = useRef(false);
   const [savingPermissionMode, setSavingPermissionMode] = useState(false);
 
   useEffect(() => {
@@ -110,6 +110,7 @@ function GeneralDefaultsCard(props: {
     return () => {
       mountedRef.current = false;
       savingRef.current = false;
+      savingPermissionModeRef.current = false;
     };
   }, []);
 
@@ -163,6 +164,12 @@ function GeneralDefaultsCard(props: {
   }
 
   async function persistPermissionMode(nextMode: ChatDefaultPermissionMode) {
+    // Same re-entrancy guard as persistDefault above: the disabled trigger
+    // alone can't fully prevent overlapping saves (React disables it a tick
+    // after the click), and overlapping settings.update calls have no
+    // ordering guarantee.
+    if (savingPermissionModeRef.current) return;
+    savingPermissionModeRef.current = true;
     setSavingPermissionMode(true);
     try {
       await props.onUpdate({ chatDefaults: { permissionMode: nextMode } });
@@ -171,6 +178,7 @@ function GeneralDefaultsCard(props: {
         toast.error('保存默认权限模式失败', settingsActionErrorMessage(error));
       }
     } finally {
+      savingPermissionModeRef.current = false;
       if (mountedRef.current) setSavingPermissionMode(false);
     }
   }
@@ -196,22 +204,14 @@ function GeneralDefaultsCard(props: {
       <div className="settingsRow" data-control-width="select">
         <div>
           <strong>默认权限模式</strong>
-          {/* PR-DEFAULT-PERMISSION-MODE-2 (WAWQAQ msg feedback): this line
-              used to show the CURRENTLY SELECTED option's own hint (e.g.
-              "跳过全部工具确认…"), which just duplicated what the dropdown
-              already shows for that option once opened. It should instead
-              describe what the *setting* itself does, same role as the
-              "默认模型" row's static description above. */}
+          {/* Fixed description of the SETTING (not the selected option's own
+              hint — the shared popup already shows every option's hint). */}
           <small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。</small>
         </div>
-        {/* PR-DEFAULT-PERMISSION-MODE-1 (WAWQAQ msg feedback): a plain
-            <SettingsSelect> only showed each option's bare label — you had
-            to select an option before its meaning (the hint text) showed
-            up anywhere. Composer's own permission-mode picker already
-            solved this with a rich popup item (label + hint together, so
-            every option's meaning is visible up front); reusing that same
-            `Menu`/`.maka-composer-mode-menu*` styling here instead of
-            inventing a second design for the same "pick a mode" pattern. */}
+        {/* Shared popup with the composer's picker (PermissionModeMenuPopup)
+            so every option shows its label + hint before picking, and the
+            two surfaces can't drift. Only the trigger differs: a
+            select-style outline button here vs. the composer's tinted chip. */}
         <Menu>
           <MenuTrigger
             render={(triggerProps) => (
@@ -228,28 +228,13 @@ function GeneralDefaultsCard(props: {
               </Button>
             )}
           />
-          <MenuPopup className="maka-composer-mode-menu" align="end">
-            {CHAT_DEFAULT_PERMISSION_MODES.map((mode) => {
-              const meta = PERMISSION_MODE_META[mode];
-              const active = mode === props.permissionMode;
-              return (
-                <MenuItem
-                  key={mode}
-                  onClick={() => {
-                    if (active) return;
-                    void persistPermissionMode(mode);
-                  }}
-                  data-active={active}
-                >
-                  <div className="maka-composer-mode-menu-item">
-                    <span className="maka-composer-mode-menu-label">{meta.label}</span>
-                    <span className="maka-composer-mode-menu-hint">{meta.hint}</span>
-                  </div>
-                  {active ? <Check size={14} strokeWidth={2} aria-hidden="true" /> : null}
-                </MenuItem>
-              );
-            })}
-          </MenuPopup>
+          <PermissionModeMenuPopup
+            activeMode={props.permissionMode}
+            onSelect={(mode) => {
+              void persistPermissionMode(mode);
+            }}
+            align="end"
+          />
         </Menu>
       </div>
     </SettingsRows>

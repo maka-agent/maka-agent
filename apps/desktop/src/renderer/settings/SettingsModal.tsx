@@ -46,21 +46,12 @@ export function SettingsModal(props: {
   onOpenSession?(sessionId: string): void;
 }) {
   const pageRef = useRef<HTMLDivElement>(null);
+  // Focused by SettingsSurface's section-keyed effect (mount + section
+  // change). Deliberately NOT focused from an effect here keyed on any
+  // callback prop: `onClose` is recreated on every AppShell render (which
+  // happens per streamed token), and a focus side effect keyed on it yanks
+  // focus away from anything open inside Settings while a session streams.
   const activeNavRef = useRef<HTMLButtonElement>(null);
-  // Focus the modal exactly once, when it actually opens -- not on every
-  // re-render. `onClose` (app-shell.tsx's `closeSettings`) is a plain
-  // function recreated on every AppShell render, and AppShell re-renders on
-  // every streamed token (streamingBySession state). Previously this effect
-  // was keyed on `[props.onClose]`, so it tore down and re-ran on every
-  // token while a session was streaming, and `activeNavRef.current?.focus()`
-  // forcibly yanked focus back to the settings nav each time -- stealing
-  // focus from whatever the user had just opened/clicked inside Settings
-  // (most visibly, a focus-managed popup like the default-permission-mode
-  // menu, which closes/stops responding to clicks when it loses focus).
-  useEffect(() => {
-    activeNavRef.current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only by design, see comment above.
-  }, []);
 
   // The Escape listener is safe to resubscribe on every onClose identity
   // change (it only adds/removes a DOM listener, not a focus-stealing side

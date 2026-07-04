@@ -66,9 +66,6 @@ export function createAppShellChatActions(deps: {
   upsertSessionSummary: (session: SessionSummary) => void;
   pendingNewChatPermissionMode: PendingNewChatPermissionMode;
   setPendingNewChatPermissionMode: (mode: PendingNewChatPermissionMode) => void;
-  /** Settings → 通用 → 默认权限模式; seeds a new chat when the composer's
-   *  own picker was never touched (pendingNewChatPermissionMode is null). */
-  defaultPermissionMode: PermissionMode;
   validPendingNewChatModel: PendingNewChatModel;
 }): AppShellChatActions {
   const {
@@ -90,7 +87,6 @@ export function createAppShellChatActions(deps: {
     upsertSessionSummary,
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
-    defaultPermissionMode,
     validPendingNewChatModel,
   } = deps;
 
@@ -138,7 +134,13 @@ export function createAppShellChatActions(deps: {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
         const session = await window.maka.sessions.create({
-          permissionMode: pendingNewChatPermissionMode ?? defaultPermissionMode,
+          // Only send permissionMode when the user explicitly picked one in
+          // the composer. Omitting it lets main.ts's sessions:create resolve
+          // the configured chatDefaults.permissionMode as the single
+          // authority — a renderer-side copy of the default can be stale
+          // (e.g. before the mount-time settings load resolves on a cold
+          // start), which would silently override the configured setting.
+          ...(pendingNewChatPermissionMode ? { permissionMode: pendingNewChatPermissionMode } : {}),
           name: text.slice(0, 42) || '新建对话',
           ...(validPendingNewChatModel
             ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }

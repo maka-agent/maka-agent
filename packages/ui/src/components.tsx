@@ -9,6 +9,12 @@ export { formatBytes, OverlayHost, ToolActivity } from './tool-activity.js';
 export { PermissionDialog } from './permission-dialog.js';
 export { ChatView } from './chat-view.js';
 export type { ChatHeaderAlert, TurnFooterActionMeta, TurnLineageBadge } from './chat-view.js';
-export { Composer, PERMISSION_MODE_META, PERMISSION_MODE_ORDER } from './composer.js';
-export type { ComposerHandle, PermissionModeMeta } from './composer.js';
+export { Composer } from './composer.js';
+export type { ComposerHandle } from './composer.js';
+export {
+  PERMISSION_MODE_META,
+  PERMISSION_MODE_ORDER,
+  PermissionModeMenuPopup,
+} from './permission-mode-menu.js';
+export type { PermissionModeMeta } from './permission-mode-menu.js';
 export { RelativeTime } from './relative-time.js';

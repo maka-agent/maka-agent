@@ -60,6 +60,19 @@ export function SettingsSurface(props: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.requestedSection]);
 
+  // Focus follows the active section's nav button: on mount, and whenever
+  // `section` changes (nav click — a native-focus no-op — or a ⌘K palette
+  // jump while the modal is already open, where nothing else moves focus).
+  // Keyed on `section`, NOT on any parent callback prop: parent callbacks
+  // (e.g. onClose) are recreated on every AppShell render — which happens
+  // per streamed token — and keying a focus side effect on one yanks focus
+  // away from anything the user opened inside Settings dozens of times a
+  // second while a session streams.
+  useEffect(() => {
+    props.initialFocusRef.current?.focus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ref identity is stable; re-run only on section change.
+  }, [section]);
+
   // PR-MODEL-OAUTH-SECTION-0: ProvidersPanel's OAuth cards dispatch a
   // `maka:jumpToSettingsSection` window event to navigate between
   // Settings sections without threading another prop through. The event

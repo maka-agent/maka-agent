@@ -16,6 +16,7 @@ import {
 } from './web-search.js';
 import { defaultLocalMemorySettings, normalizeLocalMemorySettings } from './local-memory.js';
 import type { PermissionMode } from './permission.js';
+import { PERMISSION_MODES } from './permission.js';
 
 /**
  * PR-SETTINGS-IA-CONSOLIDATE-0 + PR-SETTINGS-REVIEW-0 (WAWQAQ msg
@@ -266,12 +267,17 @@ export interface PrivacySettings {
 
 /**
  * `explore` is excluded — it's reserved for Deep Research sessions and
- * Bot-incoming guards (see PERMISSION_MODE_ORDER in @maka/ui composer.tsx)
- * and is never a mode the user picks, in the composer dropdown or here.
+ * Bot-incoming guards and is never a mode the user picks, in the composer
+ * dropdown or here. Derived from the canonical PERMISSION_MODES (not a
+ * hand-copied literal) so adding a future mode updates every consumer —
+ * the Settings picker, the composer picker (@maka/ui re-exports this
+ * list as PERMISSION_MODE_ORDER), and the settings validation — in one
+ * place.
  */
 export type ChatDefaultPermissionMode = Exclude<PermissionMode, 'explore'>;
 
-export const CHAT_DEFAULT_PERMISSION_MODES: readonly ChatDefaultPermissionMode[] = ['ask', 'execute', 'bypass'];
+export const CHAT_DEFAULT_PERMISSION_MODES: readonly ChatDefaultPermissionMode[] =
+  PERMISSION_MODES.filter((mode): mode is ChatDefaultPermissionMode => mode !== 'explore');
 
 export function isChatDefaultPermissionMode(value: unknown): value is ChatDefaultPermissionMode {
   return typeof value === 'string' && (CHAT_DEFAULT_PERMISSION_MODES as readonly string[]).includes(value);
