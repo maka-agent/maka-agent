@@ -81,7 +81,7 @@ describe('issue #499 state-token governance contract', () => {
     //     daily-review-range-tab, catalogTab, catalogPillTabs, skill-tab, plan-tab
     const ALLOWLIST_FILE = /[/\\]onboarding\.css$/;
     const ALLOWLIST_SELECTOR = /(\.maka-daily-review-range-tab|\.catalogTab|\.catalogPillTabs\b|\.maka-skill-tab|\.maka-plan-tab)\b/;
-    const SELECTED_ACTIVE = /\[data-active|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
+    const SELECTED_ACTIVE = /\[data-active|\[data-selected|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
     const violations: string[] = [];
     for (const file of allCss) {
       if (ALLOWLIST_FILE.test(file)) continue;
