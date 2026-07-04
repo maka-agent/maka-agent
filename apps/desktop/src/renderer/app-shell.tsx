@@ -32,6 +32,7 @@ import { useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
+import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 // Artifact pane + embedded browser panel are only mounted for sessions
@@ -110,7 +111,12 @@ type ComposerImportOwner = {
   navSection: NavSelection['section'];
 };
 
-export function AppShell() {
+export function AppShell({
+  initialOnboardingSnapshot = null,
+}: {
+  /** Pre-mount snapshot prefetched by main.tsx — see prefetchOnboardingSnapshot. */
+  initialOnboardingSnapshot?: OnboardingSnapshot | null;
+} = {}) {
   const toastApi = useToast();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -633,7 +639,7 @@ export function AppShell() {
   // `sessions:changed` + `connections:event`. The hero renders only
   // when sessions.length === 0; any session (including archived /
   // aborted) takes over with the existing chat surface.
-  const onboarding = useOnboardingSnapshot();
+  const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
   const { handleQuickChatSubmit } = createAppShellQuickChatActions({

@@ -1,7 +1,42 @@
 import { createRoot } from 'react-dom/client';
 import { App } from './app';
 import { applyCachedThemeBeforeMount } from './cached-theme-bootstrap';
+import type { OnboardingSnapshot } from '../global';
 import './styles.css';
 
 applyCachedThemeBeforeMount();
-createRoot(document.getElementById('root')!).render(<App />);
+
+/**
+ * Prefetch the onboarding snapshot BEFORE mounting React. The preload
+ * skeleton (index.html) stays on screen while this resolves, so the first
+ * React commit already has sessions + connections and paints the real
+ * chat surface directly — no intermediate loading card, no layout jump
+ * (the "配置页闪了一下" startup flash).
+ *
+ * Fail-open: one quick retry (the IPC handler may not be registered in
+ * the first milliseconds), then a hard timeout so a wedged main process
+ * can never block the renderer from mounting. On timeout/failure React
+ * mounts with `null` and the classic in-app loading path takes over.
+ */
+async function prefetchOnboardingSnapshot(): Promise<OnboardingSnapshot | null> {
+  const attempt = async (): Promise<OnboardingSnapshot | null> => {
+    try {
+      return await window.maka.onboarding.getSnapshot();
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      try {
+        return await window.maka.onboarding.getSnapshot();
+      } catch {
+        return null;
+      }
+    }
+  };
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500));
+  return Promise.race([attempt(), timeout]);
+}
+
+void prefetchOnboardingSnapshot().then((initialOnboardingSnapshot) => {
+  createRoot(document.getElementById('root')!).render(
+    <App initialOnboardingSnapshot={initialOnboardingSnapshot} />,
+  );
+});

@@ -58,12 +58,15 @@ export interface UseOnboardingSnapshotDeps {
  * defense. Tests target the pure poller directly so they don't need
  * a DOM / React runtime.
  */
-export function useOnboardingSnapshotImpl(deps: UseOnboardingSnapshotDeps): UseOnboardingSnapshotResult {
-  const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(null);
+export function useOnboardingSnapshotImpl(
+  deps: UseOnboardingSnapshotDeps,
+  initialSnapshot: OnboardingSnapshot | null = null,
+): UseOnboardingSnapshotResult {
+  const [snapshot, setSnapshot] = useState<OnboardingSnapshot | null>(initialSnapshot);
   const [error, setError] = useState<string | null>(null);
-  const sessionsRef = useRef<SessionSummary[] | null>(null);
-  const connectionsRef = useRef<LlmConnection[] | null>(null);
-  const defaultSlugRef = useRef<string | null>(null);
+  const sessionsRef = useRef<SessionSummary[] | null>(initialSnapshot?.sessions ?? null);
+  const connectionsRef = useRef<LlmConnection[] | null>(initialSnapshot?.connections ?? null);
+  const defaultSlugRef = useRef<string | null>(initialSnapshot?.defaultSlug ?? null);
   const pollerRef = useRef<OnboardingSnapshotPoller | null>(null);
 
   if (pollerRef.current === null) {
@@ -185,10 +188,14 @@ function onboardingSnapshotErrorMessage(error: unknown): string {
  * Callers that need a re-pull on a specific UI action (e.g. modal
  * close) should call `refresh()` from the returned object.
  */
-export function useOnboardingSnapshot(): UseOnboardingSnapshotResult {
+export function useOnboardingSnapshot(initialSnapshot: OnboardingSnapshot | null = null): UseOnboardingSnapshotResult {
   // Bind to the live IPC bridge. `deps` is memoized as a module-level
   // object so the effect deps stay stable across re-renders.
-  return useOnboardingSnapshotImpl(LIVE_DEPS);
+  // `initialSnapshot` comes from main.tsx's pre-mount prefetch: with it,
+  // the very first commit already has sessions + connections, so the
+  // startup path never shows the intermediate loading card ("配置页
+  // 闪了一下"). The mount effect still pulls a fresh snapshot.
+  return useOnboardingSnapshotImpl(LIVE_DEPS, initialSnapshot);
 }
 
 const LIVE_DEPS: UseOnboardingSnapshotDeps = {
