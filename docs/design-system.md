@@ -305,7 +305,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 | default | 边框 + foreground 文字 | `--background` / `--border` |
 | hover | 灰底，边框不变 | `--state-hover-bg` |
 | focus（visible） | 2px ring + 原 border | `--ring`（全局 `*:focus-visible`） |
-| active (pressed) | 更深底 | `--state-selected-bg` |
+| active (pressed) | 更深底,无 scale | `--state-selected-bg` |
 | disabled | opacity 0.45 + cursor: not-allowed | — |
 | loading / error | **N/A** — button 自己不持有 loading 态；调用方在父表面（例如 ConnectionDetail）持有 `testing` 状态并替换 label 为"测试中…"。永远不引入"按钮自旋转"。 | — |
 

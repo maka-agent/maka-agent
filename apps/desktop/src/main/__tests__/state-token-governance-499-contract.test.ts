@@ -52,4 +52,24 @@ describe('issue #499 state-token governance contract', () => {
     assert.match(docs, /`--state-hover-bg`/, 'design-system.md must register --state-hover-bg');
     assert.match(docs, /`--state-selected-bg`/, 'design-system.md must register --state-selected-bg');
   });
+
+  it(':hover backgrounds use --state-hover-bg, not --foreground-N or inline oklch drift', async () => {
+    const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
+    const violations: string[] = [];
+    for (const file of allCss) {
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      // Walk rule blocks: selector { body }. For each block whose selector
+      // contains :hover, check its background declaration.
+      for (const ruleMatch of source.matchAll(/([^{}]*?):hover[^{]*\{([^}]*)\}/g)) {
+        const body = ruleMatch[2];
+        const bgMatch = body.match(/background:\s*([^;]+);/);
+        if (!bgMatch) continue;
+        const bg = bgMatch[1].trim();
+        if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg)) {
+          violations.push(`${file}: :hover background ${bg}`);
+        }
+      }
+    }
+    assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N or inline oklch:\n${violations.join('\n')}`);
+  });
 });
