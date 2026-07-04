@@ -722,6 +722,7 @@
 }
 
 .settingsThemeLabel strong {
+  min-width: 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-semibold);

@@ -596,6 +596,7 @@ color: oklch(0.55 0.015 220);
    (reference treats ids/counts/sources as filled fill-tertiary pills, §4 rule 8)
    instead of loose gray text. */
 .maka-skill-library-meta > span:first-child {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;

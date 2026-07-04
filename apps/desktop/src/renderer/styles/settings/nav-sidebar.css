@@ -237,6 +237,7 @@
  * glyph is overridden above to `--foreground` for selection visibility. */
 
 .settingsNavItem strong {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

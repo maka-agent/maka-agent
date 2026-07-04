@@ -154,6 +154,7 @@
 }
 
 .maka-daily-review-archive-row-title {
+    min-width: 0;
     color: var(--foreground);
     font-size: var(--font-size-ui);
     font-weight: var(--font-weight-semibold);
@@ -163,6 +164,7 @@
   }
 
 .maka-daily-review-archive-row-meta {
+    min-width: 0;
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
     font-variant-numeric: tabular-nums;
@@ -477,6 +479,7 @@
 }
 
 .maka-daily-review-session-name {
+    min-width: 0;
     font-weight: var(--font-weight-medium);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -491,6 +494,7 @@
   }
 
 .maka-daily-review-session-preview {
+    min-width: 0;
     font-size: var(--font-size-ui);
     color: var(--muted-foreground);
     overflow: hidden;

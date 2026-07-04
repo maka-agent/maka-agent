@@ -413,6 +413,7 @@
 }
 
 .modelTableRowId {
+  min-width: 0;
   background: transparent;
   font-family: var(--font-mono);
   font-size: var(--font-size-ui);
