@@ -10,6 +10,7 @@ import {
   type SelectListTheme,
   type Terminal,
 } from '@earendil-works/pi-tui';
+import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import type { MakaSessionDriver } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
@@ -26,7 +27,7 @@ export interface MakaPiTuiInput {
   cwd: string;
   model: string;
   connectionSlug: string;
-  permissionMode: string;
+  permissionMode: PermissionMode;
   terminal?: Terminal;
 }
 
@@ -34,6 +35,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const terminal = input.terminal ?? new ProcessTerminal();
   const tui = new TUI(terminal);
   const state = createMakaPiTranscriptState();
+  let permissionMode = input.permissionMode;
   let busy = false;
   let closed = false;
   let resolveClosed: () => void;
@@ -46,7 +48,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     cwd: input.cwd,
     model: input.model,
     connectionSlug: input.connectionSlug,
-    permissionMode: input.permissionMode,
+    permissionMode,
     sessionId: input.driver.getSessionId(),
     busy,
   });
@@ -104,6 +106,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    if (handleSlashCommand(prompt)) return;
 
     busy = true;
     editor.disableSubmit = true;
@@ -121,6 +124,41 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       terminal.setProgress(false);
       requestRender();
     });
+  };
+
+  const setPermissionMode = async (mode: PermissionMode) => {
+    await input.driver.setPermissionMode(mode);
+    permissionMode = mode;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Permission mode: ${mode}`,
+    });
+    requestRender();
+  };
+
+  const handleSlashCommand = (prompt: string): boolean => {
+    const parts = prompt.trim().split(/\s+/);
+    if (parts[0] !== '/permissions') return false;
+    const mode = parts.length === 2 ? parts[1] : undefined;
+    if (!isPermissionMode(mode)) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: `Usage: /permissions ${PERMISSION_MODES.join('|')}`,
+      });
+      requestRender();
+      return true;
+    }
+    void setPermissionMode(mode).catch((error) => {
+      state.entries.push({
+        kind: 'notice',
+        level: 'error',
+        text: error instanceof Error ? error.message : String(error),
+      });
+      requestRender();
+    });
+    return true;
   };
 
   tui.addInputListener((data) => {

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import type { Terminal } from '@earendil-works/pi-tui';
-import type { PermissionResponse, SessionEvent } from '@maka/core';
+import type { PermissionMode, PermissionResponse, SessionEvent } from '@maka/core';
 import type { MakaSessionDriver } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 
@@ -141,6 +141,37 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
   });
+
+  test('handles /permissions without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/permissions execute');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionModes.length === 1);
+    await waitFor(() => terminal.output().includes('Permission mode: execute'));
+
+    assert.deepEqual(driver.permissionModes, ['execute']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -254,6 +285,31 @@ class ToolOutputDriver implements MakaSessionDriver {
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class SlashCommandDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
+  readonly permissionModes: PermissionMode[] = [];
+
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async setPermissionMode(mode: PermissionMode): Promise<void> {
+    this.permissionModes.push(mode);
+  }
   getSessionId(): string {
     return 'session-1';
   }
