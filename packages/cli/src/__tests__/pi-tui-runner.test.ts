@@ -206,7 +206,7 @@ describe('Maka Pi TUI runner', () => {
 
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver();
+    const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/other-repo')]);
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -222,6 +222,7 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => driver.sessionIds.length === 1);
     await waitFor(() => terminal.output().includes('Session: session-2'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/other-repo'));
 
     assert.deepEqual(driver.sessionIds, ['session-2']);
     assert.deepEqual(driver.prompts, []);
@@ -482,7 +483,8 @@ class SlashCommandDriver implements MakaSessionDriver {
   async switchSession(sessionId: string): Promise<SessionSummary> {
     this.sessionIds.push(sessionId);
     this.sessionId = sessionId;
-    return fakeSessionSummary(sessionId);
+    const summary = this.sessions.find((session) => session.id === sessionId);
+    return summary ?? fakeSessionSummary(sessionId);
   }
   getSessionId(): string {
     return this.sessionId;

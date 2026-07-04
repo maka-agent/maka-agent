@@ -40,6 +40,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const terminal = input.terminal ?? new ProcessTerminal();
   const tui = new TUI(terminal);
   const state = createMakaPiTranscriptState();
+  let cwd = input.cwd;
   let model = input.model;
   let connectionSlug = input.connectionSlug;
   let permissionMode = input.permissionMode;
@@ -52,7 +53,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const metadata = (): MakaPiTranscriptMetadata => ({
     title: input.title,
-    cwd: input.cwd,
+    cwd,
     model,
     connectionSlug,
     permissionMode,
@@ -146,6 +147,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const switchSession = async (sessionId: string) => {
     const summary = await input.driver.switchSession(sessionId);
+    cwd = summary.cwd ?? cwd;
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
@@ -159,7 +161,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const currentCwdSessions = sessions.filter((session) => session.cwd === input.cwd);
+    const currentCwdSessions = sessions.filter((session) => session.cwd === cwd);
     if (currentCwdSessions.length === 0) {
       state.entries.push({
         kind: 'notice',
