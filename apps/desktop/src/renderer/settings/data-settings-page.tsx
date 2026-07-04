@@ -91,6 +91,7 @@ export function DataSettingsPage() {
           title="工作区路径"
           detail="会话、设置、凭据和技能文件都存在这个目录下。"
           value={info?.workspacePath ?? (infoError ? '载入失败' : '正在加载…')}
+          mono
         />
         <SettingRow
           title="存储引擎"
