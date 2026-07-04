@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import type { Terminal } from '@earendil-works/pi-tui';
-import type { PermissionMode, PermissionResponse, SessionEvent } from '@maka/core';
+import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary } from '@maka/core';
 import type { MakaSessionDriver } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 
@@ -218,6 +218,9 @@ class RejectingStopDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<SessionSummary> {
+    return fakeSessionSummary(sessionId);
+  }
 
   getSessionId(): string {
     return 'session-1';
@@ -273,6 +276,9 @@ class PermissionPromptDriver implements MakaSessionDriver {
   }
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<SessionSummary> {
+    return fakeSessionSummary(sessionId);
+  }
 
   getSessionId(): string {
     return 'session-1';
@@ -319,6 +325,9 @@ class ToolOutputDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<SessionSummary> {
+    return fakeSessionSummary(sessionId);
+  }
   getSessionId(): string {
     return 'session-1';
   }
@@ -348,9 +357,28 @@ class SlashCommandDriver implements MakaSessionDriver {
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
   }
+  async switchSession(sessionId: string): Promise<SessionSummary> {
+    return fakeSessionSummary(sessionId);
+  }
   getSessionId(): string {
     return 'session-1';
   }
+}
+
+function fakeSessionSummary(sessionId: string): SessionSummary {
+  return {
+    id: sessionId,
+    name: 'Existing chat',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: false,
+    status: 'active',
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'claude-subscription',
+    model: 'claude-sonnet-4-5',
+    permissionMode: 'ask',
+  };
 }
 
 class FakeTerminal implements Terminal {

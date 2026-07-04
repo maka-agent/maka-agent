@@ -114,6 +114,36 @@ describe('Maka session driver', () => {
     }]);
   });
 
+  test('switches to an existing session for the next prompt', async () => {
+    const runtime = new RecordingRuntime();
+    runtime.sessionSummaries = [{
+      id: 'session-2',
+      name: 'Existing chat',
+      isFlagged: false,
+      isArchived: false,
+      labels: [],
+      hasUnread: false,
+      status: 'active',
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-opus-4-1',
+      permissionMode: 'execute',
+    }];
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    const summary = await driver.switchSession('session-2');
+    await collect(driver.sendPrompt('continue'));
+
+    assert.equal(summary.id, 'session-2');
+    assert.deepEqual(runtime.created, []);
+    assert.equal(runtime.sent[0]?.sessionId, 'session-2');
+  });
+
   test('uses the default turn id generator when one is not injected', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -162,6 +192,7 @@ class RecordingRuntime {
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string } }> = [];
+  sessionSummaries: SessionSummary[] = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
@@ -237,6 +268,10 @@ class RecordingRuntime {
       model: patch.model ?? 'claude-sonnet-4-5',
       permissionMode: 'ask',
     };
+  }
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return this.sessionSummaries;
   }
 }
 

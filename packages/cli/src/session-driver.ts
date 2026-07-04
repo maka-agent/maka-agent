@@ -6,6 +6,7 @@ import type { SessionSummary } from '@maka/core/session';
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
+  listSessions(): Promise<SessionSummary[]>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
@@ -27,6 +28,7 @@ export interface MakaSessionDriver {
   respondToPermission(response: PermissionResponse): Promise<void>;
   setModel(model: string): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  switchSession(sessionId: string): Promise<SessionSummary>;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -81,6 +83,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       return;
     }
     this.permissionMode = mode;
+  }
+
+  async switchSession(sessionId: string): Promise<SessionSummary> {
+    const summary = (await this.input.runtime.listSessions()).find((session) => session.id === sessionId);
+    if (!summary) throw new Error(`Session not found: ${sessionId}`);
+    this.sessionId = summary.id;
+    this.model = summary.model;
+    this.permissionMode = summary.permissionMode;
+    return summary;
   }
 
   getSessionId(): string | null {
