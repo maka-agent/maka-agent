@@ -17,6 +17,7 @@ export interface MainWindowController {
   createWindow(): Promise<void>;
   send(channel: string, ...args: unknown[]): void;
   setTitlebarControlsVisible(sender: Electron.WebContents, visible: unknown): void;
+  setThemeSource(sender: Electron.WebContents, themeSource: unknown): void;
   showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>;
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>;
   capturePage(): Promise<Electron.NativeImage | null>;
@@ -273,6 +274,20 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       target.setWindowButtonPosition(
         shouldShow ? MAIN_WINDOW_TRAFFIC_LIGHT_POSITION : HIDDEN_TRAFFIC_LIGHT_POSITION,
       );
+    },
+    setThemeSource(sender, themeSource) {
+      const target = BrowserWindow.fromWebContents(sender);
+      if (!target || target !== mainWindow) return;
+      if (themeSource !== 'system' && themeSource !== 'light' && themeSource !== 'dark') return;
+      // The renderer's `.dark` class flip (theme.ts) only repaints the DOM.
+      // `nativeTheme.themeSource` is the separate Electron/OS-level switch
+      // that drives native chrome — on macOS this is what the window's
+      // `vibrancy: 'sidebar'` material (main-window.ts createWindow) reads
+      // its light/dark tint from. Without this, picking an in-app theme
+      // that disagrees with the OS appearance leaves the vibrancy-backed
+      // sidebar showing the *system* theme's tint while the rest of the
+      // (opaque) UI repaints to the chosen one.
+      nativeTheme.themeSource = themeSource;
     },
     showOpenDialog(options) {
       return mainWindow
