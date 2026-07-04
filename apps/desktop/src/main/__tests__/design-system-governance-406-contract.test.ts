@@ -135,15 +135,20 @@ describe('issue #406 design-system governance contract', () => {
 
       assert.notEqual(action, 'var(--accent)', `${selector} action must be independently tunable`);
       assert.notEqual(control, 'var(--accent)', `${selector} control must be independently tunable`);
-      assert.match(actionForeground, /^oklch\(0\.985 0\.003 250\)$/);
+      // A's CTA is a pale-blue chip with deep-blue text (was dark-green + near-white).
+      assert.match(actionForeground, /^oklch\(0\.30 0\.06 250\)$/);
       assert.match(controlForeground, /^oklch\(0\.985 0\.003 250\)$/);
       assert.ok(
         contrastRatio(oklchToSrgb(parseOklch(action)), oklchToSrgb(parseOklch(actionForeground))) >= 4.5,
         `${selector} action/action-foreground contrast must clear 4.5:1`,
       );
+      // control/foreground paints graphical objects (checkbox check, switch
+      // knob, radio dot, progress fill), not text — so the WCAG 2.1 SC 1.4.11
+      // non-text contrast bar (3:1) applies, not the 4.5:1 text bar used for
+      // action above. --control is tuned (L0.65) to clear 3:1 with a small margin.
       assert.ok(
-        contrastRatio(oklchToSrgb(parseOklch(control)), oklchToSrgb(parseOklch(controlForeground))) >= 4.5,
-        `${selector} control/control-foreground contrast must clear 4.5:1`,
+        contrastRatio(oklchToSrgb(parseOklch(control)), oklchToSrgb(parseOklch(controlForeground))) >= 3.0,
+        `${selector} control/control-foreground contrast must clear 3:1 (WCAG 1.4.11 non-text)`,
       );
       for (const token of emphasisTokens) {
         assert.equal(readCssToken(tokens, selector, token), 'var(--accent)', `${selector} ${token} must start as a thin accent alias`);
