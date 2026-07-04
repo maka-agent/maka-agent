@@ -21,6 +21,7 @@ import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
 import { RelativeTime } from './relative-time.js';
+import { Markdown } from './markdown.js';
 
 type DailyReviewArchiveSectionKey = keyof DailyReviewArchive['sections'];
 
@@ -634,7 +635,12 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
           {sections.map((section) => (
             <section key={section.key} className="maka-daily-review-archive-section">
               <h5>{DAILY_REVIEW_ARCHIVE_SECTION_LABEL[section.key]}</h5>
-              <p>{section.content}</p>
+              {/* Reports are LLM-generated markdown — bullet lists and
+                  inline code rendered as flat pre-wrap text read as mush.
+                  Reuse the shared Markdown pipeline (same one chat uses). */}
+              <div className="maka-daily-review-archive-section-body">
+                <Markdown text={section.content} />
+              </div>
             </section>
           ))}
         </div>

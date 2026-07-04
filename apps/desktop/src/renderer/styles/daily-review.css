@@ -278,6 +278,35 @@
     white-space: pre-wrap;
   }
 
+/* Markdown-rendered report body: same type scale as the plain <p> it
+   replaced; restore list markers (Tailwind preflight strips them — see
+   the chat-bubble fix) and keep block rhythm tight inside a section. */
+.maka-daily-review-archive-section-body {
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+.maka-daily-review-archive-section-body p {
+    margin: 0 0 var(--space-1-5);
+  }
+
+.maka-daily-review-archive-section-body p:last-child,
+.maka-daily-review-archive-section-body ul:last-child,
+.maka-daily-review-archive-section-body ol:last-child {
+    margin-bottom: 0;
+  }
+
+.maka-daily-review-archive-section-body ul,
+.maka-daily-review-archive-section-body ol {
+    margin: 0 0 var(--space-1-5);
+    padding-left: var(--space-5);
+  }
+
+.maka-daily-review-archive-section-body ul { list-style: disc; }
+.maka-daily-review-archive-section-body ol { list-style: decimal; }
+
 .maka-daily-review-day {
     text-align: center;
     font-weight: 600;
