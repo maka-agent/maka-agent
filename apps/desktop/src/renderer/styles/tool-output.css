@@ -277,8 +277,11 @@
   line-height: 1.4;
   white-space: normal;
 }
+.maka-composer-mode-menu [data-active="true"] {
+  background: var(--state-selected-bg);
+}
 .maka-composer-mode-menu [data-active="true"] .maka-composer-mode-menu-label {
-  color: oklch(from var(--nav-active) l c h);
+  color: var(--foreground);
 }
 
 .maka-composer-right-controls .maka-model-switcher {

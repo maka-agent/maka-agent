@@ -72,4 +72,30 @@ describe('issue #499 state-token governance contract', () => {
     }
     assert.deepEqual(violations, [], `:hover backgrounds must use --state-hover-bg, not --foreground-N or inline oklch:\n${violations.join('\n')}`);
   });
+
+  it('selected/active surfaces use neutral tokens, not --nav-active (allowlist: onboarding + tabs pending tab-spec)', async () => {
+    const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
+    // --nav-active stays only for:
+    //   - onboarding brand emphasis (onboarding.css)
+    //   - tab surfaces pending the tab-spec PR (single underline variant):
+    //     daily-review-range-tab, catalogTab, catalogPillTabs, skill-tab, plan-tab
+    const ALLOWLIST_FILE = /[/\\]onboarding\.css$/;
+    const ALLOWLIST_SELECTOR = /(\.maka-daily-review-range-tab|\.catalogTab|\.catalogPillTabs\b|\.maka-skill-tab|\.maka-plan-tab)\b/;
+    const SELECTED_ACTIVE = /\[data-active|\[data-state\s*=\s*"active"|aria-selected\s*=\s*"true"/;
+    const violations: string[] = [];
+    for (const file of allCss) {
+      if (ALLOWLIST_FILE.test(file)) continue;
+      const source = stripCssComments(await readFile(file, 'utf8'));
+      for (const ruleMatch of source.matchAll(/([^{}]*)\{([^}]*)\}/g)) {
+        const selector = ruleMatch[1];
+        const body = ruleMatch[2];
+        if (!SELECTED_ACTIVE.test(selector)) continue;
+        if (ALLOWLIST_SELECTOR.test(selector)) continue;
+        if (/var\(--nav-active\)/.test(body)) {
+          violations.push(`${file}: ${selector.trim()} uses --nav-active`);
+        }
+      }
+    }
+    assert.deepEqual(violations, [], `selected/active must not use --nav-active (allowlist: onboarding + tabs pending tab-spec):\n${violations.join('\n')}`);
+  });
 });
