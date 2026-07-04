@@ -229,7 +229,7 @@
 }
 .maka-composer-mode-chip[data-tone="accent"] {
   border-color: oklch(from var(--nav-active) l c h / 0.32);
-  color: oklch(from var(--nav-active) l c h);
+  color: var(--foreground-secondary);
 }
 .maka-composer-mode-chip[data-tone="destructive"] {
   border-color: oklch(from var(--destructive) l c h / 0.32);

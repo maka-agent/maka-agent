@@ -198,26 +198,37 @@ describe('issue #406 design-system governance contract', () => {
     assert.match(docs, /WCAG 1\.4\.11/);
   });
 
-  it('permission-mode chip text uses readable *-text variants (>=4.5:1)', async () => {
-    // Review fix: raw --info (L0.75) as chip text was 2.29:1 on white — fails
-    // WCAG AA text (4.5:1). Chip text must use the *-text variants
-    // (--info-text / --destructive-text = color-mix 50% with --foreground),
-    // which clear 4.5:1; the raw tone may stay on the border.
+  it('permission-mode chip text is readable across all tones (>=4.5:1)', async () => {
+    // Review fixes: raw --info (L0.75) as the "自动执行" chip text was 2.29:1
+    // on white, and raw --nav-active (= --accent, L0.70) as the default "询问"
+    // chip text was 2.66:1 — both fail WCAG AA text (4.5:1). Chip text now uses
+    // readable variants: info/destructive use the *-text color-mix (50% with
+    // --foreground, 7.25:1 / 10.83:1); accent (the default mode) uses
+    // --foreground-secondary (color-mix foreground 80% + background 20%,
+    // ~8:1 light / ~7.5:1 dark). Raw tones stay on borders only.
     const tokens = await readFile(TOKENS_FILE, 'utf8');
+    // --foreground-secondary ratio is defined once in :root and inherited by
+    // .dark via re-resolved var() refs. Parse it so a ratio tweak flows through.
+    const fgSecDef = readCssToken(tokens, ':root', 'foreground-secondary');
+    const fgSecPct = Number(fgSecDef.match(/var\(--foreground\)\s+(\d+)%/)?.[1] ?? 80) / 100;
     for (const selector of [':root', '.dark'] as const) {
       const info = parseOklch(readCssToken(tokens, selector, 'info'));
       const destr = parseOklch(readCssToken(tokens, selector, 'destructive'));
       const fg = parseOklch(readCssToken(tokens, selector, 'foreground'));
-      const bg = oklchToSrgb(parseOklch(readCssToken(tokens, selector, 'background')));
+      const bgOklch = parseOklch(readCssToken(tokens, selector, 'background'));
+      const bg = oklchToSrgb(bgOklch);
       const infoText = mixOklchToSrgb(info, fg, 0.5);
       const destrText = mixOklchToSrgb(destr, fg, 0.5);
+      const accentText = mixOklchToSrgb(fg, bgOklch, fgSecPct);
       assert.ok(contrastRatio(infoText, bg) >= 4.5, `${selector} --info-text contrast < 4.5:1`);
       assert.ok(contrastRatio(destrText, bg) >= 4.5, `${selector} --destructive-text contrast < 4.5:1`);
+      assert.ok(contrastRatio(accentText, bg) >= 4.5, `${selector} accent chip (foreground-secondary) contrast < 4.5:1`);
     }
-    // Structural: chip text color must be the *-text variant, not the raw tone.
+    // Structural: chip text color must be the readable variant, not the raw tone.
     const chipCss = stripCssComments(await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'));
     assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="info"\]\s*\{[^}]*color:\s*var\(--info-text\)/);
     assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="destructive"\]\s*\{[^}]*color:\s*var\(--destructive-text\)/);
+    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="accent"\]\s*\{[^}]*color:\s*var\(--foreground-secondary\)/);
   });
 
   it('uses radius tokens for preview card surfaces', async () => {
@@ -297,7 +308,7 @@ describe('issue #406 design-system governance contract', () => {
       '--toast-accent',
       '--brand-deep', '--brand-deep-hover', '--bot-brand-default',
       '--selection',
-      '--accent', '--accent-rgb',
+      '--accent',
       '--color-accent',
     ]);
 
@@ -391,6 +402,11 @@ describe('issue #406 design-system governance contract', () => {
         }
       }
     }
+
+    // Anti-regression: --accent-rgb was removed (unused, and the values were
+    // wrong). Fail loudly if it creeps back into maka-tokens.css.
+    const tokensSource = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    assert.ok(!tokensSource.includes('--accent-rgb'), 'maka-tokens.css must not re-introduce --accent-rgb (deleted as unused)');
 
     assert.deepEqual(violations, [], `raw var(--accent) must only appear inside token definition blocks (maka-tokens.css :root/.dark/[data-maka-theme], styles.css @theme) or palette display (theme-preview.css). Component call sites must use semantic aliases. Found:\n${violations.join('\n')}`);
   });

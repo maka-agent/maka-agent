@@ -74,7 +74,7 @@
 ### 1.0 6-色哲学（the 6-color philosophy）
 
 ```
-background / foreground / accent (purple) / info (amber) / success (green) / destructive (red)
+background / foreground / accent (logo blue) / info (amber) / success (green) / destructive (red)
 ```
 
 派生规则：
