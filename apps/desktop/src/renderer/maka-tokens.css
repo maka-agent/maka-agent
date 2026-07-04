@@ -1747,6 +1747,24 @@
   .maka-button[disabled],
   .maka-button[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 
+  /* ---- Tabs ------------------------------------------------------- */
+
+  /* Shared tab spec (#499 P0-3): one `maka-tab` class + `underline`/`pill`
+   * variants on the Base UI Tabs primitive. Active/hover use the neutral
+   * state tokens — no brand color, no per-surface hand-written tab CSS.
+   * underline = neutral under-bar via the Base UI indicator (no bg fill);
+   * pill = neutral bg fill + bold (indicator hidden). */
+  .maka-tabs-list[data-variant="pill"] .maka-tab:hover {
+    background: var(--state-hover-bg);
+  }
+  .maka-tabs-list[data-variant="pill"] .maka-tab[data-active] {
+    background: var(--state-selected-bg);
+    font-weight: 600;
+  }
+  .maka-tabs-list[data-variant="underline"] .maka-tab[data-active] {
+    color: var(--foreground);
+  }
+
   /* ---- Modal / Dialog --------------------------------------------- */
 
   .maka-modal-backdrop {

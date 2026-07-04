@@ -421,26 +421,6 @@
   font-weight: 600;
 }
 
-.maka-plan-tab[data-state="active"] {
-  color: var(--foreground);
-  background: transparent;
-  box-shadow: none;
-}
-
-/* PR-UI-PIXEL-2 (2026-06-21): reference keeps the active-tab under-bar
-   NEUTRAL (the text/foreground color), not a brand tint — structural chrome
-   stays calm, brand color is reserved as a garnish (study §4 rule 2/3). */
-.maka-plan-tab[data-state="active"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--foreground);
-}
-
 .maka-plan-tab span {
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
