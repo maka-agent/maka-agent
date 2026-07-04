@@ -91,8 +91,8 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       styles,
-      /\.maka-palette-item:active:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*transform:\s*translateY\(1px\);/,
-      'Palette rows need tactile pressed feedback',
+      /\.maka-palette-item:active:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--state-selected-bg\);/,
+      'Palette rows need pressed feedback via the state-selected background, not a scale transform',
     );
     assert.match(styles, /\.maka-palette-item:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--ring\);/);
     assert.match(styles, /\.maka-palette-item\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/);

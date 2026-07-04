@@ -603,7 +603,7 @@
 }
 
 .maka-artifact-row:active:not([data-deleted="true"]) {
-  transform: scale(0.98);
+  background: var(--state-selected-bg);
 }
 
 .maka-artifact-row[data-selected="true"] {

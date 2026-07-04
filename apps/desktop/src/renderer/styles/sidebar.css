@@ -746,13 +746,7 @@
    / .maka-artifact-row. Reduced-motion clause below keeps
    contracts clean. */
 .maka-list-row:active {
-  transform: scale(0.98);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-list-row:active {
-    transform: none;
-  }
+  background: var(--state-selected-bg);
 }
 
 /* Active session row: slightly stronger than hover so the current
@@ -942,7 +936,7 @@
 }
 
 .maka-prompt-chip:active {
-  transform: translateY(0) scale(0.99);
+  background: var(--state-selected-bg);
 }
 
 .maka-prompt-chip-label {

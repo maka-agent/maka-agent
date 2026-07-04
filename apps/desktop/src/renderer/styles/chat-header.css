@@ -566,7 +566,7 @@
 }
 
 .maka-toast-action:active {
-  transform: scale(0.97);
+  background: var(--state-selected-bg);
 }
 
 .maka-toast-close {
@@ -590,15 +590,10 @@
 }
 
 .maka-toast-close:active {
-  transform: scale(0.92);
+  background: var(--state-selected-bg);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .maka-toast-action:active,
-  .maka-toast-close:active {
-    transform: none;
-  }
-}
+
 
 .maka-confirm-modal {
   width: min(420px, calc(100vw - 48px));
@@ -853,7 +848,7 @@
 }
 
 .maka-palette-item:active:not([data-disabled="true"]) {
-  transform: translateY(1px);
+  background: var(--state-selected-bg);
 }
 
 .maka-palette-item:focus-visible {

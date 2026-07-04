@@ -88,16 +88,7 @@ button {
     transition:
       background var(--duration-base) var(--ease-out-strong),
       border-color var(--duration-base) var(--ease-out-strong),
-      color var(--duration-base) var(--ease-out-strong),
-      transform var(--duration-base) var(--ease-out-strong);
-  }
-button:active {
-    transform: scale(0.97);
-  }
-@media (prefers-reduced-motion: reduce) {
-    button:active {
-      transform: none;
-    }
+      color var(--duration-base) var(--ease-out-strong);
   }
 /* PR-IR-04: Test-fixture-driven reduced-motion variant (per
      docs/ui-quality-plan.md §5). Mirrors `prefers-reduced-motion: reduce`
@@ -116,9 +107,6 @@ button:active {
     transition-duration: 0.01ms !important;
     /* Scroll behavior + view transition durations also collapse */
     scroll-behavior: auto !important;
-  }
-[data-maka-reduced-motion="true"] button:active {
-    transform: none;
   }
 /* Visual smoke captures must be deterministic. We still exercise the
      normal DOM for every scenario, but pause purely decorative animation,

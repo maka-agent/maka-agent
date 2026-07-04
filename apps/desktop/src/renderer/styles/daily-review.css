@@ -464,14 +464,11 @@
     background: oklch(from var(--foreground) l c h / 0.045);
   }
 .maka-daily-review-list-item:active:not(:has(button:disabled)) {
-    transform: scale(0.99);
+    background: var(--state-selected-bg);
   }
 @media (prefers-reduced-motion: reduce) {
     .maka-daily-review-list-item {
       transition: background 0ms;
-    }
-    .maka-daily-review-list-item:active:not(:has(button:disabled)) {
-      transform: none;
     }
   }
 

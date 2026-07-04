@@ -629,14 +629,7 @@
    whole row — visually buggy. Restricted to actual <button>s. */
 .settingsBackButton:active,
 .settingsNavItem:active {
-  transform: scale(0.985);
-  transition: transform 100ms var(--ease-out-strong);
-}
-@media (prefers-reduced-motion: reduce) {
-  .settingsBackButton:active,
-  .settingsNavItem:active {
-    transform: none;
-  }
+  background: var(--state-selected-bg);
 }
 
 /* PR-SETTINGS-A11Y-POLISH-0 (round 11/15) — keyboard-only focus ring
