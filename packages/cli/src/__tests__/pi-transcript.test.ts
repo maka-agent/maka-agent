@@ -123,6 +123,36 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.includes('maka'));
     assert.ok(!visibleLines.includes('Assistant'));
   });
+
+  test('surfaces pending permission requests with terminal decision hints', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'permission_request',
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+      hint: 'Run tests before editing.',
+    }));
+
+    const visibleLines = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+    }, 100).map(stripAnsi);
+
+    assert.equal(state.pendingPermission?.requestId, 'permission-1');
+    assert.ok(visibleLines.some((line) => line.includes('Permission required')));
+    assert.ok(visibleLines.some((line) => line.includes('Bash')));
+    assert.ok(visibleLines.some((line) => line.includes('npm test')));
+    assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
+    assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
 });
 
 class RecordingDriver {

@@ -5,12 +5,13 @@ import {
   wrapTextWithAnsi,
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
-import type { SessionEvent, ToolResultContent } from '@maka/core/events';
+import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { MakaSessionDriver } from './session-driver.js';
 
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
+  pendingPermission?: PermissionRequestEvent;
 }
 
 export type MakaPiTranscriptEntry =
@@ -140,11 +141,19 @@ export function applyMakaSessionEventToTranscript(
     }
 
     case 'permission_request':
-      state.entries.push({
-        kind: 'notice',
-        level: 'info',
-        text: `Permission requested for ${event.toolName}: ${event.hint ?? event.reason}`,
-      });
+      state.pendingPermission = event;
+      break;
+
+    case 'permission_decision_ack':
+      if (state.pendingPermission?.requestId === event.requestId) {
+        const toolName = state.pendingPermission.toolName;
+        state.pendingPermission = undefined;
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `Permission ${event.decision}ed for ${toolName}`,
+        });
+      }
       break;
 
     case 'plan_submitted':
@@ -214,6 +223,11 @@ export function renderMakaPiTranscript(
     }
   }
 
+  if (state.pendingPermission) {
+    lines.push('');
+    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+  }
+
   return lines.length > 0 ? lines : [''];
 }
 
@@ -276,6 +290,30 @@ function renderToolBlock(entry: MakaPiToolEntry, width: number): string[] {
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
   const label = entry.level === 'error' ? ansi.red('Error') : ansi.dim('Note');
   return renderIndented(`${label}: ${entry.text}`, width, 0).map((line) => fitLine(line, width));
+}
+
+function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {
+  const lines = [
+    fitLine(`${ansi.yellow('Permission required')} ${ansi.bold(request.toolName)} ${ansi.dim(request.category)}`, width),
+  ];
+  const summary = permissionRequestSummary(request);
+  if (summary) lines.push(...renderIndented(summary, width, 2));
+  if (request.hint) lines.push(...renderIndented(request.hint, width, 2).map(ansi.dim));
+  lines.push(fitLine(ansi.dim('y/Enter allow  n/Esc deny'), width));
+  return lines;
+}
+
+function permissionRequestSummary(request: PermissionRequestEvent): string {
+  const args = request.args;
+  if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
+    const command = (args as { command?: unknown }).command;
+    if (typeof command === 'string' && command.trim()) return `$ ${command}`;
+  }
+  if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
+    const path = (args as { path?: unknown }).path;
+    if (typeof path === 'string' && path.trim()) return path;
+  }
+  return limitText(formatUnknown(request.args), 600);
 }
 
 function renderIndented(text: string, width: number, indent: number): string[] {
