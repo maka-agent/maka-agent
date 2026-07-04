@@ -484,3 +484,22 @@ export type {
   StepLike,
   RuntimeEventLike,
 } from './tool-availability.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// System-prompt fragments (shared by the desktop app and the CLI/TUI).
+// Read-only, stateless builders for project instructions, personalization, git
+// context, and the per-turn environment tail. The stateful LocalMemoryService
+// stays with the desktop app and is injected as a fragment by each caller.
+// ───────────────────────────────────────────────────────────────────────────
+export {
+  buildWorkspaceInstructionsPromptFragment,
+  getWorkspaceInstructionsState,
+  WORKSPACE_INSTRUCTION_FILES,
+  MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
+  MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS,
+} from './system-prompt/workspace-instructions.js';
+export type {
+  WorkspaceInstructionFileStatus,
+  WorkspaceInstructionFileState,
+  WorkspaceInstructionsState,
+} from './system-prompt/workspace-instructions.js';
