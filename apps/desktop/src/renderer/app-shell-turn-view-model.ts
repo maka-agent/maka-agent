@@ -26,7 +26,10 @@ export function deriveAppShellTurnViewModel(input: {
   const turnsForLineage = materializeTurns(input.messages, input.liveTools);
   const lineage = deriveTurnLineageMap(turnsForLineage);
   const turnsById = new Map(turnsForLineage.map((turn) => [turn.turnId, turn]));
-  const shortId = (turnId: string) => turnId.slice(0, 6);
+  // Strip the `turn-` id prefix before truncating — labels interpolate as
+  // `turn ${shortId(...)}`, so a raw slice rendered「已重新生成 → turn
+  // turn-r」: doubled word, one useful character of id left.
+  const shortId = (turnId: string) => turnId.replace(/^turn-/, '').slice(0, 6);
   const footer: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};
   const failedLabels: Record<string, string> = {};
   const failedRecoveryLabels: Record<string, string> = {};
