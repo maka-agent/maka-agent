@@ -572,12 +572,6 @@
   margin: 0;
 }
 
-/* PR-ARTIFACT-ROW-TACTILE-0 (WAWQAQ msg `ed67a267`, skills round
-   task #116): Emil agents-with-taste — every clickable row needs
-   `:active { scale(0.97) }` so press feels physical, and a subtle
-   transform on hover gives spatial feedback. Without it, rows feel
-   like inert color blocks. Transitions limited to transform +
-   background (GPU-friendly, no reflow). */
 .maka-artifact-row {
   width: 100%;
   display: grid;
@@ -594,8 +588,7 @@
   font-size: var(--font-size-caption);
   transition:
     background 140ms var(--ease-out-strong),
-    border-color 140ms var(--ease-out-strong),
-    transform var(--duration-quick) var(--ease-out-strong);
+    border-color 140ms var(--ease-out-strong);
 }
 
 .maka-artifact-row:hover {
@@ -614,9 +607,6 @@
 @media (prefers-reduced-motion: reduce) {
   .maka-artifact-row {
     transition: background 0ms, border-color 0ms;
-  }
-  .maka-artifact-row:active:not([data-deleted="true"]) {
-    transform: none;
   }
 }
 

@@ -82,8 +82,6 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(inputStyle, /user-select:\s*text;/, 'Palette input text must stay selectable/editable');
     assert.match(rowStyle, /min-height:\s*28px;/);
     assert.match(rowStyle, /grid-template-columns:\s*18px minmax\(0, 1fr\) auto;/);
-    assert.match(rowStyle, /transform:\s*translateY\(0\);/);
-    assert.match(rowStyle, /transform 140ms var\(--ease-out-strong\)/);
     assert.match(
       styles,
       /\.maka-palette-item:hover:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--state-hover-bg\);/,

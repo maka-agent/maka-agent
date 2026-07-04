@@ -558,8 +558,7 @@
   font-size: var(--font-size-caption);
   font-weight: 600;
   transition:
-    background-color var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-quick) var(--ease-out-strong);
+    background-color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-toast-action:hover {
@@ -581,8 +580,7 @@
   color: var(--muted-foreground);
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
-    color var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-quick) var(--ease-out-strong);
+    color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-toast-close:hover {
@@ -835,7 +833,6 @@
 }
 
 .maka-palette-item {
-  position: relative;
   width: 100%;
   min-height: 28px;
   display: grid;
@@ -850,12 +847,10 @@
   text-align: left;
   font-size: var(--font-size-caption);
   cursor: default;
-  transform: translateY(0);
   transition:
     background-color 140ms var(--ease-out-strong),
     color 140ms var(--ease-out-strong),
-    opacity 140ms var(--ease-out-strong),
-    transform 140ms var(--ease-out-strong);
+    opacity 140ms var(--ease-out-strong);
 }
 
 .maka-palette-item:hover:not([data-disabled="true"]) {
