@@ -35,6 +35,7 @@ describe('FileSessionStore CRUD', () => {
       assert.equal(summary?.status, 'active');
       assert.equal(summary?.statusUpdatedAt, header.statusUpdatedAt);
       assert.equal(summary?.model, 'fake-model');
+      assert.equal(summary?.cwd, '/tmp/cwd');
     });
   });
 

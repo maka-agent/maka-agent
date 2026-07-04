@@ -111,6 +111,7 @@ export type BackendKind = 'ai-sdk' | 'fake' | 'pi-agent';
 
 export interface SessionSummary {
   id: string;
+  cwd?: string;
   name: string;
   isFlagged: boolean;
   isArchived: boolean;

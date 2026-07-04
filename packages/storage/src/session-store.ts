@@ -488,6 +488,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
   const lastMessageAt = maxTimestamp(header.lastMessageAt, derivedLastMessageAt);
   return {
     id: header.id,
+    cwd: header.cwd,
     name: normalizeSessionName(header.name),
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,

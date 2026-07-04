@@ -986,6 +986,7 @@ export class SessionManager {
 export function headerToSummary(h: SessionHeader): SessionSummary {
   const summary: SessionSummary = {
     id: h.id,
+    cwd: h.cwd,
     name: h.name === 'New Session' ? 'New Chat' : h.name,
     isFlagged: h.isFlagged,
     isArchived: h.isArchived,
