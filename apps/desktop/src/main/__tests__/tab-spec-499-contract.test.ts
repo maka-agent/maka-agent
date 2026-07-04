@@ -88,6 +88,17 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /TabsList[^>]*variant="underline"/,
       'plan TabsList must pass variant="underline"',
     );
+    // Each plan tab value has a corresponding panel (tabpanel a11y pairing).
+    assert.match(
+      panel,
+      /TabsPanel[^>]*value="tasks"/,
+      'plan must have a TabsPanel for the tasks view',
+    );
+    assert.match(
+      panel,
+      /TabsPanel[^>]*value="runs"/,
+      'plan must have a TabsPanel for the runs view',
+    );
     const css = stripCssComments(await readFile(PLAN_CSS_FILE, 'utf8'));
     // The active state + under-bar move to .maka-tab; surface-specific layout
     // rules (.maka-plan-tab height/padding/font-size) may remain, but the
@@ -112,10 +123,24 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /PrimitiveTabsList[^>]*variant="pill"/,
       'catalog TabsList must pass variant="pill"',
     );
+    // Each catalog tab value has a corresponding panel: OAuth gets a fixed
+    // panel, and the three provider categories (domestic/overseas/local) are
+    // mapped to panels via value={cat}. Locking the template + the array
+    // proves every category has a panel without a runtime render test.
     assert.match(
       panel,
-      /PrimitiveTabsPanel/,
-      'catalog content must render through PrimitiveTabsPanel (not bare conditional render)',
+      /PrimitiveTabsPanel[^>]*value="oauth"/,
+      'catalog must have a TabsPanel for the OAuth category',
+    );
+    assert.match(
+      panel,
+      /PrimitiveTabsPanel[^>]*value=\{cat\}/,
+      'catalog must map a TabsPanel per provider category (value={cat})',
+    );
+    assert.match(
+      panel,
+      /\['domestic', 'overseas', 'local'\]/,
+      'catalog category tabs must cover domestic / overseas / local',
     );
     // data-active hand-written boolean removed (Base UI sets data-active on the
     // active tab); data-catalog-tab stays (locked by model-oauth-section contract
@@ -168,10 +193,21 @@ describe('issue #499 P0-3 tab spec contract', () => {
       /TabsList[^>]*variant="underline"/,
       'skill TabsList must pass variant="underline"',
     );
+    // Each skill tab value has a corresponding panel (tabpanel a11y pairing).
     assert.match(
       panel,
-      /TabsPanel/,
-      'skill content must render through TabsPanel',
+      /TabsPanel[^>]*value="market"/,
+      'skill must have a TabsPanel for the market view',
+    );
+    assert.match(
+      panel,
+      /TabsPanel[^>]*value="builtin"/,
+      'skill must have a TabsPanel for the builtin view',
+    );
+    assert.match(
+      panel,
+      /TabsPanel[^>]*value="installed"/,
+      'skill must have a TabsPanel for the installed view',
     );
     // hand-rolled tab-switcher markers removed (Base UI TabsTrigger carries the
     // tab role + aria-selected; the aria-pressed segmented-switcher pattern goes).
