@@ -22,7 +22,7 @@
 
 /* PR-FE-BUG-HUNT-7: send button is a primary CTA so it gets a hair
    more travel than the tool buttons, but still inside the global
-   tactile press range. 1.06→1.03 hover, 0.96→0.97 active. */
+   tactile press range. 1.06→1.03 hover. */
 .maka-composer-send-button:hover:not(:disabled) {
   background: linear-gradient(
     oklch(from var(--action) calc(l - 0.05) c h),

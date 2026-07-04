@@ -523,9 +523,7 @@ color: oklch(0.55 0.015 220);
   color: var(--foreground);
   white-space: normal !important;
   text-align: left;
-  transition:
-    background-color var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong);
+  transition: background-color var(--duration-base) var(--ease-out-strong);
 }
 
 /* PR-UI-PIXEL-0 (2026-06-21): reference rule #2 — hover/selected states are
@@ -534,11 +532,10 @@ color: oklch(0.55 0.015 220);
    See notes/近期 UI study §1.4, §4. */
 .maka-skill-library-row:hover {
   background: var(--state-hover-bg);
-  transform: translateX(1px);
 }
 
 .maka-skill-library-row:active {
-  transform: translateY(1px);
+  background: var(--state-selected-bg);
 }
 
 .maka-skill-library-row:focus-visible {
