@@ -31,6 +31,8 @@ const PROVIDER_EDITOR_CSS_FILE = resolve(
   REPO_ROOT,
   'apps/desktop/src/renderer/styles/settings/provider-editor.css',
 );
+const SKILLS_PANEL_FILE = resolve(REPO_ROOT, 'packages/ui/src/skills-panel.tsx');
+const SKILLS_CSS_FILE = resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/module-pages/skills.css');
 
 const BRAND_STATE_TOKEN_RE =
   /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/;
@@ -164,6 +166,48 @@ describe('issue #499 P0-3 tab spec contract', () => {
       providerEditorCss,
       /\.catalogTab:hover/,
       'catalog hand-written .catalogTab:hover must be removed (hover moves to .maka-tab)',
+    );
+  });
+
+  it('skill tabs migrate from hand-rolled buttons to maka-tab + underline variant + TabsPanel', async () => {
+    const panel = await readFile(SKILLS_PANEL_FILE, 'utf8');
+    assert.match(
+      panel,
+      /TabsList[^>]*variant="underline"/,
+      'skill TabsList must pass variant="underline"',
+    );
+    assert.match(
+      panel,
+      /TabsTrigger[^>]*className="[^"]*\bmaka-tab\b/,
+      'skill TabsTrigger must carry the maka-tab class',
+    );
+    assert.match(
+      panel,
+      /TabsPanel/,
+      'skill content must render through TabsPanel',
+    );
+    // hand-rolled tab-switcher markers removed (Base UI TabsTrigger carries the
+    // tab role + aria-selected; the aria-pressed segmented-switcher pattern goes).
+    assert.doesNotMatch(
+      panel,
+      /aria-pressed=\{activeSkillTab === tab\}/,
+      'skill hand-rolled aria-pressed switcher must be removed',
+    );
+    assert.doesNotMatch(
+      panel,
+      /data-state=\{activeSkillTab === tab \? 'active' : 'inactive'\}/,
+      'skill hand-rolled data-state switcher must be removed',
+    );
+    const css = stripCssComments(await readFile(SKILLS_CSS_FILE, 'utf8'));
+    assert.doesNotMatch(
+      css,
+      /\.maka-skill-tab\[data-state\s*=\s*"active"\]/,
+      'skill hand-written [data-state=active] selector must be removed (active moves to .maka-tab)',
+    );
+    assert.doesNotMatch(
+      css,
+      /\.maka-skill-tab\[data-state\s*=\s*"active"\]::after/,
+      'skill hand-written under-bar ::after must be removed (underline variant uses the Base UI indicator)',
     );
   });
 });

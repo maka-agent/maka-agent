@@ -222,22 +222,6 @@ color: oklch(0.55 0.015 220);
   padding: 0 1px;
 }
 
-.maka-skill-tab[data-state="active"] {
-  color: var(--foreground);
-  font-weight: 650;
-}
-
-.maka-skill-tab[data-state="active"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  border-radius: var(--radius-pill);
-  background: var(--foreground);
-}
-
 .maka-skill-tab span {
   min-width: 16px;
   height: 16px;

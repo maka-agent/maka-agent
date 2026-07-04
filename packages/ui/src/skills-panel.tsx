@@ -11,7 +11,7 @@ import {
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
-import { Button as UiButton, Input } from './ui.js';
+import { Button as UiButton, Input, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
 import type { SkillEntry } from './module-panel-types.js';
@@ -38,6 +38,13 @@ function SkillLibraryPanel(props: {
     if (!normalizedSkillQuery) return true;
     return `${card.title} ${card.body} ${card.meta}`.toLowerCase().includes(normalizedSkillQuery);
   });
+  const skillListEmptyTitle = normalizedSkillQuery ? '没有匹配的 Skill' : '等待添加 Skill';
+  const skillListEmptyBody: ReactNode = normalizedSkillQuery ? '换一个关键词，或清空搜索查看全部本地技能。' : (
+    <>
+      把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
+      {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
+    </>
+  );
   const templates = (
     <section className="maka-skill-examples" aria-label="技能示例">
       <ul className="maka-skill-example-grid" aria-label="技能模板示例">
@@ -59,29 +66,22 @@ function SkillLibraryPanel(props: {
 
   const tabs = (
     <div className="maka-skill-tabs-bar">
-      {/* Not role=tablist: these are plain buttons without the ARIA tabs
-          keyboard contract (roving tabindex, arrow keys, linked panels).
-          aria-pressed states the truth — a segmented view switcher. */}
-      <div className="maka-skill-tabs" aria-label="技能视图">
+      <TabsList variant="underline" className="maka-skill-tabs" aria-label="技能视图">
         {([
           ['market', '市场', filteredMarketCards.length],
           ['builtin', '内置', filteredSkills.length],
           ['installed', '已安装', skillCount],
         ] as const).map(([tab, label, count]) => (
-          <UiButton
+          <TabsTrigger
             key={tab}
-            type="button"
-            variant="ghost"
-            aria-pressed={activeSkillTab === tab}
-            className="maka-skill-tab"
-            data-state={activeSkillTab === tab ? 'active' : 'inactive'}
-            onClick={() => setActiveSkillTab(tab)}
+            className="maka-tab maka-skill-tab"
+            value={tab}
           >
             {label}
             {tab === 'installed' && <span>{count}</span>}
-          </UiButton>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
       {activeSkillTab === 'market' && (
         <div className="maka-skill-filter-actions" aria-label="技能筛选排序">
           {/* Static labels, not disabled buttons: filter/sort are not
@@ -162,8 +162,8 @@ function SkillLibraryPanel(props: {
     </section>
   );
 
-  const skillList = (list: SkillEntry[], emptyTitle: string, emptyBody: ReactNode) => (
-    <section className="maka-skill-installed" aria-label="已安装技能">
+  const skillList = (list: SkillEntry[], emptyTitle: string, emptyBody: ReactNode, label: string) => (
+    <section className="maka-skill-installed" aria-label={label}>
       {list.length === 0 ? (
         <EmptyState
           Icon={Sparkles}
@@ -184,7 +184,7 @@ function SkillLibraryPanel(props: {
       ) : (
         <>
           <div className="maka-skill-section-row">
-            <span className="maka-skill-section-label">{activeSkillTab === 'installed' ? '已安装技能' : '内置技能'}</span>
+            <span className="maka-skill-section-label">{label}</span>
             <small>{list.length} 个</small>
           </div>
           <ul className="maka-skill-library-list" aria-label="技能列表">
@@ -239,20 +239,12 @@ function SkillLibraryPanel(props: {
     return (
       <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
         {banner}
-        {tabs}
-        {activeSkillTab === 'market'
-          ? market
-          : skillList(
-            [],
-            normalizedSkillQuery ? '没有匹配的 Skill' : '等待添加 Skill',
-            normalizedSkillQuery ? '换一个关键词，或清空搜索查看全部本地技能。' : (
-              <>
-                把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
-                {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
-              </>
-            ),
-          )}
-        {activeSkillTab !== 'market' && templates}
+        <TabsRoot value={activeSkillTab} onValueChange={(v) => setActiveSkillTab(v as 'market' | 'builtin' | 'installed')}>
+          {tabs}
+          <TabsPanel value="market">{market}</TabsPanel>
+          <TabsPanel value="builtin">{skillList([], skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
+          <TabsPanel value="installed">{skillList([], skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
+        </TabsRoot>
       </div>
     );
   }
@@ -260,20 +252,12 @@ function SkillLibraryPanel(props: {
   return (
     <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
       {banner}
-      {tabs}
-      {activeSkillTab === 'market'
-        ? market
-        : skillList(
-          filteredSkills,
-          normalizedSkillQuery ? '没有匹配的 Skill' : '等待添加 Skill',
-          normalizedSkillQuery ? '换一个关键词，或清空搜索查看全部本地技能。' : (
-            <>
-              把一个含 <code className="maka-empty-state-code">SKILL.md</code> 的文件夹放到工作区的
-              {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
-            </>
-          ),
-        )}
-      {activeSkillTab !== 'market' && templates}
+      <TabsRoot value={activeSkillTab} onValueChange={(v) => setActiveSkillTab(v as 'market' | 'builtin' | 'installed')}>
+        {tabs}
+        <TabsPanel value="market">{market}</TabsPanel>
+        <TabsPanel value="builtin">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
+        <TabsPanel value="installed">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
+      </TabsRoot>
       <span className="maka-skill-tool-summary-hidden" aria-hidden="true">
         {`${skillCount} 个 Skill · ${new Set((props.skills ?? []).flatMap((skill) => skill.declaredTools ?? [])).size} 类工具`}
       </span>

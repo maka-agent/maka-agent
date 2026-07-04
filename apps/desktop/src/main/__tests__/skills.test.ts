@@ -603,7 +603,7 @@ name: Writer
     assert.match(skillPanel, /<section className="maka-skill-examples" aria-label="技能示例">/);
     assert.match(skillPanel, /<ul className="maka-skill-example-grid" aria-label="技能模板示例">/);
     assert.match(skillPanel, /className="maka-skill-template-row"/);
-    assert.match(skillPanel, /<section className="maka-skill-installed" aria-label="已安装技能">/);
+    assert.match(skillPanel, /<section className="maka-skill-installed" aria-label={label}>/);
     assert.match(skillPanel, /<div className="maka-skill-library" aria-busy=\{props\.actionBusy \? 'true' : undefined\}>/);
     assert.match(skillPanel, /<ul className="maka-skill-library-list" aria-label="技能列表">/);
     assert.match(skillPanel, /<span className="maka-skill-library-status" aria-hidden="true">/);
