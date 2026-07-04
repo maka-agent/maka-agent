@@ -1,4 +1,4 @@
-import { useCallback, useReducer, useRef } from 'react';
+import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
 import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
 
@@ -20,51 +20,39 @@ export interface AppShellSessionUiState {
 
 type AppShellSessionUiStateMapKey = keyof AppShellSessionUiState;
 
-type UpdateMapAction<K extends AppShellSessionUiStateMapKey = AppShellSessionUiStateMapKey> = {
-  [Key in K]: {
-    type: 'update-map';
-    key: Key;
-    updater: (current: AppShellSessionUiState[Key]) => AppShellSessionUiState[Key];
-  };
-}[K];
+const SESSION_UI_MAP_KEYS = [
+  'messageLoadErrorBySession',
+  'messageRetryPendingBySession',
+  'stopPendingBySession',
+  'streamingBySession',
+  'thinkingBySession',
+  'thinkingTruncatedBySession',
+  'liveToolsBySession',
+  'permissionBySession',
+  'sessionEventHealthBySession',
+  'pendingPermissionModeBySession',
+  'pendingSessionModelBySession',
+] as const satisfies readonly AppShellSessionUiStateMapKey[];
 
-type ReplaceStateAction = {
-  type: 'replace-state';
-  state: AppShellSessionUiState;
-};
-
-type AppShellSessionUiStateAction =
-  | ReplaceStateAction
-  | UpdateMapAction
-  | {
-    type: 'clear-session';
-    sessionId: string;
-  };
+type MissingSessionUiMapKey = Exclude<AppShellSessionUiStateMapKey, typeof SESSION_UI_MAP_KEYS[number]>;
+const allSessionUiMapsAreListed: Record<MissingSessionUiMapKey, never> = {};
+void allSessionUiMapsAreListed;
 
 export function createInitialAppShellSessionUiState(): AppShellSessionUiState {
-  return {
-    messageLoadErrorBySession: {},
-    messageRetryPendingBySession: {},
-    stopPendingBySession: {},
-    streamingBySession: {},
-    thinkingBySession: {},
-    thinkingTruncatedBySession: {},
-    liveToolsBySession: {},
-    permissionBySession: {},
-    sessionEventHealthBySession: {},
-    pendingPermissionModeBySession: {},
-    pendingSessionModelBySession: {},
-  };
+  return Object.fromEntries(SESSION_UI_MAP_KEYS.map((key) => [key, {}])) as unknown as AppShellSessionUiState;
 }
 
-function omitSessionKey<T>(current: Record<string, T>, sessionId: string): Record<string, T> {
+function omitSessionKey<K extends AppShellSessionUiStateMapKey>(
+  current: AppShellSessionUiState[K],
+  sessionId: string,
+): AppShellSessionUiState[K] {
   if (!(sessionId in current)) return current;
   const next = { ...current };
-  delete next[sessionId];
-  return next;
+  delete (next as Record<string, unknown>)[sessionId];
+  return next as AppShellSessionUiState[K];
 }
 
-function updateMap<K extends AppShellSessionUiStateMapKey>(
+function updateAppShellSessionUiStateMap<K extends AppShellSessionUiStateMapKey>(
   state: AppShellSessionUiState,
   key: K,
   updater: (current: AppShellSessionUiState[K]) => AppShellSessionUiState[K],
@@ -75,152 +63,104 @@ function updateMap<K extends AppShellSessionUiStateMapKey>(
   return { ...state, [key]: next };
 }
 
-function clearAppShellSessionUiStateForSession(
+function clearSessionUiStateMap<K extends AppShellSessionUiStateMapKey>(
+  state: AppShellSessionUiState,
+  key: K,
+  sessionId: string,
+): AppShellSessionUiState {
+  return updateAppShellSessionUiStateMap(state, key, (current) => omitSessionKey(current, sessionId));
+}
+
+export function clearAppShellSessionUiStateForSession(
   state: AppShellSessionUiState,
   sessionId: string,
 ): AppShellSessionUiState {
   let nextState = state;
-
-  nextState = updateMap(nextState, 'messageLoadErrorBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'messageRetryPendingBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'stopPendingBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'streamingBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'thinkingBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'thinkingTruncatedBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'liveToolsBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'permissionBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'sessionEventHealthBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'pendingPermissionModeBySession', (current) => omitSessionKey(current, sessionId));
-  nextState = updateMap(nextState, 'pendingSessionModelBySession', (current) => omitSessionKey(current, sessionId));
-
+  for (const key of SESSION_UI_MAP_KEYS) {
+    nextState = clearSessionUiStateMap(nextState, key, sessionId);
+  }
   return nextState;
 }
 
-export function appShellSessionUiStateReducer(
-  state: AppShellSessionUiState,
-  action: AppShellSessionUiStateAction,
-): AppShellSessionUiState {
-  switch (action.type) {
-    case 'replace-state':
-      return action.state;
-    case 'clear-session':
-      return clearAppShellSessionUiStateForSession(state, action.sessionId);
-    case 'update-map':
-      switch (action.key) {
-        case 'messageLoadErrorBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'messageRetryPendingBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'stopPendingBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'streamingBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'thinkingBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'thinkingTruncatedBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'liveToolsBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'permissionBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'sessionEventHealthBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'pendingPermissionModeBySession':
-          return updateMap(state, action.key, action.updater);
-        case 'pendingSessionModelBySession':
-          return updateMap(state, action.key, action.updater);
-      }
+export function createAppShellSessionUiStateController(
+  initialState: AppShellSessionUiState = createInitialAppShellSessionUiState(),
+  onChange: (state: AppShellSessionUiState) => void = () => {},
+) {
+  let currentState = initialState;
+  const streamingBySessionRef = { current: currentState.streamingBySession };
+  const sessionEventHealthBySessionRef = { current: currentState.sessionEventHealthBySession };
+
+  function replaceState(next: AppShellSessionUiState): void {
+    if (next === currentState) return;
+    currentState = next;
+    streamingBySessionRef.current = next.streamingBySession;
+    sessionEventHealthBySessionRef.current = next.sessionEventHealthBySession;
+    onChange(next);
   }
+
+  function updateMap<K extends AppShellSessionUiStateMapKey>(
+    key: K,
+    updater: (current: AppShellSessionUiState[K]) => AppShellSessionUiState[K],
+  ): void {
+    const nextMap = updater(currentState[key]);
+    const latestState = currentState;
+    if (nextMap === latestState[key]) return;
+    replaceState({ ...latestState, [key]: nextMap });
+  }
+
+  function createMapSetter<K extends AppShellSessionUiStateMapKey>(key: K): StateUpdater<AppShellSessionUiState[K]> {
+    return (updater) => updateMap(key, updater);
+  }
+
+  return {
+    getState: () => currentState,
+    streamingBySessionRef,
+    sessionEventHealthBySessionRef,
+    setMessageLoadErrorBySession: createMapSetter('messageLoadErrorBySession'),
+    setMessageRetryPendingBySession: createMapSetter('messageRetryPendingBySession'),
+    setStopPendingBySession: createMapSetter('stopPendingBySession'),
+    setStreamingBySession: createMapSetter('streamingBySession'),
+    setThinkingBySession: createMapSetter('thinkingBySession'),
+    setThinkingTruncatedBySession: createMapSetter('thinkingTruncatedBySession'),
+    setLiveToolsBySession: createMapSetter('liveToolsBySession'),
+    setPermissionBySession: createMapSetter('permissionBySession'),
+    setSessionEventHealthBySession: createMapSetter('sessionEventHealthBySession'),
+    setPendingPermissionModeBySession: createMapSetter('pendingPermissionModeBySession'),
+    setPendingSessionModelBySession: createMapSetter('pendingSessionModelBySession'),
+    clearSessionUiState: (sessionId: string) => {
+      replaceState(clearAppShellSessionUiStateForSession(currentState, sessionId));
+    },
+  };
 }
 
 export function useAppShellSessionUiState() {
-  const initialStateRef = useRef<AppShellSessionUiState | null>(null);
-  if (!initialStateRef.current) initialStateRef.current = createInitialAppShellSessionUiState();
+  const [, forceRender] = useReducer((version: number) => version + 1, 0);
+  const controllerRef = useRef<ReturnType<typeof createAppShellSessionUiStateController> | null>(null);
 
-  const stateRef = useRef<AppShellSessionUiState>(initialStateRef.current);
-  // Event handlers need same-frame reads after state setters run.
-  const streamingBySessionRef = useRef<Record<string, AssistantStreamSlot>>(stateRef.current.streamingBySession);
-  const sessionEventHealthBySessionRef =
-    useRef<Record<string, SessionEventStreamSnapshot>>(stateRef.current.sessionEventHealthBySession);
-  const [state, baseDispatch] = useReducer(appShellSessionUiStateReducer, stateRef.current);
-
-  const replaceState = useCallback((next: AppShellSessionUiState) => {
-    stateRef.current = next;
-    streamingBySessionRef.current = next.streamingBySession;
-    sessionEventHealthBySessionRef.current = next.sessionEventHealthBySession;
-    baseDispatch({ type: 'replace-state', state: next });
-  }, []);
-
-  const dispatch = useCallback((action: Exclude<AppShellSessionUiStateAction, ReplaceStateAction>) => {
-    const next = appShellSessionUiStateReducer(stateRef.current, action);
-    if (next === stateRef.current) return;
-    replaceState(next);
-  }, [replaceState]);
-
-  const setMessageLoadErrorBySession = useCallback<StateUpdater<Record<string, string>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'messageLoadErrorBySession', updater }),
-    [dispatch],
-  );
-  const setMessageRetryPendingBySession = useCallback<StateUpdater<Record<string, boolean>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'messageRetryPendingBySession', updater }),
-    [dispatch],
-  );
-  const setStopPendingBySession = useCallback<StateUpdater<Record<string, boolean>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'stopPendingBySession', updater }),
-    [dispatch],
-  );
-  const setStreamingBySession = useCallback<StateUpdater<Record<string, AssistantStreamSlot>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'streamingBySession', updater }),
-    [dispatch],
-  );
-  const setThinkingBySession = useCallback<StateUpdater<Record<string, string>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'thinkingBySession', updater }),
-    [dispatch],
-  );
-  const setThinkingTruncatedBySession = useCallback<StateUpdater<Record<string, boolean>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'thinkingTruncatedBySession', updater }),
-    [dispatch],
-  );
-  const setLiveToolsBySession = useCallback<StateUpdater<Record<string, ToolActivityItem[]>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'liveToolsBySession', updater }),
-    [dispatch],
-  );
-  const setPermissionBySession = useCallback<StateUpdater<PermissionQueues>>(
-    (updater) => dispatch({ type: 'update-map', key: 'permissionBySession', updater }),
-    [dispatch],
-  );
-  const setSessionEventHealthBySession =
-    useCallback<StateUpdater<Record<string, SessionEventStreamSnapshot>>>(
-      (updater) => dispatch({ type: 'update-map', key: 'sessionEventHealthBySession', updater }),
-      [dispatch],
+  if (!controllerRef.current) {
+    controllerRef.current = createAppShellSessionUiStateController(
+      createInitialAppShellSessionUiState(),
+      () => forceRender(),
     );
-  const setPendingPermissionModeBySession = useCallback<StateUpdater<Record<string, boolean>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'pendingPermissionModeBySession', updater }),
-    [dispatch],
-  );
-  const setPendingSessionModelBySession = useCallback<StateUpdater<Record<string, boolean>>>(
-    (updater) => dispatch({ type: 'update-map', key: 'pendingSessionModelBySession', updater }),
-    [dispatch],
-  );
-  const clearSessionUiState = useCallback((sessionId: string) => {
-    dispatch({ type: 'clear-session', sessionId });
-  }, [dispatch]);
+  }
+
+  const controller = controllerRef.current;
 
   return {
-    state,
-    streamingBySessionRef,
-    sessionEventHealthBySessionRef,
-    setMessageLoadErrorBySession,
-    setMessageRetryPendingBySession,
-    setStopPendingBySession,
-    setStreamingBySession,
-    setThinkingBySession,
-    setThinkingTruncatedBySession,
-    setLiveToolsBySession,
-    setPermissionBySession,
-    setSessionEventHealthBySession,
-    setPendingPermissionModeBySession,
-    setPendingSessionModelBySession,
-    clearSessionUiState,
+    state: controller.getState(),
+    streamingBySessionRef: controller.streamingBySessionRef,
+    sessionEventHealthBySessionRef: controller.sessionEventHealthBySessionRef,
+    setMessageLoadErrorBySession: controller.setMessageLoadErrorBySession,
+    setMessageRetryPendingBySession: controller.setMessageRetryPendingBySession,
+    setStopPendingBySession: controller.setStopPendingBySession,
+    setStreamingBySession: controller.setStreamingBySession,
+    setThinkingBySession: controller.setThinkingBySession,
+    setThinkingTruncatedBySession: controller.setThinkingTruncatedBySession,
+    setLiveToolsBySession: controller.setLiveToolsBySession,
+    setPermissionBySession: controller.setPermissionBySession,
+    setSessionEventHealthBySession: controller.setSessionEventHealthBySession,
+    setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
+    setPendingSessionModelBySession: controller.setPendingSessionModelBySession,
+    clearSessionUiState: controller.clearSessionUiState,
   };
 }

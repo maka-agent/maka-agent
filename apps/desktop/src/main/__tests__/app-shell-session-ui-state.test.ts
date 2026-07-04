@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { PermissionRequestEvent } from '@maka/core';
+import { applyThinkingComplete, applyThinkingDelta } from '@maka/ui';
 import {
-  appShellSessionUiStateReducer,
+  clearAppShellSessionUiStateForSession,
+  createAppShellSessionUiStateController,
   createInitialAppShellSessionUiState,
   type AppShellSessionUiState,
 } from '../../renderer/app-shell-session-ui-state.js';
@@ -47,12 +49,9 @@ function seededState(): AppShellSessionUiState {
   };
 }
 
-describe('app shell session UI state reducer', () => {
+describe('app shell session UI state controller', () => {
   it('clears one session from every per-session UI map without touching other sessions', () => {
-    const next = appShellSessionUiStateReducer(seededState(), {
-      type: 'clear-session',
-      sessionId: 'drop',
-    });
+    const next = clearAppShellSessionUiStateForSession(seededState(), 'drop');
 
     assert.deepEqual(Object.keys(next.messageLoadErrorBySession), ['keep']);
     assert.deepEqual(Object.keys(next.messageRetryPendingBySession), ['keep']);
@@ -68,23 +67,52 @@ describe('app shell session UI state reducer', () => {
   });
 
   it('keeps state identity for no-op map updates and only replaces the selected map', () => {
-    const state = createInitialAppShellSessionUiState();
-    const noop = appShellSessionUiStateReducer(state, {
-      type: 'update-map',
-      key: 'messageLoadErrorBySession',
-      updater: (current) => current,
-    });
-    assert.equal(noop, state);
+    const controller = createAppShellSessionUiStateController();
+    const state = controller.getState();
+    controller.setMessageLoadErrorBySession((current) => current);
+    assert.equal(controller.getState(), state);
 
-    const next = appShellSessionUiStateReducer(state, {
-      type: 'update-map',
-      key: 'messageLoadErrorBySession',
-      updater: (current) => ({ ...current, session: 'failed' }),
-    });
+    controller.setMessageLoadErrorBySession((current) => ({ ...current, session: 'failed' }));
+    const next = controller.getState();
 
     assert.notEqual(next, state);
     assert.deepEqual(next.messageLoadErrorBySession, { session: 'failed' });
     assert.equal(next.stopPendingBySession, state.stopPendingBySession);
     assert.equal(next.streamingBySession, state.streamingBySession);
+  });
+
+  it('preserves nested thinking flag updates from thinking delta and complete events', () => {
+    const sessionId = 'thinking-session';
+    const controller = createAppShellSessionUiStateController();
+
+    controller.setThinkingBySession((current) => {
+      const applied = applyThinkingDelta(current[sessionId] ?? '', 'x'.repeat(5 * 1024));
+      if (applied.truncated) {
+        controller.setThinkingTruncatedBySession((flags) =>
+          flags[sessionId] ? flags : { ...flags, [sessionId]: true },
+        );
+      }
+      return { ...current, [sessionId]: applied.text };
+    });
+
+    const afterDelta = controller.getState();
+    assert.match(afterDelta.thinkingBySession[sessionId], /单条 delta 已截断/);
+    assert.equal(afterDelta.thinkingTruncatedBySession[sessionId], true);
+
+    controller.setThinkingBySession((current) => {
+      const applied = applyThinkingComplete('final thinking');
+      controller.setThinkingTruncatedBySession((flags) => {
+        if ((flags[sessionId] === true) === applied.truncated) return flags;
+        if (applied.truncated) return { ...flags, [sessionId]: true };
+        const next = { ...flags };
+        delete next[sessionId];
+        return next;
+      });
+      return { ...current, [sessionId]: applied.text };
+    });
+
+    const afterComplete = controller.getState();
+    assert.equal(afterComplete.thinkingBySession[sessionId], 'final thinking');
+    assert.equal(afterComplete.thinkingTruncatedBySession[sessionId], undefined);
   });
 });
