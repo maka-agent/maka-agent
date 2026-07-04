@@ -562,7 +562,7 @@
 }
 
 .maka-toast-action:hover {
-  background: oklch(from var(--toast-accent) l c h / 0.08);
+  background: var(--state-hover-bg);
 }
 
 .maka-toast-action:active {

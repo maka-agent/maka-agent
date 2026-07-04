@@ -70,7 +70,7 @@ describe('issue #499 state-token governance contract', () => {
         const body = ruleMatch[2];
         for (const bgMatch of body.matchAll(/background(?:-color)?:\s*([^;]+);/g)) {
           const bg = bgMatch[1].trim();
-          if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg) || /var\(--nav-active\)|var\(--accent\)/.test(bg)) {
+          if (/var\(--foreground-(2|3|5|8|10)\)/.test(bg) || /^oklch\(from var\(--foreground\) l c h \/ 0\.0/.test(bg) || /var\(--nav-active\)|var\(--accent\)|var\(--toast-accent\)/.test(bg)) {
             violations.push(`${file}: :hover background ${bg}`);
           }
         }

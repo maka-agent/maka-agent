@@ -629,7 +629,7 @@
 }
 
 .enabledEmptyAction:hover {
-  border-color: oklch(from var(--nav-active) l c h / 0.16);
+  border-color: var(--border-strong);
   background: var(--background-elevated);
 }
 

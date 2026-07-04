@@ -298,7 +298,7 @@
 }
 
 .settingsThemeOption:hover {
-  border-color: oklch(from var(--accent) l c h / 0.22);
+  border-color: var(--border-strong);
   background: var(--state-hover-bg);
 }
 
