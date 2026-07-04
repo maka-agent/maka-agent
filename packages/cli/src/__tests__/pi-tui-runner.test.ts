@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
-import { visibleWidth, type Terminal } from '@earendil-works/pi-tui';
+import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from '../session-driver.js';
-import { arrangeAutocompleteAboveEditor, runMakaPiTui } from '../pi-tui-runner.js';
+import { runMakaPiTui } from '../pi-tui-runner.js';
+import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
+import {
+  assertBottomPickerPlacement,
+  FakeTerminal,
+  inputSurfaceRows,
+  latestPlainLineContaining,
+  plainTerminalOutput,
+  waitFor,
+} from './tui-terminal-mock.js';
 
 describe('Maka Pi TUI runner', () => {
   test('restores the terminal when driver stop rejects during close', async () => {
@@ -685,7 +694,7 @@ describe('Maka Pi TUI runner', () => {
 
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
-    const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/other-repo')]);
+    const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -701,7 +710,6 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => driver.sessionIds.length === 1);
     await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('/other-repo'));
 
     assert.deepEqual(driver.sessionIds, ['session-2']);
     assert.deepEqual(driver.prompts, []);
@@ -819,6 +827,139 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(output.includes('session-other'), false);
 
     terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('blocks prompt submission while a control command is in flight', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    // While the model switch is in flight, typing + Enter must not send a prompt.
+    terminal.input('blocked');
+    terminal.input('\r');
+    await delay(20);
+    assert.deepEqual(driver.prompts, []);
+
+    // After the switch completes, the previously typed prompt goes through.
+    driver.releaseSetModel();
+    await delay(20);
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    assert.deepEqual(driver.prompts, ['blocked']);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects /session for a session in a different folder', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([fakeSessionSummary('session-other', '/elsewhere')]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session session-other');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('different folder'));
+
+    assert.deepEqual(driver.sessionIds, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects /session for a session on a different connection', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      { ...fakeSessionSummary('session-conn', '/repo'), llmConnectionSlug: 'other-connection' },
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session session-conn');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('different connection'));
+
+    assert.deepEqual(driver.sessionIds, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps the permission prompt visible when responding rejects', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RejectingPermissionDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('Permission required'));
+
+    terminal.input('y');
+    await waitFor(() => driver.responses.length === 1);
+    await delay(20);
+
+    // Response rejected: error shows, but the permission prompt stays and can be retried.
+    assert.ok(plainTerminalOutput(terminal.output()).includes('Permission required'));
+
+    terminal.input('n');
+    await waitFor(() => driver.responses.length === 2);
+
     terminal.input('\x03');
     await Promise.race([
       run,
@@ -1038,6 +1179,93 @@ class LongTranscriptDriver extends SlashCommandDriver {
   }
 }
 
+class DeferredControlDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
+  readonly models: string[] = [];
+  private resolveSetModel: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+
+  async setModel(model: string): Promise<void> {
+    this.models.push(model);
+    await new Promise<void>((resolve) => {
+      this.resolveSetModel = resolve;
+    });
+  }
+
+  releaseSetModel(): void {
+    this.resolveSetModel?.();
+    this.resolveSetModel = null;
+  }
+
+  async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class RejectingPermissionDriver implements MakaSessionDriver {
+  readonly responses: PermissionResponse[] = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'permission_request',
+      id: 'event-permission',
+      turnId: 'turn-1',
+      ts: 1,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+    };
+    // The turn stays parked while the permission is unresolved.
+    await new Promise<void>(() => {});
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(response: PermissionResponse): Promise<void> {
+    this.responses.push(response);
+    throw new Error('permission response rejected');
+  }
+
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
 function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): MakaSessionSwitchResult {
   return { summary, messages };
 }
@@ -1080,222 +1308,3 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
   };
 }
 
-function latestPlainLineContaining(output: string, text: string): string {
-  const line = plainTerminalOutput(output)
-    .split(/\r?\n/)
-    .reverse()
-    .find((candidate) => candidate.includes(text));
-  assert.ok(line, `Expected terminal output to contain ${text}`);
-  return line;
-}
-
-function plainTerminalOutput(output: string): string {
-  return output
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
-    .replace(/\x1b_pi:c\x07/g, '')
-    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
-}
-
-function inputSurfaceRows(lines: readonly string[]): [number, number] {
-  const editorBorderIndexes = lines
-    .map((line, index) => (/^─+$/.test(line) ? index : -1))
-    .filter((index) => index >= 0);
-  assert.ok(editorBorderIndexes.length >= 2);
-  return [
-    editorBorderIndexes[editorBorderIndexes.length - 2]!,
-    editorBorderIndexes[editorBorderIndexes.length - 1]!,
-  ];
-}
-
-function assertBottomPickerPlacement(terminal: FakeTerminal, title: string, statusText: string): void {
-  const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
-  const titleIndex = lines.findIndex((line) => line.includes(title));
-  const statusLineIndex = lines.findIndex((line) => line.includes(statusText));
-  const [topEditorBorderIndex, bottomEditorBorderIndex] = inputSurfaceRows(lines);
-
-  assert.ok(titleIndex > 0);
-  assert.ok(titleIndex < topEditorBorderIndex);
-  assert.equal(bottomEditorBorderIndex, terminal.rows - 2);
-  assert.equal(statusLineIndex, terminal.rows - 1);
-}
-
-class FakeTerminal implements Terminal {
-  readonly columns = 80;
-  readonly rows = 24;
-  readonly kittyProtocolActive = false;
-  readonly progressStates: boolean[] = [];
-  readonly writes: string[] = [];
-  stopCalls = 0;
-  private onInput: ((data: string) => void) | null = null;
-
-  start(onInput: (data: string) => void, _onResize: () => void): void {
-    this.onInput = onInput;
-  }
-
-  stop(): void {
-    this.stopCalls += 1;
-  }
-
-  drainInput(): Promise<void> {
-    return Promise.resolve();
-  }
-
-  write(data: string): void {
-    this.writes.push(data);
-  }
-  moveBy(_lines: number): void {}
-  hideCursor(): void {}
-  showCursor(): void {}
-  clearLine(): void {}
-  clearFromCursor(): void {}
-  clearScreen(): void {}
-  setTitle(_title: string): void {}
-
-  setProgress(active: boolean): void {
-    this.progressStates.push(active);
-  }
-
-  input(data: string): void {
-    this.onInput?.(data);
-  }
-
-  output(): string {
-    return this.writes.join('');
-  }
-
-  screenOutput(): string {
-    return renderTerminalScreen(this.writes, this.rows);
-  }
-}
-
-function renderTerminalScreen(writes: readonly string[], rows: number): string {
-  const screen: string[] = [];
-  let row = 0;
-  let col = 0;
-
-  const ensureRow = () => {
-    while (screen.length <= row) screen.push('');
-  };
-
-  const writeText = (text: string) => {
-    ensureRow();
-    const line = screen[row] ?? '';
-    screen[row] = `${line.slice(0, col)}${text}${line.slice(col + text.length)}`;
-    col += text.length;
-  };
-
-  for (const write of writes) {
-    for (let index = 0; index < write.length;) {
-      const char = write[index]!;
-      if (char === '\x1b') {
-        index = consumeEscapeSequence(write, index, {
-          clearScreen: () => {
-            screen.length = 0;
-            row = 0;
-            col = 0;
-          },
-          clearLine: () => {
-            ensureRow();
-            screen[row] = '';
-          },
-          moveTo: (nextRow, nextCol) => {
-            row = Math.max(0, nextRow);
-            col = Math.max(0, nextCol);
-          },
-          moveBy: (rowDelta, colDelta) => {
-            row = Math.max(0, row + rowDelta);
-            col = Math.max(0, col + colDelta);
-          },
-          moveCol: (nextCol) => {
-            col = Math.max(0, nextCol);
-          },
-        });
-        continue;
-      }
-      if (char === '\r') {
-        col = 0;
-        index += 1;
-        continue;
-      }
-      if (char === '\n') {
-        row += 1;
-        col = 0;
-        index += 1;
-        continue;
-      }
-      writeText(char);
-      index += 1;
-    }
-  }
-
-  while (screen.length < rows) screen.push('');
-  return screen.slice(Math.max(0, screen.length - rows)).join('\n');
-}
-
-interface ScreenEscapeActions {
-  clearScreen(): void;
-  clearLine(): void;
-  moveTo(row: number, col: number): void;
-  moveBy(rowDelta: number, colDelta: number): void;
-  moveCol(col: number): void;
-}
-
-function consumeEscapeSequence(input: string, index: number, actions: ScreenEscapeActions): number {
-  const kind = input[index + 1];
-  if (kind === '[') {
-    const finalIndex = findCsiFinalIndex(input, index + 2);
-    if (finalIndex < 0) return input.length;
-    const params = input.slice(index + 2, finalIndex);
-    applyCsiSequence(params, input[finalIndex]!, actions);
-    return finalIndex + 1;
-  }
-  if (kind === ']') return skipUntilTerminator(input, index + 2);
-  if (kind === '_' || kind === 'P') return skipUntilTerminator(input, index + 2);
-  return index + 2;
-}
-
-function findCsiFinalIndex(input: string, start: number): number {
-  for (let index = start; index < input.length; index += 1) {
-    const code = input.charCodeAt(index);
-    if (code >= 0x40 && code <= 0x7e) return index;
-  }
-  return -1;
-}
-
-function skipUntilTerminator(input: string, start: number): number {
-  for (let index = start; index < input.length; index += 1) {
-    if (input[index] === '\x07') return index + 1;
-    if (input[index] === '\x1b' && input[index + 1] === '\\') return index + 2;
-  }
-  return input.length;
-}
-
-function applyCsiSequence(params: string, final: string, actions: ScreenEscapeActions): void {
-  const values = parseCsiValues(params);
-  const first = values[0] ?? 1;
-  if (final === 'A') actions.moveBy(-first, 0);
-  if (final === 'B') actions.moveBy(first, 0);
-  if (final === 'C') actions.moveBy(0, first);
-  if (final === 'D') actions.moveBy(0, -first);
-  if (final === 'G') actions.moveCol(first - 1);
-  if (final === 'H' || final === 'f') actions.moveTo((values[0] ?? 1) - 1, (values[1] ?? 1) - 1);
-  if (final === 'J' && (values[0] === 2 || values[0] === 3)) actions.clearScreen();
-  if (final === 'K' && (values[0] ?? 0) === 2) actions.clearLine();
-}
-
-function parseCsiValues(params: string): number[] {
-  return params
-    .replace(/^\?/, '')
-    .split(';')
-    .filter((part) => /^\d+$/.test(part))
-    .map((part) => Number(part));
-}
-
-async function waitFor(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 250;
-  while (Date.now() < deadline) {
-    if (predicate()) return;
-    await delay(5);
-  }
-  assert.equal(predicate(), true);
-}

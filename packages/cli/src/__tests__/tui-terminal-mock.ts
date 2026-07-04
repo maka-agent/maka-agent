@@ -1,0 +1,227 @@
+import assert from 'node:assert/strict';
+import { setTimeout as delay } from 'node:timers/promises';
+import type { Terminal } from '@earendil-works/pi-tui';
+
+export class FakeTerminal implements Terminal {
+  readonly columns = 80;
+  readonly rows = 24;
+  readonly kittyProtocolActive = false;
+  readonly progressStates: boolean[] = [];
+  readonly writes: string[] = [];
+  stopCalls = 0;
+  private onInput: ((data: string) => void) | null = null;
+
+  start(onInput: (data: string) => void, _onResize: () => void): void {
+    this.onInput = onInput;
+  }
+
+  stop(): void {
+    this.stopCalls += 1;
+  }
+
+  drainInput(): Promise<void> {
+    return Promise.resolve();
+  }
+
+  write(data: string): void {
+    this.writes.push(data);
+  }
+  moveBy(_lines: number): void {}
+  hideCursor(): void {}
+  showCursor(): void {}
+  clearLine(): void {}
+  clearFromCursor(): void {}
+  clearScreen(): void {}
+  setTitle(_title: string): void {}
+
+  setProgress(active: boolean): void {
+    this.progressStates.push(active);
+  }
+
+  input(data: string): void {
+    this.onInput?.(data);
+  }
+
+  output(): string {
+    return this.writes.join('');
+  }
+
+  screenOutput(): string {
+    return renderTerminalScreen(this.writes, this.rows);
+  }
+}
+
+export function plainTerminalOutput(output: string): string {
+  return output
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '')
+    .replace(/\x1b_pi:c\x07/g, '')
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
+}
+
+export function inputSurfaceRows(lines: readonly string[]): [number, number] {
+  const editorBorderIndexes = lines
+    .map((line, index) => (/^─+$/.test(line) ? index : -1))
+    .filter((index) => index >= 0);
+  assert.ok(editorBorderIndexes.length >= 2);
+  return [
+    editorBorderIndexes[editorBorderIndexes.length - 2]!,
+    editorBorderIndexes[editorBorderIndexes.length - 1]!,
+  ];
+}
+
+export function assertBottomPickerPlacement(
+  terminal: FakeTerminal,
+  title: string,
+  statusText: string,
+): void {
+  const lines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+  const titleIndex = lines.findIndex((line) => line.includes(title));
+  const statusLineIndex = lines.findIndex((line) => line.includes(statusText));
+  const [topEditorBorderIndex, bottomEditorBorderIndex] = inputSurfaceRows(lines);
+
+  assert.ok(titleIndex > 0);
+  assert.ok(titleIndex < topEditorBorderIndex);
+  assert.equal(bottomEditorBorderIndex, terminal.rows - 2);
+  assert.equal(statusLineIndex, terminal.rows - 1);
+}
+
+export function latestPlainLineContaining(output: string, text: string): string {
+  const line = plainTerminalOutput(output)
+    .split(/\r?\n/)
+    .reverse()
+    .find((candidate) => candidate.includes(text));
+  assert.ok(line, `Expected terminal output to contain ${text}`);
+  return line;
+}
+
+export async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + 250;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await delay(5);
+  }
+  assert.equal(predicate(), true);
+}
+
+function renderTerminalScreen(writes: readonly string[], rows: number): string {
+  const screen: string[] = [];
+  let row = 0;
+  let col = 0;
+
+  const ensureRow = () => {
+    while (screen.length <= row) screen.push('');
+  };
+
+  const writeText = (text: string) => {
+    ensureRow();
+    const line = screen[row] ?? '';
+    screen[row] = `${line.slice(0, col)}${text}${line.slice(col + text.length)}`;
+    col += text.length;
+  };
+
+  for (const write of writes) {
+    for (let index = 0; index < write.length;) {
+      const char = write[index]!;
+      if (char === '\x1b') {
+        index = consumeEscapeSequence(write, index, {
+          clearScreen: () => {
+            screen.length = 0;
+            row = 0;
+            col = 0;
+          },
+          clearLine: () => {
+            ensureRow();
+            screen[row] = '';
+          },
+          moveTo: (nextRow, nextCol) => {
+            row = Math.max(0, nextRow);
+            col = Math.max(0, nextCol);
+          },
+          moveBy: (rowDelta, colDelta) => {
+            row = Math.max(0, row + rowDelta);
+            col = Math.max(0, col + colDelta);
+          },
+          moveCol: (nextCol) => {
+            col = Math.max(0, nextCol);
+          },
+        });
+        continue;
+      }
+      if (char === '\r') {
+        col = 0;
+        index += 1;
+        continue;
+      }
+      if (char === '\n') {
+        row += 1;
+        col = 0;
+        index += 1;
+        continue;
+      }
+      writeText(char);
+      index += 1;
+    }
+  }
+
+  while (screen.length < rows) screen.push('');
+  return screen.slice(Math.max(0, screen.length - rows)).join('\n');
+}
+
+interface ScreenEscapeActions {
+  clearScreen(): void;
+  clearLine(): void;
+  moveTo(row: number, col: number): void;
+  moveBy(rowDelta: number, colDelta: number): void;
+  moveCol(col: number): void;
+}
+
+function consumeEscapeSequence(input: string, index: number, actions: ScreenEscapeActions): number {
+  const kind = input[index + 1];
+  if (kind === '[') {
+    const finalIndex = findCsiFinalIndex(input, index + 2);
+    if (finalIndex < 0) return input.length;
+    const params = input.slice(index + 2, finalIndex);
+    applyCsiSequence(params, input[finalIndex]!, actions);
+    return finalIndex + 1;
+  }
+  if (kind === ']') return skipUntilTerminator(input, index + 2);
+  if (kind === '_' || kind === 'P') return skipUntilTerminator(input, index + 2);
+  return index + 2;
+}
+
+function findCsiFinalIndex(input: string, start: number): number {
+  for (let index = start; index < input.length; index += 1) {
+    const code = input.charCodeAt(index);
+    if (code >= 0x40 && code <= 0x7e) return index;
+  }
+  return -1;
+}
+
+function skipUntilTerminator(input: string, start: number): number {
+  for (let index = start; index < input.length; index += 1) {
+    if (input[index] === '\x07') return index + 1;
+    if (input[index] === '\x1b' && input[index + 1] === '\\') return index + 2;
+  }
+  return input.length;
+}
+
+function applyCsiSequence(params: string, final: string, actions: ScreenEscapeActions): void {
+  const values = parseCsiValues(params);
+  const first = values[0] ?? 1;
+  if (final === 'A') actions.moveBy(-first, 0);
+  if (final === 'B') actions.moveBy(first, 0);
+  if (final === 'C') actions.moveBy(0, first);
+  if (final === 'D') actions.moveBy(0, -first);
+  if (final === 'G') actions.moveCol(first - 1);
+  if (final === 'H' || final === 'f') actions.moveTo((values[0] ?? 1) - 1, (values[1] ?? 1) - 1);
+  if (final === 'J' && (values[0] === 2 || values[0] === 3)) actions.clearScreen();
+  if (final === 'K' && (values[0] ?? 0) === 2) actions.clearLine();
+}
+
+function parseCsiValues(params: string): number[] {
+  return params
+    .replace(/^\?/, '')
+    .split(';')
+    .filter((part) => /^\d+$/.test(part))
+    .map((part) => Number(part));
+}

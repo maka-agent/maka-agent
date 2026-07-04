@@ -13,10 +13,8 @@ import {
   type AutocompleteProvider,
   type AutocompleteSuggestions,
   type Component,
-  type EditorTheme,
   type OverlayHandle,
   type SelectItem,
-  type SelectListTheme,
   type Terminal,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
@@ -31,6 +29,8 @@ import {
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
 } from './pi-transcript.js';
+import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
+import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
 
 export interface MakaPiTuiInput {
   title: string;
@@ -53,6 +53,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let permissionMode = input.permissionMode;
   let busy = false;
   let closed = false;
+  let permissionInFlight = false;
   let resolveClosed: () => void;
   const closedPromise = new Promise<void>((resolve) => {
     resolveClosed = resolve;
@@ -79,6 +80,35 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     tui.requestRender();
   };
 
+  const reportError = (error: unknown) => {
+    state.entries.push({
+      kind: 'notice',
+      level: 'error',
+      text: error instanceof Error ? error.message : String(error),
+    });
+    requestRender();
+  };
+
+  // Control commands (model/session/permission switches) mutate session state.
+  // Run them through a single serial lock so a prompt submitted mid-switch can
+  // not race the switch and land on the old session/model/permission mode.
+  const runControl = async (action: () => Promise<void>): Promise<void> => {
+    busy = true;
+    editor.disableSubmit = true;
+    terminal.setProgress(true);
+    requestRender();
+    try {
+      await action();
+    } catch (error) {
+      reportError(error);
+    } finally {
+      busy = false;
+      editor.disableSubmit = false;
+      terminal.setProgress(false);
+      requestRender();
+    }
+  };
+
   const close = async () => {
     if (closed) return;
     closed = true;
@@ -95,26 +125,29 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const respondToPendingPermission = (decision: 'allow' | 'deny'): boolean => {
     const request = state.pendingPermission;
-    if (!request) return false;
-    state.pendingPermission = undefined;
-    state.entries.push({
-      kind: 'notice',
-      level: 'info',
-      text: `Permission ${decision}ed for ${request.toolName}`,
-    });
-    requestRender();
+    if (!request || permissionInFlight) return false;
+    permissionInFlight = true;
+    // Keep the prompt visible until the driver accepts the response. If it
+    // rejects, the user can retry with y/n instead of being stuck.
     void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
       ...(decision === 'allow' ? { rememberForTurn: true } : {}),
-    }).catch((error) => {
-      state.entries.push({
-        kind: 'notice',
-        level: 'error',
-        text: error instanceof Error ? error.message : String(error),
+    })
+      .then(() => {
+        permissionInFlight = false;
+        state.pendingPermission = undefined;
+        state.entries.push({
+          kind: 'notice',
+          level: 'info',
+          text: `Permission ${decision}ed for ${request.toolName}`,
+        });
+        requestRender();
+      })
+      .catch((error) => {
+        permissionInFlight = false;
+        reportError(error);
       });
-      requestRender();
-    });
     return true;
   };
 
@@ -154,7 +187,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  // The TUI is bound to one folder and one connection (its autocomplete base
+  // path and model candidates come from the startup target). Refuse to resume
+  // a session from another folder/connection rather than silently desyncing.
+  const assertSwitchable = async (sessionId: string) => {
+    const sessions = await input.driver.listSessions();
+    const target = sessions.find((session) => session.id === sessionId);
+    if (!target) throw new Error(`Session not found: ${sessionId}`);
+    if (target.cwd !== cwd) {
+      throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
+    }
+    if (target.llmConnectionSlug !== connectionSlug) {
+      throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
+    }
+  };
+
   const switchSession = async (sessionId: string) => {
+    await assertSwitchable(sessionId);
     const { summary, messages } = await input.driver.switchSession(sessionId);
     cwd = summary.cwd ?? cwd;
     model = summary.model;
@@ -178,10 +227,36 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     margin: { bottom: BOTTOM_PICKER_MARGIN_ROWS },
   });
 
+  const showSelectPicker = (
+    title: string,
+    rightLabel: string,
+    items: SelectItem[],
+    onSelect: (item: SelectItem) => void,
+    options: { minPrimaryColumnWidth: number; maxPrimaryColumnWidth: number; selectedIndex?: number },
+  ): void => {
+    const list = new SelectList(items, 10, selectListTheme(), {
+      minPrimaryColumnWidth: options.minPrimaryColumnWidth,
+      maxPrimaryColumnWidth: options.maxPrimaryColumnWidth,
+    });
+    if (options.selectedIndex !== undefined) list.setSelectedIndex(options.selectedIndex);
+    const picker = new PickerOverlay(list, { title, rightLabel });
+    let overlay: OverlayHandle | undefined;
+    list.onSelect = (item) => {
+      overlay?.hide();
+      onSelect(item);
+    };
+    list.onCancel = () => {
+      overlay?.hide();
+    };
+    overlay = showBottomPicker(picker);
+  };
+
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    const currentCwdSessions = sessions.filter((session) => session.cwd === cwd);
-    if (currentCwdSessions.length === 0) {
+    const currentSessions = sessions.filter(
+      (session) => session.cwd === cwd && session.llmConnectionSlug === connectionSlug,
+    );
+    if (currentSessions.length === 0) {
       state.entries.push({
         kind: 'notice',
         level: 'info',
@@ -191,63 +266,32 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
 
-    const items: SelectItem[] = currentCwdSessions.slice(0, 10).map((session) => ({
+    const items: SelectItem[] = currentSessions.slice(0, 10).map((session) => ({
       value: session.id,
       label: session.id,
       description: `${session.name} ${session.model}`,
     }));
-    const list = new SelectList(items, 10, selectListTheme(), {
-      minPrimaryColumnWidth: 24,
-      maxPrimaryColumnWidth: 40,
-    });
-    const picker = new PickerOverlay(list, {
-      title: 'Resume Session (Current Folder)',
-      rightLabel: 'Current Folder',
-    });
-    let overlay: OverlayHandle | undefined;
-    list.onSelect = (item) => {
-      overlay?.hide();
-      void switchSession(item.value).catch((error) => {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: error instanceof Error ? error.message : String(error),
-        });
-        requestRender();
-      });
-    };
-    list.onCancel = () => {
-      overlay?.hide();
-    };
-    overlay = showBottomPicker(picker);
+    showSelectPicker(
+      'Resume Session (Current Folder)',
+      'Current Folder',
+      items,
+      (item) => {
+        void runControl(() => switchSession(item.value));
+      },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 40 },
+    );
   };
 
-  const showModelList = async () => {
-    const items = modelPickerItems(model, input.models);
-    const list = new SelectList(items, 10, selectListTheme(), {
-      minPrimaryColumnWidth: 24,
-      maxPrimaryColumnWidth: 48,
-    });
-    const picker = new PickerOverlay(list, {
-      title: 'Select Model',
-      rightLabel: connectionSlug,
-    });
-    let overlay: OverlayHandle | undefined;
-    list.onSelect = (item) => {
-      overlay?.hide();
-      void setModel(item.value).catch((error) => {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: error instanceof Error ? error.message : String(error),
-        });
-        requestRender();
-      });
-    };
-    list.onCancel = () => {
-      overlay?.hide();
-    };
-    overlay = showBottomPicker(picker);
+  const showModelList = () => {
+    showSelectPicker(
+      'Select Model',
+      connectionSlug,
+      modelPickerItems(model, input.models),
+      (item) => {
+        void runControl(() => setModel(item.value));
+      },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
+    );
   };
 
   const setPermissionMode = async (mode: PermissionMode) => {
@@ -263,32 +307,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showPermissionModeList = () => {
     const items = permissionModePickerItems(permissionMode);
-    const list = new SelectList(items, 10, selectListTheme(), {
-      minPrimaryColumnWidth: 16,
-      maxPrimaryColumnWidth: 24,
-    });
-    list.setSelectedIndex(items.findIndex((item) => item.value === permissionMode));
-    const picker = new PickerOverlay(list, {
-      title: 'Select Permission Mode',
-      rightLabel: permissionMode,
-    });
-    let overlay: OverlayHandle | undefined;
-    list.onSelect = (item) => {
-      overlay?.hide();
-      if (!isPermissionMode(item.value)) return;
-      void setPermissionMode(item.value).catch((error) => {
-        state.entries.push({
-          kind: 'notice',
-          level: 'error',
-          text: error instanceof Error ? error.message : String(error),
-        });
-        requestRender();
-      });
-    };
-    list.onCancel = () => {
-      overlay?.hide();
-    };
-    overlay = showBottomPicker(picker);
+    showSelectPicker(
+      'Select Permission Mode',
+      permissionMode,
+      items,
+      (item) => {
+        if (!isPermissionMode(item.value)) return;
+        const mode = item.value;
+        void runControl(() => setPermissionMode(mode));
+      },
+      {
+        minPrimaryColumnWidth: 16,
+        maxPrimaryColumnWidth: 24,
+        selectedIndex: items.findIndex((item) => item.value === permissionMode),
+      },
+    );
   };
 
   const slashCommands: MakaSlashCommand[] = [
@@ -304,14 +337,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Select model',
       run: (parts: string[]) => {
         if (parts.length === 1) {
-          void showModelList().catch((error) => {
-            state.entries.push({
-              kind: 'notice',
-              level: 'error',
-              text: error instanceof Error ? error.message : String(error),
-            });
-            requestRender();
-          });
+          showModelList();
           return;
         }
         const nextModel = parts.length === 2 ? parts[1] : undefined;
@@ -324,14 +350,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        void setModel(nextModel).catch((error) => {
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: error instanceof Error ? error.message : String(error),
-          });
-          requestRender();
-        });
+        void runControl(() => setModel(nextModel));
       },
     },
     {
@@ -352,14 +371,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        void setPermissionMode(mode).catch((error) => {
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: error instanceof Error ? error.message : String(error),
-          });
-          requestRender();
-        });
+        void runControl(() => setPermissionMode(mode));
       },
     },
     {
@@ -367,14 +379,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Resume session',
       run: (parts: string[]) => {
         if (parts.length === 1) {
-          void showSessionList().catch((error) => {
-            state.entries.push({
-              kind: 'notice',
-              level: 'error',
-              text: error instanceof Error ? error.message : String(error),
-            });
-            requestRender();
-          });
+          void showSessionList().catch(reportError);
           return;
         }
         const sessionId = parts.length === 2 ? parts[1] : undefined;
@@ -387,14 +392,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           requestRender();
           return;
         }
-        void switchSession(sessionId).catch((error) => {
-          state.entries.push({
-            kind: 'notice',
-            level: 'error',
-            text: error instanceof Error ? error.message : String(error),
-          });
-          requestRender();
-        });
+        void runControl(() => switchSession(sessionId));
       },
     },
   ].sort((left, right) => left.name.localeCompare(right.name));
@@ -491,108 +489,6 @@ class MakaPiLayoutComponent extends Container {
       ...statusLines,
     ];
   }
-}
-
-class MakaAutocompleteAboveEditorComponent implements Component {
-  private autocompleteSlotRows = 0;
-
-  constructor(private readonly editor: Editor) {}
-
-  get focused(): boolean {
-    return this.editor.focused;
-  }
-
-  set focused(value: boolean) {
-    this.editor.focused = value;
-  }
-
-  invalidate(): void {
-    this.editor.invalidate();
-  }
-
-  handleInput(data: string): void {
-    this.editor.handleInput(data);
-  }
-
-  render(width: number): string[] {
-    const lines = this.editor.render(width);
-    const result = arrangeAutocompleteAboveEditor({
-      lines,
-      autocompleteShowing: this.editor.isShowingAutocomplete(),
-      autocompleteSlotRows: this.autocompleteSlotRows,
-    });
-    this.autocompleteSlotRows = result.autocompleteSlotRows;
-    return result.lines;
-  }
-}
-
-export interface MakaAutocompleteArrangementInput {
-  lines: string[];
-  autocompleteShowing: boolean;
-  autocompleteSlotRows: number;
-}
-
-export interface MakaAutocompleteArrangementResult {
-  lines: string[];
-  autocompleteSlotRows: number;
-}
-
-export function arrangeAutocompleteAboveEditor(
-  input: MakaAutocompleteArrangementInput,
-): MakaAutocompleteArrangementResult {
-  if (!input.autocompleteShowing) {
-    return { lines: input.lines, autocompleteSlotRows: 0 };
-  }
-  const sections = splitTrailingAutocomplete(input.lines);
-  if (sections.autocompleteLines.length === 0) {
-    return { lines: sections.editorLines, autocompleteSlotRows: 0 };
-  }
-  const autocompleteSlotRows = Math.max(
-    input.autocompleteSlotRows,
-    sections.autocompleteLines.length,
-  );
-  return {
-    lines: [
-      ...Array.from(
-        { length: autocompleteSlotRows - sections.autocompleteLines.length },
-        () => '',
-      ),
-      ...sections.autocompleteLines,
-      ...sections.editorLines,
-    ],
-    autocompleteSlotRows,
-  };
-}
-
-interface MakaAutocompleteSections {
-  autocompleteLines: string[];
-  editorLines: string[];
-}
-
-function splitTrailingAutocomplete(lines: string[]): MakaAutocompleteSections {
-  const bottomBorderIndex = findLastIndex(lines, isEditorChromeLine);
-  if (bottomBorderIndex < 1 || bottomBorderIndex === lines.length - 1) {
-    return { autocompleteLines: [], editorLines: lines };
-  }
-  const topBorderIndex = findLastIndex(lines.slice(0, bottomBorderIndex), isEditorChromeLine);
-  if (topBorderIndex < 0) return { autocompleteLines: [], editorLines: lines };
-
-  return {
-    autocompleteLines: lines.slice(bottomBorderIndex + 1),
-    editorLines: lines.slice(0, bottomBorderIndex + 1),
-  };
-}
-
-function isEditorChromeLine(line: string): boolean {
-  const text = stripAnsi(line);
-  return /^─+$/.test(text) || /^─── [↑↓] \d+ more ─*$/.test(text);
-}
-
-function findLastIndex<T>(items: readonly T[], predicate: (item: T) => boolean): number {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    if (predicate(items[index]!)) return index;
-  }
-  return -1;
 }
 
 class MakaAutocompleteProvider implements AutocompleteProvider {
@@ -737,43 +633,4 @@ function padLine(text: string, width: number): string {
   return `${trimmed}${' '.repeat(Math.max(0, safeWidth - visibleWidth(trimmed)))}`;
 }
 
-function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
-}
-
-function editorTheme(): EditorTheme {
-  return {
-    borderColor: ansi.accent,
-    selectList: selectListTheme(),
-  };
-}
-
-function selectListTheme(): SelectListTheme {
-  return {
-    selectedPrefix: ansi.accent,
-    selectedText: ansi.bold,
-    description: ansi.dim,
-    scrollInfo: ansi.dim,
-    noMatch: ansi.dim,
-  };
-}
-
-// PR #496: desktop --accent = oklch(0.70 0.135 250), rendered here as truecolor ANSI.
-const MAKA_LOGO_BLUE_RGB = [87, 163, 239] as const;
-
-const ansi = {
-  bold: style(1, 22),
-  dim: style(2, 22),
-  accent: rgb(...MAKA_LOGO_BLUE_RGB),
-  reverse: style(7, 27),
-};
-
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
-
-function style(open: number, close: number): (text: string) => string {
-  return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
-}
-
-function rgb(red: number, green: number, blue: number): (text: string) => string {
-  return (text) => `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
-}

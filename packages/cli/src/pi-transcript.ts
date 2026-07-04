@@ -9,6 +9,7 @@ import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@m
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
+import { ansi } from './tui-ansi.js';
 
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
@@ -518,29 +519,6 @@ function formatUnknown(value: unknown): string {
 function limitText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return `${text.slice(0, maxChars)}\n... ${text.length - maxChars} chars truncated`;
-}
-
-// PR #496: desktop --accent = oklch(0.70 0.135 250), rendered here as truecolor ANSI.
-const MAKA_LOGO_BLUE_RGB = [87, 163, 239] as const;
-
-const ansi = {
-  bold: style(1, 22),
-  dim: style(2, 22),
-  italic: style(3, 23),
-  underline: style(4, 24),
-  strikethrough: style(9, 29),
-  red: style(31, 39),
-  green: style(32, 39),
-  yellow: style(33, 39),
-  accent: rgb(...MAKA_LOGO_BLUE_RGB),
-};
-
-function style(open: number, close: number): (text: string) => string {
-  return (text) => `\x1b[${open}m${text}\x1b[${close}m`;
-}
-
-function rgb(red: number, green: number, blue: number): (text: string) => string {
-  return (text) => `\x1b[38;2;${red};${green};${blue}m${text}\x1b[39m`;
 }
 
 const markdownTheme: MarkdownTheme = {
