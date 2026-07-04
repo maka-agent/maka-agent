@@ -3,7 +3,7 @@ import { mkdir, mkdtemp } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, it } from 'node:test';
-import type { ConnectionEvent, SessionEvent, StoredMessage } from '@maka/core';
+import type { ConnectionEvent, PlanReminder, SessionEvent, StoredMessage } from '@maka/core';
 import { build } from 'esbuild';
 import { act, createElement, type ReactElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -23,6 +23,8 @@ type CapturedSubscriptions = {
   activeSessionSubscribeCount: number;
   connectionEvent?: (event: ConnectionEvent) => void;
   connectionSubscribeCount: number;
+  planDue?: (reminder: PlanReminder) => void;
+  planDueSubscribeCount: number;
 };
 type RendererMakaStub = {
   appWindow: {
@@ -57,6 +59,7 @@ describe('AppShell effect stability contract', () => {
     const captured: CapturedSubscriptions = {
       activeSessionSubscribeCount: 0,
       connectionSubscribeCount: 0,
+      planDueSubscribeCount: 0,
     };
     const root = installReactRenderer(captured);
     const calls: string[] = [];
@@ -88,6 +91,7 @@ describe('AppShell effect stability contract', () => {
     const captured: CapturedSubscriptions = {
       activeSessionSubscribeCount: 0,
       connectionSubscribeCount: 0,
+      planDueSubscribeCount: 0,
     };
     const root = installReactRenderer(captured);
     const refs = { activeIdRef: { current: 'session-1' } };
@@ -115,6 +119,52 @@ describe('AppShell effect stability contract', () => {
     assert.deepEqual(calls, ['second']);
   });
 
+  it('keeps plan reminder toast actions on the latest navigation handler', async () => {
+    const effects = await importAppShellEffects();
+    const refs = createBootstrapRefs();
+    const captured: CapturedSubscriptions = {
+      activeSessionSubscribeCount: 0,
+      connectionSubscribeCount: 0,
+      planDueSubscribeCount: 0,
+    };
+    const root = installReactRenderer(captured);
+    const navSections: string[] = [];
+    let toastAction: (() => void) | undefined;
+
+    await render(root, createElement(BootstrapSubscriptionProbe, {
+      effects,
+      onConnectionEvent: () => {},
+      onNavSelection: () => navSections.push('first'),
+      onToastAction: (action) => {
+        toastAction = action;
+      },
+      refs,
+    }));
+    assert.equal(captured.planDueSubscribeCount, 1);
+
+    await render(root, createElement(BootstrapSubscriptionProbe, {
+      effects,
+      onConnectionEvent: () => {},
+      onNavSelection: (selection) => navSections.push(selection.section),
+      onToastAction: (action) => {
+        toastAction = action;
+      },
+      refs,
+    }));
+    assert.equal(captured.planDueSubscribeCount, 1, 'rerendering with a new handler must not resubscribe');
+
+    await act(async () => {
+      captured.planDue?.(createPlanReminder());
+    });
+    assert.ok(toastAction, 'plan reminder toast must expose a navigation action');
+
+    await act(async () => {
+      toastAction?.();
+    });
+
+    assert.deepEqual(navSections, ['automations']);
+  });
+
   it('uses React effect events instead of a local latest-ref helper', async () => {
     const src = await readRendererShellSource('app-shell-effects.ts');
 
@@ -126,6 +176,8 @@ describe('AppShell effect stability contract', () => {
 function BootstrapSubscriptionProbe(props: {
   effects: AppShellEffectsModule;
   onConnectionEvent(event: ConnectionEvent): void;
+  onNavSelection?(selection: { section: string }): void;
+  onToastAction?(onClick: (() => void) | undefined): void;
   refs: ReturnType<typeof createBootstrapRefs>;
 }) {
   props.effects.useAppShellBootstrapSubscriptions({
@@ -153,12 +205,16 @@ function BootstrapSubscriptionProbe(props: {
     rendererMountedRef: props.refs.rendererMountedRef,
     setActiveId: () => {},
     setMessages: () => {},
-    setNavSelection: () => {},
+    setNavSelection: (selection) => {
+      props.onNavSelection?.(selection);
+    },
     setSessionEventHealthBySession: () => {},
     toastApi: {
       error: () => {},
       info: () => {},
-      toast: () => {},
+      toast: (payload) => {
+        props.onToastAction?.(payload.action?.onClick);
+      },
     },
   });
   return null;
@@ -214,6 +270,22 @@ function createBootstrapRefs() {
   };
 }
 
+function createPlanReminder(): PlanReminder {
+  return {
+    id: 'reminder-1',
+    title: 'Review automations',
+    note: '',
+    schedule: { kind: 'once', runAt: 1 },
+    delivery: { channel: 'local' },
+    status: 'scheduled',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+    runs: [],
+    runCount: 0,
+  };
+}
+
 function installReactRenderer(captured: CapturedSubscriptions): Root {
   installFakeDom();
   installFakeMaka(captured);
@@ -247,7 +319,11 @@ function installFakeMaka(captured: CapturedSubscriptions): void {
     },
     plans: {
       subscribeChanges: () => noop,
-      subscribeDue: () => noop,
+      subscribeDue(callback: (reminder: PlanReminder) => void) {
+        captured.planDueSubscribeCount += 1;
+        captured.planDue = callback;
+        return noop;
+      },
     },
     sessions: {
       readMessages: async () => [],

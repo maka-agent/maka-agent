@@ -232,9 +232,6 @@ export function useAppShellBootstrapSubscriptions(options: {
   const handlePlanChange = useEffectEvent(() => {
     void options.refreshPlanReminders();
   });
-  const openAutomations = useEffectEvent(() => {
-    options.setNavSelection({ section: 'automations' });
-  });
   const handlePlanDue = useEffectEvent((reminder: PlanReminder) => {
     void options.refreshPlanReminders();
     options.toastApi.toast({
@@ -244,7 +241,7 @@ export function useAppShellBootstrapSubscriptions(options: {
       duration: 8000,
       action: {
         label: '查看定时任务',
-        onClick: openAutomations,
+        onClick: () => options.setNavSelection({ section: 'automations' }),
       },
     });
   });
