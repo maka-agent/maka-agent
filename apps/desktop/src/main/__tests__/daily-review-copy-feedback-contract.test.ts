@@ -97,10 +97,14 @@ describe('Daily Review copy feedback contract', () => {
 
     assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
     assert.match(panelBlock, /<SettingsSegmented[\s\S]*?className="maka-daily-review-range-tabs"/);
-    assert.match(panelBlock, /className="maka-daily-review-copy"/);
-    assert.match(panelBlock, /className="maka-daily-review-append"/);
-    assert.match(panelBlock, /className="maka-daily-review-save"/);
-    assert.match(panelBlock, /className="maka-daily-review-alert-retry"/);
+    // PR3 (#527) added min-w-[Nrem] utilities to the copy/append/save buttons
+    // (text-swap width lock for 复制/已复制 feedback). Match each semantic
+    // class as a whole word in the class list — same form as the negative
+    // maka-button check on the next line.
+    assert.match(panelBlock, /className="[^"]*\bmaka-daily-review-copy\b[^"]*"/);
+    assert.match(panelBlock, /className="[^"]*\bmaka-daily-review-append\b[^"]*"/);
+    assert.match(panelBlock, /className="[^"]*\bmaka-daily-review-save\b[^"]*"/);
+    assert.match(panelBlock, /className="[^"]*\bmaka-daily-review-alert-retry\b[^"]*"/);
     assert.doesNotMatch(panelBlock, /className="[^"]*\bmaka-button\b[^"]*"/);
     assert.doesNotMatch(css, /\.maka-daily-review-range-tab\[data-active/);
     assert.match(css, /\.maka-daily-review-copy,\s*\.maka-daily-review-append,\s*\.maka-daily-review-save/);
