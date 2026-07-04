@@ -243,12 +243,22 @@
 
 .maka-daily-review-archive-sections {
     display: grid;
-    gap: var(--space-2);
+    /* Section rhythm: 8px title→body inside a section, 16px + hairline
+       BETWEEN sections — the four report blocks (对话摘要/遗漏提醒/
+       使用洞察/代码建议) previously sat at a uniform 8px cadence and
+       read as one undifferentiated slab. Divider over nested cards per
+       the anti-nested-box rule. */
+    gap: var(--space-4);
   }
 
 .maka-daily-review-archive-section {
     display: grid;
-    gap: var(--space-0-5);
+    gap: var(--space-1);
+  }
+
+.maka-daily-review-archive-section + .maka-daily-review-archive-section {
+    border-top: 1px solid var(--foreground-10);
+    padding-top: var(--space-3);
   }
 
 .maka-daily-review-archive-section h5 {
