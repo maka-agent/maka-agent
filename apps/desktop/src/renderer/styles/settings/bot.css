@@ -29,20 +29,8 @@
 }
 
 .settingsBotList button[data-active="true"] {
-  background: color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 8%, transparent);
+  background: var(--state-selected-bg);
   color: var(--foreground);
-  position: relative;
-}
-.settingsBotList button[data-active="true"]::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  border-radius: 0 var(--radius-control) var(--radius-control) 0;
-  background: var(--bot-brand-color, var(--bot-brand-default));
 }
 
 .settingsBotList em {

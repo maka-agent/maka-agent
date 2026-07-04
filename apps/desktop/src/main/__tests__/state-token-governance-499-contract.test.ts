@@ -96,11 +96,11 @@ describe('issue #499 state-token governance contract', () => {
         const body = ruleMatch[2];
         if (!SELECTED_ACTIVE.test(selector)) continue;
         if (ALLOWLIST_SELECTOR.test(selector)) continue;
-        if (/var\(--nav-active\)|var\(--accent\)/.test(body)) {
-          violations.push(`${file}: ${selector.trim()} uses --nav-active/--accent`);
+        if (/var\(--nav-active\)|var\(--accent\)|var\(--bot-brand-color\)|var\(--bot-brand-default\)/.test(body)) {
+          violations.push(`${file}: ${selector.trim()} uses --nav-active/--accent/--bot-brand-*`);
         }
       }
     }
-    assert.deepEqual(violations, [], `selected/active must not use --nav-active/--accent (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
+    assert.deepEqual(violations, [], `selected/active must not use --nav-active/--accent/--bot-brand-* (allowlist: onboarding brand emphasis + tabs pending tab-spec):\n${violations.join('\n')}`);
   });
 });
