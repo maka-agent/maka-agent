@@ -785,7 +785,7 @@ export function MemorySettingsPage(props: {
               variant="quiet"
               size="sm"
               className="settingsInlineTextButton min-w-[5rem]"
-              disabled={!localMemoryPromptPreview || isMemoryActionPending('memory:prompt-preview:copy')
+              disabled={!localMemoryPromptPreview || isMemoryActionPending('memory:prompt-preview:copy')}
               onClick={() => void copyLocalMemoryPromptPreview()}
             >
               {isMemoryActionPending('memory:prompt-preview:copy') ? '复制中…' : '复制上下文'}
