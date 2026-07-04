@@ -159,19 +159,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
-    if (sessions.length === 0) {
+    const currentCwdSessions = sessions.filter((session) => session.cwd === input.cwd);
+    if (currentCwdSessions.length === 0) {
       state.entries.push({
         kind: 'notice',
         level: 'info',
-        text: 'No sessions found.',
+        text: 'No sessions found for this folder.',
       });
       requestRender();
       return;
     }
 
-    const items: SelectItem[] = sessions.slice(0, 10).map((session) => ({
+    const items: SelectItem[] = currentCwdSessions.slice(0, 10).map((session) => ({
       value: session.id,
-      label: `${session.cwd === input.cwd ? '* ' : ''}${session.id}`,
+      label: session.id,
       description: `${session.name} ${session.model}`,
     }));
     const list = new SelectList(items, 10, selectListTheme(), {

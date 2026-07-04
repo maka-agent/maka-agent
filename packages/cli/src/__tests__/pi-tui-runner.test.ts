@@ -272,6 +272,39 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('shows only current-cwd sessions in the session picker', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('session-current', '/repo'),
+      fakeSessionSummary('session-other', '/elsewhere'),
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('session-current'));
+    const output = plainTerminalOutput(terminal.output());
+    assert.equal(output.includes('session-other'), false);
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
 });
 
 class RejectingStopDriver implements MakaSessionDriver {
@@ -421,8 +454,10 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly sessionIds: string[] = [];
   private sessionId = 'session-1';
 
+  constructor(private readonly sessions: SessionSummary[] = [fakeSessionSummary('session-2', '/repo')]) {}
+
   async listSessions(): Promise<SessionSummary[]> {
-    return [fakeSessionSummary('session-2')];
+    return this.sessions;
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
@@ -454,9 +489,10 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
 }
 
-function fakeSessionSummary(sessionId: string): SessionSummary {
+function fakeSessionSummary(sessionId: string, cwd = '/repo'): SessionSummary {
   return {
     id: sessionId,
+    cwd,
     name: 'Existing chat',
     isFlagged: false,
     isArchived: false,
