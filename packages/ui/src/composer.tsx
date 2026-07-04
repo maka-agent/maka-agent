@@ -27,7 +27,7 @@ import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
 import { Kbd } from './primitives/kbd.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 
-interface PermissionModeMeta {
+export interface PermissionModeMeta {
   label: string;
   hint: string;
   tone: 'info' | 'accent' | 'destructive';
@@ -47,8 +47,12 @@ interface PermissionModeMeta {
  *
  * Labels follow WAWQAQ's a667cf6c renaming — direct, action-led copy
  * instead of engineering shorthand.
+ *
+ * Exported (via components.tsx) so the Settings → General "默认权限模式"
+ * picker can reuse the exact same labels/hints instead of a second,
+ * driftable copy of this table.
  */
-const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
+export const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
   explore: {
     label: '只读模式',
     hint: '只读模式：读取、列表、搜索直通，写入或网络仍需明确确认。Deep Research 默认走这档；不再出现在用户切换里。',
@@ -71,7 +75,7 @@ const PERMISSION_MODE_META: Record<PermissionMode, PermissionModeMeta> = {
   },
 };
 
-const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute', 'bypass'];
+export const PERMISSION_MODE_ORDER: PermissionMode[] = ['ask', 'execute', 'bypass'];
 
 const COMPOSER_MAX_HEIGHT = 240;
 

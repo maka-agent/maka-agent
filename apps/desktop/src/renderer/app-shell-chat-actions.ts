@@ -66,6 +66,9 @@ export function createAppShellChatActions(deps: {
   upsertSessionSummary: (session: SessionSummary) => void;
   pendingNewChatPermissionMode: PendingNewChatPermissionMode;
   setPendingNewChatPermissionMode: (mode: PendingNewChatPermissionMode) => void;
+  /** Settings → 通用 → 默认权限模式; seeds a new chat when the composer's
+   *  own picker was never touched (pendingNewChatPermissionMode is null). */
+  defaultPermissionMode: PermissionMode;
   validPendingNewChatModel: PendingNewChatModel;
 }): AppShellChatActions {
   const {
@@ -87,6 +90,7 @@ export function createAppShellChatActions(deps: {
     upsertSessionSummary,
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
+    defaultPermissionMode,
     validPendingNewChatModel,
   } = deps;
 
@@ -134,7 +138,7 @@ export function createAppShellChatActions(deps: {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
         const session = await window.maka.sessions.create({
-          permissionMode: pendingNewChatPermissionMode ?? 'ask',
+          permissionMode: pendingNewChatPermissionMode ?? defaultPermissionMode,
           name: text.slice(0, 42) || '新建对话',
           ...(validPendingNewChatModel
             ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }

@@ -187,6 +187,10 @@ export function AppShell() {
   const [themePref, setThemePref] = useState<ThemePreference>('auto');
   const [themePalette, setThemePalette] = useState<ThemePalette>('default');
   const [userLabel, setUserLabel] = useState<string>('');
+  // Settings → 通用 → 默认权限模式. Seeds new chats (see app-shell-chat-
+  // actions.ts) and is what the composer's picker shows before the user
+  // makes their own per-session choice.
+  const [defaultPermissionMode, setDefaultPermissionMode] = useState<PermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
@@ -600,7 +604,11 @@ export function AppShell() {
     backend: 'fake',
     llmConnectionSlug: 'default',
     model: 'fake-model',
-    permissionMode: 'ask',
+    // Transient placeholder while the real SessionSummary loads --
+    // matches the configured default so the composer doesn't flash a
+    // hardcoded value before the real session data (or its own
+    // pendingNewChatPermissionMode fallback) supersedes it.
+    permissionMode: defaultPermissionMode,
   } : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
   const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
@@ -790,6 +798,7 @@ export function AppShell() {
     upsertSessionSummary,
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
+    defaultPermissionMode,
     validPendingNewChatModel,
   });
 
@@ -960,6 +969,7 @@ export function AppShell() {
       setThemePref(pref);
       setThemePalette(palette);
       setUserLabel(name);
+      setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
       applyTheme(pref);
       applyThemePalette(palette);
     } catch (error) {
@@ -1102,6 +1112,16 @@ export function AppShell() {
     // chat-header memory pill — user may have just flipped the
     // agentReadEnabled switch.
     void refreshMemoryActive();
+    // PR-DEFAULT-PERMISSION-MODE-0: the General page writes
+    // chatDefaults.permissionMode through its own settings-surface.tsx
+    // state, which app-shell.tsx never sees live. Re-read it here so a
+    // change takes effect for the next new chat without requiring an
+    // app restart. New-chat creation can't happen while Settings is open
+    // anyway, so a close-time refresh is timely enough (unlike theme,
+    // which needs to apply instantly and has its own onThemeChange wire).
+    void window.maka.settings.get().then((next) => {
+      setDefaultPermissionMode(next.chatDefaults?.permissionMode ?? 'ask');
+    }).catch(() => {});
   }
 
   function showModelSetupToast(description: string, reason?: string) {
@@ -1398,7 +1418,7 @@ export function AppShell() {
                     void selectProjectDirectory();
                   },
                 }}
-                permissionMode={activeSessionForView?.permissionMode ?? pendingNewChatPermissionMode ?? undefined}
+                permissionMode={activeSessionForView?.permissionMode ?? pendingNewChatPermissionMode ?? defaultPermissionMode}
                 permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
                 permissionModeDisabledReason={
                   activeId && pendingPermissionModeBySession[activeId] === true

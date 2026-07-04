@@ -246,8 +246,8 @@ describe('permission mode transition guard copy', () => {
     );
     assert.match(
       renderer,
-      /permissionMode:\s*pendingNewChatPermissionMode \?\? 'ask'/,
-      'New session creation must use the no-session permission mode pick instead of always creating ask-mode sessions',
+      /permissionMode:\s*pendingNewChatPermissionMode \?\? defaultPermissionMode,/,
+      'New session creation must use the no-session permission mode pick, falling back to the configured Settings → 通用 default (not a hardcoded \'ask\')',
     );
     assert.match(
       renderer,
@@ -256,8 +256,8 @@ describe('permission mode transition guard copy', () => {
     );
     assert.match(
       renderer,
-      /permissionMode=\{activeSessionForView\?\.permissionMode \?\? pendingNewChatPermissionMode \?\? undefined\}/,
-      'The Composer mode chip must show the pending no-session pick before the first message creates a session',
+      /permissionMode=\{activeSessionForView\?\.permissionMode \?\? pendingNewChatPermissionMode \?\? defaultPermissionMode\}/,
+      'The Composer mode chip must show the pending no-session pick (or the configured default) before the first message creates a session',
     );
     assert.match(
       renderer,

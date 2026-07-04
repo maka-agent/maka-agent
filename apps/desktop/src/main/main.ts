@@ -1016,7 +1016,7 @@ function registerIpc(): void {
         backend: 'fake',
         llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
         model: input.model ?? 'fake-model',
-        permissionMode: input.permissionMode ?? 'ask',
+        permissionMode: input.permissionMode ?? (await settingsStore.get()).chatDefaults.permissionMode,
         name: input.name ?? 'New Chat',
         labels: input.labels,
       });
@@ -1032,7 +1032,7 @@ function registerIpc(): void {
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
       model,
-      permissionMode: input?.permissionMode ?? 'ask',
+      permissionMode: input?.permissionMode ?? (await settingsStore.get()).chatDefaults.permissionMode,
       name: input?.name ?? 'New Chat',
       labels: input?.labels,
     });
@@ -1547,12 +1547,20 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
       // the race window between `getSnapshot()` and `createSession()`
       // (e.g. user revoked credential in another window).
       const ready = await getReadyConnection(input.defaultConnectionSlug, input.defaultModel);
+      // Deep Research always forces 'explore' (read-only exploration
+      // boundary) regardless of the user's default -- see the docstring
+      // on OnboardingHero's quickChat submit. Any other Quick Chat
+      // session seeds from the same chatDefaults.permissionMode as the
+      // regular sessions:create path.
+      const permissionMode = input.mode === 'deep_research'
+        ? 'explore'
+        : (await settingsStore.get()).chatDefaults.permissionMode;
       return runtime.createSession({
         cwd: process.cwd(),
         backend: 'ai-sdk',
         llmConnectionSlug: ready.connection.slug,
         model: ready.model,
-        permissionMode: input.mode === 'deep_research' ? 'explore' : 'ask',
+        permissionMode,
         name: input.mode === 'deep_research' ? 'Deep Research' : 'New Chat',
         labels: input.mode === 'deep_research' ? [DEEP_RESEARCH_SESSION_LABEL] : [],
       });

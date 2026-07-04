@@ -130,8 +130,8 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       sendBlock,
-      /permissionMode: pendingNewChatPermissionMode \?\? 'ask'/,
-      'new-chat sessions.create must receive the picked pending permission mode',
+      /permissionMode: pendingNewChatPermissionMode \?\? defaultPermissionMode,/,
+      'new-chat sessions.create must receive the picked pending permission mode, falling back to the configured Settings → 通用 default',
     );
     assert.match(
       sendBlock,
