@@ -17,6 +17,7 @@ import { isThemePreference, toNativeThemeSource } from '../theme-source.js';
 // relative path would resolve into dist/ (no .ts sources there) instead of
 // the real src/ file. Same approach as main-process-contract-source-helpers.ts.
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
+const MAIN_TS = resolve(REPO_ROOT, 'apps/desktop/src/main/main.ts');
 const MAIN_WINDOW_TS = resolve(REPO_ROOT, 'apps/desktop/src/main/main-window.ts');
 
 describe('theme-source', () => {
@@ -78,6 +79,41 @@ describe('theme-source', () => {
       assert.notEqual(syncIndex, -1, 'createWindow must sync nativeTheme.themeSource from the resolved themePref');
       assert.notEqual(newWindowIndex, -1, 'new BrowserWindow(...) call must exist');
       assert.ok(syncIndex < newWindowIndex, 'the nativeTheme sync must happen before the BrowserWindow is constructed');
+    });
+
+    it('keeps Windows titleBarOverlay height stable at window creation and runtime theme sync', async () => {
+      const src = await readFile(MAIN_WINDOW_TS, 'utf8');
+
+      assert.match(
+        src,
+        /const titleBarOverlayOptions = \(isDark: boolean\): \{ color: string; symbolColor: string; height: number \} => \(\{[\s\S]*height: TITLEBAR_OVERLAY_HEIGHT,[\s\S]*\}\);/,
+        'one helper should include color, symbolColor, and height',
+      );
+      assert.match(
+        src,
+        /titleBarOverlay:\s*titleBarOverlayOptions\(isDark\)/,
+        'window creation should use the shared titleBarOverlay options helper',
+      );
+
+      const methodMatch = src.match(/setTitleBarOverlayTheme\(sender, isDark\) \{([\s\S]*?)\n {4}\},/);
+      assert.ok(methodMatch, 'setTitleBarOverlayTheme method must exist on the controller');
+      const body = methodMatch![1];
+      assert.match(body, /target !== mainWindow/, 'must reject senders that are not the tracked main window');
+      assert.match(body, /typeof isDark !== 'boolean'/, 'must reject non-boolean theme values');
+      assert.match(
+        body,
+        /mainWindow\.setTitleBarOverlay\(titleBarOverlayOptions\(isDark\)\)/,
+        'runtime theme sync should preserve the same overlay height as window creation',
+      );
+    });
+
+    it('window:setTitleBarOverlayTheme forwards the sender to the guarded main-window controller', async () => {
+      const src = await readFile(MAIN_TS, 'utf8');
+      assert.match(
+        src,
+        /ipcMain\.handle\('window:setTitleBarOverlayTheme', \(event, isDark: unknown\): void => \{\s*mainWindowController\.setTitleBarOverlayTheme\(event\.sender, isDark\);\s*\}\);/,
+        'the IPC handler should let main-window.ts validate both sender and payload',
+      );
     });
   });
 });

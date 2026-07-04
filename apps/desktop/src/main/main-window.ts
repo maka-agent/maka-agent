@@ -19,6 +19,7 @@ export interface MainWindowController {
   send(channel: string, ...args: unknown[]): void;
   setTitlebarControlsVisible(sender: Electron.WebContents, visible: unknown): void;
   setThemeSource(sender: Electron.WebContents, themePref: unknown): void;
+  setTitleBarOverlayTheme(sender: Electron.WebContents, isDark: unknown): void;
   showOpenDialog(options: Electron.OpenDialogOptions): Promise<Electron.OpenDialogReturnValue>;
   showSaveDialog(options: Electron.SaveDialogOptions): Promise<Electron.SaveDialogReturnValue>;
   capturePage(): Promise<Electron.NativeImage | null>;
@@ -58,6 +59,19 @@ export function safeSendToRenderer(channel: string, ...args: unknown[]): void {
 
 const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
+
+// PR-WINDOW-TITLEBAR-0: the Windows titleBarOverlay height matches the
+// renderer `--h-titlebar: 36px` token so the native control strip and the
+// in-app top chrome share a baseline. The overlay color/symbolColor are
+// reused both at window creation (to avoid a first-frame flash against the
+// window `backgroundColor`) and on runtime theme changes via
+// `setTitleBarOverlayTheme`.
+const TITLEBAR_OVERLAY_HEIGHT = 36;
+const titleBarOverlayOptions = (isDark: boolean): { color: string; symbolColor: string; height: number } => ({
+  color: isDark ? '#1c1d21' : '#f3f3f5',
+  symbolColor: isDark ? '#e6e6e8' : '#1c1d21',
+  height: TITLEBAR_OVERLAY_HEIGHT,
+});
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
   const { workspaceRoot, visualSmokeFixture, settingsStore } = deps;
@@ -129,8 +143,26 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // installer build pass. The asset path resolves from the built
       // dist/main/main.js (two levels up to apps/desktop, then assets).
       icon: join(import.meta.dirname, '..', '..', 'assets', 'icon.png'),
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHT_POSITION,
+      // PR-WINDOW-TITLEBAR-0: hide the native title bar so the renderer
+      // chrome can extend to the top edge on every platform. macOS keeps
+      // `hiddenInset` + traffic-light buttons (top-left); Windows uses
+      // `hidden` + `titleBarOverlay` so the OS draws native min/max/close
+      // buttons flush against the top-right corner. The overlay color is
+      // seeded from the initial window background to avoid a first-frame
+      // flash; `setTitleBarOverlayTheme` re-syncs it when the theme
+      // changes at runtime. Linux falls back to the default frame (no
+      // overlay support is wired up yet).
+      ...(process.platform === 'darwin'
+        ? {
+            titleBarStyle: 'hiddenInset' as const,
+            trafficLightPosition: MAIN_WINDOW_TRAFFIC_LIGHT_POSITION,
+          }
+        : process.platform === 'win32'
+          ? {
+              titleBarStyle: 'hidden' as const,
+              titleBarOverlay: titleBarOverlayOptions(isDark),
+            }
+          : {}),
       // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5 (WAWQAQ msg `5b85fdb1`,
       // xuan `eea556cd`): explicit `resizable: true` so a future
       // patch can't silently disable window edge resize. Default is
@@ -288,6 +320,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       if (!target || target !== mainWindow) return;
       if (!isThemePreference(themePref)) return;
       nativeTheme.themeSource = toNativeThemeSource(themePref);
+    },
+    setTitleBarOverlayTheme(sender, isDark) {
+      const target = BrowserWindow.fromWebContents(sender);
+      if (!target || target !== mainWindow || process.platform !== 'win32') return;
+      if (typeof isDark !== 'boolean') return;
+      mainWindow.setTitleBarOverlay(titleBarOverlayOptions(isDark));
     },
     showOpenDialog(options) {
       return mainWindow

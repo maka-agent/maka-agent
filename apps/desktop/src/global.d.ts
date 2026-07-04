@@ -396,6 +396,9 @@ declare global {
         subscribeOpenSettings(handler: () => void): () => void;
         setTitlebarControlsVisible(visible: boolean): Promise<void>;
         setThemeSource(themePref: ThemePreference): Promise<void>;
+        // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
+        // color/symbolColor to the current app theme. No-op on non-Windows.
+        setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
       };
       app: {
         info(): Promise<{

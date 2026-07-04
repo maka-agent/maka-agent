@@ -801,6 +801,12 @@ function registerIpc(): void {
   ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
     mainWindowController.setThemeSource(event.sender, themePref);
   });
+  // PR-WINDOW-TITLEBAR-0: re-sync the native titleBarOverlay color when the
+  // renderer resolves a new light/dark theme (user toggle or `auto` following
+  // the system). No-op outside Windows.
+  ipcMain.handle('window:setTitleBarOverlayTheme', (event, isDark: unknown): void => {
+    mainWindowController.setTitleBarOverlayTheme(event.sender, isDark);
+  });
   ipcMain.handle('app:info', async () => {
     const projectPath = await currentProjectRoot();
     return {
