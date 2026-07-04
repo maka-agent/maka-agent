@@ -3,11 +3,12 @@ import { realpath } from 'node:fs/promises';
 import type { SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
-import type { SessionSummary } from '@maka/core/session';
+import type { SessionSummary, StoredMessage } from '@maka/core/session';
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
   listSessions(): Promise<SessionSummary[]>;
+  getMessages(sessionId: string): Promise<StoredMessage[]>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
@@ -24,13 +25,18 @@ export interface MakaSessionDriverInput {
   newId?: () => string;
 }
 
+export interface MakaSessionSwitchResult {
+  summary: SessionSummary;
+  messages: StoredMessage[];
+}
+
 export interface MakaSessionDriver {
   listSessions(): Promise<SessionSummary[]>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   setModel(model: string): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
-  switchSession(sessionId: string): Promise<SessionSummary>;
+  switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -97,14 +103,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     this.permissionMode = mode;
   }
 
-  async switchSession(sessionId: string): Promise<SessionSummary> {
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     const summary = (await this.listSessions()).find((session) => session.id === sessionId);
     if (!summary) throw new Error(`Session not found: ${sessionId}`);
     if (summary.cwd) await assertSessionCwdExists(summary.cwd);
+    const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
     this.model = summary.model;
     this.permissionMode = summary.permissionMode;
-    return summary;
+    return { summary, messages };
   }
 
   getSessionId(): string | null {

@@ -3,7 +3,15 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { CreateSessionInput, PermissionMode, PermissionResponse, SessionEvent, SessionSummary, UserMessageInput } from '@maka/core';
+import type {
+  CreateSessionInput,
+  PermissionMode,
+  PermissionResponse,
+  SessionEvent,
+  SessionSummary,
+  StoredMessage,
+  UserMessageInput,
+} from '@maka/core';
 import { createMakaSessionDriver } from '../session-driver.js';
 
 describe('Maka session driver', () => {
@@ -132,6 +140,10 @@ describe('Maka session driver', () => {
       model: 'claude-opus-4-1',
       permissionMode: 'execute',
     }];
+    runtime.sessionMessages.set('session-2', [
+      storedUserMessage('user-1', 'turn-1', 'previous question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
+    ]);
     const driver = createMakaSessionDriver({
       runtime,
       cwd: '/repo',
@@ -142,7 +154,8 @@ describe('Maka session driver', () => {
     const summary = await driver.switchSession('session-2');
     await collect(driver.sendPrompt('continue'));
 
-    assert.equal(summary.id, 'session-2');
+    assert.equal(summary.summary.id, 'session-2');
+    assert.deepEqual(summary.messages.map((message) => message.id), ['user-1', 'assistant-1']);
     assert.deepEqual(runtime.created, []);
     assert.equal(runtime.sent[0]?.sessionId, 'session-2');
   });
@@ -239,6 +252,7 @@ class RecordingRuntime {
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string } }> = [];
+  readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
@@ -320,6 +334,10 @@ class RecordingRuntime {
   async listSessions(): Promise<SessionSummary[]> {
     return this.sessionSummaries;
   }
+
+  async getMessages(sessionId: string): Promise<StoredMessage[]> {
+    return this.sessionMessages.get(sessionId) ?? [];
+  }
 }
 
 function nextId(prefix: string): () => string {
@@ -342,6 +360,27 @@ function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
     ...overrides,
+  };
+}
+
+function storedUserMessage(id: string, turnId: string, text: string): StoredMessage {
+  return {
+    type: 'user',
+    id,
+    turnId,
+    ts: 1,
+    text,
+  };
+}
+
+function storedAssistantMessage(id: string, turnId: string, text: string): StoredMessage {
+  return {
+    type: 'assistant',
+    id,
+    turnId,
+    ts: 2,
+    text,
+    modelId: 'claude-sonnet-4-5',
   };
 }
 

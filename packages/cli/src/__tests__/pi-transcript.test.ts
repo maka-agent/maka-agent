@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { SessionEvent } from '@maka/core/events';
+import type { StoredMessage } from '@maka/core/session';
 import {
   appendUserPrompt,
   applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
+  replaceTranscriptWithStoredMessages,
   submitPromptToTranscript,
   toggleLatestToolExpansion,
 } from '../pi-transcript.js';
@@ -82,6 +84,53 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(state.entries[0]?.kind === 'user' ? state.entries[0].text : '', 'hi');
     assert.equal(state.entries[1]?.kind === 'assistant' ? state.entries[1].text : '', 'Hello from Maka');
     assert.ok(changes >= 2);
+  });
+
+  test('rebuilds transcript from stored session messages', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'user',
+        id: 'user-1',
+        turnId: 'turn-1',
+        ts: 1,
+        text: 'What did we decide?',
+      },
+      {
+        type: 'assistant',
+        id: 'assistant-1',
+        turnId: 'turn-1',
+        ts: 2,
+        text: 'We decided to keep the TUI small.',
+        modelId: 'deepseek-v4-flash',
+      },
+      {
+        type: 'tool_call',
+        id: 'tool-1',
+        turnId: 'turn-1',
+        ts: 3,
+        toolName: 'Read',
+        args: { path: 'README.md' },
+      },
+      {
+        type: 'tool_result',
+        id: 'tool-result-1',
+        turnId: 'turn-1',
+        ts: 4,
+        toolUseId: 'tool-1',
+        isError: false,
+        content: { kind: 'text', text: 'README contents' },
+      },
+    ] satisfies StoredMessage[]);
+
+    assert.deepEqual(state.entries.map((entry) => entry.kind), ['user', 'assistant', 'tool']);
+    assert.equal(state.entries[0]?.kind === 'user' ? state.entries[0].text : '', 'What did we decide?');
+    assert.equal(
+      state.entries[1]?.kind === 'assistant' ? state.entries[1].text : '',
+      'We decided to keep the TUI small.',
+    );
+    assert.equal(state.entries[2]?.kind === 'tool' ? state.entries[2].output : '', 'README contents');
   });
 
   test('renders every transcript line within the terminal width', () => {

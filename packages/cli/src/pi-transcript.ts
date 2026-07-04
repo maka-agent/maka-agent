@@ -6,6 +6,8 @@ import {
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
 import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
+import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
+import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 
 export interface MakaPiTranscriptState {
@@ -50,6 +52,23 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
 
 export function appendUserPrompt(state: MakaPiTranscriptState, text: string): void {
   state.entries.push({ kind: 'user', text });
+}
+
+export function replaceTranscriptWithStoredMessages(
+  state: MakaPiTranscriptState,
+  messages: readonly StoredMessage[],
+): void {
+  const view = materializeSession(messages);
+  state.entries = view.items
+    .map(chatItemToTranscriptEntry)
+    .filter((entry): entry is MakaPiTranscriptEntry => entry !== undefined);
+  state.sawTextDeltaMessageIds = new Set(
+    state.entries
+      .filter((entry): entry is Extract<MakaPiTranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
+      .map((entry) => entry.messageId),
+  );
+  state.pendingPermission = undefined;
+  state.expandedToolUseId = undefined;
 }
 
 export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean {
@@ -201,6 +220,78 @@ export function applyMakaSessionEventToTranscript(
         });
       }
       break;
+  }
+}
+
+function chatItemToTranscriptEntry(item: ChatItem): MakaPiTranscriptEntry | undefined {
+  switch (item.kind) {
+    case 'user':
+      return { kind: 'user', text: item.message.text };
+    case 'assistant':
+      return { kind: 'assistant', messageId: item.message.id, text: item.message.text };
+    case 'tool':
+      return toolActivityToTranscriptEntry(item.item);
+    case 'system_note':
+      return systemNoteToTranscriptEntry(item.message);
+  }
+}
+
+function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiTranscriptEntry {
+  const output = item.result
+    ? formatToolResultContent(item.result)
+    : item.status === 'interrupted'
+      ? 'Interrupted before the tool returned a result.'
+      : undefined;
+  return {
+    kind: 'tool',
+    toolUseId: item.toolUseId,
+    toolName: item.toolName,
+    ...(item.displayName ? { title: item.displayName } : {}),
+    input: item.args,
+    progress: [],
+    ...(output ? { output } : {}),
+    ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+    status: transcriptToolStatus(item.status),
+  };
+}
+
+function transcriptToolStatus(status: ToolActivityItem['status']): MakaPiToolEntry['status'] {
+  switch (status) {
+    case 'completed':
+      return 'done';
+    case 'errored':
+    case 'interrupted':
+      return 'error';
+    case 'pending':
+    case 'waiting_permission':
+    case 'running':
+      return 'running';
+  }
+}
+
+function systemNoteToTranscriptEntry(message: SystemNoteMessage): MakaPiTranscriptEntry | undefined {
+  const text = systemNoteText(message);
+  if (!text) return undefined;
+  return {
+    kind: 'notice',
+    level: message.kind === 'error' ? 'error' : 'info',
+    text,
+  };
+}
+
+function systemNoteText(message: SystemNoteMessage): string | undefined {
+  switch (message.kind) {
+    case 'session_start':
+    case 'session_resume':
+      return undefined;
+    case 'mode_change':
+      return 'Permission mode changed.';
+    case 'model_change':
+      return 'Model changed.';
+    case 'error':
+      return 'Session recorded an error.';
+    case 'abort':
+      return 'Session was stopped.';
   }
 }
 

@@ -25,6 +25,7 @@ import {
   createMakaPiTranscriptState,
   renderMakaPiStatusLine,
   renderMakaPiTranscript,
+  replaceTranscriptWithStoredMessages,
   submitPromptToTranscript,
   toggleLatestToolExpansion,
   type MakaPiTranscriptMetadata,
@@ -154,16 +155,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const switchSession = async (sessionId: string) => {
-    const summary = await input.driver.switchSession(sessionId);
+    const { summary, messages } = await input.driver.switchSession(sessionId);
     cwd = summary.cwd ?? cwd;
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
-    state.entries.push({
-      kind: 'notice',
-      level: 'info',
-      text: `Session: ${summary.id}`,
-    });
+    replaceTranscriptWithStoredMessages(state, messages);
+    if (messages.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Resumed session "${summary.name}"`,
+      });
+    }
     requestRender();
   };
 

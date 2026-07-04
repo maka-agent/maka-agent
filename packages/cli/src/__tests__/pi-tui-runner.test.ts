@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth, type Terminal } from '@earendil-works/pi-tui';
-import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary } from '@maka/core';
-import type { MakaSessionDriver } from '../session-driver.js';
+import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
+import type { MakaSessionDriver, MakaSessionSwitchResult } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 
 describe('Maka Pi TUI runner', () => {
@@ -540,7 +540,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
 
     await waitFor(() => driver.sessionIds.length === 1);
-    await waitFor(() => terminal.output().includes('Session: session-2'));
+    await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('/other-repo'));
 
     assert.deepEqual(driver.sessionIds, ['session-2']);
@@ -578,10 +578,48 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(visibleWidth(titleLine), terminal.columns);
     terminal.input('\r');
     await waitFor(() => driver.sessionIds.length === 1);
-    await waitFor(() => terminal.output().includes('Session: session-2'));
+    await waitFor(() => terminal.output().includes('Resumed session "Existing chat"'));
 
     assert.deepEqual(driver.sessionIds, ['session-2']);
     assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('renders switched session history instead of a session id note', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver(
+      [fakeSessionSummary('session-2', '/repo')],
+      new Map([
+        ['session-2', [
+          storedUserMessage('user-1', 'turn-1', 'previous question'),
+          storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
+        ]],
+      ]),
+    );
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous question'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous answer'));
+    const output = plainTerminalOutput(terminal.output());
+    assert.equal(output.includes('Session: session-2'), false);
 
     terminal.input('\x03');
     await Promise.race([
@@ -644,8 +682,8 @@ class RejectingStopDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
-  async switchSession(sessionId: string): Promise<SessionSummary> {
-    return fakeSessionSummary(sessionId);
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
   }
 
   getSessionId(): string {
@@ -706,8 +744,8 @@ class PermissionPromptDriver implements MakaSessionDriver {
   }
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
-  async switchSession(sessionId: string): Promise<SessionSummary> {
-    return fakeSessionSummary(sessionId);
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
   }
 
   getSessionId(): string {
@@ -759,8 +797,8 @@ class ToolOutputDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
-  async switchSession(sessionId: string): Promise<SessionSummary> {
-    return fakeSessionSummary(sessionId);
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
   }
   getSessionId(): string {
     return 'session-1';
@@ -774,7 +812,10 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly sessionIds: string[] = [];
   private sessionId = 'session-1';
 
-  constructor(private readonly sessions: SessionSummary[] = [fakeSessionSummary('session-2', '/repo')]) {}
+  constructor(
+    private readonly sessions: SessionSummary[] = [fakeSessionSummary('session-2', '/repo')],
+    private readonly sessionMessages: ReadonlyMap<string, readonly StoredMessage[]> = new Map(),
+  ) {}
 
   async listSessions(): Promise<SessionSummary[]> {
     return this.sessions;
@@ -799,15 +840,20 @@ class SlashCommandDriver implements MakaSessionDriver {
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
   }
-  async switchSession(sessionId: string): Promise<SessionSummary> {
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     this.sessionIds.push(sessionId);
     this.sessionId = sessionId;
     const summary = this.sessions.find((session) => session.id === sessionId);
-    return summary ?? fakeSessionSummary(sessionId);
+    const nextSummary = summary ?? fakeSessionSummary(sessionId);
+    return switchResult(nextSummary, [...(this.sessionMessages.get(nextSummary.id) ?? [])]);
   }
   getSessionId(): string {
     return this.sessionId;
   }
+}
+
+function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): MakaSessionSwitchResult {
+  return { summary, messages };
 }
 
 function fakeSessionSummary(sessionId: string, cwd = '/repo'): SessionSummary {
@@ -824,6 +870,27 @@ function fakeSessionSummary(sessionId: string, cwd = '/repo'): SessionSummary {
     llmConnectionSlug: 'claude-subscription',
     model: 'claude-sonnet-4-5',
     permissionMode: 'ask',
+  };
+}
+
+function storedUserMessage(id: string, turnId: string, text: string): StoredMessage {
+  return {
+    type: 'user',
+    id,
+    turnId,
+    ts: 1,
+    text,
+  };
+}
+
+function storedAssistantMessage(id: string, turnId: string, text: string): StoredMessage {
+  return {
+    type: 'assistant',
+    id,
+    turnId,
+    ts: 2,
+    text,
+    modelId: 'claude-sonnet-4-5',
   };
 }
 
