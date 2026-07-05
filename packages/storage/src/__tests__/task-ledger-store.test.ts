@@ -183,6 +183,27 @@ describe('TaskLedgerStore', () => {
     assert.equal(tasks[0]?.id, 'good-id');
   });
 
+  it('rejects ids that are not stable tokens (tag-like, angle brackets, quotes, parens); keeps UUID-shaped and simple ids', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'a<task-ledger/>b', subject: 'tag-like', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'a>b', subject: 'gt', status: 'pending', createdAt: 2, updatedAt: 2 },
+      { id: 'a"b', subject: 'quote', status: 'pending', createdAt: 3, updatedAt: 3 },
+      { id: 'a(b)', subject: 'paren', status: 'pending', createdAt: 4, updatedAt: 4 },
+      { id: 'a=b', subject: 'equals', status: 'pending', createdAt: 5, updatedAt: 5 },
+      { id: '123e4567-e89b-12d3-a456-426614174000', subject: 'uuid', status: 'pending', createdAt: 6, updatedAt: 6 },
+      { id: 'good-id_1:2', subject: 'simple', status: 'pending', createdAt: 7, updatedAt: 7 },
+    ]), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    const ids = tasks.map((t) => t.id);
+    // tag-like / angle-bracket / quote / paren / equals ids would be corrupted
+    // by the shared renderer's tag strip (model sees a different id than the
+    // store holds, so TaskUpdate on the rendered id misses). Only stable tokens
+    // the write path could produce survive.
+    assert.deepEqual(ids, ['123e4567-e89b-12d3-a456-426614174000', 'good-id_1:2']);
+  });
+
   it('rejects an unsafe session id', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);

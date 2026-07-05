@@ -203,13 +203,18 @@ function normalizePersistedTask(value: unknown): Task | undefined {
   };
 }
 
-// The write path generates ids via randomUUID() (36 chars, single line). A
+// The write path generates ids via randomUUID() (36 chars, hex + dashes). A
 // hand-edited or legacy tasks.json could otherwise carry an id with a newline
-// (breaks the `formatTaskLedgerList` line structure and injects text into the
-// prompt), whitespace, or thousands of chars (unbounded turn-tail bloat).
-// Constrain ids to the shape the write path actually produces: non-empty,
-// single-line (no whitespace), and short. Not UUID-coupled so a future id
-// format change doesn't need a read-path update.
+// (breaks the formatTaskLedgerList line structure and injects text into the
+// prompt), whitespace, thousands of chars (unbounded turn-tail bloat), or a
+// tag-like substring such as `a<task-ledger/>b`. The shared renderer strips
+// `</?task-ledger[^>]*>` from the whole formatted output — including the id —
+// so a tag-like id would be rendered as a DIFFERENT id than the store holds,
+// and a later TaskUpdate on the rendered id would miss the recovered task.
+// Constrain ids to a stable-token whitelist (alphanumeric plus . _ : -),
+// which excludes every character that could break list-line structure, copy
+// escaping, or the renderer's tag strip. Not UUID-coupled, so a future id
+// format that stays within stable tokens doesn't need a read-path update.
 function isSafeTaskId(id: string): boolean {
-  return id.length >= 1 && id.length <= 64 && !/\s/.test(id);
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(id);
 }
