@@ -119,19 +119,25 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  overflow: hidden;
 }
 
 .modelPickerSearchInput {
-  position: sticky;
-  top: 0;
-  z-index: 1;
   flex: 0 0 auto;
-  height: 30px;
+  height: var(--h-control-md);
   padding: 0 var(--space-3);
   margin-bottom: var(--space-1);
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
+}
+
+.modelPickerList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-1) 0;
 }
 
 .modelPickerSearchInput:focus-visible {

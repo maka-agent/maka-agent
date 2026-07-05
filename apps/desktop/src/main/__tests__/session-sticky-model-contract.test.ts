@@ -155,16 +155,21 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /data-pending=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /<ModelPicker[\s\S]*groups=\{grouped\}[\s\S]*value=\{currentValue\}[\s\S]*onValueChange=\{\(value\) => \{/);
-    assert.match(ui, /<ComboboxPositioner sideOffset=\{8\}/);
-    assert.match(ui, /<ComboboxList>/);
-    // The grouped menu renders provider groups keyed by connection, each heading
-    // carrying the injected brand mark (kept out of @maka/ui via renderProviderMark),
-    // on the shared `.settingsSelectMenu*` recipe.
-    assert.match(ui, /<ComboboxGroup key=\{group\.connectionSlug\}/);
+    assert.match(ui, /<BaseCombobox\.Positioner sideOffset=\{8\}/);
+    assert.match(ui, /<BaseCombobox\.List className="modelPickerList">/);
+    assert.match(ui, /inputValue=\{query\}/);
+    assert.match(ui, /filter=\{filterModelPickerOption\}/);
+    assert.match(ui, /BaseCombobox\.useFilteredItems<ModelPickerOptionGroup>\(\)/);
+    // The grouped menu renders provider groups from Base UI's filtered item
+    // source, each heading carrying the injected brand mark (kept out of
+    // @maka/ui via renderProviderMark), on the shared `.settingsSelectMenu*`
+    // recipe.
+    assert.match(ui, /<ModelPickerGroup key=\{group\.key\} items=\{group\.items\}>/);
     assert.match(ui, /renderProviderMark\?\.\(group\.providerType\)/);
     assert.match(ui, /className="settingsSelectMenuGroupLogo"/);
-    assert.match(uiPrimitives, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseCombobox\.ItemIndicator>/);
-    assert.match(uiPrimitives, /<BaseCombobox\.Item[\s\S]*<span className="min-w-0">\{children\}<\/span>/);
+    assert.match(ui, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseCombobox\.ItemIndicator>/);
+    assert.match(ui, /<BaseCombobox\.Item[\s\S]*<span className="min-w-0">\{children\}<\/span>/);
+    assert.doesNotMatch(uiPrimitives, /BaseCombobox/, 'Combobox stays private to ModelPicker until a second real consumer appears');
     assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
     assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);

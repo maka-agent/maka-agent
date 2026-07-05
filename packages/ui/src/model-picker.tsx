@@ -1,47 +1,24 @@
 /**
- * Shared, searchable model picker popup — one component behind both the
- * chat composer's model switcher and the Settings → 通用 → 默认模型 select,
- * so the grouped list, provider marks, and search behavior can't drift
- * between the two surfaces (same governance goal as `PermissionModeMenuPopup`
- * in `permission-mode-menu.tsx`).
- *
- * Built on Base UI's `Combobox` (button trigger + popup-internal search input)
- * rather than `Select`, because `Select`'s built-in typeahead
- * isn't enough once a connection has dozens of catalog models.
- * `@maka/ui` stays icon-agnostic: `renderProviderMark` is supplied by the
- * desktop app, same convention as `ChatModelSwitcher`/`NewChatModelPicker`.
- *
- * Filtering is done by hand (`visibleGroups` below) rather than via
- * Combobox's built-in `filter` prop: a `<Combobox.Group items={...}>`
- * renders exactly the array it's given — it does not re-slice that array
- * against the live query itself. The built-in `filter` only affects the
- * root's own bookkeeping (e.g. `Combobox.Empty`'s empty check), not what a
- * manually-declared group renders, so grouped + filterable has to compute
- * its own per-group subsets from the query and hand those to each group.
+ * Shared, searchable model picker popup: one component behind both the chat
+ * composer's model switcher and Settings → 通用 → 默认模型, so grouping,
+ * provider marks, and search behavior cannot drift between the two surfaces.
  */
 
-import { type ReactNode, useMemo, useState } from 'react';
-import {
-  ComboboxRoot,
-  ComboboxTrigger,
-  ComboboxPortal,
-  ComboboxPositioner,
-  ComboboxPopup,
-  ComboboxInput,
-  ComboboxList,
-  ComboboxGroup,
-  ComboboxGroupLabel,
-  ComboboxCollection,
-  ComboboxItem,
-} from './ui.js';
-import { type ModelMenuGroup, modelChoiceValue } from './chat-model-helpers.js';
+import { type ReactNode, forwardRef, useMemo, useState } from 'react';
+import { Combobox as BaseCombobox } from '@base-ui/react/combobox';
 import type { ProviderType } from '@maka/core';
-
-interface ModelPickerItem {
-  /** Encoded `<connectionSlug>:<model>` pair, or the pinned item's raw value (e.g. `''` for 未设置). */
-  value: string;
-  label: string;
-}
+import { type ModelMenuGroup } from './chat-model-helpers.js';
+import { Check, ChevronDown } from './icons.js';
+import {
+  buildModelPickerGroups,
+  filterModelPickerOption,
+  modelPickerHasCatalogMatches,
+  type ModelPickerOption,
+  type ModelPickerOptionGroup,
+  type ModelPickerPinnedItem,
+} from './model-picker-internals.js';
+import { cn } from './utils.js';
+import { buttonVariants } from './ui.js';
 
 export interface ModelPickerProps {
   groups: ModelMenuGroup[];
@@ -49,120 +26,192 @@ export interface ModelPickerProps {
   onValueChange(value: string): void;
   renderProviderMark?(type: ProviderType): ReactNode;
   disabled?: boolean;
-  /**
-   * Extra row pinned above the groups and exempt from search filtering —
-   * e.g. Settings' "未设置" or the composer's "current model isn't in the
-   * catalog anymore" fallback row.
-   */
-  pinnedItem?: { value: string; label: string };
+  /** Row pinned above catalog groups and exempt from search filtering. */
+  pinnedItem?: ModelPickerPinnedItem;
   searchPlaceholder?: string;
   emptyMessage?: string;
   triggerClassName?: string;
   popupClassName?: string;
   ariaLabel: string;
   title?: string;
-  /** Trigger button inner content (icon + label + whatever chrome the call site wants); the chevron is added automatically. */
+  /** Trigger button inner content; the chevron is added by ModelPicker. */
   children: ReactNode;
 }
 
-function toItem(connectionSlug: string, model: string, label: string): ModelPickerItem {
-  return { value: modelChoiceValue(connectionSlug, model), label };
+const ModelPickerTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Trigger>>(function ModelPickerTrigger(
+  { className, children, ...props },
+  ref,
+) {
+  return (
+    <BaseCombobox.Trigger
+      ref={ref}
+      className={cn(buttonVariants({ variant: 'outline' }), 'justify-between', className)}
+      {...props}
+    >
+      {children}
+      <BaseCombobox.Icon>
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+      </BaseCombobox.Icon>
+    </BaseCombobox.Trigger>
+  );
+});
+
+const ModelPickerInput = forwardRef<HTMLInputElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Input>>(function ModelPickerInput(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.Input ref={ref} className={cn('w-full bg-transparent text-sm outline-none placeholder:text-foreground-secondary', className)} {...props} />;
+});
+
+const ModelPickerPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Popup>>(function ModelPickerPopup(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-md bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} {...props} />;
+});
+
+const ModelPickerGroup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Group>>(function ModelPickerGroup(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.Group ref={ref} className={cn('py-1', className)} {...props} />;
+});
+
+const ModelPickerGroupLabel = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.GroupLabel>>(function ModelPickerGroupLabel(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-foreground-secondary', className)} {...props} />;
+});
+
+const ModelPickerItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Item>>(function ModelPickerItem(
+  { className, children, ...props },
+  ref,
+) {
+  return (
+    <BaseCombobox.Item
+      ref={ref}
+      className={cn('grid cursor-default grid-cols-[1rem_1fr] items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted data-[selected]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50', className)}
+      {...props}
+    >
+      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+        <BaseCombobox.ItemIndicator>
+          <Check size={13} strokeWidth={2} aria-hidden="true" />
+        </BaseCombobox.ItemIndicator>
+      </span>
+      <span className="min-w-0">{children}</span>
+    </BaseCombobox.Item>
+  );
+});
+
+function ModelPickerOptions(props: {
+  query: string;
+  hasPinnedItem: boolean;
+  emptyMessage?: string;
+  renderProviderMark?(type: ProviderType): ReactNode;
+}) {
+  const filteredGroups = BaseCombobox.useFilteredItems<ModelPickerOptionGroup>();
+  const filteredOptions = filteredGroups.flatMap((group) => group.items);
+  const noMatches = !modelPickerHasCatalogMatches(filteredOptions) && (props.query.trim().length > 0 || !props.hasPinnedItem);
+
+  return (
+    <>
+      {noMatches && (
+        <div className="modelPickerEmpty">{props.emptyMessage ?? '没有匹配的模型'}</div>
+      )}
+      <BaseCombobox.List className="modelPickerList">
+        {filteredGroups.map((group) => {
+          if (!group.heading) {
+            return group.items.map((item) => (
+              <ModelPickerItem key={item.value} value={item}>
+                <span className="settingsSelectMenuOption">{item.label}</span>
+              </ModelPickerItem>
+            ));
+          }
+
+          const logo = group.providerType ? props.renderProviderMark?.(group.providerType) : null;
+          return (
+            <ModelPickerGroup key={group.key} items={group.items}>
+              <ModelPickerGroupLabel className="settingsSelectMenuGroupLabel">
+                {logo ? (
+                  <span className="settingsSelectMenuGroupLogo" aria-hidden="true">{logo}</span>
+                ) : (
+                  <span aria-hidden="true" />
+                )}
+                <span>{group.heading}</span>
+              </ModelPickerGroupLabel>
+              <BaseCombobox.Collection>
+                {(item: ModelPickerOption) => (
+                  <ModelPickerItem key={item.value} value={item}>
+                    <span className="settingsSelectMenuOption">{item.label}</span>
+                  </ModelPickerItem>
+                )}
+              </BaseCombobox.Collection>
+            </ModelPickerGroup>
+          );
+        })}
+      </BaseCombobox.List>
+    </>
+  );
 }
 
 export function ModelPicker(props: ModelPickerProps) {
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-
-  const allItems = useMemo<ModelPickerItem[]>(() => [
-    ...(props.pinnedItem ? [props.pinnedItem] : []),
-    ...props.groups.flatMap((group) => group.choices.map((choice) => toItem(choice.connectionSlug, choice.model, choice.label))),
-  ], [props.groups, props.pinnedItem]);
-
+  const groups = useMemo(() => buildModelPickerGroups(props.groups, props.pinnedItem), [props.groups, props.pinnedItem]);
+  const allOptions = useMemo(() => groups.flatMap((group) => group.items), [groups]);
   const selectedItem = useMemo(
-    () => allItems.find((item) => item.value === props.value) ?? null,
-    [allItems, props.value],
+    () => allOptions.find((item) => item.value === props.value) ?? null,
+    [allOptions, props.value],
   );
 
-  const visibleGroups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return props.groups;
-    return props.groups
-      .map((group) => ({
-        ...group,
-        choices: group.choices.filter(
-          (choice) => choice.label.toLowerCase().includes(q) || group.heading.toLowerCase().includes(q),
-        ),
-      }))
-      .filter((group) => group.choices.length > 0);
-  }, [props.groups, query]);
-
-  // The pinned row is exempt from filtering, so it alone doesn't count as a
-  // match: an active query with zero real hits still shows the empty message.
-  const noMatches = visibleGroups.length === 0 && (query.trim().length > 0 || !props.pinnedItem);
-
   return (
-    <ComboboxRoot<ModelPickerItem>
-      items={allItems}
+    <BaseCombobox.Root<ModelPickerOption>
+      items={groups}
       value={selectedItem}
-      onValueChange={(item) => {
-        if (item) props.onValueChange(item.value);
+      inputValue={query}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (!nextOpen) setQuery('');
       }}
-      onInputValueChange={(next) => setQuery(next)}
+      onValueChange={(item) => {
+        if (!item) return;
+        props.onValueChange(item.value);
+        setQuery('');
+        setOpen(false);
+      }}
+      onInputValueChange={(next) => setQuery(String(next))}
+      filter={filterModelPickerOption}
       isItemEqualToValue={(item, value) => item.value === value.value}
       itemToStringLabel={(item) => item.label}
       disabled={props.disabled}
     >
-      <ComboboxTrigger
+      <ModelPickerTrigger
         className={props.triggerClassName}
         aria-label={props.ariaLabel}
         title={props.title}
         disabled={props.disabled}
       >
         {props.children}
-      </ComboboxTrigger>
-      <ComboboxPortal>
-        <ComboboxPositioner sideOffset={8} className="settingsSelectPositioner">
-          <ComboboxPopup className={props.popupClassName ?? 'settingsSelectMenuPopup modelPickerPopup'}>
-            <ComboboxInput
+      </ModelPickerTrigger>
+      <BaseCombobox.Portal>
+        <BaseCombobox.Positioner sideOffset={8} className="settingsSelectPositioner">
+          <ModelPickerPopup className={props.popupClassName ?? 'settingsSelectMenuPopup modelPickerPopup'}>
+            <ModelPickerInput
               className="modelPickerSearchInput"
               placeholder={props.searchPlaceholder ?? '搜索模型…'}
               aria-label={props.searchPlaceholder ?? '搜索模型'}
             />
-            {noMatches && (
-              <div className="modelPickerEmpty">{props.emptyMessage ?? '没有匹配的模型'}</div>
-            )}
-            <ComboboxList>
-              {props.pinnedItem && (
-                <ComboboxItem value={props.pinnedItem}>
-                  <span className="settingsSelectMenuOption">{props.pinnedItem.label}</span>
-                </ComboboxItem>
-              )}
-              {visibleGroups.map((group) => {
-                const logo = props.renderProviderMark?.(group.providerType);
-                const groupItems = group.choices.map((choice) => toItem(choice.connectionSlug, choice.model, choice.label));
-                return (
-                  <ComboboxGroup key={group.connectionSlug} items={groupItems}>
-                    <ComboboxGroupLabel className="settingsSelectMenuGroupLabel">
-                      {logo ? (
-                        <span className="settingsSelectMenuGroupLogo" aria-hidden="true">{logo}</span>
-                      ) : (
-                        <span aria-hidden="true" />
-                      )}
-                      <span>{group.heading}</span>
-                    </ComboboxGroupLabel>
-                    <ComboboxCollection>
-                      {(item: ModelPickerItem) => (
-                        <ComboboxItem key={item.value} value={item}>
-                          <span className="settingsSelectMenuOption">{item.label}</span>
-                        </ComboboxItem>
-                      )}
-                    </ComboboxCollection>
-                  </ComboboxGroup>
-                );
-              })}
-            </ComboboxList>
-          </ComboboxPopup>
-        </ComboboxPositioner>
-      </ComboboxPortal>
-    </ComboboxRoot>
+            <ModelPickerOptions
+              query={query}
+              hasPinnedItem={Boolean(props.pinnedItem)}
+              emptyMessage={props.emptyMessage}
+              renderProviderMark={props.renderProviderMark}
+            />
+          </ModelPickerPopup>
+        </BaseCombobox.Positioner>
+      </BaseCombobox.Portal>
+    </BaseCombobox.Root>
   );
 }
