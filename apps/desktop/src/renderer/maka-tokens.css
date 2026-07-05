@@ -427,11 +427,14 @@
    /* === focus-ring recipe ===
       --focus-ring is the strong accent color (existing); --ring is the
       subtle foreground-derived color (existing, for compact/secondary
-      focus). These two geometry tokens converge outline width/offset so
-      every focus ring shares one recipe instead of hand-written 2px.
+      focus). These three geometry tokens converge outline width/offset
+      plus the outer focus-glow halo width so every focus ring shares one
+      recipe instead of hand-written 2px. The glow is the low-alpha
+      4px halo that sits outside the 2px ring on focus-within fields.
       PR-FOCUS-RING-RECIPE-0 (issue #520 PR2). */
    --focus-ring-width: 2px;
    --focus-ring-offset: 2px;
+   --focus-glow-width: 4px;
 
    /* === transform amplitude (motion) ===
       Tokenize the geometric magnitude of press/hover feedback so the
@@ -1813,7 +1816,7 @@
     background: var(--background);
     box-shadow:
       0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20),
-      0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
+      0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.08),
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
   }
   .maka-composer[data-drag-active="true"] .maka-composer-inner {

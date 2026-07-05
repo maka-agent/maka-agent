@@ -80,15 +80,18 @@ function findFocusRingOffenders(css: string, label: string): string[] {
     offenders.push(`${label}: ${decl} (bare outline-offset — use var(--focus-ring-offset))`);
   }
 
-  // box-shadow ring width: only inside focus selectors (:focus / :focus-visible
-  // / :focus-within). Non-focus highlights (drag-active, status, info, accent
-  // rings) reuse the focus-ring color but are NOT the keyboard focus-ring
-  // recipe — their box-shadow width convergence is PR4 scope. Walk back from
-  // each box-shadow to its enclosing selector and skip non-focus rules.
-  for (const m of stripped.matchAll(/box-shadow:\s*(?:inset\s+)?0\s+0\s+0\s+(\d+px)\s+(var\(--ring\)|oklch\(from\s+var\(--focus-ring\)[^)]*\))/gi)) {
+  // box-shadow ring/glow width: scan every comma-separated layer inside focus
+  // selectors (:focus / :focus-visible / :focus-within). Non-focus highlights
+  // (drag-active, status, info, accent rings) reuse the focus-ring color but
+  // are NOT the keyboard focus-ring recipe — their box-shadow width convergence
+  // is PR4 scope. Walk back from each layer to its enclosing selector and skip
+  // non-focus rules. Bare ring width -> var(--focus-ring-width); bare glow halo
+  // width (the low-alpha 4px outer ring) -> var(--focus-glow-width).
+  for (const m of stripped.matchAll(/(?:box-shadow:\s*|,\s*)(?:inset\s+)?0\s+0\s+0\s+(\d+px)\s+(var\(--ring\)|oklch\(from\s+var\(--focus-ring\)[^)]*\))/gi)) {
     const selector = enclosingSelector(stripped, m.index!);
     if (!/:focus(?:-visible|-within)?\b/i.test(selector)) continue; // non-focus, PR4 scope
-    offenders.push(`${label}: ${m[0].trim()} (bare ring width in box-shadow — use var(--focus-ring-width))`);
+    const layer = m[0].replace(/^(?:box-shadow:\s*|,\s*)/, '').trim();
+    offenders.push(`${label}: ${layer} (bare ring/glow width in box-shadow — use var(--focus-ring-width) or var(--focus-glow-width))`);
   }
 
   return offenders;
@@ -103,10 +106,11 @@ describe('PR-FOCUS-RING-RECIPE-0 contract', () => {
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('--focus-ring-width / --focus-ring-offset are declared exactly once with pinned values', async () => {
+  it('--focus-ring-width / --focus-ring-offset / --focus-glow-width are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
     assertCustomPropPinnedOnce(tokens, '--focus-ring-width', '2px');
     assertCustomPropPinnedOnce(tokens, '--focus-ring-offset', '2px');
+    assertCustomPropPinnedOnce(tokens, '--focus-glow-width', '4px');
   });
 });
 
@@ -151,6 +155,27 @@ describe('focus-ring recipe negative cases', () => {
 
   it('accepts non-focus box-shadow ring (drag-active) — PR4 scope, not focus-ring recipe', () => {
     assert.deepEqual(findFocusRingOffenders('.maka-composer[data-drag-active="true"] { box-shadow: 0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22); }', 'test'), []);
+  });
+
+  it('rejects bare ring/glow width in second layer of multi-layer focus box-shadow', () => {
+    assert.ok(
+      findFocusRingOffenders('.x:focus-within { box-shadow: 0 20px 52px var(--shadow), 0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08); }', 'test').length > 0,
+      'bare 4px glow in second layer must fail — use var(--focus-glow-width)',
+    );
+  });
+
+  it('accepts non-focus multi-layer box-shadow (drag-active glow) — PR4 scope', () => {
+    assert.deepEqual(
+      findFocusRingOffenders('.maka-composer[data-drag-active="true"] { box-shadow: 0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22), 0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08); }', 'test'),
+      [],
+    );
+  });
+
+  it('accepts focus-within box-shadow with var(--focus-ring-width) ring + var(--focus-glow-width) glow', () => {
+    assert.deepEqual(
+      findFocusRingOffenders('.maka-composer-inner:focus-within { box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20), 0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.08); }', 'test'),
+      [],
+    );
   });
 
   it('accepts box-shadow ring with var(--focus-ring-width) for both ring colors', () => {

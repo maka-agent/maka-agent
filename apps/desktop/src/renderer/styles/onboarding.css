@@ -458,7 +458,7 @@
   border-color: oklch(from var(--focus-ring) l c h / 0.34);
   box-shadow:
     0 20px 52px oklch(from var(--foreground) l c h / 0.10),
-    0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
+    0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.08),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
 }
 /* The visible quick-chat chrome belongs to `.maka-onboarding-quickchat`;
