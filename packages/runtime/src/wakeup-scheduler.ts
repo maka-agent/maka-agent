@@ -182,6 +182,9 @@ const MAX_JITTER_MS = 15 * 60 * 1000;
 /** Maximum early jitter for one-shot jobs firing on round minutes: 90 seconds. */
 const ONE_SHOT_JITTER_MS = 90 * 1000;
 
+/** Maximum total records per session before oldest fired/expired records are pruned. */
+export const MAX_RECORDS_PER_SESSION = 50;
+
 /**
  * Compute jitter to add to a scheduled delay.
  *
@@ -283,6 +286,7 @@ export class WakeupScheduler {
     };
 
     this.records.set(record.id, record);
+    this.pruneSession(sessionId);
     this.scheduleTimer(record);
     return record;
   }
@@ -308,8 +312,31 @@ export class WakeupScheduler {
     }
   }
 
-  listForSession(sessionId: string): WakeupRecord[] {
-    return [...this.records.values()].filter(r => r.sessionId === sessionId);
+  listForSession(sessionId: string, opts?: { activeOnly?: boolean }): WakeupRecord[] {
+    const all = [...this.records.values()].filter(r => r.sessionId === sessionId);
+    if (opts?.activeOnly) {
+      return all.filter(r => r.status === 'pending');
+    }
+    return all;
+  }
+
+  /**
+   * Remove fired/expired/cancelled records for a session that exceed the cap.
+   * Keeps all pending records; drops oldest terminal records first.
+   */
+  private pruneSession(sessionId: string): void {
+    const sessionRecords = [...this.records.values()].filter(r => r.sessionId === sessionId);
+    if (sessionRecords.length <= MAX_RECORDS_PER_SESSION) return;
+
+    // Sort terminal records by scheduledAt ascending (oldest first)
+    const terminal = sessionRecords
+      .filter(r => r.status === 'fired' || r.status === 'expired' || r.status === 'cancelled')
+      .sort((a, b) => a.scheduledAt - b.scheduledAt);
+
+    const excess = sessionRecords.length - MAX_RECORDS_PER_SESSION;
+    for (let i = 0; i < excess && i < terminal.length; i++) {
+      this.records.delete(terminal[i].id);
+    }
   }
 
   dispose(): void {
@@ -386,7 +413,9 @@ export class WakeupScheduler {
 
       // Check auto-expire before scheduling next occurrence
       if (record.expiresAt !== null && now >= record.expiresAt) {
-        // Chain has expired; do not re-schedule
+        // Chain has expired; do not re-schedule. Remove the fired record.
+        this.records.delete(record.id);
+        this.pruneSession(record.sessionId);
         return;
       }
 
@@ -397,7 +426,9 @@ export class WakeupScheduler {
         // For cron-based recurring: compute the NEXT cron match after now
         const nextRun = computeNextCronRun(record.cronExpression, now);
         if (nextRun === null) {
-          // No future match found — stop recurring
+          // No future match found — stop recurring. Remove the fired record.
+          this.records.delete(record.id);
+          this.pruneSession(record.sessionId);
           return;
         }
         nextFiresAt = nextRun;
@@ -411,24 +442,18 @@ export class WakeupScheduler {
         nextDelaySeconds = record.delaySeconds;
       }
 
-      const next: WakeupRecord = {
-        id: this.deps.newId(),
-        sessionId: record.sessionId,
-        message: record.message,
-        reason: record.reason,
-        scheduledAt: now,
-        firesAt: nextFiresAt,
-        delaySeconds: nextDelaySeconds,
-        recurring: true,
-        cronExpression: record.cronExpression,
-        status: 'pending',
-        // Inherit the original expiresAt from the chain (not reset on each occurrence)
-        expiresAt: record.expiresAt,
-        fireAttempts: 0,
-        deferredFires: [],
-      };
-      this.records.set(next.id, next);
-      this.scheduleTimer(next);
+      // Reuse the same record in-place: update fields for next occurrence
+      record.status = 'pending';
+      record.scheduledAt = now;
+      record.firesAt = nextFiresAt;
+      record.delaySeconds = nextDelaySeconds;
+      record.fireAttempts = 0;
+      record.deferredFires = [];
+      this.scheduleTimer(record);
+    } else {
+      // Non-recurring job: remove from records after successful fire
+      this.records.delete(record.id);
+      this.pruneSession(record.sessionId);
     }
   }
 }

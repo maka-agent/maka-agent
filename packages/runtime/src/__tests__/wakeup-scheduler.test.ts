@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { WakeupScheduler, computeNextCronRun, computeJitter } from '../wakeup-scheduler.js';
+import { WakeupScheduler, computeNextCronRun, computeJitter, MAX_RECORDS_PER_SESSION } from '../wakeup-scheduler.js';
 
 function createTestScheduler(overrides: Partial<ConstructorParameters<typeof WakeupScheduler>[0]> = {}) {
   const fired: Array<{ sessionId: string; turnId: string; text: string }> = [];
@@ -66,12 +66,15 @@ describe('WakeupScheduler', () => {
     assert.ok(fired[0].text.includes('hello wakeup'));
   });
 
-  test('fired record status is updated', async () => {
+  test('fired non-recurring record is removed from scheduler', async () => {
     const { scheduler, fireNextTimer } = createTestScheduler();
     const record = scheduler.schedule('session-1', { delaySeconds: 5, message: 'check', reason: 'test' });
     await fireNextTimer();
+    // The record object still reflects the fired status
+    assert.equal(record.status, 'fired');
+    // But it is no longer in the scheduler's records (cleaned up after fire)
     const records = scheduler.listForSession('session-1');
-    assert.equal(records.find(r => r.id === record.id)?.status, 'fired');
+    assert.equal(records.length, 0, 'fired non-recurring record should be removed');
   });
 
   test('cancel prevents firing', () => {
@@ -223,7 +226,7 @@ describe('WakeupScheduler', () => {
     );
   });
 
-  test('cron-based recurring job reschedules after firing', async () => {
+  test('cron-based recurring job reschedules in-place after firing', async () => {
     const { scheduler, fired, fireNextTimer } = createTestScheduler();
     const record = scheduler.schedule('session-1', {
       cronExpression: '* * * * *',
@@ -231,12 +234,14 @@ describe('WakeupScheduler', () => {
       reason: 'every minute',
       recurring: true,
     });
+    const originalId = record.id;
     await fireNextTimer();
     assert.equal(fired.length, 1);
     assert.ok(fired[0].text.includes('cron recurring'));
-    // Should have created a new pending record for the next occurrence
+    // The same record should be reused in-place (no new record created)
     const pending = scheduler.listForSession('session-1').filter(r => r.status === 'pending');
-    assert.equal(pending.length, 1, 'should have one new pending record');
+    assert.equal(pending.length, 1, 'should have one pending record');
+    assert.equal(pending[0].id, originalId, 'should reuse the same record id');
     assert.equal(pending[0].cronExpression, '* * * * *');
   });
 
@@ -307,16 +312,17 @@ describe('WakeupScheduler', () => {
     });
     // First fire attempt: rejected
     await fireNextTimer();
-    const afterFirst = scheduler.listForSession('session-1').find(r => r.id === record.id)!;
-    assert.equal(afterFirst.fireAttempts, 1);
-    assert.equal(afterFirst.deferredFires.length, 1);
+    // Record is still pending (not yet fired), so it remains in the scheduler
+    assert.equal(record.fireAttempts, 1);
+    assert.equal(record.deferredFires.length, 1);
     // Second fire attempt: succeeds
     await fireNextTimer();
-    const afterSecond = scheduler.listForSession('session-1').find(r => r.id === record.id)!;
-    assert.equal(afterSecond.fireAttempts, 2);
-    assert.equal(afterSecond.status, 'fired');
+    // After successful fire, the non-recurring record is removed from the map
+    // but the object reference still has the final state
+    assert.equal(record.fireAttempts, 2);
+    assert.equal(record.status, 'fired');
     // deferredFires should still have 1 entry (only logged on rejection)
-    assert.equal(afterSecond.deferredFires.length, 1);
+    assert.equal(record.deferredFires.length, 1);
   });
 
   // ─── Cancel edge-case tests ────────────────────────────────────────────────
@@ -375,5 +381,69 @@ describe('WakeupScheduler', () => {
       assert.ok(jitter <= 0, `one-shot jitter should be <= 0, got ${jitter}`);
       assert.ok(jitter >= -90_000, `one-shot jitter should be >= -90000, got ${jitter}`);
     }
+  });
+
+  // ─── Record accumulation prevention tests ─────────────────────────────────
+
+  test('fired non-recurring job is removed from records', async () => {
+    const { scheduler, fired, fireNextTimer } = createTestScheduler();
+    scheduler.schedule('session-1', { delaySeconds: 5, message: 'one-shot', reason: 'test' });
+    await fireNextTimer();
+    assert.equal(fired.length, 1);
+    // The record should be removed after firing
+    const records = scheduler.listForSession('session-1');
+    assert.equal(records.length, 0, 'fired non-recurring job should be removed');
+  });
+
+  test('recurring job does not duplicate records on fire', async () => {
+    const { scheduler, fired, fireNextTimer } = createTestScheduler();
+    scheduler.schedule('session-1', {
+      delaySeconds: 60,
+      message: 'recurring-check',
+      reason: 'test',
+      recurring: true,
+    });
+    // Fire multiple times
+    await fireNextTimer();
+    await fireNextTimer();
+    await fireNextTimer();
+    assert.equal(fired.length, 3, 'should have fired 3 times');
+    // Only ONE record should exist (reused in-place)
+    const records = scheduler.listForSession('session-1');
+    assert.equal(records.length, 1, 'should have exactly one record for recurring job');
+    assert.equal(records[0].status, 'pending', 'record should be pending for next fire');
+  });
+
+  test('max records cap is enforced', () => {
+    const { scheduler } = createTestScheduler();
+    // Create many records that exceed the cap by scheduling and cancelling
+    for (let i = 0; i < MAX_RECORDS_PER_SESSION + 10; i++) {
+      const rec = scheduler.schedule('session-1', {
+        delaySeconds: 60,
+        message: `job-${i}`,
+        reason: 'test',
+      });
+      scheduler.cancel(rec.id);
+    }
+    // All records are cancelled (terminal), schedule() should prune
+    // Schedule one more to trigger pruning
+    scheduler.schedule('session-1', { delaySeconds: 60, message: 'final', reason: 'test' });
+    const records = scheduler.listForSession('session-1');
+    assert.ok(records.length <= MAX_RECORDS_PER_SESSION, `records (${records.length}) should not exceed cap (${MAX_RECORDS_PER_SESSION})`);
+  });
+
+  test('listForSession with activeOnly only returns pending records', async () => {
+    const { scheduler, fireNextTimer } = createTestScheduler();
+    scheduler.schedule('session-1', { delaySeconds: 5, message: 'will-fire', reason: 'test', recurring: true });
+    const cancelMe = scheduler.schedule('session-1', { delaySeconds: 30, message: 'will-cancel', reason: 'test' });
+    scheduler.cancel(cancelMe.id);
+    // Fire the recurring job once (it stays as pending for next)
+    await fireNextTimer();
+    // Now we have: 1 pending (recurring, re-scheduled) + 1 cancelled
+    const all = scheduler.listForSession('session-1');
+    const active = scheduler.listForSession('session-1', { activeOnly: true });
+    assert.equal(all.length, 2, 'all records includes cancelled');
+    assert.equal(active.length, 1, 'activeOnly returns only pending');
+    assert.equal(active[0].status, 'pending');
   });
 });
