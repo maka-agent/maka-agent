@@ -97,9 +97,12 @@ describe('Daily Review copy feedback contract', () => {
 
     assert.match(panelBlock, /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="icon-sm"[\s\S]*?className="maka-daily-review-stepper"/);
     assert.match(panelBlock, /<SettingsSegmented[\s\S]*?className="maka-daily-review-range-tabs"/);
-    assert.match(panelBlock, /className="maka-daily-review-copy"/);
-    assert.match(panelBlock, /className="maka-daily-review-append"/);
-    assert.match(panelBlock, /className="maka-daily-review-save"/);
+    // Allow trailing utility classes after the hook class (e.g. the min-w-*
+    // text-swap layout locks); the min-w values themselves are pinned by the
+    // text-swap contract, not here.
+    assert.match(panelBlock, /className="maka-daily-review-copy(?: [^"]*)?"/);
+    assert.match(panelBlock, /className="maka-daily-review-append(?: [^"]*)?"/);
+    assert.match(panelBlock, /className="maka-daily-review-save(?: [^"]*)?"/);
     assert.match(panelBlock, /className="maka-daily-review-alert-retry"/);
     assert.doesNotMatch(panelBlock, /className="[^"]*\bmaka-button\b[^"]*"/);
     assert.doesNotMatch(css, /\.maka-daily-review-range-tab\[data-active/);

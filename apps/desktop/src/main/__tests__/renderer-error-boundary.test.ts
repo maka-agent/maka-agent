@@ -33,7 +33,10 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   assert.match(source, /disabled=\{copyPending\}/);
   assert.match(source, /aria-busy=\{copyPending \? 'true' : undefined\}/);
   assert.match(source, /data-copy-state=\{copyState\}/);
-  assert.match(source, /variant="outline"[\s\S]*className="maka-error-copy-action"/);
+  // Allow trailing utility classes after the hook class (e.g. the min-w-*
+  // text-swap layout lock); the min-w value is pinned by the text-swap
+  // contract, not here.
+  assert.match(source, /variant="outline"[\s\S]*className="maka-error-copy-action(?: [^"]*)?"/);
   assert.match(source, /<UiButton type="button" variant="secondary" onClick=\{this\.handleReset\}>/);
   assert.match(source, /<UiButton[\s\S]*variant="default"[\s\S]*onClick=\{this\.handleReload\}/);
   assert.doesNotMatch(source, /className="maka-button/);
