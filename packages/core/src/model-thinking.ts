@@ -6,7 +6,10 @@
  * `thinkingVariantsForModel`), and switching models clears the choice so a
  * level is never sent to a model that does not understand it. `undefined`
  * means "no override" (the model's default behaviour) and is the only value
- * persisted-absent — the UI shows it as "默认".
+ * persisted-absent — the UI shows it as "默认". `'off'` explicitly disables
+ * reasoning for providers that expose a true off switch (`reasoningEffort:
+ * 'none'` for OpenAI gpt-5 / codex, `thinking: { type: 'disabled' }` for
+ * Anthropic-protocol); providers without a clean off switch do not list it.
  *
  * The runtime maps a chosen level to the ai-sdk provider option
  * (`reasoningEffort` / `thinking.budgetTokens` / `thinkingConfig`) in
@@ -21,9 +24,9 @@ import type { ProviderType } from './llm-connections.js';
  * Not every model supports every level — call `thinkingVariantsForModel` for
  * the model-specific subset.
  */
-export type ThinkingLevel = 'minimal' | 'low' | 'medium' | 'high';
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high';
 
-export const THINKING_LEVELS: readonly ThinkingLevel[] = ['minimal', 'low', 'medium', 'high'];
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high'];
 
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === 'string' && (THINKING_LEVELS as readonly string[]).includes(value);
@@ -46,21 +49,22 @@ export function thinkingVariantsForModel(
 ): readonly ThinkingLevel[] {
   const id = modelId.toLowerCase();
   switch (providerType) {
-    // Anthropic-protocol providers all expose `thinking.budgetTokens`; the
-    // level maps to a budget in `buildProviderOptions`.
+    // Anthropic-protocol providers all expose `thinking.budgetTokens`, and a
+    // true off switch via `thinking: { type: 'disabled' }`.
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
     case 'claude-subscription':
-      return ['low', 'medium', 'high'];
+      return ['off', 'low', 'medium', 'high'];
 
     // OpenAI gpt-5 family + codex subscription accept `reasoningEffort`,
-    // including `minimal`. Non-gpt-5 OpenAI chat models do not.
+    // including `minimal` and a true `none` off. Non-gpt-5 OpenAI chat models
+    // do not reason.
     case 'openai':
-      return /^gpt-5/i.test(id) ? ['minimal', 'low', 'medium', 'high'] : [];
+      return /^gpt-5/i.test(id) ? ['off', 'minimal', 'low', 'medium', 'high'] : [];
     case 'codex-subscription':
-      return ['minimal', 'low', 'medium', 'high'];
+      return ['off', 'minimal', 'low', 'medium', 'high'];
 
     // Gemini 2.5 / 3 / 3.1 expose `thinkingConfig` (thinkingLevel or
     // thinkingBudget). Older Gemini models do not.

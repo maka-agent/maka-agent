@@ -7,28 +7,28 @@ import {
 } from '../model-thinking.js';
 
 describe('thinkingVariantsForModel', () => {
-  test('anthropic-protocol providers expose low/medium/high', () => {
+  test('anthropic-protocol providers expose off/low/medium/high', () => {
     for (const providerType of ['anthropic', 'kimi-coding-plan', 'MiniMax', 'MiniMax-cn', 'claude-subscription'] as const) {
-      assert.deepEqual([...thinkingVariantsForModel(providerType, 'claude-sonnet-4-5')], ['low', 'medium', 'high']);
+      assert.deepEqual([...thinkingVariantsForModel(providerType, 'claude-sonnet-4-5')], ['off', 'low', 'medium', 'high']);
     }
   });
 
-  test('openai gpt-5 family exposes minimal/low/medium/high; gpt-4o exposes none', () => {
-    assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-5.5')], ['minimal', 'low', 'medium', 'high']);
+  test('openai gpt-5 family exposes off/minimal/low/medium/high; gpt-4o exposes none', () => {
+    assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-5.5')], ['off', 'minimal', 'low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-4o')], []);
   });
 
-  test('codex subscription exposes minimal/low/medium/high', () => {
-    assert.deepEqual([...thinkingVariantsForModel('codex-subscription', 'gpt-5-codex')], ['minimal', 'low', 'medium', 'high']);
+  test('codex subscription exposes off/minimal/low/medium/high', () => {
+    assert.deepEqual([...thinkingVariantsForModel('codex-subscription', 'gpt-5-codex')], ['off', 'minimal', 'low', 'medium', 'high']);
   });
 
-  test('gemini 2.5/3 expose low/medium/high; older gemini exposes none', () => {
+  test('gemini 2.5/3 expose low/medium/high (no off switch); older gemini exposes none', () => {
     assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-3-pro-preview')], ['low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.5-flash')], ['low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.0-flash')], []);
   });
 
-  test('deepseek/moonshot-kimi/zai-glm expose low/medium/high on reasoning ids', () => {
+  test('deepseek/moonshot-kimi/zai-glm expose low/medium/high on reasoning ids (no off switch)', () => {
     assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], ['low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('moonshot', 'kimi-k2')], ['low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.6')], ['low', 'medium', 'high']);
@@ -49,7 +49,7 @@ describe('isThinkingLevel / THINKING_LEVELS', () => {
   test('accepts the canonical levels and rejects others', () => {
     for (const level of THINKING_LEVELS) assert.equal(isThinkingLevel(level), true);
     assert.equal(isThinkingLevel('xhigh'), false);
-    assert.equal(isThinkingLevel('off'), false);
+    assert.equal(isThinkingLevel('default'), false);
     assert.equal(isThinkingLevel(undefined), false);
     assert.equal(isThinkingLevel(123), false);
   });
