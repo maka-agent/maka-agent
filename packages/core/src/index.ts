@@ -455,6 +455,7 @@ export {
   TASK_LEDGER_MAX_TASKS,
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
+  explainTaskUpdateRejection,
   isSafeTaskId,
   isTaskStatus,
   normalizeCreateTaskInput,

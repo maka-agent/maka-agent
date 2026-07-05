@@ -195,8 +195,13 @@ export function useAppShellBootstrapSubscriptions(options: {
     options.handleConnectionEvent(event);
   });
   const handleSessionChange = useEffectEvent((event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
-    void options.refreshSessions();
-    if (event.sessionId) {
+    // task-updated is a ledger-only signal: it never changes session-list
+    // metadata (skip the full list re-pull), and it repairs only the task
+    // panel — unlike message-appended it is not accompanied by a transcript
+    // re-pull, so letting it reset staleSince would mask a dead per-session
+    // event stream while the model keeps updating tasks.
+    if (event.reason !== 'task-updated') void options.refreshSessions();
+    if (event.sessionId && event.reason !== 'task-updated') {
       options.setSessionEventHealthBySession((current) => {
         const previous = current[event.sessionId!];
         if (!previous) return current;

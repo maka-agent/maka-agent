@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   TASK_LEDGER_MAX_TASKS,
+  explainTaskUpdateRejection,
   isSafeTaskId,
   isTaskStatus,
   normalizeCreateTaskInput,
@@ -89,6 +90,8 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       const index = tasks.findIndex((task) => task.id === id);
       const current = index === -1 ? undefined : tasks[index];
       if (!current) throw new Error(`No such task: ${id}`);
+      const rejection = explainTaskUpdateRejection(current.status, normalized.value.status);
+      if (rejection) throw new Error(rejection);
       updated = {
         ...current,
         ...(normalized.value.subject !== undefined ? { subject: normalized.value.subject } : {}),

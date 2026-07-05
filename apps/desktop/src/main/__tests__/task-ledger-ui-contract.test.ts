@@ -101,5 +101,29 @@ describe('task ledger UI contract', () => {
       /event\.reason === 'task-updated'/,
       'the renderer session-change handler must refresh on task-updated',
     );
+    // task-updated is ledger-only: it must not re-pull the session list and
+    // must not reset the per-session event-stream health (it is not paired
+    // with a transcript re-pull, so it would mask a dead event stream).
+    assert.match(
+      effectsSrc,
+      /if \(event\.reason !== 'task-updated'\) void options\.refreshSessions\(\);/,
+      'task-updated must skip the full session-list refresh',
+    );
+    assert.match(
+      effectsSrc,
+      /event\.sessionId && event\.reason !== 'task-updated'/,
+      'task-updated must not reset session event-stream health',
+    );
+  });
+
+  it('clears the panel instead of showing a stale ledger when a refresh fails', async () => {
+    const actionsSrc = await repoFile('apps/desktop/src/renderer/app-shell-task-actions.ts');
+    // Fail to empty, guarded by the active-session check so a slow rejection
+    // for an abandoned session cannot clobber the current one.
+    assert.match(
+      actionsSrc,
+      /catch[\s\S]*?if \(getActiveSessionId\(\) === sessionId\) setSessionTasks\(\[\]\);/,
+      'a failed tasks:list must clear the panel for the still-active session',
+    );
   });
 });

@@ -56,7 +56,9 @@ function buildTaskUpdateTool(
     displayName: 'Task Update',
     description:
       'Update a task in the session task ledger by id. Provide status and/or a revised subject. '
-      + 'Mark tasks in_progress when you start them and completed (or cancelled) when done.',
+      + 'Mark tasks in_progress when you start them and completed (or cancelled) when done. '
+      + 'Cancelled tasks are frozen (they record a user veto) — create a new task instead of editing one; '
+      + 'completed tasks cannot be cancelled but may be reopened.',
     parameters: z.object({
       id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars) from the current ledger.').describe('Task id from the current ledger.'),
       status: z.enum(TASK_STATUSES).optional().describe('New task status.'),

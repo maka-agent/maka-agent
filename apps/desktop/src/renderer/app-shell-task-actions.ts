@@ -38,6 +38,10 @@ export function createAppShellTaskActions(deps: {
       // clobber the newer session's list.
       if (getActiveSessionId() === sessionId) setSessionTasks(tasks);
     } catch (error) {
+      // Fail to empty rather than stale: after a session switch a rejected
+      // fetch must not leave the previous session's tasks rendered under the
+      // new session. The next task-updated event re-pulls the real list.
+      if (getActiveSessionId() === sessionId) setSessionTasks([]);
       if (options.shouldShowError?.() ?? false) {
         toastApi.error('刷新任务清单失败', generalizedErrorMessageChinese(error, '读取会话任务失败，请稍后重试。'));
       }

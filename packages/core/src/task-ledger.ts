@@ -148,6 +148,24 @@ export function normalizeUpdateTaskInput(
 }
 
 /**
+ * Transition rule for TaskUpdate (model tool and renderer cancel IPC alike).
+ * `cancelled` records a user veto, so a cancelled task is frozen — no status
+ * or subject change may resurrect it (the model starts a new task instead).
+ * Cancelling `completed` work is rejected as meaningless: it would destroy the
+ * completion record if the user's stale snapshot races the model's finish.
+ * Reopening completed work (completed → pending/in_progress) stays legal.
+ */
+export function explainTaskUpdateRejection(from: TaskStatus, to?: TaskStatus): string | undefined {
+  if (from === 'cancelled') {
+    return 'This task was cancelled (user veto) and is frozen; create a new task instead of modifying it';
+  }
+  if (from === 'completed' && to === 'cancelled') {
+    return 'A completed task cannot be cancelled; the work is already done';
+  }
+  return undefined;
+}
+
+/**
  * Safe-render the task ledger for any face that persists into history or is
  * re-injected into a prompt (tool results, turn-tail fragment). Two invariants:
  *   - the canonical id is rendered verbatim, and the subject is a safe

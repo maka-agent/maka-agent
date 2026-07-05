@@ -77,6 +77,23 @@ describe('TaskLedgerStore', () => {
     await assert.rejects(() => store.create(SESSION_ID, [{ subject: '   ' }]), /empty/);
   });
 
+  it('freezes cancelled tasks and refuses to cancel completed work', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [cancelled, completed] } = await store.create(SESSION_ID, [{ subject: 'a' }, { subject: 'b' }]);
+    assert.ok(cancelled && completed);
+    await store.update(SESSION_ID, cancelled.id, { status: 'cancelled' });
+    await store.update(SESSION_ID, completed.id, { status: 'completed' });
+
+    // A user veto is final: no status flip, no subject edit.
+    await assert.rejects(() => store.update(SESSION_ID, cancelled.id, { status: 'in_progress' }), /frozen/);
+    await assert.rejects(() => store.update(SESSION_ID, cancelled.id, { subject: '改名' }), /frozen/);
+    // Completed work cannot be vetoed after the fact, but may be reopened.
+    await assert.rejects(() => store.update(SESSION_ID, completed.id, { status: 'cancelled' }), /already done/);
+    const { updated } = await store.update(SESSION_ID, completed.id, { status: 'in_progress' });
+    assert.equal(updated.status, 'in_progress');
+  });
+
   it('does not rewrite the file when the update target does not exist', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
