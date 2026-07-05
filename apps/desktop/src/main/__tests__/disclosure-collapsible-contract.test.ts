@@ -55,6 +55,20 @@ describe('PR-DISCLOSURE-COLLAPSIBLE-0 contract', () => {
       assert.match(src, new RegExp(`data-slot="${slot}"`), `must expose data-slot="${slot}" (style-hook convention, item 23)`);
     }
   });
+
+  it('tool-activity Collapsible is controlled (open follows item.status), not defaultOpen', async () => {
+    // A `defaultOpen` card decides open only on first render, so a card that
+    // defaults open while pending/running would NOT auto-collapse when it
+    // settles to completed/interrupted — the pre-Collapsible `<details
+    // open={isOpenByDefault(status)}>` re-evaluated open every render. The
+    // controlled form (open + onOpenChange, re-synced via useEffect on
+    // [item.status]) restores that: status change collapses/expands the card,
+    // the user can still toggle in between.
+    const src = await readFile(resolve(REPO_ROOT, 'packages/ui/src/tool-activity.tsx'), 'utf8');
+    assert.ok(!/defaultOpen=/.test(src), 'tool-activity must not use defaultOpen (a running card that defaults open would not auto-collapse when it settles); use controlled open that follows item.status');
+    assert.match(src, /\bonOpenChange\b/, 'tool-activity Collapsible must be controlled via onOpenChange');
+    assert.match(src, /useEffect\([^]*\[item\.status\]/, 'tool-activity must re-sync open when item.status changes (useEffect on [item.status])');
+  });
 });
 
 describe('disclosure-collapsible negative cases', () => {
