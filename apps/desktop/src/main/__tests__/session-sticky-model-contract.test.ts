@@ -160,6 +160,9 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /inputValue=\{query\}/);
     assert.match(ui, /filter=\{filterModelPickerOption\}/);
     assert.match(ui, /BaseCombobox\.useFilteredItems<ModelPickerOptionGroup>\(\)/);
+    assert.match(ui, /footer=\{\(\{ open, close \}\) => \(/);
+    assert.match(ui, /props\.footer\?\.\(\{[\s\S]*open,[\s\S]*close: \(\) => \{[\s\S]*setOpen\(false\);[\s\S]*setQuery\(''\);/);
+    assert.match(ui, /data-model-picker-nested-popup=""/);
     // The grouped menu renders provider groups from Base UI's filtered item
     // source, each heading carrying the injected brand mark (kept out of
     // @maka/ui via renderProviderMark), on the shared `.settingsSelectMenu*`
@@ -179,6 +182,9 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     // (the bespoke `.maka-model-switcher-popup` chrome was folded into it); the
     // trigger above stays the composer pill.
     assert.match(styles, /\.settingsSelectMenuPopup\s*\{/);
+    assert.match(styles, /\.modelPickerPopup\s*\{[\s\S]*display:\s*flex;[\s\S]*overflow:\s*hidden;[\s\S]*\}/);
+    assert.match(styles, /\.modelPickerList\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*\}/);
+    assert.match(styles, /\.maka-thinking-section\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*\}/);
     assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
   });
 

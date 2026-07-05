@@ -25,6 +25,36 @@ describe('model thinking-level picker contract', () => {
     assert.match(source, /max:\s*'最高'/, 'max reasoning effort should render as 最高');
   });
 
+  it('renders model picker popups as a fixed shell, a scrollable model list, and a footer action', async () => {
+    const source = await readChatModelSwitcherSource();
+    const css = await readModelSwitcherCss();
+
+    assert.match(source, /function ModelPickerPopup\(/, 'model picker popup layout must be named, not an inline SelectPopup shape');
+    assert.match(source, /function ModelPickerList\(/, 'model picker list layout must be named, not an inline SelectList shape');
+    assert.equal(source.match(/<ModelPickerPopup>/g)?.length, 2, 'both model pickers must use the fixed popup shell');
+    assert.equal(source.match(/<ModelPickerList>/g)?.length, 2, 'both model pickers must put only model rows in the scrollable list');
+    assert.doesNotMatch(source, /<SelectPopup className="settingsSelectMenuPopup">/, 'model pickers should not use the generic scrolling select popup directly');
+    assert.doesNotMatch(source, /<SelectList>/, 'model pickers should not let the generic SelectList own this popup scroll');
+
+    assert.match(
+      css,
+      /\.maka-model-picker-popup \{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;[\s\S]*?overflow:\s*hidden;[\s\S]*?padding:\s*0;[\s\S]*?\}/,
+      'the model picker popup shell must not scroll; it owns chrome and clips the list',
+    );
+    assert.match(
+      css,
+      /\.maka-model-picker-list \{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?padding:\s*var\(--space-2\);[\s\S]*?\}/,
+      'only the model list should scroll inside the fixed popup shell',
+    );
+    assert.match(
+      css,
+      /\.maka-thinking-section \{[\s\S]*?flex:\s*0 0 auto;[\s\S]*?padding:\s*0 var\(--space-2\) var\(--space-2\);[\s\S]*?background:\s*var\(--background\);[\s\S]*?\}/,
+      'the thinking section should be a normal footer, not sticky scroll content',
+    );
+    assert.doesNotMatch(css, /\.maka-thinking-section \{[\s\S]*?position:\s*sticky/, 'the thinking footer must not be sticky content inside the scroll range');
+    assert.doesNotMatch(css, /bottom:\s*calc\(-1 \* var\(--space-2\)\)/, 'no negative-bottom padding hack should remain');
+  });
+
   it('renders the side flyout as a Base UI Menu anchored to the row', async () => {
     const source = await readChatModelSwitcherSource();
 
@@ -45,16 +75,6 @@ describe('model thinking-level picker contract', () => {
     assert.doesNotMatch(source, /onPointerDownCapture/, 'no pointerdown commit hack — Menu handles dismiss');
     assert.doesNotMatch(source, /THINKING_FLYOUT_VIEWPORT_MARGIN/, 'no hand-rolled viewport clamp — floating-ui positions');
     assert.doesNotMatch(source, /createPortal/, 'no manual portal — MenuPortal does it');
-  });
-
-  it('covers the host popup bottom padding while the model list scrolls behind the sticky thinking row', async () => {
-    const css = await readModelSwitcherCss();
-
-    assert.match(
-      css,
-      /\.maka-thinking-section \{[\s\S]*?bottom:\s*calc\(-1 \* var\(--space-2\)\);[\s\S]*?padding-bottom:\s*var\(--space-2\);[\s\S]*?\}/,
-      'the sticky thinking section must extend over the popup bottom padding so scrolling model rows cannot show through that 8px strip',
-    );
   });
 
   it('closes the host model menu after a thinking-level choice commits', async () => {
