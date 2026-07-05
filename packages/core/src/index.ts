@@ -694,6 +694,9 @@ export {
   validateChatDefaultModel,
 } from './model-catalog.js';
 
+// model-metadata.ts
+export { resolveModelVisionSupport } from './model-metadata.js';
+
 // settings.ts
 export type {
   AppearanceSettings,

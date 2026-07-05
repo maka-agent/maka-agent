@@ -207,6 +207,7 @@ describe('AiSdkBackend model history', () => {
       newId: idGenerator(),
       now: monotonicClock(),
       readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+      supportsVision: true,
     } as never);
 
     await drain(backend.send({
@@ -271,6 +272,7 @@ describe('AiSdkBackend model history', () => {
       newId: idGenerator(),
       now: monotonicClock(),
       readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+      supportsVision: true,
     } as never);
 
     await drain(backend.send({
@@ -299,6 +301,51 @@ describe('AiSdkBackend model history', () => {
     assert.ok(imageLike, `expected an image/png part in current user content, got: ${JSON.stringify(parts)}`);
   });
 
+  test('current-turn image attachment falls back to text unless vision support is explicit', async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+    } as never);
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'describe this chart',
+      attachments: [
+        {
+          kind: 'image',
+          name: 'chart.png',
+          mimeType: 'image/png',
+          bytes: pngBytes.length,
+          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
+        },
+      ],
+      context: [],
+      runtimeContext: [],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const currentUser = prompt[prompt.length - 1];
+    const parts = currentUser.content as Array<{ type: string; mediaType?: string; text?: string }>;
+    const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
+    assert.equal(imageLike, undefined, `expected no image/png part without explicit vision support, got: ${JSON.stringify(parts)}`);
+    const text = parts.map((p) => p.text ?? '').join('\n');
+    assert.ok(text.includes('describe this chart'), `expected original text in: ${text}`);
+    assert.ok(text.includes('[attachment: chart.png (image/png)]'), `expected attachment ref in: ${text}`);
+    assert.ok(text.includes('does not support image input'), `expected non-vision fallback note in: ${text}`);
+  });
+
   test('RuntimeEvent replay renders historical image attachments as image parts', async () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
     const model = completionModel();
@@ -315,6 +362,7 @@ describe('AiSdkBackend model history', () => {
       newId: idGenerator(),
       now: monotonicClock(),
       readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+      supportsVision: true,
     } as never);
 
     await drain(backend.send({
