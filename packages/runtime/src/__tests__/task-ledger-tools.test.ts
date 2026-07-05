@@ -114,6 +114,39 @@ describe('task ledger tools', () => {
     assert.match(String(result), /in_progress/);
   });
 
+  test('TaskCreate result shows only the created tasks (with ids) and total, not the pre-existing ledger', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    // a pre-existing task that must NOT be replayed in the create result
+    await create.impl({ tasks: [{ subject: 'pre-existing' }] }, fakeContext(SESSION_ID));
+    const result = String(await create.impl({ tasks: [{ subject: 'new-task' }] }, fakeContext(SESSION_ID)));
+    assert.match(result, /new-task/, 'result must include the created task');
+    assert.match(result, /ledger total: 2/, 'result must include the ledger total');
+    assert.equal(result.includes('pre-existing'), false, 'result must not replay the pre-existing ledger');
+    // the new task's id is present so the model can update it next
+    const all = await store.list();
+    const newId = all.find((t) => t.subject === 'new-task')?.id;
+    assert.ok(newId, 'new task must have been created');
+    assert.equal(result.includes(newId), true, 'result must include the new task id');
+  });
+
+  test('TaskUpdate result shows only the updated task and total, not the rest of the ledger', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: 'keep-1' }, { subject: 'keep-2' }, { subject: 'target' }] }, fakeContext(SESSION_ID));
+    const all = await store.list();
+    const target = all.find((t) => t.subject === 'target');
+    assert.ok(target);
+    const result = String(await update.impl({ id: target.id, status: 'completed' }, fakeContext(SESSION_ID)));
+    assert.match(result, /target/, 'result must include the updated task subject');
+    assert.match(result, /ledger total: 3/, 'result must include the ledger total');
+    assert.equal(result.includes('keep-1'), false, 'result must not replay unrelated tasks');
+    assert.equal(result.includes('keep-2'), false, 'result must not replay unrelated tasks');
+  });
+
   test('tool results scrub secret-like subjects before they persist into history', async () => {
     // Same samples the core redactSecrets tests use. Tool results replay to
     // the provider every turn, so redacting only the turn tail is not enough.
