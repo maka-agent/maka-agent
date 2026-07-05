@@ -161,6 +161,17 @@ function decodeTasks(text: string): Task[] {
     const task = normalizePersistedTask(value);
     if (task) tasks.push(task);
   }
+  // Enforce the same total-task cap as the write path on read. A hand-edited,
+  // legacy, or externally-written tasks.json could otherwise carry an
+  // unbounded number of valid records, which `list()` would inject into the
+  // turn tail every turn. Treat over-cap as corrupt so the render path
+  // degrades to empty (its caller already try/catches) and the mutate path
+  // stays fail-closed instead of silently truncating-and-overwriting.
+  if (tasks.length > TASK_LEDGER_MAX_TASKS) {
+    throw new Error(
+      `task ledger has ${tasks.length} tasks, exceeding the ${TASK_LEDGER_MAX_TASKS}-task cap; refusing to load an unbounded ledger`,
+    );
+  }
   return tasks;
 }
 
@@ -169,6 +180,7 @@ function normalizePersistedTask(value: unknown): Task | undefined {
   const record = value as Partial<Task>;
   if (
     typeof record.id !== 'string' ||
+    !isSafeTaskId(record.id) ||
     typeof record.createdAt !== 'number' ||
     typeof record.updatedAt !== 'number' ||
     !isTaskStatus(record.status)
@@ -189,4 +201,15 @@ function normalizePersistedTask(value: unknown): Task | undefined {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+}
+
+// The write path generates ids via randomUUID() (36 chars, single line). A
+// hand-edited or legacy tasks.json could otherwise carry an id with a newline
+// (breaks the `formatTaskLedgerList` line structure and injects text into the
+// prompt), whitespace, or thousands of chars (unbounded turn-tail bloat).
+// Constrain ids to the shape the write path actually produces: non-empty,
+// single-line (no whitespace), and short. Not UUID-coupled so a future id
+// format change doesn't need a read-path update.
+function isSafeTaskId(id: string): boolean {
+  return id.length >= 1 && id.length <= 64 && !/\s/.test(id);
 }

@@ -151,6 +151,38 @@ describe('TaskLedgerStore', () => {
     assert.equal(ws?.subject, 'a b c d', `expected normalized subject, got ${JSON.stringify(ws?.subject)}`);
   });
 
+  it('treats an over-cap tasks.json as corrupt: list() rejects and mutate stays fail-closed', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    const overcap = Array.from({ length: TASK_LEDGER_MAX_TASKS + 1 }, (_, i) => ({
+      id: `cap-${i}`, subject: `任务${i}`, status: 'pending', createdAt: i, updatedAt: i,
+    }));
+    await writeFile(tasksFilePath(root), JSON.stringify(overcap), 'utf8');
+    const store = createTaskLedgerStore(root);
+    // render path degrades to an empty list (readForRender try/catches the over-cap file)
+    assert.deepEqual(await store.list(SESSION_ID), []);
+    // mutate path stays fail-closed: a create must not silently truncate-and-overwrite the over-cap file
+    await assert.rejects(() => store.create(SESSION_ID, [{ subject: '新任务' }]), /corrupt|limit|exceed/i);
+    // the file is left untouched (not truncated)
+    const raw = await readFile(tasksFilePath(root), 'utf8');
+    assert.equal(JSON.parse(raw).length, TASK_LEDGER_MAX_TASKS + 1);
+  });
+
+  it('rejects records with unsafe ids (newline, overlong, empty, whitespace) on read', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'abc\nINJECTED', subject: '换行id', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'X'.repeat(5000), subject: '超长id', status: 'pending', createdAt: 2, updatedAt: 2 },
+      { id: '', subject: '空id', status: 'pending', createdAt: 3, updatedAt: 3 },
+      { id: 'has space', subject: '带空格id', status: 'pending', createdAt: 4, updatedAt: 4 },
+      { id: 'good-id', subject: '正常', status: 'pending', createdAt: 5, updatedAt: 5 },
+    ]), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.equal(tasks.length, 1, `expected only the safe-id record to survive, got ${JSON.stringify(tasks.map((t) => t.id))}`);
+    assert.equal(tasks[0]?.id, 'good-id');
+  });
+
   it('rejects an unsafe session id', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
