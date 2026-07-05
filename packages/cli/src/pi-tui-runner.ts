@@ -653,7 +653,7 @@ class PickerOverlay implements Component {
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
     return [
-      alignColumns(this.input.title, ansi.accent(this.input.rightLabel), safeWidth),
+      padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
       padLine(ansi.dim('enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
@@ -708,16 +708,6 @@ function thinkingLevelPickerItems(
       ...(level === current ? { description: 'current' } : {}),
     })),
   ];
-}
-
-function alignColumns(left: string, right: string, width: number): string {
-  const safeWidth = Math.max(1, width);
-  const rightWidth = visibleWidth(right);
-  if (rightWidth + 1 >= safeWidth) return padLine(left, safeWidth);
-  const leftMaxWidth = Math.max(1, safeWidth - rightWidth - 1);
-  const clippedLeft = visibleWidth(left) > leftMaxWidth ? truncateToWidth(left, leftMaxWidth, '') : left;
-  const gap = Math.max(1, safeWidth - visibleWidth(clippedLeft) - rightWidth);
-  return `${clippedLeft}${' '.repeat(gap)}${right}`;
 }
 
 function formatPickerItemLine(line: string, width: number): string {
