@@ -16,6 +16,7 @@ type ModelCatalogChoicesModule = {
     providerType: string;
     model: string;
     label: string;
+    connectionName?: string;
   }>;
   pickCatalogDefaultChatModel(connection: LlmConnection): {
     llmConnectionSlug: string;
@@ -88,6 +89,44 @@ describe('model catalog picker helpers', () => {
       choices.map((choice) => `${choice.connectionSlug}:${choice.model}:${choice.label}`),
       ['codex-account:gpt-5.5:GPT-5.5'],
     );
+  });
+
+  it('surfaces connectionName for api-key connections but never for OAuth ones', async () => {
+    const { buildCatalogChatModelChoices } = await importModelCatalogChoices();
+
+    const choices = buildCatalogChatModelChoices([
+      connection({
+        slug: 'openrouter',
+        name: 'Openrouter',
+        providerType: 'openai-compatible',
+        models: [{ id: 'anthropic/claude-sonnet-5' }],
+        modelSource: 'fetched',
+      }),
+      connection({
+        slug: 'claude-sub',
+        name: 'person@example.com',
+        providerType: 'claude-subscription',
+        models: [{ id: 'claude-sonnet-4-5-20250929' }],
+        modelSource: 'fetched',
+      }),
+      connection({
+        slug: 'codex-account',
+        name: 'person@example.com',
+        providerType: 'codex-subscription',
+        models: [{ id: 'gpt-5.5' }],
+        modelSource: 'fetched',
+      }),
+    ]);
+
+    const bySlug = new Map(choices.map((choice) => [choice.connectionSlug, choice]));
+    assert.equal(bySlug.get('openrouter')?.connectionName, 'Openrouter');
+    // OAuth connection.name embeds the account email — it must never reach
+    // the picker's ChatModelChoice (PR-CHAT-CHROME-FIX-0).
+    assert.equal(bySlug.get('claude-sub')?.connectionName, undefined);
+    assert.equal(bySlug.get('codex-account')?.connectionName, undefined);
+    for (const choice of choices) {
+      assert.ok(!(choice.connectionName ?? '').includes('@example.com'));
+    }
   });
 
   it('keeps Daily Review runtime-wired model choices while using leak-safe duplicate labels', async () => {

@@ -10,6 +10,7 @@ import { Switch as BaseSwitch } from '@base-ui/react/switch';
 import { Toggle as BaseToggle } from '@base-ui/react/toggle';
 import { ToggleGroup as BaseToggleGroup } from '@base-ui/react/toggle-group';
 import { Select as BaseSelect } from '@base-ui/react/select';
+import { Combobox as BaseCombobox } from '@base-ui/react/combobox';
 import { Separator as BaseSeparator } from '@base-ui/react/separator';
 import { Check, ChevronDown, X } from './icons.js';
 import { cva, type VariantProps } from 'class-variance-authority';
@@ -284,12 +285,6 @@ export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsW
 export const SelectValue = BaseSelect.Value;
 export const SelectPortal = BaseSelect.Portal;
 export const SelectPositioner = BaseSelect.Positioner;
-export const SelectList = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.List>>(function SelectList(
-  { className, ...props },
-  ref,
-) {
-  return <BaseSelect.List ref={ref} className={cn('max-h-[var(--available-height)] overflow-y-auto py-1', className)} {...props} />;
-});
 export const SelectPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Popup>>(function SelectPopup(
   { className, ...props },
   ref,
@@ -341,6 +336,87 @@ export const SelectItem = forwardRef<HTMLDivElement, React.ComponentPropsWithout
         <BaseSelect.ItemText>{children}</BaseSelect.ItemText>
       </span>
     </BaseSelect.Item>
+  );
+});
+
+// =============================================================
+// Combobox — a Select-shaped trigger button whose popup embeds a
+// search `<input>` above the (optionally grouped) item list. Used
+// for pickers with long/filterable option lists (e.g. the model
+// picker) where a plain Select's typeahead isn't enough. Same
+// forwardRef + `cn(...)` wrapping recipe as the Select block above.
+// =============================================================
+
+export const ComboboxRoot = BaseCombobox.Root;
+export const ComboboxTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Trigger>>(function ComboboxTrigger(
+  { className, children, ...props },
+  ref,
+) {
+  return (
+    <BaseCombobox.Trigger
+      ref={ref}
+      className={cn(buttonVariants({ variant: 'outline' }), 'justify-between', className)}
+      {...props}
+    >
+      {children}
+      <BaseCombobox.Icon>
+        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+      </BaseCombobox.Icon>
+    </BaseCombobox.Trigger>
+  );
+});
+export const ComboboxPortal = BaseCombobox.Portal;
+export const ComboboxPositioner = BaseCombobox.Positioner;
+export const ComboboxInput = forwardRef<HTMLInputElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Input>>(function ComboboxInput(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.Input ref={ref} className={cn('w-full bg-transparent text-sm outline-none placeholder:text-foreground-secondary', className)} {...props} />;
+});
+export const ComboboxList = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.List>>(function ComboboxList(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.List ref={ref} className={cn('max-h-[var(--available-height)] overflow-y-auto py-1', className)} {...props} />;
+});
+export const ComboboxPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Popup>>(function ComboboxPopup(
+  { className, ...props },
+  ref,
+) {
+  // Same z-index reasoning as `SelectPopup` above — must float above a
+  // Settings modal's `--z-modal` layer.
+  return <BaseCombobox.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-md bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} {...props} />;
+});
+export const ComboboxGroup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Group>>(function ComboboxGroup(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.Group ref={ref} className={cn('py-1', className)} {...props} />;
+});
+export const ComboboxGroupLabel = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.GroupLabel>>(function ComboboxGroupLabel(
+  { className, ...props },
+  ref,
+) {
+  return <BaseCombobox.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-foreground-secondary', className)} {...props} />;
+});
+export const ComboboxCollection = BaseCombobox.Collection;
+export const ComboboxItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseCombobox.Item>>(function ComboboxItem(
+  { className, children, ...props },
+  ref,
+) {
+  return (
+    <BaseCombobox.Item
+      ref={ref}
+      className={cn('grid cursor-default grid-cols-[1rem_1fr] items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted data-[selected]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50', className)}
+      {...props}
+    >
+      <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
+        <BaseCombobox.ItemIndicator>
+          <Check size={13} strokeWidth={2} aria-hidden="true" />
+        </BaseCombobox.ItemIndicator>
+      </span>
+      <span className="min-w-0">{children}</span>
+    </BaseCombobox.Item>
   );
 });
 

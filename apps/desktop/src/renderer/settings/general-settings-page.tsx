@@ -13,6 +13,7 @@ import {
   Input,
   Menu,
   MenuTrigger,
+  ModelPicker,
   PERMISSION_MODE_META,
   PermissionModeMenuPopup,
   SettingsSelect,
@@ -115,29 +116,18 @@ function GeneralDefaultsCard(props: {
   }, []);
 
   const modelChoices = useMemo(() => buildCatalogChatModelChoices(props.connections), [props.connections]);
-  const optionGroups = useMemo(() => {
-    return modelMenuGroups(modelChoices).map((group) => ({
-      label: group.heading,
-      icon: <ProviderLogo type={group.providerType} compact />,
-      options: group.choices.map((choice) => [
-        modelChoiceValue(choice.connectionSlug, choice.model),
-        choice.label,
-      ] as const),
-    }));
-  }, [modelChoices]);
-  const options = useMemo<ReadonlyArray<readonly [string, string]>>(() => {
-    return [
-      ['', '未设置'],
-      ...optionGroups.flatMap((group) => group.options),
-    ];
-  }, [optionGroups]);
+  const modelGroups = useMemo(() => modelMenuGroups(modelChoices), [modelChoices]);
   const selectedValue = useMemo(() => {
     if (!props.defaultSlug) return '';
     const connection = props.connections.find((candidate) => candidate.slug === props.defaultSlug);
     if (!connection?.defaultModel) return '';
     const value = modelChoiceValue(connection.slug, connection.defaultModel);
-    return options.some(([candidate]) => candidate === value) ? value : '';
-  }, [options, props.connections, props.defaultSlug]);
+    return modelChoices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === value) ? value : '';
+  }, [modelChoices, props.connections, props.defaultSlug]);
+  const selectedLabel = useMemo(() => {
+    if (!selectedValue) return '未设置';
+    return modelChoices.find((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === selectedValue)?.label ?? '未设置';
+  }, [modelChoices, selectedValue]);
 
   async function persistDefault(nextValue: string) {
     if (savingRef.current) return;
@@ -190,16 +180,23 @@ function GeneralDefaultsCard(props: {
           <strong>默认模型</strong>
           <small>新对话默认使用的具体模型；按连接分组，不显示 OAuth 账号邮箱。</small>
         </div>
-        <SettingsSelect
+        {/* Shared searchable picker with the composer's model switcher
+            (ModelPicker in @maka/ui) so the grouped list, provider marks,
+            and search behavior can't drift between the two surfaces. */}
+        <ModelPicker
+          groups={modelGroups}
           value={selectedValue}
+          pinnedItem={{ value: '', label: '未设置' }}
+          renderProviderMark={(type) => <ProviderLogo type={type} compact />}
           ariaLabel="默认模型"
-          options={options}
-          optionGroups={optionGroups}
           disabled={saving}
-          onChange={(value) => {
+          triggerClassName="settingsSelectTrigger max-w-[320px] w-full"
+          onValueChange={(value) => {
             void persistDefault(value);
           }}
-        />
+        >
+          <span className="settingsSelectMenuOption">{selectedLabel}</span>
+        </ModelPicker>
       </div>
       <div className="settingsRow" data-control-width="select">
         <div>

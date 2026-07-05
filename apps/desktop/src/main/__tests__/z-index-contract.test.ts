@@ -28,6 +28,11 @@ const BARE_ALLOWLIST: ReadonlyArray<{ selector: string; value: number; reason: s
     value: 2,
     reason: 'decorative sticker stack — 3 spans inside a fixed container, no escape',
   },
+  {
+    selector: '.modelPickerSearchInput',
+    value: 1,
+    reason: 'sticky search input inside the model-picker popup — must paint above the option rows scrolling beneath it, local stacking only',
+  },
 ];
 
 describe('PR-FE-BUG-HUNT-9 z-index contract', () => {

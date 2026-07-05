@@ -10,6 +10,7 @@ export * from './locale-helpers.js';
 export * from './markdown.js';
 export * from './maka-uri.js';
 export * from './materialize.js';
+export * from './model-picker.js';
 export * from './permission-queue.js';
 export * from './redact.js';
 export * from './overlay-scroll-area.js';

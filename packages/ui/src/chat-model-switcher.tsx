@@ -11,76 +11,16 @@
  */
 
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  Button as UiButton,
-  SelectGroup,
-  SelectGroupLabel,
-  SelectItem,
-  SelectList,
-  SelectPopup,
-  SelectPortal,
-  SelectPositioner,
-  SelectRoot,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from './ui.js';
+import { Button as UiButton } from './ui.js';
+import { ModelPicker } from './model-picker.js';
 import { Settings } from './icons.js';
 import {
   type ChatModelChoice,
-  type ModelMenuGroup,
   modelMenuGroups,
   modelChoiceValue,
   parseModelChoiceValue,
 } from './chat-model-helpers.js';
 import { type ProviderType, type SessionSummary } from '@maka/core';
-
-/**
- * Shared grouped option rows for both model pickers: one `<SelectItem>` per
- * model, grouped under a leak-safe heading from `modelMenuGroups` — the short
- * provider label, disambiguated by connection slug when the same provider has
- * multiple connections. The heading never derives from the connection name
- * (which embeds the OAuth account email). Its brand mark is injected by the
- * desktop app via `renderProviderMark` so `@maka/ui` stays free of the provider
- * SVG library. Headings + rows wear the shared `.settingsSelectMenu*` recipe so
- * the menu reads as the governed grouped form; the selected-row check is the
- * `SelectItem` primitive's built-in `ItemIndicator`.
- */
-function ModelChoiceOptions({
-  groups,
-  renderProviderMark,
-}: {
-  groups: ModelMenuGroup[];
-  renderProviderMark?: (type: ProviderType) => ReactNode;
-}) {
-  return (
-    <>
-      {groups.map((group) => {
-        const logo = renderProviderMark?.(group.providerType);
-        return (
-          <SelectGroup key={group.connectionSlug}>
-            <SelectGroupLabel className="settingsSelectMenuGroupLabel">
-              {logo ? (
-                <span className="settingsSelectMenuGroupLogo" aria-hidden="true">{logo}</span>
-              ) : (
-                <span aria-hidden="true" />
-              )}
-              <span>{group.heading}</span>
-            </SelectGroupLabel>
-            {group.choices.map((choice) => {
-              const value = modelChoiceValue(choice.connectionSlug, choice.model);
-              return (
-                <SelectItem key={value} value={value}>
-                  <span className="settingsSelectMenuOption">{choice.label}</span>
-                </SelectItem>
-              );
-            })}
-          </SelectGroup>
-        );
-      })}
-    </>
-  );
-}
 
 export function ChatModelSwitcher(props: {
   activeSession: SessionSummary;
@@ -104,18 +44,12 @@ export function ChatModelSwitcher(props: {
   const disabled = pending || Boolean(props.disabledReason) || !props.onChange || props.choices.length === 0;
   const grouped = modelMenuGroups(props.choices);
   const currentKnownChoice = props.choices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue);
-  const modelSelectItems = useMemo(
-    () => [
-      // Keep the Select value as the stable model id, but render the
-      // catalog display label when present. Account / connection names
-      // still stay out of the option row to avoid OAuth email leaks.
-      ...(!currentKnownChoice ? [{ value: currentValue, label: currentModel }] : []),
-      ...props.choices.map((choice) => ({
-        value: modelChoiceValue(choice.connectionSlug, choice.model),
-        label: choice.label,
-      })),
-    ],
-    [currentKnownChoice, currentModel, currentValue, props.choices],
+  // Render the catalog display label when the current model is a known
+  // choice; account / connection names still stay out of the trigger to
+  // avoid OAuth email leaks.
+  const currentLabel = useMemo(
+    () => props.choices.find((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === currentValue)?.label ?? currentModel,
+    [currentModel, currentValue, props.choices],
   );
   const currentSessionModelTitle = props.activeConnectionLabel && props.activeModelLabel
     ? `本会话固定模型：${props.activeConnectionLabel} · ${props.activeModelLabel}`
@@ -150,13 +84,21 @@ export function ChatModelSwitcher(props: {
       data-pending={pending ? 'true' : undefined}
       aria-busy={pending ? 'true' : undefined}
     >
-      <SelectRoot<string>
-        items={modelSelectItems}
+      <ModelPicker
+        groups={grouped}
         value={currentValue}
         disabled={disabled}
+        renderProviderMark={props.renderProviderMark}
+        ariaLabel="切换当前会话模型"
+        title={title}
+        triggerClassName="maka-model-switcher-trigger"
+        // PR-CHAT-CHROME-FIX-0 (WAWQAQ msg `ccce4a31`): menu rows show only
+        // the raw model name, never the connection/account name (which
+        // embeds the OAuth email).
+        pinnedItem={!currentKnownChoice ? { value: currentValue, label: currentModel } : undefined}
         onValueChange={(value) => {
           if (pendingRef.current || props.pending) return;
-          const next = typeof value === 'string' ? parseModelChoiceValue(value) : undefined;
+          const next = parseModelChoiceValue(value);
           if (!next) return;
           if (
             next.llmConnectionSlug === props.activeSession.llmConnectionSlug &&
@@ -186,41 +128,9 @@ export function ChatModelSwitcher(props: {
           })();
         }}
       >
-        <SelectTrigger
-          className="maka-model-switcher-trigger"
-          aria-label="切换当前会话模型"
-          title={title}
-        >
-          <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
-          <SelectValue className="maka-model-switcher-value" />
-        </SelectTrigger>
-        <SelectPortal>
-          <SelectPositioner alignItemWithTrigger={false} sideOffset={8} className="settingsSelectPositioner">
-            <SelectPopup className="settingsSelectMenuPopup">
-              {/* PR-CHAT-CHROME-FIX-0 (WAWQAQ msg `ccce4a31`):
-                   menu rows show only the raw model name. The
-                   group label (connection + email) and the meta
-                   line (duplicate model id) used to render below
-                   each row but produced "Codex OAuth ·
-                   kabikabigoog@gmail.com / gpt-5.5 / gpt-5.5" —
-                   user wanted just "gpt-5.5". Groups still
-                   separate connections visually via
-                   `<SelectSeparator>` between them. */}
-              <SelectList>
-                {!currentKnownChoice && (
-                  <>
-                    <SelectItem value={currentValue}>
-                      <span className="settingsSelectMenuOption">{currentModel}</span>
-                    </SelectItem>
-                    {grouped.length > 0 && <SelectSeparator />}
-                  </>
-                )}
-                <ModelChoiceOptions groups={grouped} renderProviderMark={props.renderProviderMark} />
-              </SelectList>
-            </SelectPopup>
-          </SelectPositioner>
-        </SelectPortal>
-      </SelectRoot>
+        <span className="maka-model-switcher-label">{pending ? '切换中' : '模型'}</span>
+        <span className="maka-model-switcher-value">{currentLabel}</span>
+      </ModelPicker>
     </div>
   );
 }
@@ -241,37 +151,22 @@ export function NewChatModelPicker(props: {
 }) {
   const grouped = modelMenuGroups(props.choices);
   return (
-    <SelectRoot<string>
-      items={props.choices.map((choice) => ({
-        value: modelChoiceValue(choice.connectionSlug, choice.model),
-        label: choice.label,
-      }))}
-      value={props.currentValue}
+    <ModelPicker
+      groups={grouped}
+      value={props.currentValue ?? ''}
+      renderProviderMark={props.renderProviderMark}
+      ariaLabel={`选择新对话模型，当前 ${props.label}`}
+      title={`新对话使用的模型：${props.label}`}
+      triggerClassName="maka-composer-model-chip"
       onValueChange={(value) => {
-        if (typeof value !== 'string') return;
         const next = parseModelChoiceValue(value);
         if (next) void props.onPick(next);
       }}
     >
-      <SelectTrigger
-        className="maka-composer-model-chip"
-        aria-label={`选择新对话模型，当前 ${props.label}`}
-        title={`新对话使用的模型：${props.label}`}
-      >
-        <span className="maka-composer-model-chip-text">{props.label}</span>
-        <span className="maka-composer-model-status" aria-hidden="true" />
-        {/* SelectTrigger already renders a BaseSelect.Icon chevron — no manual one. */}
-      </SelectTrigger>
-      <SelectPortal>
-        <SelectPositioner alignItemWithTrigger={false} sideOffset={8} className="settingsSelectPositioner">
-          <SelectPopup className="settingsSelectMenuPopup">
-            <SelectList>
-              <ModelChoiceOptions groups={grouped} renderProviderMark={props.renderProviderMark} />
-            </SelectList>
-          </SelectPopup>
-        </SelectPositioner>
-      </SelectPortal>
-    </SelectRoot>
+      <span className="maka-composer-model-chip-text">{props.label}</span>
+      <span className="maka-composer-model-status" aria-hidden="true" />
+      {/* ModelPicker's trigger already renders a chevron — no manual one. */}
+    </ModelPicker>
   );
 }
 

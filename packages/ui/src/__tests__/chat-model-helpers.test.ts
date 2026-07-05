@@ -59,12 +59,71 @@ test('each group carries its providerType so the menu can pick the right brand m
 });
 
 test('headings never leak an account email (no @), even with slug disambiguation', () => {
-  // modelMenuGroups never receives connection.name, so a leak is impossible by
-  // construction; this guards against a future regression that reintroduces it.
+  // Callers only populate connectionName for non-OAuth providers, so OAuth
+  // groups can never carry the account email; this guards against a future
+  // regression that passes connection.name through unguarded.
   const groups = modelMenuGroups([
     choice('openai-a', 'openai', 'gpt-5.5'),
     choice('openai-b', 'openai', 'gpt-5.5'),
     choice('claude-sub', 'claude-subscription', 'claude-opus-4-8'),
   ]);
   for (const g of groups) assert.ok(!g.heading.includes('@'), `heading "${g.heading}" looks like it leaks an email`);
+});
+
+test('connectionName wins over the provider label when supplied', () => {
+  // A user-named openai-compatible gateway must read as its own name
+  // ("Openrouter"), not the generic "自定义" fallback.
+  const groups = modelMenuGroups([
+    { ...choice('openrouter', 'openai-compatible', 'anthropic/claude-sonnet-5'), connectionName: 'Openrouter' },
+    choice('deepseek', 'deepseek', 'deepseek-v4-flash'),
+  ]);
+  const bySlug = new Map(groups.map((g) => [g.connectionSlug, g]));
+  assert.equal(bySlug.get('openrouter')?.heading, 'Openrouter');
+  assert.equal(bySlug.get('deepseek')?.heading, 'DeepSeek');
+});
+
+test('blank connectionName falls back to the provider label', () => {
+  const groups = modelMenuGroups([
+    { ...choice('gateway', 'openai-compatible', 'some/model'), connectionName: '   ' },
+  ]);
+  assert.equal(groups[0]?.heading, '自定义');
+});
+
+test('unnamed connection keeps slug disambiguation even when a sibling is named', () => {
+  // Two openai-compatible connections, only one named: the named one uses its
+  // name, the unnamed one still needs the slug suffix to stay distinguishable.
+  const groups = modelMenuGroups([
+    { ...choice('openrouter', 'openai-compatible', 'a/m1'), connectionName: 'Openrouter' },
+    choice('other-gateway', 'openai-compatible', 'b/m2'),
+  ]);
+  const bySlug = new Map(groups.map((g) => [g.connectionSlug, g]));
+  assert.equal(bySlug.get('openrouter')?.heading, 'Openrouter');
+  assert.equal(bySlug.get('other-gateway')?.heading, '自定义 · other-gateway');
+});
+
+test('connectionName is read from the first choice of each connection', () => {
+  // All choices of one connection carry the same connectionName (they come
+  // from one LlmConnection); grouping keys off the first and must keep every
+  // model row in that single named group.
+  const groups = modelMenuGroups([
+    { ...choice('openrouter', 'openai-compatible', 'a/m1'), connectionName: 'Openrouter' },
+    { ...choice('openrouter', 'openai-compatible', 'b/m2'), connectionName: 'Openrouter' },
+  ]);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0]?.heading, 'Openrouter');
+  assert.equal(groups[0]?.choices.length, 2);
+});
+
+test('two connections sharing the same connectionName are disambiguated by slug', () => {
+  // The add form defaults the name to the provider's display label, so two
+  // quickly-added keys can easily share a name — they must not collapse into
+  // identical headings.
+  const groups = modelMenuGroups([
+    { ...choice('openrouter-a', 'openai-compatible', 'a/m1'), connectionName: 'OpenRouter' },
+    { ...choice('openrouter-b', 'openai-compatible', 'b/m2'), connectionName: 'OpenRouter' },
+  ]);
+  assert.deepEqual(
+    groups.map((g) => g.heading).sort(),
+    ['OpenRouter · openrouter-a', 'OpenRouter · openrouter-b'],
+  );
 });
