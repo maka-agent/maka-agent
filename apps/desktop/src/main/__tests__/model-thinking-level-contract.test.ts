@@ -9,6 +9,10 @@ async function readChatModelSwitcherSource(): Promise<string> {
   return readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-model-switcher.tsx'), 'utf8');
 }
 
+async function readModelSwitcherCss(): Promise<string> {
+  return readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/model-switcher.css'), 'utf8');
+}
+
 describe('model thinking-level picker contract', () => {
   it('labels thinking efforts in Chinese', async () => {
     const source = await readChatModelSwitcherSource();
@@ -31,11 +35,26 @@ describe('model thinking-level picker contract', () => {
     assert.match(source, /<Menu\s+open=\{open\}\s+onOpenChange=\{setOpen\}>/, 'flyout must be a controlled Base UI Menu');
     assert.match(source, /<MenuTrigger[\s\S]*?render=\{\(triggerProps\) =>/, 'trigger must render-prop the row div');
     assert.match(source, /<MenuPopup\s+className="maka-thinking-flyout"/, 'flyout popup uses MenuPopup');
+    assert.match(
+      source,
+      /<MenuPopup\s+className="maka-thinking-flyout"\s+align="start"\s+side="inline-end"\s+sideOffset=\{8\}>/,
+      'flyout side offset must match the host popup padding so it starts at the popup outer edge, not inside it',
+    );
     assert.match(source, /<MenuItem[\s\S]*?onClick=\{\(\) => choose\(/, 'levels render as MenuItems that call choose');
     // No hand-rolled positioning/commit hacks remain — Menu handles them.
     assert.doesNotMatch(source, /onPointerDownCapture/, 'no pointerdown commit hack — Menu handles dismiss');
     assert.doesNotMatch(source, /THINKING_FLYOUT_VIEWPORT_MARGIN/, 'no hand-rolled viewport clamp — floating-ui positions');
     assert.doesNotMatch(source, /createPortal/, 'no manual portal — MenuPortal does it');
+  });
+
+  it('covers the host popup bottom padding while the model list scrolls behind the sticky thinking row', async () => {
+    const css = await readModelSwitcherCss();
+
+    assert.match(
+      css,
+      /\.maka-thinking-section \{[\s\S]*?bottom:\s*calc\(-1 \* var\(--space-2\)\);[\s\S]*?padding-bottom:\s*var\(--space-2\);[\s\S]*?\}/,
+      'the sticky thinking section must extend over the popup bottom padding so scrolling model rows cannot show through that 8px strip',
+    );
   });
 
   it('closes the host model menu after a thinking-level choice commits', async () => {
