@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
+import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
@@ -585,6 +585,126 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /thinking high without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking high');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, ['high']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /thinking off when the current model exposes a real off wire', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking off');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, ['off']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects unsupported /thinking levels with usage instead of sending an update', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking off');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Usage: /thinking default|minimal|low|medium|high'));
+    assert.deepEqual(driver.thinkingLevelUpdates, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /thinking default by clearing the override', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking default');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, [undefined]);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('selects a permission mode from /permissions', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -1135,6 +1255,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
   readonly permissionModes: PermissionMode[] = [];
+  readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
   private sessionId = 'session-1';
 
@@ -1166,7 +1287,9 @@ class SlashCommandDriver implements MakaSessionDriver {
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
   }
-  async setThinkingLevel(): Promise<void> {}
+  async setThinkingLevel(level: ThinkingLevel | undefined): Promise<void> {
+    this.thinkingLevelUpdates.push(level);
+  }
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     this.sessionIds.push(sessionId);
     this.sessionId = sessionId;
