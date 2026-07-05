@@ -874,7 +874,7 @@
 .maka-palette-item[data-disabled="true"] {
   color: var(--muted-foreground);
   cursor: default;
-  opacity: var(--opacity-pending);
+  opacity: var(--opacity-disabled);
 }
 
 .maka-palette-item[data-pending="true"] {

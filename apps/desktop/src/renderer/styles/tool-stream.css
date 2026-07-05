@@ -312,7 +312,7 @@
   }
 
 .settingsMemoryEntryGroup[data-archived="true"] {
-    opacity: var(--opacity-pending);
+    opacity: var(--opacity-muted);
   }
 
 .settingsMemoryEntryGroupHeader {

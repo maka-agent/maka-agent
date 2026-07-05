@@ -53,7 +53,7 @@
   opacity: var(--opacity-disabled);
 }
 .settingsBotList button[data-support="planned"]:hover {
-  opacity: var(--opacity-pending);
+  opacity: var(--opacity-muted);
 }
 .settingsBotList button[data-support="planned"][data-active="true"] {
   opacity: 1;
