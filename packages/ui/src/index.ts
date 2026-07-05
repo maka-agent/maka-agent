@@ -31,7 +31,6 @@ export * from './bot-brand.js';
 export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
 export * from './primitives/card.js';
-export * from './primitives/table.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / a
 // single-consumer dot that the chat call sites apply via relative import, so

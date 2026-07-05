@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, useToast } from '@maka/ui';
+import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -258,26 +258,35 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
 }
 
 function SimpleStatsTable(props: { ariaLabel: string; headers: string[]; rows: Array<Array<ReactNode>>; empty?: string }) {
+  // Local table styles reproduce the retired Table primitive (now removed — a
+  // single consumer did not justify a public primitive). Values are inline so
+  // the stats surface stays self-contained until a second HTML <table> consumer
+  // appears, at which point this can lift back to packages/ui.
+  const headClass = "border-b border-border px-[var(--space-2)] py-[var(--space-1)] text-left align-middle font-semibold text-foreground-secondary [font-variant-numeric:tabular-nums]";
+  const cellClass = "border-b border-border px-[var(--space-2)] py-[var(--space-1)] text-left align-middle text-foreground-secondary [font-variant-numeric:tabular-nums]";
   return (
-    <Table aria-label={props.ariaLabel}>
-      <TableHeader>
-        <TableRow>{props.headers.map((header) => <TableHead key={header} scope="col">{header}</TableHead>)}</TableRow>
-      </TableHeader>
-      <TableBody>
+    <table
+      aria-label={props.ariaLabel}
+      className="w-full border-collapse overflow-hidden rounded-[var(--radius-surface)] border border-border text-[length:var(--font-size-caption)]"
+    >
+      <thead>
+        <tr>{props.headers.map((header) => <th key={header} scope="col" className={headClass}>{header}</th>)}</tr>
+      </thead>
+      <tbody>
         {props.rows.length === 0 ? (
-          <TableRow><TableCell colSpan={props.headers.length}>{props.empty ?? '暂无请求记录'}</TableCell></TableRow>
+          <tr><td colSpan={props.headers.length} className={cellClass}>{props.empty ?? '暂无请求记录'}</td></tr>
         ) : props.rows.map((row, rowIndex) => (
-          <TableRow key={rowIndex}>
+          <tr key={rowIndex}>
             {row.map((cell, cellIndex) => (
               cellIndex === 0 ? (
-                <TableHead key={cellIndex} scope="row">{cell}</TableHead>
+                <th key={cellIndex} scope="row" className={headClass}>{cell}</th>
               ) : (
-                <TableCell key={cellIndex}>{cell}</TableCell>
+                <td key={cellIndex} className={cellClass}>{cell}</td>
               )
             ))}
-          </TableRow>
+          </tr>
         ))}
-      </TableBody>
-    </Table>
+      </tbody>
+    </table>
   );
 }

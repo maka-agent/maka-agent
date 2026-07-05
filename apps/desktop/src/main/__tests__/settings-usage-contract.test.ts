@@ -129,17 +129,17 @@ describe('Settings usage dashboard contract', () => {
     );
     assert.match(
       simpleStatsTable,
-      /<Table aria-label=\{props\.ariaLabel\}>/,
+      /<table\s+aria-label=\{props\.ariaLabel\}/,
       'Usage stats table must expose its caller-provided name',
     );
     assert.match(
       simpleStatsTable,
-      /<TableRow>\{props\.headers\.map\(\(header\) => <TableHead key=\{header\} scope="col">\{header\}<\/TableHead>\)\}<\/TableRow>/,
+      /<th key=\{header\} scope="col"/,
       'Usage stats table column headers must expose column scope',
     );
     assert.match(
       simpleStatsTable,
-      /cellIndex === 0 \? \(\s*<TableHead key=\{cellIndex\} scope="row">\{cell\}<\/TableHead>\s*\) : \(\s*<TableCell key=\{cellIndex\}>\{cell\}<\/TableCell>\s*\)/,
+      /cellIndex === 0 \? \(\s*<th key=\{cellIndex\} scope="row"/,
       'Usage stats table rows must expose the first data cell as a scoped row header',
     );
     assert.doesNotMatch(
