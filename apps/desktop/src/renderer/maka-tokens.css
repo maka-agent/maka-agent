@@ -324,7 +324,20 @@
      instead of bare `Georgia, serif`. */
   --font-serif: Georgia, "Times New Roman", Times, serif;
 
-  /* === layout === */
+  /* === layout ===
+     P-RADIUS concentric nesting (#520 PR4 item 12, roadmap §1.3):
+     when a rounded surface sits inside another rounded surface with padding
+     between them, the inner radius = outer radius − padding so the two
+     curves share a center and read as one machined shell. Two forms:
+       1. If outer − padding lands on a tier, pick that tier directly —
+          e.g. a settings card (8px surface) inside a 12px modal with 4px
+          padding: 12 − 4 = 8 = --radius-surface. The radius-converge
+          contract's SELECTOR_TIER already pins this.
+       2. If outer − padding does NOT land on a tier, use
+          `calc(var(--radius-*) - Npx)` — e.g. an input inside a 12px modal
+          with 8px inset: 12 − 8 = 4px (not a tier), so
+          `border-radius: calc(var(--radius-modal) - 8px)`. The radius
+          contract's calc allowlist permits only this shrink form. */
   --radius: 0rem;
   --radius-control: 6px;
   --radius-surface: 8px;
