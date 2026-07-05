@@ -44,6 +44,7 @@ import {
   readAllRendererCss,
   stripCssComments,
   assertCustomPropPinnedOnce,
+  assertCustomPropRefsDefined,
 } from './css-test-helpers.js';
 
 // --- token whitelist --------------------------------------------------------
@@ -57,13 +58,16 @@ const CONTROL_HEIGHT_TOKENS = new Set([
   '--h-control-2xl',
 ]);
 
-/** Expected var(--h-control-*) pin value per token (the spacing-ruler tier). */
+/** Expected var(--h-control-*) pin value per token (the spacing-ruler tier).
+ *  md (28) and xl (36) use calc(var(--spacing) * 7/9) directly — maka's
+ *  discrete --space-* scale skips 7 and 9, and control-only tiers must not
+ *  expand it (that would invite p-7 / gap-7 drift). */
 const CONTROL_HEIGHT_PIN: Array<[string, string]> = [
   ['--h-control-xs', 'var(--space-5)'],
   ['--h-control-sm', 'var(--space-6)'],
-  ['--h-control-md', 'var(--space-7)'],
+  ['--h-control-md', 'calc(var(--spacing) * 7)'],
   ['--h-control-lg', 'var(--space-8)'],
-  ['--h-control-xl', 'var(--space-9)'],
+  ['--h-control-xl', 'calc(var(--spacing) * 9)'],
   ['--h-control-2xl', 'var(--space-10)'],
 ];
 
@@ -106,27 +110,25 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
 /** Values that are always allowed (not a control-height beat). `100%`
  *  is the common "fill parent" height on control wrappers. */
 const LITERAL_OK = /^(?:0(?:px|%)?|100%|auto|inherit|initial|unset|revert|none)$/;
-/** Other size tokens that legitimately size a control (layout chrome, the
- *  sidebar topbar button footprint, env()/calc() geometry). */
-const OTHER_SIZE_TOKEN_RE = /^var\(\s*(?:--h-titlebar|--h-toolbar|--h-composer-min|--h-list-header|--maka-sidebar-topbar-button-size|--maka-resize-handle-width)\s*(?:,[^)]*)?\)$/;
 
 function extractControlToken(expr: string): string | null {
   const m = expr.trim().match(/^var\(\s*(--h-control-[\w-]+)\s*\)$/);
   return m ? m[1] : null;
 }
 
+/** A mapped control selector's height / min-height / width must reference its
+ *  EXPECTED --h-control-* tier (or a neutral literal like 0 / auto / 100%).
+ *  Direct var(--space-N), calc(var(--spacing) * N), and layout-chrome tokens
+ *  (--h-titlebar / --maka-sidebar-topbar-button-size / …) are REJECTED —
+ *  they bypass the semantic scale, and a mapped control reaching for a
+ *  chrome token is a semantic mismatch, not height convergence. Unmapped
+ *  controls are added to CONTROL_HEIGHT rather than allowed to slip via a
+ *  space token. */
 function isAllowedControlHeight(expr: string, expected: string): boolean {
   const v = expr.trim().replace(/!\s*important$/, '').trim();
   if (LITERAL_OK.test(v)) return true;
-  if (OTHER_SIZE_TOKEN_RE.test(v)) return true;
   const tok = extractControlToken(v);
-  if (tok !== null) return tok === expected;
-  // calc(var(--spacing) * N) — ruler multiple, allowed for control heights
-  // that haven't been mapped to a semantic tier yet.
-  if (/^calc\(\s*var\(\s*--spacing\s*\)\s*\*[\s\d.+-]+\)$/.test(v)) return true;
-  // var(--space-N) — direct ruler reference, allowed.
-  if (/^var\(\s*--space-[\w-]+\s*\)$/.test(v)) return true;
-  return false;
+  return tok === expected;
 }
 
 // --- CSS scanning ----------------------------------------------------------
@@ -230,6 +232,13 @@ describe('PR-CONTROL-HEIGHT-CONVERGE-0 contract', () => {
     }
   });
 
+  it('--h-control-* reference chain is closed — every var(--xxx) in a tier value is a defined custom prop (guards the --space-7/--space-9 collapse bug)', async () => {
+    const tokens = await readFile(TOKENS_FILE, 'utf8');
+    for (const [prop] of CONTROL_HEIGHT_PIN) {
+      assertCustomPropRefsDefined(tokens, prop, 'maka-tokens.css');
+    }
+  });
+
   it('control selectors reference their expected --h-control-* tier (no bare px height/min-height)', async () => {
     const css = stripCssComments(await readAllRendererCss());
     const offenders: string[] = [];
@@ -246,6 +255,17 @@ describe('PR-CONTROL-HEIGHT-CONVERGE-0 contract', () => {
 });
 
 describe('control-height whitelist negative cases', () => {
+  it('assertCustomPropRefsDefined catches a token that references an undefined custom prop (the --space-7 collapse bug)', () => {
+    // The P1 bug: --h-control-md: var(--space-7) where --space-7 is not in
+    // maka's discrete spacing scale. A pin-only check (declared with
+    // var(--space-7)) passes while the token is broken; the ref-chain check
+    // must fail so the collapse is caught before any site follows the token.
+    const broken = ':root { --space-5: 20px; --space-6: 24px; --h-control-xs: var(--space-5); --h-control-sm: var(--space-6); --h-control-md: var(--space-7); }';
+    assert.throws(() => assertCustomPropRefsDefined(broken, '--h-control-md', 'test'), /references undefined --space-7/);
+    // A closed chain does not throw.
+    assert.doesNotThrow(() => assertCustomPropRefsDefined(broken, '--h-control-xs', 'test'));
+  });
+
   it('extractControlToken parses --h-control-* and rejects typos / non-var', () => {
     for (const tok of CONTROL_HEIGHT_TOKENS) {
       assert.equal(extractControlToken(`var(${tok})`), tok, `${tok} must parse`);
@@ -259,15 +279,19 @@ describe('control-height whitelist negative cases', () => {
     assert.equal(extractControlToken('34px'), null, 'bare px must not parse');
   });
 
-  it('isAllowedControlHeight accepts the expected tier + literals + other size tokens, rejects bare px / wrong tier', () => {
+  it('isAllowedControlHeight accepts only the expected --h-control-* tier + neutral literals; rejects space tokens, ruler calc, chrome tokens, bare px, wrong tier', () => {
     assert.ok(isAllowedControlHeight('var(--h-control-lg)', '--h-control-lg'), 'expected tier must pass');
     assert.ok(isAllowedControlHeight('var(--h-control-lg)', '--h-control-xl') === false, 'wrong tier must fail');
     assert.ok(isAllowedControlHeight('34px', '--h-control-lg') === false, 'bare px must fail');
     assert.ok(isAllowedControlHeight('auto', '--h-control-lg'), 'auto must pass');
     assert.ok(isAllowedControlHeight('100%', '--h-control-lg'), '100% must pass');
-    assert.ok(isAllowedControlHeight('var(--h-titlebar)', '--h-control-lg'), 'layout chrome token must pass');
-    assert.ok(isAllowedControlHeight('calc(var(--spacing) * 8)', '--h-control-lg'), 'ruler calc must pass');
-    assert.ok(isAllowedControlHeight('var(--space-8)', '--h-control-lg'), 'direct space token must pass');
+    // Mapped selectors must use the semantic --h-control-* tier — direct
+    // space tokens, ruler calc, and layout-chrome tokens bypass the scale
+    // and are rejected. A mapped control reaching for var(--h-titlebar) is
+    // a semantic mismatch, not height convergence.
+    assert.ok(isAllowedControlHeight('var(--space-8)', '--h-control-lg') === false, 'direct space token must fail on a mapped selector');
+    assert.ok(isAllowedControlHeight('calc(var(--spacing) * 8)', '--h-control-lg') === false, 'ruler calc must fail on a mapped selector');
+    assert.ok(isAllowedControlHeight('var(--h-titlebar)', '--h-control-lg') === false, 'chrome token must fail on a mapped selector');
   });
 
   it('TSX scanner flags a new arbitrary height and spares the whitelist', async () => {

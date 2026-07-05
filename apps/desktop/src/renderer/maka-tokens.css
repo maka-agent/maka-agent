@@ -478,15 +478,18 @@
      (22/26/30/34/38); this scale converges them. Square icon controls use
      the same token for width and height (their footprint = control size).
      App-chrome bars (--h-titlebar/--h-toolbar/--h-composer-min/--h-list-header)
-     stay as their own semantic tokens — they are structure, not controls. */
+     stay as their own semantic tokens — they are structure, not controls.
+     md (28) and xl (36) use calc(var(--spacing) * 7/9) directly because maka's
+     discrete spacing scale skips 7 and 9 — control-only tiers must not expand
+     the general --space-* scale (that would invite p-7 / gap-7 drift). */
   --h-control-xs:  var(--space-5);  /* 20px — kbd, dot, tiny chip / close  */
   --h-control-sm:  var(--space-6);  /* 24px — small button, chip, sidebar
                                       topbar button, model switcher       */
-  --h-control-md:  var(--space-7);  /* 28px — compact menu item, sm tab,
+  --h-control-md:  calc(var(--spacing) * 7);  /* 28px — compact menu item, sm tab,
                                       round FAB (jump-to-bottom)          */
   --h-control-lg:  var(--space-8);  /* 32px — default button, input, tab,
                                       sidebar nav row, session row, select */
-  --h-control-xl:  var(--space-9);  /* 36px — prominent button, settings
+  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button, settings
                                       nav row, first-run checklist row    */
   --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
 

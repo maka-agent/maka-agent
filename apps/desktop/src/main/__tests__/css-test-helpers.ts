@@ -118,3 +118,30 @@ export function assertCustomPropPinnedOnce(
   assert.equal(values.length, 1, `${label}: ${prop} must be declared exactly once with ${expected}; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
   assert.equal(values[0], expected, `${label}: ${prop} must be ${expected}; got ${values[0]}`);
 }
+
+/** Assert every `var(--xxx)` reference in `prop`'s value is itself a defined
+ *  custom property somewhere in `css` (token :root, `@theme inline`, or a
+ *  bridge alias).
+ *
+ *  Catches the bug where a token points at an undefined custom prop — e.g.
+ *  `--h-control-md: var(--space-7)` when maka's discrete spacing scale skips
+ *  7. The declaration is invalid at computed-value time, so the sized
+ *  element collapses to its initial/inherited value (width/height → auto,
+ *  min-height → 0) instead of the intended 28px. A pin-only contract that
+ *  just checks `--h-control-md` is declared with `var(--space-7)` passes
+ *  while the token is broken — this helper walks the reference chain. */
+export function assertCustomPropRefsDefined(
+  css: string,
+  prop: string,
+  label = 'maka-tokens.css',
+): void {
+  const props = parseCssCustomProps(css);
+  const defined = new Set(props.keys());
+  const values = props.get(prop) ?? [];
+  assert.equal(values.length, 1, `${label}: ${prop} must be declared exactly once; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
+  const value = values[0];
+  const refs = [...value.matchAll(/var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)/g)].map((m) => m[1]);
+  for (const ref of refs) {
+    assert.ok(defined.has(ref), `${label}: ${prop} references undefined ${ref} (value: ${value}) — the declaration would collapse to its initial/inherited value at computed-value time`);
+  }
+}
