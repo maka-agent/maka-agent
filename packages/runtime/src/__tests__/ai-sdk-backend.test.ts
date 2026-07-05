@@ -125,7 +125,7 @@ describe('AiSdkBackend model history', () => {
     ]);
   });
 
-  test('stored-message fallback preserves user attachments as provider-visible refs', async () => {
+  test('stored-message fallback keeps placeholder text when no reader is wired', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -189,6 +189,70 @@ describe('AiSdkBackend model history', () => {
       text.includes('[attachment: chart.png (image/png)]'),
       `expected attachment ref preserved in stored-message fallback, got: ${text}`,
     );
+  });
+
+  test('stored-message fallback renders image attachments as image parts when a reader is wired', async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 4, 5, 6]);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+    } as never);
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'current user',
+      context: [
+        {
+          type: 'user',
+          id: 'projection-u',
+          turnId: 'turn-prev',
+          ts: 1,
+          text: 'see the attached chart',
+          attachments: [
+            {
+              kind: 'image',
+              name: 'chart.png',
+              mimeType: 'image/png',
+              bytes: 123,
+              ref: { kind: 'session_file', sessionId: 'sess-1', relativePath: 'attachments/chart.png' },
+            },
+          ],
+        },
+        { type: 'assistant', id: 'projection-a', turnId: 'turn-prev', ts: 2, text: 'projection assistant', modelId: 'm' },
+      ],
+      runtimeContext: [
+        {
+          id: 'rt-terminal',
+          invocationId: 'inv-1',
+          runId: 'run-prev',
+          sessionId: 'session-1',
+          turnId: 'turn-prev',
+          ts: 1,
+          partial: false,
+          role: 'model',
+          author: 'agent',
+          status: 'completed',
+          actions: { endInvocation: true },
+        },
+      ],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const historicalUser = prompt[0];
+    const parts = historicalUser.content as Array<{ type: string; mediaType?: string }>;
+    const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
+    assert.ok(imageLike, `expected a historical image/png part in stored-message fallback, got: ${JSON.stringify(parts)}`);
   });
 
   test('current-turn image attachment becomes a provider image part', async () => {
@@ -1857,6 +1921,55 @@ describe('AiSdkBackend stop', () => {
 });
 
 describe('AiSdkBackend usage telemetry', () => {
+  test('records image attachment count and bytes on the llm call record', async () => {
+    const model = completionModel();
+    const llmRecords: LlmCallRecord[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      recordLlmCall: (record) => {
+        llmRecords.push(record);
+      },
+      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array([1, 2, 3]) }),
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-1',
+      text: 'see these two charts',
+      attachments: [
+        {
+          kind: 'image',
+          name: 'a.png',
+          mimeType: 'image/png',
+          bytes: 100,
+          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'a.png' },
+        },
+        {
+          kind: 'image',
+          name: 'b.png',
+          mimeType: 'image/png',
+          bytes: 50,
+          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'b.png' },
+        },
+      ],
+      context: [],
+      runtimeContext: [],
+    }));
+
+    assert.equal(llmRecords.length, 1);
+    assert.equal(llmRecords[0].imageAttachmentCount, 2);
+    assert.equal(llmRecords[0].imageAttachmentBytes, 150);
+  });
+
   test('normalizes standard LanguageModelUsage detail token fields', () => {
     const usage = normalizeAiSdkUsage({
       inputTokens: 100,
