@@ -76,8 +76,8 @@
 
 .composer .maka-composer-inner {
   position: relative;
-  width: min(var(--maka-chat-measure, 680px), 100%);
-  max-width: var(--maka-chat-measure, 680px);
+  width: min(var(--maka-chat-measure), 100%);
+  max-width: var(--maka-chat-measure);
   margin-inline: auto;
   box-sizing: border-box;
   /* Composer outer chrome uses the universal page-card recipe (atlas §4

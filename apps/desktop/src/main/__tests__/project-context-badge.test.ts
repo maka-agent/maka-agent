@@ -149,7 +149,7 @@ describe('project context workspace picker', () => {
     // Workspace picker must track the shared chat/composer measure token,
     // not a bespoke hard-coded width, so future measure updates keep the
     // row aligned with the composer card automatically.
-    assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(var\(--maka-chat-measure,\s*680px\),\s*100%\)/);
+    assert.match(styles, /\.maka-composer-workspace-row\s*\{[\s\S]*?width:\s*min\(var\(--maka-chat-measure\),\s*100%\)/);
     assert.match(styles, /\.maka-composer-workspace-picker\s*\{/);
     assert.match(styles, /-webkit-app-region:\s*no-drag/);
     assert.match(renderer, /basenameFromPath\(appInfo\.projectPath\)/);

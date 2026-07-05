@@ -490,6 +490,14 @@
                                       nav row, first-run checklist row    */
   --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
 
+  /* === content measure (#520 PR4 item 16) ================================
+     The chat content max-width — the column the conversation, tool output,
+     composer, and onboarding hero share so prose + controls line up at one
+     measure. Previously a local token on .mainColumn with a 680px fallback
+     at every call site; promoted to :root so the token is canonical and the
+     fallbacks are redundant. */
+  --maka-chat-measure: 680px;
+
 }
 
 /* =============================================================================
@@ -1105,7 +1113,7 @@
     gap: var(--space-6);
   }
   .maka-message-row {
-    max-width: var(--maka-chat-measure, 680px);
+    max-width: var(--maka-chat-measure);
     margin: 0 auto;
     width: 100%;
     opacity: 1;
@@ -1123,7 +1131,7 @@
        internal rhythm while still reading as one unit against the 24px
        between-turn gap. */
     gap: var(--space-2);
-    max-width: var(--maka-chat-measure, 680px);
+    max-width: var(--maka-chat-measure);
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;

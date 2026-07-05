@@ -50,7 +50,7 @@
   /* PR-PARCHMENT-HOME-2: must share the new composer card measure
      (620px) so the "选择工作目录 ▾" pill stays aligned with the card
      left edge above it. */
-  width: min(var(--maka-chat-measure, 680px), 100%);
+  width: min(var(--maka-chat-measure), 100%);
   display: flex;
   justify-content: flex-start;
   box-sizing: border-box;

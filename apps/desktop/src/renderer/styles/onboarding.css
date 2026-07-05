@@ -1,6 +1,6 @@
 /* Onboarding hero — first-run, no real connection configured. */
 .maka-onboarding {
-  width: min(680px, 100%);
+  width: min(var(--maka-chat-measure), 100%);
   margin: auto;
   padding: var(--space-3) var(--space-4) var(--space-4);
   display: grid;
