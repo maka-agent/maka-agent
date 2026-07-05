@@ -94,6 +94,25 @@ describe('TaskLedgerStore', () => {
     assert.equal(updated.status, 'in_progress');
   });
 
+  it('treats cancelled -> cancelled (status-only) as an idempotent no-op without writing the file', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'a' }]);
+    assert.ok(task);
+    const { updated: cancelled } = await store.update(SESSION_ID, task.id, { status: 'cancelled' });
+    const before = await readFile(tasksFilePath(root), 'utf8');
+
+    // Re-cancelling converges: same record back (updatedAt untouched), no error.
+    const { updated: again, total } = await store.update(SESSION_ID, task.id, { status: 'cancelled' });
+    assert.deepEqual(again, cancelled);
+    assert.equal(total, 1);
+    assert.equal(await readFile(tasksFilePath(root), 'utf8'), before, 'idempotent cancel must not rewrite the file');
+
+    // The frozen guard still applies to anything beyond the pure re-cancel.
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'cancelled', subject: '改名' }), /frozen/);
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { subject: '改名' }), /frozen/);
+  });
+
   it('does not rewrite the file when the update target does not exist', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);

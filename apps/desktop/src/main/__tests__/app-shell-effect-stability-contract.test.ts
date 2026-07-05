@@ -25,6 +25,7 @@ type CapturedSubscriptions = {
   connectionSubscribeCount: number;
   planDue?: (reminder: PlanReminder) => void;
   planDueSubscribeCount: number;
+  sessionsChanged?: (event: { reason: string; sessionId?: string; ts: number }) => void;
 };
 type RendererMakaStub = {
   appWindow: {
@@ -165,6 +166,58 @@ describe('AppShell effect stability contract', () => {
     assert.deepEqual(navSections, ['automations']);
   });
 
+  it('routes task-updated to the ledger refresh only: no session-list re-pull, no health reset', async () => {
+    const effects = await importAppShellEffects();
+    const refs = createBootstrapRefs();
+    const captured: CapturedSubscriptions = {
+      activeSessionSubscribeCount: 0,
+      connectionSubscribeCount: 0,
+      planDueSubscribeCount: 0,
+    };
+    const root = installReactRenderer(captured);
+    const sessionListRefreshes: number[] = [];
+    const ledgerRefreshes: Array<string | undefined> = [];
+    const healthUpdates: number[] = [];
+
+    await render(root, createElement(BootstrapSubscriptionProbe, {
+      effects,
+      onConnectionEvent: () => {},
+      onRefreshSessions: () => sessionListRefreshes.push(1),
+      onRefreshSessionTasks: (sessionId) => ledgerRefreshes.push(sessionId),
+      onSessionEventHealthUpdate: () => healthUpdates.push(1),
+      refs,
+    }));
+    assert.ok(captured.sessionsChanged, 'the probe must capture the sessions:changed subscription');
+    const baselineSessionRefreshes = sessionListRefreshes.length;
+
+    // task-updated for the active session: ledger refresh only.
+    await act(async () => {
+      captured.sessionsChanged?.({ reason: 'task-updated', sessionId: 'session-1', ts: 1 });
+    });
+    assert.deepEqual(ledgerRefreshes, ['session-1'], 'task-updated must re-pull the active session ledger');
+    assert.equal(
+      sessionListRefreshes.length,
+      baselineSessionRefreshes,
+      'task-updated must not re-pull the session list',
+    );
+    assert.equal(healthUpdates.length, 0, 'task-updated must not touch the event-stream health map');
+
+    // task-updated for a background session: no ledger refresh either.
+    await act(async () => {
+      captured.sessionsChanged?.({ reason: 'task-updated', sessionId: 'session-2', ts: 2 });
+    });
+    assert.deepEqual(ledgerRefreshes, ['session-1'], 'a background session ledger change must not refresh the panel');
+
+    // Control: an ordinary reason still re-pulls the session list and updates
+    // health, proving the captured callback actually drives the handler.
+    await act(async () => {
+      captured.sessionsChanged?.({ reason: 'updated', sessionId: 'session-1', ts: 3 });
+    });
+    assert.equal(sessionListRefreshes.length, baselineSessionRefreshes + 1, 'ordinary reasons must keep refreshing the list');
+    assert.equal(healthUpdates.length, 1, 'ordinary reasons must keep recording event-stream health');
+    assert.deepEqual(ledgerRefreshes, ['session-1'], 'ordinary reasons must not re-pull the ledger');
+  });
+
   it('uses React effect events instead of a local latest-ref helper', async () => {
     const src = await readRendererShellSource('app-shell-effects.ts');
 
@@ -178,6 +231,9 @@ function BootstrapSubscriptionProbe(props: {
   onConnectionEvent(event: ConnectionEvent): void;
   onNavSelection?(selection: { section: string }): void;
   onToastAction?(onClick: (() => void) | undefined): void;
+  onRefreshSessions?(): void;
+  onRefreshSessionTasks?(sessionId: string | undefined): void;
+  onSessionEventHealthUpdate?(): void;
   refs: ReturnType<typeof createBootstrapRefs>;
 }) {
   props.effects.useAppShellBootstrapSubscriptions({
@@ -199,17 +255,24 @@ function BootstrapSubscriptionProbe(props: {
     refreshMemoryActive: async () => {},
     refreshMessages: async () => true,
     refreshPlanReminders: async () => {},
-    refreshSessionTasks: async () => {},
+    refreshSessionTasks: async (sessionId) => {
+      props.onRefreshSessionTasks?.(sessionId);
+    },
     refreshShellSettings: async () => {},
     refreshSkills: async () => {},
-    refreshSessions: async () => [],
+    refreshSessions: async () => {
+      props.onRefreshSessions?.();
+      return [];
+    },
     rendererMountedRef: props.refs.rendererMountedRef,
     setActiveId: () => {},
     setMessages: () => {},
     setNavSelection: (selection) => {
       props.onNavSelection?.(selection);
     },
-    setSessionEventHealthBySession: () => {},
+    setSessionEventHealthBySession: () => {
+      props.onSessionEventHealthUpdate?.();
+    },
     toastApi: {
       error: () => {},
       info: () => {},
@@ -329,7 +392,10 @@ function installFakeMaka(captured: CapturedSubscriptions): void {
     },
     sessions: {
       readMessages: async () => [],
-      subscribeChanges: () => noop,
+      subscribeChanges(callback: (event: { reason: string; sessionId?: string; ts: number }) => void) {
+        captured.sessionsChanged = callback;
+        return noop;
+      },
       subscribeEvents(_sessionId: string, callback: (event: SessionEvent) => void) {
         captured.activeSessionSubscribeCount += 1;
         captured.activeSessionEvent = callback;

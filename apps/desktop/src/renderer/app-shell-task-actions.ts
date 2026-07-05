@@ -23,25 +23,39 @@ export function createAppShellTaskActions(deps: {
   toastApi: ToastApi;
 }): AppShellTaskActions {
   const { getActiveSessionId, setSessionTasks, toastApi } = deps;
+  // Monotonic snapshot sequence: every operation that will produce a ledger
+  // snapshot takes a number up front, and only the newest number may land.
+  // This orders concurrent responses (cancel result vs broadcast-triggered
+  // refresh) so an older snapshot can never overwrite a newer one.
+  let snapshotSeq = 0;
+
+  function applySnapshot(sessionId: string, seq: number, tasks: Task[]): void {
+    // Both guards are required: seq orders same-session responses; the
+    // active-session check drops responses for a session the user already left
+    // (the switch path cleared the panel synchronously).
+    if (seq !== snapshotSeq) return;
+    if (getActiveSessionId() !== sessionId) return;
+    setSessionTasks(tasks);
+  }
 
   async function refreshSessionTasks(
     sessionId: string | undefined,
     options: { shouldShowError?: () => boolean } = {},
   ): Promise<void> {
     if (!sessionId) {
+      snapshotSeq += 1;
       setSessionTasks([]);
       return;
     }
+    const seq = ++snapshotSeq;
     try {
       const tasks = await window.maka.tasks.list(sessionId);
-      // A slow response for a session the user already left must not
-      // clobber the newer session's list.
-      if (getActiveSessionId() === sessionId) setSessionTasks(tasks);
+      applySnapshot(sessionId, seq, tasks);
     } catch (error) {
-      // Fail to empty rather than stale: after a session switch a rejected
-      // fetch must not leave the previous session's tasks rendered under the
-      // new session. The next task-updated event re-pulls the real list.
-      if (getActiveSessionId() === sessionId) setSessionTasks([]);
+      // Keep the last known snapshot: the session-switch path clears the
+      // panel synchronously, so whatever is rendered is this session's own
+      // ledger — a transient list failure must not blank the panel (the next
+      // task-updated event re-pulls the real list).
       if (options.shouldShowError?.() ?? false) {
         toastApi.error('刷新任务清单失败', generalizedErrorMessageChinese(error, '读取会话任务失败，请稍后重试。'));
       }
@@ -49,11 +63,13 @@ export function createAppShellTaskActions(deps: {
   }
 
   async function cancelSessionTask(sessionId: string, taskId: string): Promise<void> {
+    const seq = ++snapshotSeq;
     try {
-      await window.maka.tasks.cancel(sessionId, taskId);
-      // The cancel IPC also emits a task-updated event, but refresh directly
-      // so the row flips without depending on the broadcast round-trip.
-      await refreshSessionTasks(sessionId);
+      const result = await window.maka.tasks.cancel(sessionId, taskId);
+      // The IPC returns the post-operation snapshot, so no follow-up list is
+      // needed. 'already_terminal' (the model finished or cancelled the task
+      // first) is not an error: the snapshot already shows the truth.
+      applySnapshot(sessionId, seq, result.tasks);
     } catch (error) {
       toastApi.error('取消任务失败', generalizedErrorMessageChinese(error, '取消任务失败，请稍后重试。'));
     }

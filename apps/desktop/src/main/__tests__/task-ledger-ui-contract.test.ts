@@ -43,6 +43,17 @@ describe('task ledger UI contract', () => {
       /ipcMain\.handle\('tasks:cancel',[^)]*(?:status|patch|subject)\s*[:,)]/,
       'tasks:cancel must not accept a status/subject argument from the renderer',
     );
+    // Terminal-race contract: a user click racing the model's own terminal
+    // transition reports the truth (already_terminal + fresh snapshot) rather
+    // than a misleading store error — on the pre-check and inside the
+    // pre-check/update race window alike; anything else rethrows.
+    assert.match(src, /outcome: 'already_terminal'/, 'cancel must report already_terminal instead of erroring');
+    assert.match(src, /outcome: 'cancelled'/, 'a performed cancel must report the cancelled outcome');
+    assert.match(
+      src,
+      /catch \(error\)[\s\S]*?already_terminal[\s\S]*?throw error/,
+      'the pre-check/update race window must re-read and only rethrow real errors',
+    );
 
     const mainSrc = await readMainTsSource();
     assert.match(
@@ -95,35 +106,49 @@ describe('task ledger UI contract', () => {
       'main.ts must bridge wiring mutations to sessions:changed(task-updated)',
     );
 
-    const effectsSrc = await repoFile('apps/desktop/src/renderer/app-shell-effects.ts');
-    assert.match(
-      effectsSrc,
-      /event\.reason === 'task-updated'/,
-      'the renderer session-change handler must refresh on task-updated',
-    );
-    // task-updated is ledger-only: it must not re-pull the session list and
-    // must not reset the per-session event-stream health (it is not paired
-    // with a transcript re-pull, so it would mask a dead event stream).
-    assert.match(
-      effectsSrc,
-      /if \(event\.reason !== 'task-updated'\) void options\.refreshSessions\(\);/,
-      'task-updated must skip the full session-list refresh',
-    );
-    assert.match(
-      effectsSrc,
-      /event\.sessionId && event\.reason !== 'task-updated'/,
-      'task-updated must not reset session event-stream health',
-    );
+    // The renderer-side routing of task-updated (refresh the active session's
+    // ledger only; skip the session-list re-pull; leave event-stream health
+    // untouched) is asserted at behavior level by the BootstrapSubscriptionProbe
+    // harness in app-shell-effect-stability-contract.test.ts, not by source
+    // regexes here.
   });
 
-  it('clears the panel instead of showing a stale ledger when a refresh fails', async () => {
+  it('clears the panel on session switch and keeps the last snapshot on refresh failure', async () => {
+    // R2: the switch effect clears synchronously — within the IPC round-trip a
+    // stale panel would offer cancel buttons wired to the previous session's
+    // task ids.
+    const appShellSrc = await repoFile('apps/desktop/src/renderer/app-shell.tsx');
+    assert.match(
+      appShellSrc,
+      /useEffect\(\(\) => \{\s*setSessionTasks\(\[\]\);\s*void refreshSessionTasksRef\.current\(activeId\);\s*\}, \[activeId\]\);/,
+      'switching sessions must synchronously clear the ledger before pulling the new one',
+    );
+
+    // R1: with the switch path clearing synchronously, whatever is rendered is
+    // this session's own ledger — a transient list failure keeps the last
+    // known snapshot instead of blanking the panel.
     const actionsSrc = await repoFile('apps/desktop/src/renderer/app-shell-task-actions.ts');
-    // Fail to empty, guarded by the active-session check so a slow rejection
-    // for an abandoned session cannot clobber the current one.
+    assert.doesNotMatch(
+      actionsSrc,
+      /catch[\s\S]*?setSessionTasks\(\[\]\)/,
+      'a failed refresh must not clear the panel (the switch path already prevents cross-session staleness)',
+    );
+
+    // R4: responses are ordered by a monotonic sequence so an older snapshot
+    // (e.g. a slow list racing a cancel result) can never overwrite a newer one.
+    assert.match(actionsSrc, /snapshotSeq/, 'snapshot application must be sequence-ordered');
     assert.match(
       actionsSrc,
-      /catch[\s\S]*?if \(getActiveSessionId\(\) === sessionId\) setSessionTasks\(\[\]\);/,
-      'a failed tasks:list must clear the panel for the still-active session',
+      /if \(seq !== snapshotSeq\) return;/,
+      'only the newest in-flight snapshot may land',
+    );
+
+    // R3 renderer side: the cancel result snapshot is applied directly (no
+    // follow-up list), and already_terminal is not surfaced as an error.
+    assert.match(
+      actionsSrc,
+      /const result = await window\.maka\.tasks\.cancel\(sessionId, taskId\);[\s\S]*?applySnapshot\(sessionId, seq, result\.tasks\);/,
+      'cancel must render the snapshot the IPC returned instead of re-pulling',
     );
   });
 });

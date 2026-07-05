@@ -356,7 +356,7 @@ declare global {
       };
       tasks: {
         list(sessionId: string): Promise<Task[]>;
-        cancel(sessionId: string, taskId: string): Promise<{ updated: Task; all: Task[] }>;
+        cancel(sessionId: string, taskId: string): Promise<{ outcome: 'cancelled' | 'already_terminal'; tasks: Task[] }>;
       };
       usage: {
         summary(query: UsageQuery): Promise<Result<UsageSummaryV2>>;

@@ -713,7 +713,7 @@ contextBridge.exposeInMainWorld('maka', {
     list(sessionId: string): Promise<Task[]> {
       return ipcRenderer.invoke('tasks:list', sessionId);
     },
-    cancel(sessionId: string, taskId: string): Promise<{ updated: Task; all: Task[] }> {
+    cancel(sessionId: string, taskId: string): Promise<{ outcome: 'cancelled' | 'already_terminal'; tasks: Task[] }> {
       return ipcRenderer.invoke('tasks:cancel', sessionId, taskId);
     },
   },

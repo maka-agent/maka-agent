@@ -6,7 +6,9 @@ import { RelativeTime } from './relative-time.js';
 // Controlled panel (plan-reminder-panel paradigm): the session task ledger is
 // owned by the model's TaskCreate/TaskUpdate tools, so this surface is
 // read-mostly — the only user action is cancelling a task. Data arrives via
-// props; the mount owns fetching and refresh.
+// props; the mount owns fetching and refresh, and the host is responsible for
+// not mounting the panel at all when the ledger is empty (there is no
+// empty-state branch here).
 export interface TaskLedgerPanelProps {
   tasks: Task[];
   onCancel?(taskId: string): void | Promise<void>;
@@ -32,8 +34,10 @@ function isTerminalTaskStatus(status: TaskStatus): boolean {
 
 export function TaskLedgerPanel(props: TaskLedgerPanelProps) {
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [announcement, setAnnouncement] = useState('');
   const mountedRef = useRef(true);
   const pendingIdsRef = useRef<Set<string>>(new Set());
+  const rootRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -43,7 +47,7 @@ export function TaskLedgerPanel(props: TaskLedgerPanelProps) {
     };
   }, []);
 
-  async function cancelTask(taskId: string) {
+  async function cancelTask(taskId: string, subject: string) {
     if (!props.onCancel || pendingIdsRef.current.has(taskId)) return;
     const withTask = new Set(pendingIdsRef.current);
     withTask.add(taskId);
@@ -51,56 +55,63 @@ export function TaskLedgerPanel(props: TaskLedgerPanelProps) {
     setPendingIds(withTask);
     try {
       await props.onCancel(taskId);
+      if (mountedRef.current) setAnnouncement(`任务清单已更新：${subject}`);
     } finally {
       const withoutTask = new Set(pendingIdsRef.current);
       withoutTask.delete(taskId);
       pendingIdsRef.current = withoutTask;
       if (mountedRef.current) setPendingIds(withoutTask);
+      // When the row goes terminal its cancel button unmounts and keyboard
+      // focus silently drops to <body>; catch that after React commits the
+      // snapshot and park focus on the panel root instead.
+      window.requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
+        if (document.activeElement === document.body) rootRef.current?.focus();
+      });
     }
   }
 
   const doneCount = props.tasks.filter((task) => task.status === 'completed').length;
 
   return (
-    <section className="maka-task-panel" aria-label="会话任务清单">
+    <section className="maka-task-panel" aria-label="会话任务清单" tabIndex={-1} ref={rootRef}>
       <header className="maka-task-header">
         <span className="maka-task-title">任务</span>
         <span className="maka-task-count tabular-nums" aria-label={`已完成 ${doneCount} 项，共 ${props.tasks.length} 项`}>
           {doneCount}/{props.tasks.length}
         </span>
       </header>
-      {props.tasks.length === 0 ? (
-        <p className="maka-task-empty">当前会话还没有任务；模型规划工作时会在这里记录进展。</p>
-      ) : (
-        <ul className="maka-task-list">
-          {props.tasks.map((task) => {
-            const cancelPending = pendingIds.has(task.id);
-            return (
-              <li key={task.id} className="maka-task-row" data-status={task.status}>
-                <Badge variant={TASK_STATUS_BADGE_VARIANTS[task.status]} className="maka-task-status">
-                  {TASK_STATUS_LABELS[task.status]}
-                </Badge>
-                <span className="maka-task-subject" title={task.subject}>{task.subject}</span>
-                <RelativeTime ts={task.updatedAt} className="maka-task-time" />
-                {!isTerminalTaskStatus(task.status) && props.onCancel ? (
-                  <UiButton
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="maka-task-cancel"
-                    onClick={() => void cancelTask(task.id)}
-                    disabled={cancelPending}
-                    aria-busy={cancelPending ? 'true' : undefined}
-                    aria-label={`取消任务：${task.subject}`}
-                  >
-                    取消
-                  </UiButton>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <span className="maka-visually-hidden" role="status" aria-live="polite">
+        {announcement}
+      </span>
+      <ul className="maka-task-list">
+        {props.tasks.map((task) => {
+          const cancelPending = pendingIds.has(task.id);
+          return (
+            <li key={task.id} className="maka-task-row" data-status={task.status}>
+              <Badge variant={TASK_STATUS_BADGE_VARIANTS[task.status]} className="maka-task-status">
+                {TASK_STATUS_LABELS[task.status]}
+              </Badge>
+              <span className="maka-task-subject" title={task.subject}>{task.subject}</span>
+              <RelativeTime ts={task.updatedAt} className="maka-task-time" />
+              {!isTerminalTaskStatus(task.status) && props.onCancel ? (
+                <UiButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="maka-task-cancel"
+                  onClick={() => void cancelTask(task.id, task.subject)}
+                  disabled={cancelPending}
+                  aria-busy={cancelPending ? 'true' : undefined}
+                  aria-label={`取消任务：${task.subject}`}
+                >
+                  取消
+                </UiButton>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
     </section>
   );
 }

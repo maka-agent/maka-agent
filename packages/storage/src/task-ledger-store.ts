@@ -90,6 +90,18 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       const index = tasks.findIndex((task) => task.id === id);
       const current = index === -1 ? undefined : tasks[index];
       if (!current) throw new Error(`No such task: ${id}`);
+      // Idempotent cancel: cancelled -> cancelled with a status-only patch is
+      // a no-op success (no write, no error) so a user cancel racing another
+      // cancel converges instead of tripping the frozen guard. A subject
+      // change still falls through to the frozen rejection below.
+      if (
+        current.status === 'cancelled' &&
+        normalized.value.status === 'cancelled' &&
+        normalized.value.subject === undefined
+      ) {
+        updated = current;
+        return null;
+      }
       const rejection = explainTaskUpdateRejection(current.status, normalized.value.status);
       if (rejection) throw new Error(rejection);
       updated = {
@@ -146,11 +158,21 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     }
   }
 
-  private async mutate(sessionId: string, fn: (tasks: Task[]) => Task[]): Promise<Task[]> {
+  /**
+   * Serialized read-modify-write. A callback may return `null` to declare the
+   * mutation an idempotent no-op: the current list is kept and nothing is
+   * written (so no-op updates neither bump mtime nor risk a rewrite).
+   */
+  private async mutate(sessionId: string, fn: (tasks: Task[]) => Task[] | null): Promise<Task[]> {
     let next: Task[] = [];
     await chainWrite(this.writeQueues, sessionId, async () => {
       const current = await this.readForMutate(sessionId);
-      next = fn(current);
+      const result = fn(current);
+      if (result === null) {
+        next = current;
+        return;
+      }
+      next = result;
       await this.write(sessionId, next);
     });
     return next;

@@ -792,9 +792,11 @@ export function AppShell({
   });
   const refreshSessionTasksRef = useRef(refreshSessionTasks);
   refreshSessionTasksRef.current = refreshSessionTasks;
-  // Pull the ledger snapshot whenever the visible session changes. No
-  // sessionId (or no tasks) resolves to an empty list, which hides the panel.
+  // Pull the ledger snapshot whenever the visible session changes. Clear
+  // synchronously first: within the IPC round-trip a stale panel would keep
+  // offering cancel buttons wired to the previous session's task ids.
   useEffect(() => {
+    setSessionTasks([]);
     void refreshSessionTasksRef.current(activeId);
   }, [activeId]);
 
