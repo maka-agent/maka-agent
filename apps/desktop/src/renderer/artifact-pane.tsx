@@ -69,6 +69,9 @@ import {
   Toolbar,
   ToolbarGroup,
   ToolbarSeparator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   formatBytes,
   useToast,
 } from '@maka/ui';
@@ -381,24 +384,25 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       onKeyDown={handlePaneKeyDown}
     >
       <header className="maka-artifact-pane-header">
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-artifact-pane-collapse"
-          onClick={() => setCollapsed((current) => !current)}
-          // @kenji a11y gate #3: aria-expanded reflects the actual visible
-          // content state (true when pane shows list + preview + toolbar,
-          // false when collapsed to chevron rail). aria-pressed retained
-          // since this is still a toggle button (a screen reader announces
-          // both "pressed" + "expanded" meaningfully).
-          aria-pressed={collapsed}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
-          title={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
-        >
-          {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-artifact-pane-collapse"
+            onClick={() => setCollapsed((current) => !current)}
+            // @kenji a11y gate #3: aria-expanded reflects the actual visible
+            // content state (true when pane shows list + preview + toolbar,
+            // false when collapsed to chevron rail). aria-pressed retained
+            // since this is still a toggle button (a screen reader announces
+            // both "pressed" + "expanded" meaningfully).
+            aria-pressed={collapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
+          >
+            {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+          </TooltipTrigger>
+          <TooltipContent>{collapsed ? '展开生成文件面板' : '折叠生成文件面板'}</TooltipContent>
+        </Tooltip>
         {!collapsed && (
           <>
             <span className="maka-artifact-pane-title">生成文件</span>
@@ -562,7 +566,6 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   variant="destructive"
                   size="sm"
                   className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
-                  title="删除"
                   onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
                   disabled={artifactActionBusy}
                   data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}

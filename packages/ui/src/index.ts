@@ -68,6 +68,11 @@ export {
   CollapsiblePrimitive as PrimitiveCollapsiblePrimitive,
 } from './primitives/collapsible.js';
 export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from './primitives/tooltip.js';
+export {
   Tabs as PrimitiveTabs,
   TabsList as PrimitiveTabsList,
   TabsTrigger as PrimitiveTabsTrigger,
