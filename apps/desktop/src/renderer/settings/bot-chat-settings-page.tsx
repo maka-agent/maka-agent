@@ -380,7 +380,7 @@ function WeChatScanLoginModal(props: {
             variant="quiet"
             size="icon-sm"
             className="settingsCloseButton"
-            aria-label="关闭"
+            aria-label="关闭微信扫码登录"
             onClick={props.onClose}
           >
             <X strokeWidth={1.75} aria-hidden="true" />

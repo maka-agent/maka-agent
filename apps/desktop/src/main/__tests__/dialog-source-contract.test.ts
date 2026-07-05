@@ -32,14 +32,16 @@ const SCAN_ROOTS = [
 const PENDING_DRAWER_MIGRATION = new Set<string>([]);
 
 const FORBIDDEN_PATTERNS: Array<{ name: string; re: RegExp }> = [
-  // literal JSX attribute form: role="dialog"
-  { name: 'role="dialog"', re: /role=["']dialog["']/ },
-  { name: 'role="alertdialog"', re: /role=["']alertdialog["']/ },
-  { name: 'aria-modal="true"', re: /aria-modal=["']true["']/ },
-  // JSX expression form: role={'dialog'}, role={"dialog"}, role={`dialog`}
-  { name: "role={'dialog'}", re: /role=\{[`'"]dialog[`'"]\}/ },
-  { name: "role={'alertdialog'}", re: /role=\{[`'"]alertdialog[`'"]\}/ },
-  { name: "aria-modal={'true'}", re: /aria-modal=\{[`'"]true[`'"]\}/ },
+  // role="dialog" / role = "dialog" (literal, tolerant of spaces around =)
+  { name: 'role="dialog"', re: /role\s*=\s*["']dialog["']/ },
+  { name: 'role="alertdialog"', re: /role\s*=\s*["']alertdialog["']/ },
+  // role={'dialog'} / role={ "dialog" } / role={`dialog`} (expression string)
+  { name: "role={'dialog'}", re: /role\s*=\s*\{\s*[`'"]dialog[`'"]\s*\}/ },
+  { name: "role={'alertdialog'}", re: /role\s*=\s*\{\s*[`'"]alertdialog[`'"]\s*\}/ },
+  // aria-modal="true" / aria-modal={'true'} / aria-modal={true} / aria-modal = { true }
+  // (true may be quoted or a bare boolean; tolerant of spaces)
+  { name: 'aria-modal="true"', re: /aria-modal\s*=\s*["']true["']/ },
+  { name: 'aria-modal={true}', re: /aria-modal\s*=\s*\{\s*[`'"]?true[`'"]?\s*\}/ },
 ];
 
 async function* walk(dir: string): AsyncIterableIterator<string> {
@@ -82,6 +84,11 @@ describe('FORBIDDEN_PATTERNS coverage (#520 PR7)', () => {
       "role={'dialog'}", 'role={"dialog"}', 'role={`dialog`}',
       "role={'alertdialog'}", 'role={"alertdialog"}',
       "aria-modal={'true'}", 'aria-modal={"true"}',
+      // spaces around = and inside {}
+      'role = "dialog"', "role = {'dialog'}",
+      'aria-modal = { true }',
+      // bare boolean (no quotes)
+      'aria-modal={true}',
     ];
     for (const sample of positives) {
       assert.ok(
