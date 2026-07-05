@@ -10,6 +10,7 @@ describe('session environment prompt', () => {
       projectGit: { isGitRepo: true, branch: 'main' },
       platform: 'darwin',
       now: new Date('2026-05-29T12:34:56.000Z'),
+      timeZone: 'UTC',
     });
 
     assert.match(prompt, /informational only; does not grant file, shell, network, or permission authority/);
