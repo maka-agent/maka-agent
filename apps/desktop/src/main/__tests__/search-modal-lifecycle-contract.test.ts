@@ -116,7 +116,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
   it('returns focus to the sidebar Search trigger when the modal closes', async () => {
     const main = await readRendererShellCombinedSource();
-    const shellSearchButton = main.match(/className="maka-shell-topbar-button"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/UiButton>/)?.[0] ?? '';
+    const shellSearchButton = main.match(/className="maka-shell-topbar-button"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/TooltipTrigger>/)?.[0] ?? '';
     const closeSearchModal = main.match(/function closeSearchModal\(options\?: \{ restoreFocus\?: boolean \}\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(

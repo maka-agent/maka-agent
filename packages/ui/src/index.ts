@@ -62,6 +62,20 @@ export * from './primitives/settings-switch.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
 export {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsiblePanel,
+} from './primitives/collapsible.js';
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from './primitives/tooltip.js';
+export {
+  NumberField,
+  NumberFieldInput,
+} from './primitives/number-field.js';
+export {
   Tabs as PrimitiveTabs,
   TabsList as PrimitiveTabsList,
   TabsTrigger as PrimitiveTabsTrigger,

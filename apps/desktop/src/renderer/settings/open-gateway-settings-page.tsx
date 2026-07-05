@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
-import { Button, Input, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
+import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
@@ -232,12 +232,9 @@ export function OpenGatewaySettingsPage(props: {
         </label>
         <label>
           <span>端口</span>
-          <Input
-            value={String(gatewayDraft.port)}
-            inputMode="numeric"
-            onChange={(event) => void updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
-            aria-label="开放网关端口"
-          />
+          <NumberField value={gatewayDraft.port} onValueChange={(v) => void updateGateway({ port: v ?? 3939 })}>
+            <NumberFieldInput inputMode="numeric" aria-label="开放网关端口" />
+          </NumberField>
         </label>
         <label>
           <span>访问 token</span>

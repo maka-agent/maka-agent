@@ -58,7 +58,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       networkBlock,
-      /value=\{String\(proxyDraft\.port \|\| ''\)\}[\s\S]*onChange=\{\(event\) => void updateProxy\(\{ port: Number\(event\.currentTarget\.value\) \|\| 0 \}\)\}/,
+      /value=\{proxyDraft\.port \|\| null\}[\s\S]*onValueChange=\{\(v\) => void updateProxy\(\{ port: v \?\? 0 \}\)\}/,
       'Network proxy port input must render from the local draft while persisting in the background',
     );
     assert.match(
@@ -231,7 +231,7 @@ describe('Settings network and gateway persistence contract', () => {
     );
     assert.match(
       gatewayBlock,
-      /value=\{String\(gatewayDraft\.port\)\}[\s\S]*onChange=\{\(event\) => void updateGateway\(\{ port: Number\(event\.currentTarget\.value\) \|\| 3939 \}\)\}/,
+      /value=\{gatewayDraft\.port\}[\s\S]*onValueChange=\{\(v\) => void updateGateway\(\{ port: v \?\? 3939 \}\)\}/,
       'Open Gateway port input must render from the local draft while persisting in the background',
     );
     assert.doesNotMatch(

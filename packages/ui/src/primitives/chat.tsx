@@ -396,13 +396,11 @@ export function LiveIndicator({
  * that carries its own `motion-reduce:` guards — the dot and card need no
  * per-element motion utilities; the same global rules cover them as before.)
  *
- * The single consumer (`ToolActivity`) keeps its semantic tags and applies these
- * by `className`. `toolVariants` is kept OFF the package barrel for the same
- * reason as `markerVariants` / `streamVariants`: the only consumer imports it by
- * relative path, so the part set stays an internal, freely-removable styling
- * detail. The `<details>` card stays native HTML here — the eventual Base UI
- * Disclosure path (the intended convergence target for this card AND the
- * `.maka-turn-thinking` block) is a later structural pass, not this lift.
+ * The single consumer (`ToolActivity`) renders a Base UI Collapsible and applies
+ * these by `className`. `toolVariants` is kept OFF the package barrel for the
+ * same reason as `markerVariants` / `streamVariants`: the only consumer imports
+ * it by relative path, so the part set stays an internal, freely-removable
+ * styling detail.
  *
  * NOTE: the args `<pre>` keeps the shared `.maka-code` inline-code base (used by
  * Markdown / artifact previews too — out of scope); the `args` part below is only
@@ -429,24 +427,21 @@ const toolVariants = cva("", {
       count:
         "inline-flex items-center justify-center min-w-[22px] h-[18px] px-1.5 py-0 rounded-[var(--radius-pill)] bg-[var(--foreground-5)] text-[color:var(--foreground-secondary)] text-[11px] [font-variant-numeric:tabular-nums]",
       // `.maka-tool` (effective: the later `padding: 0` rule wins over `8px 12px`)
-      // + `.toolItem` + the `[open]>summary` divider + the `[data-status]` border /
-      // background / opacity swaps. `[border: …]` / `[border-color: …]` are arbitrary
-      // so the status overrides touch only the color, never width/style. The
-      // `<summary>` marker reset stays a residue keyed on `[data-slot="tool"]`
-      // (see docstring).
+      // + `.toolItem` + the `[data-status]` border / background / opacity swaps.
+      // `[border: …]` / `[border-color: …]` are arbitrary so the status overrides
+      // touch only the color, never width/style.
       item:
         "[border:1px_solid_var(--border)] rounded-[var(--radius-surface)] bg-[var(--foreground-2)] p-0 mt-2 [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-secondary)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)]"
-        + " [&[open]>summary]:[border-bottom:1px_solid_var(--border)]"
         // `waiting_permission` border tint — see `WP_CARD_BORDER` above (String.raw).
         + " " + WP_CARD_BORDER
         + " data-[status=running]:[border-color:oklch(from_var(--status-running)_l_c_h_/_0.4)]"
         + " data-[status=completed]:[border-color:var(--border)]"
         + " data-[status=errored]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.4)] data-[status=errored]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.04)]"
         + " data-[status=interrupted]:[border-color:var(--border)] data-[status=interrupted]:bg-[var(--foreground-3)] data-[status=interrupted]:opacity-[0.7]",
-      // `.maka-tool > summary` (list-style + padding) + `.maka-tool-header` (the
-      // 8px · name · meta grid). Folded together since the summary IS the header.
+      // The Collapsible trigger/header: 8px · name · meta grid. The open-state
+      // divider reads Base UI's `[data-panel-open]` trigger attribute directly.
       header:
-        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-[color:var(--foreground-secondary)]",
+        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-[color:var(--foreground-secondary)] data-[panel-open]:[border-bottom:1px_solid_var(--border)]",
       // `.maka-tool-status-dot` (+ the `[data-status]` color swaps; running adds
       // the box-shadow ring + `maka-tool-pulse` breath — keyframe stays in CSS).
       dot:

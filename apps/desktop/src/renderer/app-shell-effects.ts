@@ -277,6 +277,10 @@ export function useAppShellBootstrapSubscriptions(options: {
     // Non-critical: defer to next frame so the first paint isn't blocked.
     requestAnimationFrame(runDeferredStartupRefreshes);
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionSubscriptionEvent);
+    const unsubscribeSettingsExternal = window.maka.settings.subscribeExternalChanged(() => {
+      void options.refreshShellSettings();
+      void options.refreshConnections();
+    });
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges(handleSessionChange);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(handleOpenSettings);
     const unsubscribePlanChanges = window.maka.plans.subscribeChanges(handlePlanChange);
@@ -286,6 +290,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     return () => {
       cleanupPendingRefs();
       unsubscribeConnections();
+      unsubscribeSettingsExternal();
       unsubscribeSessionChanges();
       unsubscribeOpenSettings();
       unsubscribePlanChanges();

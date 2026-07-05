@@ -51,7 +51,7 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       // `.maka-turn-thinking` is explicitly deferred (pseudo-element chevron +
       // @starting-style fade don't reduce to leaf utilities); it stays authored.
       '.maka-turn-thinking',
-      '.maka-turn-thinking summary',
+      '.maka-turn-thinking [data-slot="collapsible-trigger"]',
     ]) {
       assert.ok(css.includes(selector), `out-of-scope turn rule "${selector}" must be preserved`);
     }

@@ -170,6 +170,7 @@ declare global {
       settings: {
         get(): Promise<AppSettings>;
         update(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult>;
+        subscribeExternalChanged(handler: () => void): () => void;
         testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult>;
         testBotChannel(provider: BotProvider): Promise<SettingsTestResult>;
         usageStats(range?: UsageRange): Promise<UsageStats>;

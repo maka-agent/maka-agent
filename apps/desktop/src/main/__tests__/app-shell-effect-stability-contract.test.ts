@@ -335,6 +335,10 @@ function installFakeMaka(captured: CapturedSubscriptions): void {
         return noop;
       },
     },
+    settings: {
+      get: async () => ({}),
+      subscribeExternalChanged: () => noop,
+    },
   } as unknown as RendererWindow['maka'];
 }
 

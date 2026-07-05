@@ -187,7 +187,14 @@ function findRulesWithDeclaration(
 
 function extractStaticUiButtonClassNames(src: string): string[] {
   const classes = new Set<string>();
-  const uiButtonBlocks = src.match(/<UiButton\b[\s\S]*?<\/UiButton>/g) ?? [];
+  // A topbar UiButton appears either as a direct element
+  // (<UiButton>…</UiButton>) or, after the Tooltip migration, as the
+  // render target of a TooltipTrigger
+  // (<TooltipTrigger render={<UiButton …/>} className="…">…</TooltipTrigger>).
+  const uiButtonBlocks = [
+    ...(src.match(/<UiButton\b[\s\S]*?<\/UiButton>/g) ?? []),
+    ...(src.match(/<TooltipTrigger\b[\s\S]*?render=\{<UiButton\b[\s\S]*?<\/TooltipTrigger>/g) ?? []),
+  ];
   for (const block of uiButtonBlocks) {
     const match = block.match(/\bclassName="([^"]+)"/);
     assert.ok(

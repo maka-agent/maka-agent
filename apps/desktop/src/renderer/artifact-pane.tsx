@@ -69,6 +69,9 @@ import {
   Toolbar,
   ToolbarGroup,
   ToolbarSeparator,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   formatBytes,
   useToast,
 } from '@maka/ui';
@@ -381,24 +384,25 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
       onKeyDown={handlePaneKeyDown}
     >
       <header className="maka-artifact-pane-header">
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-artifact-pane-collapse"
-          onClick={() => setCollapsed((current) => !current)}
-          // @kenji a11y gate #3: aria-expanded reflects the actual visible
-          // content state (true when pane shows list + preview + toolbar,
-          // false when collapsed to chevron rail). aria-pressed retained
-          // since this is still a toggle button (a screen reader announces
-          // both "pressed" + "expanded" meaningfully).
-          aria-pressed={collapsed}
-          aria-expanded={!collapsed}
-          aria-label={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
-          title={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
-        >
-          {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-artifact-pane-collapse"
+            onClick={() => setCollapsed((current) => !current)}
+            // @kenji a11y gate #3: aria-expanded reflects the actual visible
+            // content state (true when pane shows list + preview + toolbar,
+            // false when collapsed to chevron rail). aria-pressed retained
+            // since this is still a toggle button (a screen reader announces
+            // both "pressed" + "expanded" meaningfully).
+            aria-pressed={collapsed}
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? '展开生成文件面板' : '折叠生成文件面板'}
+          >
+            {collapsed ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+          </TooltipTrigger>
+          <TooltipContent>{collapsed ? '展开生成文件面板' : '折叠生成文件面板'}</TooltipContent>
+        </Tooltip>
         {!collapsed && (
           <>
             <span className="maka-artifact-pane-title">生成文件</span>
@@ -557,23 +561,25 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               </ToolbarGroup>
               <ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" />
               <ToolbarGroup className="maka-artifact-toolbar-group maka-artifact-toolbar-danger-group">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
-                  title="删除"
-                  onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
-                  disabled={artifactActionBusy}
-                  data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
-                  aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                  {/* Icon-only at rest: the visible label wrapped the toolbar
-                      onto a second line at 1280 pane width, stranding 删除
-                      alone bottom-right. Label stays for screen readers. */}
-                  <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<Button type="button" variant="destructive" size="sm" className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive" />}
+                    onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
+                    disabled={artifactActionBusy}
+                    data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
+                    aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                    {/* Icon-only at rest: the visible label wrapped the toolbar
+                        onto a second line at 1280 pane width, stranding 删除
+                        alone bottom-right. The label span stays for screen
+                        readers (visually hidden); the Tooltip mirrors it for
+                        mouse hover, replacing the native hover tooltip this
+                        button lost in the tooltip migration. */}
+                    <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
+                  </TooltipTrigger>
+                  <TooltipContent>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</TooltipContent>
+                </Tooltip>
               </ToolbarGroup>
             </Toolbar>
           )}

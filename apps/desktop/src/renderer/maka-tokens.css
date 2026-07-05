@@ -1221,24 +1221,22 @@
     color: var(--foreground-secondary);
   }
 
-  .maka-turn-thinking summary {
+  .maka-turn-thinking [data-slot="collapsible-trigger"] {
     display: flex;
     align-items: center;
     gap: var(--space-2);
     font-weight: var(--font-weight-semibold);
     color: var(--focus-ring);
     letter-spacing: var(--tracking-wide);
-    list-style: none;
     /* `cursor: pointer` intentionally omitted — native macOS reserves
-       the hand cursor for links; `<details>` summaries are button-like
-       controls and use the default arrow. Enforced by
+       the hand cursor for links; the Collapsible trigger is a button-like
+       control and uses the default arrow. Enforced by
        `cursor-convention-contract.test.ts`. */
   }
 
   /* Replace the default disclosure triangle with a custom chevron
      that rotates smoothly on toggle. */
-  .maka-turn-thinking summary::-webkit-details-marker { display: none; }
-  .maka-turn-thinking summary::before {
+  .maka-turn-thinking [data-slot="collapsible-trigger"]::before {
     content: '';
     flex-shrink: 0;
     width: 0;
@@ -1248,7 +1246,7 @@
     border-color: transparent transparent transparent currentColor;
     transition: transform var(--duration-emphasized) var(--ease-out-strong);
   }
-  .maka-turn-thinking[open] > summary::before {
+  .maka-turn-thinking [data-slot="collapsible-trigger"][data-panel-open]::before {
     transform: rotate(90deg);
   }
 
@@ -1724,13 +1722,12 @@
   /* ---- Tool activity ---------------------------------------------- */
 
   /* The tool-activity card shell (the inline section + count pill, the
-     `<details>` card, its `<summary>` header row, the body / intent, and the
+     Collapsible card, its trigger header row, the body / intent, and the
      args `<pre>` override) moved onto the `@maka/ui` chat substrate's
      `toolVariants` literalize table (issue #332 PR3b —
      packages/ui/src/primitives/chat.tsx). What stays here is the irreducible
      residue that escapes the computed-style proof, re-keyed on the governed
-     `[data-slot="tool"]` hook instead of the retired `.maka-tool` class: the
-     native `<summary>` marker reset (pseudo-elements with no leaf-utility form).
+     `[data-slot="tool"]` hook instead of the retired `.maka-tool` class.
      The running status dot's `@keyframes maka-tool-pulse` (below) likewise stays
      because it is a functional status animation. */
   [data-slot="tool"] {
@@ -1738,11 +1735,10 @@
     transform: translateY(0);
     transition: border-color var(--duration-base) var(--ease-out-strong);
   }
-  /* Native <details>/<summary> marker reset — the summary IS the header row
-     (laid out by `toolVariants({ part: 'header' })`), so the default disclosure
-     triangle is suppressed. */
-  [data-slot="tool"] > summary::-webkit-details-marker { display: none; }
-  [data-slot="tool"] > summary::marker { content: ''; }
+  /* The Collapsible trigger is the header row (laid out by
+     `toolVariants({ part: 'header' })`); as a real <button> it has no native
+     disclosure marker, so the marker-reset rules the native <summary> needed
+     are gone. */
 
   @keyframes maka-tool-pulse {
     0%, 100% { box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15); }
