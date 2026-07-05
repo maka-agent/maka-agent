@@ -258,15 +258,18 @@ describe('PR-CONTROL-HEIGHT-CONVERGE-0 contract', () => {
 });
 
 describe('control-height whitelist negative cases', () => {
-  it('assertCustomPropRefsDefined catches a token that references an undefined custom prop (the --space-7 collapse bug)', () => {
-    // The P1 bug: --h-control-md: var(--space-7) where --space-7 is not in
-    // maka's discrete spacing scale. A pin-only check (declared with
-    // var(--space-7)) passes while the token is broken; the ref-chain check
-    // must fail so the collapse is caught before any site follows the token.
+  it('assertCustomPropRefsDefined catches a direct undefined ref, an undefined ref 2 hops down, and a cycle', () => {
+    // Direct undefined ref (the P1 bug: --h-control-md → --space-7, undefined).
     const broken = ':root { --space-5: 20px; --space-6: 24px; --h-control-xs: var(--space-5); --h-control-sm: var(--space-6); --h-control-md: var(--space-7); }';
     assert.throws(() => assertCustomPropRefsDefined(broken, '--h-control-md', 'test'), /references undefined --space-7/);
-    // A closed chain does not throw.
     assert.doesNotThrow(() => assertCustomPropRefsDefined(broken, '--h-control-xs', 'test'));
+    // Undefined 2 hops down: --h-control-xs → --space-5 → --missing. A
+    // single-level check (only --space-5 is defined) would miss --missing.
+    const twoHop = ':root { --h-control-xs: var(--space-5); --space-5: var(--missing); }';
+    assert.throws(() => assertCustomPropRefsDefined(twoHop, '--h-control-xs', 'test'), /references undefined --missing/);
+    // Cycle: --a → --b → --a.
+    const cycle = ':root { --a: var(--b); --b: var(--a); }';
+    assert.throws(() => assertCustomPropRefsDefined(cycle, '--a', 'test'), /circular custom-prop reference/);
   });
 
   it('extractControlToken parses --h-control-* and rejects typos / non-var', () => {

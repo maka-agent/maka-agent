@@ -119,9 +119,8 @@ export function assertCustomPropPinnedOnce(
   assert.equal(values[0], expected, `${label}: ${prop} must be ${expected}; got ${values[0]}`);
 }
 
-/** Assert every `var(--xxx)` reference in `prop`'s value is itself a defined
- *  custom property somewhere in `css` (token :root, `@theme inline`, or a
- *  bridge alias).
+/** Assert every `var(--xxx)` reference reachable from `prop` resolves to a
+ *  defined custom property — recursively, with cycle detection.
  *
  *  Catches the bug where a token points at an undefined custom prop — e.g.
  *  `--h-control-md: var(--space-7)` when maka's discrete spacing scale skips
@@ -129,19 +128,41 @@ export function assertCustomPropPinnedOnce(
  *  element collapses to its initial/inherited value (width/height → auto,
  *  min-height → 0) instead of the intended 28px. A pin-only contract that
  *  just checks `--h-control-md` is declared with `var(--space-7)` passes
- *  while the token is broken — this helper walks the reference chain. */
+ *  while the token is broken — this helper walks the reference chain.
+ *
+ *  Recurses through the whole chain, not just the first hop: a chain like
+ *  `--h-control-xs → --space-5 → --missing` (undefined two hops out) is
+ *  caught, and a cycle like `--a → --b → --a` is caught via a `visiting`
+ *  set. Each node must also be declared exactly once. */
 export function assertCustomPropRefsDefined(
   css: string,
   prop: string,
   label = 'maka-tokens.css',
 ): void {
   const props = parseCssCustomProps(css);
-  const defined = new Set(props.keys());
-  const values = props.get(prop) ?? [];
-  assert.equal(values.length, 1, `${label}: ${prop} must be declared exactly once; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
-  const value = values[0];
-  const refs = [...value.matchAll(/var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)/g)].map((m) => m[1]);
-  for (const ref of refs) {
-    assert.ok(defined.has(ref), `${label}: ${prop} references undefined ${ref} (value: ${value}) — the declaration would collapse to its initial/inherited value at computed-value time`);
-  }
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const errors: string[] = [];
+  const dfs = (name: string, path: string[]): void => {
+    if (visited.has(name)) return;
+    if (visiting.has(name)) {
+      errors.push(`${label}: circular custom-prop reference: ${[...path, name].join(' → ')}`);
+      return;
+    }
+    visiting.add(name);
+    const values = props.get(name);
+    if (values === undefined) {
+      const via = path.length ? ` (via ${path.join(' → ')})` : '';
+      errors.push(`${label}: ${prop} references undefined ${name}${via} — the declaration would collapse to its initial/inherited value at computed-value time`);
+    } else if (values.length !== 1) {
+      errors.push(`${label}: ${name} must be declared exactly once; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
+    } else {
+      const refs = [...values[0].matchAll(/var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)/g)].map((m) => m[1]);
+      for (const ref of refs) dfs(ref, [...path, name]);
+    }
+    visiting.delete(name);
+    visited.add(name);
+  };
+  dfs(prop, []);
+  assert.ok(errors.length === 0, errors.join('\n'));
 }
