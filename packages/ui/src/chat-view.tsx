@@ -20,7 +20,7 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
-import type { PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
+import type { PlanReminder, ProviderType, SessionSummary, StoredMessage, Task } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
@@ -44,6 +44,9 @@ import type {
 const SkillsModuleMain = lazy(() => import('./skills-panel.js').then((m) => ({ default: m.SkillsModuleMain })));
 const DailyReviewPanel = lazy(() => import('./daily-review-panel.js').then((m) => ({ default: m.DailyReviewPanel })));
 const PlanReminderPanel = lazy(() => import('./plan-reminder-panel.js').then((m) => ({ default: m.PlanReminderPanel })));
+// Per-session task ledger strip. Lazy for the same reason as the module
+// panels: sessions without tasks (the common case) never pay for its code.
+const TaskLedgerPanel = lazy(() => import('./task-ledger-panel.js').then((m) => ({ default: m.TaskLedgerPanel })));
 
 function ModulePageFallback(props: { label: string; message: string }) {
   return (
@@ -243,6 +246,9 @@ export function ChatView(props: {
   onSnoozePlanReminder?: (id: string) => void | Promise<void>;
   onClearPlanReminderRunHistory?: (id: string) => void | Promise<void>;
   onDeletePlanReminder?: (id: string) => void | Promise<void>;
+  /** Active session's task ledger snapshot (model-owned; shell pulls it). */
+  tasks?: Task[];
+  onCancelTask?: (taskId: string) => void | Promise<void>;
   dailyReviewBridge?: DailyReviewBridge;
   onCopyDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
   onAppendDailyReviewMarkdown?: (input: DailyReviewMarkdownActionInput) => Promise<void> | void;
@@ -545,6 +551,14 @@ export function ChatView(props: {
             当前会话来自旧的本地模拟连接。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。
           </AlertDescription>
         </Alert>
+      )}
+      {/* Per-session task ledger: mounts only once the model has created
+          tasks, so ordinary chats keep a clean chrome strip. Sits with the
+          other above-shell status surfaces (status cluster / banners). */}
+      {(props.tasks?.length ?? 0) > 0 && (
+        <Suspense fallback={<ModulePanelFallback message="正在加载任务清单…" />}>
+          <TaskLedgerPanel tasks={props.tasks ?? []} onCancel={props.onCancelTask} />
+        </Suspense>
       )}
       <div className="maka-chat-shell">
         {props.branchBanner && (

@@ -46,6 +46,7 @@ import type {
   PlanReminder,
   PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
+  Task,
   DailyReviewArchive,
   DailyReviewArchiveSummary,
   DailyReviewConfig,
@@ -352,6 +353,10 @@ declare global {
           handler: (event: { type: 'plans_changed'; reason: string; reminderId?: string; ts: number }) => void,
         ): () => void;
         subscribeDue(handler: (reminder: PlanReminder) => void): () => void;
+      };
+      tasks: {
+        list(sessionId: string): Promise<Task[]>;
+        cancel(sessionId: string, taskId: string): Promise<{ updated: Task; all: Task[] }>;
       };
       usage: {
         summary(query: UsageQuery): Promise<Result<UsageSummaryV2>>;

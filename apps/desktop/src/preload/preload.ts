@@ -48,6 +48,7 @@ import type {
   PlanReminder,
   PlanReminderDeliveryTarget,
   PlanReminderRecurrence,
+  Task,
   DailyReviewArchive,
   DailyReviewArchiveSummary,
   DailyReviewConfig,
@@ -704,6 +705,16 @@ contextBridge.exposeInMainWorld('maka', {
       { ok: true; path: string } | { ok: false; reason: 'canceled' | 'write_failed' | 'invalid_input' }
     > {
       return ipcRenderer.invoke('daily-review:saveMarkdownToFile', input);
+    },
+  },
+  // Session task ledger (model-owned; renderer is read-mostly). Updates
+  // arrive as sessions:changed events with reason 'task-updated'.
+  tasks: {
+    list(sessionId: string): Promise<Task[]> {
+      return ipcRenderer.invoke('tasks:list', sessionId);
+    },
+    cancel(sessionId: string, taskId: string): Promise<{ updated: Task; all: Task[] }> {
+      return ipcRenderer.invoke('tasks:cancel', sessionId, taskId);
     },
   },
   webSearch: {

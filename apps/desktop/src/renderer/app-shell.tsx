@@ -8,6 +8,7 @@ import type {
   SessionSummary,
   SettingsSection,
   StoredMessage,
+  Task,
   ThemePalette,
   ThemePreference,
   ThinkingLevel,
@@ -84,6 +85,7 @@ import { AppShellTopbarActions, AppShellWorkspaceTopActions } from './app-shell-
 import { AppShellOverlays } from './app-shell-overlays';
 import { createAppShellDailyReviewBridge } from './app-shell-daily-review-bridge';
 import { createAppShellPlanActions } from './app-shell-plan-actions';
+import { createAppShellTaskActions } from './app-shell-task-actions';
 import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-project-actions';
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
@@ -204,6 +206,8 @@ export function AppShell({
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
+  // Active session's task ledger snapshot (model-owned; renderer read-mostly).
+  const [sessionTasks, setSessionTasks] = useState<Task[]>([]);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
   const [projectPickerPending, setProjectPickerPending] = useState(false);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
@@ -781,6 +785,19 @@ export function AppShell({
     toastApi,
   });
 
+  const { refreshSessionTasks, cancelSessionTask } = createAppShellTaskActions({
+    getActiveSessionId: () => activeIdRef.current,
+    setSessionTasks,
+    toastApi,
+  });
+  const refreshSessionTasksRef = useRef(refreshSessionTasks);
+  refreshSessionTasksRef.current = refreshSessionTasks;
+  // Pull the ledger snapshot whenever the visible session changes. No
+  // sessionId (or no tasks) resolves to an empty list, which hides the panel.
+  useEffect(() => {
+    void refreshSessionTasksRef.current(activeId);
+  }, [activeId]);
+
   const {
     refreshAppInfo,
     selectProjectDirectory,
@@ -938,6 +955,7 @@ export function AppShell({
     refreshMemoryActive,
     refreshMessages,
     refreshPlanReminders,
+    refreshSessionTasks,
     refreshShellSettings,
     refreshSkills,
     refreshSessions,
@@ -1366,6 +1384,8 @@ export function AppShell({
                 onSnoozePlanReminder={(id) => snoozePlanReminder(id)}
                 onClearPlanReminderRunHistory={(id) => clearPlanReminderRunHistory(id)}
                 onDeletePlanReminder={(id) => deletePlanReminder(id)}
+                tasks={sessionTasks}
+                onCancelTask={activeId ? (taskId) => cancelSessionTask(activeId, taskId) : undefined}
                 dailyReviewBridge={dailyReviewBridge}
                 onSelectSession={openSessionInChat}
                 onCopyDailyReviewMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}

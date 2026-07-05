@@ -146,7 +146,8 @@ export type SessionChangedReason =
   | 'mode-change'
   | 'status-change'
   | 'turn-status-change'
-  | 'rebound';
+  | 'rebound'
+  | 'task-updated';
 
 export interface SessionChangedEvent {
   type: 'sessions_changed';

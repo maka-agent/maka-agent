@@ -17,10 +17,50 @@ export interface MainTaskLedgerWiring {
   tools: MakaTool[];
 }
 
-export function createMainTaskLedgerWiring(workspaceRoot: string): MainTaskLedgerWiring {
-  const store = createTaskLedgerStore(workspaceRoot);
+export interface MainTaskLedgerWiringOptions {
+  /**
+   * Fired after every committed ledger mutation — model tools and any host
+   * surface (e.g. the renderer cancel IPC) share the wired store, so they all
+   * notify. Best-effort: a throwing observer must never fail the mutation
+   * that already committed.
+   */
+  onMutation?: (sessionId: string) => void;
+}
+
+export function createMainTaskLedgerWiring(
+  workspaceRoot: string,
+  options: MainTaskLedgerWiringOptions = {},
+): MainTaskLedgerWiring {
+  const store = withMutationNotifications(createTaskLedgerStore(workspaceRoot), options.onMutation);
   return {
     store,
     tools: buildTaskLedgerTools({ store }),
+  };
+}
+
+function withMutationNotifications(
+  store: TaskLedgerStore,
+  onMutation: ((sessionId: string) => void) | undefined,
+): TaskLedgerStore {
+  if (!onMutation) return store;
+  const notify = (sessionId: string): void => {
+    try {
+      onMutation(sessionId);
+    } catch {
+      // Observer failure (renderer window gone, …) must not surface here.
+    }
+  };
+  return {
+    list: (sessionId) => store.list(sessionId),
+    create: async (sessionId, drafts) => {
+      const result = await store.create(sessionId, drafts);
+      notify(sessionId);
+      return result;
+    },
+    update: async (sessionId, id, patch) => {
+      const result = await store.update(sessionId, id, patch);
+      notify(sessionId);
+      return result;
+    },
   };
 }

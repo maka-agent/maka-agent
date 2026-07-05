@@ -173,6 +173,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshMemoryActive: (failureTitle?: string) => Promise<void>;
   refreshMessages: (sessionId: string) => Promise<boolean>;
   refreshPlanReminders: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
+  refreshSessionTasks: (sessionId: string | undefined) => Promise<void>;
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
@@ -214,6 +215,11 @@ export function useAppShellBootstrapSubscriptions(options: {
     const changedSessionId = event.sessionId;
     if (event.reason === 'message-appended' && changedSessionId && changedSessionId === options.activeIdRef.current) {
       void options.refreshMessages(changedSessionId);
+    }
+    // Model mutated the session task ledger (TaskCreate/TaskUpdate tools or
+    // the renderer cancel IPC): re-pull the visible session's snapshot.
+    if (event.reason === 'task-updated' && changedSessionId && changedSessionId === options.activeIdRef.current) {
+      void options.refreshSessionTasks(changedSessionId);
     }
     if (event.reason === 'rebound') {
       const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';

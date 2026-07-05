@@ -181,6 +181,7 @@ import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
 import { registerConnectionsIpc } from './connections-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
+import { registerTaskLedgerIpc } from './task-ledger-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
@@ -303,7 +304,11 @@ const antigravitySubscription = new AntigravitySubscriptionService({
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
-const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
+const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot, {
+  // Model tools and the renderer cancel IPC share the wired store, so every
+  // ledger mutation refreshes the task panel via sessions:changed.
+  onMutation: (sessionId) => emitSessionsChanged('task-updated', sessionId),
+});
 const taskLedgerStore = taskLedgerWiring.store;
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
@@ -1024,6 +1029,7 @@ function registerIpc(): void {
     },
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
+  registerTaskLedgerIpc({ taskLedger: taskLedgerStore });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? process.cwd();

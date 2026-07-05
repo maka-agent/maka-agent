@@ -199,6 +199,7 @@ function BootstrapSubscriptionProbe(props: {
     refreshMemoryActive: async () => {},
     refreshMessages: async () => true,
     refreshPlanReminders: async () => {},
+    refreshSessionTasks: async () => {},
     refreshShellSettings: async () => {},
     refreshSkills: async () => {},
     refreshSessions: async () => [],
