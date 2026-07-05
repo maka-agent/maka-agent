@@ -127,6 +127,9 @@ export function buildProviderOptions(
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
   const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
   switch (connection.providerType) {
+    // Anthropic-protocol: effort enum models send `effort`; toggle/budget
+    // models send `thinking.disabled` for off. No budget-token mapping — the
+    // provider's native effort values pass through unchanged.
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'MiniMax':
@@ -136,7 +139,7 @@ export function buildProviderOptions(
         anthropic: level
           ? level === 'off'
             ? { thinking: { type: 'disabled' as const } }
-            : { thinking: { type: 'enabled' as const, budgetTokens: anthropicBudgetTokens(level) } }
+            : { effort: level }
           : {},
       };
     case 'codex-subscription':
@@ -158,67 +161,26 @@ export function buildProviderOptions(
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
           ],
-          ...(level
-            ? isGemini3Model(modelId)
-              ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
-              : { thinkingConfig: { includeThoughts: true, thinkingBudget: googleBudgetTokens(level) } }
+          // Google effort models use thinkingLevel; budget/toggle-only models
+          // never have a non-off level (their variants are [] or ['off']), so
+          // off/undefined omit thinkingConfig entirely.
+          ...(level && level !== 'off'
+            ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
             : {}),
         },
       };
-    // OpenAI-compatible providers that expose `reasoning_effort` over their
-    // compatible API. `ollama` / `openai-compatible` / `gemini-cli` back
-    // user-configured models we cannot reason about from the id alone, so
-    // `thinkingVariantsForModel` returns `[]` for them and `level` is always
-    // undefined here — they fall through to the empty-options default rather
-    // than carrying dead `case` branches.
+    // OpenAI-compatible: effort levels pass through as reasoningEffort under
+    // the raw provider namespace. `off` has no ai-sdk openai-compatible wire
+    // (no thinking.disabled field), so it is a no-op override here.
     case 'deepseek':
     case 'moonshot':
     case 'zai-coding-plan':
-      return level ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } } : {};
+      return level && level !== 'off'
+        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
+        : {};
     default:
       return {};
   }
-}
-
-/** Anthropic extended-thinking budget for a semantic level. Tunable; conservative defaults. */
-function anthropicBudgetTokens(level: ThinkingLevel): number {
-  switch (level) {
-    case 'off':
-      // `off` is handled by `thinking: { type: 'disabled' }` and never reaches
-      // the budget path; keep the switch exhaustive.
-      return 0;
-    case 'low':
-      return 4096;
-    case 'medium':
-      return 10000;
-    case 'high':
-      return 20000;
-    case 'minimal':
-      // Anthropic has no `minimal` effort; map to the smallest budget we send.
-      return 2048;
-  }
-}
-
-/** Gemini 2.5 uses a numeric thinking budget; Gemini 3 uses `thinkingLevel`. */
-function googleBudgetTokens(level: ThinkingLevel): number {
-  switch (level) {
-    case 'off':
-      // Gemini has no declared off switch; `off` is never offered for google,
-      // so this branch is unreachable — kept for exhaustiveness.
-      return 0;
-    case 'minimal':
-      return 512;
-    case 'low':
-      return 2048;
-    case 'medium':
-      return 8000;
-    case 'high':
-      return 16000;
-  }
-}
-
-function isGemini3Model(modelId: string): boolean {
-  return /gemini-3/i.test(modelId);
 }
 
 /** providerOptions namespace matches the `name` passed to `createOpenAICompatible` in `getAIModel`. */
