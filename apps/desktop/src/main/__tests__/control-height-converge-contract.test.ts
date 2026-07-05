@@ -145,18 +145,19 @@ function checkSelectorTier(css: string, check: ControlHeightCheck): string[] {
     offenders.push(`${check.selector} not found in CSS — stale contract entry or renamed selector`);
     return offenders;
   }
-  // `checkedAny` is tracked across ALL matched blocks (a selector may have
-  // a base rule plus @media / :state variants); a variant that only overrides
-  // transition should not reset the "found a height" flag. Every height /
-  // min-height / width declaration that DOES appear must still reference the
-  // expected tier — including overrides inside @media.
-  let checkedAny = false;
+  // Each prop in check.props is a REQUIRED size on this control (a square
+  // control needs both width AND height; a settings row needs height AND
+  // min-height). Track which props appeared across ALL matched blocks (a
+  // selector may have a base rule plus @media / :state variants); a missing
+  // required prop is a regression. Every declaration that DOES appear must
+  // still reference the expected tier — including overrides inside @media.
+  const seenProps = new Set<string>();
   for (const block of blocks) {
     const body = block[1];
     for (const prop of check.props) {
       const propRe = new RegExp(`(?:^|\\n)\\s*${prop}\\s*:\\s*([^;}\\n]+)`, 'g');
       for (const m of body.matchAll(propRe)) {
-        checkedAny = true;
+        seenProps.add(prop);
         const raw = m[1].trim();
         if (!isAllowedControlHeight(raw, check.token)) {
           offenders.push(`${check.selector} ${prop}: ${raw} [must use ${check.token}]`);
@@ -164,8 +165,10 @@ function checkSelectorTier(css: string, check: ControlHeightCheck): string[] {
       }
     }
   }
-  if (!checkedAny) {
-    offenders.push(`${check.selector} has no ${check.props.join('/')} declaration`);
+  for (const prop of check.props) {
+    if (!seenProps.has(prop)) {
+      offenders.push(`${check.selector} is missing required ${prop} declaration (expected ${check.token})`);
+    }
   }
   return offenders;
 }
@@ -292,6 +295,23 @@ describe('control-height whitelist negative cases', () => {
     assert.ok(isAllowedControlHeight('var(--space-8)', '--h-control-lg') === false, 'direct space token must fail on a mapped selector');
     assert.ok(isAllowedControlHeight('calc(var(--spacing) * 8)', '--h-control-lg') === false, 'ruler calc must fail on a mapped selector');
     assert.ok(isAllowedControlHeight('var(--h-titlebar)', '--h-control-lg') === false, 'chrome token must fail on a mapped selector');
+  });
+
+  it('checkSelectorTier flags a missing required prop on a multi-prop selector (width+height square / height+min-height row)', () => {
+    // .maka-chat-jump-bottom is mapped with props: ['width', 'height'] — both
+    // are required (a square FAB whose footprint = control size). A fixture
+    // with only height must flag the missing width; the old single-checkedAny
+    // logic let this pass (any one prop set checkedAny=true).
+    const jbCheck: ControlHeightCheck = { selector: '.maka-chat-jump-bottom', props: ['width', 'height'], token: '--h-control-md' };
+    const offendersJb = checkSelectorTier('.maka-chat-jump-bottom {\n  height: var(--h-control-md);\n}', jbCheck);
+    assert.ok(offendersJb.some((o) => o.includes('missing required width')), `missing width must be flagged: ${offendersJb}`);
+    // .settingsNavItem is mapped with props: ['height', 'min-height'] — both
+    // required. Deleting either one must flag.
+    const navCheck: ControlHeightCheck = { selector: '.settingsNavItem', props: ['height', 'min-height'], token: '--h-control-xl' };
+    assert.ok(checkSelectorTier('.settingsNavItem {\n  min-height: var(--h-control-xl);\n}', navCheck).some((o) => o.includes('missing required height')), 'missing height must be flagged');
+    assert.ok(checkSelectorTier('.settingsNavItem {\n  height: var(--h-control-xl);\n}', navCheck).some((o) => o.includes('missing required min-height')), 'missing min-height must be flagged');
+    // A complete fixture (both props present, correct tier) passes.
+    assert.deepEqual(checkSelectorTier('.maka-chat-jump-bottom {\n  width: var(--h-control-md);\n  height: var(--h-control-md);\n}', jbCheck), [], 'complete square control must pass');
   });
 
   it('TSX scanner flags a new arbitrary height and spares the whitelist', async () => {
