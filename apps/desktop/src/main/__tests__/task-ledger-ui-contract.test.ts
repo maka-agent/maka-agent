@@ -151,4 +151,54 @@ describe('task ledger UI contract', () => {
       'cancel must render the snapshot the IPC returned instead of re-pulling',
     );
   });
+
+  it('hosts the panel in the right-side collapsible task rail, not the chat column', async () => {
+    const railSrc = await repoFile('apps/desktop/src/renderer/task-rail.tsx');
+
+    // (a) collapse state persists under a stable key, defaulting to expanded
+    // on a fresh profile (absent key must not read as collapsed).
+    assert.match(railSrc, /'maka-task-rail-collapsed-v1'/, 'the rail must persist its collapse state');
+    assert.match(
+      railSrc,
+      /safeLocalStorageGet\(COLLAPSE_KEY\) === '1'/,
+      'only an explicit stored flag may collapse the rail — absent key means expanded',
+    );
+    assert.match(railSrc, /safeLocalStorageSet\(COLLAPSE_KEY, collapsed \? '1' : '0'\)/);
+
+    // (b) an empty ledger takes no space.
+    assert.match(
+      railSrc,
+      /if \(props\.tasks\.length === 0\) return null;/,
+      'the rail must return null for an empty ledger',
+    );
+
+    // (c) the collapsed strip still communicates the task count, and an
+    // in-progress dot only when something is actually running.
+    assert.match(railSrc, /maka-task-rail-strip-count/, 'the collapsed strip must show the task count');
+    assert.match(
+      railSrc,
+      /hasInProgress && <span className="maka-task-rail-strip-dot" \/>/,
+      'the in-progress dot must be conditional',
+    );
+
+    // Mounted in the app shell, as a sibling before ArtifactPane in the same
+    // right-side stack — and gone from the chat column entirely.
+    const appShellSrc = await repoFile('apps/desktop/src/renderer/app-shell.tsx');
+    assert.match(
+      appShellSrc,
+      /<TaskRail[\s\S]{0,300}<ArtifactPane sessionId=\{activeId\} \/>/,
+      'the task rail must sit before ArtifactPane in the right-side stack',
+    );
+    assert.match(
+      appShellSrc,
+      /activeId && sessionTasks\.length > 0 &&/,
+      'the rail mount must be gated on a known non-empty ledger (lazy-fallback contract)',
+    );
+    const chatViewSrc = await repoFile('packages/ui/src/chat-view.tsx');
+    assert.doesNotMatch(
+      chatViewSrc,
+      /TaskLedgerPanel/,
+      'the chat column must no longer render the task panel',
+    );
+  });
 });

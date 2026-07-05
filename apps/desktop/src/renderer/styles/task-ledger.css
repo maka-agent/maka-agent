@@ -1,9 +1,10 @@
-/* Session task ledger strip (PR2, issue #15). Sits above the chat shell with
-   the other status surfaces; class family `.maka-task-*` lives outside
-   module-pages/ because this is a per-session chat surface, not a nav module
-   page (module-pages selectors are prefix-locked to maka-plan/skill/module/
-   capability). Card recipe follows the atlas hairline pattern used by
-   plan-reminders. */
+/* Session task ledger (PR2, issue #15). The `.maka-task-panel` family is the
+   controlled list (packages/ui TaskLedgerPanel); `.maka-task-rail` is the
+   desktop collapsible right-side shell hosting it (ArtifactPane precedent:
+   fixed expanded width / thin collapsed strip / null when empty). Class
+   family lives outside module-pages/ because this is a per-session chat
+   surface, not a nav module page (module-pages selectors are prefix-locked
+   to maka-plan/skill/module/capability). */
 
 .maka-task-panel {
   margin: var(--space-1) var(--space-4) 0;
@@ -81,4 +82,126 @@
 
 .maka-task-cancel {
   flex: none;
+}
+
+/* ── Right-side rail shell ─────────────────────────────────────────────── */
+
+.maka-task-rail {
+  flex: 0 0 auto;
+  width: 300px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  border-left: var(--border-width-hairline) solid var(--border);
+  background: var(--background);
+  overflow: hidden;
+}
+
+.maka-task-rail[data-collapsed='true'] {
+  width: 32px;
+}
+
+.maka-task-rail-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2);
+  min-height: 28px;
+}
+
+.maka-task-rail[data-collapsed='true'] .maka-task-rail-header {
+  padding: var(--space-1) 0;
+  justify-content: center;
+}
+
+.maka-task-rail-body {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: var(--space-2);
+}
+
+/* Inside the rail the panel is the rail's content, not a floating card:
+   drop the card chrome and let the rail borders/background own the frame.
+   The internal list cap also goes away — the rail body is the scroller. */
+.maka-task-rail .maka-task-panel {
+  margin: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.maka-task-rail .maka-task-list {
+  max-height: none;
+  overflow-y: visible;
+}
+
+/* Collapsed strip: vertical 「任务」 label + count + in-progress dot. All
+   informational content is mirrored into the toggle's aria-label; the strip
+   is aria-hidden. */
+.maka-task-rail-strip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-2) 0;
+}
+
+.maka-task-rail-strip-label {
+  writing-mode: vertical-rl;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
+  line-height: var(--leading-tight);
+}
+
+.maka-task-rail-strip-count {
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-tight);
+}
+
+.maka-task-rail-strip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--success);
+}
+
+/* Narrow window: like ArtifactPane, the rail becomes a bottom sheet instead
+   of squeezing the chat column (same 990px boundary; the parent
+   .maka-detail-with-artifacts grid auto-places extra children into implicit
+   rows). */
+@media (max-width: 990px) {
+  .maka-task-rail {
+    width: 100%;
+    max-height: min(32dvh, 280px);
+    border-left: 0;
+    border-top: var(--border-width-hairline) solid var(--border);
+  }
+
+  /* Collapsed bottom-sheet form: one 34px horizontal bar carrying the
+     toggle followed by the inline strip (label + count + dot). */
+  .maka-task-rail[data-collapsed='true'] {
+    width: 100%;
+    min-height: 34px;
+    max-height: 34px;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .maka-task-rail[data-collapsed='true'] .maka-task-rail-header {
+    padding: 0 var(--space-1);
+  }
+
+  .maka-task-rail[data-collapsed='true'] .maka-task-rail-strip {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 var(--space-2);
+  }
+
+  .maka-task-rail[data-collapsed='true'] .maka-task-rail-strip-label {
+    writing-mode: horizontal-tb;
+  }
 }

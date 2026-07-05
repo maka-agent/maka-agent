@@ -51,6 +51,15 @@ function BrowserPanelFallback() {
     </div>
   );
 }
+const TaskRail = lazy(() => import('./task-rail').then((m) => ({ default: m.TaskRail })));
+
+function TaskRailFallback() {
+  return (
+    <div className="maka-task-rail" role="status" aria-busy="true" aria-label="正在加载任务栏">
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载任务栏…</div>
+    </div>
+  );
+}
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -1386,8 +1395,6 @@ export function AppShell({
                 onSnoozePlanReminder={(id) => snoozePlanReminder(id)}
                 onClearPlanReminderRunHistory={(id) => clearPlanReminderRunHistory(id)}
                 onDeletePlanReminder={(id) => deletePlanReminder(id)}
-                tasks={sessionTasks}
-                onCancelTask={activeId ? (taskId) => cancelSessionTask(activeId, taskId) : undefined}
                 dailyReviewBridge={dailyReviewBridge}
                 onSelectSession={openSessionInChat}
                 onCopyDailyReviewMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
@@ -1511,6 +1518,17 @@ export function AppShell({
             {activeId && liveBrowserSessionIds.includes(activeId) && (
               <Suspense fallback={<BrowserPanelFallback />}>
                 <BrowserPanel sessionId={activeId} hidden={hasModalOpen} />
+              </Suspense>
+            )}
+            {/* Task rail mounts only when AppShell already holds a non-empty
+                ledger snapshot, so a space-reserving fallback is safe (cf. the
+                lazy-fallback contract: explicit visibility gate required). */}
+            {activeId && sessionTasks.length > 0 && (
+              <Suspense fallback={<TaskRailFallback />}>
+                <TaskRail
+                  tasks={sessionTasks}
+                  onCancel={(taskId) => cancelSessionTask(activeId, taskId)}
+                />
               </Suspense>
             )}
             <Suspense fallback={null}>
