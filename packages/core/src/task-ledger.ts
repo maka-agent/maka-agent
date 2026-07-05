@@ -14,6 +14,13 @@ export const TASK_SUBJECT_MAX_CHARS = 200;
  */
 export const TASK_LEDGER_MAX_TASKS = 200;
 
+/**
+ * Max length of a task id accepted on both the write and read paths. The write
+ * path generates randomUUID (36 chars); the bound leaves headroom for a future
+ * id format while keeping the turn-tail `(id: ...)` render bounded.
+ */
+export const TASK_ID_MAX_CHARS = 64;
+
 export const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const;
 export type TaskStatus = typeof TASK_STATUSES[number];
 
@@ -58,6 +65,20 @@ type TaskLedgerNormalizeErrorReason = Extract<TaskLedgerNormalizeResult<never>, 
 
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Stable-token id contract shared by the runtime tool schema (front-door) and
+ * the storage read path. The shared renderer strips `<\/?task-ledger[^>]*>`
+ * from the whole formatted output, including the id, so an id carrying angle
+ * brackets, slashes, quotes, parens, or equals would render as a different id
+ * than the store holds, and a later TaskUpdate on the rendered id would miss.
+ * Whitespace would break the list-line structure; a huge id would bloat every
+ * turn tail. The whitelist (alphanumeric plus . _ : -, 1-64 chars) excludes
+ * every such character without coupling to the UUID format.
+ */
+export function isSafeTaskId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value);
 }
 
 export function normalizeTaskSubject(input: unknown): TaskLedgerNormalizeResult<string> {

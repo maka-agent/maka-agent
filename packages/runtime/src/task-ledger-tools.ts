@@ -2,6 +2,9 @@ import { z } from 'zod';
 import {
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
+  TASK_LEDGER_MAX_TASKS,
+  TASK_ID_MAX_CHARS,
+  isSafeTaskId,
   renderSafeTaskLedgerText,
   type Task,
   type TaskLedgerStore,
@@ -29,7 +32,7 @@ function buildTaskCreateTool(store: TaskLedgerStore): MakaTool<{ tasks: Array<{ 
       tasks: z.array(z.object({
         subject: z.string().trim().min(1).max(TASK_SUBJECT_MAX_CHARS)
           .describe(`Short imperative description of the task (max ${TASK_SUBJECT_MAX_CHARS} characters).`),
-      })).min(1).describe('One or more tasks to add. Each starts in the pending state.'),
+      })).min(1).max(TASK_LEDGER_MAX_TASKS).describe('One or more tasks to add. Each starts in the pending state.'),
     }),
     // Pure local session state, no external side effect (cf. agent_list).
     permissionRequired: false,
@@ -50,7 +53,7 @@ function buildTaskUpdateTool(
       'Update a task in the session task ledger by id. Provide status and/or a revised subject. '
       + 'Mark tasks in_progress when you start them and completed (or cancelled) when done.',
     parameters: z.object({
-      id: z.string().min(1).describe('Task id from the current ledger.'),
+      id: z.string().min(1).max(TASK_ID_MAX_CHARS).refine(isSafeTaskId, 'Task id must be a stable token (alphanumeric plus . _ : -, max 64 chars) from the current ledger.').describe('Task id from the current ledger.'),
       status: z.enum(TASK_STATUSES).optional().describe('New task status.'),
       subject: z.string().trim().min(1).max(TASK_SUBJECT_MAX_CHARS).optional()
         .describe(`Revised task description (max ${TASK_SUBJECT_MAX_CHARS} characters).`),

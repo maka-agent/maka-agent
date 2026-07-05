@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import {
   TASK_LEDGER_MAX_TASKS,
+  isSafeTaskId,
   isTaskStatus,
   normalizeCreateTaskInput,
   normalizeTaskSubject,
@@ -36,6 +37,16 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     assertSafeSessionId(sessionId);
     if (!Array.isArray(drafts) || drafts.length === 0) {
       throw new Error('TaskCreate requires at least one task draft');
+    }
+    // Front-door the per-batch cap before generating ids or normalizing drafts:
+    // a single call can never add more than the absolute ledger cap, and rejecting
+    // here avoids generating N uuids for a batch the write-queue total check
+    // would refuse anyway. The total (existing + new) cap is still enforced
+    // inside the serialized mutate callback below.
+    if (drafts.length > TASK_LEDGER_MAX_TASKS) {
+      throw new Error(
+        `TaskCreate batch of ${drafts.length} tasks exceeds the ${TASK_LEDGER_MAX_TASKS}-task per-batch cap; split the work into smaller calls.`,
+      );
     }
     const now = Date.now();
     const created: Task[] = drafts.map((draft) => {
@@ -201,20 +212,4 @@ function normalizePersistedTask(value: unknown): Task | undefined {
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
-}
-
-// The write path generates ids via randomUUID() (36 chars, hex + dashes). A
-// hand-edited or legacy tasks.json could otherwise carry an id with a newline
-// (breaks the formatTaskLedgerList line structure and injects text into the
-// prompt), whitespace, thousands of chars (unbounded turn-tail bloat), or a
-// tag-like substring such as `a<task-ledger/>b`. The shared renderer strips
-// `</?task-ledger[^>]*>` from the whole formatted output — including the id —
-// so a tag-like id would be rendered as a DIFFERENT id than the store holds,
-// and a later TaskUpdate on the rendered id would miss the recovered task.
-// Constrain ids to a stable-token whitelist (alphanumeric plus . _ : -),
-// which excludes every character that could break list-line structure, copy
-// escaping, or the renderer's tag strip. Not UUID-coupled, so a future id
-// format that stays within stable tokens doesn't need a read-path update.
-function isSafeTaskId(id: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(id);
 }

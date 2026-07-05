@@ -1,7 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerStore } from '@maka/core/task-ledger';
+import { TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerStore } from '@maka/core/task-ledger';
 import {
   TASK_CREATE_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
@@ -66,6 +66,28 @@ describe('task ledger tools', () => {
     assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
     for (const tool of tools) {
       assert.equal(tool.permissionRequired, false, `${tool.name} must not require permission`);
+    }
+  });
+
+  test('TaskCreate schema rejects a batch larger than the ledger cap and accepts the cap boundary', () => {
+    const create = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_CREATE_TOOL_NAME);
+    const params = create.parameters as z.ZodType;
+    const atCap = { tasks: Array.from({ length: TASK_LEDGER_MAX_TASKS }, () => ({ subject: 'x' })) };
+    assert.equal(params.safeParse(atCap).success, true, `${TASK_LEDGER_MAX_TASKS} tasks (cap) must pass`);
+    const overCap = { tasks: Array.from({ length: TASK_LEDGER_MAX_TASKS + 1 }, () => ({ subject: 'x' })) };
+    assert.equal(params.safeParse(overCap).success, false, `${TASK_LEDGER_MAX_TASKS + 1} tasks must be rejected at the schema`);
+  });
+
+  test('TaskUpdate schema rejects ids that are not stable tokens and accepts UUID-shaped / simple ids', () => {
+    const update = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_UPDATE_TOOL_NAME);
+    const params = update.parameters as z.ZodType;
+    const reject = ['a<task-ledger/>b', 'abc\ndef', 'a b', 'X'.repeat(5000), ''];
+    for (const id of reject) {
+      assert.equal(params.safeParse({ id, status: 'completed' }).success, false, `id ${JSON.stringify(id)} must be rejected`);
+    }
+    const accept = ['123e4567-e89b-12d3-a456-426614174000', 'good-id_1:2'];
+    for (const id of accept) {
+      assert.equal(params.safeParse({ id, status: 'completed' }).success, true, `id ${id} must pass`);
     }
   });
 

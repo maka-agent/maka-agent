@@ -204,6 +204,22 @@ describe('TaskLedgerStore', () => {
     assert.deepEqual(ids, ['123e4567-e89b-12d3-a456-426614174000', 'good-id_1:2']);
   });
 
+  it('rejects an oversized batch before generating tasks or writing (existing ledger unchanged)', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    await store.create(SESSION_ID, [{ subject: 'seed' }]);
+    const before = await readFile(tasksFilePath(root), 'utf8');
+    // Oversized batch with an invalid draft in the middle: without an early
+    // batch-size check, normalizeCreateTaskInput runs during `drafts.map` and
+    // throws the per-draft subject error; with the early check, the batch is
+    // rejected as a batch before any draft is touched or any id is generated.
+    const batch = Array.from({ length: TASK_LEDGER_MAX_TASKS + 5 }, (_, i) =>
+      i === 2 ? { subject: '' } : { subject: `任务${i}` });
+    await assert.rejects(() => store.create(SESSION_ID, batch), /cap|limit|exceed|batch/i);
+    const after = await readFile(tasksFilePath(root), 'utf8');
+    assert.equal(after, before, 'existing ledger must be unchanged');
+  });
+
   it('rejects an unsafe session id', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
@@ -246,10 +262,11 @@ describe('TaskLedgerStore', () => {
     await store.update(SESSION_ID, first.id, { status: 'completed' });
     await assert.rejects(() => store.create(SESSION_ID, [{ subject: 'still-over' }]), /hard runaway guard/);
 
-    // A single batch larger than the cap rejects too.
+    // A single batch larger than the cap rejects at the front door (per-batch
+    // cap, before generating ids), so the ledger stays empty.
     const freshStore = createTaskLedgerStore(await tempRoot());
     const oversizedBatch = Array.from({ length: TASK_LEDGER_MAX_TASKS + 1 }, (_, i) => ({ subject: `b${i}` }));
-    await assert.rejects(() => freshStore.create(SESSION_ID, oversizedBatch), /limited to/);
+    await assert.rejects(() => freshStore.create(SESSION_ID, oversizedBatch), /per-batch cap/);
     assert.deepEqual(await freshStore.list(SESSION_ID), []);
   });
 });

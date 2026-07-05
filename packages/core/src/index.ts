@@ -443,10 +443,12 @@ export type {
   UpdateTaskInput,
 } from './task-ledger.js';
 export {
+  TASK_ID_MAX_CHARS,
   TASK_LEDGER_MAX_TASKS,
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
   formatTaskLedgerList,
+  isSafeTaskId,
   isTaskStatus,
   normalizeCreateTaskInput,
   normalizeTaskStatus,
