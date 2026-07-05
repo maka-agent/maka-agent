@@ -7,7 +7,7 @@
    `.settingsSelect*` rules pin the unified chrome. */
 .settingsSelectTrigger {
   min-width: 0;
-  height: 34px;
+  height: var(--h-control-lg);
   justify-content: space-between;
   border-radius: var(--radius-control);
   font-size: var(--font-size-ui);
@@ -66,7 +66,7 @@
 }
 
 .settingsSelectMenuPopup [role="option"] {
-  min-height: 32px;
+  min-height: var(--h-control-lg);
   align-items: center;
   border-radius: var(--radius-surface);
   padding: var(--space-1-5) var(--space-3);

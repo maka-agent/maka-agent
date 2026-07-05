@@ -444,6 +444,26 @@
   --w-sessionlist: 240px;
   --h-list-header: 52px;
 
+  /* === control-height scale (component sizing, #520 PR4 item 15) =========
+     Interactive controls (button / input / select / tab / nav row / badge /
+     kbd) live on the 4px spacing ruler so CSS var(--h-control-*) and Tailwind
+     h-N share one scale (h-5=20, h-6=24, h-7=28, h-8=32, h-9=36, h-10=40).
+     The historic sidebar/会话/设置 height drift came from off-ruler bare px
+     (22/26/30/34/38); this scale converges them. Square icon controls use
+     the same token for width and height (their footprint = control size).
+     App-chrome bars (--h-titlebar/--h-toolbar/--h-composer-min/--h-list-header)
+     stay as their own semantic tokens — they are structure, not controls. */
+  --h-control-xs:  var(--space-5);  /* 20px — kbd, dot, tiny chip / close  */
+  --h-control-sm:  var(--space-6);  /* 24px — small button, chip, sidebar
+                                      topbar button, model switcher       */
+  --h-control-md:  var(--space-7);  /* 28px — compact menu item, sm tab,
+                                      round FAB (jump-to-bottom)          */
+  --h-control-lg:  var(--space-8);  /* 32px — default button, input, tab,
+                                      sidebar nav row, session row, select */
+  --h-control-xl:  var(--space-9);  /* 36px — prominent button, settings
+                                      nav row, first-run checklist row    */
+  --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
+
 }
 
 /* =============================================================================

@@ -31,8 +31,8 @@
      rhythm. Match `.settingsNavItem` exactly so the row reads as part
      of the same vertical list. */
   width: calc(100% - 8px);
-  height: 38px;
-  min-height: 38px;
+  height: var(--h-control-xl);
+  min-height: var(--h-control-xl);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -126,8 +126,8 @@
      ran 12px short. Switched to flex — glyph is fixed-width, label
      fills, badge sits right-aligned naturally. No phantom gap. */
   width: calc(100% - 8px);
-  height: 38px;
-  min-height: 38px;
+  height: var(--h-control-xl);
+  min-height: var(--h-control-xl);
   display: flex;
   align-items: center;
   gap: var(--space-3);

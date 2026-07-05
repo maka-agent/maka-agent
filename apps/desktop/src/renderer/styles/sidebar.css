@@ -321,8 +321,8 @@
   color: var(--foreground);
 }
 .maka-search-modal-close {
-  width: 22px;
-  height: 22px;
+  width: var(--h-control-sm);
+  height: var(--h-control-sm);
   border: 0;
   background: transparent;
   color: var(--foreground-secondary);
@@ -370,8 +370,8 @@
   display: none;
 }
 .maka-search-modal-clear {
-  width: 22px;
-  height: 22px;
+  width: var(--h-control-sm);
+  height: var(--h-control-sm);
   border-radius: var(--radius-control);
   color: var(--muted-foreground);
 }
@@ -724,7 +724,7 @@
 .maka-list-row {
   position: relative;
   width: 100%;
-  min-height: 30px;
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: stretch;
   border: 0;

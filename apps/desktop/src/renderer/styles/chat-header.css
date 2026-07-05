@@ -245,8 +245,8 @@
     bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
-    width: 26px;
-    height: 26px;
+    width: var(--h-control-md);
+    height: var(--h-control-md);
     display: grid;
     place-items: center;
     border: 1px solid var(--border-strong);
@@ -714,7 +714,7 @@
 
 .maka-palette-input-wrap {
   width: auto;
-  min-height: 32px;
+  min-height: var(--h-control-lg);
   margin: var(--space-2) var(--space-2-5);
   /* P-RADIUS concentric formula (roadmap §1.3): inner radius = outer
      radius − inset. Modal shell is 12px with an 8px inset, so the

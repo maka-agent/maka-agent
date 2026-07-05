@@ -20,7 +20,7 @@
   width: 100%;
   min-width: 120px;
   max-width: min(320px, 28vw);
-  height: 22px;
+  height: var(--h-control-sm);
   display: inline-flex;
   align-items: center;
   justify-content: space-between;

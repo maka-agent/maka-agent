@@ -672,7 +672,7 @@
   flex: 0 0 auto;
   gap: var(--space-1);
   height: auto;
-  min-height: 24px;
+  min-height: var(--h-control-sm);
   padding: 0 var(--space-2);
   border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.28);
   border-radius: var(--radius-control);
@@ -706,7 +706,7 @@
 
 .maka-first-run-checklist-row > button {
   height: auto;
-  min-height: 38px;
+  min-height: var(--h-control-xl);
   background: var(--background);
   border: 1px solid oklch(from var(--foreground) l c h / 0.07);
   border-radius: var(--radius-control);

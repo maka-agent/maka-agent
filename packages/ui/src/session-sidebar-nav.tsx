@@ -6,7 +6,7 @@ import { cva } from 'class-variance-authority';
 
 const navRowVariants = cva(
   [
-    'min-h-[30px] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
+    'min-h-8 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
     'text-left text-sm leading-[1.43] text-[var(--foreground-secondary)]',
     'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
     'hover:bg-foreground/6 hover:text-foreground',
