@@ -85,7 +85,7 @@ function findFocusRingOffenders(css: string, label: string): string[] {
   // rings) reuse the focus-ring color but are NOT the keyboard focus-ring
   // recipe — their box-shadow width convergence is PR4 scope. Walk back from
   // each box-shadow to its enclosing selector and skip non-focus rules.
-  for (const m of stripped.matchAll(/box-shadow:\s*0\s+0\s+0\s+(\d+px)\s+(var\(--ring\)|oklch\(from\s+var\(--focus-ring\)[^)]*\))/gi)) {
+  for (const m of stripped.matchAll(/box-shadow:\s*(?:inset\s+)?0\s+0\s+0\s+(\d+px)\s+(var\(--ring\)|oklch\(from\s+var\(--focus-ring\)[^)]*\))/gi)) {
     const selector = enclosingSelector(stripped, m.index!);
     if (!/:focus(?:-visible|-within)?\b/i.test(selector)) continue; // non-focus, PR4 scope
     offenders.push(`${label}: ${m[0].trim()} (bare ring width in box-shadow — use var(--focus-ring-width))`);
@@ -146,6 +146,7 @@ describe('focus-ring recipe negative cases', () => {
   it('rejects bare ring width in focus-selector box-shadow: 0 0 0 <px> var(--ring) or oklch(from var(--focus-ring) …)', () => {
     assert.ok(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 2px var(--ring); }', 'test').length > 0, 'bare ring width must fail');
     assert.ok(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14); }', 'test').length > 0, 'bare 3px alpha ring must fail');
+    assert.ok(findFocusRingOffenders('.field:focus { box-shadow: inset 0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22); }', 'test').length > 0, 'bare inset 1px focus ring must fail');
   });
 
   it('accepts non-focus box-shadow ring (drag-active) — PR4 scope, not focus-ring recipe', () => {
