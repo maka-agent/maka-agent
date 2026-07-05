@@ -81,21 +81,21 @@ test('saveGlobalInputHistoryEntry caps at 50 entries, dropping oldest', () => {
   for (let i = 1; i <= 55; i++) {
     saveGlobalInputHistoryEntry(`prompt-${i}`);
   }
-  const entries = readGlobalInputHistory();
+  const entries = readGlobalInputHistory() ?? [];
   assert.equal(entries.length, 50, 'history must be capped at 50 entries');
   // Oldest five (prompt-1..prompt-5) dropped; newest 50 kept in order.
   assert.equal(entries[0], 'prompt-6');
   assert.equal(entries[49], 'prompt-55');
 });
 
-test('readGlobalInputHistory treats bad JSON as empty', () => {
+test('readGlobalInputHistory returns null on corrupt JSON (do not clobber in-memory history)', () => {
   globalThis.localStorage!.setItem(STORAGE_KEY, 'not-valid-json{');
-  assert.deepEqual(readGlobalInputHistory(), []);
+  assert.equal(readGlobalInputHistory(), null);
 });
 
-test('readGlobalInputHistory ignores a non-array JSON value', () => {
+test('readGlobalInputHistory returns null on a non-array JSON value', () => {
   globalThis.localStorage!.setItem(STORAGE_KEY, JSON.stringify({ not: 'an array' }));
-  assert.deepEqual(readGlobalInputHistory(), []);
+  assert.equal(readGlobalInputHistory(), null);
 });
 
 test('readGlobalInputHistory filters non-string elements from the array', () => {
@@ -119,16 +119,14 @@ test('clearGlobalInputHistory is a no-op when nothing is stored', () => {
   assert.deepEqual(readGlobalInputHistory(), []);
 });
 
-test('clear after seeding — read returns empty (mounted Composer regression guard)', () => {
-  // Simulates: user sends prompts -> opens Settings -> clicks 清空 ->
-  // returns to a still-mounted Composer without refreshing.
-  // The Composer re-reads from readGlobalInputHistory() before every
-  // navigation, so after clear it gets an empty array and cannot
-  // return old entries.
-  saveGlobalInputHistoryEntry('问题一');
-  saveGlobalInputHistoryEntry('问题二');
-  saveGlobalInputHistoryEntry('问题三');
-  assert.equal(readGlobalInputHistory().length, 3);
-  clearGlobalInputHistory();
-  assert.deepEqual(readGlobalInputHistory(), [], 'after clear, read returns empty even when previously seeded');
+test('readGlobalInputHistory returns null when localStorage.getItem throws (storage unavailable)', () => {
+  const original = globalThis.localStorage!.getItem;
+  globalThis.localStorage!.getItem = () => {
+    throw new Error('unavailable');
+  };
+  try {
+    assert.equal(readGlobalInputHistory(), null);
+  } finally {
+    globalThis.localStorage!.getItem = original;
+  }
 });

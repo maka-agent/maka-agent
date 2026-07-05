@@ -19,6 +19,7 @@ import {
   appendPromptContextDraft,
   navigateComposerHistory,
   readComposerDraft,
+  reconcileHistorySync,
   rememberComposerDraft,
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
@@ -169,7 +170,7 @@ export const Composer = forwardRef<
   const composerMountedRef = useRef(true);
   const sendPendingRef = useRef(false);
   const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
-  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory(), index: -1, savedDraft: '' });
+  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
   // is effectively constant for the lifetime of the renderer but the
@@ -356,18 +357,26 @@ export const Composer = forwardRef<
         const isNavigatingHistory = promptHistoryRef.current.index >= 0;
         const canStartHistory = Boolean(el && !el.value.trim());
         if (el && (explicit || isNavigatingHistory || canStartHistory)) {
-          // Re-read global history from localStorage on every
-          // navigation so a clear from Settings (an overlay that
-          // keeps the Composer mounted) is picked up immediately.
-          // Without this, the stale in-memory ref would still
-          // return old entries after the user hit "清空输入历史".
+          // Re-read global history from localStorage on every navigation so
+          // a clear from Settings (an overlay that keeps the Composer
+          // mounted) is picked up immediately, and a transient storage
+          // failure does not clobber the in-memory history.
+          // reconcileHistorySync restores the saved draft if a clear happened
+          // mid-navigation (so the user doesn't lose what they were typing).
           const synced = readGlobalInputHistory();
-          promptHistoryRef.current = {
-            entries: synced,
-            index: synced.length === 0 ? -1 : Math.min(promptHistoryRef.current.index, synced.length - 1),
-            savedDraft: synced.length === 0 ? '' : promptHistoryRef.current.savedDraft,
-          };
-          if (synced.length === 0 && !explicit) return;
+          const { state, restoreDraft } = reconcileHistorySync(promptHistoryRef.current, synced);
+          promptHistoryRef.current = state;
+          if (restoreDraft && el) {
+            el.value = state.savedDraft;
+            saveCurrentDraft(state.savedDraft);
+            autoResize();
+            const length = el.value.length;
+            el.setSelectionRange(length, length);
+          }
+          // Nothing to navigate when history was cleared (synced empty).
+          // When the storage read failed (synced === null), keep navigating
+          // with the in-memory entries.
+          if (synced !== null && synced.length === 0) return;
           const next = navigateComposerHistory(
             promptHistoryRef.current,
             event.key === 'ArrowUp' ? 'previous' : 'next',

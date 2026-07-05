@@ -15,15 +15,24 @@ import { rememberComposerHistoryEntry } from './composer-helpers.js';
 
 const STORAGE_KEY = 'maka-input-history';
 
-function loadEntries(): string[] {
+function loadEntries(): string[] | null {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
+    raw = localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // localStorage unavailable (private browsing, SSR, quota lock) — signal
+    // failure so the caller keeps its in-memory history instead of
+    // clobbering it with empty.
+    return null;
+  }
+  if (raw === null) return []; // nothing stored yet
+  try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+    if (!Array.isArray(parsed)) return null; // unexpected shape — don't clobber memory
     return parsed.filter((e): e is string => typeof e === 'string');
   } catch {
-    return [];
+    // Corrupt JSON — don't clobber in-memory history with empty.
+    return null;
   }
 }
 
@@ -39,8 +48,13 @@ function saveEntries(entries: string[]): void {
 
 /**
  * Read all global input history entries. Newest entry is last.
+ *
+ * Returns `null` when the storage read fails (localStorage unavailable,
+ * corrupt JSON, unexpected shape) so the caller can keep its in-memory
+ * history intact instead of treating a failure as "empty". Returns `[]`
+ * when nothing is stored yet (a legitimate empty state).
  */
-export function readGlobalInputHistory(): string[] {
+export function readGlobalInputHistory(): string[] | null {
   return loadEntries();
 }
 
@@ -52,7 +66,11 @@ export function readGlobalInputHistory(): string[] {
  * (`composer-helpers.ts`); this module only adds the localStorage glue.
  */
 export function saveGlobalInputHistoryEntry(text: string): void {
-  const next = rememberComposerHistoryEntry(loadEntries(), text);
+  // On storage read failure, seed from empty rather than clobbering —
+  // saveEntries will still attempt the write, and the Composer's in-memory
+  // history (updated separately via rememberComposerHistoryEntry) stays
+  // the source of truth until storage is readable again.
+  const next = rememberComposerHistoryEntry(loadEntries() ?? [], text);
   saveEntries(next);
 }
 
