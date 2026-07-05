@@ -47,24 +47,26 @@ describe('buildProviderOptions: thinking level', () => {
     assert.deepEqual(buildProviderOptions(conn('codex-subscription'), 'gpt-5.5', 'off'), { openai: { store: false, textVerbosity: 'medium', reasoningEffort: 'none' } });
   });
 
-  test('google effort model (gemini-3) sends thinkingLevel; off/undefined omit thinkingConfig; safetySettings always present', () => {
+  test('google effort model (gemini-3) sends thinkingLevel; Gemini 2.5 Flash off sends thinkingBudget 0; safetySettings always present', () => {
     const g3 = buildProviderOptions(conn('google'), 'gemini-3-pro-preview', 'high');
     assert.equal((g3.google as { thinkingConfig: { thinkingLevel: string } }).thinkingConfig.thinkingLevel, 'high');
     assert.ok((g3.google as { safetySettings: unknown[] }).safetySettings.length > 0);
     // off not in gemini-3-pro-preview variants (only low/high) → dropped → no thinkingConfig
     const g3off = buildProviderOptions(conn('google'), 'gemini-3-pro-preview', 'off');
     assert.equal((g3off.google as { thinkingConfig?: unknown }).thinkingConfig, undefined);
-    // gemini-2.5-flash is toggle-only (off); off omits thinkingConfig
+    // gemini-2.5-flash is toggle-only (off); off is the Google budget-zero wire.
     const g25 = buildProviderOptions(conn('google'), 'gemini-2.5-flash', 'off');
-    assert.equal((g25.google as { thinkingConfig?: unknown }).thinkingConfig, undefined);
+    assert.deepEqual((g25.google as { thinkingConfig?: unknown }).thinkingConfig, { thinkingBudget: 0 });
     assert.ok((g25.google as { safetySettings: unknown[] }).safetySettings.length > 0);
   });
 
-  test('openai-compatible sends reasoningEffort for effort levels; off omits (no clean off switch via ai-sdk)', () => {
+  test('openai-compatible sends reasoningEffort for effort levels and does not expose no-op off', () => {
+    assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['high', 'max']);
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'high'), { deepseek: { reasoningEffort: 'high' } });
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'max'), { deepseek: { reasoningEffort: 'max' } });
-    // off → no reasoningEffort (ai-sdk openai-compatible has no thinking.disabled; off falls back to no override)
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-v4-flash', 'off'), {});
+    assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-5.1')], []);
+    assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.5-air')], []);
     // miss model (deepseek-chat non-reasoning) drops level
     assert.deepEqual(buildProviderOptions(conn('deepseek'), 'deepseek-chat', 'high'), {});
   });
@@ -86,9 +88,9 @@ describe('buildProviderOptions: openai-compatible namespace', () => {
 });
 
 describe('buildProviderOptions: resolver/options drift guard', () => {
-  // Every effort level a model declares must map to a non-empty providerOptions
-  // fragment. 'off' is excluded — it is a disable switch, not an effort level,
-  // and some providers (openai-compatible) have no ai-sdk wire for it.
+  // Every displayed level must map to a real providerOptions fragment. For
+  // `off`, that fragment must be an actual disabled/none/budget-zero wire, not
+  // an empty object that only means "no override".
   const cases: Array<{ providerType: LlmConnection['providerType']; model: string; slug?: string }> = [
     { providerType: 'anthropic', model: 'claude-opus-4-8' },
     { providerType: 'anthropic', model: 'claude-haiku-4-5' },
@@ -105,15 +107,26 @@ describe('buildProviderOptions: resolver/options drift guard', () => {
     test(`every effort level for ${providerType}/${model} maps to a non-empty fragment`, () => {
       const connection = conn(providerType, slug ?? providerType);
       for (const level of thinkingVariantsForModel(providerType, model)) {
-        if (level === 'off') continue;
         const opts = buildProviderOptions(connection, model, level as ThinkingLevel);
         const nonEmpty = Object.keys(opts).some((k) => {
           const v = (opts as Record<string, unknown>)[k];
           return v !== null && typeof v === 'object' && Object.keys(v as object).length > 0;
         });
         assert.equal(nonEmpty, true, `${providerType}/${model} level=${level} produced no options`);
+        if (level === 'off') assert.equal(hasRealOffWire(opts), true, `${providerType}/${model} exposed off without a real disabled wire`);
       }
     });
+  }
+
+  test('models without a real off wire do not expose off', () => {
+    assert.equal(thinkingVariantsForModel('deepseek', 'deepseek-v4-flash').includes('off'), false);
+    assert.equal(thinkingVariantsForModel('zai-coding-plan', 'glm-5.1').includes('off'), false);
+    assert.equal(thinkingVariantsForModel('zai-coding-plan', 'glm-4.5-air').includes('off'), false);
+  });
+
+  function hasRealOffWire(opts: Record<string, unknown>): boolean {
+    const serialized = JSON.stringify(opts);
+    return serialized.includes('"reasoningEffort":"none"') || serialized.includes('"type":"disabled"') || serialized.includes('"thinkingBudget":0');
   }
 });
 

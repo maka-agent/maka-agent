@@ -34,27 +34,36 @@ export function isThinkingLevel(value: unknown): value is ThinkingLevel {
 }
 
 /**
- * Per-model reasoning controls, mirroring models.dev `reasoning_options`.
- * `efforts` are the provider's native effort enum values (e.g. `none`, `low`,
- * `high`, `xhigh`, `max`); `toggle` means the model supports an on/off switch
- * (`thinking.type: disabled`). budget_tokens-only models omit both fields.
+ * Per-model reasoning controls, mirroring models.dev `reasoning_options` plus
+ * Maka's adapter knowledge for real disabled wires. `efforts` are provider
+ * native effort enum values (e.g. `none`, `low`, `high`, `xhigh`, `max`);
+ * `toggle` records the catalog fact that the model has an on/off switch, but
+ * UI only exposes `off` when `offBehavior` (or effort `none`) says this adapter
+ * can actually send a disabled/none/budget-zero request.
  */
+export type ThinkingOffBehavior =
+  | 'anthropic-thinking-disabled'
+  | 'google-thinking-budget-zero';
+
 export interface ThinkingOptions {
   readonly efforts?: readonly string[];
   readonly toggle?: boolean;
+  readonly offBehavior?: ThinkingOffBehavior;
 }
 
 /**
  * Derive the user-facing thinking-level choices from a model's declared
- * `ThinkingOptions`. `none` (OpenAI's off effort) and `toggle` both surface as
- * `'off'`; other effort values map to the same-named `ThinkingLevel`.
- * Unknown effort values (not in `ThinkingLevel`) are dropped. Returns `[]` for
- * models with no declared options (miss → no thinking menu, fallback default).
+ * `ThinkingOptions`. `none` (OpenAI's off effort) and declared `offBehavior`
+ * surface as `'off'`; other effort values map to the same-named
+ * `ThinkingLevel`. Raw `toggle` alone is intentionally not enough because some
+ * adapters have no real disabled wire. Unknown effort values (not in
+ * `ThinkingLevel`) are dropped. Returns `[]` for models with no declared
+ * options (miss → no thinking menu, fallback default).
  */
 export function deriveThinkingChoices(options: ThinkingOptions | undefined): readonly ThinkingLevel[] {
   if (!options) return [];
   const choices = new Set<ThinkingLevel>();
-  if (options.toggle) choices.add('off');
+  if (options.offBehavior) choices.add('off');
   for (const effort of options.efforts ?? []) {
     if (effort === 'none') choices.add('off');
     else if (isThinkingLevel(effort)) choices.add(effort);

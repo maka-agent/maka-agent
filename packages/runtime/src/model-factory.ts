@@ -5,7 +5,7 @@ import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
 import { effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
-import { thinkingVariantsForModel } from '@maka/core/model-thinking';
+import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
 import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import {
   claudeSubscriptionHeaders,
@@ -124,6 +124,7 @@ export function buildProviderOptions(
   modelId: string,
   thinkingLevel?: ThinkingLevel,
 ): Record<string, unknown> {
+  const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
   const variants = thinkingVariantsForModel(connection.providerType, modelId);
   const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
   switch (connection.providerType) {
@@ -138,7 +139,9 @@ export function buildProviderOptions(
       return {
         anthropic: level
           ? level === 'off'
-            ? { thinking: { type: 'disabled' as const } }
+            ? thinkingOptions?.offBehavior === 'anthropic-thinking-disabled'
+              ? { thinking: { type: 'disabled' as const } }
+              : {}
             : { effort: level }
           : {},
       };
@@ -161,12 +164,14 @@ export function buildProviderOptions(
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
           ],
-          // Google effort models use thinkingLevel; budget/toggle-only models
-          // never have a non-off level (their variants are [] or ['off']), so
-          // off/undefined omit thinkingConfig entirely.
-          ...(level && level !== 'off'
-            ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
-            : {}),
+          // Google effort models use thinkingLevel; Gemini 2.5 Flash disables
+          // thinking via the budget-zero wire. Omitting thinkingConfig means
+          // provider default, not "off".
+          ...(level === 'off' && thinkingOptions?.offBehavior === 'google-thinking-budget-zero'
+            ? { thinkingConfig: { thinkingBudget: 0 } }
+            : level && level !== 'off'
+              ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
+              : {}),
         },
       };
     // OpenAI-compatible: effort levels pass through as reasoningEffort under
