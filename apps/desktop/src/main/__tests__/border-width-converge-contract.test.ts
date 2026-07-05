@@ -27,10 +27,12 @@
  *    border shorthand — color is in var()/oklch(), style is a keyword).
  *    Bare `Npx` drifts visually and bypasses the scale.
  *
- * 2. `border-width:` / `border-{side}-width:` longhand, when it is a
- *    SINGLE bare-px value, must reference a token. Multi-value geometry
- *    (CSS-triangle carets like `4px 0 4px 5px`) is allowed — it is not a
- *    border stroke.
+ * 2. `border-width:` / `border-{side}-width:` longhand must not carry a
+ *    bare px value (single OR multi-value like `1px 2px`) unless the
+ *    current selector is a known triangle/caret (allowlisted in
+ *    TRIANGLE_CARET_SELECTORS) whose multi-value is geometry, not a
+ *    stroke. A value-shape heuristic that spared ALL multi-value would
+ *    miss a `1px 2px` stroke drift; the selector allowlist is precise.
  *
  * 3. `border-style:` / `border-{side}-style:` must be a literal keyword
  *    (solid / dashed / dotted / double / groove / ridge / inset / outset
@@ -73,7 +75,17 @@ function stripFnValues(value: string): string {
 }
 
 const BARE_PX_RE = /(?<![\w-])-?\d+(?:\.\d+)?px(?![\w-])/;
-const SINGLE_BARE_PX_RE = /^-?\d+(?:\.\d+)?px$/;
+
+/** Selectors whose `border-width:` longhand is CSS-triangle caret geometry
+ *  (a disclosure arrow / a checkbox checkmark), not a border stroke. They
+ *  are allowlisted by SELECTOR so a new `border-width: 1px 2px` drift on
+ *  any other selector is still caught — add a new caret here only after
+ *  confirming it is geometry, not a stroke. */
+const TRIANGLE_CARET_SELECTORS = new Set([
+  '.maka-turn-thinking summary::before',
+  '.maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked::after',
+  '.maka-permission-raw > summary::before',
+]);
 
 const BORDER_STYLE_KEYWORDS = new Set([
   'solid', 'dashed', 'dotted', 'double', 'groove', 'ridge', 'inset', 'outset',
@@ -88,7 +100,16 @@ const BORDER_STYLE_LONGHAND_RE = /^\s*border(?:-(?:top|right|bottom|left|inline-
 function findCssOffenders(css: string, label: string): string[] {
   const stripped = stripCssComments(css);
   const offenders: string[] = [];
+  // Track the current selector (text before `{` on the most recent line that
+  // opens a rule) so `border-width:` longhand can be allowlisted by selector
+  // for the known triangle/caret geometries. Flat enough for maka's CSS;
+  // nested @media update currentSelector to the inner selector.
+  let currentSelector = '';
   for (const line of stripped.split('\n')) {
+    const braceIdx = line.indexOf('{');
+    if (braceIdx !== -1) {
+      currentSelector = line.slice(0, braceIdx).trim().replace(/\s+/g, ' ');
+    }
     if (BORDER_SHORTHAND_RE.test(line)) {
       // border / border-{side} shorthand: width is the only bare-px slot.
       const decl = line.replace(BORDER_SHORTHAND_RE, '').trim().replace(/!\s*important$/, '').replace(/[;}]+$/, '').trim();
@@ -99,12 +120,14 @@ function findCssOffenders(css: string, label: string): string[] {
       continue;
     }
     if (BORDER_WIDTH_LONGHAND_RE.test(line)) {
-      // border-{side}-width longhand: a SINGLE bare-px value is a border
-      // stroke (must use a token); multi-value is triangle geometry (OK).
+      // border-{side}-width longhand: ANY bare px is a stroke drift (single
+      // OR multi-value like `1px 2px`), UNLESS the current selector is a
+      // known triangle/caret (allowlisted above) whose multi-value is
+      // geometry, not a stroke.
       const decl = line.replace(BORDER_WIDTH_LONGHAND_RE, '').trim().replace(/!\s*important$/, '').replace(/[;}]+$/, '').trim();
       const cleaned = stripFnValues(decl).trim();
-      if (SINGLE_BARE_PX_RE.test(cleaned)) {
-        offenders.push(`${label}: ${line.trim()} [bare px width — use var(--border-width-*)]`);
+      if (BARE_PX_RE.test(cleaned) && !TRIANGLE_CARET_SELECTORS.has(currentSelector)) {
+        offenders.push(`${label}: ${line.trim()} [bare px border-width — use var(--border-width-*), or add the selector to TRIANGLE_CARET_SELECTORS if it is caret geometry]`);
       }
       continue;
     }
@@ -185,12 +208,17 @@ describe('border-width whitelist negative cases', () => {
     assert.ok(findCssOffenders('border-left: 3px solid var(--success);', 't').length > 0, 'bare 3px directional must fail');
   });
 
-  it('findCssOffenders allows triangle caret geometry but flags single bare-px border-width', () => {
-    assert.deepEqual(findCssOffenders('border-width: 4px 0 4px 5px;', 't'), [], 'triangle multi-value must pass');
-    assert.deepEqual(findCssOffenders('border-width: 0 2px 2px 0;', 't'), [], 'triangle multi-value must pass');
-    assert.ok(findCssOffenders('border-width: 1px;', 't').length > 0, 'single bare-px border-width must fail');
-    assert.deepEqual(findCssOffenders('border-width: var(--border-width-hairline);', 't'), [], 'token border-width must pass');
-    assert.deepEqual(findCssOffenders('border-width: 0;', 't'), [], 'border-width: 0 must pass');
+  it('findCssOffenders allows triangle caret geometry on allowlisted selectors, flags multi-value and single bare-px elsewhere', () => {
+    // Known caret selectors: multi-value geometry is allowed.
+    assert.deepEqual(findCssOffenders('.maka-turn-thinking summary::before {\n  border-width: 4px 0 4px 5px;\n}', 't'), [], 'allowlisted caret: 4px 0 4px 5px must pass');
+    assert.deepEqual(findCssOffenders('.maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked::after {\n  border-width: 0 2px 2px 0;\n}', 't'), [], 'allowlisted caret: 0 2px 2px 0 must pass');
+    // Non-allowlisted selector: a multi-value bare px is a stroke drift, not
+    // triangle geometry — a heuristic that spared ALL multi-value would miss it.
+    assert.ok(findCssOffenders('.foo {\n  border-width: 1px 2px;\n}', 't').length > 0, 'non-allowlisted multi-value bare px must fail');
+    assert.ok(findCssOffenders('.foo {\n  border-width: 1px;\n}', 't').length > 0, 'single bare-px border-width must fail');
+    // Token / 0 pass on any selector.
+    assert.deepEqual(findCssOffenders('.foo {\n  border-width: var(--border-width-hairline);\n}', 't'), [], 'token border-width must pass');
+    assert.deepEqual(findCssOffenders('.foo {\n  border-width: 0;\n}', 't'), [], 'border-width: 0 must pass');
   });
 
   it('findCssOffenders accepts keyword border-style literals and rejects bare px in style', () => {
