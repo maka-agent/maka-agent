@@ -66,6 +66,11 @@ export interface ToastApi {
 }
 
 interface PendingConfirm extends ConfirmInput {
+  // Stable id so <ConfirmDialog key={request.id}> remounts on queue advance —
+  // AlertDialog `defaultOpen` + `initialFocus` only fire on mount, so without
+  // a key the second confirm inherits the first's focus (stuck on the
+  // confirm button → Enter mis-confirms a dangerous op).
+  id: string;
   resolve(result: boolean): void;
 }
 
@@ -113,7 +118,7 @@ export function ToastProvider(props: { children: ReactNode }) {
 
   const confirm = useCallback((input: ConfirmInput): Promise<boolean> => {
     return new Promise((resolve) => {
-      const request: PendingConfirm = { ...input, resolve };
+      const request: PendingConfirm = { id: `c${++idSeed.current}`, ...input, resolve };
       if (activeConfirmRef.current) {
         confirmQueueRef.current.push(request);
         return;
@@ -167,7 +172,7 @@ export function ToastProvider(props: { children: ReactNode }) {
         <ToastViewport />
       </BaseToast.Provider>
       {confirmState && (
-        <ConfirmDialog request={confirmState} onResolve={resolveConfirm} />
+        <ConfirmDialog key={confirmState.id} request={confirmState} onResolve={resolveConfirm} />
       )}
     </ToastContext.Provider>
   );

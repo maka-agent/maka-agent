@@ -70,4 +70,21 @@ describe('toast.confirm keyboard safety contract', () => {
     assert.match(confirmBlock, /initialFocus=\{cancelRef\}/, 'Base UI AlertDialog focuses the cancel button via initialFocus');
     assert.match(confirmBlock, /<Button\s+ref=\{cancelRef\}[\s\S]*onClick=\{\(\) => props\.onResolve\(false\)\}/);
   });
+
+  it('remounts ConfirmDialog on queue advance so initialFocus re-targets the cancel button', async () => {
+    const src = await readFile(TOAST_SOURCE, 'utf8');
+    const providerBlock = src.match(/export function ToastProvider[\s\S]*?\n\}/)?.[0] ?? '';
+
+    // PendingConfirm carries a stable id so the second confirm in a queue
+    // remounts ConfirmDialog (key change). Without this, AlertDialog's
+    // uncontrolled `defaultOpen` + `initialFocus` only fire on the first
+    // mount, leaving focus on the confirm button → Enter mis-confirms a
+    // dangerous op (PR6 review P1).
+    assert.match(providerBlock, /const request: PendingConfirm = \{ id: `c\$\{\+\+idSeed\.current\}`, \.\.\.input, resolve \}/);
+    assert.match(
+      providerBlock,
+      /<ConfirmDialog key=\{confirmState\.id\} request=\{confirmState\}/,
+      'ConfirmDialog must key on confirmState.id so queue advance remounts the dialog and re-runs initialFocus',
+    );
+  });
 });
