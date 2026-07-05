@@ -45,7 +45,7 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       '.maka-tool-body',
       '.maka-tool-intent',
       '.maka-tool-count',
-      // the `<details>` card base + its status / open / summary selectors
+      // the retired native-disclosure card base + status/open selectors
       '.maka-tool {',
       '.maka-tool >',
       '.maka-tool[open]',
@@ -176,12 +176,32 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       );
     }
     // The open/collapsed divider — the one card surface that differs by state
-    // (the collapsed default has no bottom border). The computed-diff proves both
-    // states, but that harness is manual (no CI), so pin the `[open]>summary`
-    // literal here as the automated guard.
+    // (the collapsed default has no bottom border). Keep the state on the
+    // Base UI root, but declare the border on the styled part itself: root is a
+    // named group, trigger/header reads `[data-open]` from that group. This is
+    // closer to the Base UI / ShadCN convention than a parent-child selector on
+    // the root.
     assert.ok(
-      block.includes('[&[open]>summary]:[border-bottom:1px_solid_var(--border)]'),
-      'item must keep the `[open]>summary` divider literal (collapsed default has none)',
+      !rawSrc.includes('[open]>summary'),
+      'tool card source must not keep the old native details `[open]>summary` selector, even in comments',
+    );
+    const itemStart = block.indexOf('item:');
+    const headerStart = block.indexOf('header:', itemStart);
+    const dotStart = block.indexOf('dot:', headerStart);
+    assert.ok(itemStart !== -1 && headerStart !== -1 && dotStart !== -1, 'toolVariants item/header/dot parts must stay parseable');
+    const itemBlock = block.slice(itemStart, headerStart);
+    const headerBlock = block.slice(headerStart, dotStart);
+    assert.ok(
+      itemBlock.includes('group/tool'),
+      'tool card root must expose a named group so styled parts can read Base UI [data-open]',
+    );
+    assert.ok(
+      !itemBlock.includes('border-bottom'),
+      'tool card root must not own the open-state divider; put the border on the trigger/header part',
+    );
+    assert.ok(
+      headerBlock.includes('group-data-[open]/tool:[border-bottom:1px_solid_var(--border)]'),
+      'tool card header must add the divider from the Base UI [data-open] group state',
     );
     // Anti-drift: pin the distinctive literals and ban the semantic-scale
     // forms they would be swapped for. Radius uses the `--radius-surface`
