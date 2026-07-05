@@ -373,10 +373,9 @@
   font-size: var(--font-size-ui);
 }
 
-/* #520 PR9: .settingsStatsTable retired onto the Table primitive family
-   (packages/ui/src/primitives/table.tsx). Table carries the surface chrome
-   (border + radius + caption font); TableHead/TableCell carry the
-   tabular-nums + hairline row separators + caption-tone color. */
+/* #520 PR9: .settingsStatsTable retired onto the local native
+   SimpleStatsTable in usage-settings-page.tsx (inline Tailwind classes,
+   no public primitive — a single HTML <table> consumer did not justify one). */
 
 .settingsCloseButton {
   width: 24px;
