@@ -134,7 +134,9 @@ export function buildProviderOptions(
     case 'claude-subscription':
       return {
         anthropic: level
-          ? { thinking: { type: 'enabled' as const, budgetTokens: anthropicBudgetTokens(level) } }
+          ? level === 'off'
+            ? { thinking: { type: 'disabled' as const } }
+            : { thinking: { type: 'enabled' as const, budgetTokens: anthropicBudgetTokens(level) } }
           : {},
       };
     case 'codex-subscription':
@@ -142,11 +144,11 @@ export function buildProviderOptions(
         openai: {
           store: false,
           textVerbosity: 'medium',
-          ...(level ? { reasoningEffort: level } : {}),
+          ...(level ? { reasoningEffort: level === 'off' ? 'none' : level } : {}),
         },
       };
     case 'openai':
-      return { openai: level ? { reasoningEffort: level } : {} };
+      return { openai: level ? { reasoningEffort: level === 'off' ? 'none' : level } : {} };
     case 'google':
       return {
         google: {
@@ -163,13 +165,16 @@ export function buildProviderOptions(
             : {}),
         },
       };
+    // OpenAI-compatible providers that expose `reasoning_effort` over their
+    // compatible API. `ollama` / `openai-compatible` / `gemini-cli` back
+    // user-configured models we cannot reason about from the id alone, so
+    // `thinkingVariantsForModel` returns `[]` for them and `level` is always
+    // undefined here — they fall through to the empty-options default rather
+    // than carrying dead `case` branches.
     case 'deepseek':
     case 'moonshot':
     case 'zai-coding-plan':
-    case 'ollama':
       return level ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } } : {};
-    case 'openai-compatible':
-      return level ? { [connection.slug]: { reasoningEffort: level } } : {};
     default:
       return {};
   }
@@ -178,6 +183,10 @@ export function buildProviderOptions(
 /** Anthropic extended-thinking budget for a semantic level. Tunable; conservative defaults. */
 function anthropicBudgetTokens(level: ThinkingLevel): number {
   switch (level) {
+    case 'off':
+      // `off` is handled by `thinking: { type: 'disabled' }` and never reaches
+      // the budget path; keep the switch exhaustive.
+      return 0;
     case 'low':
       return 4096;
     case 'medium':
@@ -193,6 +202,10 @@ function anthropicBudgetTokens(level: ThinkingLevel): number {
 /** Gemini 2.5 uses a numeric thinking budget; Gemini 3 uses `thinkingLevel`. */
 function googleBudgetTokens(level: ThinkingLevel): number {
   switch (level) {
+    case 'off':
+      // Gemini has no declared off switch; `off` is never offered for google,
+      // so this branch is unreachable — kept for exhaustiveness.
+      return 0;
     case 'minimal':
       return 512;
     case 'low':
