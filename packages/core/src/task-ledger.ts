@@ -17,7 +17,7 @@ export const TASK_LEDGER_MAX_TASKS = 200;
 /**
  * Max length of a task id accepted on both the write and read paths. The write
  * path generates randomUUID (36 chars); the bound leaves headroom for a future
- * id format while keeping the turn-tail `(id: ...)` render bounded.
+ * id format while keeping the turn-tail `id=` fielded render bounded.
  */
 export const TASK_ID_MAX_CHARS = 64;
 
@@ -34,9 +34,10 @@ export interface Task {
 
 /**
  * Store contract shared by the storage implementation and the runtime tools.
- * Mutations return the full post-mutation ledger (`all`) computed inside the
+ * Mutations return the changed task(s) and the new total, computed inside the
  * store's serialized write section, so callers render exactly the state their
- * mutation produced instead of re-reading outside the write queue.
+ * mutation produced instead of re-reading outside the write queue. The full
+ * ledger never leaves the store through the mutation result.
  */
 export interface TaskLedgerStore {
   list(sessionId: string): Promise<Task[]>;
@@ -78,7 +79,7 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
  * that runs redactSecrets must not turn the id into [redacted] while the store
  * keeps the real id -- a later TaskUpdate would miss). The whitelist
  * (alphanumeric plus . _ : -, 1-64 chars) plus redactSecrets(id) === id enforces
- * all of this without coupling to the UUID format.
+ * these constraints without coupling to the UUID format.
  */
 export function isSafeTaskId(value: unknown): value is string {
   // Stable token (alphanumeric plus . _ : -, 1-64 chars) AND redaction-stable:
@@ -149,14 +150,15 @@ export function normalizeUpdateTaskInput(
 /**
  * Safe-render the task ledger for any face that persists into history or is
  * re-injected into a prompt (tool results, turn-tail fragment). Two invariants:
- *   - what the model sees is byte-identical to what the store holds; and
+ *   - the canonical id is rendered verbatim, and the subject is a safe
+ *     (redacted, tag-stripped) rendered payload of what the store holds; and
  *   - the model can unambiguously recover each task's id from what it sees, so
  *     a later TaskUpdate hits the right task.
  *
  * Rendering is per-task and fielded, not a free-text bullet: each line is
  * `id=<id> status=<status> subject=<JSON-stringified safe subject>`. The
  * canonical id is a distinct leading field, so a subject cannot smuggle a fake
- * `id=...` or `(id: ...)` past it -- any id-like text in the subject stays
+ * `id=` field or any other id-like span past it -- any id-like text in the subject stays
  * inside the quoted JSON payload. The id is emitted verbatim: it is a
  * redaction-stable stable token validated on write and read, so scrubbing it
  * could only deform it (and break TaskUpdate); it must not be redacted or
