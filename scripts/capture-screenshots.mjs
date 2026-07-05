@@ -128,6 +128,11 @@ const ALL_SCENARIOS = [
   // Reviewers should see the 4 action icons cleanly painted with
   // NO `Nm ago` peeking through and NO unread dot stacked behind.
   'sidebar-row-actions-visible',
+  // PR-task-ledger-ui (#15 P0-task): seeds the turn session with a
+  // tasks.json covering all four statuses so the baseline shows the
+  // session task panel above the chat — status badges, relative time,
+  // and the cancel affordance on non-terminal rows.
+  'task-ledger',
 ];
 
 const VARIANTS = [

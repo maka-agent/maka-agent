@@ -98,7 +98,15 @@ export type VisualSmokeScenario =
   // becomes visible (via `:focus-within`). Verifies that the
   // time meta + unread dot do NOT leak through the action icons
   // — the bug WAWQAQ flagged.
-  | 'sidebar-row-actions-visible';
+  | 'sidebar-row-actions-visible'
+  // PR-task-ledger-ui (#15 P0-task): seed the turn-narrative session
+  // with a tasks.json covering all four statuses (in_progress / pending
+  // / completed / cancelled) so the screenshot pipeline baselines the
+  // session task panel above the chat — status badges, relative time,
+  // and the cancel affordance on non-terminal rows. Reuses the standard
+  // turn session so the chat surface behind the panel is the familiar
+  // narrative baseline.
+  | 'task-ledger';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;

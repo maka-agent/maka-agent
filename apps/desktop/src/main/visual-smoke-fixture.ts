@@ -8,6 +8,7 @@ import type {
   PlanReminder,
   SessionHeader,
   StoredMessage,
+  Task,
   VisualSmokeScenario,
   VisualSmokeState,
 } from '@maka/core';
@@ -104,6 +105,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // Captures the actions-revealed state so reviewers can verify
   // the time meta + unread dot are hidden underneath (no overlap).
   'sidebar-row-actions-visible',
+  // PR-task-ledger-ui (#15 P0-task): seeds the turn session with a
+  // tasks.json covering all four statuses so the baseline captures the
+  // session task panel above the chat.
+  'task-ledger',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -306,6 +311,12 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'artifact-preview-oversize':
       return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
+      return { ...state, activeSessionId: TURN_SESSION_ID };
+    case 'task-ledger':
+      // Active = the turn session (seeded with a tasks.json below), so the
+      // task panel renders above the familiar chat narrative. The renderer's
+      // active-session effect pulls tasks:list on mount, populating the panel
+      // before auto-capture settles.
       return { ...state, activeSessionId: TURN_SESSION_ID };
     case 'streaming-sidebar':
       return {
@@ -522,6 +533,9 @@ export async function seedVisualSmokeFixture(input: {
   if (input.fixture.scenario === 'plan-reminders') {
     await writePlanReminders(input.workspaceRoot, now);
   }
+  if (input.fixture.scenario === 'task-ledger') {
+    await writeTaskLedger(input.workspaceRoot, TURN_SESSION_ID, now);
+  }
   if (input.fixture.scenario === 'module-daily-review' || input.fixture.scenario === 'settings-daily-review') {
     await writeDailyReviewArchives(input.workspaceRoot, now);
   }
@@ -681,6 +695,50 @@ async function writePlanReminders(workspaceRoot: string, now: number): Promise<v
     },
   ];
   await writeJson(join(workspaceRoot, 'plan-reminders.json'), reminders);
+}
+
+// PR-task-ledger-ui (#15 P0-task): seed a session ledger covering all four
+// statuses so the panel screenshot shows the badge palette, the relative-time
+// column, and the cancel affordance (rendered only on the non-terminal rows).
+async function writeTaskLedger(workspaceRoot: string, sessionId: string, now: number): Promise<void> {
+  const tasks: Task[] = [
+    {
+      id: 'visual-task-in-progress',
+      subject: '接入任务台账面板与聊天视图',
+      status: 'in_progress',
+      createdAt: now - 40 * 60_000,
+      updatedAt: now - 5 * 60_000,
+    },
+    {
+      id: 'visual-task-pending-schema',
+      subject: '补齐 TaskCreate/TaskUpdate 的 schema 约束',
+      status: 'pending',
+      createdAt: now - 38 * 60_000,
+      updatedAt: now - 38 * 60_000,
+    },
+    {
+      id: 'visual-task-pending-a11y',
+      subject: '取消按钮的键盘焦点与读屏播报',
+      status: 'pending',
+      createdAt: now - 36 * 60_000,
+      updatedAt: now - 36 * 60_000,
+    },
+    {
+      id: 'visual-task-completed',
+      subject: '会话级持久化与重启恢复',
+      status: 'completed',
+      createdAt: now - 90 * 60_000,
+      updatedAt: now - 20 * 60_000,
+    },
+    {
+      id: 'visual-task-cancelled',
+      subject: '实时事件推流方案（改为快照拉取）',
+      status: 'cancelled',
+      createdAt: now - 85 * 60_000,
+      updatedAt: now - 25 * 60_000,
+    },
+  ];
+  await writeJson(join(workspaceRoot, 'sessions', sessionId, 'tasks.json'), tasks);
 }
 
 async function writeDailyReviewArchives(workspaceRoot: string, now: number): Promise<void> {
