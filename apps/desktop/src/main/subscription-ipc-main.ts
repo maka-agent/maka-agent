@@ -37,7 +37,6 @@ interface SubscriptionIpcDeps {
   syncClaudeSubscriptionConnection(): Promise<LlmConnection | null>;
   syncCodexSubscriptionConnection(): Promise<LlmConnection | null>;
   emitConnectionListChanged(): void;
-  suppressConfigWrite?: (filename: string) => void;
 }
 
 export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
@@ -117,7 +116,6 @@ export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
     const result = await deps.claudeSubscription.logout();
     const existing = await deps.connectionStore.get(CLAUDE_SUBSCRIPTION_CONNECTION_SLUG);
     if (existing) {
-      deps.suppressConfigWrite?.('llm-connections.json');
       await deps.connectionStore.update(existing.slug, {
         enabled: false,
         lastTestStatus: 'needs_reauth',
@@ -205,7 +203,6 @@ export function registerSubscriptionIpc(deps: SubscriptionIpcDeps): void {
     const result = await deps.codexSubscription.logout();
     const existing = await deps.connectionStore.get(CODEX_SUBSCRIPTION_CONNECTION_SLUG);
     if (existing) {
-      deps.suppressConfigWrite?.('llm-connections.json');
       await deps.connectionStore.update(existing.slug, {
         enabled: false,
         lastTestStatus: 'needs_reauth',

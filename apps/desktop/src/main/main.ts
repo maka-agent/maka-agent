@@ -253,7 +253,6 @@ const oauthModelConnections = createOAuthModelConnectionsMainService({
   credentialStore,
   claudeSubscription,
   codexSubscription,
-  suppressConfigWrite: (filename) => configWatcher?.suppressSelfWrite(filename),
 });
 const isClaudeSubscriptionAuthenticatedState = oauthModelConnections.isClaudeSubscriptionAuthenticatedState;
 const isCodexSubscriptionAuthenticatedState = oauthModelConnections.isCodexSubscriptionAuthenticatedState;
@@ -435,7 +434,6 @@ const botRegistry = new BotRegistry({
     if (status.readiness === 'degraded') {
       const humanized = humanizeBotStatusReason(status.reason);
       if (humanized) {
-        configWatcher?.suppressSelfWrite('settings.json');
         void settingsStore.update({
           botChat: {
             channels: {
@@ -451,7 +449,6 @@ const botRegistry = new BotRegistry({
       // Clear `lastError` once the bridge recovers; otherwise the
       // Settings page would keep surfacing a stale failure description
       // even though sends are succeeding.
-      configWatcher?.suppressSelfWrite('settings.json');
       void settingsStore.update({
         botChat: {
           channels: {
@@ -1101,7 +1098,6 @@ function registerIpc(): void {
     syncClaudeSubscriptionConnection,
     syncCodexSubscriptionConnection,
     emitConnectionListChanged,
-    suppressConfigWrite: (filename) => configWatcher?.suppressSelfWrite(filename),
   });
 
   registerWebSearchIpc({ settingsStore, getWorkspacePrivacyContext });
@@ -1240,7 +1236,6 @@ function registerIpc(): void {
     syncOAuthModelConnections,
     resolveConnectionSecret,
     emitConnectionListChanged,
-    suppressConfigWrite: (filename) => configWatcher?.suppressSelfWrite(filename),
   });
 
   // PR110b: Onboarding snapshot + milestone IPCs. Renderer polls via
@@ -1314,7 +1309,6 @@ function registerIpc(): void {
   ipcMain.handle('settings:get', async () => maskAppSettings(await settingsStore.get()));
   ipcMain.handle('settings:update', async (_event, patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult> => {
     const normalizedPatch = await normalizeSettingsPatch(patch);
-    configWatcher?.suppressSelfWrite('settings.json');
     const next = await settingsStore.update(normalizedPatch);
     await applySettingsRuntimeEffects(next, patch);
     return buildSettingsUpdateResult(next, patch);
@@ -1354,7 +1348,6 @@ function registerIpc(): void {
   ipcMain.handle('settings:testBotChannel', async (_event, provider: BotProvider) => {
     const settings = await settingsStore.get();
     const result = await testRuntimeBotChannel(provider, settings.botChat.channels[provider]);
-    configWatcher?.suppressSelfWrite('settings.json');
     await settingsStore.update({
       botChat: {
         channels: {

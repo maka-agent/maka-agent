@@ -6,7 +6,7 @@
  * Uses Node.js built-in fs.watch on the workspace directory (FSEvents on macOS,
  * inotify on Linux). Zero external dependencies.
  */
-import { watch, type FSWatcher } from 'node:fs';
+import { watch as fsWatch, type FSWatcher } from 'node:fs';
 import { basename } from 'node:path';
 
 export interface ConfigFileWatcherCallbacks {
@@ -16,12 +16,23 @@ export interface ConfigFileWatcherCallbacks {
 
 export interface ConfigFileWatcher {
   stop: () => void;
-  suppressSelfWrite: (filename: string) => void;
 }
 
 const DEBOUNCE_MS = 300;
-const SELF_WRITE_SUPPRESS_MS = 500;
 const STARTUP_GRACE_MS = 350;
+
+type WatchListener = (eventType: string, filename: string | Buffer | null) => void;
+
+type WatchImpl = (workspaceRoot: string, listener: WatchListener) => Pick<FSWatcher, 'on' | 'close'>;
+
+interface ConfigFileWatcherOptions {
+  watchImpl?: WatchImpl;
+  debounceMs?: number;
+  startupGraceMs?: number;
+  now?: () => number;
+  setTimeoutImpl?: typeof setTimeout;
+  clearTimeoutImpl?: typeof clearTimeout;
+}
 
 const WATCHED_FILES: Record<string, keyof ConfigFileWatcherCallbacks> = {
   'llm-connections.json': 'onConnectionsChanged',
@@ -32,40 +43,51 @@ const WATCHED_FILES: Record<string, keyof ConfigFileWatcherCallbacks> = {
 export function startConfigFileWatcher(
   workspaceRoot: string,
   callbacks: ConfigFileWatcherCallbacks,
+  options: ConfigFileWatcherOptions = {},
 ): ConfigFileWatcher {
+  const debounceMs = options.debounceMs ?? DEBOUNCE_MS;
+  const startupGraceMs = options.startupGraceMs ?? STARTUP_GRACE_MS;
+  const now = options.now ?? Date.now;
+  const setTimer = options.setTimeoutImpl ?? setTimeout;
+  const clearTimer = options.clearTimeoutImpl ?? clearTimeout;
+  const watchImpl = options.watchImpl ?? fsWatch;
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const suppressUntil = new Map<string, number>();
-  const startedAt = Date.now();
+  const startedAt = now();
 
-  let watcher: FSWatcher | undefined;
+  function schedule(timerKey: string, callbackKey: keyof ConfigFileWatcherCallbacks): void {
+    const existing = debounceTimers.get(timerKey);
+    if (existing) clearTimer(existing);
+    debounceTimers.set(
+      timerKey,
+      setTimer(() => {
+        debounceTimers.delete(timerKey);
+        try {
+          callbacks[callbackKey]();
+        } catch {
+          // non-fatal: watcher callback failure must not crash the app
+        }
+      }, debounceMs),
+    );
+  }
+
+  let watcher: Pick<FSWatcher, 'on' | 'close'> | undefined;
   try {
-    watcher = watch(workspaceRoot, (_eventType, filename) => {
-      if (Date.now() - startedAt < STARTUP_GRACE_MS) return;
-      if (!filename) return;
-      const name = basename(filename);
+    watcher = watchImpl(workspaceRoot, (_eventType, filename) => {
+      if (now() - startedAt < startupGraceMs) return;
+      if (!filename) {
+        schedule('__fallback:connections', 'onConnectionsChanged');
+        schedule('__fallback:settings', 'onSettingsChanged');
+        return;
+      }
+      const name = basename(filename.toString());
       const callbackKey = WATCHED_FILES[name];
       if (!callbackKey) return;
 
-      const until = suppressUntil.get(name);
-      if (until && Date.now() < until) return;
-
-      const existing = debounceTimers.get(name);
-      if (existing) clearTimeout(existing);
-      debounceTimers.set(
-        name,
-        setTimeout(() => {
-          debounceTimers.delete(name);
-          try {
-            callbacks[callbackKey]();
-          } catch {
-            // non-fatal: watcher callback failure must not crash the app
-          }
-        }, DEBOUNCE_MS),
-      );
+      schedule(name, callbackKey);
     });
   } catch (error) {
     console.error('[config-watcher] failed to start:', error);
-    return { stop() {}, suppressSelfWrite() {} };
+    return { stop() {} };
   }
 
   watcher.on('error', (error) => {
@@ -76,14 +98,9 @@ export function startConfigFileWatcher(
   function cleanup(): void {
     watcher?.close();
     watcher = undefined;
-    for (const timer of debounceTimers.values()) clearTimeout(timer);
+    for (const timer of debounceTimers.values()) clearTimer(timer);
     debounceTimers.clear();
   }
 
-  return {
-    stop: cleanup,
-    suppressSelfWrite(filename: string) {
-      suppressUntil.set(filename, Date.now() + SELF_WRITE_SUPPRESS_MS);
-    },
-  };
+  return { stop: cleanup };
 }

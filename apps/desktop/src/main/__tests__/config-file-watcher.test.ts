@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
-import { startConfigFileWatcher } from '../config-file-watcher.js';
+import { startConfigFileWatcher, type ConfigFileWatcher, type ConfigFileWatcherCallbacks } from '../config-file-watcher.js';
 
 const GRACE_SETTLE_MS = 400;
 
@@ -11,7 +11,84 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type WatchListener = (eventType: string, filename: string | Buffer | null) => void;
+
+interface FakeStartResult {
+  emit: (filename: string | Buffer | null) => void;
+  watcher: ConfigFileWatcher;
+}
+
+function startWithFakeWatcher(callbacks: ConfigFileWatcherCallbacks): FakeStartResult {
+  let listener: WatchListener | undefined;
+  const start = startConfigFileWatcher as unknown as (
+    workspaceRoot: string,
+    callbacks: ConfigFileWatcherCallbacks,
+    options: {
+      watchImpl: (workspaceRoot: string, listener: WatchListener) => { on(event: 'error', listener: (error: Error) => void): void; close(): void };
+      startupGraceMs: number;
+      debounceMs: number;
+      now: () => number;
+      setTimeoutImpl: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+      clearTimeoutImpl: (timer: ReturnType<typeof setTimeout>) => void;
+    },
+  ) => ConfigFileWatcher;
+
+  const watcher = start('/fake-workspace', callbacks, {
+    watchImpl: (_workspaceRoot, nextListener) => {
+      listener = nextListener;
+      return { on() {}, close() {} };
+    },
+    startupGraceMs: 0,
+    debounceMs: 0,
+    now: () => 1_000,
+    setTimeoutImpl: (callback) => {
+      callback();
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimeoutImpl: () => {},
+  });
+
+  return {
+    watcher,
+    emit(filename) {
+      assert.ok(listener, 'fake watcher listener must be registered');
+      listener('change', filename);
+    },
+  };
+}
+
 describe('config-file-watcher', () => {
+  test('refreshes settings and connections when fs.watch omits the filename', () => {
+    let connectionsCalled = 0;
+    let settingsCalled = 0;
+    const { emit, watcher } = startWithFakeWatcher({
+      onConnectionsChanged: () => { connectionsCalled++; },
+      onSettingsChanged: () => { settingsCalled++; },
+    });
+    try {
+      emit(null);
+      assert.equal(connectionsCalled, 1, 'filename-less events should conservatively refresh connection state');
+      assert.equal(settingsCalled, 1, 'filename-less events should conservatively refresh settings state');
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  test('does not suppress a real external write after an internal write marker', () => {
+    let connectionsCalled = 0;
+    const { emit, watcher } = startWithFakeWatcher({
+      onConnectionsChanged: () => { connectionsCalled++; },
+      onSettingsChanged: () => {},
+    });
+    try {
+      (watcher as unknown as { suppressSelfWrite?: (filename: string) => void }).suppressSelfWrite?.('llm-connections.json');
+      emit('llm-connections.json');
+      assert.equal(connectionsCalled, 1, 'external writes must not be swallowed by a filename/time suppression window');
+    } finally {
+      watcher.stop();
+    }
+  });
+
   let dir: string;
 
   beforeEach(async () => {
@@ -87,23 +164,6 @@ describe('config-file-watcher', () => {
       await wait(500);
       assert.equal(connectionsCalled, 0);
       assert.equal(settingsCalled, 0);
-    } finally {
-      watcher.stop();
-    }
-  });
-
-  test('suppressSelfWrite prevents firing for the suppressed window', async () => {
-    let called = 0;
-    const watcher = startConfigFileWatcher(dir, {
-      onConnectionsChanged: () => { called++; },
-      onSettingsChanged: () => {},
-    });
-    try {
-      await wait(GRACE_SETTLE_MS);
-      watcher.suppressSelfWrite('llm-connections.json');
-      await writeFile(join(dir, 'llm-connections.json'), '{"suppressed": true}');
-      await wait(500);
-      assert.equal(called, 0, 'should not fire during suppression window');
     } finally {
       watcher.stop();
     }
