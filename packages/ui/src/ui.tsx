@@ -542,8 +542,8 @@ export const Progress = forwardRef<
   );
 });
 
-// Toast — left to the existing `packages/ui/src/toast.tsx` for now.
-// That module already wraps Base UI Toast with the project's
-// `useToast()` / `toast.confirm()` API. Rewriting it to expose the
-// raw Base UI primitives here would compete with the existing
-// caller surface; the modernization is tracked separately.
+// Toast — migrated to Base UI Toast in `packages/ui/src/toast.tsx`, exposed
+// via the project's `useToast()` / `toast.confirm()` API (PR6 #520). The toast
+// surface (Provider + manager + Viewport/Root/Title/Description/Action/Close)
+// is Base UI; the confirm dialog + its queue stay hand-written (Base UI Toast
+// has no confirm concept) and live in toast.tsx.
