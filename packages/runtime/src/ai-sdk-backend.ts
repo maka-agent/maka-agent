@@ -2055,7 +2055,7 @@ export class AiSdkBackend implements AgentBackend {
   private materializePriorMessages(stored: readonly StoredMessage[]): ModelMessage[] {
     const out: ModelMessage[] = [];
     for (const m of stored) {
-      if (m.type === 'user') out.push({ role: 'user', content: m.text });
+      if (m.type === 'user') out.push({ role: 'user', content: formatTextWithAttachmentRefs(m.text, m.attachments) });
       else if (m.type === 'assistant') out.push({ role: 'assistant', content: m.text });
       // tool_call / tool_result / permission_decision / token_usage / system_note skipped
     }
