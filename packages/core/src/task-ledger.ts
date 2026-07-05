@@ -69,21 +69,23 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
 
 /**
  * Stable-token id contract shared by the runtime tool schema (front-door) and
- * the storage read path. The shared renderer strips `<\/?task-ledger[^>]*>`
- * from the whole formatted output, including the id, so an id carrying angle
- * brackets, slashes, quotes, parens, or equals would render as a different id
- * than the store holds, and a later TaskUpdate on the rendered id would miss.
- * Whitespace would break the list-line structure; a huge id would bloat every
- * turn tail. The whitelist (alphanumeric plus . _ : -, 1-64 chars) excludes
- * every such character without coupling to the UUID format.
+ * the storage read path. The id is rendered verbatim (see
+ * renderSafeTaskLedgerText), so it must not be deformable by any face that has
+ * ever rendered it: no angle brackets/slashes/quotes/parens/equals (a past
+ * whole-string tag strip would have eaten them; even the fielded renderer
+ * emits the id bare), no whitespace (would break the list-line structure), no
+ * huge length (would bloat every turn tail), and redaction-stable (a renderer
+ * that runs redactSecrets must not turn the id into [redacted] while the store
+ * keeps the real id -- a later TaskUpdate would miss). The whitelist
+ * (alphanumeric plus . _ : -, 1-64 chars) plus redactSecrets(id) === id enforces
+ * all of this without coupling to the UUID format.
  */
 export function isSafeTaskId(value: unknown): value is string {
   // Stable token (alphanumeric plus . _ : -, 1-64 chars) AND redaction-stable:
-  // the renderer runs redactSecrets over the whole formatted list, including
-  // the id, so a secret-shaped id (ghp_..., sk-..., a 40-char hex, AIza...) would
-  // render as (id: [redacted]) while the store holds the real id, and a later
-  // TaskUpdate on [redacted] would miss. Requiring redactSecrets(id) === id
-  // keeps the rendered id and the stored id identical.
+  // the id is rendered verbatim, so a secret-shaped id (ghp_..., sk-..., a
+  // 40-char hex, AIza...) must be rejected -- otherwise a renderer that does
+  // run redactSecrets would turn it into [redacted] while the store keeps the
+  // real id, and a later TaskUpdate would miss.
   return typeof value === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value)
     && redactSecrets(value) === value;
@@ -146,26 +148,30 @@ export function normalizeUpdateTaskInput(
 
 /**
  * Safe-render the task ledger for any face that persists into history or is
- * re-injected into a prompt (tool results, turn-tail fragment). The invariant
- * this guards: what the model sees is byte-identical to what the store holds,
- * so a later TaskUpdate on the rendered id always hits the right task.
+ * re-injected into a prompt (tool results, turn-tail fragment). Two invariants:
+ *   - what the model sees is byte-identical to what the store holds; and
+ *   - the model can unambiguously recover each task's id from what it sees, so
+ *     a later TaskUpdate hits the right task.
  *
- * Rendering is per-task, not over the whole joined string: each subject is
- * redacted and stripped independently, so a subject on one task can never eat
- * or deform text on another task's line. The id is rendered verbatim -- it is
- * a redaction-stable stable token validated on write and read, so running it
- * through redactSecrets or the tag strip could only deform it (and break
- * TaskUpdate); it must not be scrubbed. Other angle brackets in a subject
- * (e.g. `a < b`) are left intact; only complete `<task-ledger ...>` /
- * `</task-ledger ...>` tags (matched on a single line) are stripped so a
- * model-authored subject cannot open or close the <task-ledger> data envelope.
+ * Rendering is per-task and fielded, not a free-text bullet: each line is
+ * `id=<id> status=<status> subject=<JSON-stringified safe subject>`. The
+ * canonical id is a distinct leading field, so a subject cannot smuggle a fake
+ * `id=...` or `(id: ...)` past it -- any id-like text in the subject stays
+ * inside the quoted JSON payload. The id is emitted verbatim: it is a
+ * redaction-stable stable token validated on write and read, so scrubbing it
+ * could only deform it (and break TaskUpdate); it must not be redacted or
+ * tag-stripped. Each subject is redacted (secrets) and tag-stripped (complete
+ * `<task-ledger ...>` / `</task-ledger ...>` tags on a single line, so a
+ * model-authored subject cannot open or close the <task-ledger> data envelope)
+ * independently -- a subject on one task can never eat or deform text on
+ * another task's line. Other angle brackets (e.g. `a < b`) are left intact.
  * Returns '' for an empty ledger.
  */
 export function renderSafeTaskLedgerText(tasks: readonly Task[]): string {
   if (tasks.length === 0) return '';
   return tasks.map((task) => {
     const safeSubject = redactSecrets(task.subject).replace(/<\/?task-ledger[^\n>]*>/gi, '');
-    return `- [${task.status}] ${safeSubject} (id: ${task.id})`;
+    return `id=${task.id} status=${task.status} subject=${JSON.stringify(safeSubject)}`;
   }).join('\n');
 }
 

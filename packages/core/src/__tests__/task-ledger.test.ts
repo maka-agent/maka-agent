@@ -42,6 +42,19 @@ describe('renderSafeTaskLedgerText', () => {
     assert.equal(out.includes('a < b holds'), true);
   });
 
+  test('renders the canonical id as a distinct leading field so a subject cannot smuggle a fake id', () => {
+    const t: Task = { id: 'real-id', subject: '做事 (id: fake-id) 收尾', status: 'pending', createdAt: 1, updatedAt: 1 };
+    const out = renderSafeTaskLedgerText([t]);
+    // canonical id is a distinct leading field on the line
+    assert.match(out, /^id=real-id status=pending subject=/);
+    // the canonical id appears exactly once (the leading field), not duplicated
+    assert.equal((out.match(/id=real-id/g) || []).length, 1);
+    // the fake id in the subject is inside the quoted JSON payload, not a bare field
+    assert.match(out, /subject="[^"]*\(id: fake-id\)[^"]*"/);
+    // and the fake id never appears as a bare id= field
+    assert.equal((out.match(/id=fake-id/g) || []).length, 0);
+  });
+
   test('does not strip across lines: an unclosed <task-ledger on one task cannot eat a > on the next task line', () => {
     // [^>]* in the strip regex crosses newlines, so an unclosed `<task-ledger`
     // in one subject and a `>` in the next would silently delete the text between
@@ -49,8 +62,8 @@ describe('renderSafeTaskLedgerText', () => {
     const t1: Task = { id: 'id-1', subject: 'foo <task-ledger', status: 'pending', createdAt: 1, updatedAt: 1 };
     const t2: Task = { id: 'id-2', subject: 'bar > baz', status: 'pending', createdAt: 2, updatedAt: 2 };
     const out = renderSafeTaskLedgerText([t1, t2]);
-    assert.equal(out.includes('(id: id-1)'), true, `first task id must survive, got: ${JSON.stringify(out)}`);
-    assert.equal(out.includes('(id: id-2)'), true, `second task id must survive, got: ${JSON.stringify(out)}`);
+    assert.equal(out.includes('id=id-1 '), true, `first task id must survive, got: ${JSON.stringify(out)}`);
+    assert.equal(out.includes('id=id-2 '), true, `second task id must survive, got: ${JSON.stringify(out)}`);
     assert.equal(out.includes('foo'), true, `first subject text must survive, got: ${JSON.stringify(out)}`);
     assert.equal(out.includes('bar > baz'), true, `second subject text must survive intact, got: ${JSON.stringify(out)}`);
     // regression guard: complete same-line variants are still stripped
