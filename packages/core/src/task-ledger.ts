@@ -145,25 +145,28 @@ export function normalizeUpdateTaskInput(
 }
 
 /**
- * Language-neutral bullet rendering shared by the tool result and the turn-tail
- * fragment. Returns an empty string for an empty ledger so callers can suppress
- * the whole fragment. The status token is the exact enum the model must echo
- * back to TaskUpdate.
- */
-export function formatTaskLedgerList(tasks: readonly Task[]): string {
-  return tasks.map((task) => `- [${task.status}] ${task.subject} (id: ${task.id})`).join('\n');
-}
-
-/**
- * Safe-render the task list for any face that persists into history or is
- * re-injected into a prompt: redact secrets, then strip any literal
- * <task-ledger ...> / </task-ledger ...> tag variants (attributes, whitespace
- * before `>`, self-closing) so a model-authored subject cannot open or close
- * the <task-ledger> data envelope early. Other angle brackets (e.g. `a < b`)
- * are left intact. Returns '' for an empty ledger.
+ * Safe-render the task ledger for any face that persists into history or is
+ * re-injected into a prompt (tool results, turn-tail fragment). The invariant
+ * this guards: what the model sees is byte-identical to what the store holds,
+ * so a later TaskUpdate on the rendered id always hits the right task.
+ *
+ * Rendering is per-task, not over the whole joined string: each subject is
+ * redacted and stripped independently, so a subject on one task can never eat
+ * or deform text on another task's line. The id is rendered verbatim -- it is
+ * a redaction-stable stable token validated on write and read, so running it
+ * through redactSecrets or the tag strip could only deform it (and break
+ * TaskUpdate); it must not be scrubbed. Other angle brackets in a subject
+ * (e.g. `a < b`) are left intact; only complete `<task-ledger ...>` /
+ * `</task-ledger ...>` tags (matched on a single line) are stripped so a
+ * model-authored subject cannot open or close the <task-ledger> data envelope.
+ * Returns '' for an empty ledger.
  */
 export function renderSafeTaskLedgerText(tasks: readonly Task[]): string {
-  return redactSecrets(formatTaskLedgerList(tasks)).replace(/<\/?task-ledger[^\n>]*>/gi, '');
+  if (tasks.length === 0) return '';
+  return tasks.map((task) => {
+    const safeSubject = redactSecrets(task.subject).replace(/<\/?task-ledger[^\n>]*>/gi, '');
+    return `- [${task.status}] ${safeSubject} (id: ${task.id})`;
+  }).join('\n');
 }
 
 function invalid<T extends TaskLedgerNormalizeErrorReason>(
