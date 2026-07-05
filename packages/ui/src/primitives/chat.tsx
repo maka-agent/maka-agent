@@ -429,11 +429,9 @@ const toolVariants = cva("", {
       // `.maka-tool` (effective: the later `padding: 0` rule wins over `8px 12px`)
       // + `.toolItem` + the `[data-status]` border / background / opacity swaps.
       // `[border: …]` / `[border-color: …]` are arbitrary so the status overrides
-      // touch only the color, never width/style. `group/tool` exposes Base UI
-      // `[data-open]` to the trigger/header part without root-owned child
-      // selectors.
+      // touch only the color, never width/style.
       item:
-        "[border:1px_solid_var(--border)] rounded-[var(--radius-surface)] bg-[var(--foreground-2)] p-0 mt-2 [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-secondary)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)] group/tool"
+        "[border:1px_solid_var(--border)] rounded-[var(--radius-surface)] bg-[var(--foreground-2)] p-0 mt-2 [font-family:var(--font-mono)] text-[12.5px] text-[color:var(--foreground-secondary)] overflow-hidden [box-shadow:var(--shadow-minimal-flat)]"
         // `waiting_permission` border tint — see `WP_CARD_BORDER` above (String.raw).
         + " " + WP_CARD_BORDER
         + " data-[status=running]:[border-color:oklch(from_var(--status-running)_l_c_h_/_0.4)]"
@@ -441,10 +439,9 @@ const toolVariants = cva("", {
         + " data-[status=errored]:[border-color:oklch(from_var(--destructive)_l_c_h_/_0.4)] data-[status=errored]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.04)]"
         + " data-[status=interrupted]:[border-color:var(--border)] data-[status=interrupted]:bg-[var(--foreground-3)] data-[status=interrupted]:opacity-[0.7]",
       // The Collapsible trigger/header: 8px · name · meta grid. The open-state
-      // divider is declared on the styled part itself, reading `[data-open]` from
-      // the named root group.
+      // divider reads Base UI's `[data-panel-open]` trigger attribute directly.
       header:
-        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-[color:var(--foreground-secondary)] group-data-[open]/tool:[border-bottom:1px_solid_var(--border)]",
+        "list-none grid grid-cols-[8px_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2 text-[color:var(--foreground-secondary)] data-[panel-open]:[border-bottom:1px_solid_var(--border)]",
       // `.maka-tool-status-dot` (+ the `[data-status]` color swaps; running adds
       // the box-shadow ring + `maka-tool-pulse` breath — keyframe stays in CSS).
       dot:
