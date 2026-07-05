@@ -68,7 +68,6 @@ import {
   SessionManager,
   buildBuiltinTools,
   buildChildAgentTools,
-  buildTaskLedgerTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
@@ -92,7 +91,7 @@ import type {
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTaskLedgerStore, createTelemetryRepo } from '@maka/storage';
+import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -165,6 +164,7 @@ import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
 import { buildContextBudgetPolicy } from './context-budget-policy.js';
 import { createSystemPromptMainService } from './system-prompt-main.js';
+import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -298,7 +298,8 @@ const antigravitySubscription = new AntigravitySubscriptionService({
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
-const taskLedgerStore = createTaskLedgerStore(workspaceRoot);
+const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
+const taskLedgerStore = taskLedgerWiring.store;
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
@@ -404,7 +405,7 @@ const builtinTools = [
   }),
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
-  ...buildTaskLedgerTools({ store: taskLedgerStore }),
+  ...taskLedgerWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,

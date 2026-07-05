@@ -14,9 +14,17 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
+import { mkdtemp } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { AppSettings, Task } from '@maka/core';
-import { TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME, buildTaskLedgerTools } from '@maka/runtime';
-import { readMainTsSource } from './main-process-contract-source-helpers.js';
+import {
+  TASK_CREATE_TOOL_NAME,
+  TASK_UPDATE_TOOL_NAME,
+  buildTaskLedgerTools,
+  type MakaToolContext,
+} from '@maka/runtime';
+import { createMainTaskLedgerWiring } from '../task-ledger-wiring.js';
 import { createSystemPromptMainService } from '../system-prompt-main.js';
 
 function makeService(tasks: Task[]) {
@@ -39,21 +47,36 @@ const sampleTask: Task = {
   updatedAt: 2,
 };
 
+function fakeContext(sessionId: string): MakaToolContext {
+  return {
+    sessionId,
+    turnId: 'turn-1',
+    cwd: '/tmp',
+    toolCallId: 'call-1',
+    abortSignal: new AbortController().signal,
+    emitOutput: () => {},
+  };
+}
+
 describe('task ledger contract', () => {
-  it('wires both tools into builtinTools and constructs the per-session store in main.ts', async () => {
-    const src = await readMainTsSource();
-    assert.match(src, /createTaskLedgerStore\(workspaceRoot\)/, 'main.ts must construct the task ledger store');
-    assert.match(
-      src,
-      /\.\.\.buildTaskLedgerTools\(\{ store: taskLedgerStore \}\)/,
-      'main.ts must spread the task ledger tools into builtinTools',
-    );
-    assert.match(src, /taskLedger: taskLedgerStore/, 'main.ts must pass the store to the system prompt service');
-    assert.match(
-      src,
-      /turnTailPrompt: \(\{ cwd, sessionId \}\) => systemPromptService\.buildTurnTailPrompt\(cwd, sessionId\)/,
-      'turnTailPrompt callback must thread sessionId so the tail can read the ledger',
-    );
+  it('wires the store, tools, and system-prompt deps to one shared task ledger (behavior, not source text)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-task-ledger-wiring-'));
+    const wiring = createMainTaskLedgerWiring(root);
+    // (a) TaskCreate/TaskUpdate are wired in.
+    assert.ok(wiring.tools.some((t) => t.name === TASK_CREATE_TOOL_NAME), 'TaskCreate must be wired');
+    assert.ok(wiring.tools.some((t) => t.name === TASK_UPDATE_TOOL_NAME), 'TaskUpdate must be wired');
+    // (b) store is real and empty for a fresh workspace.
+    assert.deepEqual(await wiring.store.list('sess-1'), []);
+    // (c) system-prompt deps share the SAME store so the turn tail reads what tools write.
+    assert.equal(wiring.systemPromptDeps.taskLedger, wiring.store);
+    // (d) tools are bound to that same store: a TaskCreate persists into the shared
+    //     store the tail reads, proving the mutate and read faces share one ledger.
+    const create = wiring.tools.find((t) => t.name === TASK_CREATE_TOOL_NAME);
+    assert.ok(create, 'TaskCreate tool must be present');
+    await create.impl({ tasks: [{ subject: '通过装配建任务' }] }, fakeContext('sess-1'));
+    const tasks = await wiring.store.list('sess-1');
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0]?.subject, '通过装配建任务');
   });
 
   it('injects nothing for an empty ledger', async () => {
