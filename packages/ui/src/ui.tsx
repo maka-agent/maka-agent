@@ -141,14 +141,14 @@ export function Badge({ className, variant, ...props }: BadgeProps) {
   return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
 }
 
-const inputClasses = [
+export const inputClasses = [
   'flex min-h-9 w-full rounded-sm border border-input bg-[oklch(from_var(--foreground)_l_c_h_/_0.02)] px-3 py-2 text-sm text-foreground shadow-sm',
   'placeholder:text-foreground-secondary/70',
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
   'disabled:cursor-not-allowed disabled:opacity-50',
 ].join(' ');
 
-const bareFieldClasses = [
+export const bareFieldClasses = [
   'appearance-none rounded-none border-0 bg-transparent p-0 text-inherit shadow-none outline-none [font:inherit]',
   'focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
   'disabled:cursor-not-allowed disabled:opacity-60',

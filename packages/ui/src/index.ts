@@ -73,6 +73,10 @@ export {
   TooltipContent,
 } from './primitives/tooltip.js';
 export {
+  NumberField,
+  NumberFieldInput,
+} from './primitives/number-field.js';
+export {
   Tabs as PrimitiveTabs,
   TabsList as PrimitiveTabsList,
   TabsTrigger as PrimitiveTabsTrigger,

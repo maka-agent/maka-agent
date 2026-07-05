@@ -11,6 +11,8 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import {
   Button,
   Input,
+  NumberField,
+  NumberFieldInput,
   Menu,
   MenuTrigger,
   ModelPicker,
@@ -355,7 +357,9 @@ function NetworkProxySection(props: {
             </label>
             <label>
               <span>端口</span>
-              <Input value={String(proxyDraft.port || '')} onChange={(event) => void updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" aria-label="代理端口" />
+              <NumberField value={proxyDraft.port || null} onValueChange={(v) => void updateProxy({ port: v ?? 0 })}>
+                <NumberFieldInput placeholder="7890" aria-label="代理端口" />
+              </NumberField>
             </label>
           </div>
 
