@@ -328,7 +328,15 @@ export function AppShell({
     () => (activeConnection && activeModel) ? thinkingVariantsForModel(activeConnection.providerType, activeModel) : [],
     [activeConnection, activeModel],
   );
-  const activeThinkingLevel = activeSession?.thinkingLevel;
+  // Only surface a stored level when the current model still supports it;
+  // if the model changed (setModel clears it) or the catalog reconfigured so
+  // the level is no longer offered, the chip falls back to 默认 instead of
+  // advertising a level the runtime would silently drop. The runtime's
+  // `buildProviderOptions` is the wire-level guard; this keeps the UI honest.
+  const activeThinkingLevel =
+    activeSession?.thinkingLevel && activeThinkingLevels.includes(activeSession.thinkingLevel)
+      ? activeSession.thinkingLevel
+      : undefined;
   const newChatThinkingLevels = useMemo(
     () => {
       if (!newChatModel) return [];

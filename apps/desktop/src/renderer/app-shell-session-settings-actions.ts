@@ -120,6 +120,7 @@ export function createAppShellSessionSettingsActions(deps: {
   }
 
   const thinkingLevelLabels: Record<ThinkingLevel, string> = {
+    off: '关',
     minimal: '最低',
     low: '低',
     medium: '中',
