@@ -1,5 +1,33 @@
 import type { AttachmentRef } from './events.js';
 
+const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  pdf: 'application/pdf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  doc: 'application/msword',
+  xls: 'application/vnd.ms-excel',
+  ppt: 'application/vnd.ms-powerpoint',
+};
+
+/**
+ * Best-effort MIME from a file name, used when the picker gives no MIME
+ * (Electron's openDialog only returns paths). Falls back to
+ * `application/octet-stream` so downstream validation always sees a MIME.
+ */
+export function guessMimeFromName(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  if (dot < 0 || dot === fileName.length - 1) return 'application/octet-stream';
+  const ext = fileName.slice(dot + 1).toLowerCase();
+  return MIME_BY_EXTENSION[ext] ?? 'application/octet-stream';
+}
+
 /**
  * Route a MIME type to an {@link AttachmentRef} kind. The runtime
  * consumption split is image vs. everything-else (images become provider

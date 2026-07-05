@@ -248,6 +248,12 @@ declare global {
         importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult>;
         importFolderOutline(): Promise<FolderOutlineImportResult>;
       };
+      attachments: {
+        pickAndIngest(sessionId: string): Promise<
+          | { ok: true; attachments: import('@maka/core').AttachmentRef[] }
+          | { ok: false; reason: 'cancelled' | 'no_session' }
+        >;
+      };
       search: {
         thread(
           request: SearchRequest,

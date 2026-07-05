@@ -143,6 +143,9 @@ import {
   type AttachmentValidationFailureReason,
 } from './attachment-approval.js';
 import { createAttachmentByteReader } from './attachment-reader.js';
+import { ingestAttachments } from './attachment-ingest.js';
+import { resizeImageForAttachment } from './attachment-resize-native.js';
+import type { AttachmentRef } from '@maka/core';
 import {
   readFolderOutlinesForPromptImport,
   readDroppedTextFilesForPromptImport,
@@ -1269,6 +1272,32 @@ function registerIpc(): void {
     });
     void streamEvents(sessionId, iterator, turnId);
   });
+  ipcMain.handle(
+    'attachments:pickAndIngest',
+    async (_event, sessionId: string): Promise<
+      | { ok: true; attachments: AttachmentRef[] }
+      | { ok: false; reason: 'cancelled' | 'no_session' }
+    > => {
+      const header = await store.readHeader(sessionId).catch(() => null);
+      if (!header) return { ok: false, reason: 'no_session' };
+      const result = await mainWindowController.showOpenDialog({
+        title: '添加附件',
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
+      const files = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, size: (await stat(path)).size })),
+      );
+      const attachments = await ingestAttachments({
+        files,
+        cwd: header.cwd,
+        sessionId,
+        artifactStore,
+        resizeImage: resizeImageForAttachment,
+      });
+      return { ok: true, attachments };
+    },
+  );
   ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRetryTurnInput(input);

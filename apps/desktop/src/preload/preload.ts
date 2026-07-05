@@ -73,6 +73,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
+  AttachmentRef,
   OnboardingMilestone,
   OnboardingMilestoneId,
   OnboardingState,
@@ -381,6 +382,14 @@ contextBridge.exposeInMainWorld('maka', {
     },
     importFolderOutline(): Promise<FolderOutlineImportResult> {
       return ipcRenderer.invoke('context:importFolderOutline');
+    },
+  },
+  attachments: {
+    pickAndIngest(sessionId: string): Promise<
+      | { ok: true; attachments: AttachmentRef[] }
+      | { ok: false; reason: 'cancelled' | 'no_session' }
+    > {
+      return ipcRenderer.invoke('attachments:pickAndIngest', sessionId);
     },
   },
   search: {

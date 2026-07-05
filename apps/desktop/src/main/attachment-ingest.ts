@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { basename, relative, sep } from 'node:path';
-import { attachmentKindFromMimeType } from '@maka/core';
+import { attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import type { ArtifactKind, ArtifactSource, AttachmentRef } from '@maka/core';
 import type { ArtifactStore } from '@maka/storage';
 
@@ -31,7 +31,7 @@ export async function ingestAttachments(input: {
   const refs: AttachmentRef[] = [];
   for (const file of input.files) {
     const name = basename(file.path);
-    const mimeType = file.mimeType && file.mimeType.length > 0 ? file.mimeType : 'application/octet-stream';
+    const mimeType = file.mimeType && file.mimeType.length > 0 ? file.mimeType : guessMimeFromName(name);
     const kind = attachmentKindFromMimeType(mimeType, name);
 
     if (kind !== 'image' && isInsideCwd(input.cwd, file.path)) {
