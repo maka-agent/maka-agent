@@ -7,7 +7,7 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, PrimitiveBadge, RelativeTime } from '@maka/ui';
+import { Button, Badge, RelativeTime } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 
@@ -130,7 +130,7 @@ export function HealthCenterPage() {
           </p>
         </div>
         <div className="settingsHealthMeta">
-          <PrimitiveBadge variant="info">只读快照</PrimitiveBadge>
+          <Badge variant="info">只读快照</Badge>
           <small>
             最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
           </small>
@@ -163,14 +163,14 @@ export function HealthCenterPage() {
       {(blocksSendCount > 0 || blocksCapabilityCount > 0) && (
         <div className="settingsHealthBlockers" role="status">
           {blocksSendCount > 0 && (
-            <PrimitiveBadge variant="destructive">
+            <Badge variant="destructive">
               {blocksSendCount} 条健康信号会阻塞发送
-            </PrimitiveBadge>
+            </Badge>
           )}
           {blocksCapabilityCount > 0 && (
-            <PrimitiveBadge variant="warning">
+            <Badge variant="warning">
               {blocksCapabilityCount} 条健康信号会阻塞能力
-            </PrimitiveBadge>
+            </Badge>
           )}
         </div>
       )}
@@ -225,7 +225,7 @@ function HealthSignalRow(props: { signal: HealthSignal }) {
           <strong>{signal.label}</strong>
           <small className="settingsHealthSignalScope">{HEALTH_SCOPE_LABEL[signal.scope]}</small>
         </div>
-        <PrimitiveBadge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</PrimitiveBadge>
+        <Badge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</Badge>
       </div>
       <p className="settingsHealthSignalMessage">{signal.message}</p>
       {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}

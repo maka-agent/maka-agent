@@ -8,7 +8,7 @@ import {
   parseLocalMemoryMarkdown,
   setLocalMemoryEntryStatusDraft,
 } from '@maka/core';
-import { Button, Input, RelativeTime, SettingsSwitch as Switch, Textarea, redactSecrets, useToast } from '@maka/ui';
+import { Button, Chip, Input, RelativeTime, SettingsSwitch as Switch, Textarea, redactSecrets, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsRows } from './settings-rows';
@@ -593,9 +593,9 @@ export function MemorySettingsPage(props: {
             <strong>本地 MEMORY.md</strong>
             <small>透明 Markdown 文件，保存在当前本机工作区。这里的内容不会自动从聊天里抽取。</small>
           </div>
-          <span className="settingsConnectionBadge" data-tone={memoryStatusTone(effective.status)}>
+          <Chip variant={memoryStatusTone(effective.status)}>
             {memoryStatusLabel(effective.status)}
-          </span>
+          </Chip>
           <Switch
             ariaLabel="启用本地 MEMORY.md"
             checked={effective.enabled}

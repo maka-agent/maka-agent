@@ -174,7 +174,7 @@ const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/ui.tsx', name: 'inputClasses', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
-  { file: 'packages/ui/src/ui.tsx', name: 'badgeVariants', tier: 'pill' },
+  // #520 PR9: legacy ui.tsx badgeVariants retired onto primitives/badge.tsx.
   // DialogPopup/AlertDialogPopup were merged into createModalContent (PR6
   // review P3.1); the modal popup class now lives in MODAL_POPUP_CLASS.
   { file: 'packages/ui/src/ui.tsx', name: 'MODAL_POPUP_CLASS', tier: 'modal' },

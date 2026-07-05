@@ -52,7 +52,6 @@ import {
   toPlanReminderDateTimeInputValue,
 } from './plan-reminder-helpers.js';
 import {
-  Badge,
   Button as UiButton,
   DialogClose,
   DialogContent,
@@ -65,6 +64,7 @@ import {
   TabsTrigger,
   Textarea as UiTextarea,
 } from './ui.js';
+import { Badge } from './primitives/badge.js';
 import { Alert, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';

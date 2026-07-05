@@ -114,33 +114,6 @@ export const Button = forwardRef<HTMLElement, ButtonProps>(function Button(
   );
 });
 
-export const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-[var(--radius-pill)] border px-2 py-0.5 text-xs font-medium tabular-nums',
-  {
-    variants: {
-      variant: {
-        default: 'border-transparent bg-accent/10 text-accent',
-        secondary: 'border-border bg-secondary text-secondary-foreground',
-        success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
-        warning: 'border-amber-500/25 bg-amber-500/10 text-amber-800',
-        destructive: 'border-destructive/25 bg-destructive/10 text-destructive',
-        muted: 'border-border bg-muted text-foreground-secondary',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
-  },
-);
-
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof badgeVariants> {}
-
-export function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
-}
-
 export const inputClasses = [
   'flex min-h-9 w-full rounded-sm border border-input bg-[oklch(from_var(--foreground)_l_c_h_/_0.02)] px-3 py-2 text-sm text-foreground shadow-sm',
   'placeholder:text-foreground-secondary/70',

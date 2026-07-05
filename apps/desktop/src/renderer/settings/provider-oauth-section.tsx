@@ -7,6 +7,7 @@ import {
   type SubscriptionAccountState,
 } from '@maka/core';
 import {
+  Chip,
   Button,
   Item,
   ItemActions,
@@ -18,6 +19,7 @@ import {
   Textarea,
   useToast,
 } from '@maka/ui';
+import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
 import { ProviderSheet } from './provider-config-sheet';
 
@@ -680,7 +682,7 @@ function ClaudeSubscriptionCard() {
             </div>
             <small>无法确认 Claude OAuth 是否可用。没有登录动作会被执行。</small>
           </div>
-          <span className="settingsConnectionBadge" data-tone="destructive">读取失败</span>
+          <Chip variant="destructive">读取失败</Chip>
         </div>
         <small className="settingsErrorText" role="alert">
           Claude 登录开关读取失败：{experimentalGateError}
@@ -860,7 +862,7 @@ function ClaudeSubscriptionCard() {
   }
 
   // Closed-state render mapping per the runtime state enum.
-  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'muted', detail: '' };
+  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'neutral' as const, detail: '' };
   const canStartClaudeLogin =
     state?.runtimeState === 'not_logged_in' ||
     state?.runtimeState === 'refresh_failed' ||
@@ -882,9 +884,9 @@ function ClaudeSubscriptionCard() {
             {state?.profile?.email ? ` · ${state.profile.email}` : ''}
           </small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <Chip variant={presentation.tone}>
           {presentation.label}
-        </span>
+        </Chip>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       {pasteError && !authRequestId && (
@@ -994,14 +996,14 @@ type ClaudeSubscriptionPendingAction = 'login' | 'submit' | 'cancel' | 'logout' 
 
 interface SubscriptionStatePresentation {
   label: string;
-  tone: string;
+  tone: StatusTone;
   detail: string;
 }
 
 function presentSubscriptionState(state: SubscriptionAccountState): SubscriptionStatePresentation {
   switch (state.runtimeState) {
     case 'not_logged_in':
-      return { label: '未登录', tone: 'muted', detail: '使用 Claude 订阅配额前需要先登录。' };
+      return { label: '未登录', tone: 'neutral', detail: '使用 Claude 订阅配额前需要先登录。' };
     case 'authorizing':
       return { label: '登录中…', tone: 'info', detail: '请在弹出的浏览器窗口完成登录并粘贴授权码。' };
     case 'authenticated':
@@ -1037,6 +1039,6 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
         detail: subscriptionResultMessage(state.errorMessage, '订阅端点拒绝了请求，可能需要重新登录。'),
       };
     default:
-      return { label: '未知状态', tone: 'muted', detail: '' };
+      return { label: '未知状态', tone: 'neutral', detail: '' };
   }
 }

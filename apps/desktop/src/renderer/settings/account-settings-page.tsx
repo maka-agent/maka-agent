@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { Button, RelativeTime, useToast } from '@maka/ui';
+import { Button, Chip, RelativeTime, useToast } from '@maka/ui';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -277,9 +277,9 @@ function AccountConnectionRow(props: {
           </div>
           <small>{subtitle}</small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <Chip variant={presentation.tone}>
           {presentation.label}
-        </span>
+        </Chip>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       <div className="settingsAuthContract" data-state={authContractState}>

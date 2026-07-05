@@ -21,7 +21,6 @@ import {
   DialogContent,
   DialogRoot,
   Input,
-  PrimitiveBadge,
   RelativeTime,
   SettingsSelect,
   SettingsSwitch as Switch,

@@ -4,7 +4,8 @@ import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@mak
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
+import { Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
+import { Badge } from './primitives/badge.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
