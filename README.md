@@ -2,6 +2,8 @@
 
 # Maka
 
+[![CI](https://github.com/maka-agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/maka-agent/maka-agent/actions/workflows/ci.yml)
+
 Maka 是一个本地优先的桌面 AI 工作台。它把模型连接、会话、工具权限、文件读写、终端执行、搜索、机器人入口和运行恢复放在一个 Electron 应用里，目标是让用户在自己的电脑上跑一个可观察、可控、可持续恢复的 agent。
 
 这个仓库还在活跃开发中。README 先服务两类人：

@@ -1,0 +1,96 @@
+# CI
+#
+# Gates are the CI translation of README「贡献前检查」and GitHub issue #414:
+#   typecheck -> build -> check:stale -> git diff --check -> full test.
+# README's local guidance runs a *focused* test suite for the touched surface;
+# CI cannot know the change surface, so it converges on the full `npm test`.
+#
+# The officecli bundle check runs on macOS because
+# apps/desktop/bundled-tools.json ships no linux asset (only darwin/win32),
+# so `prepare:officecli` / `check:officecli-bundle` cannot pass on ubuntu.
+#
+# Candidate gates from #414 (lint, dead-css, storybook) are intentionally
+# left out here — they are still under discussion.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs for the same ref (e.g. a new push to a PR branch).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Typecheck, build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Tests are pure `node --test` against compiled dist; the electron binary
+      # is not needed and downloading it wastes minutes / can flake.
+      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Full history so `git diff --check` can reach the PR merge-base.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Check dist is not stale
+        run: npm run check:stale
+
+      - name: Check diff for whitespace errors and conflict markers
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            git diff --check "origin/${{ github.base_ref }}...HEAD"
+          else
+            git diff --check "HEAD~1..HEAD"
+          fi
+
+      - name: Test
+        run: npm test
+
+  officecli-bundle:
+    name: officecli bundle (macOS)
+    # macOS only: bundled-tools.json has no linux officecli asset, so the
+    # prepare/check steps below can only pass on darwin.
+    # No `npm ci` here: prepare-officecli.mjs / check-officecli-bundle.mjs
+    # import only node:* stdlib (plus each other), so node_modules is not
+    # needed — macOS minutes are ~10x ubuntu, keep this job lean.
+    runs-on: macos-14
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download officecli binary
+        run: npm run prepare:officecli
+
+      - name: Check officecli bundle
+        run: npm run check:officecli-bundle
