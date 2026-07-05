@@ -677,11 +677,6 @@
   font-size: var(--font-size-caption);
 }
 
-.maka-palette-backdrop {
-  padding-top: 12vh;
-  align-items: start;
-}
-
 .maka-palette-modal {
   width: min(584px, calc(100vw - 32px));
   max-height: min(620px, 68vh);

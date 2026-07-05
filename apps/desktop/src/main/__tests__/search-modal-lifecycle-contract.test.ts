@@ -256,17 +256,16 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
   it('search input keeps focus after results load until the user navigates results', async () => {
     const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
-    const hook = await readFile(MODAL_A11Y_PATH, 'utf8');
 
     assert.match(
-      hook,
-      /initialFocusRef\?: RefObject<HTMLElement \| null>/,
-      'useModalA11y must allow a modal to nominate the correct initial focus target',
+      searchModal,
+      /initialFocus=\{inputRef\}/,
+      'SearchModal must give initial modal focus to the search input, not the close button',
     );
     assert.match(
       searchModal,
-      /useModalA11y\(dialogRef,\s*props\.onClose,\s*inputRef,\s*\{\s*suppressFocusRestoreRef\s*\}\)/,
-      'SearchModal must give initial modal focus to the search input, not the close button',
+      /finalFocus=\{\(\) => \(suppressFocusRestoreRef\.current \? false : true\)\}/,
+      'SearchModal must skip Base UI focus restore when navigating to a result so the destination owns focus',
     );
     assert.match(
       searchModal,

@@ -4,7 +4,6 @@ import { generalizedErrorMessageChinese } from '@maka/core';
 import { Search, X } from './icons.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
 import { DialogClose, DialogContent, DialogRoot, Button as UiButton } from './ui.js';
-import { useModalA11y } from './modal-a11y.js';
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
@@ -83,8 +82,6 @@ export function SearchModal(props: {
    */
   deps?: SearchModalDeps;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-
   // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
   //   - `query` is local state ONLY (no localStorage / no IPC echo).
   //   - `results` is the most recent successful response; older
@@ -109,7 +106,6 @@ export function SearchModal(props: {
   const keyboardSelectionHandledRef = useRef(false);
   const searchThread = props.deps?.searchThread;
   const suppressFocusRestoreRef = useRef(false);
-  useModalA11y(dialogRef, props.onClose, inputRef, { suppressFocusRestoreRef });
 
   useEffect(() => {
     searchMountedRef.current = true;
@@ -179,8 +175,8 @@ export function SearchModal(props: {
     if (!props.onNavigateToSession) return;
     if (result.target?.kind !== 'thread') return;
     props.onNavigateToSession(result.target.sessionId, result.target.turnId);
-    // Navigating away owns focus now — stop the a11y hook's unmount
-    // cleanup from yanking focus back to the sidebar search trigger.
+    // Navigating away owns focus now — tell DialogContent.finalFocus to
+    // skip its restore so Base UI doesn't yank focus back to the search trigger.
     suppressFocusRestoreRef.current = true;
     props.onClose({ restoreFocus: false });
   }
@@ -288,10 +284,11 @@ export function SearchModal(props: {
       }}
     >
       <DialogContent
-        ref={dialogRef}
         className="maka-modal maka-search-modal w-[min(92vw,640px)] p-0"
         aria-labelledby="maka-search-modal-title"
         showClose={false}
+        initialFocus={inputRef}
+        finalFocus={() => (suppressFocusRestoreRef.current ? false : true)}
       >
         <header className="maka-search-modal-header">
           <h2 id="maka-search-modal-title" className="maka-search-modal-title">搜索</h2>

@@ -2,8 +2,9 @@
 //
 // ⌘K / Ctrl+K command palette. Combines static actions (new chat, theme
 // switch, open settings, open keyboard help) with the live session list so
-// the user can fuzzy-search across both. Renders as a portal-style modal
-// with focus trap (via useModalA11y) and Arrow/Enter/Esc navigation.
+// the user can fuzzy-search across both. Renders as a Base UI Dialog modal;
+// Arrow/Enter/Esc navigation is local to the input, focus trap + restore +
+// Esc-dismiss come from DialogRoot/DialogContent (#520 PR7).
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import {
@@ -33,6 +34,8 @@ import type { LlmConnection, PermissionMode, SessionSummary, SettingsSection, Th
 import type { NavSelection } from '@maka/ui';
 import {
   Button,
+  DialogContent,
+  DialogRoot,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -43,7 +46,6 @@ import {
   InputGroupInput,
   Kbd,
   KbdGroup,
-  useModalA11y,
 } from '@maka/ui';
 import { SETTINGS_NAV } from './settings/settings-nav';
 import { useThreadSearch } from './use-thread-search';
@@ -582,17 +584,16 @@ export function CommandPalette(props: {
   onSelectSession?: (sessionId: string, turnId?: string) => void;
   threadSearchDeps?: UseThreadSearchDeps;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const commitPendingRef = useRef(false);
   const [query, setQuery] = useState('');
   const [highlight, setHighlight] = useState(0);
   const [committedCommandId, setCommittedCommandId] = useState<string | null>(null);
 
-  useModalA11y(dialogRef, props.onClose);
-
-  // Focus the search input as soon as the dialog mounts. useModalA11y will
-  // pull focus to the first focusable element, which is the input.
+  // Focus + select the search input as soon as the dialog mounts.
+  // DialogContent.initialFocus points Base UI at the input for the focus
+  // trap; this useEffect adds the select-all so the first keystroke
+  // replaces the previous query.
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
@@ -687,14 +688,16 @@ export function CommandPalette(props: {
   }
 
   return (
-    <div className="maka-modal-backdrop maka-palette-backdrop" role="presentation" onClick={props.onClose}>
-      <div
-        ref={dialogRef}
-        className="maka-modal maka-palette-modal"
-        role="dialog"
-        aria-modal="true"
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
+        className="maka-modal maka-palette-modal top-[12vh] -translate-y-0"
         aria-label="命令面板"
-        onClick={(event) => event.stopPropagation()}
+        initialFocus={inputRef}
       >
         <InputGroup
           className="maka-palette-input-wrap"
@@ -801,8 +804,8 @@ export function CommandPalette(props: {
           <span>{PALETTE_DELIM}</span>
           <span><Kbd className="maka-shortcut-kbd">Esc</Kbd> 关闭</span>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }
 

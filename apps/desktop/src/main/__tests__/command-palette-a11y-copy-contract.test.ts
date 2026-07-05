@@ -35,8 +35,8 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(
       src,
-      /import \{[^}]*\bButton\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\buseModalA11y\b[^}]*\} from '@maka\/ui';/,
-      'CommandPalette must consume shared primitive InputGroup primitives from @maka/ui',
+      /import \{[^}]*\bButton\b[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/,
+      'CommandPalette must consume shared primitive InputGroup + Dialog primitives from @maka/ui',
     );
     assert.match(
       src,
