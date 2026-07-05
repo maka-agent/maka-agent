@@ -518,6 +518,7 @@ export const Composer = forwardRef<
       ref={formRef}
       className="maka-composer composer"
       data-drag-active={dragActive ? 'true' : undefined}
+      data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}
       onDragLeave={onComposerDragLeave}
       onDrop={onComposerDrop}

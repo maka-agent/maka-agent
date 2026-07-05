@@ -4,6 +4,10 @@ import { attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import type { ArtifactKind, ArtifactSource, AttachmentRef } from '@maka/core';
 import type { ArtifactStore } from '@maka/storage';
 
+export type AttachmentIngestFile =
+  | { path: string; mimeType?: string; size: number }
+  | { name: string; mimeType?: string; size: number; content: Uint8Array };
+
 /**
  * Resolve a selected/dropped file into an {@link AttachmentRef} the runtime
  * can consume:
@@ -21,7 +25,7 @@ import type { ArtifactStore } from '@maka/storage';
  * filed under the sessionId.
  */
 export async function ingestAttachments(input: {
-  files: { path: string; mimeType?: string; size: number }[];
+  files: AttachmentIngestFile[];
   cwd: string;
   sessionId: string;
   artifactStore: ArtifactStore;
@@ -30,11 +34,11 @@ export async function ingestAttachments(input: {
 }): Promise<AttachmentRef[]> {
   const refs: AttachmentRef[] = [];
   for (const file of input.files) {
-    const name = basename(file.path);
+    const name = attachmentFileName(file);
     const mimeType = file.mimeType && file.mimeType.length > 0 ? file.mimeType : guessMimeFromName(name);
     const kind = attachmentKindFromMimeType(mimeType, name);
 
-    if (kind !== 'image' && isInsideCwd(input.cwd, file.path)) {
+    if (kind !== 'image' && isPathAttachment(file) && isInsideCwd(input.cwd, file.path)) {
       refs.push({
         kind,
         name,
@@ -45,7 +49,7 @@ export async function ingestAttachments(input: {
       continue;
     }
 
-    let bytes: Uint8Array = await readFile(file.path);
+    let bytes: Uint8Array = isPathAttachment(file) ? await readFile(file.path) : file.content;
     if (kind === 'image' && input.resizeImage) {
       bytes = await input.resizeImage(bytes);
     }
@@ -70,6 +74,17 @@ export async function ingestAttachments(input: {
     });
   }
   return refs;
+}
+
+function isPathAttachment(file: AttachmentIngestFile): file is Extract<AttachmentIngestFile, { path: string }> {
+  return 'path' in file;
+}
+
+function attachmentFileName(file: AttachmentIngestFile): string {
+  if (isPathAttachment(file)) return basename(file.path);
+  const normalized = file.name.replace(/\\/g, '/');
+  const name = basename(normalized).trim();
+  return name || 'attachment';
 }
 
 function isInsideCwd(cwd: string, target: string): boolean {

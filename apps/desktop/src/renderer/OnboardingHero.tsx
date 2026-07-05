@@ -728,6 +728,7 @@ function ReadyEmptyHero(props: {
       <div
         className="maka-onboarding-quickchat"
         data-drag-active={dragActive ? 'true' : undefined}
+        data-maka-file-drop-target={canAcceptDroppedTextFiles() ? 'true' : undefined}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}

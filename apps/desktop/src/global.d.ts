@@ -236,6 +236,10 @@ declare global {
         createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
       };
       attachments: {
+        pickFiles(): Promise<
+          | { ok: true; files: { path: string; mimeType?: string; size: number }[] }
+          | { ok: false; reason: 'cancelled' }
+        >;
         pickAndIngest(sessionId: string): Promise<
           | { ok: true; attachments: import('@maka/core').AttachmentRef[] }
           | { ok: false; reason: 'cancelled' | 'no_session' }
@@ -244,11 +248,11 @@ declare global {
           sessionId: string,
           files: { path: string; mimeType?: string; size: number }[],
         ): Promise<import('@maka/core').AttachmentRef[]>;
+        ingestFiles(sessionId: string, files: File[]): Promise<import('@maka/core').AttachmentRef[]>;
         readBytes(sessionId: string, relativePath: string): Promise<
           | { ok: true; base64: string; mimeType: string }
           | { ok: false; reason: string }
         >;
-        pathsForFiles(files: File[]): { path: string; mimeType?: string; size: number }[];
       };
       search: {
         thread(

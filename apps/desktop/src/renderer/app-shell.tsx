@@ -896,26 +896,41 @@ export function AppShell({
     upsertSessionSummary,
   });
 
+  async function ensureAttachmentSession(): Promise<string> {
+    const existingSessionId = activeIdRef.current;
+    if (existingSessionId) return existingSessionId;
+    const session = await window.maka.sessions.create({
+      ...(pendingNewChatPermissionMode ? { permissionMode: pendingNewChatPermissionMode } : {}),
+      name: '新建对话',
+      ...(validPendingNewChatModel
+        ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
+        : {}),
+      ...(newChatThinkingLevel ? { thinkingLevel: newChatThinkingLevel } : {}),
+    });
+    setPendingNewChatPermissionMode(null);
+    upsertSessionSummary(session);
+    setNavSelection({ section: 'sessions', filter: 'chats' });
+    setActiveId(session.id);
+    return session.id;
+  }
+
   async function pickAttachments(): Promise<void> {
-    const sessionId = activeIdRef.current;
-    if (!sessionId) return;
     try {
-      const result = await window.maka.attachments.pickAndIngest(sessionId);
-      if (result.ok) {
-        setPendingAttachments((current) => [...current, ...result.attachments]);
-      }
+      const result = await window.maka.attachments.pickFiles();
+      if (!result.ok) return;
+      const sessionId = await ensureAttachmentSession();
+      const attachments = await window.maka.attachments.ingestPaths(sessionId, result.files);
+      setPendingAttachments((current) => [...current, ...attachments]);
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
     }
   }
 
   async function attachFilePaths(files: File[]): Promise<void> {
-    const sessionId = activeIdRef.current;
-    if (!sessionId || files.length === 0) return;
+    if (files.length === 0) return;
     try {
-      const inputs = window.maka.attachments.pathsForFiles(files);
-      if (inputs.length === 0) return;
-      const attachments = await window.maka.attachments.ingestPaths(sessionId, inputs);
+      const sessionId = await ensureAttachmentSession();
+      const attachments = await window.maka.attachments.ingestFiles(sessionId, files);
       setPendingAttachments((current) => [...current, ...attachments]);
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
@@ -1502,8 +1517,8 @@ export function AppShell({
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
                 pendingAttachments={pendingAttachments}
                 onRemoveAttachment={removeAttachment}
-                onPickAttachments={activeId ? pickAttachments : undefined}
-                onAttachFilePaths={activeId ? attachFilePaths : undefined}
+                onPickAttachments={pickAttachments}
+                onAttachFilePaths={attachFilePaths}
                 modelLabel={
                   activeModelLabel
                   ?? newChatModelLabel

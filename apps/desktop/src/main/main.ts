@@ -15,6 +15,7 @@ import {
   isPermissionMode,
   isThinkingLevel,
   thinkingVariantsForModel,
+  resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -57,7 +58,7 @@ import { CodexSubscriptionService } from './oauth/codex-subscription-service.js'
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { PricingConfig } from '@maka/core/usage-stats/types';
+import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
   TestProxyInput,
   TestProxyResult,
@@ -86,6 +87,9 @@ import {
   setActiveProxy,
 } from '@maka/runtime';
 import type {
+  BotIncomingMessage,
+  BotStatus,
+  MakaTool,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -143,7 +147,7 @@ import {
   type AttachmentValidationFailureReason,
 } from './attachment-approval.js';
 import { createAttachmentByteReader } from './attachment-reader.js';
-import { ingestAttachments } from './attachment-ingest.js';
+import { ingestAttachments, type AttachmentIngestFile } from './attachment-ingest.js';
 import { resizeImageForAttachment } from './attachment-resize-native.js';
 import type { AttachmentRef } from '@maka/core';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
@@ -370,14 +374,14 @@ const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
 // and advertise every tool every turn (legacy behavior).
 const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools = [buildRiveWorkflowTool()];
-const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
+const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
+const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // Embedded-browser observe→act tools. They drive the conversation's own
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
-const browserTools = buildBrowserTools();
-const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const browserTools: MakaTool[] = buildBrowserTools();
+const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -387,8 +391,8 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
-const builtinTools = [
-  ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+const builtinTools: MakaTool[] = [
+  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -426,7 +430,7 @@ let botIncoming: ReturnType<typeof createBotIncomingMainService>;
 // project-root resolution is tracked as a follow-up.
 let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
 const botRegistry = new BotRegistry({
-  onIncomingMessage: (message) => {
+  onIncomingMessage: (message: BotIncomingMessage) => {
     // Only log incoming bot messages in dev — production stdout leaking
     // platform + chatId is operational noise at best and a small privacy
     // signal at worst (which bridges are connected, with what frequency).
@@ -435,7 +439,7 @@ const botRegistry = new BotRegistry({
     }
     void botIncoming.handleBotIncomingMessage(message);
   },
-  onStatusChange: (status) => {
+  onStatusChange: (status: BotStatus) => {
     safeSendToRenderer('settings:bots:statusChanged', status);
     // PR-BOT-LASTERROR-FROM-SEND-0: persist send-path failure reasons
     // to settings so they survive a Settings page close/reopen. The
@@ -573,10 +577,15 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
 }
 
+function modelSupportsVision(connection: LlmConnection, model: string): boolean {
+  return resolveModelVisionSupport(connection.providerType, connection.models, model);
+}
+
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
+  const supportsVision = modelSupportsVision(connection, model);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -600,8 +609,8 @@ backends.register('ai-sdk', async (ctx) => {
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     lookupPricing,
-    recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
-    recordToolInvocation: (event) =>
+    recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
+    recordToolInvocation: (event: ToolInvocationRecord) =>
       recordToolInvocation(
         { repo: telemetryRepo },
         // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
@@ -612,10 +621,11 @@ backends.register('ai-sdk', async (ctx) => {
           ? { ...event, argsSummary: undefined }
           : event,
       ),
-    recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
-    archiveToolResult: (event) => persistArchivedToolResult(event),
-    readToolResultArchive: (event) => readArchivedToolResult(event),
+    recordToolArtifacts: (event: ToolArtifactRecorderInput) => persistToolArtifacts(ctx.header.cwd, event),
+    archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
+    readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
     readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
+    supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
@@ -752,6 +762,33 @@ function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReas
     case 'invalid_attachment':
       return '附件信息无效，请重新选择文件后再发送。';
   }
+}
+
+function normalizeAttachmentIngestFiles(files: unknown): AttachmentIngestFile[] {
+  if (!Array.isArray(files)) throw new Error('附件信息无效，请重新选择文件后再发送。');
+  return files.map((file) => normalizeAttachmentIngestFile(file));
+}
+
+function normalizeAttachmentIngestFile(file: unknown): AttachmentIngestFile {
+  if (!file || typeof file !== 'object') throw new Error('附件信息无效，请重新选择文件后再发送。');
+  const record = file as Record<string, unknown>;
+  const mimeType = typeof record.mimeType === 'string' && record.mimeType.length > 0 ? record.mimeType : undefined;
+  const size = typeof record.size === 'number' && Number.isFinite(record.size) && record.size >= 0
+    ? record.size
+    : undefined;
+  if (typeof record.path === 'string' && record.path.length > 0 && size !== undefined) {
+    return { path: record.path, ...(mimeType ? { mimeType } : {}), size };
+  }
+  if (typeof record.name === 'string' && record.name.length > 0 && typeof record.base64 === 'string') {
+    const content = Buffer.from(record.base64, 'base64');
+    return {
+      name: record.name,
+      ...(mimeType ? { mimeType } : {}),
+      size: content.byteLength,
+      content,
+    };
+  }
+  throw new Error('附件信息无效，请重新选择文件后再发送。');
 }
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
@@ -1156,6 +1193,23 @@ function registerIpc(): void {
     void streamEvents(sessionId, iterator, turnId);
   });
   ipcMain.handle(
+    'attachments:pickFiles',
+    async (): Promise<
+      | { ok: true; files: { path: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > => {
+      const result = await mainWindowController.showOpenDialog({
+        title: '添加附件',
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
+      const files = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, size: (await stat(path)).size })),
+      );
+      return { ok: true, files };
+    },
+  );
+  ipcMain.handle(
     'attachments:pickAndIngest',
     async (_event, sessionId: string): Promise<
       | { ok: true; attachments: AttachmentRef[] }
@@ -1192,6 +1246,24 @@ function registerIpc(): void {
       if (!header) throw new Error('无法读取会话工作目录。');
       return ingestAttachments({
         files,
+        cwd: header.cwd,
+        sessionId,
+        artifactStore,
+        resizeImage: resizeImageForAttachment,
+      });
+    },
+  );
+  ipcMain.handle(
+    'attachments:ingestFiles',
+    async (
+      _event,
+      sessionId: string,
+      files: unknown,
+    ): Promise<AttachmentRef[]> => {
+      const header = await store.readHeader(sessionId).catch(() => null);
+      if (!header) throw new Error('无法读取会话工作目录。');
+      return ingestAttachments({
+        files: normalizeAttachmentIngestFiles(files),
         cwd: header.cwd,
         sessionId,
         artifactStore,

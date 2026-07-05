@@ -165,7 +165,7 @@ describe('task ledger contract', () => {
         update: async () => ({ updated: {} as Task, total: 0 }),
       },
     });
-    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
+    assert.deepEqual(tools.map((t: { name: string }) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
     for (const tool of tools) {
       assert.equal(tool.permissionRequired, false, `${tool.name} must not require permission`);
     }

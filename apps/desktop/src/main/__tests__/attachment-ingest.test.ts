@@ -35,6 +35,39 @@ describe('ingestAttachments', () => {
     }
   });
 
+  test('pasted image blob without a file path snapshots from provided bytes', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'att-clip-'));
+    try {
+      const store = createArtifactStore(dir);
+      const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+      let resizeCalls = 0;
+      const refs = await ingestAttachments({
+        files: [{
+          name: 'clipboard.png',
+          mimeType: 'image/png',
+          size: imageBytes.length,
+          content: imageBytes,
+        } as never],
+        cwd: dir,
+        sessionId: 's1',
+        artifactStore: store,
+        resizeImage: async (b) => {
+          resizeCalls += 1;
+          return b;
+        },
+      });
+      assert.equal(refs.length, 1);
+      assert.equal(refs[0].kind, 'image');
+      assert.equal(refs[0].name, 'clipboard.png');
+      assert.equal(refs[0].mimeType, 'image/png');
+      assert.equal(refs[0].bytes, imageBytes.length);
+      assert.equal(refs[0].ref.kind, 'session_file');
+      assert.equal(resizeCalls, 1);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('workspace non-image: returns workspace_file ref without copying or resizing', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'att-ws-'));
     try {

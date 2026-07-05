@@ -18,6 +18,7 @@ export async function persistArchivedToolResultToArtifacts(
       sessionId: event.sessionId,
       bodySha256: event.bodySha256,
       originalBytes: event.originalBytes,
+      maxBytes: event.originalBytes,
     });
     if (!read.ok) throw new Error(`tool result archive artifact id conflict: ${read.reason}`);
     return { artifactId: id };

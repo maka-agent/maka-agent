@@ -141,12 +141,13 @@ export async function loadHistoryCompactBlocksFromArtifacts(
       incrementHistoryCompactCount(skippedReasonCounts, 'invalid_schema_version');
       continue;
     }
-    const estimatedTokens = parsed.estimatedTokens ?? estimateTokens(read.text.length, 4);
+    const block = parsed as HistoryCompactBlock;
+    const estimatedTokens = block.estimatedTokens ?? estimateTokens(read.text.length, 4);
     if (estimatedTokens > maxEstimatedTokens) {
       incrementHistoryCompactCount(skippedReasonCounts, 'max_total_tokens');
       continue;
     }
-    blocks.push({ ...parsed, estimatedTokens });
+    blocks.push({ ...block, estimatedTokens });
   }
   const skipped = Object.values(skippedReasonCounts).reduce((total, count) => total + count, 0);
   return {
