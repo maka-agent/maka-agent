@@ -11,9 +11,12 @@ import type React from "react";
 //
 // Usage:
 //   <Tooltip>
-//     <TooltipTrigger asChild><Button>…</Button></TooltipTrigger>
+//     <TooltipTrigger render={<Button />}>…</TooltipTrigger>
 //     <TooltipContent>{label}</TooltipContent>
 //   </Tooltip>
+//
+// Base UI v1 uses the `render` prop (not Radix `asChild`): the Trigger merges
+// its own props + children into the rendered element.
 //
 // TooltipContent collapses Portal + Positioner + Popup (the same shape
 // DialogContent uses for the dialog) so the call site is one component. The

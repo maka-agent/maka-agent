@@ -62,10 +62,9 @@ export * from './primitives/settings-switch.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
 export {
-  Collapsible as PrimitiveCollapsible,
-  CollapsibleTrigger as PrimitiveCollapsibleTrigger,
-  CollapsiblePanel as PrimitiveCollapsiblePanel,
-  CollapsiblePrimitive as PrimitiveCollapsiblePrimitive,
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsiblePanel,
 } from './primitives/collapsible.js';
 export {
   Tooltip,
