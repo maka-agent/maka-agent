@@ -18,7 +18,8 @@
  * a named value, not a magic number, so tokenizing it adds indirection
  * with no governance benefit. CSS-triangle carets (`border-width: 4px 0
  * 4px 5px`) are multi-value geometry, not border strokes, so the contract
- * only flags a SINGLE bare-px width.
+ * allows them only on allowlisted caret selectors (TRIANGLE_CARET_SELECTORS)
+ * and flags any bare px — single OR multi-value — elsewhere.
  *
  * Four invariants:
  *
