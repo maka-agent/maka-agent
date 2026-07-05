@@ -283,7 +283,6 @@ export function NewChatModelPicker(props: {
     >
       <span className="maka-composer-model-chip-text">{props.label}</span>
       {props.thinkingLevel && <span className="maka-thinking-level-tag">{thinkingLevelLabel(props.thinkingLevel)}</span>}
-      <span className="maka-composer-model-status" aria-hidden="true" />
       {/* ModelPicker's trigger already renders a chevron — no manual one. */}
     </ModelPicker>
   );
