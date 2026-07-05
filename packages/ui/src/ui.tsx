@@ -341,7 +341,7 @@ export const SelectItem = forwardRef<HTMLDivElement, React.ComponentPropsWithout
 
 // =============================================================
 // Combobox — a Select-shaped trigger button whose popup embeds a
-// search `<input>` above the (optionally grouped) item list. Used
+// search input above the (optionally grouped) item list. Used
 // for pickers with long/filterable option lists (e.g. the model
 // picker) where a plain Select's typeahead isn't enough. Same
 // forwardRef + `cn(...)` wrapping recipe as the Select block above.

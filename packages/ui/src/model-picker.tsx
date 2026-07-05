@@ -5,8 +5,8 @@
  * between the two surfaces (same governance goal as `PermissionModeMenuPopup`
  * in `permission-mode-menu.tsx`).
  *
- * Built on Base UI's `Combobox` (button trigger + popup-internal search
- * `<input>`) rather than `Select`, because `Select`'s built-in typeahead
+ * Built on Base UI's `Combobox` (button trigger + popup-internal search input)
+ * rather than `Select`, because `Select`'s built-in typeahead
  * isn't enough once a connection has dozens of catalog models.
  * `@maka/ui` stays icon-agnostic: `renderProviderMark` is supplied by the
  * desktop app, same convention as `ChatModelSwitcher`/`NewChatModelPicker`.
