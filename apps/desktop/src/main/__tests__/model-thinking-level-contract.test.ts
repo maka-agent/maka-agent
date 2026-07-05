@@ -5,17 +5,25 @@ import { describe, it } from 'node:test';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
-async function readChatModelSwitcherSource(): Promise<string> {
-  return readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-model-switcher.tsx'), 'utf8');
+async function readModelPickerSources(): Promise<string> {
+  const [switcher, picker] = await Promise.all([
+    readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-model-switcher.tsx'), 'utf8'),
+    readFile(resolve(REPO_ROOT, 'packages/ui/src/model-picker.tsx'), 'utf8'),
+  ]);
+  return `${switcher}\n${picker}`;
 }
 
-async function readModelSwitcherCss(): Promise<string> {
-  return readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/model-switcher.css'), 'utf8');
+async function readModelPickerCss(): Promise<string> {
+  const [switcher, settingsSelect] = await Promise.all([
+    readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/model-switcher.css'), 'utf8'),
+    readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/settings-select.css'), 'utf8'),
+  ]);
+  return `${switcher}\n${settingsSelect}`;
 }
 
 describe('model thinking-level picker contract', () => {
   it('labels thinking efforts in Chinese', async () => {
-    const source = await readChatModelSwitcherSource();
+    const source = await readModelPickerSources();
 
     assert.match(source, /minimal:\s*'最小'/, 'minimal reasoning effort should render as 最小');
     assert.match(source, /low:\s*'低'/, 'low reasoning effort should render as 低');
@@ -26,24 +34,24 @@ describe('model thinking-level picker contract', () => {
   });
 
   it('renders model picker popups as a fixed shell, a scrollable model list, and a footer action', async () => {
-    const source = await readChatModelSwitcherSource();
-    const css = await readModelSwitcherCss();
+    const source = await readModelPickerSources();
+    const css = await readModelPickerCss();
 
-    assert.match(source, /function ModelPickerPopup\(/, 'model picker popup layout must be named, not an inline SelectPopup shape');
-    assert.match(source, /function ModelPickerList\(/, 'model picker list layout must be named, not an inline SelectList shape');
-    assert.equal(source.match(/<ModelPickerPopup>/g)?.length, 2, 'both model pickers must use the fixed popup shell');
-    assert.equal(source.match(/<ModelPickerList>/g)?.length, 2, 'both model pickers must put only model rows in the scrollable list');
+    assert.match(source, /footer\?\(context: \{ open: boolean; close\(\): void \}\): ReactNode;/, 'ModelPicker must expose a static footer slot');
+    assert.match(source, /<BaseCombobox\.List className="modelPickerList">/, 'only the model rows render in the Base UI Combobox list');
+    assert.match(source, /props\.footer\?\.\(\{[\s\S]*open,[\s\S]*close: \(\) => \{[\s\S]*setOpen\(false\);[\s\S]*setQuery\(''\);/, 'closing through the footer must clear the search query');
+    assert.equal(source.match(/footer=\{\(\{ open, close \}\) => \(/g)?.length, 2, 'both model pickers must render the thinking section through ModelPicker footer');
     assert.doesNotMatch(source, /<SelectPopup className="settingsSelectMenuPopup">/, 'model pickers should not use the generic scrolling select popup directly');
     assert.doesNotMatch(source, /<SelectList>/, 'model pickers should not let the generic SelectList own this popup scroll');
 
     assert.match(
       css,
-      /\.maka-model-picker-popup \{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;[\s\S]*?overflow:\s*hidden;[\s\S]*?padding:\s*0;[\s\S]*?\}/,
+      /\.modelPickerPopup \{[\s\S]*?display:\s*flex;[\s\S]*?flex-direction:\s*column;[\s\S]*?overflow:\s*hidden;[\s\S]*?\}/,
       'the model picker popup shell must not scroll; it owns chrome and clips the list',
     );
     assert.match(
       css,
-      /\.maka-model-picker-list \{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?padding:\s*var\(--space-2\);[\s\S]*?\}/,
+      /\.modelPickerList \{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?\}/,
       'only the model list should scroll inside the fixed popup shell',
     );
     assert.match(
@@ -56,29 +64,37 @@ describe('model thinking-level picker contract', () => {
   });
 
   it('renders the side flyout as a Base UI Menu anchored to the row', async () => {
-    const source = await readChatModelSwitcherSource();
+    const source = await readModelPickerSources();
 
-    // The flyout is a Base UI Menu (not a hand-rolled portaled div): MenuRoot
-    // owns open state, MenuTrigger render-props the row so it stays the visible
-    // button inside the host Select popup, MenuPopup is the portaled flyout,
-    // and levels are MenuItems. floating-ui handles positioning/stacking/dismiss.
     assert.match(source, /<Menu\s+open=\{open\}\s+onOpenChange=\{setOpen\}>/, 'flyout must be a controlled Base UI Menu');
     assert.match(source, /<MenuTrigger[\s\S]*?render=\{\(triggerProps\) =>/, 'trigger must render-prop the row div');
-    assert.match(source, /<MenuPopup\s+className="maka-thinking-flyout"/, 'flyout popup uses MenuPopup');
+    assert.match(source, /<MenuPopup[\s\S]*className="maka-thinking-flyout"/, 'flyout popup uses MenuPopup');
     assert.match(
       source,
-      /<MenuPopup\s+className="maka-thinking-flyout"\s+align="start"\s+side="inline-end"\s+sideOffset=\{8\}>/,
+      /<MenuPopup[\s\S]*className="maka-thinking-flyout"[\s\S]*align="start"[\s\S]*side="inline-end"[\s\S]*sideOffset=\{8\}/,
       'flyout side offset must match the host popup padding so it starts at the popup outer edge, not inside it',
     );
     assert.match(source, /<MenuItem[\s\S]*?onClick=\{\(\) => choose\(/, 'levels render as MenuItems that call choose');
-    // No hand-rolled positioning/commit hacks remain — Menu handles them.
     assert.doesNotMatch(source, /onPointerDownCapture/, 'no pointerdown commit hack — Menu handles dismiss');
     assert.doesNotMatch(source, /THINKING_FLYOUT_VIEWPORT_MARGIN/, 'no hand-rolled viewport clamp — floating-ui positions');
     assert.doesNotMatch(source, /createPortal/, 'no manual portal — MenuPortal does it');
   });
 
+  it('does not swallow ordinary outside presses while protecting clicks inside the portaled thinking flyout', async () => {
+    const source = await readModelPickerSources();
+
+    assert.doesNotMatch(
+      source,
+      /if \(!open && details\.reason === 'outside-press'\) return;/,
+      'model pickers must not make every outside press a no-op; ordinary outside clicks should close the picker',
+    );
+    assert.match(source, /target\.closest\('\[data-model-picker-nested-popup\]'\)/, 'outside-press protection must be target-specific to nested portaled popups');
+    assert.match(source, /data-model-picker-nested-popup=""/, 'the thinking flyout marks itself as a nested model-picker popup');
+    assert.match(source, /details\.cancel\(\);/, 'guarded flyout presses should cancel Base UI closing instead of ignoring all outside presses');
+  });
+
   it('closes the host model menu after a thinking-level choice commits', async () => {
-    const source = await readChatModelSwitcherSource();
+    const source = await readModelPickerSources();
 
     assert.match(source, /onCommit\?\(\): void;/, 'ThinkingLevelSection must expose a commit hook');
     assert.match(
@@ -92,19 +108,19 @@ describe('model thinking-level picker contract', () => {
     for (const section of sections) {
       assert.match(
         section,
-        /onCommit=\{\(\) => setSelectOpen\(false\)\}/,
-        'each caller closes its owning SelectRoot after a thinking-level choice',
+        /onCommit=\{close\}/,
+        'each caller closes its owning ModelPicker after a thinking-level choice',
       );
     }
   });
 
-  it('closes the flyout when the host Select closes', async () => {
-    const source = await readChatModelSwitcherSource();
+  it('closes the flyout when the host ModelPicker closes', async () => {
+    const source = await readModelPickerSources();
 
     assert.match(
       source,
       /if \(!props\.parentOpen\) setOpen\(false\)/,
-      'flyout must close when the host Select closes so the portaled Menu is not orphaned',
+      'flyout must close when the host ModelPicker closes so the portaled Menu is not orphaned',
     );
   });
 });
