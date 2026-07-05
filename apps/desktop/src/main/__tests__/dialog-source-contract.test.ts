@@ -32,7 +32,6 @@ const SCAN_ROOTS = [
 const PENDING_DRAWER_MIGRATION = new Set<string>([
   'apps/desktop/src/renderer/settings/provider-config-sheet.tsx',
   'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
-  'apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx',
 ]);
 
 const FORBIDDEN_PATTERNS: Array<{ name: string; re: RegExp }> = [
