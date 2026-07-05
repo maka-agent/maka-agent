@@ -20,7 +20,7 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
     return this.tasks.map((t) => ({ ...t }));
   }
 
-  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; all: Task[] }> {
+  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; total: number }> {
     this.createCalls.push({ sessionId, drafts });
     const now = Date.now();
     const created = (drafts as Array<{ subject: string }>).map((d, i) => ({
@@ -31,15 +31,15 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
       updatedAt: now,
     }));
     this.tasks.push(...created);
-    return { created, all: await this.list() };
+    return { created, total: this.tasks.length };
   }
 
-  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; all: Task[] }> {
+  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; total: number }> {
     this.updateCalls.push({ sessionId, id, patch });
     const task = this.tasks.find((t) => t.id === id);
     if (!task) throw new Error(`No such task: ${id}`);
     Object.assign(task, patch, { updatedAt: Date.now() });
-    return { updated: { ...task }, all: await this.list() };
+    return { updated: { ...task }, total: this.tasks.length };
   }
 }
 

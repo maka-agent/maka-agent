@@ -17,17 +17,17 @@ function tasksFilePath(root: string): string {
 }
 
 describe('TaskLedgerStore', () => {
-  it('creates tasks with normalized subjects and pending status, returning the full ledger', async () => {
+  it('creates tasks with normalized subjects and pending status, returning created tasks and the new total', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
 
-    const { created, all } = await store.create(SESSION_ID, [{ subject: '  写测试 ' }, { subject: '实现功能' }]);
+    const { created, total } = await store.create(SESSION_ID, [{ subject: '  写测试 ' }, { subject: '实现功能' }]);
     assert.equal(created.length, 2);
     assert.equal(created[0]?.subject, '写测试');
     assert.equal(created[0]?.status, 'pending');
     assert.equal(typeof created[0]?.id, 'string');
     assert.equal(created[0]?.createdAt, created[0]?.updatedAt);
-    assert.deepEqual(all, created);
+    assert.equal(total, 2);
 
     const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);
     assert.equal(reloaded.length, 2);
@@ -42,20 +42,22 @@ describe('TaskLedgerStore', () => {
     assert.deepEqual(await createTaskLedgerStore(root).list(SESSION_ID), []);
   });
 
-  it('updates a task status and subject, returning the updated task and full ledger', async () => {
+  it('updates a task status and subject, returning the updated task and the new total', async () => {
     const root = await tempRoot();
     const store = createTaskLedgerStore(root);
-    const { created: [task], all: afterCreate } = await store.create(SESSION_ID, [{ subject: '原始' }, { subject: '其他' }]);
+    const { created: [task], total: afterCreate } = await store.create(SESSION_ID, [{ subject: '原始' }, { subject: '其他' }]);
     assert.ok(task);
-    assert.equal(afterCreate.length, 2);
+    assert.equal(afterCreate, 2);
 
-    const { updated, all } = await store.update(SESSION_ID, task.id, { status: 'in_progress', subject: '改过' });
+    const { updated, total } = await store.update(SESSION_ID, task.id, { status: 'in_progress', subject: '改过' });
     assert.equal(updated.status, 'in_progress');
     assert.equal(updated.subject, '改过');
     assert.ok(updated.updatedAt >= task.updatedAt);
     assert.equal(updated.createdAt, task.createdAt);
-    // `all` is the post-mutation ledger computed inside the write queue.
-    assert.equal(all.length, 2);
+    // total is the post-mutation count from inside the write queue; re-read the
+    // ledger to verify the updated task landed and the file matches it.
+    assert.equal(total, 2);
+    const all = await store.list(SESSION_ID);
     assert.deepEqual(all.find((t) => t.id === task.id), updated);
 
     const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);

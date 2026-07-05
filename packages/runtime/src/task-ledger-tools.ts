@@ -37,13 +37,13 @@ function buildTaskCreateTool(store: TaskLedgerStore): MakaTool<{ tasks: Array<{ 
     // Pure local session state, no external side effect (cf. agent_list).
     permissionRequired: false,
     impl: async (input, ctx) => {
-      const { created, all } = await store.create(ctx.sessionId, input.tasks);
+      const { created, total } = await store.create(ctx.sessionId, input.tasks);
       // Tool results persist into session history and replay every turn; the
       // turn tail already re-injects the full ledger each turn, so the tool
       // result only echoes the created tasks (with their ids, so the model can
       // update them next) and the new total -- not the whole ledger, which would
       // duplicate the tail and bloat history under a large ledger.
-      return `Created ${created.length} task(s); ledger total: ${all.length}.\n${renderSafeTaskLedgerText(created)}`;
+      return `Created ${created.length} task(s); ledger total: ${total}.\n${renderSafeTaskLedgerText(created)}`;
     },
   };
 }
@@ -72,11 +72,11 @@ function buildTaskUpdateTool(
     }),
     permissionRequired: false,
     impl: async (input, ctx) => {
-      const { updated, all } = await store.update(ctx.sessionId, input.id, {
+      const { updated, total } = await store.update(ctx.sessionId, input.id, {
         ...(input.status !== undefined ? { status: input.status } : {}),
         ...(input.subject !== undefined ? { subject: input.subject } : {}),
       });
-      return `Updated 1 task; ledger total: ${all.length}.\n${renderSafeTaskLedgerText([updated])}`;
+      return `Updated 1 task; ledger total: ${total}.\n${renderSafeTaskLedgerText([updated])}`;
     },
   };
 }

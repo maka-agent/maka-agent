@@ -40,8 +40,8 @@ export interface Task {
  */
 export interface TaskLedgerStore {
   list(sessionId: string): Promise<Task[]>;
-  create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; all: Task[] }>;
-  update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; all: Task[] }>;
+  create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; total: number }>;
+  update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; total: number }>;
 }
 
 export interface CreateTaskInput {

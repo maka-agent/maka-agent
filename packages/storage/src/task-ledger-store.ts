@@ -33,7 +33,7 @@ class FileTaskLedgerStore implements TaskLedgerStore {
     return this.readForRender(sessionId);
   }
 
-  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; all: Task[] }> {
+  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; total: number }> {
     assertSafeSessionId(sessionId);
     if (!Array.isArray(drafts) || drafts.length === 0) {
       throw new Error('TaskCreate requires at least one task draft');
@@ -74,10 +74,10 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       }
       return [...tasks, ...created];
     });
-    return { created, all };
+    return { created, total: all.length };
   }
 
-  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; all: Task[] }> {
+  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; total: number }> {
     assertSafeSessionId(sessionId);
     const normalized = normalizeUpdateTaskInput(patch);
     if (!normalized.ok) throw new Error(normalized.message);
@@ -100,7 +100,7 @@ class FileTaskLedgerStore implements TaskLedgerStore {
       return next;
     });
     if (!updated) throw new Error(`No such task: ${id}`);
-    return { updated, all };
+    return { updated, total: all.length };
   }
 
   private filePath(sessionId: string): string {

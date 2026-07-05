@@ -161,8 +161,8 @@ describe('task ledger contract', () => {
     const tools = buildTaskLedgerTools({
       store: {
         list: async () => [],
-        create: async () => ({ created: [], all: [] }),
-        update: async () => ({ updated: {} as Task, all: [] }),
+        create: async () => ({ created: [], total: 0 }),
+        update: async () => ({ updated: {} as Task, total: 0 }),
       },
     });
     assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
