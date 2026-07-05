@@ -138,7 +138,7 @@ html[data-os="darwin"] .maka-session-panel-footer {
        `5d3b10e5`). The 50% glass base on the panel already provides
        material depth; the footer only needs a hairline border-top
        to separate it from the scroll area. No gradient. No seam. */
-    border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
+    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.05);
     background: oklch(from var(--surface-canvas) l c h / 0.15);
   }
 

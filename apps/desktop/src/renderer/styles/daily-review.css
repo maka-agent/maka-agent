@@ -7,7 +7,7 @@
     width: 100%;
     margin-inline: auto;
     background: var(--card-bg);
-    border: 1px solid var(--card-border-color);
+    border: var(--border-width-hairline) solid var(--card-border-color);
     border-radius: var(--radius-surface);
     box-shadow:
       var(--card-shadow),
@@ -23,7 +23,7 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
-    border-bottom: 1px solid var(--foreground-10);
+    border-bottom: var(--border-width-hairline) solid var(--foreground-10);
   }
 
 .maka-daily-review-header-time {
@@ -67,7 +67,7 @@
   justify-content: flex-end;
   gap: var(--space-2);
   padding: var(--space-0-5) 0 var(--space-1-5);
-  border-bottom: 1px solid var(--foreground-10);
+  border-bottom: var(--border-width-hairline) solid var(--foreground-10);
 }
 
 .maka-daily-review-model-select {
@@ -87,7 +87,7 @@
     display: grid;
     gap: var(--space-1-5);
     padding: var(--space-2) 0 var(--space-2-5);
-    border-bottom: 1px solid var(--foreground-10);
+    border-bottom: var(--border-width-hairline) solid var(--foreground-10);
   }
 
 .maka-daily-review-archives-header {
@@ -130,7 +130,7 @@
 
 .maka-daily-review-archive-row {
   appearance: none;
-  border: 1px solid transparent;
+  border: var(--border-width-hairline) solid transparent;
   border-radius: var(--radius-control);
   background: transparent;
   color: inherit;
@@ -178,7 +178,7 @@
     gap: var(--space-2);
     min-width: 0;
     padding: var(--space-2-5) var(--space-3);
-    border: 1px solid var(--card-border-color);
+    border: var(--border-width-hairline) solid var(--card-border-color);
     border-radius: var(--radius-surface);
     background: oklch(from var(--foreground) l c h / 0.025);
     box-shadow: var(--card-highlight);
@@ -216,7 +216,7 @@
 
 .maka-daily-review-archive-status {
     flex: none;
-    border: 1px solid var(--foreground-10);
+    border: var(--border-width-hairline) solid var(--foreground-10);
     border-radius: var(--radius-pill);
     color: var(--muted-foreground);
     font-size: var(--font-size-caption);
@@ -259,7 +259,7 @@
   }
 
 .maka-daily-review-archive-section + .maka-daily-review-archive-section {
-    border-top: 1px solid var(--foreground-10);
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
     padding-top: var(--space-3);
   }
 
@@ -343,7 +343,7 @@
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-2-5);
-    border: 1px solid oklch(from var(--warning, var(--info)) l c h / 0.3);
+    border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.3);
     border-radius: var(--radius-surface);
     background: oklch(from var(--warning, var(--info)) l c h / 0.08);
     color: var(--warning-text, var(--foreground));
@@ -407,7 +407,7 @@
     display: grid;
     gap: var(--space-2);
     padding: var(--space-3) 0 0;
-    border-top: 1px solid oklch(from var(--foreground) l c h / 0.07);
+    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
   }
 .maka-daily-review-section:first-of-type {
     border-top: 0;

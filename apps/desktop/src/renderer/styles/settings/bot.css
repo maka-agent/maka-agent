@@ -2,7 +2,7 @@
   display: grid;
   align-content: start;
   gap: var(--space-1-5);
-  border-right: 1px solid var(--border);
+  border-right: var(--border-width-hairline) solid var(--border);
   padding-right: var(--space-4);
 }
 
@@ -59,7 +59,7 @@
   opacity: 1;
 }
 .settingsBotList button[data-support="planned"] em {
-  border: 1px solid var(--foreground-10);
+  border: var(--border-width-hairline) solid var(--foreground-10);
   border-radius: var(--radius-pill);
   padding: 0 var(--space-1-5);
   color: var(--muted-foreground);
@@ -139,7 +139,7 @@
     gap: var(--space-3);
     border-radius: var(--radius-surface);
     background: color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 7%, var(--background));
-    border: 1px solid color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 14%, transparent);
+    border: var(--border-width-hairline) solid color-mix(in srgb, var(--bot-brand-color, var(--bot-brand-default)) 14%, transparent);
     padding: var(--space-4) var(--space-4);
   }
 .settingsBotHero[data-support="planned"] {
@@ -222,7 +222,7 @@
   }
 .settingsBotStatusGrid div {
     min-height: 52px;
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     padding: var(--space-2-5) var(--space-3);
@@ -244,7 +244,7 @@
     word-break: break-word;
   }
 .settingsBotReason {
-    border-left: 2px solid var(--focus-ring);
+    border-left: var(--border-width-thick) solid var(--focus-ring);
     color: var(--foreground-secondary);
     font-size: var(--font-size-ui);
     line-height: var(--leading-normal);
@@ -378,7 +378,7 @@
   width: 100%;
   border-collapse: collapse;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   font-size: var(--font-size-caption);
 }
@@ -386,7 +386,7 @@
 .settingsStatsTable th,
 .settingsStatsTable td {
   font-variant-numeric: tabular-nums;
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--border-width-hairline) solid var(--border);
   color: var(--foreground-secondary);
   padding: var(--space-1) var(--space-2);
   text-align: left;
@@ -426,7 +426,7 @@
   gap: var(--space-4);
   padding: var(--space-4) var(--space-5);
   border: 0;
-  border-bottom: 1px solid oklch(from var(--foreground) l c h / 0.06);
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
   border-radius: 0;
   background: transparent;
   transition: background var(--duration-base) var(--ease-out-strong);
@@ -449,7 +449,7 @@
 .settingsRows {
   display: grid;
   gap: 0;
-  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
   border-radius: var(--radius-surface);
   overflow: hidden;
 }

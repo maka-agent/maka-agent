@@ -84,7 +84,7 @@
      + maka-tokens.css --card-*) at the 12px workspace-plate ceiling.
      The composer reads as a hero card, but radius must still stay within
      the shared chrome vocabulary locked by radius-converge-contract. */
-  border: 1px solid var(--card-border-color);
+  border: var(--border-width-hairline) solid var(--card-border-color);
   border-radius: var(--radius-modal);
   padding: var(--space-2-5) var(--space-3) var(--space-2);
   background: var(--card-bg);
@@ -144,7 +144,7 @@
   font-size: var(--font-size-caption);
   padding: 1px var(--space-1);
   background: var(--foreground-3);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
 }
 
 .composerActions {
@@ -194,7 +194,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  border: 1px solid var(--color-border-tertiary);
+  border: var(--border-width-hairline) solid var(--color-border-tertiary);
   border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
   background: oklch(from var(--background) l c h / 0.82);
@@ -352,7 +352,7 @@
 .maka-composer-context-plus {
   width: 26px;
   height: 26px;
-  border: 1px solid color-mix(in oklch, var(--foreground) 20%, var(--background));
+  border: var(--border-width-hairline) solid color-mix(in oklch, var(--foreground) 20%, var(--background));
   border-radius: var(--radius-pill);
   background: transparent;
 }

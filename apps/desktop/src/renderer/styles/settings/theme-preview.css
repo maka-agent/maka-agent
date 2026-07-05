@@ -11,7 +11,7 @@
 .settingsUsageFilters select {
   min-width: 0;
   min-height: 34px;
-  border: 1px solid oklch(from var(--foreground) l c h / 0.12);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.12);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
@@ -140,7 +140,7 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid oklch(from var(--success) l c h / 0.24);
+  border: var(--border-width-hairline) solid oklch(from var(--success) l c h / 0.24);
   border-radius: var(--radius-surface);
   background: oklch(from var(--success) l c h / 0.04);
 }
@@ -183,7 +183,7 @@
   height: auto;
   min-height: 48px;
   justify-content: stretch;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background-elevated);
   color: var(--foreground);
@@ -210,13 +210,13 @@
   aspect-ratio: 16 / 8;
   border-radius: var(--radius-surface);
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   display: flex;
   background: var(--foreground-5);
 }
 
 .settingsThemePreviewSplit > .settingsThemePreviewPane:first-child {
-  border-right: 1px solid var(--border);
+  border-right: var(--border-width-hairline) solid var(--border);
 }
 
 .settingsThemePreviewPane {
@@ -244,12 +244,12 @@
 
 .settingsThemePreviewPane[data-mode="light"] .settingsThemePreviewSidebar {
   background: oklch(0.955 0 0);
-  border-right: 1px solid oklch(0.88 0 0);
+  border-right: var(--border-width-hairline) solid oklch(0.88 0 0);
 }
 
 .settingsThemePreviewPane[data-mode="dark"] .settingsThemePreviewSidebar {
   background: oklch(0.13 0 0);
-  border-right: 1px solid oklch(0.26 0 0);
+  border-right: var(--border-width-hairline) solid oklch(0.26 0 0);
 }
 
 .settingsThemePreviewChat {
@@ -315,7 +315,7 @@
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  border: 2px solid var(--border);
+  border: var(--border-width-thick) solid var(--border);
   box-shadow: inset 0 0 0 2px oklch(1 0 0 / 0.25);
   /* Fallback in case a swatch name has no per-palette rule below
      (e.g. a new palette landed in `THEME_PALETTES` but its swatch
@@ -420,7 +420,7 @@
   min-width: 110px;
   min-height: 36px;
   padding: 0 var(--space-6);
-  border: 1px solid oklch(from var(--accent) l c h / 0.45);
+  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.45);
   border-radius: var(--radius-pill);
   background: transparent;
   color: var(--accent);
@@ -459,7 +459,7 @@
   padding: var(--space-2-5) var(--space-3);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
-  border: 1px solid oklch(from var(--info) l c h / 0.18);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.18);
   color: var(--info-text);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
@@ -475,7 +475,7 @@
    compact dialog centered above the backdrop with the QR + status. */
 .settingsBotScanLoginModal {
   background: var(--background);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-modal);
   padding: var(--space-3) var(--space-4);
   width: min(320px, 92vw);
@@ -507,7 +507,7 @@
   border-radius: var(--radius-surface);
   background: white;
   padding: var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   object-fit: contain;
 }
 .settingsBotScanLoginQrPlaceholder {
@@ -517,7 +517,7 @@
   place-items: center;
   border-radius: var(--radius-surface);
   background: var(--foreground-5);
-  border: 1px dashed var(--border);
+  border: var(--border-width-hairline) dashed var(--border);
   color: var(--muted-foreground);
   font-size: 1.6em;
 }
@@ -562,7 +562,7 @@
   flex-direction: column;
   gap: var(--space-3);
   padding-left: var(--space-3);
-  border-left: 2px solid var(--border);
+  border-left: var(--border-width-thick) solid var(--border);
 }
 
 .settingsWechatQrBackdrop {
@@ -580,7 +580,7 @@
   width: min(360px, calc(100vw - 40px));
   display: grid;
   gap: var(--space-4);
-  border: 1px solid color-mix(in srgb, #07C160 18%, var(--border));
+  border: var(--border-width-hairline) solid color-mix(in srgb, #07C160 18%, var(--border));
   border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow:
@@ -643,7 +643,7 @@
   height: 224px;
   display: grid;
   place-items: center;
-  border: 1px solid color-mix(in srgb, #07C160 20%, var(--border));
+  border: var(--border-width-hairline) solid color-mix(in srgb, #07C160 20%, var(--border));
   border-radius: var(--radius-surface);
   background: white;
   padding: var(--space-3);
@@ -663,7 +663,7 @@
   place-items: center;
   align-content: center;
   gap: var(--space-2-5);
-  border: 1px dashed var(--border);
+  border: var(--border-width-hairline) dashed var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
   color: var(--foreground-secondary);
@@ -697,7 +697,7 @@
 
 .settingsWechatQrSecondary {
   min-height: 30px;
-  border: 1px solid oklch(from var(--accent) l c h / 0.34);
+  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.34);
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--accent);

@@ -10,7 +10,7 @@ test('startup onboarding loading slot paints visible skeleton chrome', () => {
   const block = css.match(/\.maka-onboarding-loading\s*\{[\s\S]*?\n\}/)?.[0] ?? '';
 
   assert.match(block, /background:\s*var\(--foreground-5\)/);
-  assert.match(block, /border:\s*1px solid var\(--border-strong\)/);
+  assert.match(block, /border:\s*var\(--border-width-hairline\) solid var\(--border-strong\)/);
   assert.match(block, /box-shadow:/);
   assert.match(css, /var\(--foreground-8\)/);
   assert.match(css, /\.maka-onboarding-loading::before\s*\{/);

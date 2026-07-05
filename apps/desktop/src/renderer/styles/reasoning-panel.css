@@ -10,7 +10,7 @@
   ============================================================================= */
 .maka-reasoning-panel {
     margin: var(--space-1) 0 var(--space-2);
-    border: 1px solid oklch(from var(--info) l c h / 0.22);
+    border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.22);
     border-radius: var(--radius-surface);
     background: oklch(from var(--info) l c h / 0.04);
     overflow: hidden;
@@ -81,7 +81,7 @@
 .maka-reasoning-panel-truncated[data-truncated="true"] {
     font-size: var(--font-size-caption);
     color: var(--warning-text, var(--info-text));
-    border: 1px solid oklch(from var(--warning) l c h / 0.24);
+    border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.24);
     background: oklch(from var(--warning) l c h / 0.05);
     border-radius: var(--radius-control);
     padding: 0 var(--space-1);
@@ -103,7 +103,7 @@
 .maka-reasoning-panel-body {
     margin: 0;
     padding: var(--space-1-5) var(--space-2-5) var(--space-2);
-    border-top: 1px solid oklch(from var(--info) l c h / 0.14);
+    border-top: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.14);
     background: transparent;
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
