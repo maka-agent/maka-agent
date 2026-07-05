@@ -37,21 +37,21 @@ const UI_FILE = resolve(REPO_ROOT, 'packages/ui/src/ui.tsx');
 const ALLOWED_BARE: ReadonlyArray<{ pattern: string; count: number; reason: string }> = [
   {
     pattern: 'z-40',
-    count: 2,
+    count: 1,
     reason:
-      'dialog + alert-dialog backdrop scrim layer; sits below the popup at z-50. AlertDialogBackdrop shares the hook (PR6 #520). Equivalent to --z-titlebar (40) by value but semantically distinct, so not yet tokenized.',
+      'dialog + alert-dialog backdrop scrim layer (single MODAL_BACKDROP_CLASS constant shared via createModalContent); sits below the popup at z-50. Equivalent to --z-titlebar (40) by value but semantically distinct, so not yet tokenized.',
   },
   {
     pattern: 'z-50',
-    count: 2,
+    count: 1,
     reason:
-      'dialog popup (DialogContent). The previously z-50 floating-overlay surfaces (TooltipPopup, SelectPopup, PopoverPopup) were tokenized to `z-[var(--z-overlay)]` so a Select opened from inside a Settings modal floats above the modal (WAWQAQ msg `d3ea9a33` 2026-06-26). PR-UI-DEAD-EXPORT-SWEEP-0 then deleted PopoverPopup entirely (was unused). Sheet exports were deleted as dead code (0 consumers).',
+      'dialog popup (single MODAL_POPUP_CLASS constant shared via createModalContent, used by DialogContent + AlertDialogContent). The previously z-50 floating-overlay surfaces (TooltipPopup, SelectPopup, PopoverPopup) were tokenized to `z-[var(--z-overlay)]` so a Select opened from inside a Settings modal floats above the modal (WAWQAQ msg `d3ea9a33` 2026-06-26). PR-UI-DEAD-EXPORT-SWEEP-0 then deleted PopoverPopup entirely (was unused). Sheet exports were deleted as dead code (0 consumers).',
   },
   {
     pattern: 'backdrop-blur-sm',
-    count: 2,
+    count: 1,
     reason:
-      'dialog + alert-dialog backdrop visual depth. AlertDialogBackdrop shares the blur (PR6 #520). Pending kenji #6 audit decision on whether to drop blur entirely or tokenize a single --blur-scrim value.',
+      'dialog + alert-dialog backdrop visual depth (single MODAL_BACKDROP_CLASS constant shared via createModalContent). Pending kenji #6 audit decision on whether to drop blur entirely or tokenize a single --blur-scrim value.',
   },
 ];
 
