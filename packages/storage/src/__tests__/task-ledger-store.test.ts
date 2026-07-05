@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { TASK_LEDGER_MAX_TASKS } from '@maka/core/task-ledger';
+import { TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS } from '@maka/core/task-ledger';
 import { createTaskLedgerStore } from '../task-ledger-store.js';
 
 const SESSION_ID = 'sess-abc';
@@ -128,6 +128,27 @@ describe('TaskLedgerStore', () => {
     const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
     assert.equal(tasks.length, 1);
     assert.equal(tasks[0]?.id, 'good');
+  });
+
+  it('re-applies subject normalization on read: discards overlong/blank/empty subjects and normalizes whitespace', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'overlong', subject: 'X'.repeat(TASK_SUBJECT_MAX_CHARS + 1), status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'blank', subject: '   ', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'empty', subject: '', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'whitespace', subject: 'a\t\tb\n\nc   d', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'good', subject: '有效', status: 'pending', createdAt: 1, updatedAt: 1 },
+    ]), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    // overlong/blank/empty subjects are discarded per-record; good + whitespace survive.
+    assert.equal(tasks.length, 2, `expected 2 surviving tasks, got ${tasks.length}: ${JSON.stringify(tasks.map((t) => t.id))}`);
+    const ids = tasks.map((t) => t.id);
+    assert.ok(ids.includes('good'));
+    assert.ok(ids.includes('whitespace'));
+    // whitespace subject is normalized (collapse + trim) on read.
+    const ws = tasks.find((t) => t.id === 'whitespace');
+    assert.equal(ws?.subject, 'a b c d', `expected normalized subject, got ${JSON.stringify(ws?.subject)}`);
   });
 
   it('rejects an unsafe session id', async () => {

@@ -5,6 +5,7 @@ import {
   TASK_LEDGER_MAX_TASKS,
   isTaskStatus,
   normalizeCreateTaskInput,
+  normalizeTaskSubject,
   normalizeUpdateTaskInput,
   type Task,
   type TaskLedgerStore,
@@ -168,16 +169,22 @@ function normalizePersistedTask(value: unknown): Task | undefined {
   const record = value as Partial<Task>;
   if (
     typeof record.id !== 'string' ||
-    typeof record.subject !== 'string' ||
-    !isTaskStatus(record.status) ||
     typeof record.createdAt !== 'number' ||
-    typeof record.updatedAt !== 'number'
+    typeof record.updatedAt !== 'number' ||
+    !isTaskStatus(record.status)
   ) {
     return undefined;
   }
+  // Re-apply the same subject normalization as the write path (NFC, whitespace
+  // collapse, trim, length cap, non-empty) so a manually-edited or legacy
+  // tasks.json cannot inject an overlong/blank subject into the turn tail
+  // every turn. Invalid subjects drop the whole record, matching the existing
+  // "single malformed entry discarded" semantic.
+  const subject = normalizeTaskSubject(record.subject);
+  if (!subject.ok) return undefined;
   return {
     id: record.id,
-    subject: record.subject,
+    subject: subject.value,
     status: record.status,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
