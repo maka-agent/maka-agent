@@ -20,6 +20,7 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
+import { DialogClose, DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
@@ -700,6 +701,62 @@ const ATTACHMENT_KIND_LABEL: Record<AttachmentRef['kind'], string> = {
   other: '📎',
 };
 
+function AttachmentImage(props: { attachment: AttachmentRef }) {
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  useEffect(() => {
+    if (props.attachment.ref.kind !== 'session_file') return;
+    const reader = (window as unknown as {
+      maka?: {
+        attachments?: {
+          readBytes?: (
+            sessionId: string,
+            relativePath: string,
+          ) => Promise<{ ok: true; base64: string; mimeType: string } | { ok: false }>;
+        };
+      };
+    }).maka?.attachments?.readBytes;
+    if (!reader) return;
+    let cancelled = false;
+    reader(props.attachment.ref.sessionId, props.attachment.ref.relativePath)
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setSrc(`data:${result.mimeType};base64,${result.base64}`);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [props.attachment]);
+  if (!src) {
+    return (
+      <span className="maka-user-attachment-thumb maka-user-attachment-thumb-pending" aria-hidden="true">
+        {ATTACHMENT_KIND_LABEL.image}
+      </span>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="maka-user-attachment-thumb-button"
+        onClick={() => setLightboxOpen(true)}
+        aria-label={`查看图片 ${props.attachment.name}`}
+      >
+        <img className="maka-user-attachment-thumb" src={src} alt={props.attachment.name} />
+      </button>
+      <DialogRoot open={lightboxOpen} onOpenChange={setLightboxOpen}>
+        <DialogContent className="maka-attachment-lightbox">
+          <img className="maka-attachment-lightbox-image" src={src} alt={props.attachment.name} />
+          <DialogClose className="maka-attachment-lightbox-close" aria-label="关闭">
+            关闭
+          </DialogClose>
+        </DialogContent>
+      </DialogRoot>
+    </>
+  );
+}
+
 const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
@@ -716,10 +773,14 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
           {props.attachments && props.attachments.length > 0 ? (
             <div className="maka-user-attachments">
               {props.attachments.map((attachment, index) => (
-                <span key={`${attachment.name}-${index}`} className="maka-user-attachment-chip" data-kind={attachment.kind}>
-                  <span className="maka-user-attachment-kind" aria-hidden="true">{ATTACHMENT_KIND_LABEL[attachment.kind]}</span>
-                  <span className="maka-user-attachment-name">{attachment.name}</span>
-                </span>
+                attachment.kind === 'image' ? (
+                  <AttachmentImage key={`${attachment.name}-${index}`} attachment={attachment} />
+                ) : (
+                  <span key={`${attachment.name}-${index}`} className="maka-user-attachment-chip" data-kind={attachment.kind}>
+                    <span className="maka-user-attachment-kind" aria-hidden="true">{ATTACHMENT_KIND_LABEL[attachment.kind]}</span>
+                    <span className="maka-user-attachment-name">{attachment.name}</span>
+                  </span>
+                )
               ))}
             </div>
           ) : null}

@@ -117,14 +117,6 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 declare global {
   interface Window {
     maka: {
@@ -242,11 +234,6 @@ declare global {
         getState(): Promise<WorkspaceInstructionsState>;
         openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
         createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
-      };
-      context: {
-        importTextFile(): Promise<TextFileImportResult>;
-        importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult>;
-        importFolderOutline(): Promise<FolderOutlineImportResult>;
       };
       attachments: {
         pickAndIngest(sessionId: string): Promise<

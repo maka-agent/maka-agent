@@ -146,14 +146,6 @@ import { createAttachmentByteReader } from './attachment-reader.js';
 import { ingestAttachments } from './attachment-ingest.js';
 import { resizeImageForAttachment } from './attachment-resize-native.js';
 import type { AttachmentRef } from '@maka/core';
-import {
-  readFolderOutlinesForPromptImport,
-  readDroppedTextFilesForPromptImport,
-  readTextFilesForPromptImport,
-  type DroppedTextFilePayload,
-  type FolderOutlineImportFailureReason,
-  type TextFileImportFailureReason,
-} from './text-file-import.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
@@ -750,43 +742,6 @@ function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreat
   }
 }
 
-function textFileImportFailureCopy(reason: TextFileImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选文件不存在或不是普通文件。';
-    case 'too-large':
-      return '文件过大；请先截取需要讨论的部分。';
-    case 'binary':
-      return '这个文件不像纯文本，已取消导入。';
-    case 'too-many-files':
-      return '一次最多导入 5 个文件。';
-    case 'office-file':
-      return 'Office 文档请用导入文件按钮选择；拖放或粘贴拿不到可授权的本地路径。';
-    case 'unsupported-type':
-      return '只支持直接导入文本文件和 Office 文档。';
-    case 'read-failed':
-      return '读取文件失败。';
-    case 'officecli_missing':
-      return '本机未检测到 officecli，暂时无法导入 Office 文档内容。';
-    case 'officecli_timeout':
-      return 'Office 文档内容导入超时。';
-    case 'officecli_failed':
-      return 'Office 文档内容导入失败。';
-  }
-}
-
-function folderOutlineImportFailureCopy(reason: FolderOutlineImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选位置不存在或不是文件夹。';
-    case 'read-failed':
-      return '读取文件夹目录失败。';
-    case 'too-many-folders':
-      return '一次最多导入 3 个文件夹目录。';
-    case 'empty':
-      return '这个文件夹里没有可导入的文件目录。';
-  }
-}
 
 function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
   switch (reason) {
@@ -993,78 +948,6 @@ function registerIpc(): void {
       const created = await createWorkspaceInstructionFile(await currentProjectRoot(), typeof file === 'string' ? file : '');
       if (!created.ok) return { ok: false, message: workspaceInstructionCreateFailureCopy(created.reason) };
       return { ok: true };
-    },
-  );
-  ipcMain.handle(
-    'context:importTextFile',
-    async (): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const textFileFilters = [
-        { name: 'Text', extensions: ['txt', 'text', 'md', 'markdown', 'mdx', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cc', 'cpp', 'h', 'hh', 'hpp', 'sh', 'zsh', 'sql', 'ini', 'conf', 'env'] },
-        { name: 'Office', extensions: ['docx', 'xlsx', 'pptx'] },
-        { name: 'All Files', extensions: ['*'] },
-      ];
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件内容',
-        properties: ['openFile', 'multiSelections'],
-        filters: textFileFilters,
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readTextFilesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importDroppedTextFiles',
-    async (_event, payloads: unknown): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const safePayloads: DroppedTextFilePayload[] = Array.isArray(payloads)
-        ? payloads.map((payload) => {
-            const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-            return {
-              name: typeof value.name === 'string' ? value.name : '',
-              size: typeof value.size === 'number' ? value.size : 0,
-              type: typeof value.type === 'string' ? value.type : '',
-              text: typeof value.text === 'string' ? value.text : '',
-            };
-          })
-        : [];
-      const imported = readDroppedTextFilesForPromptImport(safePayloads);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importFolderOutline',
-    async (): Promise<
-      | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: FolderOutlineImportFailureReason; message: string }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件夹目录',
-        properties: ['openDirectory', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readFolderOutlinesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: folderOutlineImportFailureCopy(imported.reason) };
-      }
-      return imported;
     },
   );
   registerWorkspaceResourcesIpc({

@@ -126,14 +126,6 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 contextBridge.exposeInMainWorld('maka', {
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -371,17 +363,6 @@ contextBridge.exposeInMainWorld('maka', {
     },
     createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }> {
       return ipcRenderer.invoke('workspaceInstructions:createFile', file);
-    },
-  },
-  context: {
-    importTextFile(): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importTextFile');
-    },
-    importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importDroppedTextFiles', files);
-    },
-    importFolderOutline(): Promise<FolderOutlineImportResult> {
-      return ipcRenderer.invoke('context:importFolderOutline');
     },
   },
   attachments: {
