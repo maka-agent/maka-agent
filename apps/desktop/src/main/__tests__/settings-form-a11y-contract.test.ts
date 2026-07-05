@@ -126,8 +126,8 @@ describe('Settings form accessibility labels', () => {
     assert.match(settingsSelect, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\} className="settingsSelectPositioner">/);
     assert.match(
       styles,
-      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-dropdown\);[\s\S]*\}/,
-      'SettingsSelect popups must stack above full-page Settings rows so visible options are clickable.',
+      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-overlay\);[\s\S]*\}/,
+      'SettingsSelect popups must share the overlay layer so visible options stay clickable above Settings rows, modals, and the Composer.',
     );
 
     // ThemeSettingsPage uses native <button> on purpose for the radio-card

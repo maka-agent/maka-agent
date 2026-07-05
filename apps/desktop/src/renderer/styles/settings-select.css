@@ -15,7 +15,7 @@
 }
 
 .settingsSelectPositioner {
-  z-index: var(--z-dropdown);
+  z-index: var(--z-overlay);
   outline: none;
 }
 

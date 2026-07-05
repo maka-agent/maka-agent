@@ -686,15 +686,25 @@ function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {
   }));
 }
 
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  off: '关',
+  minimal: '最小',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '超高',
+  max: '最高',
+};
+
 function thinkingLevelPickerItems(
   levels: readonly ThinkingLevel[],
   current: ThinkingLevel | undefined,
 ): SelectItem[] {
   return [
-    { value: 'default', label: 'default', ...(current === undefined ? { description: 'current' } : {}) },
+    { value: 'default', label: '默认', ...(current === undefined ? { description: 'current' } : {}) },
     ...levels.map((level) => ({
       value: level,
-      label: level,
+      label: THINKING_LEVEL_LABELS[level],
       ...(level === current ? { description: 'current' } : {}),
     })),
   ];

@@ -121,10 +121,12 @@ export function createAppShellSessionSettingsActions(deps: {
 
   const thinkingLevelLabels: Record<ThinkingLevel, string> = {
     off: '关',
-    minimal: '最低',
+    minimal: '最小',
     low: '低',
     medium: '中',
     high: '高',
+    xhigh: '超高',
+    max: '最高',
   };
 
   async function setSessionThinkingLevel(level: ThinkingLevel | undefined) {
