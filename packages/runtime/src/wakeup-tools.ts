@@ -87,11 +87,11 @@ export function buildCronListTool(scheduler: WakeupScheduler): MakaTool<Record<s
   return {
     name: CRON_LIST_TOOL_NAME,
     displayName: '列出定时任务',
-    description: 'List all scheduled cron jobs in this session.',
+    description: 'List all active (pending) cron jobs in this session.',
     parameters: z.object({}),
     categoryHint: 'custom_tool',
     impl: async (_input, ctx) => {
-      const records = scheduler.listForSession(ctx.sessionId);
+      const records = scheduler.listForSession(ctx.sessionId, { activeOnly: true });
       return {
         ok: true,
         count: records.length,
@@ -103,6 +103,7 @@ export function buildCronListTool(scheduler: WakeupScheduler): MakaTool<Record<s
           fires_at: r.firesAt,
           recurring: r.recurring ?? false,
           cron: r.cronExpression ?? null,
+          fire_attempts: r.fireAttempts,
         })),
       };
     },
