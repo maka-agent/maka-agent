@@ -59,7 +59,7 @@ function fakeContext(sessionId: string): MakaToolContext {
 }
 
 describe('task ledger contract', () => {
-  it('wires the store, tools, and system-prompt deps to one shared task ledger (behavior, not source text)', async () => {
+  it('wires the store and tools to one shared task ledger the turn tail reads (behavior, not source text)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-task-ledger-wiring-'));
     const wiring = createMainTaskLedgerWiring(root);
     // (a) TaskCreate/TaskUpdate are wired in.
@@ -67,16 +67,24 @@ describe('task ledger contract', () => {
     assert.ok(wiring.tools.some((t) => t.name === TASK_UPDATE_TOOL_NAME), 'TaskUpdate must be wired');
     // (b) store is real and empty for a fresh workspace.
     assert.deepEqual(await wiring.store.list('sess-1'), []);
-    // (c) system-prompt deps share the SAME store so the turn tail reads what tools write.
-    assert.equal(wiring.systemPromptDeps.taskLedger, wiring.store);
-    // (d) tools are bound to that same store: a TaskCreate persists into the shared
-    //     store the tail reads, proving the mutate and read faces share one ledger.
+    // (c) tools and the turn tail share ONE store through the real system prompt
+    //     service: a TaskCreate lands in the store the tail reads, proving the
+    //     mutate and read faces cannot drift to different ledgers.
+    const service = createSystemPromptMainService({
+      settingsStore: { get: async () => ({}) as AppSettings },
+      workspaceRoot: root,
+      localMemory: {
+        getState: async () => ({ status: 'ok', agentReadEnabled: false, content: '' }) as never,
+        consumePendingPromptUpdates: () => [],
+      },
+      taskLedger: wiring.store,
+    });
     const create = wiring.tools.find((t) => t.name === TASK_CREATE_TOOL_NAME);
     assert.ok(create, 'TaskCreate tool must be present');
     await create.impl({ tasks: [{ subject: '通过装配建任务' }] }, fakeContext('sess-1'));
-    const tasks = await wiring.store.list('sess-1');
-    assert.equal(tasks.length, 1);
-    assert.equal(tasks[0]?.subject, '通过装配建任务');
+    const tail = await service.buildTurnTailPrompt(undefined, 'sess-1');
+    assert.ok(tail, 'tail must render when the shared store has tasks');
+    assert.match(tail, /通过装配建任务/);
   });
 
   it('injects nothing for an empty ledger', async () => {
