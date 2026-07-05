@@ -168,6 +168,25 @@ describe('TaskLedgerStore', () => {
     assert.equal(JSON.parse(raw).length, TASK_LEDGER_MAX_TASKS + 1);
   });
 
+  it('treats a tasks.json with duplicate ids as corrupt: render degrades to empty, mutate stays fail-closed', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'dup-id', subject: 'first', status: 'pending', createdAt: 1, updatedAt: 1 },
+      { id: 'dup-id', subject: 'second', status: 'pending', createdAt: 2, updatedAt: 2 },
+      { id: 'uniq', subject: 'unique', status: 'pending', createdAt: 3, updatedAt: 3 },
+    ]), 'utf8');
+    const store = createTaskLedgerStore(root);
+    // render path degrades to empty: no duplicate id reaches the turn tail
+    // (two same-id tasks would be indistinguishable to the model).
+    assert.deepEqual(await store.list(SESSION_ID), []);
+    // mutate path stays fail-closed: an update must not silently keep both
+    // dups and rewrite a "half-correct" file (first updated, second stale).
+    await assert.rejects(() => store.update(SESSION_ID, 'dup-id', { status: 'completed' }), /corrupt|duplicate|ambiguous/i);
+    const raw = await readFile(tasksFilePath(root), 'utf8');
+    assert.equal(JSON.parse(raw).length, 3, 'file must be left untouched');
+  });
+
   it('rejects records with unsafe ids (newline, overlong, empty, whitespace) on read', async () => {
     const root = await tempRoot();
     await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });

@@ -168,9 +168,21 @@ function decodeTasks(text: string): Task[] {
     throw new Error('expected a JSON array of tasks');
   }
   const tasks: Task[] = [];
+  const seenIds = new Set<string>();
   for (const value of parsed) {
     const task = normalizePersistedTask(value);
-    if (task) tasks.push(task);
+    if (!task) continue;
+    // A tasks.json with two records sharing an id would render two
+    // indistinguishable tasks in the turn tail, and TaskUpdate's first-match
+    // lookup would only ever touch the first -- the second is unreachable and
+    // a mutate would silently keep both. Treat a duplicate id as corrupt so
+    // the render path degrades to empty and the mutate path stays fail-closed
+    // instead of rewriting a "half-correct" file.
+    if (seenIds.has(task.id)) {
+      throw new Error(`task ledger has a duplicate id "${task.id}"; refusing to load an ambiguous ledger`);
+    }
+    seenIds.add(task.id);
+    tasks.push(task);
   }
   // Enforce the same total-task cap as the write path on read. A hand-edited,
   // legacy, or externally-written tasks.json could otherwise carry an
