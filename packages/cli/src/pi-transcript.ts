@@ -388,8 +388,14 @@ function setAssistantThinking(state: MakaPiTranscriptState, messageId: string, t
 
 function renderAssistantBlock(entry: MakaPiAssistantEntry, width: number): string[] {
   const lines = renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
+  // Thinking blocks are collapsed in the transcript: a terminal transcript is
+  // static (no interactive toggle), so we render a one-line marker instead of
+  // the full body, which would flood the scrollback. The text stays on the
+  // entry in case a future viewer wants to surface it; this satisfies the
+  // "can be collapsed/hidden" acceptance without dumping reasoning into the
+  // terminal.
   if (entry.thinking && entry.thinking.trim()) {
-    lines.push(...renderTextBlock('思考', entry.thinking, width, { markdown: true, heading: ansi.dim }));
+    lines.push(ansi.dim('思考（已隐藏）'));
   }
   return lines;
 }

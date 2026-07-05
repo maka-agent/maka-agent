@@ -18,7 +18,7 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
-import { THINKING_LEVELS, isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
+import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
 import type { MakaSessionDriver } from './session-driver.js';
 import {
@@ -407,12 +407,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         const token = parts.length === 2 ? parts[1] : undefined;
-        const level = token === 'default' || token === 'off' ? undefined : token;
-        if (level !== undefined && !isThinkingLevel(level)) {
+        // `off` is a real level now (maps to reasoningEffort:'none' / thinking
+        // disabled), not a synonym for 默认. Only `default` clears the override.
+        const level = token === 'default' ? undefined : token;
+        // Reject levels the current model does not support (P2-1): the picker
+        // already restricts to `thinkingLevels`, but the typed command path
+        // must too so the statusbar never advertises a level the runtime drops.
+        if (level !== undefined && (!isThinkingLevel(level) || !thinkingLevels.includes(level))) {
           state.entries.push({
             kind: 'notice',
             level: 'error',
-            text: `Usage: /thinking ${['default', ...THINKING_LEVELS].join('|')}`,
+            text: thinkingLevels.length === 0
+              ? '当前模型不支持思考级别切换。'
+              : `Usage: /thinking ${['default', ...thinkingLevels].join('|')}`,
           });
           requestRender();
           return;
