@@ -198,16 +198,20 @@ export function AppShell() {
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
-  // Persisted composer defaults seed the empty-state model, permission mode,
-  // project path, and recent workspace history so the home view is populated
-  // before the async `app:info` round-trip completes on mount.
+  // Persisted composer defaults seed the empty-state model, project path, and
+  // recent workspace history so the home view is populated before the async
+  // `app:info` round-trip completes on mount.
   const persistedComposerDefaults = loadComposerDefaults();
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
     persistedComposerDefaults?.model ?? null,
   );
-  const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(
-    persistedComposerDefaults?.permissionMode ?? null,
-  );
+  // Permission mode is renderer-only, scoped to one new-chat decision.
+  // It must NOT persist across reloads — persisted permission would
+  // silently inherit a previous session's mode (e.g. auto-edit) after
+  // restart with no visible signal, which is a safety regression.
+  // The single authority is main.ts's Settings → 通用 default. See
+  // session-status-presentation.test.ts for the contract.
+  const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(null);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
     persistedComposerDefaults?.projectPath
       ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }

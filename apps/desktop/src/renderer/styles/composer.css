@@ -117,7 +117,7 @@
   color: var(--muted-foreground);
   font: inherit;
   font-size: var(--font-size-caption);
-  line-height: 1.25;
+  line-height: var(--leading-tight);
   text-align: left;
   transition: color var(--duration-quick) var(--ease-out-strong);
 }

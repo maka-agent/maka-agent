@@ -6,7 +6,6 @@
  * Keyed with a `v1` suffix to allow schema migration later.
  */
 
-import type { PermissionMode } from '@maka/core';
 import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
 
 const STORAGE_KEY = 'maka-composer-defaults-v1';
@@ -15,14 +14,12 @@ export const MAX_RECENT_PATHS = 5;
 
 export interface ComposerDefaults {
   projectPath: string | null;
-  permissionMode: PermissionMode | null;
   model: { llmConnectionSlug: string; model: string } | null;
   recentProjectPaths: string[];
 }
 
 const EMPTY: ComposerDefaults = {
   projectPath: null,
-  permissionMode: null,
   model: null,
   recentProjectPaths: [],
 };
@@ -32,9 +29,6 @@ function isString(value: unknown): value is string {
 }
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isString);
-}
-function isPermissionMode(value: unknown): value is PermissionMode {
-  return value === 'explore' || value === 'ask' || value === 'execute' || value === 'bypass';
 }
 function isModel(value: unknown): value is { llmConnectionSlug: string; model: string } {
   if (!value || typeof value !== 'object') return false;
@@ -48,7 +42,6 @@ function parse(raw: string | null): ComposerDefaults | null {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     return {
       projectPath: isString(parsed.projectPath) ? parsed.projectPath : null,
-      permissionMode: isPermissionMode(parsed.permissionMode) ? parsed.permissionMode : null,
       model: isModel(parsed.model) ? parsed.model : null,
       recentProjectPaths: isStringArray(parsed.recentProjectPaths) ? parsed.recentProjectPaths.slice(0, MAX_RECENT_PATHS) : [],
     };
@@ -76,7 +69,6 @@ export function saveComposerDefaults(patch: Partial<ComposerDefaults>): void {
   }
   const next: ComposerDefaults = {
     projectPath: patch.projectPath !== undefined ? patch.projectPath : current.projectPath,
-    permissionMode: patch.permissionMode !== undefined ? patch.permissionMode : current.permissionMode,
     model: patch.model !== undefined ? patch.model : current.model,
     recentProjectPaths,
   };

@@ -162,4 +162,24 @@ describe('checkoutBranch', () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'failed');
   });
+
+  it('refuses checkout when worktree is dirty', async () => {
+    await withGitRepo(async (root) => {
+      let gitArgs: readonly string[] = [];
+      const execFileImpl = fakeExecFile((args) => {
+        gitArgs = args;
+        if (args[0] === 'status' && args[1] === '--porcelain') {
+          return { error: null, stdout: 'M  index.ts\n', stderr: '' };
+        }
+        return { error: null, stdout: '', stderr: '' };
+      });
+      const result = await checkoutBranch(root, 'develop', { execFileImpl });
+      assert.equal(result.ok, false);
+      assert.equal(result.reason, 'dirty');
+      assert.equal(result.message, '工作区有未提交的更改，请先提交或暂存。');
+      // The only git command that was run was `git status --porcelain`;
+      // `git checkout` must NOT be called on a dirty worktree.
+      assert.deepEqual(gitArgs, ['status', '--porcelain']);
+    });
+  });
 });

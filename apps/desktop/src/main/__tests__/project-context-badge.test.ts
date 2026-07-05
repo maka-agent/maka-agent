@@ -138,14 +138,14 @@ describe('project context workspace picker', () => {
     assert.match(ui, /className="maka-composer-workspace-picker"/);
     assert.match(ui, /branch\?: string \| null;/);
     assert.match(ui, /pending\?: boolean;/);
-    assert.match(ui, /disabled=\{props\.workspacePicker\.pending === true\}/);
-    assert.match(ui, /aria-busy=\{props\.workspacePicker\.pending === true \? 'true' : undefined\}/);
+    assert.match(ui, /disabled=\{wp\.pending === true\}/);
+    assert.match(ui, /aria-busy=\{wp\.pending === true \? 'true' : undefined\}/);
     // WAWQAQ msg `28128c9e` (2026-06-20): the "选择工作目录" placeholder
     // is only rendered when no directory has been selected yet. Once
     // a label is set, the picker renders `.maka-composer-workspace-current`
     // alone — no more "选择工作目录 ai ▾" doubled string.
-    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{props\.workspacePicker\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
-    assert.match(ui, /当前分支 \$\{props\.workspacePicker\.branch\}/);
+    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
+    assert.match(ui, /当前分支 \$\{wp\.branch\}/);
     // Workspace picker must track the shared chat/composer measure token,
     // not a bespoke hard-coded width, so future measure updates keep the
     // row aligned with the composer card automatically.
