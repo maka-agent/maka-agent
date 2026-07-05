@@ -21,8 +21,9 @@ import {
   type MakaUriDest,
   MakaUriContext,
   type NavSelection,
-  SessionListPanel,
-  type SkillEntry,
+	  SessionListPanel,
+	  type SessionViewMode,
+	  type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
   activePermissionFor,
@@ -50,6 +51,7 @@ function BrowserPanelFallback() {
 }
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
+import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
   normalizeSessionSummaryForDisplay,
@@ -210,6 +212,7 @@ export function AppShell() {
     turnId: string;
     nonce: number;
   } | null>(null);
+  const [viewMode, setViewMode] = useState<SessionViewMode>('status');
   function closeSearchModal(options?: { restoreFocus?: boolean }) {
     setSearchModalOpen(false);
     if (options?.restoreFocus === false) return;
@@ -625,7 +628,8 @@ export function AppShell() {
     permissionMode: defaultPermissionMode,
   } : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
-  const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
+	  const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
+	  const projectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
   // `useOnboardingSnapshot()` pulls the derived state from the main
@@ -1231,6 +1235,9 @@ export function AppShell() {
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
+            projectGroups={projectGroups}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
             statusGroups={sessionStatusGroups}
             onSelect={setNavSelection}
             onSelectSession={sessionListSelectSession}

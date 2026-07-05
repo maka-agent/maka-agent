@@ -5,12 +5,7 @@
  */
 
 import type { SessionSummary } from '@maka/core';
-
-export interface ProjectGroup {
-  projectPath: string;
-  label: string;
-  sessions: SessionSummary[];
-}
+import type { ProjectGroup } from '@maka/ui';
 
 const UNGROUPED_LABEL = '未归属项目';
 const UNGROUPED_KEY = '__ungrouped__';
@@ -55,6 +50,6 @@ export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>): Pr
 
 function labelFromPath(projectPath: string): string {
   // Use the basename (last path segment) as the human-readable label.
-  const parts = projectPath.replace(/\/g, '/').replace(/\/+$/, '').split('/');
+  const parts = projectPath.replace(/\\/g, '/').replace(/\/+$/, '').split('/');
   return parts[parts.length - 1] || projectPath;
 }
