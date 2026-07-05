@@ -1,0 +1,139 @@
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import { z } from 'zod';
+import { TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerStore } from '@maka/core/task-ledger';
+import {
+  TASK_CREATE_TOOL_NAME,
+  TASK_UPDATE_TOOL_NAME,
+  buildTaskLedgerTools,
+} from '../task-ledger-tools.js';
+import type { MakaTool, MakaToolContext } from '../tool-runtime.js';
+
+const SESSION_ID = 'sess-1';
+
+class FakeTaskLedgerStore implements TaskLedgerStore {
+  private tasks: Task[] = [];
+  public createCalls: Array<{ sessionId: string; drafts: unknown }> = [];
+  public updateCalls: Array<{ sessionId: string; id: string; patch: unknown }> = [];
+
+  async list(): Promise<Task[]> {
+    return this.tasks.map((t) => ({ ...t }));
+  }
+
+  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; all: Task[] }> {
+    this.createCalls.push({ sessionId, drafts });
+    const now = Date.now();
+    const created = (drafts as Array<{ subject: string }>).map((d, i) => ({
+      id: `id-${this.tasks.length + i}`,
+      subject: d.subject,
+      status: 'pending' as const,
+      createdAt: now,
+      updatedAt: now,
+    }));
+    this.tasks.push(...created);
+    return { created, all: await this.list() };
+  }
+
+  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; all: Task[] }> {
+    this.updateCalls.push({ sessionId, id, patch });
+    const task = this.tasks.find((t) => t.id === id);
+    if (!task) throw new Error(`No such task: ${id}`);
+    Object.assign(task, patch, { updatedAt: Date.now() });
+    return { updated: { ...task }, all: await this.list() };
+  }
+}
+
+function fakeContext(sessionId: string): MakaToolContext {
+  return {
+    sessionId,
+    turnId: 'turn-1',
+    cwd: '/tmp',
+    toolCallId: 'call-1',
+    abortSignal: new AbortController().signal,
+    emitOutput: () => {},
+  };
+}
+
+function findTool(tools: MakaTool[], name: string): MakaTool {
+  const tool = tools.find((t) => t.name === name);
+  assert.ok(tool, `expected tool ${name}`);
+  return tool;
+}
+
+describe('task ledger tools', () => {
+  test('builds exactly TaskCreate and TaskUpdate, both local (no permission gate)', () => {
+    const tools = buildTaskLedgerTools({ store: new FakeTaskLedgerStore() });
+    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
+    for (const tool of tools) {
+      assert.equal(tool.permissionRequired, false, `${tool.name} must not require permission`);
+    }
+  });
+
+  test('TaskCreate forwards drafts to the store using ctx.sessionId and renders the returned ledger', async () => {
+    const store = new FakeTaskLedgerStore();
+    const create = findTool(buildTaskLedgerTools({ store }), TASK_CREATE_TOOL_NAME);
+    const result = await create.impl({ tasks: [{ subject: '写测试' }, { subject: '实现' }] }, fakeContext(SESSION_ID));
+    assert.equal(store.createCalls.length, 1);
+    assert.equal(store.createCalls[0]?.sessionId, SESSION_ID);
+    assert.match(String(result), /写测试/);
+    assert.match(String(result), /实现/);
+    assert.match(String(result), /pending/);
+  });
+
+  test('TaskUpdate forwards only provided fields and renders the returned ledger', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: '原始' }] }, fakeContext(SESSION_ID));
+
+    const result = await update.impl({ id: 'id-0', status: 'in_progress' }, fakeContext(SESSION_ID));
+    assert.deepEqual(store.updateCalls[0]?.patch, { status: 'in_progress' });
+    assert.match(String(result), /in_progress/);
+  });
+
+  test('tool results scrub secret-like subjects before they persist into history', async () => {
+    // Same samples the core redactSecrets tests use. Tool results replay to
+    // the provider every turn, so redacting only the turn tail is not enough.
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+
+    const createResult = String(await create.impl(
+      { tasks: [{ subject: '轮换 Bearer sk-live-secret-token-value' }] },
+      fakeContext(SESSION_ID),
+    ));
+    assert.equal(createResult.includes('sk-live-secret-token-value'), false);
+    assert.match(createResult, /\[redacted\]/);
+
+    const updateResult = String(await update.impl(
+      { id: 'id-0', subject: '换 ghp_abcdefghijklmnopqrstuvwxyz' },
+      fakeContext(SESSION_ID),
+    ));
+    assert.equal(updateResult.includes('ghp_abcdefghijklmnopqrstuvwxyz'), false);
+  });
+
+  test('TaskCreate schema enforces non-empty array, non-blank subjects, and the subject length cap', () => {
+    const create = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_CREATE_TOOL_NAME);
+    const schema = create.parameters as z.ZodTypeAny;
+    assert.equal(schema.safeParse({ tasks: [{ subject: 'ok' }] }).success, true);
+    assert.equal(schema.safeParse({ tasks: [] }).success, false);
+    assert.equal(schema.safeParse({ tasks: [{ subject: '' }] }).success, false);
+    assert.equal(schema.safeParse({ tasks: [{ subject: '   ' }] }).success, false);
+    assert.equal(schema.safeParse({ tasks: [{ subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS) }] }).success, true);
+    assert.equal(schema.safeParse({ tasks: [{ subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS + 1) }] }).success, false);
+    assert.equal(schema.safeParse({}).success, false);
+  });
+
+  test('TaskUpdate schema requires id and at least one of status/subject, with the same subject cap', () => {
+    const update = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_UPDATE_TOOL_NAME);
+    const schema = update.parameters as z.ZodTypeAny;
+    assert.equal(schema.safeParse({ id: 'x', status: 'completed' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x', subject: 'new' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x' }).success, false);
+    assert.equal(schema.safeParse({ status: 'completed' }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', status: 'bogus' }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS + 1) }).success, false);
+  });
+});

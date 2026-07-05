@@ -49,8 +49,8 @@ describe('session environment prompt', () => {
   it('is injected as a current-turn tail instead of durable system prefix', async () => {
     const source = await readMainProcessCombinedSource();
 
-    assert.match(source, /turnTailPrompt:\s*\(\{ cwd \}\) => systemPromptService\.buildTurnTailPrompt\(cwd\)/);
-    assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string\)/);
+    assert.match(source, /turnTailPrompt:\s*\(\{ cwd, sessionId \}\) => systemPromptService\.buildTurnTailPrompt\(cwd, sessionId\)/);
+    assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string, sessionId\?: string\)/);
     assert.match(source, /projectGit:\s*await resolveProjectGitInfo\(cwd\)/);
     assert.doesNotMatch(source, /personalization\.text,\n\s*environment,\n\s*deepResearch/);
   });

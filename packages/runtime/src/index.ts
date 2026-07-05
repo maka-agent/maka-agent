@@ -129,6 +129,11 @@ export {
   buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
+  TASK_CREATE_TOOL_NAME,
+  TASK_UPDATE_TOOL_NAME,
+  buildTaskLedgerTools,
+} from './task-ledger-tools.js';
+export {
   deriveToolArtifactCandidates,
   extractStdoutRedirectPath,
   recordToolArtifactsSafely,

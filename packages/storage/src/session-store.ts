@@ -367,13 +367,14 @@ class FileSessionStore implements SessionStore {
   }
 }
 
-function assertSafeSessionId(sessionId: string): void {
+/** Shared guard for stores that derive filesystem paths from a session id. */
+export function assertSafeSessionId(sessionId: string): void {
   if (!isSafeSessionId(sessionId)) {
     throw new Error('Invalid session id');
   }
 }
 
-function isSafeSessionId(sessionId: string): boolean {
+export function isSafeSessionId(sessionId: string): boolean {
   return SESSION_ID_PATTERN.test(sessionId);
 }
 

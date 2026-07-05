@@ -68,6 +68,7 @@ import {
   SessionManager,
   buildBuiltinTools,
   buildChildAgentTools,
+  buildTaskLedgerTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
@@ -91,7 +92,7 @@ import type {
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTaskLedgerStore, createTelemetryRepo } from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -297,6 +298,7 @@ const antigravitySubscription = new AntigravitySubscriptionService({
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
+const taskLedgerStore = createTaskLedgerStore(workspaceRoot);
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
@@ -313,6 +315,7 @@ const systemPromptService = createSystemPromptMainService({
   settingsStore,
   workspaceRoot,
   localMemory,
+  taskLedger: taskLedgerStore,
 });
 const mainWindowController = createMainWindowController({
   workspaceRoot,
@@ -399,6 +402,9 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: getWorkspacePrivacyContext,
   }),
+  // Session task ledger: model manages a flat task list; the current list is
+  // re-injected each turn tail. Pure local state, so no permission gate.
+  ...buildTaskLedgerTools({ store: taskLedgerStore }),
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -584,7 +590,7 @@ backends.register('ai-sdk', async (ctx) => {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
     }),
-    turnTailPrompt: ({ cwd }) => systemPromptService.buildTurnTailPrompt(cwd),
+    turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     lookupPricing,
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>

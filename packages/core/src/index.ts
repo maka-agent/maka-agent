@@ -433,6 +433,26 @@ export {
   normalizePlanReminderTitle,
   normalizeUpdatePlanReminderInput,
 } from './plan-reminders.js';
+// task-ledger.ts (main agent session task tracking)
+export type {
+  CreateTaskInput,
+  Task,
+  TaskLedgerNormalizeResult,
+  TaskLedgerStore,
+  TaskStatus,
+  UpdateTaskInput,
+} from './task-ledger.js';
+export {
+  TASK_LEDGER_MAX_TASKS,
+  TASK_STATUSES,
+  TASK_SUBJECT_MAX_CHARS,
+  formatTaskLedgerList,
+  isTaskStatus,
+  normalizeCreateTaskInput,
+  normalizeTaskStatus,
+  normalizeTaskSubject,
+  normalizeUpdateTaskInput,
+} from './task-ledger.js';
 
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
 export type {
