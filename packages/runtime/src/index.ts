@@ -484,3 +484,38 @@ export type {
   StepLike,
   RuntimeEventLike,
 } from './tool-availability.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// System-prompt fragments (shared by the desktop app and the CLI/TUI).
+// Read-only, stateless builders for project instructions, personalization, git
+// context, and the per-turn environment tail. The stateful LocalMemoryService
+// stays with the desktop app and is injected as a fragment by each caller.
+// ───────────────────────────────────────────────────────────────────────────
+export {
+  buildWorkspaceInstructionsPromptFragment,
+  getWorkspaceInstructionsState,
+  isPathInside,
+  WORKSPACE_INSTRUCTION_FILES,
+  MAX_WORKSPACE_INSTRUCTION_FILE_CHARS,
+  MAX_WORKSPACE_INSTRUCTIONS_PROMPT_CHARS,
+} from './system-prompt/workspace-instructions.js';
+export type {
+  WorkspaceInstructionFileStatus,
+  WorkspaceInstructionFileState,
+  WorkspaceInstructionsState,
+  PathInsideApi,
+} from './system-prompt/workspace-instructions.js';
+export {
+  buildPersonalizationPromptFragment,
+  sanitizeDisplayName,
+  sanitizeAssistantTone,
+  collectPersonalizationWarnings,
+} from './system-prompt/personalization-prompt.js';
+export type { PersonalizationPromptFragment } from './system-prompt/personalization-prompt.js';
+export {
+  resolveProjectGitInfo,
+  resolveProjectRoot,
+} from './system-prompt/project-context.js';
+export type { ProjectGitInfo } from './system-prompt/project-context.js';
+export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
+export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';

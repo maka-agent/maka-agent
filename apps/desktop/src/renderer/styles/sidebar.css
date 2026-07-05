@@ -196,8 +196,6 @@
 }
 
 .mainColumn {
-  /* local: chat content max measure */
-  --maka-chat-measure: 680px;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -312,7 +310,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   padding: var(--space-2) var(--space-3) var(--space-1-5);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--border-width-hairline) solid var(--border);
 }
 .maka-search-modal-title {
   margin: 0;
@@ -321,8 +319,8 @@
   color: var(--foreground);
 }
 .maka-search-modal-close {
-  width: 22px;
-  height: 22px;
+  width: var(--h-control-sm);
+  height: var(--h-control-sm);
   border: 0;
   background: transparent;
   color: var(--foreground-secondary);
@@ -370,8 +368,8 @@
   display: none;
 }
 .maka-search-modal-clear {
-  width: 22px;
-  height: 22px;
+  width: var(--h-control-sm);
+  height: var(--h-control-sm);
   border-radius: var(--radius-control);
   color: var(--muted-foreground);
 }
@@ -386,7 +384,7 @@
 
 .maka-search-modal-body {
   display: block;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
   padding: var(--space-2-5) var(--space-2-5) var(--space-3);
   min-height: 180px;
   max-height: calc(70vh - 110px);
@@ -685,7 +683,7 @@
 .maka-list-group + .maka-list-group {
   margin-top: var(--space-2-5);
   padding-top: var(--space-2);
-  border-top: 1px solid oklch(from var(--foreground) l c h / 0.05);
+  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.05);
 }
 
 /* Group label — section header for session groups. Weight-based
@@ -724,7 +722,7 @@
 .maka-list-row {
   position: relative;
   width: 100%;
-  min-height: 30px;
+  min-height: var(--h-control-lg);
   display: flex;
   align-items: stretch;
   border: 0;
@@ -861,7 +859,7 @@
   font-weight: var(--font-weight-semibold);
   outline: 0;
   padding: 1px 0;
-  border-bottom: 1px solid oklch(from var(--focus-ring) l c h / 0.4);
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--focus-ring) l c h / 0.4);
 }
 
 .maka-list-row-rename-input:focus {
@@ -910,7 +908,7 @@
    * less card-like. Border drops to hairline `--border`,
    * background to transparent (inherits warm panel bg); hover uses
    * neutral `--state-hover-bg` + `--border-strong` (no brand tint). */
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
@@ -958,7 +956,7 @@
 
 .maka-deep-research-workflow li {
   min-width: 0;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: oklch(from var(--focus-ring) l c h / 0.035);
   padding: var(--space-2-5);
@@ -986,7 +984,7 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) 0 0;
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
 }
 
 .maka-deep-research-report h2,

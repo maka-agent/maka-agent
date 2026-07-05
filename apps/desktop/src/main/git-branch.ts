@@ -1,5 +1,5 @@
 import { execFile, type ExecFileException } from 'node:child_process';
-import { resolveProjectGitInfo } from './project-context.js';
+import { resolveProjectGitInfo } from '@maka/runtime';
 
 /**
  * git-branch.ts — local-only git branch listing and checkout for the

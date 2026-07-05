@@ -17,9 +17,11 @@ import {
   createFileCredentialStore,
   createRuntimeEventStore,
   createSessionStore,
+  createSettingsStore,
 } from '@maka/storage';
 import type { ReadySessionTarget } from './connection-target.js';
 import { resolveDefaultSessionTarget } from './connection-target.js';
+import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 
 export interface MakaCliRuntimeContext {
   workspaceRoot: string;
@@ -53,6 +55,7 @@ export async function createMakaCliRuntimeContext(
   const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
+  const settingsStore = createSettingsStore(input.workspaceRoot);
   const target = await resolveDefaultSessionTarget({
     connectionStore,
     credentialStore,
@@ -91,6 +94,11 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
       providerOptions: buildProviderOptions(ready.connection, ready.model),
+      systemPrompt: async ({ cwd }) => {
+        const settings = await settingsStore.get();
+        return buildCliSystemPrompt({ settings, cwd });
+      },
+      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd }),
       newId: randomUUID,
       now: Date.now,
     });

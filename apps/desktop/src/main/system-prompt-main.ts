@@ -8,9 +8,11 @@ import {
   type AppSettings,
   type SessionHeader,
 } from '@maka/core';
-import { buildPersonalizationPromptFragment } from './personalization-prompt.js';
-import { resolveProjectGitInfo } from './project-context.js';
-import { buildSessionEnvironmentPromptFragment } from './session-environment-prompt.js';
+import {
+  buildPersonalizationPromptFragment,
+  resolveProjectGitInfo,
+  buildSessionEnvironmentPromptFragment,
+} from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
 import type { LocalMemoryPromptUpdate, LocalMemoryService } from './local-memory-service.js';

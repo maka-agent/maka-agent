@@ -66,7 +66,7 @@
 .maka-chat-header-memory-pill {
   appearance: none;
   background: oklch(from var(--nav-active) l c h / 0.10);
-  border: 1px solid oklch(from var(--nav-active) l c h / 0.25);
+  border: var(--border-width-hairline) solid oklch(from var(--nav-active) l c h / 0.25);
   color: var(--nav-active);
   border-radius: var(--radius-pill);
   display: inline-flex;
@@ -92,7 +92,7 @@
 }
 
 .maka-chat-header-mode-pill {
-  border: 1px solid oklch(from var(--info) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   border-radius: var(--radius-pill);
@@ -120,7 +120,7 @@
     padding: 1px var(--space-1-5);
     margin-bottom: var(--space-0-5);
     border-radius: var(--radius-pill);
-    border: 1px solid transparent;
+    border: var(--border-width-hairline) solid transparent;
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
     letter-spacing: var(--tracking-wide);
@@ -166,7 +166,7 @@
        towering over them. */
     padding: 1px var(--space-1-5);
     border-radius: var(--radius-pill);
-    border: 1px solid transparent;
+    border: var(--border-width-hairline) solid transparent;
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
     line-height: var(--leading-snug);
@@ -245,11 +245,11 @@
     bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
-    width: 26px;
-    height: 26px;
+    width: var(--h-control-md);
+    height: var(--h-control-md);
     display: grid;
     place-items: center;
-    border: 1px solid var(--border-strong);
+    border: var(--border-width-hairline) solid var(--border-strong);
     border-radius: var(--radius-pill);
     background: var(--background);
     color: var(--foreground-secondary);
@@ -289,7 +289,7 @@
     gap: var(--space-3);
     max-width: 520px;
     padding: var(--space-3) var(--space-4);
-    border: 1px solid oklch(from var(--destructive) l c h / 0.3);
+    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.3);
     border-radius: var(--radius-surface);
     background: var(--background-elevated);
     box-shadow: var(--shadow-modal);
@@ -329,7 +329,7 @@
     margin: var(--space-1) 0 0;
     max-height: 220px;
     padding: var(--space-2-5) var(--space-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-secondary);
@@ -374,7 +374,7 @@
   gap: var(--space-2);
   margin: var(--space-2) var(--space-3) 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid oklch(from var(--info) l c h / 0.3);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.3);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
@@ -440,7 +440,7 @@
   grid-template-columns: 14px minmax(0, 1fr) auto auto;
   align-items: start;
   gap: var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   box-shadow:
@@ -514,10 +514,10 @@
   100% { background-position: -80% 0; }
 }
 
-.maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
-.maka-toast[data-variant="warning"] { border-left: 3px solid var(--info); }
-.maka-toast[data-variant="error"]   { border-left: 3px solid var(--destructive); }
-.maka-toast[data-variant="info"]    { border-left: 3px solid var(--toast-accent); }
+.maka-toast[data-variant="success"] { border-left: var(--border-width-accent) solid var(--success); }
+.maka-toast[data-variant="warning"] { border-left: var(--border-width-accent) solid var(--info); }
+.maka-toast[data-variant="error"]   { border-left: var(--border-width-accent) solid var(--destructive); }
+.maka-toast[data-variant="info"]    { border-left: var(--border-width-accent) solid var(--toast-accent); }
 
 .maka-toast-icon {
   margin-top: var(--space-0-5);
@@ -550,7 +550,7 @@
 
 .maka-toast-action {
   align-self: center;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--toast-accent);
@@ -694,7 +694,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-modal);
   box-shadow:
     0 1px 2px oklch(from var(--foreground) l c h / 0.05),
@@ -714,7 +714,7 @@
 
 .maka-palette-input-wrap {
   width: auto;
-  min-height: 32px;
+  min-height: var(--h-control-lg);
   margin: var(--space-2) var(--space-2-5);
   /* P-RADIUS concentric formula (roadmap §1.3): inner radius = outer
      radius − inset. Modal shell is 12px with an 8px inset, so the
@@ -792,7 +792,7 @@
   min-width: 16px;
   padding: 0 var(--space-1);
   border-radius: var(--radius-control);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   background: var(--foreground-5);
   box-shadow: inset 0 1px 0 oklch(from var(--background) l c h / 0.45);
   color: var(--foreground-secondary);
@@ -814,7 +814,7 @@
 }
 
 .maka-palette-list {
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
   overflow-y: auto;
   padding: var(--space-1) var(--space-1-5) var(--space-1-5);
 }
@@ -927,7 +927,7 @@
   align-items: center;
   gap: var(--space-1-5);
   padding: var(--space-0-5) var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
   background: var(--foreground-2);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);

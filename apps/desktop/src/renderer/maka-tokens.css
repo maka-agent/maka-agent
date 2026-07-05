@@ -155,8 +155,21 @@
   /* PR-UI-ALIGN-0: visible hairline borders (≈#e6e6e6) like the reference's
      card/container outlines — maka's 5% was nearly invisible, which flattened
      the floating-card hierarchy. */
-  --border:        oklch(from var(--foreground) l c h / 0.10);
+--border:        oklch(from var(--foreground) l c h / 0.10);
   --border-strong: oklch(from var(--foreground) l c h / 0.16);
+  /* === border stroke width (#520 PR4 item 14) ============================
+     Border color was already tokenized; the width was bare px in every
+     `border:` / `border-{side}:` shorthand. Three semantic weights cover
+     the whole app: hairline (the universal divider, 1px), thick (a heavier
+     divider / selected outline, 2px), and accent (a status / decorative
+     strip — toast variant color bars and avatar rings, 3px). The rare
+     1.5px hairlines snap to hairline; the one 4px avatar ring snaps to
+     accent. Border-style (solid / dashed) stays a literal keyword — it is
+     a named value, not a magic number, so tokenizing it adds indirection
+     with no governance benefit. */
+  --border-width-hairline: 1px;
+  --border-width-thick:    2px;
+  --border-width-accent:   3px;
   --muted:         oklch(from var(--foreground) l c h / 0.05);
   --muted-foreground: color-mix(in oklch, var(--foreground) 50%, var(--background));
   --foreground-secondary: color-mix(in oklch, var(--foreground) 80%, var(--background));
@@ -311,7 +324,20 @@
      instead of bare `Georgia, serif`. */
   --font-serif: Georgia, "Times New Roman", Times, serif;
 
-  /* === layout === */
+  /* === layout ===
+     P-RADIUS concentric nesting (#520 PR4 item 12, roadmap §1.3):
+     when a rounded surface sits inside another rounded surface with padding
+     between them, the inner radius = outer radius − padding so the two
+     curves share a center and read as one machined shell. Two forms:
+       1. If outer − padding lands on a tier, pick that tier directly —
+          e.g. a settings card (8px surface) inside a 12px modal with 4px
+          padding: 12 − 4 = 8 = --radius-surface. The radius-converge
+          contract's SELECTOR_TIER already pins this.
+       2. If outer − padding does NOT land on a tier, use
+          `calc(var(--radius-*) - Npx)` — e.g. an input inside a 12px modal
+          with 8px inset: 12 − 8 = 4px (not a tier), so
+          `border-radius: calc(var(--radius-modal) - 8px)`. The radius
+          contract's calc allowlist permits only this shrink form. */
   --radius: 0rem;
   --radius-control: 6px;
   --radius-surface: 8px;
@@ -443,6 +469,37 @@
   /* session list geometry */
   --w-sessionlist: 240px;
   --h-list-header: 52px;
+
+  /* === control-height scale (component sizing, #520 PR4 item 15) =========
+     Interactive controls (button / input / select / tab / nav row / badge /
+     kbd) live on the 4px spacing ruler so CSS var(--h-control-*) and Tailwind
+     h-N share one scale (h-5=20, h-6=24, h-7=28, h-8=32, h-9=36, h-10=40).
+     The historic sidebar/会话/设置 height drift came from off-ruler bare px
+     (22/26/30/34/38); this scale converges them. Square icon controls use
+     the same token for width and height (their footprint = control size).
+     App-chrome bars (--h-titlebar/--h-toolbar/--h-composer-min/--h-list-header)
+     stay as their own semantic tokens — they are structure, not controls.
+     md (28) and xl (36) use calc(var(--spacing) * 7/9) directly because maka's
+     discrete spacing scale skips 7 and 9 — control-only tiers must not expand
+     the general --space-* scale (that would invite p-7 / gap-7 drift). */
+  --h-control-xs:  var(--space-5);  /* 20px — kbd, dot, tiny chip / close  */
+  --h-control-sm:  var(--space-6);  /* 24px — small button, chip, sidebar
+                                      topbar button, model switcher       */
+  --h-control-md:  calc(var(--spacing) * 7);  /* 28px — compact menu item, sm tab,
+                                      round FAB (jump-to-bottom)          */
+  --h-control-lg:  var(--space-8);  /* 32px — default button, input, tab,
+                                      sidebar nav row, session row, select */
+  --h-control-xl:  calc(var(--spacing) * 9);  /* 36px — prominent button, settings
+                                      nav row, first-run checklist row    */
+  --h-control-2xl: var(--space-10); /* 40px — toolbar, large touch target  */
+
+  /* === content measure (#520 PR4 item 16) ================================
+     The chat content max-width — the column the conversation, tool output,
+     composer, and onboarding hero share so prose + controls line up at one
+     measure. Previously a local token on .mainColumn with a 680px fallback
+     at every call site; promoted to :root so the token is canonical and the
+     fallbacks are redundant. */
+  --maka-chat-measure: 680px;
 
 }
 
@@ -882,7 +939,7 @@
     padding: var(--space-0-5) var(--space-1-5);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
-    border: 1px solid var(--border-strong);
+    border: var(--border-width-hairline) solid var(--border-strong);
     box-shadow: inset 0 -1px 0 var(--border);
     color: var(--foreground-secondary);
   }
@@ -926,7 +983,7 @@
     font-weight: var(--font-weight-medium);
     color: var(--foreground-secondary);
     background: var(--foreground-5);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-pill);
   }
   .pill[data-tone="accent"]      { background: oklch(from var(--accent) l c h / 0.08); color: var(--accent); border-color: oklch(from var(--accent) l c h / 0.15); }
@@ -963,7 +1020,7 @@
 
   .maka-sidebar {
     background: var(--foreground-2);            /* subtle 2% wash */
-    border-right: 1px solid var(--border);
+    border-right: var(--border-width-hairline) solid var(--border);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -974,7 +1031,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--border-width-hairline) solid var(--border);
     font-weight: var(--font-weight-semibold);
     font-size: var(--font-size-ui);
     letter-spacing: var(--tracking-wide);
@@ -1036,7 +1093,7 @@
   }
   .maka-titlebar {
     height: var(--h-titlebar);
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--border-width-hairline) solid var(--border);
     display: flex;
     align-items: center;
     gap: var(--space-3);
@@ -1059,7 +1116,7 @@
     gap: var(--space-6);
   }
   .maka-message-row {
-    max-width: var(--maka-chat-measure, 680px);
+    max-width: var(--maka-chat-measure);
     margin: 0 auto;
     width: 100%;
     opacity: 1;
@@ -1077,7 +1134,7 @@
        internal rhythm while still reading as one unit against the 24px
        between-turn gap. */
     gap: var(--space-2);
-    max-width: var(--maka-chat-measure, 680px);
+    max-width: var(--maka-chat-measure);
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
@@ -1126,7 +1183,7 @@
   .maka-turn-thinking {
     margin: 0 0 var(--space-2);
     padding: var(--space-2) var(--space-2-5);
-    border: 1px dashed oklch(from var(--focus-ring) l c h / 0.25);
+    border: var(--border-width-hairline) dashed oklch(from var(--focus-ring) l c h / 0.25);
     border-radius: var(--radius-surface);
     background: oklch(from var(--focus-ring) l c h / 0.03);
     font-size: var(--font-size-ui);
@@ -1210,7 +1267,7 @@
     width: 14px;
     height: 14px;
     margin: 0 var(--space-2) 0 0;
-    border: 1.5px solid var(--muted-foreground);
+    border: var(--border-width-hairline) solid var(--muted-foreground);
     border-radius: var(--radius-control);
     background: transparent;
     vertical-align: text-bottom;
@@ -1331,7 +1388,7 @@
   .maka-bubble-assistant a {
     color: var(--link);
     text-decoration: none;
-    border-bottom: 1px solid oklch(from var(--link) l c h / 0.4);
+    border-bottom: var(--border-width-hairline) solid oklch(from var(--link) l c h / 0.4);
     /* PR-UI-LAYOUT-34: explicit transition so focus state animates
      * smoothly. Also: explicit padding-inline + negative margin so
      * the focus halo has hit area without pushing inline content
@@ -1358,7 +1415,7 @@
      * pill rhythm that matches the rest of the warm-canvas chrome. */
     border-radius: var(--radius-control);
     background: var(--foreground-5);
-    border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+    border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
   }
   /* Block code goes inside a maka-code-block wrapper that adds a language
      pill + copy button on top of the pre. Pre keeps its monospace styling
@@ -1366,7 +1423,7 @@
      as part of the same surface. */
   .maka-bubble-assistant .maka-code-block {
     margin: 0 0 var(--space-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     overflow: hidden;
     background: var(--foreground-3);
@@ -1376,7 +1433,7 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--border-width-hairline) solid var(--border);
     background: var(--foreground-5);
     color: var(--foreground-secondary);
     font-family: var(--font-mono);
@@ -1486,7 +1543,7 @@
      * icon + border + saturated tone pattern. The left rule keeps
      * the accent tie so quotes still feel branded, not generic. */
     padding: var(--space-2) var(--space-4);
-    border-left: 3px solid oklch(from var(--focus-ring) l c h / 0.28);
+    border-left: var(--border-width-accent) solid oklch(from var(--focus-ring) l c h / 0.28);
     background: var(--foreground-3);
     border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
     color: var(--foreground-secondary);
@@ -1502,12 +1559,12 @@
      * edge against the warm panel. Without the border the rounded
      * corners would clip nothing visible. */
     border-radius: var(--radius-surface);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
   }
   .maka-bubble-assistant th,
   .maka-bubble-assistant td {
     padding: var(--space-2) var(--space-3);
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--border-width-hairline) solid var(--border);
     text-align: left;
   }
   /* PR-UI-LAYOUT-28: drop the trailing border on the last row so the
@@ -1529,7 +1586,7 @@
   .maka-bubble-assistant hr {
     margin: var(--space-4) 0;
     border: 0;
-    border-top: 1px solid var(--border);
+    border-top: var(--border-width-hairline) solid var(--border);
   }
 
   /* Hover-revealed copy button on assistant messages. The wrapper is
@@ -1706,7 +1763,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2-5);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     transition: border-color 160ms var(--ease-out-strong), box-shadow 160ms var(--ease-out-strong), background 160ms var(--ease-out-strong);
   }
 
@@ -1775,7 +1832,7 @@
      * - Focus ring added (was missing — only browser default outline). */
     appearance: none;
     min-height: 32px;
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     background: var(--background);
     color: var(--foreground);
     padding: var(--space-1-5) var(--space-3);
@@ -1804,7 +1861,7 @@
   .maka-tabs-list[data-variant="pill"] .maka-tab {
     min-height: 34px;
     border-radius: var(--radius-pill);
-    border: 1px solid transparent;
+    border: var(--border-width-hairline) solid transparent;
     background: var(--foreground-5);
     color: var(--foreground-secondary);
     padding: 0 var(--space-4);
@@ -1852,7 +1909,7 @@
   }
   .maka-modal-header {
     padding: var(--space-4) var(--space-5) var(--space-2) var(--space-5);
-    border-bottom: 1px solid var(--border);
+    border-bottom: var(--border-width-hairline) solid var(--border);
   }
   .maka-modal-title {
     font-size: var(--font-size-base);
@@ -1868,7 +1925,7 @@
   .maka-modal-body { padding: var(--space-4) var(--space-5); overflow-y: auto; flex: 1; }
   .maka-modal-footer {
     padding: var(--space-3) var(--space-5);
-    border-top: 1px solid var(--border);
+    border-top: var(--border-width-hairline) solid var(--border);
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -1892,7 +1949,7 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-ui);
     background: var(--foreground-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     padding: var(--space-2) var(--space-2-5);
     color: var(--foreground);

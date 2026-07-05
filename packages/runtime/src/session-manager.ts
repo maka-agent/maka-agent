@@ -988,7 +988,6 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     id: h.id,
     cwd: h.cwd,
     name: h.name === 'New Session' ? 'New Chat' : h.name,
-    cwd: h.cwd,
     isFlagged: h.isFlagged,
     isArchived: h.isArchived,
     labels: h.labels,

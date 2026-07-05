@@ -483,7 +483,6 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     id: header.id,
     cwd: header.cwd,
     name: normalizeSessionName(header.name),
-    cwd: header.cwd,
     isFlagged: header.isFlagged,
     isArchived: header.isArchived,
     labels: header.labels,

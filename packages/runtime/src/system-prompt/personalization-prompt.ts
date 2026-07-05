@@ -1,5 +1,14 @@
 import type { PersonalizationSettings, PersonalizationSettingsWarning } from '@maka/core';
 
+/**
+ * User personalization prompt fragment (display name + assistant tone).
+ *
+ * Pure sanitizer + prompt builder; types come from @maka/core. Moved here from
+ * apps/desktop/src/main/personalization-prompt.ts so the CLI/TUI can reuse the
+ * same fragment. Both the desktop settings IPC (warning collection) and the
+ * system-prompt assembler consume it from here.
+ */
+
 export interface PersonalizationPromptFragment {
   text?: string;
   warnings: PersonalizationSettingsWarning[];

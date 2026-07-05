@@ -20,13 +20,13 @@
   width: 100%;
   min-width: 120px;
   max-width: min(320px, 28vw);
-  height: 22px;
+  height: var(--h-control-sm);
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1-5);
   padding: 1px var(--space-1-5) 1px var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-5);
   color: var(--foreground);

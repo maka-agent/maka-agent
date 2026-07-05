@@ -30,7 +30,7 @@
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5) var(--space-5);
   background: var(--card-bg);
-  border: 1px solid var(--card-border-color);
+  border: var(--border-width-hairline) solid var(--card-border-color);
   border-radius: var(--radius-surface);
   box-shadow:
     var(--card-shadow),
@@ -102,7 +102,7 @@
   background: oklch(0.18 0 0);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.15),
-    0 1px 2px oklch(0 0 0 / 0.10);
+    0 1px 2px oklch(from var(--foreground) l c h / 0.10);
   color: oklch(1 0 0);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
@@ -120,7 +120,7 @@
   transform: translateY(-0.5px);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.20),
-    0 4px 14px -8px oklch(0 0 0 / 0.32);
+    0 4px 14px -8px oklch(from var(--foreground) l c h / 0.32);
 }
 
 .maka-plan-new-task-button:active:not(:disabled) {
@@ -165,7 +165,7 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   align-items: start;
   gap: var(--space-3);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   box-shadow: none;
@@ -283,7 +283,7 @@
   align-self: start;
   align-items: center;
   gap: var(--space-1);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-2);
   color: var(--muted-foreground);
@@ -299,7 +299,7 @@
   width: 100%;
   margin-top: auto;
   border: 0;
-  border-top: 1px dashed var(--border);
+  border-top: var(--border-width-hairline) dashed var(--border);
   border-radius: 0;
   background: transparent;
   color: var(--foreground-secondary);
@@ -371,7 +371,7 @@
   align-items: center;
   height: 20px;
   padding: 0 var(--space-2);
-  border: 1px solid oklch(0.56 0.08 245 / 0.4);
+  border: var(--border-width-hairline) solid oklch(0.56 0.08 245 / 0.4);
   border-radius: var(--radius-pill);
   background: oklch(0.56 0.08 245 / 0.10);
   font-weight: var(--font-weight-semibold);
@@ -457,7 +457,7 @@
 .maka-plan-run-row {
   display: grid;
   gap: var(--space-2-5);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   padding: var(--space-4);
@@ -472,7 +472,7 @@
   flex-direction: column;
   gap: var(--space-2-5);
   position: relative;
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   border-radius: var(--radius-surface);
   background: var(--background);
   padding: var(--space-3) var(--space-4) var(--space-3);
@@ -598,7 +598,7 @@
 .maka-plan-field input,
 .maka-plan-field textarea {
   width: 100%;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
@@ -637,7 +637,7 @@
 
 .maka-plan-validation {
   margin: 0;
-  border: 1px solid oklch(from var(--warning) l c h / 0.34);
+  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.34);
   border-radius: var(--radius-control);
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground-secondary);
@@ -702,7 +702,7 @@
 
 .maka-plan-search input {
   width: 100%;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground);
@@ -771,7 +771,7 @@
   order: 3;
   margin-top: auto;
   padding-top: var(--space-3);
-  border-top: 1px dashed var(--border);
+  border-top: var(--border-width-hairline) dashed var(--border);
   justify-content: flex-start;
   flex-wrap: nowrap;
   gap: var(--space-1);

@@ -18,7 +18,7 @@
     align-items: flex-start;
     gap: var(--space-5);
     padding: var(--space-4);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
@@ -54,7 +54,7 @@
    variant="secondary"` and must outrank the Tailwind utility classes baked
    into the primitive. */
 .settingsPermissionRefresh {
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   background: var(--background);
   border-radius: var(--radius-control);
   padding: var(--space-1) var(--space-2-5);
@@ -77,7 +77,7 @@
     flex-direction: column;
     gap: var(--space-2);
     padding: var(--space-4);
-    border: 1px solid oklch(from var(--destructive) l c h / 0.30);
+    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
     border-radius: var(--radius-surface);
     color: var(--destructive-text);
@@ -123,7 +123,7 @@
   }
 
 .settingsCapabilityRow {
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
     padding: var(--space-3) var(--space-4);
@@ -256,7 +256,7 @@
     align-items: center;
     gap: var(--space-1-5);
     padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-2-5);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-pill);
     font-size: var(--font-size-caption);
     background: var(--background);
@@ -296,7 +296,7 @@
     display: grid;
     gap: var(--space-1-5);
     padding: var(--space-2) var(--space-2-5);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     background: var(--foreground-3);
   }
 
@@ -325,7 +325,7 @@
     max-width: 100%;
     overflow: auto;
     padding: var(--space-1-5) var(--space-2);
-    border: 1px solid var(--foreground-10);
+    border: var(--border-width-hairline) solid var(--foreground-10);
     border-radius: var(--radius-surface);
     background: var(--background);
     color: var(--foreground-secondary);
@@ -351,7 +351,7 @@
   }
 
 .settingsCapabilityAuditSlot {
-    border-top: 1px dashed var(--border);
+    border-top: var(--border-width-hairline) dashed var(--border);
     padding-top: var(--space-2);
   }
 
@@ -384,7 +384,7 @@
     margin: 0;
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
     overflow: hidden;
@@ -394,7 +394,7 @@
      border closes cleanly. */
 
 .settingsOsPermissionRow + .settingsOsPermissionRow {
-    border-top: 1px solid oklch(from var(--foreground) l c h / 0.06);
+    border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
   }
 
 /* PR-PERMISSION-PAGE-REDESIGN: icon + body + actions row layout.
@@ -556,7 +556,7 @@
     flex-direction: column;
     gap: var(--space-0-5);
     padding: var(--space-3) var(--space-3);
-    border: 1px solid var(--card-border-color, var(--border));
+    border: var(--border-width-hairline) solid var(--card-border-color, var(--border));
     border-radius: var(--radius-surface);
     background: var(--card-bg, var(--background));
     box-shadow:
@@ -610,7 +610,7 @@
 .settingsPermissionFootnote {
     margin: 0;
     padding: var(--space-3) var(--space-3);
-    border: 1px dashed var(--border);
+    border: var(--border-width-hairline) dashed var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-secondary);

@@ -1,6 +1,6 @@
 import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
@@ -107,7 +107,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { resolveProjectGitInfo, resolveProjectRoot } from './project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { listLocalBranches, checkoutBranch } from './git-branch.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
@@ -790,22 +790,23 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
   return '代理不可达，请检查代理服务器地址、端口或认证信息。';
 }
 
-function registerIpc(): void {
+async function registerIpc(): Promise<void> {
   const LAST_PROJECT_PATH_FILE = join(workspaceRoot, 'last-project-path.json');
 
   let selectedProjectRoot: string | null = null;
 
-  async function loadLastProjectPath(): Promise<string | null> {
-    try {
-      const raw = await readFile(LAST_PROJECT_PATH_FILE, 'utf8');
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      if (typeof parsed.projectPath === 'string' && parsed.projectPath) {
-        return parsed.projectPath;
-      }
-    } catch {
-      // File missing or invalid — first run.
+  // Initialize from persisted state BEFORE any IPC handler runs, so
+  // app:info / app:listGitBranches / app:checkoutGitBranch always see
+  // the last-selected project path on reload (no race between the async
+  // file read and the first renderer request).
+  try {
+    const raw = await readFile(LAST_PROJECT_PATH_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof parsed.projectPath === 'string' && parsed.projectPath) {
+      selectedProjectRoot = parsed.projectPath;
     }
-    return null;
+  } catch {
+    // File missing or invalid — first run.
   }
 
   async function saveLastProjectPath(projectPath: string): Promise<void> {
@@ -815,11 +816,6 @@ function registerIpc(): void {
       // Best-effort; failure should not block the selection.
     }
   }
-
-  // Initialize from persisted state.
-  loadLastProjectPath().then((savedPath) => {
-    if (savedPath) selectedProjectRoot = savedPath;
-  });
 
   async function currentProjectRoot(): Promise<string> {
     if (selectedProjectRoot) return selectedProjectRoot;
@@ -890,23 +886,29 @@ function registerIpc(): void {
     async (_event, projectPath: unknown): Promise<
       | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
       | { ok: false; reason: 'invalid-path' | 'not-found' }
-    > => {
-      if (typeof projectPath !== 'string' || !projectPath) {
-        return { ok: false, reason: 'invalid-path' };
-      }
-      try {
-        const resolved = await resolveProjectRoot([projectPath]);
-        selectedProjectRoot = resolved;
-        void saveLastProjectPath(resolved);
-        return {
-          ok: true,
-          projectPath: resolved,
-          projectGit: await resolveProjectGitInfo(resolved),
-        };
-      } catch {
-        return { ok: false, reason: 'not-found' };
-      }
-    },
+	    > => {
+	      if (typeof projectPath !== 'string' || !projectPath) {
+	        return { ok: false, reason: 'invalid-path' };
+	      }
+	      // Validate that the path actually exists before passing it to
+	      // resolveProjectRoot, which silently falls back to process.cwd()
+	      // when none of its candidates are usable. A stale recent-workspace
+	      // entry (deleted/moved directory) must not silently switch the
+	      // active project to an unrelated location.
+	      try {
+	        await stat(projectPath);
+	      } catch {
+	        return { ok: false, reason: 'not-found' };
+	      }
+	      const resolved = await resolveProjectRoot([projectPath]);
+	      selectedProjectRoot = resolved;
+	      void saveLastProjectPath(resolved);
+	      return {
+	        ok: true,
+	        projectPath: resolved,
+	        projectGit: await resolveProjectGitInfo(resolved),
+	      };
+	    },
   );
   ipcMain.handle(
     'app:resolveProjectGitInfo',
@@ -1760,7 +1762,7 @@ async function ensureBootstrapConnection(): Promise<void> {
   }
 }
 
-registerIpc();
+void registerIpc();
 
 app.whenReady().then(async () => {
   // PR-GRAY-CARD-LIFT-0 (WAWQAQ msg `0eb99429` 2026-06-20): set the

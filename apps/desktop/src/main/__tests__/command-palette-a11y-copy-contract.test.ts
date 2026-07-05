@@ -72,7 +72,7 @@ describe('Command palette accessibility and visible copy', () => {
     const rowStyle = styles.match(/\.maka-palette-item\s*\{[\s\S]*?\}/)?.[0] ?? '';
 
     assert.match(modalStyle, /width:\s*min\(584px, calc\(100vw - 32px\)\);/);
-    assert.match(modalStyle, /border:\s*1px solid var\(--border\);/);
+    assert.match(modalStyle, /border:\s*var\(--border-width-hairline\) solid var\(--border\);/);
     assert.match(modalStyle, /border-radius:\s*var\(--radius-modal\);/);
     assert.match(
       styles,
