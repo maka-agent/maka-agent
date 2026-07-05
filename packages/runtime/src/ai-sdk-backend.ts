@@ -39,6 +39,8 @@ import type {
   ErrorEvent,
   TextCompleteEvent,
   TokenUsageEvent,
+  StorageRef,
+  AttachmentRef,
 } from '@maka/core/events';
 import { createHash } from 'node:crypto';
 import type {
@@ -363,6 +365,13 @@ export type HistoryCompactWriter = (
 export type ActiveFullCompactBlockRecorder = (block: ActiveFullCompactBlock) => void | Promise<void>;
 export type SemanticCompactBlockRecorder = (block: SemanticCompactBlock) => void | Promise<void>;
 
+/** Reads attachment bytes for a StorageRef. Injected by the caller (wired to the
+ * session ArtifactStore); runtime itself never imports @maka/storage, so this
+ * is the seam through which image attachments become provider image parts. */
+export type AttachmentByteReader = (
+  ref: StorageRef,
+) => Promise<{ ok: true; bytes: Uint8Array } | { ok: false; reason: string }>;
+
 export interface AiSdkBackendInput {
   // ── Session context ────────────────────────────────────────────────────
   sessionId: string;
@@ -434,6 +443,12 @@ export interface AiSdkBackendInput {
    * file-backed persistence.
    */
   recordToolArtifacts?: ToolArtifactRecorder;
+  /**
+   * Optional attachment byte reader. When set, image attachments on the current
+   * user turn are rendered as provider image parts instead of placeholder text.
+   * Caller wires this to the session ArtifactStore; runtime never imports storage.
+   */
+  readAttachmentBytes?: AttachmentByteReader;
   /**
    * Optional archive writer for replay-only stale tool-result pruning. The
    * runtime rewrites only candidates whose original body has been durably
@@ -659,13 +674,13 @@ export class AiSdkBackend implements AgentBackend {
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
         const turnTailPrompt = await this.resolveTurnTailPrompt();
-        const currentUserContent = formatTextWithAttachmentRefs(input.text, input.attachments);
+        const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
         const messages = [
           ...priorReplay.messages,
           {
             role: 'user' as const,
             content: this.appendTurnTailPrompt(currentUserContent, turnTailPrompt),
-          },
+          } as ModelMessage,
         ];
         // Diagnostics describe the provider-visible (active) tool subset. A group
         // loaded *this* turn expands that subset on later steps (via prepareStep),
@@ -685,7 +700,7 @@ export class AiSdkBackend implements AgentBackend {
               toolCount: active.length,
               priorMessages: priorReplay.messages,
               priorRuntimeEventCount: priorReplay.runtimeEventCount,
-              currentUserContent,
+              currentUserContent: formatTextWithAttachmentRefs(input.text, input.attachments),
               turnTailPrompt,
             }),
             requestShape: computeRequestShapeDiagnostic({
@@ -2063,9 +2078,38 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   /** Append provider-visible volatile turn facts after the durable user content. */
-  private appendTurnTailPrompt(content: string, turnTailPrompt?: string): string {
+  private appendTurnTailPrompt(content: ModelMessage['content'], turnTailPrompt?: string): ModelMessage['content'] {
     if (!turnTailPrompt) return content;
-    return `${content}\n\n${turnTailPrompt}`;
+    if (typeof content === 'string') return `${content}\n\n${turnTailPrompt}`;
+    return [...(content as unknown[]), { type: 'text', text: turnTailPrompt }] as ModelMessage['content'];
+  }
+
+  /**
+   * Build the current user turn's provider-visible content. Non-image
+   * attachments remain as placeholder refs in the text (model reads workspace
+   * files via Read); image attachments are read through the injected reader
+   * and appended as provider image parts. When there are no readable images,
+   * content stays a plain string.
+   */
+  private async buildCurrentUserContent(
+    text: string,
+    attachments?: AttachmentRef[],
+  ): Promise<ModelMessage['content']> {
+    const textWithRefs = formatTextWithAttachmentRefs(text, attachments);
+    const images = attachments?.filter((a) => a.kind === 'image') ?? [];
+    if (images.length === 0 || !this.input.readAttachmentBytes) {
+      return textWithRefs;
+    }
+    const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }> = [
+      { type: 'text', text: textWithRefs },
+    ];
+    for (const image of images) {
+      const read = await this.input.readAttachmentBytes(image.ref);
+      if (read.ok) {
+        parts.push({ type: 'image', image: read.bytes, mediaType: image.mimeType });
+      }
+    }
+    return parts as ModelMessage['content'];
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {

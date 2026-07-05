@@ -191,6 +191,50 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('current-turn image attachment becomes a provider image part', async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      readAttachmentBytes: async () => ({ ok: true, bytes: pngBytes }),
+    } as never);
+
+    await drain(backend.send({
+      turnId: 'turn-current',
+      text: 'describe this chart',
+      attachments: [
+        {
+          kind: 'image',
+          name: 'chart.png',
+          mimeType: 'image/png',
+          bytes: pngBytes.length,
+          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'fake/chart.png' },
+        },
+      ],
+      context: [],
+      runtimeContext: [],
+    }));
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const currentUser = prompt[prompt.length - 1];
+    const parts = currentUser.content as Array<{ type: string; image?: unknown; mediaType?: string; text?: string; data?: unknown }>;
+    // ai-sdk LanguageModelV3 normalizes CoreMessage image parts into generic
+    // file parts at the provider boundary (mediaType carries image/png); the
+    // image bytes must reach the provider as a non-text image/png part.
+    const imageLike = parts.find((p) => p.type !== 'text' && p.mediaType === 'image/png');
+    assert.ok(imageLike, `expected an image/png part in current user content, got: ${JSON.stringify(parts)}`);
+  });
+
   test('preserves RuntimeEvent tool calls and results as structured AI SDK parts', async () => {
     const model = completionModel();
     const backend = new AiSdkBackend({
