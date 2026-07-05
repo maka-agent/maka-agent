@@ -5,29 +5,42 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import { startConfigFileWatcher, type ConfigFileWatcher, type ConfigFileWatcherCallbacks } from '../config-file-watcher.js';
 
-const GRACE_SETTLE_MS = 400;
+const WATCH_SETTLE_MS = 400;
 
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 type WatchListener = (eventType: string, filename: string | Buffer | null) => void;
+type WatchErrorListener = (error: Error) => void;
 
 interface FakeStartResult {
   emit: (filename: string | Buffer | null) => void;
+  emitError: (error?: Error) => void;
   watcher: ConfigFileWatcher;
+  closeCount: () => number;
+  pendingTimers: () => Array<ReturnType<typeof setTimeout>>;
+  clearedTimers: () => Array<ReturnType<typeof setTimeout>>;
+  runPendingTimers: () => void;
 }
 
-function startWithFakeWatcher(callbacks: ConfigFileWatcherCallbacks): FakeStartResult {
+interface FakeWatcherOptions {
+  immediateTimers?: boolean;
+}
+
+function startWithFakeWatcher(callbacks: ConfigFileWatcherCallbacks, fakeOptions: FakeWatcherOptions = {}): FakeStartResult {
   let listener: WatchListener | undefined;
+  let errorListener: WatchErrorListener | undefined;
+  let closeCalls = 0;
+  let nextTimer = 0;
+  const pendingTimers = new Map<ReturnType<typeof setTimeout>, () => void>();
+  const clearedTimers: Array<ReturnType<typeof setTimeout>> = [];
   const start = startConfigFileWatcher as unknown as (
     workspaceRoot: string,
     callbacks: ConfigFileWatcherCallbacks,
     options: {
-      watchImpl: (workspaceRoot: string, listener: WatchListener) => { on(event: 'error', listener: (error: Error) => void): void; close(): void };
-      startupGraceMs: number;
+      watchImpl: (workspaceRoot: string, listener: WatchListener) => { on(event: 'error', listener: WatchErrorListener): void; close(): void };
       debounceMs: number;
-      now: () => number;
       setTimeoutImpl: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
       clearTimeoutImpl: (timer: ReturnType<typeof setTimeout>) => void;
     },
@@ -36,16 +49,22 @@ function startWithFakeWatcher(callbacks: ConfigFileWatcherCallbacks): FakeStartR
   const watcher = start('/fake-workspace', callbacks, {
     watchImpl: (_workspaceRoot, nextListener) => {
       listener = nextListener;
-      return { on() {}, close() {} };
+      return {
+        on(_event, nextErrorListener) { errorListener = nextErrorListener; },
+        close() { closeCalls++; },
+      };
     },
-    startupGraceMs: 0,
     debounceMs: 0,
-    now: () => 1_000,
     setTimeoutImpl: (callback) => {
-      callback();
-      return 0 as unknown as ReturnType<typeof setTimeout>;
+      const timer = ++nextTimer as unknown as ReturnType<typeof setTimeout>;
+      if (fakeOptions.immediateTimers === false) pendingTimers.set(timer, callback);
+      else callback();
+      return timer;
     },
-    clearTimeoutImpl: () => {},
+    clearTimeoutImpl: (timer) => {
+      clearedTimers.push(timer);
+      pendingTimers.delete(timer);
+    },
   });
 
   return {
@@ -54,10 +73,61 @@ function startWithFakeWatcher(callbacks: ConfigFileWatcherCallbacks): FakeStartR
       assert.ok(listener, 'fake watcher listener must be registered');
       listener('change', filename);
     },
+    emitError(error = new Error('watch failed')) {
+      assert.ok(errorListener, 'fake watcher error listener must be registered');
+      errorListener(error);
+    },
+    closeCount: () => closeCalls,
+    pendingTimers: () => Array.from(pendingTimers.keys()),
+    clearedTimers: () => [...clearedTimers],
+    runPendingTimers() {
+      for (const [timer, callback] of [...pendingTimers.entries()]) {
+        pendingTimers.delete(timer);
+        callback();
+      }
+    },
   };
 }
 
 describe('config-file-watcher', () => {
+  test('does not drop named config events emitted immediately after startup', () => {
+    let connectionsCalled = 0;
+    let settingsCalled = 0;
+    const { emit, watcher } = startWithFakeWatcher({
+      onConnectionsChanged: () => { connectionsCalled++; },
+      onSettingsChanged: () => { settingsCalled++; },
+    });
+    try {
+      emit('llm-connections.json');
+      emit('settings.json');
+      assert.equal(connectionsCalled, 1, 'startup must not drop immediate connection-file changes');
+      assert.equal(settingsCalled, 1, 'startup must not drop immediate settings changes');
+    } finally {
+      watcher.stop();
+    }
+  });
+
+  test('runtime watcher errors close the watcher and clear pending debounce timers', () => {
+    let connectionsCalled = 0;
+    const fake = startWithFakeWatcher({
+      onConnectionsChanged: () => { connectionsCalled++; },
+      onSettingsChanged: () => {},
+    }, { immediateTimers: false });
+    try {
+      fake.emit('llm-connections.json');
+      assert.equal(fake.pendingTimers().length, 1, 'named changes should create a pending debounce timer');
+      fake.emitError();
+      assert.equal(fake.closeCount(), 1, 'runtime watcher error should close the watcher');
+      assert.equal(fake.clearedTimers().length, 1, 'runtime watcher error should clear pending debounce timers');
+      assert.equal(fake.pendingTimers().length, 0, 'runtime watcher error should leave no pending debounce timers');
+      assert.equal(connectionsCalled, 0, 'cleared debounce callback must not run after watcher error');
+      fake.watcher.stop();
+      assert.equal(fake.closeCount(), 1, 'stop after runtime error should be idempotent');
+    } finally {
+      fake.watcher.stop();
+    }
+  });
+
   test('refreshes settings and connections when fs.watch omits the filename', () => {
     let connectionsCalled = 0;
     let settingsCalled = 0;
@@ -109,7 +179,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
-      await wait(GRACE_SETTLE_MS);
+      await wait(WATCH_SETTLE_MS);
       await writeFile(join(dir, 'llm-connections.json'), '{"changed": true}');
       await wait(800);
       assert.ok(called >= 1, `expected onConnectionsChanged to fire, got ${called} calls`);
@@ -125,7 +195,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => {},
     });
     try {
-      await wait(GRACE_SETTLE_MS);
+      await wait(WATCH_SETTLE_MS);
       await writeFile(join(dir, 'credentials.json'), '{"version":1,"values":{}}');
       await wait(800);
       assert.ok(called >= 1, `expected onConnectionsChanged to fire, got ${called} calls`);
@@ -141,7 +211,7 @@ describe('config-file-watcher', () => {
       onSettingsChanged: () => { called++; },
     });
     try {
-      await wait(GRACE_SETTLE_MS);
+      await wait(WATCH_SETTLE_MS);
       await writeFile(join(dir, 'settings.json'), '{"appearance":{"theme":"dark"}}');
       await wait(800);
       assert.ok(called >= 1, `expected onSettingsChanged to fire, got ${called} calls`);
@@ -150,18 +220,16 @@ describe('config-file-watcher', () => {
     }
   });
 
-  test('does not fire for unrelated files', async () => {
+  test('does not fire for unrelated files', () => {
     let connectionsCalled = 0;
     let settingsCalled = 0;
-    const watcher = startConfigFileWatcher(dir, {
+    const { emit, watcher } = startWithFakeWatcher({
       onConnectionsChanged: () => { connectionsCalled++; },
       onSettingsChanged: () => { settingsCalled++; },
     });
     try {
-      await wait(GRACE_SETTLE_MS);
-      await writeFile(join(dir, 'telemetry.json'), '{}');
-      await writeFile(join(dir, 'random.txt'), 'hello');
-      await wait(500);
+      emit('telemetry.json');
+      emit('random.txt');
       assert.equal(connectionsCalled, 0);
       assert.equal(settingsCalled, 0);
     } finally {
@@ -169,37 +237,37 @@ describe('config-file-watcher', () => {
     }
   });
 
-  test('debounces rapid writes into a single callback', async () => {
+  test('debounces rapid writes into a single callback', () => {
     let called = 0;
-    const watcher = startConfigFileWatcher(dir, {
+    const fake = startWithFakeWatcher({
       onConnectionsChanged: () => { called++; },
       onSettingsChanged: () => {},
-    });
+    }, { immediateTimers: false });
     try {
-      await wait(GRACE_SETTLE_MS);
-      await writeFile(join(dir, 'llm-connections.json'), '{"v":1}');
-      await wait(50);
-      await writeFile(join(dir, 'llm-connections.json'), '{"v":2}');
-      await wait(50);
-      await writeFile(join(dir, 'llm-connections.json'), '{"v":3}');
-      await wait(500);
+      fake.emit('llm-connections.json');
+      fake.emit('llm-connections.json');
+      fake.emit('llm-connections.json');
+      assert.equal(fake.pendingTimers().length, 1, 'rapid writes should leave one pending debounce timer');
+      assert.equal(fake.clearedTimers().length, 2, 'rapid writes should clear superseded debounce timers');
+      fake.runPendingTimers();
       assert.equal(called, 1, `expected debounce to coalesce into 1 call, got ${called} calls`);
     } finally {
-      watcher.stop();
+      fake.watcher.stop();
     }
   });
 
-  test('stop() prevents further callbacks', async () => {
+  test('stop() clears pending callbacks', () => {
     let called = 0;
-    const watcher = startConfigFileWatcher(dir, {
+    const fake = startWithFakeWatcher({
       onConnectionsChanged: () => { called++; },
       onSettingsChanged: () => {},
-    });
-    await wait(GRACE_SETTLE_MS);
-    watcher.stop();
-    await writeFile(join(dir, 'llm-connections.json'), '{"after-stop": true}');
-    await wait(500);
-    assert.equal(called, 0, 'should not fire after stop()');
+    }, { immediateTimers: false });
+    fake.emit('llm-connections.json');
+    assert.equal(fake.pendingTimers().length, 1, 'named changes should create a pending debounce timer');
+    fake.watcher.stop();
+    assert.equal(fake.clearedTimers().length, 1, 'stop should clear pending debounce timers');
+    fake.runPendingTimers();
+    assert.equal(called, 0, 'cleared debounce callback must not run after stop()');
   });
 
   test('returns no-op watcher when directory does not exist', () => {

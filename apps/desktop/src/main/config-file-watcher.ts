@@ -19,7 +19,6 @@ export interface ConfigFileWatcher {
 }
 
 const DEBOUNCE_MS = 300;
-const STARTUP_GRACE_MS = 350;
 
 type WatchListener = (eventType: string, filename: string | Buffer | null) => void;
 
@@ -28,8 +27,6 @@ type WatchImpl = (workspaceRoot: string, listener: WatchListener) => Pick<FSWatc
 interface ConfigFileWatcherOptions {
   watchImpl?: WatchImpl;
   debounceMs?: number;
-  startupGraceMs?: number;
-  now?: () => number;
   setTimeoutImpl?: typeof setTimeout;
   clearTimeoutImpl?: typeof clearTimeout;
 }
@@ -46,13 +43,10 @@ export function startConfigFileWatcher(
   options: ConfigFileWatcherOptions = {},
 ): ConfigFileWatcher {
   const debounceMs = options.debounceMs ?? DEBOUNCE_MS;
-  const startupGraceMs = options.startupGraceMs ?? STARTUP_GRACE_MS;
-  const now = options.now ?? Date.now;
   const setTimer = options.setTimeoutImpl ?? setTimeout;
   const clearTimer = options.clearTimeoutImpl ?? clearTimeout;
   const watchImpl = options.watchImpl ?? fsWatch;
   const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const startedAt = now();
 
   function schedule(timerKey: string, callbackKey: keyof ConfigFileWatcherCallbacks): void {
     const existing = debounceTimers.get(timerKey);
@@ -73,7 +67,6 @@ export function startConfigFileWatcher(
   let watcher: Pick<FSWatcher, 'on' | 'close'> | undefined;
   try {
     watcher = watchImpl(workspaceRoot, (_eventType, filename) => {
-      if (now() - startedAt < startupGraceMs) return;
       if (!filename) {
         schedule('__fallback:connections', 'onConnectionsChanged');
         schedule('__fallback:settings', 'onSettingsChanged');
