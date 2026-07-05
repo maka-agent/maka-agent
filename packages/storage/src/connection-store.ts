@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import {
   PROVIDER_DEFAULTS,
   migrateConnectionV1ToV2,
+  persistedBaseUrl,
   validateSlug,
   type CreateConnectionInput,
   type LlmConnection,
@@ -60,11 +61,12 @@ class FileConnectionStore implements ConnectionStore {
       }
       const defaults = PROVIDER_DEFAULTS[input.providerType];
       const now = Date.now();
+      const baseUrl = persistedBaseUrl(input.providerType, input.baseUrl);
       const next: LlmConnection = {
         slug: input.slug,
         name: input.name || defaults.label,
         providerType: input.providerType,
-        ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
+        ...(baseUrl ? { baseUrl } : {}),
         defaultModel: input.defaultModel || defaults.fallbackModels[0] || '',
         enabled: true,
         createdAt: now,
@@ -111,7 +113,9 @@ class FileConnectionStore implements ConnectionStore {
       const next: LlmConnection = {
         ...current,
         name: patch.name ?? current.name,
-        baseUrl: patch.baseUrl !== undefined ? patch.baseUrl || undefined : current.baseUrl,
+        baseUrl: patch.baseUrl !== undefined
+          ? persistedBaseUrl(current.providerType, patch.baseUrl)
+          : current.baseUrl,
         defaultModel: patch.defaultModel ?? current.defaultModel,
         enabled: patch.enabled ?? current.enabled,
         models: updatesModelCache ? patch.models : (clearsModelCache ? undefined : current.models),
@@ -138,12 +142,19 @@ class FileConnectionStore implements ConnectionStore {
   }
 
   async save(connection: LlmConnection): Promise<LlmConnection> {
+    let saved: LlmConnection | null = null;
     await this.withQueue(async () => {
       const file = await this.readUnlocked();
       const index = file.connections.findIndex((item) => item.slug === connection.slug);
       const now = Date.now();
+      // save() is a full-replace write; route it through persistedBaseUrl too,
+      // or a caller handing back defaults.baseUrl (e.g. OAuth sync) pins the
+      // connection to the current default.
+      const baseUrl = persistedBaseUrl(connection.providerType, connection.baseUrl);
+      const { baseUrl: _omit, ...rest } = connection;
       const next: LlmConnection = {
-        ...connection,
+        ...rest,
+        ...(baseUrl ? { baseUrl } : {}),
         enabled: connection.enabled ?? true,
         createdAt: connection.createdAt ?? now,
         updatedAt: connection.updatedAt ?? now,
@@ -155,8 +166,10 @@ class FileConnectionStore implements ConnectionStore {
       }
       if (!file.defaultSlug && next.enabled !== false) file.defaultSlug = connection.slug;
       await this.write(file);
+      saved = next;
     });
-    return connection;
+    if (!saved) throw new Error(`Failed to save connection: ${connection.slug}`);
+    return saved;
   }
 
   async remove(slug: string): Promise<void> {
