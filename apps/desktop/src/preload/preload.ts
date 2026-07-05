@@ -391,6 +391,15 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('attachments:pickAndIngest', sessionId);
     },
+    ingestPaths(sessionId: string, files: { path: string; mimeType?: string; size: number }[]): Promise<AttachmentRef[]> {
+      return ipcRenderer.invoke('attachments:ingestPaths', sessionId, files);
+    },
+    readBytes(sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > {
+      return ipcRenderer.invoke('attachments:readBytes', sessionId, relativePath);
+    },
   },
   search: {
     // PR-SEARCH-2: local thread search. Renderer sends a `SearchRequest`

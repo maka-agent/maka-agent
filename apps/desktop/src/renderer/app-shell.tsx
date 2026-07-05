@@ -95,7 +95,6 @@ import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
 import { createAppShellDailyReviewActions } from './app-shell-daily-review-actions';
-import { createAppShellImportActions } from './app-shell-import-actions';
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
@@ -145,6 +144,7 @@ export function AppShell({
     });
   }
   const [activeId, setActiveIdState] = useState<string | undefined>();
+  const [pendingAttachments, setPendingAttachments] = useState<import('@maka/core').AttachmentRef[]>([]);
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -896,17 +896,40 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  const {
-    importDroppedTextFilesIntoComposer,
-    importDroppedTextFilesPrompt,
-    importFolderOutlineIntoComposer,
-    importTextFileIntoComposer,
-  } = createAppShellImportActions({
-    captureComposerImportOwner,
-    composerRef,
-    isComposerImportOwnerActive,
-    toastApi,
-  });
+  async function pickAttachments(): Promise<void> {
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return;
+    try {
+      const result = await window.maka.attachments.pickAndIngest(sessionId);
+      if (result.ok) {
+        setPendingAttachments((current) => [...current, ...result.attachments]);
+      }
+    } catch (error) {
+      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+    }
+  }
+
+  async function attachFilePaths(files: { path: string; mimeType?: string; size: number }[]): Promise<void> {
+    const sessionId = activeIdRef.current;
+    if (!sessionId || files.length === 0) return;
+    try {
+      const attachments = await window.maka.attachments.ingestPaths(sessionId, files);
+      setPendingAttachments((current) => [...current, ...attachments]);
+    } catch (error) {
+      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+    }
+  }
+
+  function removeAttachment(index: number): void {
+    setPendingAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  async function sendWithAttachments(text: string): Promise<boolean | void> {
+    const attachments = pendingAttachments.length > 0 ? pendingAttachments : undefined;
+    const ok = await send(text, attachments);
+    if (ok !== false) setPendingAttachments([]);
+    return ok;
+  }
 
   const stop = createAppShellStopAction({
     activeIdRef,
@@ -1439,7 +1462,6 @@ export function AppShell({
                             toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
                           }
                         }}
-                        onImportDroppedTextFiles={importDroppedTextFilesPrompt}
                       />
                       {onboardingState.kind === 'ready_empty' && (
                         <FirstRunChecklist
@@ -1473,12 +1495,13 @@ export function AppShell({
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
                 streaming={activeStreamingLive}
-                onSend={send}
+                onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                onImportTextFile={importTextFileIntoComposer}
-                onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
-                onImportFolderOutline={importFolderOutlineIntoComposer}
+                pendingAttachments={pendingAttachments}
+                onRemoveAttachment={removeAttachment}
+                onPickAttachments={activeId ? pickAttachments : undefined}
+                onAttachFilePaths={activeId ? attachFilePaths : undefined}
                 modelLabel={
                   activeModelLabel
                   ?? newChatModelLabel

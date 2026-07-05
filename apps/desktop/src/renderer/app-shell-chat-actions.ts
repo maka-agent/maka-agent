@@ -73,7 +73,7 @@ async function readMessagesForRefresh(
 }
 
 export interface AppShellChatActions {
-  send(text: string): Promise<boolean>;
+  send(text: string, attachments?: readonly import('@maka/core').AttachmentRef[]): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
   retryMessages(sessionId: string): Promise<void>;
@@ -132,13 +132,18 @@ export function createAppShellChatActions(deps: {
     pendingNewChatThinkingLevel,
   } = deps;
 
-  function optimisticUserMessage(turnId: string, text: string): StoredMessage {
+  function optimisticUserMessage(
+    turnId: string,
+    text: string,
+    attachments: readonly import('@maka/core').AttachmentRef[] = [],
+  ): StoredMessage {
     return {
       type: 'user',
       id: `optimistic-user-${turnId}`,
       turnId,
       ts: Date.now(),
       text,
+      ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
     };
   }
 
@@ -146,6 +151,7 @@ export function createAppShellChatActions(deps: {
     sessionId: string,
     turnId: string,
     text: string,
+    attachments: readonly import('@maka/core').AttachmentRef[] = [],
     options: { replaceCurrentMessages?: boolean } = {},
   ): void {
     if (activeIdRef.current !== sessionId) return;
@@ -157,7 +163,7 @@ export function createAppShellChatActions(deps: {
     });
     setMessages((current) => {
       if (current.some((message) => message.type === 'user' && message.turnId === turnId)) return current;
-      const next = optimisticUserMessage(turnId, text);
+      const next = optimisticUserMessage(turnId, text, attachments);
       return options.replaceCurrentMessages ? [next] : [...current, next];
     });
   }
@@ -167,7 +173,7 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
-  async function send(text: string): Promise<boolean> {
+  async function send(text: string, attachments?: readonly import('@maka/core').AttachmentRef[]): Promise<boolean> {
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
@@ -196,9 +202,9 @@ export function createAppShellChatActions(deps: {
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
-          showOptimisticUserMessage(session.id, turnId, text, { replaceCurrentMessages: true });
+          showOptimisticUserMessage(session.id, turnId, text, attachments, { replaceCurrentMessages: true });
         }
-        await window.maka.sessions.send(session.id, { type: 'send', turnId, text });
+        await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}) });
         if (activeIdRef.current === session.id) {
           await refreshMessagesUntilTurn(session.id, turnId);
         }
@@ -208,8 +214,8 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
-      showOptimisticUserMessage(sessionId, turnId, text);
-      await window.maka.sessions.send(sessionId, { type: 'send', turnId, text });
+      showOptimisticUserMessage(sessionId, turnId, text, attachments);
+      await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}) });
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
     } catch (error) {

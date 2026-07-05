@@ -20,7 +20,7 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
-import type { PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
+import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
@@ -692,7 +692,15 @@ export function ChatView(props: {
  * Memoized because chat scroll re-renders the whole list on every streaming
  * delta; this keeps already-final bubbles from re-parsing markdown.
  */
-const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number }) {
+const ATTACHMENT_KIND_LABEL: Record<AttachmentRef['kind'], string> = {
+  image: '🖼',
+  pdf: '📄',
+  doc: '📘',
+  code: '💻',
+  other: '📎',
+};
+
+const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
     // the right (so the right-anchor reads even for long messages), with a
@@ -705,6 +713,16 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
       <>
         <Bubble variant="user">
           <span>{props.text}</span>
+          {props.attachments && props.attachments.length > 0 ? (
+            <div className="maka-user-attachments">
+              {props.attachments.map((attachment, index) => (
+                <span key={`${attachment.name}-${index}`} className="maka-user-attachment-chip" data-kind={attachment.kind}>
+                  <span className="maka-user-attachment-kind" aria-hidden="true">{ATTACHMENT_KIND_LABEL[attachment.kind]}</span>
+                  <span className="maka-user-attachment-name">{attachment.name}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
         </Bubble>
         <div className="maka-message-meta">
           {props.ts !== undefined && (
@@ -1006,7 +1024,7 @@ const TurnView = memo(function TurnView(props: {
           aria-label="你发送的消息"
           title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts) : undefined}
         >
-          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} />
+          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
         </Message>
       )}
       <TurnSummary turn={turn} previousModelId={props.previousModelId} />

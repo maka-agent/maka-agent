@@ -253,6 +253,14 @@ declare global {
           | { ok: true; attachments: import('@maka/core').AttachmentRef[] }
           | { ok: false; reason: 'cancelled' | 'no_session' }
         >;
+        ingestPaths(
+          sessionId: string,
+          files: { path: string; mimeType?: string; size: number }[],
+        ): Promise<import('@maka/core').AttachmentRef[]>;
+        readBytes(sessionId: string, relativePath: string): Promise<
+          | { ok: true; base64: string; mimeType: string }
+          | { ok: false; reason: string }
+        >;
       };
       search: {
         thread(

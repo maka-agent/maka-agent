@@ -1298,6 +1298,38 @@ function registerIpc(): void {
       return { ok: true, attachments };
     },
   );
+  ipcMain.handle(
+    'attachments:ingestPaths',
+    async (
+      _event,
+      sessionId: string,
+      files: { path: string; mimeType?: string; size: number }[],
+    ): Promise<AttachmentRef[]> => {
+      const header = await store.readHeader(sessionId).catch(() => null);
+      if (!header) throw new Error('无法读取会话工作目录。');
+      return ingestAttachments({
+        files,
+        cwd: header.cwd,
+        sessionId,
+        artifactStore,
+        resizeImage: resizeImageForAttachment,
+      });
+    },
+  );
+  ipcMain.handle(
+    'attachments:readBytes',
+    async (_event, sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > => {
+      // Session-scoped read: only attachments filed under this session.
+      const record = await artifactStore.get(relativePath).catch(() => null);
+      if (!record || record.sessionId !== sessionId) return { ok: false, reason: 'not_found' };
+      const result = await artifactStore.readBinary(relativePath);
+      if (!result.ok) return result;
+      return { ok: true, base64: result.base64, mimeType: result.mimeType };
+    },
+  );
   ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRetryTurnInput(input);
