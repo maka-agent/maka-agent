@@ -2,53 +2,163 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   THINKING_LEVELS,
+  deriveThinkingChoices,
   isThinkingLevel,
+  thinkingOptionsForModel,
   thinkingVariantsForModel,
 } from '../model-thinking.js';
 
-describe('thinkingVariantsForModel', () => {
-  test('anthropic-protocol providers expose off/low/medium/high', () => {
-    for (const providerType of ['anthropic', 'kimi-coding-plan', 'MiniMax', 'MiniMax-cn', 'claude-subscription'] as const) {
-      assert.deepEqual([...thinkingVariantsForModel(providerType, 'claude-sonnet-4-5')], ['off', 'low', 'medium', 'high']);
-    }
+describe('deriveThinkingChoices', () => {
+  test('effort "none" surfaces as off; other efforts map to same-named levels', () => {
+    // gpt-5.5: efforts [none,low,medium,high,xhigh]
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['none', 'low', 'medium', 'high', 'xhigh'] })], ['off', 'low', 'medium', 'high', 'xhigh']);
   });
 
-  test('openai gpt-5 family exposes off/minimal/low/medium/high; gpt-4o exposes none', () => {
-    assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-5.5')], ['off', 'minimal', 'low', 'medium', 'high']);
+  test('toggle adds off; efforts without none stay as-is', () => {
+    // deepseek-v4-flash: toggle + efforts [high,max]
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['high', 'max'], toggle: true })], ['off', 'high', 'max']);
+  });
+
+  test('efforts without none or toggle expose no off (gpt-5 cannot disable)', () => {
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['minimal', 'low', 'medium', 'high'] })], ['minimal', 'low', 'medium', 'high']);
+  });
+
+  test('toggle-only model exposes just off (glm-4.5)', () => {
+    assert.deepEqual([...deriveThinkingChoices({ toggle: true })], ['off']);
+  });
+
+  test('effort model with no toggle and no none exposes no off (claude-opus-4-8)', () => {
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['low', 'medium', 'high', 'xhigh', 'max'] })], ['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  test('toggle + full effort set exposes off plus all efforts (claude-sonnet-5)', () => {
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['low', 'medium', 'high', 'xhigh', 'max'], toggle: true })], ['off', 'low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  test('unknown effort values are dropped (not in ThinkingLevel)', () => {
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['low', 'turbo', 'max'] })], ['low', 'max']);
+  });
+
+  test('undefined options (miss) yields empty list', () => {
+    assert.deepEqual([...deriveThinkingChoices(undefined)], []);
+  });
+
+  test('empty options yields empty list', () => {
+    assert.deepEqual([...deriveThinkingChoices({})], []);
+  });
+
+  test('choices are returned in THINKING_LEVELS display order regardless of input order', () => {
+    assert.deepEqual([...deriveThinkingChoices({ efforts: ['max', 'low', 'high'] })], ['low', 'high', 'max']);
+  });
+});
+
+describe('thinkingOptionsForModel', () => {
+  test('openai gpt-5.5 exposes none/low/medium/high/xhigh; gpt-5 exposes minimal/low/medium/high', () => {
+    assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5.5'), { efforts: ['none', 'low', 'medium', 'high', 'xhigh'] });
+    assert.deepEqual(thinkingOptionsForModel('openai', 'gpt-5'), { efforts: ['minimal', 'low', 'medium', 'high'] });
+  });
+
+  test('openai gpt-4o (non-reasoning) has no thinking options', () => {
+    assert.equal(thinkingOptionsForModel('openai', 'gpt-4o'), undefined);
+  });
+
+  test('zai glm-5.2 exposes high/max (not low/medium); glm-4.5-air is toggle-only', () => {
+    assert.deepEqual(thinkingOptionsForModel('zai-coding-plan', 'glm-5.2'), { efforts: ['high', 'max'] });
+    assert.deepEqual(thinkingOptionsForModel('zai-coding-plan', 'glm-4.5-air'), { toggle: true });
+  });
+
+  test('anthropic claude-opus-4-8 exposes efforts without toggle (cannot disable); fable-5 same', () => {
+    assert.deepEqual(thinkingOptionsForModel('anthropic', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
+    assert.deepEqual(thinkingOptionsForModel('anthropic', 'claude-fable-5'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
+  });
+
+  test('anthropic claude-haiku-4.5 is budget-only but can disable (toggle); sonnet-4-5 same', () => {
+    assert.deepEqual(thinkingOptionsForModel('anthropic', 'claude-haiku-4-5'), { toggle: true });
+    assert.deepEqual(thinkingOptionsForModel('anthropic', 'claude-sonnet-4-5'), { toggle: true });
+  });
+
+  test('anthropic non-reasoning (3.5 sonnet) has no thinking options', () => {
+    assert.equal(thinkingOptionsForModel('anthropic', 'claude-3-5-sonnet-20241022'), undefined);
+  });
+
+  test('google gemini-3.5-flash exposes efforts; gemini-3-pro-preview exposes low/high only', () => {
+    assert.deepEqual(thinkingOptionsForModel('google', 'gemini-3.5-flash'), { efforts: ['minimal', 'low', 'medium', 'high'] });
+    assert.deepEqual(thinkingOptionsForModel('google', 'gemini-3-pro-preview'), { efforts: ['low', 'high'] });
+  });
+
+  test('google gemini-2.5-pro (budget-only, no toggle) has no thinking options; 2.5-flash is toggle-only', () => {
+    assert.equal(thinkingOptionsForModel('google', 'gemini-2.5-pro'), undefined);
+    assert.deepEqual(thinkingOptionsForModel('google', 'gemini-2.5-flash'), { toggle: true });
+  });
+
+  test('deepseek-v4-flash exposes toggle + high/max efforts', () => {
+    assert.deepEqual(thinkingOptionsForModel('deepseek', 'deepseek-v4-flash'), { efforts: ['high', 'max'], toggle: true });
+  });
+
+  test('claude-subscription inherits anthropic thinking options (displayMetadataOnly preserves them)', () => {
+    assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-opus-4-8'), { efforts: ['low', 'medium', 'high', 'xhigh', 'max'] });
+    assert.deepEqual(thinkingOptionsForModel('claude-subscription', 'claude-haiku-4-5'), { toggle: true });
+  });
+
+  test('miss (unknown provider/model) returns undefined', () => {
+    assert.equal(thinkingOptionsForModel('ollama', 'llama3'), undefined);
+    assert.equal(thinkingOptionsForModel('openai', 'unknown-model'), undefined);
+  });
+});
+
+describe('thinkingVariantsForModel', () => {
+  test('openai gpt-5.5 exposes off/low/medium/high/xhigh; gpt-5 minimal/low/medium/high; gpt-4o none', () => {
+    assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-5.5')], ['off', 'low', 'medium', 'high', 'xhigh']);
+    assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-5')], ['minimal', 'low', 'medium', 'high']);
     assert.deepEqual([...thinkingVariantsForModel('openai', 'gpt-4o')], []);
   });
 
-  test('codex subscription exposes off/minimal/low/medium/high', () => {
-    assert.deepEqual([...thinkingVariantsForModel('codex-subscription', 'gpt-5-codex')], ['off', 'minimal', 'low', 'medium', 'high']);
+  test('anthropic opus-4-8 exposes efforts (no off, cannot disable); haiku-4-5 off only; sonnet-4-5 off only; non-reasoning none', () => {
+    assert.deepEqual([...thinkingVariantsForModel('anthropic', 'claude-opus-4-8')], ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual([...thinkingVariantsForModel('anthropic', 'claude-haiku-4-5')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('anthropic', 'claude-sonnet-4-5')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('anthropic', 'claude-3-5-sonnet-20241022')], []);
   });
 
-  test('gemini 2.5/3 expose low/medium/high (no off switch); older gemini exposes none', () => {
-    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-3-pro-preview')], ['low', 'medium', 'high']);
-    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.5-flash')], ['low', 'medium', 'high']);
+  test('google gemini-3-pro-preview low/high; 3.5-flash minimal/low/medium/high; 2.5-flash off only; 2.5-pro/2.0-flash none', () => {
+    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-3-pro-preview')], ['low', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-3.5-flash')], ['minimal', 'low', 'medium', 'high']);
+    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.5-flash')], ['off']);
+    assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.5-pro')], []);
     assert.deepEqual([...thinkingVariantsForModel('google', 'gemini-2.0-flash')], []);
   });
 
-  test('deepseek/moonshot-kimi/zai-glm expose low/medium/high on reasoning ids (no off switch)', () => {
-    assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], ['low', 'medium', 'high']);
-    assert.deepEqual([...thinkingVariantsForModel('moonshot', 'kimi-k2')], ['low', 'medium', 'high']);
-    assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.6')], ['low', 'medium', 'high']);
+  test('deepseek-v4-flash off/high/max; deepseek-chat none', () => {
+    assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-v4-flash')], ['off', 'high', 'max']);
+    assert.deepEqual([...thinkingVariantsForModel('deepseek', 'deepseek-chat')], []);
   });
 
-  test('ollama / openai-compatible / gemini-cli expose none (cannot infer)', () => {
+  test('zai glm-5.2 high/max; glm-4.5-air off only', () => {
+    assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-5.2')], ['high', 'max']);
+    assert.deepEqual([...thinkingVariantsForModel('zai-coding-plan', 'glm-4.5-air')], ['off']);
+  });
+
+  test('codex-subscription inherits openai gpt-5.5 thinking options', () => {
+    assert.deepEqual([...thinkingVariantsForModel('codex-subscription', 'gpt-5.5')], ['off', 'low', 'medium', 'high', 'xhigh']);
+  });
+
+  test('claude-subscription inherits anthropic thinking options', () => {
+    assert.deepEqual([...thinkingVariantsForModel('claude-subscription', 'claude-opus-4-8')], ['low', 'medium', 'high', 'xhigh', 'max']);
+    assert.deepEqual([...thinkingVariantsForModel('claude-subscription', 'claude-haiku-4-5')], ['off']);
+  });
+
+  test('providers without metadata yield none (miss → no menu)', () => {
     assert.deepEqual([...thinkingVariantsForModel('ollama', 'llama3')], []);
-    assert.deepEqual([...thinkingVariantsForModel('openai-compatible', 'some-custom-model')], []);
+    assert.deepEqual([...thinkingVariantsForModel('openai-compatible', 'some-model')], []);
     assert.deepEqual([...thinkingVariantsForModel('gemini-cli', 'gemini-2.5-pro')], []);
-  });
-
-  test('moonshot non-kimi id exposes none', () => {
-    assert.deepEqual([...thinkingVariantsForModel('moonshot', 'moonshot-v1-8k')], []);
+    assert.deepEqual([...thinkingVariantsForModel('moonshot', 'kimi-k2')], []);
   });
 });
 
 describe('isThinkingLevel / THINKING_LEVELS', () => {
   test('accepts the canonical levels and rejects others', () => {
     for (const level of THINKING_LEVELS) assert.equal(isThinkingLevel(level), true);
-    assert.equal(isThinkingLevel('xhigh'), false);
+    assert.equal(isThinkingLevel('xhigh'), true);
     assert.equal(isThinkingLevel('default'), false);
     assert.equal(isThinkingLevel(undefined), false);
     assert.equal(isThinkingLevel(123), false);

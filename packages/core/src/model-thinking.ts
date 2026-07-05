@@ -18,18 +18,62 @@
  */
 
 import type { ProviderType } from './llm-connections.js';
+import { lookupModelMetadata } from './model-metadata.js';
 
 /**
  * Reasoning-depth variants. Ordered from shallowest to deepest for display.
  * Not every model supports every level — call `thinkingVariantsForModel` for
  * the model-specific subset.
  */
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high';
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-export const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high'];
+export const THINKING_LEVELS: readonly ThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 export function isThinkingLevel(value: unknown): value is ThinkingLevel {
   return typeof value === 'string' && (THINKING_LEVELS as readonly string[]).includes(value);
+}
+
+/**
+ * Per-model reasoning controls, mirroring models.dev `reasoning_options`.
+ * `efforts` are the provider's native effort enum values (e.g. `none`, `low`,
+ * `high`, `xhigh`, `max`); `toggle` means the model supports an on/off switch
+ * (`thinking.type: disabled`). budget_tokens-only models omit both fields.
+ */
+export interface ThinkingOptions {
+  readonly efforts?: readonly string[];
+  readonly toggle?: boolean;
+}
+
+/**
+ * Derive the user-facing thinking-level choices from a model's declared
+ * `ThinkingOptions`. `none` (OpenAI's off effort) and `toggle` both surface as
+ * `'off'`; other effort values map to the same-named `ThinkingLevel`.
+ * Unknown effort values (not in `ThinkingLevel`) are dropped. Returns `[]` for
+ * models with no declared options (miss → no thinking menu, fallback default).
+ */
+export function deriveThinkingChoices(options: ThinkingOptions | undefined): readonly ThinkingLevel[] {
+  if (!options) return [];
+  const choices = new Set<ThinkingLevel>();
+  if (options.toggle) choices.add('off');
+  for (const effort of options.efforts ?? []) {
+    if (effort === 'none') choices.add('off');
+    else if (isThinkingLevel(effort)) choices.add(effort);
+    // Unknown effort values (not in ThinkingLevel) are dropped — add the
+    // level to THINKING_LEVELS if a provider introduces a new effort tier.
+  }
+  return THINKING_LEVELS.filter((level) => choices.has(level));
+}
+
+/**
+ * Per-model reasoning options declared in `model-metadata.ts`
+ * (mirroring models.dev `reasoning_options`). Returns `undefined` for models
+ * with no declared options (miss → `thinkingVariantsForModel` returns `[]`).
+ */
+export function thinkingOptionsForModel(
+  providerType: ProviderType,
+  modelId: string,
+): ThinkingOptions | undefined {
+  return lookupModelMetadata(providerType, modelId).thinkingOptions;
 }
 
 /**
@@ -47,47 +91,5 @@ export function thinkingVariantsForModel(
   providerType: ProviderType,
   modelId: string,
 ): readonly ThinkingLevel[] {
-  const id = modelId.toLowerCase();
-  switch (providerType) {
-    // Anthropic-protocol providers all expose `thinking.budgetTokens`, and a
-    // true off switch via `thinking: { type: 'disabled' }`.
-    case 'anthropic':
-    case 'kimi-coding-plan':
-    case 'MiniMax':
-    case 'MiniMax-cn':
-    case 'claude-subscription':
-      return ['off', 'low', 'medium', 'high'];
-
-    // OpenAI gpt-5 family + codex subscription accept `reasoningEffort`,
-    // including `minimal` and a true `none` off. Non-gpt-5 OpenAI chat models
-    // do not reason.
-    case 'openai':
-      return /^gpt-5/i.test(id) ? ['off', 'minimal', 'low', 'medium', 'high'] : [];
-    case 'codex-subscription':
-      return ['off', 'minimal', 'low', 'medium', 'high'];
-
-    // Gemini 2.5 / 3 / 3.1 expose `thinkingConfig` (thinkingLevel or
-    // thinkingBudget). Older Gemini models do not.
-    case 'google':
-      return /gemini-(2\.5|3\.1|3)/i.test(id) ? ['low', 'medium', 'high'] : [];
-
-    // DeepSeek v3+ exposes `reasoning_effort` over the OpenAI-compatible API.
-    case 'deepseek':
-      return /deepseek/i.test(id) ? ['low', 'medium', 'high'] : [];
-
-    // Moonshot Kimi K2+ exposes `reasoning_effort`.
-    case 'moonshot':
-      return /kimi/i.test(id) ? ['low', 'medium', 'high'] : [];
-
-    // Z.AI GLM 4.6+ exposes `reasoning_effort`.
-    case 'zai-coding-plan':
-      return /glm/i.test(id) ? ['low', 'medium', 'high'] : [];
-
-    // ollama / openai-compatible / gemini-cli back user-configured models we
-    // cannot reason about from the id alone — do not offer the knob.
-    case 'ollama':
-    case 'openai-compatible':
-    case 'gemini-cli':
-      return [];
-  }
+  return deriveThinkingChoices(thinkingOptionsForModel(providerType, modelId));
 }
