@@ -2,6 +2,14 @@ import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage,
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
+
+export type PendingAttachment = {
+  displayName: string;
+  mimeType?: string;
+  kind: import('@maka/core').AttachmentRef['kind'];
+  size: number;
+  source: { type: 'path'; path: string } | { type: 'file'; file: File };
+};
 import {
   isNoRealConnectionError,
   noRealConnectionReasonFromError,
@@ -73,10 +81,36 @@ async function readMessagesForRefresh(
 }
 
 export interface AppShellChatActions {
-  send(text: string, attachments?: readonly import('@maka/core').AttachmentRef[]): Promise<boolean>;
+  send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
   retryMessages(sessionId: string): Promise<void>;
+}
+
+async function ingestAll(
+  sessionId: string,
+  pending: readonly PendingAttachment[],
+): Promise<import('@maka/core').AttachmentRef[]> {
+  const pathInputs: { path: string; mimeType?: string; size: number }[] = [];
+  const fileInputs: File[] = [];
+  for (const p of pending) {
+    if (p.source.type === 'path') {
+      pathInputs.push({ path: p.source.path, mimeType: p.mimeType, size: p.size });
+    } else {
+      fileInputs.push(p.source.file);
+    }
+  }
+  const fromPaths = pathInputs.length
+    ? await window.maka.attachments.ingestPaths(sessionId, pathInputs)
+    : [];
+  const fromFiles = fileInputs.length
+    ? await window.maka.attachments.ingestFiles(sessionId, fileInputs)
+    : [];
+  let pathIdx = 0;
+  let fileIdx = 0;
+  return pending.map((p) =>
+    p.source.type === 'path' ? fromPaths[pathIdx++] : fromFiles[fileIdx++],
+  );
 }
 
 export function createAppShellChatActions(deps: {
@@ -173,7 +207,7 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
-  async function send(text: string, attachments?: readonly import('@maka/core').AttachmentRef[]): Promise<boolean> {
+  async function send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean> {
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
@@ -199,6 +233,7 @@ export function createAppShellChatActions(deps: {
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
+        const attachments = pending && pending.length > 0 ? await ingestAll(session.id, pending) : undefined;
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
@@ -214,6 +249,7 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
+      const attachments = pending && pending.length > 0 ? await ingestAll(sessionId, pending) : undefined;
       showOptimisticUserMessage(sessionId, turnId, text, attachments);
       await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}) });
       await refreshMessagesUntilTurn(sessionId, turnId);

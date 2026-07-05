@@ -111,7 +111,7 @@ export const Composer = forwardRef<
     onStop(): void | Promise<void>;
     onPickAttachments?(): void | Promise<void>;
     onAttachFilePaths?(files: File[]): void | Promise<void>;
-    pendingAttachments?: readonly AttachmentRef[];
+    pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string }[];
     onRemoveAttachment?(index: number): void;
     modelLabel?: string;
     activeSession?: SessionSummary;
@@ -532,16 +532,16 @@ export const Composer = forwardRef<
           <div className="maka-composer-attachments">
             {props.pendingAttachments.map((attachment, index) => (
               <span
-                key={`${attachment.name}-${index}`}
+                key={`${attachment.displayName}-${index}`}
                 className="maka-composer-attachment-chip"
                 data-kind={attachment.kind}
               >
-                <span className="maka-composer-attachment-name">{attachment.name}</span>
+                <span className="maka-composer-attachment-name">{attachment.displayName}</span>
                 {props.onRemoveAttachment ? (
                   <button
                     type="button"
                     className="maka-composer-attachment-remove"
-                    aria-label={`移除 ${attachment.name}`}
+                    aria-label={`移除 ${attachment.displayName}`}
                     onClick={() => props.onRemoveAttachment?.(index)}
                   >
                     ×

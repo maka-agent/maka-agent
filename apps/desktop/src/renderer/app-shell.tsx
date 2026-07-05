@@ -12,7 +12,7 @@ import type {
   ThemePreference,
   ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel, attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -90,7 +90,7 @@ import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
-import { createAppShellChatActions } from './app-shell-chat-actions';
+import { createAppShellChatActions, type PendingAttachment } from './app-shell-chat-actions';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
@@ -113,6 +113,33 @@ type ComposerImportOwner = {
   sessionId: string | undefined;
   navSection: NavSelection['section'];
 };
+
+function basenameOf(filePath: string): string {
+  const parts = filePath.split(/[\\/]/);
+  return parts[parts.length - 1] || filePath;
+}
+
+function pathToPending(file: { path: string; mimeType?: string; size: number }): PendingAttachment {
+  const mimeType = file.mimeType ?? guessMimeFromName(file.path);
+  return {
+    displayName: basenameOf(file.path),
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType, file.path),
+    size: file.size,
+    source: { type: 'path', path: file.path },
+  };
+}
+
+function fileToPending(file: File): PendingAttachment {
+  const mimeType = file.type || undefined;
+  return {
+    displayName: file.name,
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType ?? '', file.name),
+    size: file.size,
+    source: { type: 'file', file },
+  };
+}
 
 export function AppShell({
   initialOnboardingSnapshot = null,
@@ -144,7 +171,7 @@ export function AppShell({
     });
   }
   const [activeId, setActiveIdState] = useState<string | undefined>();
-  const [pendingAttachments, setPendingAttachments] = useState<import('@maka/core').AttachmentRef[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -896,31 +923,11 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  async function ensureAttachmentSession(): Promise<string> {
-    const existingSessionId = activeIdRef.current;
-    if (existingSessionId) return existingSessionId;
-    const session = await window.maka.sessions.create({
-      ...(pendingNewChatPermissionMode ? { permissionMode: pendingNewChatPermissionMode } : {}),
-      name: '新建对话',
-      ...(validPendingNewChatModel
-        ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
-        : {}),
-      ...(newChatThinkingLevel ? { thinkingLevel: newChatThinkingLevel } : {}),
-    });
-    setPendingNewChatPermissionMode(null);
-    upsertSessionSummary(session);
-    setNavSelection({ section: 'sessions', filter: 'chats' });
-    setActiveId(session.id);
-    return session.id;
-  }
-
   async function pickAttachments(): Promise<void> {
     try {
       const result = await window.maka.attachments.pickFiles();
       if (!result.ok) return;
-      const sessionId = await ensureAttachmentSession();
-      const attachments = await window.maka.attachments.ingestPaths(sessionId, result.files);
-      setPendingAttachments((current) => [...current, ...attachments]);
+      setPendingAttachments((current) => [...current, ...result.files.map(pathToPending)]);
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
     }
@@ -928,13 +935,7 @@ export function AppShell({
 
   async function attachFilePaths(files: File[]): Promise<void> {
     if (files.length === 0) return;
-    try {
-      const sessionId = await ensureAttachmentSession();
-      const attachments = await window.maka.attachments.ingestFiles(sessionId, files);
-      setPendingAttachments((current) => [...current, ...attachments]);
-    } catch (error) {
-      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
-    }
+    setPendingAttachments((current) => [...current, ...files.map(fileToPending)]);
   }
 
   function removeAttachment(index: number): void {
@@ -942,8 +943,8 @@ export function AppShell({
   }
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
-    const attachments = pendingAttachments.length > 0 ? pendingAttachments : undefined;
-    const ok = await send(text, attachments);
+    const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
+    const ok = await send(text, pending);
     if (ok !== false) setPendingAttachments([]);
     return ok;
   }

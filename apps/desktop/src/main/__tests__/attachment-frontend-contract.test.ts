@@ -42,6 +42,7 @@ describe('attachment frontend contract', () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
+    const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
     assert.match(
       preload,
@@ -58,10 +59,15 @@ describe('attachment frontend contract', () => {
       /ingestFiles\(sessionId: string, files: File\[\]\): Promise<import\('@maka\/core'\)\.AttachmentRef\[\]>/,
       'renderer global types must expose the blob-capable attachment API',
     );
-    assert.match(
+    assert.doesNotMatch(
       appShell,
-      /await window\.maka\.attachments\.ingestFiles\(sessionId, files\)/,
-      'composer drop/paste must call the blob-capable API instead of reducing Files to paths first',
+      /window\.maka\.attachments\.ingestFiles/,
+      'app-shell must not ingest dropped/pasted files at pick time — ingestion is deferred to send so no empty session is created',
+    );
+    assert.match(
+      chatActions,
+      /window\.maka\.attachments\.ingestFiles/,
+      'composer drop/paste blobs must still reach the blob-capable ingest API, now at send time via ingestAll',
     );
     assert.doesNotMatch(
       appShell,
@@ -74,6 +80,7 @@ describe('attachment frontend contract', () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
+    const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
     assert.match(
       preload,
@@ -85,15 +92,19 @@ describe('attachment frontend contract', () => {
       /pickFiles\(\): Promise<[\s\S]*files: \{ path: string; mimeType\?: string; size: number \}\[\]/,
       'renderer global types must expose the pick-only attachment API',
     );
-    assert.match(
+    // Cleanest: attachments stage in the renderer and ingest at send time.
+    // Pre-send session creation was removed because it renamed the session
+    // to a placeholder ("新建对话") and swapped the composer draft key,
+    // losing in-progress text on drag/paste.
+    assert.doesNotMatch(
       appShell,
-      /async function ensureAttachmentSession\(\): Promise<string>/,
-      'new chat attachment import must create a session only after the user has provided files',
+      /ensureAttachmentSession/,
+      'attachments must not create a session before send — that swapped the draft key and left placeholder session names',
     );
     assert.match(
-      appShell,
-      /const result = await window\.maka\.attachments\.pickFiles\(\);[\s\S]*const sessionId = await ensureAttachmentSession\(\);[\s\S]*window\.maka\.attachments\.ingestPaths\(sessionId, result\.files\)/,
-      'the + button must pick files before creating/using a session, then ingest the chosen paths',
+      chatActions,
+      /async function ingestAll[\s\S]*attachments\.ingestPaths[\s\S]*attachments\.ingestFiles/,
+      'pending attachments must be ingested at send time, after the session is known',
     );
     assert.match(
       appShell,
