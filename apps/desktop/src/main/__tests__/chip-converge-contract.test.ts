@@ -10,14 +10,22 @@ const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), 'utf8');
 // primitive (squared, compact, status-tone), NOT the pill Badge primitive.
 // Badge and Chip are two distinct UI roles — pill Badge for emphasis markers
 // (health/permission center), squared Chip for dense settings status rows.
-// This contract keeps the two tracks apart and locks Chip to radius-control.
+//
+// This contract locks the role split (Chip radius-control not pill, Badge
+// stays pill) AND the user-visible tokens of Chip (neutral bg/text, sm/default
+// size geometry, status-tone alphas) so a cva class change that preserves the
+// import is still caught. Token values reproduce the retired
+// .settingsBadge (sm: 18px/400/0-6px padding/foreground-5) and
+// .settingsConnectionBadge (default: 20px/600/2-8px/foreground-5, tone alphas
+// /12 /14 /18 /15) CSS so settings visuals do not drift.
 test('chip converge (#520 PR9)', async () => {
-  // 1. Chip primitive exists + carries data-slot
   const chipSrc = read('packages/ui/src/primitives/chip.tsx');
+
+  // 1. Chip primitive exists + carries data-slot
   assert.match(chipSrc, /export function Chip/, 'Chip primitive must be exported');
   assert.match(chipSrc, /["']?data-slot["']?\s*[:=]\s*["']chip["']/, 'Chip must carry data-slot="chip"');
 
-  // 2. Chip locks radius-control (squared), never pill
+  // 2. Chip locks radius-control (squared), never pill — role split with Badge
   assert.match(chipSrc, /rounded-\[var\(--radius-control\)\]/, 'Chip must use radius-control (squared, not pill)');
   assert.doesNotMatch(chipSrc, /rounded-\[var\(--radius-pill\)\]/, 'Chip must not regress to pill');
 
@@ -25,13 +33,13 @@ test('chip converge (#520 PR9)', async () => {
   const indexSrc = read('packages/ui/src/index.ts');
   assert.match(indexSrc, /export (?:\*|\{[^}]*\bChip\b[^}]*\}) from ['"]\.\/primitives\/chip\.js['"]/, 'index.ts must re-export Chip');
 
-  // 4. settings CSS chips retired (.settingsBadge / .settingsConnectionBadge)
+  // 4. settings CSS chips retired
   const botCss = read('apps/desktop/src/renderer/styles/settings/bot.css');
   assert.doesNotMatch(botCss, /\.settingsBadge\s*\{/, '.settingsBadge CSS rule must be retired');
   const connCss = read('apps/desktop/src/renderer/styles/settings/connection.css');
   assert.doesNotMatch(connCss, /\.settingsConnectionBadge\s*[\{[,]/, '.settingsConnectionBadge CSS rule must be retired');
 
-  // 5. settings chip sites import and use Chip primitive, not the CSS spans
+  // 5. settings chip sites use the Chip primitive (squared status role, not pill Badge)
   const CHIP_IMPORT_RE =
     /import\s+\{[^}]*\bChip\b[^}]*\}\s+from\s+['"][^'"]*?(?:@maka\/ui|primitives\/chip\.js)['"]/;
   const settingsChipFiles = [
@@ -43,13 +51,25 @@ test('chip converge (#520 PR9)', async () => {
     'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
   ];
   for (const rel of settingsChipFiles) {
-    const src = read(rel);
-    assert.match(src, CHIP_IMPORT_RE, `${rel} must import Chip`);
-    assert.doesNotMatch(src, /className=["'][^"']*settingsBadge/, `${rel} must not use .settingsBadge span`);
-    assert.doesNotMatch(src, /className=["'][^"']*settingsConnectionBadge/, `${rel} must not use .settingsConnectionBadge span`);
+    assert.match(read(rel), CHIP_IMPORT_RE, `${rel} must import Chip`);
   }
 
-  // 6. Badge primitive stays pill — dual-track Badge (pill) + Chip (squared) preserved
+  // 6. Chip neutral variant tokens — bg = foreground-5 (bg-secondary aliases
+  //    --color-secondary = var(--foreground-5)), text = foreground-secondary
+  assert.match(chipSrc, /neutral: "bg-secondary text-\[var\(--foreground-secondary\)\]"/, 'Chip neutral bg must be foreground-5 (bg-secondary) and text foreground-secondary');
+
+  // 7. Chip size tokens — sm reproduces .settingsBadge (18px/400/0-6px),
+  //    default reproduces .settingsConnectionBadge (20px/600/2-8px)
+  assert.match(chipSrc, /min-h-4\.5 px-\[var\(--space-1-5\)\] py-0 font-normal/, 'Chip sm size must reproduce .settingsBadge (18px / 400 / 0-6px padding)');
+  assert.match(chipSrc, /min-h-5 px-\[var\(--space-2\)\] py-\[var\(--space-0-5\)\] font-semibold/, 'Chip default size must reproduce .settingsConnectionBadge (20px / 600 / 2-8px padding)');
+
+  // 8. Chip status-tone variant tokens — reproduce retired CSS oklch alphas
+  assert.match(chipSrc, /bg-info\/14/, 'Chip info variant must keep /14 alpha (matches .settingsConnectionBadge info)');
+  assert.match(chipSrc, /bg-success\/12/, 'Chip success variant must keep /12 alpha');
+  assert.match(chipSrc, /bg-warning\/18/, 'Chip warning variant must keep /18 alpha');
+  assert.match(chipSrc, /bg-destructive\/15/, 'Chip destructive variant must keep /15 alpha (not solid red)');
+
+  // 9. Badge primitive stays pill — dual-track Badge (pill) + Chip (squared) preserved
   const badgeSrc = read('packages/ui/src/primitives/badge.tsx');
   assert.match(badgeSrc, /rounded-\[var\(--radius-pill\)\]/, 'Badge stays pill (dual-track with Chip)');
 });

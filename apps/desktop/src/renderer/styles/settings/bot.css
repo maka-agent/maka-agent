@@ -413,8 +413,9 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-/* #520 PR9: .settingsBadge retired onto the Badge primitive
-   (packages/ui/src/primitives/badge.tsx, variant="secondary"). */
+/* #520 PR9: .settingsBadge retired onto the Chip primitive variant="neutral"
+   (packages/ui/src/primitives/chip.tsx, size="sm"). Generic settings labels
+   stay squared (radius-control), not pill Badge. */
 
 /* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
    card pattern as `.settingsStructuredPage` — outer card + hairline

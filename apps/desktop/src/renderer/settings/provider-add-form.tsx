@@ -83,7 +83,7 @@ export function AddProviderForm(props: {
             : isExperimental ? '账号登录暂未接入聊天发送' : `添加 ${display.name}`}</h3>
           <p>{display.description}</p>
         </div>
-        <Chip variant="neutral">{categoryLabel(defaults.category)}</Chip>
+        <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
       </header>
       {isExperimental && (
         <div className="providerUnavailableNotice">

@@ -375,8 +375,8 @@ export function ConnectionDetail(props: {
           <p>{display.name}</p>
         </div>
         <span className="providerHeaderBadges">
-          {props.isDefault && <Chip variant="neutral">默认</Chip>}
-          <Chip variant="neutral">{categoryLabel(defaults.category)}</Chip>
+          {props.isDefault && <Chip variant="neutral" size="sm">默认</Chip>}
+          <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
         </span>
       </header>
       <FieldRoot className="grid gap-1.5">
