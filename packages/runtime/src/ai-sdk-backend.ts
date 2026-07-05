@@ -1070,7 +1070,6 @@ export class AiSdkBackend implements AgentBackend {
           ...(tokenUsageCostUsd !== undefined ? { costUsd: tokenUsageCostUsd } : {}),
           ...(promptSegmentsForTelemetry.length > 0 ? { promptSegments: promptSegmentsForTelemetry } : {}),
           ...(contextBudgetForTelemetry !== undefined ? { contextBudget: contextBudgetForTelemetry } : {}),
-          ...this.summarizeImageAttachments(input.attachments),
         });
         queue.close();
       }
@@ -2123,19 +2122,6 @@ export class AiSdkBackend implements AgentBackend {
     attachments?: AttachmentRef[],
   ): Promise<ModelMessage['content']> {
     return this.appendImageParts(formatTextWithAttachmentRefs(text, attachments), attachments);
-  }
-
-  /** Count image attachments + total bytes so cost/budget telemetry is not
-   *  silently misread as text-only when images reached the provider. */
-  private summarizeImageAttachments(
-    attachments?: AttachmentRef[],
-  ): { imageAttachmentCount?: number; imageAttachmentBytes?: number } {
-    const images = attachments?.filter((a) => a.kind === 'image') ?? [];
-    if (images.length === 0) return {};
-    return {
-      imageAttachmentCount: images.length,
-      imageAttachmentBytes: images.reduce((sum, a) => sum + a.bytes, 0),
-    };
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {

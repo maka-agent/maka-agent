@@ -143,14 +143,6 @@ export interface LlmCallRecord {
   cacheMissInputSource?: CacheMissInputSource;
   promptSegments?: PromptSegmentEstimate[];
   contextBudget?: ContextBudgetDiagnostic;
-  /**
-   * Number/size of image attachments on the current user turn. Token
-   * estimation is text-only for now; these fields flag that image bytes
-   * reached the provider so cost/budget diagnostics are not silently
-   * misread as text-only.
-   */
-  imageAttachmentCount?: number;
-  imageAttachmentBytes?: number;
 }
 
 export type ToolSourceId = string;

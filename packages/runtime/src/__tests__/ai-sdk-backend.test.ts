@@ -1921,55 +1921,6 @@ describe('AiSdkBackend stop', () => {
 });
 
 describe('AiSdkBackend usage telemetry', () => {
-  test('records image attachment count and bytes on the llm call record', async () => {
-    const model = completionModel();
-    const llmRecords: LlmCallRecord[] = [];
-    const backend = new AiSdkBackend({
-      sessionId: 'session-1',
-      header: header(),
-      appendMessage: async () => {},
-      connection: connection(),
-      apiKey: 'sk-test',
-      modelId: 'mock-model-id',
-      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
-      modelFactory: () => model,
-      tools: [],
-      newId: idGenerator(),
-      now: monotonicClock(),
-      recordLlmCall: (record) => {
-        llmRecords.push(record);
-      },
-      readAttachmentBytes: async () => ({ ok: true, bytes: new Uint8Array([1, 2, 3]) }),
-    });
-
-    await drain(backend.send({
-      turnId: 'turn-1',
-      text: 'see these two charts',
-      attachments: [
-        {
-          kind: 'image',
-          name: 'a.png',
-          mimeType: 'image/png',
-          bytes: 100,
-          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'a.png' },
-        },
-        {
-          kind: 'image',
-          name: 'b.png',
-          mimeType: 'image/png',
-          bytes: 50,
-          ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'b.png' },
-        },
-      ],
-      context: [],
-      runtimeContext: [],
-    }));
-
-    assert.equal(llmRecords.length, 1);
-    assert.equal(llmRecords[0].imageAttachmentCount, 2);
-    assert.equal(llmRecords[0].imageAttachmentBytes, 150);
-  });
-
   test('normalizes standard LanguageModelUsage detail token fields', () => {
     const usage = normalizeAiSdkUsage({
       inputTokens: 100,
