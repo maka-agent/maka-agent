@@ -122,6 +122,7 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
       <DialogContent
         className="maka-modal maka-help-modal"
         aria-labelledby="maka-help-title"
+        showClose={false}
       >
         <div className="maka-modal-header maka-help-header">
           <div>

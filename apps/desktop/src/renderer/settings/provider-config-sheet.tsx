@@ -35,6 +35,10 @@ export function ProviderSheet(props: {
   children: ReactNode;
 }) {
   const [container, setContainer] = useState<HTMLElement | null>(null);
+  // `.settingsSurface` is a singleton: SettingsModal is conditional-mounted by
+  // the shell (`{settingsOpen && <SettingsModal/>}`), so at most one surface
+  // exists in the DOM. If a second surface ever appears, replace this global
+  // query with an owner-scoped ref passed down from the surface owner.
   useLayoutEffect(() => {
     setContainer(document.querySelector<HTMLElement>('.settingsSurface'));
   }, []);

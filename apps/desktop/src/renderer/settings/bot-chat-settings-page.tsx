@@ -371,6 +371,7 @@ function WeChatScanLoginModal(props: {
       <DialogContent
         className="settingsBotScanLoginModal"
         aria-label="微信扫码登录"
+        showClose={false}
       >
         <header className="settingsBotScanLoginHeader">
           <h3>微信扫码登录</h3>
@@ -498,6 +499,7 @@ function WechatQrLoginModal(props: {
       <DialogContent
         className="settingsWechatQrModal"
         aria-labelledby="settingsWechatQrTitle"
+        showClose={false}
       >
         <div className="settingsWechatQrHeader">
           <div>

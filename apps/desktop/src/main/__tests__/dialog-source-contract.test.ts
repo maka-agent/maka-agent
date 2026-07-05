@@ -32,9 +32,14 @@ const SCAN_ROOTS = [
 const PENDING_DRAWER_MIGRATION = new Set<string>([]);
 
 const FORBIDDEN_PATTERNS: Array<{ name: string; re: RegExp }> = [
+  // literal JSX attribute form: role="dialog"
   { name: 'role="dialog"', re: /role=["']dialog["']/ },
   { name: 'role="alertdialog"', re: /role=["']alertdialog["']/ },
   { name: 'aria-modal="true"', re: /aria-modal=["']true["']/ },
+  // JSX expression form: role={'dialog'}, role={"dialog"}, role={`dialog`}
+  { name: "role={'dialog'}", re: /role=\{[`'"]dialog[`'"]\}/ },
+  { name: "role={'alertdialog'}", re: /role=\{[`'"]alertdialog[`'"]\}/ },
+  { name: "aria-modal={'true'}", re: /aria-modal=\{[`'"]true[`'"]\}/ },
 ];
 
 async function* walk(dir: string): AsyncIterableIterator<string> {
@@ -67,6 +72,38 @@ function stripCommentLines(src: string): string {
     })
     .join('\n');
 }
+
+describe('FORBIDDEN_PATTERNS coverage (#520 PR7)', () => {
+  it('matches both literal and JSX-expression forms', () => {
+    const positives = [
+      'role="dialog"', "role='dialog'",
+      'role="alertdialog"', "role='alertdialog'",
+      'aria-modal="true"', "aria-modal='true'",
+      "role={'dialog'}", 'role={"dialog"}', 'role={`dialog`}',
+      "role={'alertdialog'}", 'role={"alertdialog"}',
+      "aria-modal={'true'}", 'aria-modal={"true"}',
+    ];
+    for (const sample of positives) {
+      assert.ok(
+        FORBIDDEN_PATTERNS.some((p) => p.re.test(sample)),
+        `expected FORBIDDEN_PATTERNS to match: ${sample}`,
+      );
+    }
+    // benign samples must NOT match
+    const negatives = [
+      'role="region"',
+      'aria-label="关闭"',
+      "const dialogName = 'dialog'",
+      'data-slot="dialog-popup"',
+    ];
+    for (const sample of negatives) {
+      assert.ok(
+        !FORBIDDEN_PATTERNS.some((p) => p.re.test(sample)),
+        `expected FORBIDDEN_PATTERNS to NOT match: ${sample}`,
+      );
+    }
+  });
+});
 
 describe('dialog source contract (#520 PR7)', () => {
   it('no tsx/ts outside the Drawer-migration allowlist hand-writes role="dialog" / aria-modal', async () => {
