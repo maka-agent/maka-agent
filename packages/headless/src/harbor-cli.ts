@@ -320,7 +320,7 @@ function buildHarborTask(options: HarborRunOptions): Task {
       kind: 'terminal_bench',
       adapter: 'terminal-bench',
       instanceId: options.env.MAKA_INSTANCE_ID ?? options.taskId,
-      dataset: options.env.MAKA_BENCHMARK_DATASET ?? 'terminal-bench/terminal-bench-2',
+      dataset: options.env.MAKA_BENCHMARK_DATASET ?? 'terminal-bench/terminal-bench-2-1',
       protectedPaths: [],
       adapterOptions: {
         officialVerifier: options.officialVerifier,
