@@ -52,31 +52,37 @@ describe('home composer new-chat model picker', () => {
 
     const picker = ui.match(/function NewChatModelPicker\(props: \{[\s\S]*?\}\) \{[\s\S]*?\n\}/)?.[0] ?? '';
     assert.notEqual(picker, '', 'NewChatModelPicker component must exist');
-    // Interactive: built on SelectRoot, fires the pick on value change.
-    assert.match(picker, /<SelectRoot<string>/, 'NewChatModelPicker must be a real SelectRoot dropdown');
+    // Interactive: built on the shared ModelPicker combobox, fires the pick
+    // on value change.
+    assert.match(picker, /<ModelPicker/, 'NewChatModelPicker must be a real ModelPicker dropdown');
     assert.match(picker, /props\.onPick\(next\)/, 'NewChatModelPicker must call onPick with the chosen model');
-    // No hand-added chevron — SelectTrigger renders its own BaseSelect.Icon.
+    // No hand-added chevron or status dot — ModelPicker's trigger renders the
+    // dropdown affordance, and the active-session picker has no red dot. Keep
+    // the new-chat trigger visually aligned with it.
     assert.doesNotMatch(
       picker,
       /<ChevronDown/,
-      'NewChatModelPicker must not hand-add a chevron (SelectTrigger already renders one) — guards the double-chevron regression',
+      'NewChatModelPicker must not hand-add a chevron (ModelPicker\'s trigger already renders one) — guards the double-chevron regression',
+    );
+    assert.doesNotMatch(
+      picker,
+      /maka-composer-model-status/,
+      'NewChatModelPicker must not render the red status dot; the active-session model picker has no equivalent marker',
     );
   });
 
-  it('shares one ModelChoiceOptions list between both model pickers', async () => {
-    // The pickers live in `chat-model-switcher.tsx`; the composer renders
-    // them from `composer.tsx`. Search the union so the contract holds across
-    // the seam.
-    const ui =
-      (await readRepo('packages/ui/src/composer.tsx')) +
-      '\n' +
-      (await readRepo('packages/ui/src/chat-model-switcher.tsx'));
-    assert.match(ui, /function ModelChoiceOptions\(\{\s*groups,/, 'shared ModelChoiceOptions list component must exist');
-    const usages = ui.match(/<ModelChoiceOptions groups=\{grouped\} renderProviderMark=\{props\.renderProviderMark\} \/>/g) ?? [];
+  it('shares one ModelPicker popup between both model pickers', async () => {
+    // The pickers live in `chat-model-switcher.tsx`; the shared searchable
+    // popup lives in `model-picker.tsx`. Both ChatModelSwitcher and
+    // NewChatModelPicker must render it (no duplicated grouped-list JSX).
+    const ui = await readRepo('packages/ui/src/chat-model-switcher.tsx');
+    const picker = await readRepo('packages/ui/src/model-picker.tsx');
+    assert.match(picker, /export function ModelPicker\(/, 'shared ModelPicker component must exist');
+    const usages = ui.match(/<ModelPicker/g) ?? [];
     assert.equal(
       usages.length,
       2,
-      'both ChatModelSwitcher and NewChatModelPicker must render the shared <ModelChoiceOptions> (no duplicated grouped list)',
+      'both ChatModelSwitcher and NewChatModelPicker must render the shared <ModelPicker> (no duplicated grouped list)',
     );
   });
 
@@ -110,6 +116,29 @@ describe('home composer new-chat model picker', () => {
       renderer,
       /\.\.\.\(validPendingNewChatModel\s*\?\s*\{ llmConnectionSlug: validPendingNewChatModel\.llmConnectionSlug, model: validPendingNewChatModel\.model \}/,
       'send() must forward the validated picked model to sessions.create when one was chosen',
+    );
+  });
+
+  it('filters the pending new-chat thinking level against the currently picked model', async () => {
+    const renderer = await readRendererShellSources([
+      'app-shell.tsx',
+      'app-shell-chat-actions.ts',
+    ]);
+
+    assert.match(
+      renderer,
+      /const newChatThinkingLevel\s*=\s*pendingNewChatThinkingLevel && newChatThinkingLevels\.includes\(pendingNewChatThinkingLevel\)\s*\? pendingNewChatThinkingLevel\s*: undefined;/,
+      'AppShell must only surface a pending new-chat thinking level when the current new-chat model supports it',
+    );
+    assert.match(
+      renderer,
+      /pendingNewChatThinkingLevel:\s*newChatThinkingLevel \?\? null/,
+      'send() dependencies must receive the filtered newChatThinkingLevel, not the raw pending state',
+    );
+    assert.match(
+      renderer,
+      /\.{3}\(pendingNewChatThinkingLevel \? \{ thinkingLevel: pendingNewChatThinkingLevel \} : \{\}\)/,
+      'sessions.create still forwards the dependency field, which must already be filtered by AppShell',
     );
   });
 

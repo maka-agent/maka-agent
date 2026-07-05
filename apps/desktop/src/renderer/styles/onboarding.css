@@ -1,6 +1,6 @@
 /* Onboarding hero — first-run, no real connection configured. */
 .maka-onboarding {
-  width: min(680px, 100%);
+  width: min(var(--maka-chat-measure), 100%);
   margin: auto;
   padding: var(--space-3) var(--space-4) var(--space-4);
   display: grid;
@@ -101,8 +101,8 @@
 }
 
 /* PR-FRONTEND-AUDIT-CLEANUP-0 F1 (WAWQAQ msg `dde696a1`): the earlier
-   `maka-agents-fade-in 150ms` block + nth-child delay ladder was
-   completely overridden by the `maka-card-enter 280ms` block below,
+   `maka-agents-fade-in var(--duration-base)` block + nth-child delay ladder was
+   completely overridden by the `maka-card-enter var(--duration-large)` block below,
    plus that block's own delay ladder. The dead rules silently caused
    any "polish" attempt on the upper block to look like a no-op. Deleted. */
 
@@ -150,7 +150,7 @@
   border-radius: var(--radius-pill);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
-  border: 1.5px solid var(--border-strong);
+  border: var(--border-width-hairline) solid var(--border-strong);
   color: var(--muted-foreground);
 }
 
@@ -212,7 +212,7 @@
 
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   overflow: hidden;
   background: var(--background-elevated);
@@ -228,7 +228,7 @@
   overflow-y: auto;
 }
 .maka-firstrun-list li + li {
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
 }
 
 /* --- "常用" tag inside a provider row title --- */
@@ -437,15 +437,15 @@
   margin-inline: auto;
   position: relative;
   border-radius: var(--radius-modal);
-  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
   background: var(--background-elevated, var(--background));
   box-shadow:
     0 18px 42px oklch(from var(--foreground) l c h / 0.07),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.72) inset;
   transition:
-    border-color 160ms var(--ease-out-strong),
-    box-shadow 160ms var(--ease-out-strong),
-    transform 160ms var(--ease-out-strong);
+    border-color var(--duration-base) var(--ease-out-strong),
+    box-shadow var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-onboarding-quickchat-field {
@@ -458,7 +458,7 @@
   border-color: oklch(from var(--focus-ring) l c h / 0.34);
   box-shadow:
     0 20px 52px oklch(from var(--foreground) l c h / 0.10),
-    0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
+    0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.08),
     0 1px 0 oklch(from var(--foreground) 1 0 h / 0.75) inset;
 }
 /* The visible quick-chat chrome belongs to `.maka-onboarding-quickchat`;
@@ -502,7 +502,7 @@
   width: fit-content;
   max-width: calc(100% - 190px);
   margin: calc(var(--space-2-5) * -1) clamp(var(--space-6), 12vw, 150px) var(--space-4) var(--space-6);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-pill);
   padding: var(--space-1) var(--space-2);
   color: var(--nav-active);
@@ -533,7 +533,7 @@
 .maka-onboarding-quickchat-submit:hover:not(:disabled) {
   background: color-mix(in srgb, var(--action) 88%, black);
   color: var(--action-foreground);
-  transform: translateY(-1px);
+  transform: translateY(var(--lift-hover));
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.18),
     0 12px 24px oklch(from var(--action) l c h / 0.26);
@@ -542,7 +542,7 @@
 .maka-onboarding-quickchat-submit:disabled {
   background: color-mix(in srgb, var(--action) 58%, white);
   color: var(--action-foreground);
-  opacity: 0.6;
+  opacity: var(--opacity-muted);
   cursor: not-allowed;
 }
 
@@ -593,7 +593,7 @@
   justify-content: center;
   width: auto;
   flex: 0 0 auto;
-  border: 1px solid oklch(from var(--foreground) l c h / 0.08);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
   border-radius: var(--radius-pill);
   background: oklch(from var(--background-elevated, var(--background)) l c h / 0.78);
   color: var(--foreground-secondary);
@@ -613,12 +613,12 @@
 }
 
 .maka-first-run-task-suggestion:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-first-run-task-suggestion:disabled {
-  opacity: 0.55;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -632,7 +632,7 @@
   min-height: 132px;
   margin: auto;
   overflow: hidden;
-  border: 1px solid var(--border-strong);
+  border: var(--border-width-hairline) solid var(--border-strong);
   border-radius: var(--radius-modal);
   background: var(--foreground-5);
   box-shadow:
@@ -665,7 +665,7 @@
   top: 66px;
   width: min(460px, calc(100% - 48px));
   height: 12px;
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 
 .maka-list-row-name {
@@ -781,7 +781,7 @@
  *   rebind makes these sessions still functional.
  */
 .maka-list-row[data-stale="true"] {
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 
 .maka-list-row[data-stale="true"][data-active="true"] {
@@ -850,8 +850,8 @@
   text-align: left;
 }
 .maka-list-group-toggle:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
   border-radius: var(--radius-control);
 }
 .maka-list-group-count {

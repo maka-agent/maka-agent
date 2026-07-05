@@ -10,8 +10,9 @@ import type {
   StoredMessage,
   ThemePalette,
   ThemePreference,
+  ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -33,6 +34,7 @@ import { useCommandPalette } from './command-palette';
 import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
 import { useOnboardingSnapshot } from './use-onboarding-snapshot';
+import type { OnboardingSnapshot } from '../global';
 import { ProviderLogo } from './settings/provider-display';
 import { ProviderBrandMark } from './settings/provider-brand-marks';
 // Artifact pane + embedded browser panel are only mounted for sessions
@@ -112,7 +114,12 @@ type ComposerImportOwner = {
   navSection: NavSelection['section'];
 };
 
-export function AppShell() {
+export function AppShell({
+  initialOnboardingSnapshot = null,
+}: {
+  /** Pre-mount snapshot prefetched by main.tsx — see prefetchOnboardingSnapshot. */
+  initialOnboardingSnapshot?: OnboardingSnapshot | null;
+} = {}) {
   const toastApi = useToast();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const sessionsRef = useRef<SessionSummary[]>([]);
@@ -296,6 +303,7 @@ export function AppShell() {
   // it never mutates the persisted Settings · 模型 default.
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(null);
   const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(null);
+  const [pendingNewChatThinkingLevel, setPendingNewChatThinkingLevel] = useState<ThinkingLevel | null>(null);
   // A pick only stays in effect while it is still an offered choice. If the user
   // later disables/removes that connection or model, fall back to the default so
   // the home chip never shows — nor sends — a model that no longer exists.
@@ -319,6 +327,30 @@ export function AppShell() {
   const activeModelLabel = activeSession?.backend === 'fake'
     ? undefined
     : chatModelChoiceLabel(chatModelChoices, activeSession?.llmConnectionSlug, activeModel);
+  const activeThinkingLevels = useMemo(
+    () => (activeConnection && activeModel) ? thinkingVariantsForModel(activeConnection.providerType, activeModel) : [],
+    [activeConnection, activeModel],
+  );
+  // Only surface a stored level when the current model still supports it;
+  // if the model changed (setModel clears it) or the catalog reconfigured so
+  // the level is no longer offered, the chip falls back to 默认 instead of
+  // advertising a level the runtime would silently drop. The runtime's
+  // `buildProviderOptions` is the wire-level guard; this keeps the UI honest.
+  const activeThinkingLevel =
+    activeSession?.thinkingLevel && activeThinkingLevels.includes(activeSession.thinkingLevel)
+      ? activeSession.thinkingLevel
+      : undefined;
+  const newChatThinkingLevels = useMemo(
+    () => {
+      if (!newChatModel) return [];
+      const c = connections.find((entry) => entry.slug === newChatModel.llmConnectionSlug);
+      return c ? thinkingVariantsForModel(c.providerType, newChatModel.model) : [];
+    },
+    [newChatModel, connections],
+  );
+  const newChatThinkingLevel = pendingNewChatThinkingLevel && newChatThinkingLevels.includes(pendingNewChatThinkingLevel)
+    ? pendingNewChatThinkingLevel
+    : undefined;
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
   // Surface a credential-lifecycle alert directly in the chat header when
@@ -476,6 +508,7 @@ export function AppShell() {
   const {
     setPermissionMode,
     setSessionModel,
+    setSessionThinkingLevel,
   } = createAppShellSessionSettingsActions({
     activeIdRef,
     connections,
@@ -637,7 +670,7 @@ export function AppShell() {
   // `sessions:changed` + `connections:event`. The hero renders only
   // when sessions.length === 0; any session (including archived /
   // aborted) takes over with the existing chat surface.
-  const onboarding = useOnboardingSnapshot();
+  const onboarding = useOnboardingSnapshot(initialOnboardingSnapshot);
   const [quickChatPending, setQuickChatPending] = useState(false);
   const quickChatPendingRef = useRef(false);
   const { handleQuickChatSubmit } = createAppShellQuickChatActions({
@@ -817,6 +850,7 @@ export function AppShell() {
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
     validPendingNewChatModel,
+    pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
   const { handleTurnFooterAction } = createAppShellTurnActions({
@@ -1426,8 +1460,14 @@ export function AppShell() {
                 renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
                 onModelChange={(input) => setSessionModel(input)}
+                activeThinkingLevels={activeThinkingLevels}
+                activeThinkingLevel={activeThinkingLevel}
+                onThinkingLevelChange={(level) => setSessionThinkingLevel(level)}
                 newChatModel={newChatModel}
                 onPickNewChatModel={(input) => setPendingNewChatModel(input)}
+                newChatThinkingLevels={newChatThinkingLevels}
+                newChatThinkingLevel={newChatThinkingLevel}
+                onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
                   label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,

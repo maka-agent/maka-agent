@@ -121,7 +121,7 @@ describe('Maka session driver', () => {
 
     assert.deepEqual(runtime.sessionUpdates, [{
       sessionId: 'session-1',
-      patch: { model: 'claude-opus-4-1' },
+      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
     }]);
   });
 
@@ -341,7 +341,7 @@ class RecordingRuntime {
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
-  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string } }> = [];
+  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined } }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -404,7 +404,7 @@ class RecordingRuntime {
     };
   }
 
-  async updateSession(sessionId: string, patch: { model?: string }): Promise<SessionSummary> {
+  async updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined }): Promise<SessionSummary> {
     this.sessionUpdates.push({ sessionId, patch });
     return {
       id: sessionId,

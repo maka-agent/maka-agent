@@ -66,7 +66,7 @@
 .maka-chat-header-memory-pill {
   appearance: none;
   background: oklch(from var(--nav-active) l c h / 0.10);
-  border: 1px solid oklch(from var(--nav-active) l c h / 0.25);
+  border: var(--border-width-hairline) solid oklch(from var(--nav-active) l c h / 0.25);
   color: var(--nav-active);
   border-radius: var(--radius-pill);
   display: inline-flex;
@@ -87,12 +87,12 @@
 }
 
 .maka-chat-header-memory-pill:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-chat-header-mode-pill {
-  border: 1px solid oklch(from var(--info) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   border-radius: var(--radius-pill);
@@ -120,7 +120,7 @@
     padding: 1px var(--space-1-5);
     margin-bottom: var(--space-0-5);
     border-radius: var(--radius-pill);
-    border: 1px solid transparent;
+    border: var(--border-width-hairline) solid transparent;
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
     letter-spacing: var(--tracking-wide);
@@ -131,12 +131,12 @@
   }
 
 .maka-chat-header-alert:hover {
-    transform: translateY(-1px);
+    transform: translateY(var(--lift-hover));
   }
 
 .maka-chat-header-alert:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 2px;
+    outline: var(--focus-ring-width) solid var(--focus-ring);
+    outline-offset: var(--focus-ring-offset);
   }
 
 .maka-chat-header-alert[data-tone="info"] {
@@ -166,7 +166,7 @@
        towering over them. */
     padding: 1px var(--space-1-5);
     border-radius: var(--radius-pill);
-    border: 1px solid transparent;
+    border: var(--border-width-hairline) solid transparent;
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-semibold);
     line-height: var(--leading-snug);
@@ -245,11 +245,11 @@
     bottom: 10px;
     left: 50%;
     transform: translateX(-50%);
-    width: 26px;
-    height: 26px;
+    width: var(--h-control-md);
+    height: var(--h-control-md);
     display: grid;
     place-items: center;
-    border: 1px solid var(--border-strong);
+    border: var(--border-width-hairline) solid var(--border-strong);
     border-radius: var(--radius-pill);
     background: var(--background);
     color: var(--foreground-secondary);
@@ -258,13 +258,13 @@
   transition:
     transform var(--duration-emphasized) var(--ease-out-strong),
     opacity var(--duration-emphasized) var(--ease-out-strong),
-    background 120ms var(--ease-out-strong);
+    background var(--duration-quick) var(--ease-out-strong);
   }
 
 .maka-chat-jump-bottom:hover {
     color: var(--foreground);
     background: var(--state-hover-bg);
-    transform: translateX(-50%) translateY(-2px);
+    transform: translateX(-50%) translateY(var(--lift-hover));
   }
 
 .maka-chat-jump-bottom:active {
@@ -289,7 +289,7 @@
     gap: var(--space-3);
     max-width: 520px;
     padding: var(--space-3) var(--space-4);
-    border: 1px solid oklch(from var(--destructive) l c h / 0.3);
+    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.3);
     border-radius: var(--radius-surface);
     background: var(--background-elevated);
     box-shadow: var(--shadow-modal);
@@ -329,7 +329,7 @@
     margin: var(--space-1) 0 0;
     max-height: 220px;
     padding: var(--space-2-5) var(--space-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-secondary);
@@ -374,7 +374,7 @@
   gap: var(--space-2);
   margin: var(--space-2) var(--space-3) 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid oklch(from var(--info) l c h / 0.3);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.3);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
@@ -440,7 +440,7 @@
   grid-template-columns: 14px minmax(0, 1fr) auto auto;
   align-items: start;
   gap: var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   box-shadow:
@@ -451,7 +451,7 @@
   pointer-events: auto;
   opacity: 1;
   transform: translateX(0);
-  transition: background 120ms var(--ease-out-strong);
+  transition: background var(--duration-quick) var(--ease-out-strong);
 }
 
 /* D6 waiting-state spectrum #1 (taste v1 §9 Live Status): toasts used
@@ -466,7 +466,7 @@
 }
 
 .maka-toast {
-  animation: maka-toast-enter 240ms var(--ease-out-strong);
+  animation: maka-toast-enter var(--duration-large) var(--ease-out-strong);
 }
 
 /* Exit = enter x 75% (roadmap §4.1), ease-in per the enter-out/exit-in
@@ -476,8 +476,8 @@
   100% { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
 
-.maka-toast[data-exiting="true"] {
-  animation: maka-toast-exit 180ms var(--ease-in-out-strong) forwards;
+.maka-toast[data-ending-style] {
+  animation: maka-toast-exit var(--duration-emphasized) var(--ease-in-out-strong) forwards;
   pointer-events: none;
 }
 
@@ -514,10 +514,10 @@
   100% { background-position: -80% 0; }
 }
 
-.maka-toast[data-variant="success"] { border-left: 3px solid var(--success); }
-.maka-toast[data-variant="warning"] { border-left: 3px solid var(--info); }
-.maka-toast[data-variant="error"]   { border-left: 3px solid var(--destructive); }
-.maka-toast[data-variant="info"]    { border-left: 3px solid var(--toast-accent); }
+.maka-toast[data-variant="success"] { border-left: var(--border-width-accent) solid var(--success); }
+.maka-toast[data-variant="warning"] { border-left: var(--border-width-accent) solid var(--info); }
+.maka-toast[data-variant="error"]   { border-left: var(--border-width-accent) solid var(--destructive); }
+.maka-toast[data-variant="info"]    { border-left: var(--border-width-accent) solid var(--toast-accent); }
 
 .maka-toast-icon {
   margin-top: var(--space-0-5);
@@ -550,7 +550,7 @@
 
 .maka-toast-action {
   align-self: center;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--toast-accent);
@@ -596,12 +596,6 @@
 
 .maka-confirm-modal {
   width: min(420px, calc(100vw - 48px));
-}
-
-.maka-confirm-backdrop {
-  /* Slightly opaque so destructive confirms feel weightier than regular
-     toast notifications. */
-  background: oklch(from var(--background) l c h / 0.7);
 }
 
 .maka-help-modal {
@@ -694,7 +688,7 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-modal);
   box-shadow:
     0 1px 2px oklch(from var(--foreground) l c h / 0.05),
@@ -714,7 +708,7 @@
 
 .maka-palette-input-wrap {
   width: auto;
-  min-height: 32px;
+  min-height: var(--h-control-lg);
   margin: var(--space-2) var(--space-2-5);
   /* P-RADIUS concentric formula (roadmap §1.3): inner radius = outer
      radius − inset. Modal shell is 12px with an 8px inset, so the
@@ -727,9 +721,9 @@
      here"), not up. foreground-derived so dark mode adapts. */
   background: oklch(from var(--foreground) l c h / 0.03);
   transition:
-    border-color var(--duration-fast) var(--ease-out-strong),
-    box-shadow var(--duration-fast) var(--ease-out-strong),
-    background var(--duration-fast) var(--ease-out-strong);
+    border-color var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong),
+    background var(--duration-quick) var(--ease-out-strong);
 }
 
 .maka-palette-input-wrap:has(input:focus) {
@@ -792,7 +786,7 @@
   min-width: 16px;
   padding: 0 var(--space-1);
   border-radius: var(--radius-control);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   background: var(--foreground-5);
   box-shadow: inset 0 1px 0 oklch(from var(--background) l c h / 0.45);
   color: var(--foreground-secondary);
@@ -814,7 +808,7 @@
 }
 
 .maka-palette-list {
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
   overflow-y: auto;
   padding: var(--space-1) var(--space-1-5) var(--space-1-5);
 }
@@ -848,9 +842,9 @@
   font-size: var(--font-size-caption);
   cursor: default;
   transition:
-    background-color 140ms var(--ease-out-strong),
-    color 140ms var(--ease-out-strong),
-    opacity 140ms var(--ease-out-strong);
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    opacity var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-palette-item:hover:not([data-disabled="true"]) {
@@ -867,14 +861,14 @@
 }
 
 .maka-palette-item:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+  outline: var(--focus-ring-width) solid var(--ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .maka-palette-item[data-disabled="true"] {
   color: var(--muted-foreground);
   cursor: default;
-  opacity: 0.72;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-palette-item[data-pending="true"] {
@@ -889,8 +883,8 @@
   border-radius: var(--radius-control);
   color: var(--muted-foreground);
   transition:
-    background-color 140ms var(--ease-out-strong),
-    color 140ms var(--ease-out-strong);
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-palette-item[data-active="true"] .maka-palette-icon {
@@ -927,7 +921,7 @@
   align-items: center;
   gap: var(--space-1-5);
   padding: var(--space-0-5) var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: var(--border-width-hairline) solid var(--border);
   background: var(--foreground-2);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);

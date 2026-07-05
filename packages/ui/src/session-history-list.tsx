@@ -24,7 +24,7 @@ import { cva } from 'class-variance-authority';
 
 const rowActionVariants = cva(
   [
-    'grid h-[26px] w-[26px] place-items-center rounded-sm border-0 bg-transparent',
+    'grid h-7 w-7 place-items-center rounded-sm border-0 bg-transparent',
     'text-[var(--foreground-secondary)]',
     'transition-[background-color,color,box-shadow] duration-[var(--duration-quick)] ease-[var(--ease-out-strong)]',
     'hover:bg-foreground/5 hover:text-foreground',

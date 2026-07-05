@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
+import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
 import { createConnectionStore } from '../connection-store.js';
 
 describe('FileConnectionStore', () => {
@@ -294,6 +295,99 @@ describe('FileConnectionStore', () => {
         /connections must be an array/,
       );
       assert.equal(await readFile(filePath, 'utf8'), invalid);
+    });
+  });
+
+  test('does not persist the provider default baseUrl as an explicit override on create', async () => {
+    await withConnectionStore(async (store, dir) => {
+      // The add-form submits defaults.baseUrl verbatim when the field isn't
+      // customized; the store drops it so the connection follows the live default.
+      const created = await store.create({
+        slug: 'openai-default',
+        name: 'OpenAI',
+        providerType: 'openai',
+        baseUrl: PROVIDER_DEFAULTS.openai.baseUrl,
+        defaultModel: 'gpt-4o-mini',
+      });
+      assert.equal(created.baseUrl, undefined);
+
+      const onDisk = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8'));
+      assert.equal(onDisk.connections[0].baseUrl, undefined, 'default must not be written to disk as an override');
+    });
+  });
+
+  test('persists a custom baseUrl override on create and trims surrounding whitespace', async () => {
+    await withConnectionStore(async (store, dir) => {
+      const custom = 'https://my-openai-proxy.example.com/v1';
+      const created = await store.create({
+        slug: 'openai-proxy',
+        name: 'OpenAI Proxy',
+        providerType: 'openai',
+        baseUrl: `  ${custom}  `,
+        defaultModel: 'gpt-4o-mini',
+      });
+      assert.equal(created.baseUrl, custom);
+
+      const onDisk = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8'));
+      assert.equal(onDisk.connections[0].baseUrl, custom, 'custom override is persisted, trimmed');
+    });
+  });
+
+  test('update clears the override when the default is submitted and stores a custom override verbatim', async () => {
+    await withConnectionStore(async (store) => {
+      const created = await store.create({
+        slug: 'openai-main',
+        name: 'OpenAI',
+        providerType: 'openai',
+        baseUrl: 'https://my-openai-proxy.example.com/v1',
+        defaultModel: 'gpt-4o-mini',
+      });
+      assert.equal(created.baseUrl, 'https://my-openai-proxy.example.com/v1');
+
+      // Submitting the provider default clears the override (no pin).
+      const cleared = await store.update(created.slug, { baseUrl: PROVIDER_DEFAULTS.openai.baseUrl });
+      assert.equal(cleared.baseUrl, undefined);
+
+      // A custom override is stored.
+      const overridden = await store.update(created.slug, { baseUrl: 'https://other-proxy.example.com/v1' });
+      assert.equal(overridden.baseUrl, 'https://other-proxy.example.com/v1');
+
+      // An explicit clear (empty string) also clears the override.
+      const clearedAgain = await store.update(created.slug, { baseUrl: '' });
+      assert.equal(clearedAgain.baseUrl, undefined);
+    });
+  });
+
+  test('save drops the provider default baseUrl instead of persisting it as an override', async () => {
+    await withConnectionStore(async (store, dir) => {
+      // save()'s OAuth-sync caller constructs `{ baseUrl: defaults.baseUrl }`;
+      // without persistedBaseUrl that pins the connection to the current default.
+      const created = await store.create({
+        slug: 'claude-oauth',
+        name: 'Claude OAuth',
+        providerType: 'claude-subscription',
+        defaultModel: 'claude-sonnet-4-5-20250929',
+      });
+      assert.equal(created.baseUrl, undefined);
+
+      const saved = await store.save({
+        ...created,
+        baseUrl: PROVIDER_DEFAULTS['claude-subscription'].baseUrl,
+        updatedAt: Date.now(),
+      });
+      assert.equal(saved.baseUrl, undefined, 'save must not persist the provider default as an override');
+
+      const onDisk = JSON.parse(await readFile(join(dir, 'llm-connections.json'), 'utf8'));
+      assert.equal(onDisk.connections[0].baseUrl, undefined, 'default must not be written to disk by save');
+
+      // A custom override round-trips through save.
+      const custom = 'https://my-anthropic-proxy.example.com';
+      const overridden = await store.save({
+        ...created,
+        baseUrl: custom,
+        updatedAt: Date.now(),
+      });
+      assert.equal(overridden.baseUrl, custom);
     });
   });
 

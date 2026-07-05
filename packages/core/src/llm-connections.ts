@@ -161,7 +161,7 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
   google: {
     label: 'Google Gemini',
     description: 'Gemini API key access from Google AI Studio.',
-    baseUrl: 'https://generativelanguage.googleapis.com',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
     authKind: 'api_key',
     backendKind: 'ai-sdk',
     fallbackModels: ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro'],
@@ -337,6 +337,28 @@ export function backendKindOf(c: Pick<LlmConnection, 'providerType'>): BackendKi
 export function effectiveBaseUrl(c: Pick<LlmConnection, 'providerType' | 'baseUrl'>): string {
   if (c.baseUrl && c.baseUrl.trim()) return c.baseUrl.trim();
   return PROVIDER_DEFAULTS[c.providerType].baseUrl;
+}
+
+/**
+ * Reduce a submitted connection `baseUrl` to the value that should be persisted,
+ * or `undefined` if nothing should be stored.
+ *
+ * The add-form and edit-form pre-fill `defaults.baseUrl` and submit it verbatim
+ * when the user does not customize the field. Storing that default as an
+ * explicit override would pin the connection to the current default —
+ * `effectiveBaseUrl` honors the explicit value first, so future default changes
+ * would not reach it. Only a real override (non-empty and differing from the
+ * current default) is persisted; the empty/whitespace and equals-default cases
+ * collapse to `undefined` so the connection reads back through the live default.
+ */
+export function persistedBaseUrl(
+  providerType: ProviderType,
+  baseUrl: string | undefined | null,
+): string | undefined {
+  const trimmed = baseUrl?.trim();
+  if (!trimmed) return undefined;
+  if (trimmed === PROVIDER_DEFAULTS[providerType].baseUrl) return undefined;
+  return trimmed;
 }
 
 export function validateSlug(slug: string): string | null {

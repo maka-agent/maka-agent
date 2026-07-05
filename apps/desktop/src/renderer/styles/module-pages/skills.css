@@ -4,7 +4,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--muted-foreground);
@@ -64,7 +64,7 @@
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5) var(--space-5);
   background: var(--card-bg);
-  border: 1px solid var(--card-border-color);
+  border: var(--border-width-hairline) solid var(--card-border-color);
   border-radius: var(--radius-surface);
   box-shadow:
     var(--card-shadow),
@@ -83,7 +83,7 @@
   justify-content: space-between;
   gap: var(--space-6);
   overflow: hidden;
-  border: 1px solid oklch(88% 0.035 224 / 0.72);
+  border: var(--border-width-hairline) solid oklch(88% 0.035 224 / 0.72);
   border-radius: var(--radius-surface);
   background:
     radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
@@ -139,7 +139,7 @@
   /* Fixed inks: these floating cards stay white in both themes (they
      sit on the theme-independent banner), so their border/copy must
      not follow --foreground or they wash out in dark mode. */
-  border: 1px solid oklch(0.2 0.01 224 / 0.09);
+  border: var(--border-width-hairline) solid oklch(0.2 0.01 224 / 0.09);
   border-radius: var(--radius-control);
   background: linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96));
   color: oklch(0.44 0.015 220);
@@ -198,7 +198,7 @@ color: oklch(0.55 0.015 220);
   align-items: center;
   justify-content: space-between;
   gap: var(--space-4);
-  border-bottom: 1px solid var(--border);
+  border-bottom: var(--border-width-hairline) solid var(--border);
 }
 
 .maka-skill-tabs {
@@ -249,7 +249,7 @@ color: oklch(0.55 0.015 220);
   display: inline-flex;
   align-items: center;
   height: 28px;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--foreground-secondary);
@@ -290,7 +290,7 @@ color: oklch(0.55 0.015 220);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   border-radius: var(--radius-control);
   background: var(--background);
   padding: var(--space-4);
@@ -303,7 +303,7 @@ color: oklch(0.55 0.015 220);
 .maka-skill-market-card:hover {
   border-color: oklch(from var(--foreground) l c h / 0.14);
   box-shadow: 0 4px 12px -8px oklch(from var(--foreground) l c h / 0.08);
-  transform: translateY(-1px);
+  transform: translateY(var(--lift-hover));
 }
 
 .maka-skill-market-card-head {
@@ -347,7 +347,7 @@ color: oklch(0.55 0.015 220);
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground-secondary);
@@ -368,7 +368,7 @@ color: oklch(0.55 0.015 220);
   display: inline-flex;
   align-items: center;
   height: 22px;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-2);
   color: var(--muted-foreground);
@@ -474,7 +474,7 @@ color: oklch(0.55 0.015 220);
   display: grid;
   align-content: start;
   gap: 0;
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   border-radius: var(--radius-control);
   background: var(--background);
 }
@@ -484,7 +484,7 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-library-item + .maka-skill-library-item {
-  border-top: 1px solid var(--foreground-8);
+  border-top: var(--border-width-hairline) solid var(--foreground-8);
 }
 
 /* Justified: this row is a shared `UiButton variant="ghost"` but the surface
@@ -524,8 +524,8 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-library-row:focus-visible {
-  outline: 3px solid oklch(from var(--focus-ring) l c h / 0.35);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid oklch(from var(--focus-ring) l c h / 0.35);
+  outline-offset: var(--focus-ring-offset);
 }
 
 /* PR-UI-PIXEL-1: skill rows are anchored by a reference-style icon tile —
@@ -537,7 +537,7 @@ color: oklch(0.55 0.015 220);
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-surface);
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   background: var(--background);
   box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.05);
   color: var(--muted-foreground);
@@ -613,7 +613,7 @@ color: oklch(0.55 0.015 220);
   justify-self: end;
   min-width: 40px;
   padding: var(--space-0-5) var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--muted-foreground);

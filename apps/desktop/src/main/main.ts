@@ -2,6 +2,7 @@ import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
   generalizedErrorMessage,
@@ -12,6 +13,8 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isThinkingLevel,
+  thinkingVariantsForModel,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -28,6 +31,7 @@ import type {
   SessionEvent,
   SessionHeader,
   SessionListFilter,
+  ThinkingLevel,
   StoredMessage,
   SettingsTestResult,
   UpdateAppSettingsResult,
@@ -90,7 +94,7 @@ import type {
 } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
 import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
@@ -107,7 +111,7 @@ import { bindOnboardingDeps, createOnboardingService } from './onboarding-servic
 import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from './quick-chat.js';
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
-import { resolveProjectGitInfo, resolveProjectRoot } from './project-context.js';
+import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -164,6 +168,7 @@ import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
 import { buildContextBudgetPolicy } from './context-budget-policy.js';
 import { createSystemPromptMainService } from './system-prompt-main.js';
+import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -217,6 +222,7 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
+let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
@@ -297,6 +303,8 @@ const antigravitySubscription = new AntigravitySubscriptionService({
 });
 
 const planReminderStore = createPlanReminderStore(workspaceRoot);
+const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
+const taskLedgerStore = taskLedgerWiring.store;
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
@@ -313,6 +321,7 @@ const systemPromptService = createSystemPromptMainService({
   settingsStore,
   workspaceRoot,
   localMemory,
+  taskLedger: taskLedgerStore,
 });
 const mainWindowController = createMainWindowController({
   workspaceRoot,
@@ -399,6 +408,9 @@ const builtinTools = [
     settingsStore,
     getPrivacyContext: getWorkspacePrivacyContext,
   }),
+  // Session task ledger: model manages a flat task list; the current list is
+  // re-injected each turn tail. Pure local state, so no permission gate.
+  ...taskLedgerWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -578,13 +590,13 @@ backends.register('ai-sdk', async (ctx) => {
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
-    providerOptions: buildProviderOptions(connection, model),
+    providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
     contextBudget: buildContextBudgetPolicy(connection),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
     }),
-    turnTailPrompt: ({ cwd }) => systemPromptService.buildTurnTailPrompt(cwd),
+    turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     lookupPricing,
     recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event) =>
@@ -1034,12 +1046,14 @@ function registerIpc(): void {
 
     const requestedSlug = input?.llmConnectionSlug ?? (await connectionStore.getDefault());
     const { connection, model } = await getReadyConnection(requestedSlug, input?.model);
+    const thinkingLevel = normalizeSupportedSessionThinkingLevel(input?.thinkingLevel, connection.providerType, model);
 
     const session = await runtime.createSession({
       cwd,
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
       model,
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
       name: input?.name ?? 'New Chat',
       labels: input?.labels,
@@ -1208,6 +1222,8 @@ function registerIpc(): void {
       backend: 'ai-sdk',
       llmConnectionSlug: ready.connection.slug,
       model: ready.model,
+      // Switching model clears the per-model thinking variant (see model-thinking.ts).
+      thinkingLevel: undefined,
       connectionLocked: true,
       status: 'active',
       blockedReason: undefined,
@@ -1217,6 +1233,23 @@ function registerIpc(): void {
       connectionSlug: ready.connection.slug,
       modelId: ready.model,
     });
+    return next;
+  });
+  ipcMain.handle('sessions:setThinkingLevel', async (_event, sessionId: string, input: unknown) => {
+    const header = await store.readHeader(sessionId);
+    if (header.status === 'running') {
+      throw new Error('当前对话正在运行，等结束后再切换思考级别。');
+    }
+    if (header.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，处理后再切换思考级别。');
+    }
+    const connection = await connectionStore.get(header.llmConnectionSlug);
+    if (!connection) {
+      throw new Error(`Unknown connection: ${header.llmConnectionSlug}`);
+    }
+    const nextThinkingLevel = normalizeSupportedSessionThinkingLevel(input, connection.providerType, header.model);
+    const next = await runtime.updateSession(sessionId, nextThinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel: nextThinkingLevel });
+    emitSessionsChanged('updated', sessionId);
     return next;
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
@@ -1437,6 +1470,22 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
   }
 }
 
+async function handleExternalSettingsChange(): Promise<void> {
+  try {
+    const settings = await settingsStore.get();
+    const fullPatch: UpdateAppSettingsInput = {
+      network: settings.network,
+      botChat: settings.botChat,
+      openGateway: settings.openGateway,
+    };
+    await applySettingsRuntimeEffects(settings, fullPatch);
+  } catch (error) {
+    console.error('[config-watcher] failed to apply external settings change:', error);
+  }
+  // Always notify renderer, even on partial failure above
+  safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
+}
+
 async function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
@@ -1539,6 +1588,22 @@ const readyConnectionDeps = {
 
 function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
+}
+
+function normalizeSupportedSessionThinkingLevel(
+  input: unknown,
+  providerType: ProviderType,
+  model: string,
+): ThinkingLevel | undefined {
+  const thinkingLevel = input === undefined || input === null ? undefined : input;
+  if (thinkingLevel === undefined) return undefined;
+  if (!isThinkingLevel(thinkingLevel)) {
+    throw new Error(`Invalid thinking level: ${String(input)}`);
+  }
+  if (!thinkingVariantsForModel(providerType, model).includes(thinkingLevel)) {
+    throw new Error(`当前模型不支持思考级别：${thinkingLevel}`);
+  }
+  return thinkingLevel;
 }
 
 /**
@@ -1773,6 +1838,10 @@ async function runBackgroundStartup(): Promise<void> {
   await openGateway.sync(settings.openGateway);
   await planReminders.refreshTimers();
   dailyReview.startScheduler();
+  configWatcher = startConfigFileWatcher(workspaceRoot, {
+    onConnectionsChanged: () => emitConnectionListChanged(),
+    onSettingsChanged: () => void handleExternalSettingsChange(),
+  });
 }
 
 app.on('window-all-closed', () => {
@@ -1780,6 +1849,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   void botRegistry.stopAll();

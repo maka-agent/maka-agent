@@ -21,7 +21,7 @@ describe('ArtifactPane narrow layout CSS contract', () => {
     );
     assert.match(
       css,
-      /@media\s*\(max-width:\s*990px\)\s*\{[\s\S]*?\.maka-artifact-pane\s*\{[\s\S]*?width:\s*100%[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)[\s\S]*?border-top:\s*1px solid var\(--border\)/,
+      /@media\s*\(max-width:\s*990px\)\s*\{[\s\S]*?\.maka-artifact-pane\s*\{[\s\S]*?width:\s*100%[\s\S]*?max-height:\s*min\(42dvh,\s*360px\)[\s\S]*?border-top:\s*var\(--border-width-hairline\) solid var\(--border\)/,
       'expected ArtifactPane narrow mode to become a bounded full-width bottom sheet',
     );
   });

@@ -3,8 +3,8 @@ import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
-import { Badge, Button as UiButton, Checkbox, DialogContent, DialogRoot } from './ui.js';
-import { useModalA11y } from './modal-a11y.js';
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
+import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
@@ -42,12 +42,9 @@ export function PermissionDialog(props: {
   const [rememberForTurn, setRememberForTurn] = useState(false);
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const dialogRef = useRef<HTMLDivElement>(null);
   const responsePendingRef = useRef(false);
   const permissionMountedRef = useRef(true);
   const activePermissionRequestIdRef = useRef(props.request.requestId);
-  // No onEscape — a permission request requires an explicit allow/deny decision.
-  useModalA11y(dialogRef);
 
   useEffect(() => {
     permissionMountedRef.current = true;
@@ -103,11 +100,9 @@ export function PermissionDialog(props: {
   const waitLabel = formatPermissionRequestWait(health.ageMs);
 
   return (
-    <DialogRoot open disablePointerDismissal>
-      <DialogContent
-        ref={dialogRef}
+    <AlertDialogRoot defaultOpen onOpenChange={(open, details) => { if (!open) details.cancel(); }}>
+      <AlertDialogContent
         className="maka-modal permissionDialog w-[min(92vw,720px)] p-0"
-        role="alertdialog"
         aria-labelledby="permissionTitle"
         data-tone={preset.tone}
         showClose={false}
@@ -134,10 +129,12 @@ export function PermissionDialog(props: {
           {props.request.hint && (
             <div className="maka-permission-hint" role="note">{props.request.hint}</div>
           )}
-          <details className="maka-permission-raw">
-            <summary>查看完整参数</summary>
-            <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
-          </details>
+          <Collapsible className="maka-permission-raw">
+            <CollapsibleTrigger>查看完整参数</CollapsibleTrigger>
+            <CollapsiblePanel>
+              <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
+            </CollapsiblePanel>
+          </Collapsible>
           <label className="permissionRemember">
             <Checkbox
               checked={rememberForTurn}
@@ -182,8 +179,8 @@ export function PermissionDialog(props: {
             {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
           </UiButton>
         </div>
-      </DialogContent>
-    </DialogRoot>
+      </AlertDialogContent>
+    </AlertDialogRoot>
   );
 }
 
@@ -191,7 +188,7 @@ export function PermissionDialog(props: {
  * One-line summary for a browser_* action. Names the concrete action (open /
  * read / click / type) so the prompt reads as a real browser step, not an opaque
  * tool call — reinforcing that a browser grant spans reads AND acts. The typed
- * text and full args stay in the raw `<details>` block below.
+ * text and full args stay in the raw Collapsible block below.
  */
 function renderBrowserSummary(toolName: string, args: Record<string, unknown>): ReactNode {
   const ref = typeof args.ref === 'string' ? args.ref : '';
@@ -217,7 +214,7 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
 /**
  * Per-tool human-readable summary of what the request will do, used at the
  * top of the permission dialog body. Falls back to undefined if we can't
- * recognize the tool — the raw args `<details>` block is always available.
+ * recognize the tool — the raw args Collapsible block is always available.
  */
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
   const args = (request.args ?? {}) as Record<string, unknown>;

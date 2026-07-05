@@ -41,10 +41,3 @@ export function filterSessions(sessions: SessionSummary[], selection: NavSelecti
   }
 }
 
-export function countSessions(sessions: SessionSummary[]) {
-  return {
-    chats: sessions.filter((session) => !session.isArchived && session.lastMessageAt).length,
-    flagged: sessions.filter((session) => session.isFlagged && !session.isArchived && session.lastMessageAt).length,
-    archived: sessions.filter((session) => session.isArchived).length,
-  };
-}

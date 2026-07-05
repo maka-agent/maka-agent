@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, useToast } from '@maka/ui';
+import { Button, clearGlobalInputHistory, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
@@ -84,6 +84,15 @@ export function DataSettingsPage() {
     });
   }
 
+  async function clearInputHistory() {
+    await runDataAction('input-history:clear', async () => {
+      clearGlobalInputHistory();
+      if (dataPageMountedRef.current) {
+        toast.success('已清空输入历史', '已发送的提示词记录已从本机移除。');
+      }
+    });
+  }
+
   return (
     <div className="settingsStructuredPage">
       <SettingsRows>
@@ -97,6 +106,11 @@ export function DataSettingsPage() {
           title="存储引擎"
           detail="会话记录、外观与账号设置、本地使用统计，以及本机凭据文件。"
           value="本地文件"
+        />
+        <SettingRow
+          title="输入历史"
+          detail="上箭头 / 下箭头调出的已发送提示词记录，保存在浏览器本地存储里，跨重启保留。清空后无法恢复。"
+          value="本机 localStorage"
         />
       </SettingsRows>
       <div className="settingsActionRow" role="group" aria-label="工作区数据操作">
@@ -114,6 +128,16 @@ export function DataSettingsPage() {
           disabled={!info || dataActionDisabled}
         >
           {isDataActionPending('workspace:path:copy') ? '复制中…' : '复制路径'}
+        </Button>
+      </div>
+      <div className="settingsActionRow" role="group" aria-label="输入历史操作">
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void clearInputHistory()}
+          disabled={dataActionDisabled}
+        >
+          {isDataActionPending('input-history:clear') ? '清空中…' : '清空输入历史'}
         </Button>
       </div>
       <div className="settingsNotice">

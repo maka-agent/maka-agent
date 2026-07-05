@@ -33,7 +33,11 @@ test('renderer error boundary exposes a redacted copyable diagnostic report', as
   assert.match(source, /disabled=\{copyPending\}/);
   assert.match(source, /aria-busy=\{copyPending \? 'true' : undefined\}/);
   assert.match(source, /data-copy-state=\{copyState\}/);
-  assert.match(source, /variant="outline"[\s\S]*className="maka-error-copy-action"/);
+  // PR3 (#527) added a min-w utility to the copy button (text-swap width
+  // lock for 复制中…/已复制 feedback). Match the class as a whole word in the
+  // class list instead of an exact className="…", same form as the negative
+  // maka-button check below.
+  assert.match(source, /variant="outline"[\s\S]*className="[^"]*\bmaka-error-copy-action\b[^"]*"/);
   assert.match(source, /<UiButton type="button" variant="secondary" onClick=\{this\.handleReset\}>/);
   assert.match(source, /<UiButton[\s\S]*variant="default"[\s\S]*onClick=\{this\.handleReload\}/);
   assert.doesNotMatch(source, /className="maka-button/);

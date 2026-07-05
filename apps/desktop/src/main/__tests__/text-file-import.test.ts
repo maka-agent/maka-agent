@@ -435,6 +435,18 @@ describe('text file context import', () => {
     assert.match(uiSource, /rememberComposerHistoryEntry\(promptHistoryRef\.current\.entries, text\)/);
     assert.match(uiSource, /navigateComposerHistory\(/);
     assert.doesNotMatch(uiSource, /localStorage\.setItem\([^)]*draft/i);
+    // Safe navigation: bare arrow keys only start history when the input
+    // is empty or the user is already navigating. The `canStartHistory`
+    // / `isNavigatingHistory` guard must be present (not the unconditional
+    // `if (el)` regression that hijacked multi-line drafts). The seed-at-init,
+    // save-on-send, and storage-sync (clear / failure) behavior is covered by
+    // the input-history and composer-helpers unit tests (reconcileHistorySync),
+    // so this contract only pins the keydown guard shape those pure-function
+    // tests cannot reach.
+    assert.match(uiSource, /isNavigatingHistory = promptHistoryRef\.current\.index >= 0/);
+    assert.match(uiSource, /canStartHistory = Boolean\(el && !el\.value\.trim\(\)\)/);
+    assert.match(uiSource, /explicit \|\| isNavigatingHistory \|\| canStartHistory/);
+    assert.doesNotMatch(uiSource, /\n\s*if \(el\) \{\n\s*const next = navigateComposerHistory/);
   });
 
   it('appends prompt suggestions in the main composer but replaces in the first-run hero', async () => {

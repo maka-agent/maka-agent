@@ -1,6 +1,14 @@
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+/**
+ * Project git context (read-only). Resolves whether a path is inside a git
+ * repo and which branch HEAD points at, plus a git-root resolver used by the
+ * desktop app's project-root resolution. Pure fs; moved here from
+ * apps/desktop/src/main/project-context.ts so the CLI/TUI can reuse the same
+ * environment fragment without duplicating the git probe.
+ */
+
 export interface ProjectGitInfo {
   isGitRepo: boolean;
   branch?: string;

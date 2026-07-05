@@ -3,7 +3,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  border: 1px solid var(--foreground-8);
+  border: var(--border-width-hairline) solid var(--foreground-8);
   border-radius: var(--radius-control);
   background:
     linear-gradient(90deg, oklch(from var(--focus-ring) l c h / 0.06), transparent 42%),
@@ -51,7 +51,7 @@
   display: grid;
   gap: var(--space-0-5);
   min-width: 0;
-  border-left: 1px solid var(--foreground-8);
+  border-left: var(--border-width-hairline) solid var(--foreground-8);
   padding-left: var(--space-2-5);
 }
 

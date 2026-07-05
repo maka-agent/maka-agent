@@ -24,7 +24,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, stripKeyframes, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
   it('bare cubic-bezier(0.16, 1, 0.3, 1) appears ONLY in the --ease-out-strong token declaration', async () => {
@@ -116,12 +116,15 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
     );
   });
 
-  it('--duration-{quick,base,emphasized,large} tokens are defined in maka-tokens.css', async () => {
+  it('--duration-{quick,base,emphasized,large} + --scale-{press,hover} + --lift-hover tokens are declared exactly once with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--duration-quick:\s*120ms/, '--duration-quick must be 120ms');
-    assert.match(tokens, /--duration-base:\s*150ms/, '--duration-base must be 150ms');
-    assert.match(tokens, /--duration-emphasized:\s*180ms/, '--duration-emphasized must be 180ms');
-    assert.match(tokens, /--duration-large:\s*280ms/, '--duration-large must be 280ms');
+    assertCustomPropPinnedOnce(tokens, '--duration-quick', '120ms');
+    assertCustomPropPinnedOnce(tokens, '--duration-base', '150ms');
+    assertCustomPropPinnedOnce(tokens, '--duration-emphasized', '180ms');
+    assertCustomPropPinnedOnce(tokens, '--duration-large', '280ms');
+    assertCustomPropPinnedOnce(tokens, '--scale-press', '0.96');
+    assertCustomPropPinnedOnce(tokens, '--scale-hover', '1.03');
+    assertCustomPropPinnedOnce(tokens, '--lift-hover', '-1px');
   });
 
   it('--ease-out-strong / --ease-in-out-strong / --ease-drawer / --ease-linear tokens are defined', async () => {
@@ -232,5 +235,43 @@ describe('PR-MOTION-TOKEN-CONVERGE-0 contract', () => {
       scanBareTimingKeywords('transition: opacity 120ms ease-in-out', 'fixture'),
       ['fixture:1: bare `ease-in-out`'],
     );
+  });
+
+  it('bare ms in transition/animation is banned — use var(--duration-*) (0ms/0.01ms a11y whitelisted)', async () => {
+    const stripped = stripKeyframes(stripCssComments(await readAllRendererCss()))
+      .replace(/^\s*--duration-[\w-]+:\s*\d+ms\s*;.*$/gm, ''); // strip duration token declarations
+    const offenders: string[] = [];
+    for (const m of stripped.matchAll(/\b(\d+(?:\.\d+)?)ms\b/g)) {
+      const value = m[1];
+      // 0ms (disable transition) + 0.01ms (prefers-reduced-motion / visual-smoke) are a11y/test hacks
+      if (value === '0' || value === '0.01') continue;
+      offenders.push(`${value}ms`);
+    }
+    assert.deepEqual(offenders, [], `Bare ms in transition/animation must use var(--duration-*). 0ms/0.01ms a11y whitelisted:\n  ${offenders.join('\n  ')}`);
+  });
+
+  it('--duration-fast is not referenced (was an undefined token; fixed to --duration-quick)', async () => {
+    const css = await readAllRendererCss();
+    assert.doesNotMatch(css, /--duration-fast\b/, '--duration-fast was an undefined reference; use --duration-quick');
+  });
+
+  it('transform amplitude uses var(--scale-press/hover) + var(--lift-hover) (bare static scale/translateY banned, keyframes excluded)', async () => {
+    const stripped = stripKeyframes(stripCssComments(await readAllRendererCss()));
+    const offenders: string[] = [];
+    for (const m of stripped.matchAll(/(?<![\w-])scale\(\s*(var\(--[\w-]+\)|[-\w.]+)\s*\)/g)) {
+      const value = m[1].trim();
+      if (value === '1') continue; // literal reset
+      if (/^var\(--scale-(press|hover)\)$/.test(value)) continue;
+      if (value === '1.1') continue; // decorative onboarding scale, whitelisted
+      offenders.push(`scale(${value})`);
+    }
+    for (const m of stripped.matchAll(/(?<![\w-])translateY\(\s*(var\(--[\w-]+\)|[-\w.]+)\s*\)/g)) {
+      const value = m[1].trim();
+      if (value === '0') continue; // literal reset
+      if (/^var\(--lift-hover\)$/.test(value)) continue;
+      if (value === '-3px') continue; // strong lift, whitelisted
+      offenders.push(`translateY(${value})`);
+    }
+    assert.deepEqual(offenders, [], `Bare transform amplitude must use var(--scale-press/hover) or var(--lift-hover). 1/-3px decorative/strong whitelisted, keyframes excluded:\n  ${offenders.join('\n  ')}`);
   });
 });

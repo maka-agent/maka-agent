@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import type { BackendKind, ProviderType } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core';
 import type { Config, Task } from './contracts.js';
@@ -223,12 +225,20 @@ async function runHarborTaskRunMode(options: HarborRunOptions): Promise<number> 
   return benchmarkFailure.shouldThrow ? 1 : 0;
 }
 
-async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.ProcessEnv): Promise<HarborRunOptions> {
+export async function resolveHarborRunOptions(args: string[], baseEnv: NodeJS.ProcessEnv): Promise<HarborRunOptions> {
   const parsed = parseArgs(args, HARBOR_RUN_FLAGS, HARBOR_RUN_BOOLS);
   if (parsed.positional.length > 0) throw new Error(`unexpected positional argument: ${parsed.positional[0]}`);
   const env = cliEnv(parsed, baseEnv);
-  const mode = harborMode(valueOf(parsed, env, 'mode', 'MAKA_HARBOR_MODE') ?? 'task-run');
+  // Resolve backend before applying desktop defaults so --backend fake /
+  // pi-agent never picks up the workspace's default connection. cliEnv does
+  // not forward the backend flag, so guarding inside applyConnectionDefaults
+  // only covers the MAKA_BACKEND env-var path, not the flag path.
   const backend = backendKind(valueOf(parsed, env, 'backend', 'MAKA_BACKEND') ?? 'ai-sdk');
+  if (backend === 'ai-sdk') {
+    applyConnectionDefaults(env);
+  }
+  applyApiKeyFile(parsed, env);
+  const mode = harborMode(valueOf(parsed, env, 'mode', 'MAKA_HARBOR_MODE') ?? 'task-run');
   const isolation = optionalIsolation(valueOf(parsed, env, 'isolation', 'MAKA_HARBOR_ISOLATION') ?? env.MAKA_ISOLATION);
   preflightIsolation(backend, isolation, env);
 
@@ -467,11 +477,17 @@ function cliEnv(parsed: ParsedArgs, baseEnv: NodeJS.ProcessEnv): RunHarborCellEn
   if (parsed.flags.benchmark && parsed.flags.benchmark !== 'terminal-bench') {
     throw new Error('--benchmark currently supports only terminal-bench');
   }
-  if (parsed.flags['api-key-file']) {
-    const provider = providerFromValue(parsed.flags.provider ?? env.MAKA_PROVIDER ?? providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL));
-    env[apiKeyFileEnvName(provider)] = parsed.flags['api-key-file'];
-  }
   return env;
+}
+
+/**
+ * Apply --api-key-file AFTER applyConnectionDefaults so that provider
+ * inference uses the final resolved MAKA_MODEL, not the pre-defaults value.
+ */
+function applyApiKeyFile(parsed: ParsedArgs, env: RunHarborCellEnv): void {
+  if (!parsed.flags['api-key-file']) return;
+  const provider = providerFromValue(parsed.flags.provider ?? env.MAKA_PROVIDER ?? providerFromModel(env.MAKA_MODEL ?? env.HARBOR_MODEL));
+  env[apiKeyFileEnvName(provider)] = parsed.flags['api-key-file'];
 }
 
 async function instructionFromOptions(parsed: ParsedArgs, env: RunHarborCellEnv): Promise<string> {
@@ -535,6 +551,62 @@ function officialVerifierKind(value: string): OfficialVerifier {
 function backendKind(value: string): BackendKind {
   if (value === 'fake' || value === 'ai-sdk' || value === 'pi-agent') return value;
   throw new Error(`--backend must be fake, ai-sdk, or pi-agent, got ${JSON.stringify(value)}`);
+}
+
+/**
+ * When no explicit model/provider/connection input is set, read the desktop
+ * workspace's llm-connections.json and inject the default connection's
+ * provider, model, slug, and baseUrl into env so downstream code resolves
+ * them naturally.
+ *
+ * Guards:
+ * - Skip if any explicit model/provider/connection input is already set
+ * - Skip for non-ai-sdk backends (fake, pi-agent)
+ * - Validate providerType against PROVIDER_DEFAULTS before writing
+ * - Only write MAKA_LLM_CONNECTION_SLUG / MAKA_BASE_URL if they are undefined
+ */
+export function applyConnectionDefaults(env: Record<string, string | undefined>): void {
+  // Skip if any explicit model/provider/connection input is set
+  if (env.MAKA_MODEL || env.HARBOR_MODEL || env.MAKA_PROVIDER || env.MAKA_LLM_CONNECTION_SLUG) return;
+  // Skip for non-ai-sdk backends
+  if (env.MAKA_BACKEND === 'fake' || env.MAKA_BACKEND === 'pi-agent') return;
+
+  const connectionsPath = env.MAKA_CONNECTIONS_PATH ?? resolveDefaultConnectionsPath();
+  try {
+    const file = JSON.parse(readFileSync(connectionsPath, 'utf8')) as {
+      defaultSlug?: string | null;
+      connections?: Array<{ slug: string; providerType?: string; defaultModel?: string; baseUrl?: string; enabled?: boolean }>;
+    };
+    if (!file.defaultSlug || !Array.isArray(file.connections)) return;
+    const conn = file.connections.find(c => c.slug === file.defaultSlug && c.enabled !== false);
+    if (!conn?.providerType || !conn.defaultModel) return;
+    // Validate providerType against known providers
+    if (!(conn.providerType in PROVIDER_DEFAULTS)) return;
+
+    env.MAKA_MODEL = `${conn.providerType}/${conn.defaultModel}`;
+    if (env.MAKA_LLM_CONNECTION_SLUG === undefined) env.MAKA_LLM_CONNECTION_SLUG = conn.slug;
+    if (env.MAKA_BASE_URL === undefined && conn.baseUrl) env.MAKA_BASE_URL = conn.baseUrl;
+    // credentials.json lives next to llm-connections.json in the workspace;
+    // point readStoredMakaApiKey at it so Windows/Linux no-env works too,
+    // not just macOS.
+    if (env.MAKA_CREDENTIALS_PATH === undefined) {
+      env.MAKA_CREDENTIALS_PATH = join(dirname(connectionsPath), 'credentials.json');
+    }
+  } catch {
+    // File doesn't exist or is malformed — fall through to existing hardcoded defaults
+  }
+}
+
+export function resolveDefaultConnectionsPath(): string {
+  const home = homedir();
+  switch (process.platform) {
+    case 'darwin':
+      return join(home, 'Library', 'Application Support', 'Maka', 'workspaces', 'default', 'llm-connections.json');
+    case 'win32':
+      return join(process.env.APPDATA ?? join(home, 'AppData', 'Roaming'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+    default:
+      return join(process.env.XDG_CONFIG_HOME ?? join(home, '.config'), 'Maka', 'workspaces', 'default', 'llm-connections.json');
+  }
 }
 
 function parseModelSpec(rawModel: string, rawProvider: string | undefined): { provider: ProviderType; model: string } {

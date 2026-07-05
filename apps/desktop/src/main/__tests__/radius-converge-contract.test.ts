@@ -175,7 +175,9 @@ const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'badgeVariants', tier: 'pill' },
-  { file: 'packages/ui/src/ui.tsx', name: 'DialogPopup', tier: 'modal' },
+  // DialogPopup/AlertDialogPopup were merged into createModalContent (PR6
+  // review P3.1); the modal popup class now lives in MODAL_POPUP_CLASS.
+  { file: 'packages/ui/src/ui.tsx', name: 'MODAL_POPUP_CLASS', tier: 'modal' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectPopup', tier: 'surface' },
   // TabsTrigger/TabsList used to be declared in ui.tsx with --radius-* tokens;
   // #499 P0-3 re-exports them from primitives/tabs.tsx, which uses Tailwind

@@ -22,7 +22,7 @@
   min-height: 38px;
   display: grid;
   gap: var(--space-0-5);
-  border: 1px solid transparent;
+  border: var(--border-width-hairline) solid transparent;
   border-radius: var(--radius-surface);
   background: var(--foreground-3);
   color: var(--foreground);
@@ -62,7 +62,7 @@
 /* Gated providers (preview / not-yet-open) stay inert and muted; the
  * provider-surface gate forbids rendering them as actionable. */
 .providerCatalogRow[data-disabled="true"] {
-  opacity: 0.66;
+  opacity: var(--opacity-muted);
   cursor: not-allowed;
   filter: grayscale(0.28);
 }
@@ -111,7 +111,7 @@
 .providerUnavailableNotice {
   display: grid;
   gap: var(--space-1);
-  border: 1px solid oklch(from var(--info) l c h / 0.22);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.22);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
@@ -151,7 +151,7 @@
 .providerEditor select {
   min-width: 0;
   min-height: 36px;
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   /* PR-UI-LAYOUT-22: provider editor inputs (used in the
    * ConfigureProvider sheet) brought up to the LAYOUT-11/21 focus
    * ring family. Was: radius 6 + border-only focus.
@@ -164,14 +164,14 @@
   padding: 0 var(--space-3);
   outline: none;
   font-size: var(--font-size-ui);
-  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong), background 140ms var(--ease-out-strong);
+  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong), background var(--duration-base) var(--ease-out-strong);
 }
 
 .providerEditor input:focus,
 .providerEditor select:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
   background: var(--background);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.10);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.10);
 }
 
 .providerActions {
@@ -210,7 +210,7 @@
 .providerExternalLink:focus-visible {
   outline: none;
   background: oklch(from var(--focus-ring) l c h / 0.06);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 /* UI-02 model table: per-row default radio, capability chips, search box,
@@ -226,10 +226,10 @@
   grid-template-columns: minmax(0, 1fr);
   gap: var(--space-2);
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--foreground-2);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
 }
 
 .modelTableHeader {
@@ -273,13 +273,13 @@
 .modelTableSearch {
   width: 100%;
   padding: var(--space-1-5) var(--space-3);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--foreground);
   font-size: var(--font-size-ui);
   font-family: var(--font-mono);
-  transition: border-color 140ms var(--ease-out-strong), box-shadow 140ms var(--ease-out-strong);
+  transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong);
 }
 
 .modelTableSearch:focus {
@@ -287,7 +287,7 @@
   /* PR-UI-LAYOUT-22: brought into the focus-ring family — was
    * border-color only, now 3px accent halo to match the rest. */
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.10);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.10);
 }
 
 .modelTableEmpty {
@@ -307,7 +307,7 @@
   text-align: left;
   padding: var(--space-1-5) var(--space-3);
   border-radius: var(--radius-surface);
-  border: 1px solid oklch(from var(--focus-ring) l c h / 0.22);
+  border: var(--border-width-hairline) solid oklch(from var(--focus-ring) l c h / 0.22);
   background: oklch(from var(--focus-ring) l c h / 0.06);
   color: var(--foreground);
   font-size: var(--font-size-caption);
@@ -343,7 +343,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-2-5);
-  border: 1px solid transparent;
+  border: var(--border-width-hairline) solid transparent;
   border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground);
@@ -369,7 +369,7 @@
   outline: none;
   background: var(--background);
   border-color: oklch(from var(--focus-ring) l c h / 0.42);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .modelTableRow[data-default="true"] {
@@ -381,7 +381,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 1.5px solid var(--muted-foreground);
+  border: var(--border-width-hairline) solid var(--muted-foreground);
   background: transparent;
   position: relative;
 }
@@ -544,7 +544,7 @@
   padding-right: var(--space-1);
 }
 .providerOAuthError {
-  border: 1px solid color-mix(in srgb, var(--warning) 32%, transparent);
+  border: var(--border-width-hairline) solid color-mix(in srgb, var(--warning) 32%, transparent);
   border-radius: var(--radius-surface);
   background: color-mix(in srgb, var(--warning) 10%, var(--background));
   color: var(--warning-text);
@@ -614,7 +614,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1-5);
-  border: 1px solid var(--border-subtle);
+  border: var(--border-width-hairline) solid var(--border-subtle);
   border-radius: var(--radius-control);
   background: var(--background-elevated);
   color: var(--foreground);

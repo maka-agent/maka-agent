@@ -112,4 +112,16 @@ describe('PR-FE-BUG-HUNT-9 z-index contract', () => {
       );
     }
   });
+
+  it('keeps Select positioners in the overlay layer so popup hit-testing can outrank composer chrome', async () => {
+    const stripped = stripCssComments(await readAllRendererCss());
+    const positionerRule = stripped.match(/\.settingsSelectPositioner\s*\{[\s\S]*?\}/)?.[0] ?? '';
+
+    assert.notEqual(positionerRule, '', '.settingsSelectPositioner rule not found in renderer CSS');
+    assert.match(
+      positionerRule,
+      /z-index:\s*var\(--z-overlay\)\s*;/,
+      'SettingsSelect positioner must share SelectPopup\'s --z-overlay layer. The positioner creates the root stacking context for portaled selects; if it stays at --z-dropdown, the popup cannot reliably win hit-tests over composer chrome when it opens upward.',
+    );
+  });
 });

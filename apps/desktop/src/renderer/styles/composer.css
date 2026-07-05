@@ -3,8 +3,8 @@
    per design-taste rules). Uses oklch off-black (charcoal) so the button
    reads as premium machined hardware. */
 .maka-composer-send-button {
-  width: 30px;
-  height: 30px;
+  width: var(--h-control-lg);
+  height: var(--h-control-lg);
   border-radius: var(--radius-pill);
   background: linear-gradient(
     oklch(from var(--action) calc(l - 0.10) c h),
@@ -17,7 +17,7 @@
   transition:
     background var(--duration-base) var(--ease-out-strong),
     transform var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow 220ms var(--ease-out-strong);
+    box-shadow var(--duration-emphasized) var(--ease-out-strong);
 }
 
 /* PR-FE-BUG-HUNT-7: send button is a primary CTA so it gets a hair
@@ -29,7 +29,7 @@
     oklch(from var(--action) calc(l - 0.15) c h)
   );
   color: var(--action-foreground);
-  transform: scale(1.03);
+  transform: scale(var(--scale-hover));
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.18),
     0 10px 22px -14px oklch(from var(--action) l c h / 0.55);
@@ -42,7 +42,7 @@
 .maka-composer-send-button:disabled {
   background: oklch(from var(--foreground) 0.72 0 h / 0.18);
   color: oklch(1 0 0);
-  opacity: 0.72;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 
@@ -50,7 +50,7 @@
   /* PR-PARCHMENT-HOME-2: must share the new composer card measure
      (620px) so the "选择工作目录 ▾" pill stays aligned with the card
      left edge above it. */
-  width: min(var(--maka-chat-measure, 680px), 100%);
+  width: min(var(--maka-chat-measure), 100%);
   display: flex;
   justify-content: flex-start;
   box-sizing: border-box;
@@ -61,7 +61,7 @@
   -webkit-app-region: no-drag;
   appearance: none;
   min-width: 0;
-  min-height: 24px;
+  min-height: var(--h-control-sm);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -85,7 +85,7 @@
 .maka-composer-workspace-picker:focus-visible {
   outline: none;
   border-radius: var(--radius-control);
-  box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
 }
 
 .maka-composer-workspace-picker svg {
@@ -258,7 +258,7 @@
 }
 
 .permissionDialog[data-tone="destructive"] {
-  border: 1px solid oklch(from var(--destructive) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.32);
 }
 
 .maka-permission-tool {
@@ -268,7 +268,7 @@
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground-secondary);
-  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-permission-age {
@@ -312,7 +312,7 @@
   border-radius: var(--radius-control);
   background: var(--foreground-5);
   color: var(--foreground);
-  border: 1px solid oklch(from var(--foreground) l c h / 0.03);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
 }
 
 .maka-permission-command,

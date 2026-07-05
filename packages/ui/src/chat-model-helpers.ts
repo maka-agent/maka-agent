@@ -27,10 +27,18 @@ export interface ChatModelChoice {
   providerType: ProviderType;
   model: string;
   label: string;
-  /* Intentionally NO connection-name / account label field. `connection.name`
-     embeds the OAuth account email (PR-CHAT-CHROME-FIX-0); the menu heading
-     is derived from `providerType` (+ slug on collision) in `modelMenuGroups`,
-     never from the name. `label` is only the safe model display name. */
+  /**
+   * User-chosen connection label — ONLY for non-OAuth providers (`api_key` /
+   * `none` auth), where `connection.name` is a plain label the user typed in
+   * Settings when adding the connection (e.g. "OpenRouter", "My Together AI
+   * key"). Must stay `undefined` for `claude-subscription` /
+   * `codex-subscription` / `gemini-cli`, whose `connection.name` embeds the
+   * OAuth account email (PR-CHAT-CHROME-FIX-0) — those three keep falling
+   * back to the leak-safe provider label in `modelMenuGroups`. Callers
+   * populate this field; `@maka/ui` doesn't know about `LlmConnection` and
+   * can't enforce the guard itself.
+   */
+  connectionName?: string;
 }
 
 /**
@@ -61,24 +69,28 @@ export interface ModelMenuGroup {
   /** Provider of this group, so the menu can render its brand mark on the heading. */
   providerType: ProviderType;
   /**
-   * Leak-safe, de-duplicated heading. Derived from `providerType` (plus the
-   * slug when the same provider has multiple connections); never from
-   * `connection.name`.
+   * De-duplicated heading. The user's own connection name when one was
+   * safely supplied (see `ChatModelChoice.connectionName`); otherwise the
+   * short provider label, plus the slug when the same provider has multiple
+   * connections. Never derived from an OAuth connection's `connection.name`.
    */
   heading: string;
   choices: ChatModelChoice[];
 }
 
 /**
- * Group choices by connection and give each group a leak-safe, distinguishable
- * heading. The heading is the short provider label; when two or more
- * connections of the SAME provider are present (e.g. two OpenAI keys), the
- * connection slug is appended so the user can tell them apart. The slug is a
- * safe `[a-z0-9-]` identifier and never carries the account email that
- * `connection.name` does, so the heading is leak-safe by construction.
+ * Group choices by connection and give each group a distinguishable heading.
+ * Prefers the user's own connection name (`ChatModelChoice.connectionName`)
+ * when the caller supplied one — safe by construction, since callers only
+ * populate it for non-OAuth providers. Falls back to the short provider
+ * label, with the connection slug appended when two or more connections of
+ * the SAME provider are present and neither supplied a name (e.g. two OpenAI
+ * keys) — the slug is a safe `[a-z0-9-]` identifier, never the OAuth
+ * account email `connection.name` carries for `claude-subscription` /
+ * `codex-subscription` / `gemini-cli`.
  */
 export function modelMenuGroups(choices: ChatModelChoice[]): ModelMenuGroup[] {
-  const bySlug = new Map<string, { connectionSlug: string; providerType: ProviderType; choices: ChatModelChoice[] }>();
+  const bySlug = new Map<string, { connectionSlug: string; providerType: ProviderType; connectionName?: string; choices: ChatModelChoice[] }>();
   for (const choice of choices) {
     const group = bySlug.get(choice.connectionSlug);
     if (group) {
@@ -87,16 +99,33 @@ export function modelMenuGroups(choices: ChatModelChoice[]): ModelMenuGroup[] {
       bySlug.set(choice.connectionSlug, {
         connectionSlug: choice.connectionSlug,
         providerType: choice.providerType,
+        connectionName: choice.connectionName,
         choices: [choice],
       });
     }
   }
   const groups = [...bySlug.values()];
   const connectionsPerType = new Map<ProviderType, number>();
+  const connectionsPerName = new Map<string, number>();
   for (const group of groups) {
     connectionsPerType.set(group.providerType, (connectionsPerType.get(group.providerType) ?? 0) + 1);
+    const ownName = group.connectionName?.trim();
+    if (ownName) connectionsPerName.set(ownName, (connectionsPerName.get(ownName) ?? 0) + 1);
   }
   return groups.map((group) => {
+    const ownName = group.connectionName?.trim();
+    if (ownName) {
+      // Two connections can carry the same user-chosen name (the add form
+      // defaults it to the provider's display label) — keep them
+      // distinguishable with the same slug suffix the label path uses.
+      const nameAmbiguous = (connectionsPerName.get(ownName) ?? 0) > 1;
+      return {
+        connectionSlug: group.connectionSlug,
+        providerType: group.providerType,
+        heading: nameAmbiguous ? `${ownName} · ${group.connectionSlug}` : ownName,
+        choices: group.choices,
+      };
+    }
     const label = PROVIDER_SHORT_LABEL[group.providerType];
     const ambiguous = (connectionsPerType.get(group.providerType) ?? 0) > 1;
     return {

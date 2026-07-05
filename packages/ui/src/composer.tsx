@@ -19,9 +19,11 @@ import {
   appendPromptContextDraft,
   navigateComposerHistory,
   readComposerDraft,
+  reconcileHistorySync,
   rememberComposerDraft,
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
+import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
 import type { PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
 import { Kbd } from './primitives/kbd.js';
@@ -121,6 +123,13 @@ export const Composer = forwardRef<
     renderProviderMark?(type: ProviderType): ReactNode;
     modelChangePending?: boolean;
     onModelChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
+    /** Per-model thinking-level variants for the active model; empty/undefined hides the switcher. */
+    activeThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    activeThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
+    newChatThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    newChatThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onNewChatThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
     /**
      * Home / empty-state composer only (no active session yet): the model
      * the next new chat will start with, and the picker callback. When set,
@@ -168,7 +177,7 @@ export const Composer = forwardRef<
   const composerMountedRef = useRef(true);
   const sendPendingRef = useRef(false);
   const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
-  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: [], index: -1, savedDraft: '' });
+  const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
   // is effectively constant for the lifetime of the renderer but the
@@ -283,6 +292,9 @@ export const Composer = forwardRef<
     }
     if (!composerMountedRef.current) return;
     if (sent === false) return;
+    // Save to both local ref and global persistence so the history
+    // survives page reloads and is shared across all input surfaces.
+    saveGlobalInputHistoryEntry(text);
     promptHistoryRef.current = {
       entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, text),
       index: -1,
@@ -338,25 +350,55 @@ export const Composer = forwardRef<
       props.onStop();
       return;
     }
-    if ((event.key === 'ArrowUp' || event.key === 'ArrowDown') && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
-      const el = textareaRef.current;
-      const isNavigatingHistory = promptHistoryRef.current.index >= 0;
-      const canStartHistory = Boolean(el && !el.value.trim());
-      if (el && (isNavigatingHistory || canStartHistory)) {
-        const next = navigateComposerHistory(
-          promptHistoryRef.current,
-          event.key === 'ArrowUp' ? 'previous' : 'next',
-          el.value,
-        );
-        if (next.changed) {
-          event.preventDefault();
-          promptHistoryRef.current = next.state;
-          el.value = next.value;
-          saveCurrentDraft(next.value);
-          autoResize();
-          const length = el.value.length;
-          el.setSelectionRange(length, length);
-          return;
+    // PR-GLOBAL-INPUT-HISTORY: up/down arrow navigates the global input
+    // history. Bare arrow keys only start navigation when the textarea is
+    // empty, or when the user is already mid-navigation (index >= 0); in a
+    // multi-line draft the caret keeps moving so editing isn't hijacked.
+    // Ctrl/Cmd + ArrowUp/ArrowDown is an explicit shortcut that always
+    // navigates history regardless of the current draft.
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      const explicit = Boolean(event.ctrlKey || event.metaKey);
+      const plainArrow = !event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      if (plainArrow || explicit) {
+        const el = textareaRef.current;
+        const isNavigatingHistory = promptHistoryRef.current.index >= 0;
+        const canStartHistory = Boolean(el && !el.value.trim());
+        if (el && (explicit || isNavigatingHistory || canStartHistory)) {
+          // Re-read global history from localStorage on every navigation so
+          // a clear from Settings (an overlay that keeps the Composer
+          // mounted) is picked up immediately, and a transient storage
+          // failure does not clobber the in-memory history.
+          // reconcileHistorySync restores the saved draft if a clear happened
+          // mid-navigation (so the user doesn't lose what they were typing).
+          const synced = readGlobalInputHistory();
+          const { state, restoreDraft } = reconcileHistorySync(promptHistoryRef.current, synced);
+          promptHistoryRef.current = state;
+          if (restoreDraft && el) {
+            el.value = state.savedDraft;
+            saveCurrentDraft(state.savedDraft);
+            autoResize();
+            const length = el.value.length;
+            el.setSelectionRange(length, length);
+          }
+          // Nothing to navigate when history was cleared (synced empty).
+          // When the storage read failed (synced === null), keep navigating
+          // with the in-memory entries.
+          if (synced !== null && synced.length === 0) return;
+          const next = navigateComposerHistory(
+            promptHistoryRef.current,
+            event.key === 'ArrowUp' ? 'previous' : 'next',
+            el.value,
+          );
+          if (next.changed) {
+            event.preventDefault();
+            promptHistoryRef.current = next.state;
+            el.value = next.value;
+            saveCurrentDraft(next.value);
+            autoResize();
+            const length = el.value.length;
+            el.setSelectionRange(length, length);
+            return;
+          }
         }
       }
     }
@@ -473,7 +515,7 @@ export const Composer = forwardRef<
           ref={textareaRef}
           unstyled
           name="text"
-          className="maka-composer-textarea min-h-[44px] resize-none"
+          className="maka-composer-textarea min-h-11 resize-none"
           placeholder={copy.placeholder}
           aria-label={copy.textareaAriaLabel}
           disabled={props.disabled}
@@ -635,6 +677,9 @@ export const Composer = forwardRef<
                     disabledReason={modelSwitcherDisabledReason}
                     renderProviderMark={props.renderProviderMark}
                     onChange={props.onModelChange}
+                    thinkingLevels={props.activeThinkingLevels}
+                    thinkingLevel={props.activeThinkingLevel}
+                    onThinkingLevelChange={props.onThinkingLevelChange}
                   />
                 ) : props.onPickNewChatModel && (props.modelChoices?.length ?? 0) > 0 ? (
                   <NewChatModelPicker
@@ -647,6 +692,9 @@ export const Composer = forwardRef<
                     }
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
+                    thinkingLevels={props.newChatThinkingLevels}
+                    thinkingLevel={props.newChatThinkingLevel}
+                    onThinkingLevelChange={props.onNewChatThinkingLevelChange}
                   />
                 ) : (
                   <ModelChipStatic label={modelChipLabel} onOpenSettings={props.onOpenModelSettings} />

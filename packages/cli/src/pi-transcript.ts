@@ -7,6 +7,7 @@ import {
 } from '@earendil-works/pi-tui';
 import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { ansi } from './tui-ansi.js';
@@ -20,7 +21,7 @@ export interface MakaPiTranscriptState {
 
 export type MakaPiTranscriptEntry =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; messageId: string; text: string }
+  | { kind: 'assistant'; messageId: string; text: string; thinking?: string }
   | {
       kind: 'tool';
       toolUseId: string;
@@ -40,6 +41,8 @@ export interface MakaPiTranscriptMetadata {
   model: string;
   connectionSlug: string;
   permissionMode: string;
+  thinkingLevel?: ThinkingLevel;
+  thinkingLevels?: readonly ThinkingLevel[];
   sessionId?: string | null;
   busy?: boolean;
 }
@@ -121,6 +124,14 @@ export function applyMakaSessionEventToTranscript(
       if (!state.sawTextDeltaMessageIds.has(event.messageId) && event.text) {
         appendAssistantText(state, event.messageId, event.text);
       }
+      break;
+
+    case 'thinking_delta':
+      appendAssistantThinking(state, event.messageId, event.text);
+      break;
+
+    case 'thinking_complete':
+      if (event.text) setAssistantThinking(state, event.messageId, event.text);
       break;
 
     case 'tool_start':
@@ -233,7 +244,12 @@ function chatItemToTranscriptEntry(item: ChatItem): MakaPiTranscriptEntry | unde
     case 'user':
       return { kind: 'user', text: item.message.text };
     case 'assistant':
-      return { kind: 'assistant', messageId: item.message.id, text: item.message.text };
+      return {
+        kind: 'assistant',
+        messageId: item.message.id,
+        text: item.message.text,
+        ...(item.message.thinking?.text ? { thinking: item.message.thinking.text } : {}),
+      };
     case 'tool':
       return toolActivityToTranscriptEntry(item.item);
     case 'system_note':
@@ -315,7 +331,7 @@ export function renderMakaPiTranscript(
         lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
         break;
       case 'assistant':
-        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
+        lines.push(...renderAssistantBlock(entry, safeWidth));
         break;
       case 'tool':
         lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
@@ -336,8 +352,9 @@ export function renderMakaPiTranscript(
 
 export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {
   const safeWidth = Math.max(1, width);
+  const thinking = metadata.thinkingLevel ? ansi.dim(` thinking:${metadata.thinkingLevel}`) : '';
   return fitLine(
-    `${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)} ${ansi.dim(metadata.cwd)}`,
+    `${ansi.bold(metadata.title)} ${ansi.dim(metadata.model)} ${ansi.dim(metadata.connectionSlug)} ${ansi.dim(metadata.permissionMode)}${thinking} ${ansi.dim(metadata.cwd)}`,
     safeWidth,
   );
 }
@@ -350,6 +367,40 @@ function appendAssistantText(state: MakaPiTranscriptState, messageId: string, te
   }
   state.entries.push({ kind: 'assistant', messageId, text });
 }
+
+function appendAssistantThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
+  const last = state.entries[state.entries.length - 1];
+  if (last?.kind === 'assistant' && last.messageId === messageId) {
+    last.thinking = (last.thinking ?? '') + text;
+    return;
+  }
+  state.entries.push({ kind: 'assistant', messageId, text: '', thinking: text });
+}
+
+function setAssistantThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
+  const last = state.entries[state.entries.length - 1];
+  if (last?.kind === 'assistant' && last.messageId === messageId) {
+    last.thinking = text;
+    return;
+  }
+  state.entries.push({ kind: 'assistant', messageId, text: '', thinking: text });
+}
+
+function renderAssistantBlock(entry: MakaPiAssistantEntry, width: number): string[] {
+  const lines = renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
+  // Thinking blocks are collapsed in the transcript: a terminal transcript is
+  // static (no interactive toggle), so we render a one-line marker instead of
+  // the full body, which would flood the scrollback. The text stays on the
+  // entry in case a future viewer wants to surface it; this satisfies the
+  // "can be collapsed/hidden" acceptance without dumping reasoning into the
+  // terminal.
+  if (entry.thinking && entry.thinking.trim()) {
+    lines.push(ansi.dim('思考（已隐藏）'));
+  }
+  return lines;
+}
+
+type MakaPiAssistantEntry = Extract<MakaPiTranscriptEntry, { kind: 'assistant' }>;
 
 type MakaPiToolEntry = Extract<MakaPiTranscriptEntry, { kind: 'tool' }>;
 type MakaPiNoticeEntry = Extract<MakaPiTranscriptEntry, { kind: 'notice' }>;

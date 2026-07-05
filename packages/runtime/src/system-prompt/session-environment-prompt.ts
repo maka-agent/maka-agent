@@ -1,5 +1,13 @@
 import type { ProjectGitInfo } from './project-context.js';
 
+/**
+ * Per-turn environment tail fragment (cwd / git repo / branch / platform /
+ * date). This is volatile per-turn context, NOT durable system prompt: date
+ * and branch change between turns, and pinning it in the system prefix would
+ * churn the prefix hash. Moved here from apps/desktop/src/main/session-environment-prompt.ts
+ * so the CLI/TUI turnTailPrompt can reuse it.
+ */
+
 export interface SessionEnvironmentPromptInput {
   cwd: string;
   projectGit: ProjectGitInfo;
@@ -29,7 +37,12 @@ export function buildSessionEnvironmentPromptFragment(input: SessionEnvironmentP
 
 function formatDate(value: Date): string {
   if (Number.isNaN(value.getTime())) return 'unknown';
-  return value.toISOString().slice(0, 10);
+  // Local calendar date (not UTC): the injected "Today's date" should match the
+  // user's day, so near local midnight we don't report the previous UTC day.
+  const y = value.getFullYear();
+  const m = String(value.getMonth() + 1).padStart(2, '0');
+  const d = String(value.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 function sanitizePromptLine(value: string): string {

@@ -629,7 +629,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
         }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
-        providerOptions: buildProviderOptions(connection, input.model),
+        providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
         lookupPricing,
         ...contextBudgetBackendOptions,

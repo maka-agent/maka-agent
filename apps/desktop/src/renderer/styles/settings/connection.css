@@ -4,9 +4,9 @@
     gap: var(--space-1-5);
     padding: var(--space-3) var(--space-3);
     border-radius: var(--radius-surface);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     background: var(--foreground-2);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
 .settingsConnectionRow[data-status="verified"] {
     border-color: oklch(from var(--success) l c h / 0.24);
@@ -72,7 +72,7 @@
     width: 100%;
     padding: var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     background: var(--background);
     color: var(--foreground);
     font-family: var(--font-mono);
@@ -83,7 +83,7 @@
     color: var(--destructive-text, var(--destructive, red));
   }
 .settingsConnectionRow[data-status="disabled"] {
-    opacity: 0.72;
+    opacity: var(--opacity-disabled);
   }
 .settingsConnectionRow[data-default="true"] {
     box-shadow: 0 0 0 2px oklch(from var(--control) l c h / 0.12);
@@ -169,10 +169,10 @@
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-2-5);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
 .settingsAuthContractText {
     display: grid;
@@ -261,7 +261,7 @@
     color: var(--foreground-secondary);
   }
 .settingsAuthActionPill[data-kind="preview"] {
-    border: 1px dashed oklch(from var(--info) l c h / 0.30);
+    border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.30);
   }
 /* PR-SETTINGS-GROUPED-CARD-0: rows flush inside outer card, hairline
      divider, last-child no border. Matches the reference grouped-list
@@ -304,7 +304,7 @@
        as orphaned fragments. A hairline + breathing room marks it as
        the editor's status footnote (divider over a nested card). */
     padding: var(--space-1-5) var(--space-0-5) 0;
-    border-top: 1px solid var(--foreground-10);
+    border-top: var(--border-width-hairline) solid var(--foreground-10);
   }
 .settingsMemoryPath {
     /* The component already shortens the path for display

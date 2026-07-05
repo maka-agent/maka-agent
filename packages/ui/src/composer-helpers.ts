@@ -122,3 +122,44 @@ export function navigateComposerHistory(
     changed: true,
   };
 }
+
+/**
+ * Reconcile the in-memory history state with what localStorage reports,
+ * right before a history-navigation keystroke is dispatched to
+ * navigateComposerHistory.
+ *
+ * - `synced === null`: the storage read failed (localStorage unavailable,
+ *   corrupt JSON). Keep the in-memory state intact so a transient storage
+ *   failure does not wipe history the user already has in memory.
+ * - `synced` is empty: history was cleared (e.g. from Settings). Reset to a
+ *   non-navigating state. If we were mid-navigation, signal `restoreDraft`
+ *   so the caller writes the saved draft back into the textarea — otherwise
+ *   the user loses what they were typing.
+ * - `synced` has entries: adopt them, clamping the current index into range.
+ *
+ * Returns the reconciled state and whether the saved draft should be
+ * restored to the textarea.
+ */
+export function reconcileHistorySync(
+  current: ComposerHistoryState,
+  synced: string[] | null,
+): { state: ComposerHistoryState; restoreDraft: boolean } {
+  if (synced === null) {
+    return { state: current, restoreDraft: false };
+  }
+  if (synced.length === 0) {
+    const restoreDraft = current.index >= 0 && current.savedDraft.length > 0;
+    return {
+      state: { entries: [], index: -1, savedDraft: '' },
+      restoreDraft,
+    };
+  }
+  return {
+    state: {
+      entries: synced,
+      index: Math.min(current.index, synced.length - 1),
+      savedDraft: current.savedDraft,
+    },
+    restoreDraft: false,
+  };
+}

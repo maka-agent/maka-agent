@@ -643,6 +643,7 @@ export class SessionManager {
       backend: header.backend,
       llmConnectionSlug: header.llmConnectionSlug,
       model: header.model,
+      thinkingLevel: header.thinkingLevel,
       permissionMode: header.permissionMode,
       name: input.name ?? `${header.name} · 分支`,
       labels: header.labels,
@@ -1002,14 +1003,15 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
   };
+  if (h.thinkingLevel !== undefined) summary.thinkingLevel = h.thinkingLevel;
   if (h.lastMessageAt !== undefined) {
     summary.lastMessageAt = h.lastMessageAt;
   }
   return summary;
 }
 
-function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
-  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
+export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
+  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch || 'thinkingLevel' in patch;
 }
 
 function agentRunStatusForSpawnResult(status: AgentRunHeader['status']): SpawnChildAgentResult['status'] {

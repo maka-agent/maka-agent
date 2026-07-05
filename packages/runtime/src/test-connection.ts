@@ -5,7 +5,8 @@ import {
   type LlmConnection,
 } from '@maka/core/llm-connections';
 import { proxiedFetch } from './bots/proxied-fetch.js';
-import { anthropicV1Url, claudeSubscriptionHeaders } from './subscription-auth.js';
+import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
+import { claudeSubscriptionHeaders } from './subscription-auth.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
 
@@ -132,7 +133,7 @@ async function probeGoogle(
   t0: number,
 ): Promise<ConnectionTestResult> {
   const r = await proxiedFetch(
-    `${stripTrailing(baseUrl)}/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    googleApiUrl(baseUrl, `/models/${encodeURIComponent(model)}:generateContent`, apiKey),
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

@@ -109,6 +109,14 @@ export {
   isTurnStatus,
 } from './session.js';
 
+// model-thinking.ts
+export type { ThinkingLevel } from './model-thinking.js';
+export {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  thinkingVariantsForModel,
+} from './model-thinking.js';
+
 // agent-run.ts
 export type {
   AgentRunEvent,
@@ -433,6 +441,28 @@ export {
   normalizePlanReminderTitle,
   normalizeUpdatePlanReminderInput,
 } from './plan-reminders.js';
+// task-ledger.ts (main agent session task tracking)
+export type {
+  CreateTaskInput,
+  Task,
+  TaskLedgerNormalizeResult,
+  TaskLedgerStore,
+  TaskStatus,
+  UpdateTaskInput,
+} from './task-ledger.js';
+export {
+  TASK_ID_MAX_CHARS,
+  TASK_LEDGER_MAX_TASKS,
+  TASK_STATUSES,
+  TASK_SUBJECT_MAX_CHARS,
+  isSafeTaskId,
+  isTaskStatus,
+  normalizeCreateTaskInput,
+  normalizeTaskStatus,
+  normalizeTaskSubject,
+  normalizeUpdateTaskInput,
+  renderSafeTaskLedgerText,
+} from './task-ledger.js';
 
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
 export type {
@@ -586,6 +616,7 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';

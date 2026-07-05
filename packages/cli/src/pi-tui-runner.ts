@@ -18,6 +18,8 @@ import {
   type Terminal,
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
+import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
+import type { ProviderType } from '@maka/core/llm-connections';
 import type { MakaSessionDriver } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
@@ -39,6 +41,7 @@ export interface MakaPiTuiInput {
   model: string;
   models?: readonly string[];
   connectionSlug: string;
+  providerType?: ProviderType;
   permissionMode: PermissionMode;
   terminal?: Terminal;
 }
@@ -51,6 +54,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let model = input.model;
   let connectionSlug = input.connectionSlug;
   let permissionMode = input.permissionMode;
+  let thinkingLevel: ThinkingLevel | undefined = undefined;
+  let thinkingLevels: readonly ThinkingLevel[] = input.providerType
+    ? thinkingVariantsForModel(input.providerType, input.model)
+    : [];
   let busy = false;
   let closed = false;
   let permissionInFlight = false;
@@ -65,6 +72,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model,
     connectionSlug,
     permissionMode,
+    thinkingLevel,
+    thinkingLevels,
     sessionId: input.driver.getSessionId(),
     busy,
   });
@@ -186,10 +195,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const setModel = async (nextModel: string) => {
     await input.driver.setModel(nextModel);
     model = nextModel;
+    thinkingLevel = undefined;
+    thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, nextModel) : [];
     state.entries.push({
       kind: 'notice',
       level: 'info',
       text: `Model: ${nextModel}`,
+    });
+    requestRender();
+  };
+
+  const setThinkingLevel = async (nextLevel: ThinkingLevel | undefined) => {
+    await input.driver.setThinkingLevel(nextLevel);
+    thinkingLevel = nextLevel;
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: nextLevel ? `Thinking: ${nextLevel}` : 'Thinking: default',
     });
     requestRender();
   };
@@ -202,6 +224,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
+    thinkingLevel = summary.thinkingLevel;
+    thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
     if (messages.length === 0) {
       state.entries.push({
@@ -287,6 +311,25 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     );
   };
 
+  const showThinkingLevelList = () => {
+    const items = thinkingLevelPickerItems(thinkingLevels, thinkingLevel);
+    showSelectPicker(
+      'Select Thinking Level',
+      thinkingLevel ?? 'default',
+      items,
+      (item) => {
+        const level = item.value === 'default' ? undefined : (item.value as ThinkingLevel);
+        if (level !== undefined && !isThinkingLevel(level)) return;
+        void runControl(() => setThinkingLevel(level));
+      },
+      {
+        minPrimaryColumnWidth: 16,
+        maxPrimaryColumnWidth: 24,
+        selectedIndex: items.findIndex((item) => item.value === (thinkingLevel ?? 'default')),
+      },
+    );
+  };
+
   const setPermissionMode = async (mode: PermissionMode) => {
     await input.driver.setPermissionMode(mode);
     permissionMode = mode;
@@ -344,6 +387,44 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           return;
         }
         void runControl(() => setModel(nextModel));
+      },
+    },
+    {
+      name: 'thinking',
+      description: 'Set thinking level',
+      run: (parts: string[]) => {
+        if (parts.length === 1) {
+          if (thinkingLevels.length === 0) {
+            state.entries.push({
+              kind: 'notice',
+              level: 'info',
+              text: '当前模型不支持思考级别切换。',
+            });
+            requestRender();
+            return;
+          }
+          showThinkingLevelList();
+          return;
+        }
+        const token = parts.length === 2 ? parts[1] : undefined;
+        // `off` is a real level now (maps to reasoningEffort:'none' / thinking
+        // disabled), not a synonym for 默认. Only `default` clears the override.
+        const level = token === 'default' ? undefined : token;
+        // Reject levels the current model does not support (P2-1): the picker
+        // already restricts to `thinkingLevels`, but the typed command path
+        // must too so the statusbar never advertises a level the runtime drops.
+        if (level !== undefined && (!isThinkingLevel(level) || !thinkingLevels.includes(level))) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: thinkingLevels.length === 0
+              ? '当前模型不支持思考级别切换。'
+              : `Usage: /thinking ${['default', ...thinkingLevels].join('|')}`,
+          });
+          requestRender();
+          return;
+        }
+        void runControl(() => setThinkingLevel(level));
       },
     },
     {
@@ -572,7 +653,7 @@ class PickerOverlay implements Component {
   render(width: number): string[] {
     const safeWidth = Math.max(1, width);
     return [
-      alignColumns(this.input.title, ansi.accent(this.input.rightLabel), safeWidth),
+      padLine(`${this.input.title} ${ansi.accent(this.input.rightLabel)}`, safeWidth),
       padLine(ansi.dim('enter select / esc close'), safeWidth),
       padLine('', safeWidth),
       ...this.list.render(safeWidth).map((line) => formatPickerItemLine(line, safeWidth)),
@@ -605,14 +686,28 @@ function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {
   }));
 }
 
-function alignColumns(left: string, right: string, width: number): string {
-  const safeWidth = Math.max(1, width);
-  const rightWidth = visibleWidth(right);
-  if (rightWidth + 1 >= safeWidth) return padLine(left, safeWidth);
-  const leftMaxWidth = Math.max(1, safeWidth - rightWidth - 1);
-  const clippedLeft = visibleWidth(left) > leftMaxWidth ? truncateToWidth(left, leftMaxWidth, '') : left;
-  const gap = Math.max(1, safeWidth - visibleWidth(clippedLeft) - rightWidth);
-  return `${clippedLeft}${' '.repeat(gap)}${right}`;
+const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
+  off: '关',
+  minimal: '最小',
+  low: '低',
+  medium: '中',
+  high: '高',
+  xhigh: '超高',
+  max: '最高',
+};
+
+function thinkingLevelPickerItems(
+  levels: readonly ThinkingLevel[],
+  current: ThinkingLevel | undefined,
+): SelectItem[] {
+  return [
+    { value: 'default', label: '默认', ...(current === undefined ? { description: 'current' } : {}) },
+    ...levels.map((level) => ({
+      value: level,
+      label: THINKING_LEVEL_LABELS[level],
+      ...(level === current ? { description: 'current' } : {}),
+    })),
+  ];
 }
 
 function formatPickerItemLine(line: string, width: number): string {

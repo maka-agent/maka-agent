@@ -51,6 +51,15 @@ export function stripCssComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
+/** Strip `@keyframes <name> { … }` blocks so converge contracts can scan
+ * element-state declarations without false-positiving on animation frames
+ * (keyframe opacity/transform are animation intent, not element state).
+ * One level of `{}` nesting is enough for all current keyframes (0%/50%/100%
+ * frames with no nested blocks). */
+export function stripKeyframes(css: string): string {
+  return css.replace(/@keyframes\s+[\w-]+\s*\{(?:[^{}]|\{[^{}]*\})*\}/g, '');
+}
+
 /** Ban non-literal `font:` shorthand in renderer CSS.
  *
  * `font:` shorthand can hide bare font-weight (`font: 600 12px sans-serif`),
@@ -117,4 +126,52 @@ export function assertCustomPropPinnedOnce(
   const values = parseCssCustomProps(css).get(prop) ?? [];
   assert.equal(values.length, 1, `${label}: ${prop} must be declared exactly once with ${expected}; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
   assert.equal(values[0], expected, `${label}: ${prop} must be ${expected}; got ${values[0]}`);
+}
+
+/** Assert every `var(--xxx)` reference reachable from `prop` resolves to a
+ *  defined custom property — recursively, with cycle detection.
+ *
+ *  Catches the bug where a token points at an undefined custom prop — e.g.
+ *  `--h-control-md: var(--space-7)` when maka's discrete spacing scale skips
+ *  7. The declaration is invalid at computed-value time, so the sized
+ *  element collapses to its initial/inherited value (width/height → auto,
+ *  min-height → 0) instead of the intended 28px. A pin-only contract that
+ *  just checks `--h-control-md` is declared with `var(--space-7)` passes
+ *  while the token is broken — this helper walks the reference chain.
+ *
+ *  Recurses through the whole chain, not just the first hop: a chain like
+ *  `--h-control-xs → --space-5 → --missing` (undefined two hops out) is
+ *  caught, and a cycle like `--a → --b → --a` is caught via a `visiting`
+ *  set. Each node must also be declared exactly once. */
+export function assertCustomPropRefsDefined(
+  css: string,
+  prop: string,
+  label = 'maka-tokens.css',
+): void {
+  const props = parseCssCustomProps(css);
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const errors: string[] = [];
+  const dfs = (name: string, path: string[]): void => {
+    if (visited.has(name)) return;
+    if (visiting.has(name)) {
+      errors.push(`${label}: circular custom-prop reference: ${[...path, name].join(' → ')}`);
+      return;
+    }
+    visiting.add(name);
+    const values = props.get(name);
+    if (values === undefined) {
+      const via = path.length ? ` (via ${path.join(' → ')})` : '';
+      errors.push(`${label}: ${prop} references undefined ${name}${via} — the declaration would collapse to its initial/inherited value at computed-value time`);
+    } else if (values.length !== 1) {
+      errors.push(`${label}: ${name} must be declared exactly once; got ${values.length} declaration(s): ${JSON.stringify(values)}`);
+    } else {
+      const refs = [...values[0].matchAll(/var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)/g)].map((m) => m[1]);
+      for (const ref of refs) dfs(ref, [...path, name]);
+    }
+    visiting.delete(name);
+    visited.add(name);
+  };
+  dfs(prop, []);
+  assert.ok(errors.length === 0, errors.join('\n'));
 }

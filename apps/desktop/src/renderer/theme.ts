@@ -50,17 +50,6 @@ export function applyTheme(pref: ThemePreference): () => void {
   };
 }
 
-/**
- * What the user would actually see for a given preference right now. Useful
- * for inline previews in the Settings UI ("Auto · currently Light").
- */
-export function resolveTheme(pref: ThemePreference): 'light' | 'dark' {
-  if (pref === 'auto') {
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-  }
-  return pref;
-}
-
 function setDarkClass(isDark: boolean): void {
   const root = document.documentElement;
   root.classList.toggle(DARK_CLASS, isDark);

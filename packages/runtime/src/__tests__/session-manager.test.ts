@@ -4374,6 +4374,27 @@ describe('SessionManager permission mode updates', () => {
     expect(childMessages.some((message) => (message as { turnId?: string }).turnId === 'after')).toBe(false);
     expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
   });
+
+  test('branchFromTurn preserves the parent thinking level for future turns', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const contexts: BackendFactoryContext[] = [];
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      return new EventBackend(ctx, [{ type: 'complete', stopReason: 'end_turn' }]);
+    });
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(15_500) });
+    const session = await manager.createSession(makeInput({ name: 'Parent', thinkingLevel: 'high' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'source', text: 'context' }));
+
+    const child = await manager.branchFromTurn(session.id, { sourceTurnId: 'source', name: 'Child' });
+
+    expect(child.thinkingLevel).toBe('high');
+    expect((await store.readHeader(child.id)).thinkingLevel).toBe('high');
+    await drain(manager.sendMessage(child.id, { turnId: 'child-turn', text: 'continue' }));
+    expect(contexts.find((ctx) => ctx.sessionId === child.id)?.header.thinkingLevel).toBe('high');
+  });
 });
 
 class DelegatingRuntimeKernel implements RuntimeKernelLike {
@@ -4859,6 +4880,7 @@ class MemorySessionStore implements SessionStore {
       llmConnectionSlug: input.llmConnectionSlug,
       connectionLocked: false,
       model: input.model ?? 'fake-model',
+      ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       permissionMode: input.permissionMode,
       schemaVersion: 1,
     };

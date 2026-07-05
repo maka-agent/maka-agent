@@ -7,6 +7,7 @@
 import type { AttachmentRef } from './events.js';
 import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
 import type { PermissionMode } from './permission.js';
+import type { ThinkingLevel } from './model-thinking.js';
 
 export interface CreateSessionInput {
   /** Absolute path to the session's working dir (project root). */
@@ -17,6 +18,8 @@ export interface CreateSessionInput {
   llmConnectionSlug: string;
   /** Falls back to the connection's defaultModel if omitted. */
   model?: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. */
+  thinkingLevel?: ThinkingLevel;
   permissionMode: PermissionMode;
   status?: SessionStatus;
   blockedReason?: SessionBlockedReason;

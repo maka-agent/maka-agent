@@ -3,9 +3,11 @@ import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import { effectiveBaseUrl, type LlmConnection } from '@maka/core/llm-connections';
+import { effectiveBaseUrl, type LlmConnection, type ProviderType } from '@maka/core/llm-connections';
+import type { ThinkingLevel } from '@maka/core/model-thinking';
+import { thinkingOptionsForModel, thinkingVariantsForModel } from '@maka/core/model-thinking';
+import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import {
-  anthropicV1BaseUrl,
   claudeSubscriptionHeaders,
   codexSubscriptionHeaders,
 } from './subscription-auth.js';
@@ -73,7 +75,9 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     }
 
     case 'google':
-      return createGoogleGenerativeAI({ apiKey, baseURL }).chat(modelId);
+      // Normalize to /v1beta so a baseUrl override omitting it still hits
+      // `<root>/v1beta/models/{model}` instead of 404ing.
+      return createGoogleGenerativeAI({ apiKey, baseURL: googleV1BetaBaseUrl(baseURL) }).chat(modelId);
 
     case 'deepseek':
       return createOpenAICompatible({
@@ -117,24 +121,40 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
 
 export function buildProviderOptions(
   connection: LlmConnection,
-  _modelId: string,
+  modelId: string,
+  thinkingLevel?: ThinkingLevel,
 ): Record<string, unknown> {
+  const thinkingOptions = thinkingOptionsForModel(connection.providerType, modelId);
+  const variants = thinkingVariantsForModel(connection.providerType, modelId);
+  const level = thinkingLevel && variants.includes(thinkingLevel) ? thinkingLevel : undefined;
   switch (connection.providerType) {
+    // Anthropic-protocol: effort enum models send `effort`; toggle/budget
+    // models send `thinking.disabled` for off. No budget-token mapping — the
+    // provider's native effort values pass through unchanged.
     case 'anthropic':
     case 'kimi-coding-plan':
     case 'MiniMax':
     case 'MiniMax-cn':
     case 'claude-subscription':
-      return { anthropic: {} };
+      return {
+        anthropic: level
+          ? level === 'off'
+            ? thinkingOptions?.offBehavior === 'anthropic-thinking-disabled'
+              ? { thinking: { type: 'disabled' as const } }
+              : {}
+            : { effort: level }
+          : {},
+      };
     case 'codex-subscription':
       return {
         openai: {
           store: false,
           textVerbosity: 'medium',
+          ...(level ? { reasoningEffort: level === 'off' ? 'none' : level } : {}),
         },
       };
     case 'openai':
-      return { openai: {} };
+      return { openai: level ? { reasoningEffort: level === 'off' ? 'none' : level } : {} };
     case 'google':
       return {
         google: {
@@ -144,9 +164,42 @@ export function buildProviderOptions(
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
             { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
           ],
+          // Google effort models use thinkingLevel; Gemini 2.5 Flash disables
+          // thinking via the budget-zero wire. Omitting thinkingConfig means
+          // provider default, not "off".
+          ...(level === 'off' && thinkingOptions?.offBehavior === 'google-thinking-budget-zero'
+            ? { thinkingConfig: { thinkingBudget: 0 } }
+            : level && level !== 'off'
+              ? { thinkingConfig: { includeThoughts: true, thinkingLevel: level } }
+              : {}),
         },
       };
+    // OpenAI-compatible: effort levels pass through as reasoningEffort under
+    // the raw provider namespace. `off` has no ai-sdk openai-compatible wire
+    // (no thinking.disabled field), so it is a no-op override here.
+    case 'deepseek':
+    case 'moonshot':
+    case 'zai-coding-plan':
+      return level && level !== 'off'
+        ? { [openaiCompatibleNamespace(connection.providerType)]: { reasoningEffort: level } }
+        : {};
     default:
       return {};
+  }
+}
+
+/** providerOptions namespace matches the `name` passed to `createOpenAICompatible` in `getAIModel`. */
+function openaiCompatibleNamespace(providerType: ProviderType): string {
+  switch (providerType) {
+    case 'deepseek':
+      return 'deepseek';
+    case 'moonshot':
+      return 'moonshot';
+    case 'zai-coding-plan':
+      return 'zai-coding-plan';
+    case 'ollama':
+      return 'ollama';
+    default:
+      return providerType;
   }
 }

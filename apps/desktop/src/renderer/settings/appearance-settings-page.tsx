@@ -178,7 +178,7 @@ function PersonalizationSettingsPage(props: {
           spellCheck={false}
           disabled={saving}
           aria-label="助手语气偏好"
-          className="min-h-[84px]"
+          className="min-h-21"
         />
         <small>
           以低优先级用户偏好拼到 system prompt，500 字符内。Runtime 仍按权限策略和工具规则

@@ -8,11 +8,11 @@
 }
 
 .maka-model-switcher[data-disabled="true"] {
-  opacity: 0.56;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-model-switcher[data-pending="true"] {
-  opacity: 0.78;
+  opacity: var(--opacity-pending);
   cursor: progress;
 }
 
@@ -20,13 +20,13 @@
   width: 100%;
   min-width: 120px;
   max-width: min(320px, 28vw);
-  height: 22px;
+  height: var(--h-control-sm);
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-1-5);
   padding: 1px var(--space-1-5) 1px var(--space-2);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-pill);
   background: var(--foreground-5);
   color: var(--foreground);
@@ -37,7 +37,7 @@
      feels physical. Same convention as the other interactive
      surfaces in this round (artifact-row, session-row,
      onboarding-card, prompt-chip). */
-  transition: background 140ms var(--ease-out-strong);
+  transition: background var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
@@ -85,3 +85,56 @@
 /* The popup, group headings, and option rows now render through the shared
    `.settingsSelectMenu*` recipe (see the settings-select family above); the
    trigger chrome above stays bespoke to the composer pill. */
+
+/* Thinking-level variant row + flyout (二级菜单 at the bottom of a model
+   picker popup). The row mirrors an option row so it reads as part of the
+   menu; the flyout is a portaled popover listing the levels. */
+.maka-thinking-section {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2) var(--space-2);
+  background: var(--background);
+}
+
+.maka-thinking-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 32px;
+  border-radius: var(--radius-surface);
+  padding: var(--space-1-5) var(--space-3);
+  font-size: var(--font-size-ui);
+  color: var(--foreground);
+}
+.maka-thinking-section-row:hover:not([data-disabled]) {
+  background: var(--state-hover-bg);
+}
+.maka-thinking-section-row[data-disabled] {
+  cursor: not-allowed;
+  color: var(--muted-foreground);
+}
+.maka-thinking-section-label { font-weight: var(--font-weight-semibold); }
+.maka-thinking-section-value {
+  display: inline-flex; align-items: center; gap: var(--space-1-5);
+  color: var(--muted-foreground);
+}
+.maka-thinking-section-row:not([data-disabled]) .maka-thinking-section-value { color: var(--foreground); }
+.maka-thinking-section-chev { font-size: var(--font-size-caption); opacity: var(--opacity-muted); }
+
+.maka-thinking-flyout { width: max-content; min-width: 120px; padding: var(--space-1); }
+.maka-thinking-flyout-item {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  width: 100%; min-height: 32px; padding: var(--space-1-5) var(--space-3);
+  border: none; border-radius: var(--radius-surface); background: transparent;
+  color: var(--foreground); font-size: var(--font-size-ui); font-weight: var(--font-weight-medium); text-align: left;
+}
+.maka-thinking-flyout-item:hover { background: var(--state-hover-bg); }
+.maka-thinking-flyout-item[data-selected] { background: var(--state-selected-bg); }
+.maka-thinking-flyout-check { color: var(--foreground); font-size: var(--font-size-caption); opacity: var(--opacity-pending); }
+
+/* Inline level tag shown in the model chip when a non-default level is set. */
+.maka-thinking-level-tag {
+  margin-left: var(--space-1-5); padding: 0 var(--space-1-5); border-radius: var(--radius-pill);
+  background: var(--state-selected-bg); color: var(--foreground);
+  font-size: var(--font-size-caption); font-weight: var(--font-weight-semibold); line-height: var(--leading-snug); flex: 0 0 auto;
+}

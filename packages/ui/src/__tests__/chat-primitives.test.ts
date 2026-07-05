@@ -78,14 +78,17 @@ test('footer-action merge drops the UiButton base shell so the retired footer pi
     markerVariants({ variant: 'footer-action' }),
   );
   // The retired `.maka-turn-footer-action` declarations survive (incl. the now
-  // explicit `h-8` height that `size="sm"` used to supply implicitly)…
+  // explicit `h-8` height that `size="sm"` used to supply implicitly). The
+  // spacing-converge pass (#448) moved the shell from bare-px arbitraries
+  // (`gap-[6px]` / `px-[8px]` / `py-[4px]`) onto the 4px-ruler scale
+  // (`gap-1.5` / `px-2` / `py-1` — same computed pixels via --spacing: 4px)…
   for (const win of [
-    'gap-[6px]',
+    'gap-1.5',
     'min-h-[28px]',
     'h-8',
     'leading-[16px]',
-    'px-[8px]',
-    'py-[4px]',
+    'px-2',
+    'py-1',
     'rounded-[var(--radius-surface)]',
     'text-[color:var(--muted-foreground)]',
     'text-[12px]',
@@ -108,11 +111,13 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
     buttonVariants({ variant: 'quiet', size: 'nav' }),
     markerVariants({ variant: 'lineage-badge' }),
   );
+  // Spacing-converge (#448): `gap-[3px]` / `px-[5px]` snapped to the 4px
+  // ruler as `gap-0.5` / `px-1`.
   for (const win of [
     'h-8',
     'leading-[12px]',
-    'gap-[3px]',
-    'px-[5px]',
+    'gap-0.5',
+    'px-1',
     'py-[1px]',
     'rounded-[var(--radius-pill)]',
     'text-[color:var(--muted-foreground)]',

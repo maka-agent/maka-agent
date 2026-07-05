@@ -4,13 +4,13 @@
 
      Renders live `ThinkingDeltaEvent.text` accumulated per session in
      `thinkingBySession`. Visible above the streaming answer bubble while
-     the model is reasoning. Collapsible `<details>` wrapper for keyboard
+     the model is reasoning. Base UI Collapsible wrapper for keyboard
      a11y. Default-open so users see the live reasoning; clicking the
      header collapses.
   ============================================================================= */
 .maka-reasoning-panel {
     margin: var(--space-1) 0 var(--space-2);
-    border: 1px solid oklch(from var(--info) l c h / 0.22);
+    border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.22);
     border-radius: var(--radius-surface);
     background: oklch(from var(--info) l c h / 0.04);
     overflow: hidden;
@@ -19,7 +19,6 @@
     border-color: oklch(from var(--info) l c h / 0.32);
   }
 .maka-reasoning-panel-header {
-    list-style: none;
     display: flex;
     align-items: center;
     gap: var(--space-1-5);
@@ -30,12 +29,6 @@
     color: var(--info-text);
     user-select: none;
     transition: background var(--duration-base) var(--ease-out-strong);
-  }
-.maka-reasoning-panel-header::-webkit-details-marker {
-    display: none;
-  }
-.maka-reasoning-panel-header::marker {
-    content: '';
   }
 .maka-reasoning-panel-header:hover {
     background: oklch(from var(--info) l c h / 0.08);
@@ -54,7 +47,7 @@
     animation: maka-reasoning-panel-pulse 1.4s var(--ease-in-out-strong) infinite;
   }
 @keyframes maka-reasoning-panel-pulse {
-    0%, 100% { opacity: 0.6; transform: scale(1); }
+    0%, 100% { opacity: 0.65; transform: scale(1); }
     /* PR-FE-BUG-HUNT-6 (kenji aesthetic audit reminder 9, finding #5):
        standardize live-dot pulse amplitude across the three streaming
        indicators. The semantic is identical ("live work happening")
@@ -67,7 +60,7 @@
 @media (prefers-reduced-motion: reduce) {
     .maka-reasoning-panel-dot {
       animation: none;
-      opacity: 0.8;
+      opacity: var(--opacity-pending);
     }
   }
 .maka-reasoning-panel-label {
@@ -81,7 +74,7 @@
 .maka-reasoning-panel-truncated[data-truncated="true"] {
     font-size: var(--font-size-caption);
     color: var(--warning-text, var(--info-text));
-    border: 1px solid oklch(from var(--warning) l c h / 0.24);
+    border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.24);
     background: oklch(from var(--warning) l c h / 0.05);
     border-radius: var(--radius-control);
     padding: 0 var(--space-1);
@@ -97,13 +90,13 @@
     color: var(--muted-foreground);
     transition: transform var(--duration-base) var(--ease-out-strong);
   }
-.maka-reasoning-panel[open] .maka-reasoning-panel-chevron {
+.maka-reasoning-panel [data-slot="collapsible-trigger"][data-panel-open] .maka-reasoning-panel-chevron {
     transform: rotate(90deg);
   }
 .maka-reasoning-panel-body {
     margin: 0;
     padding: var(--space-1-5) var(--space-2-5) var(--space-2);
-    border-top: 1px solid oklch(from var(--info) l c h / 0.14);
+    border-top: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.14);
     background: transparent;
     color: var(--foreground-secondary);
     font-family: var(--font-mono);

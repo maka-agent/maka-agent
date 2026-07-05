@@ -72,7 +72,7 @@ describe('Command palette accessibility and visible copy', () => {
     const rowStyle = styles.match(/\.maka-palette-item\s*\{[\s\S]*?\}/)?.[0] ?? '';
 
     assert.match(modalStyle, /width:\s*min\(584px, calc\(100vw - 32px\)\);/);
-    assert.match(modalStyle, /border:\s*1px solid var\(--border\);/);
+    assert.match(modalStyle, /border:\s*var\(--border-width-hairline\) solid var\(--border\);/);
     assert.match(modalStyle, /border-radius:\s*var\(--radius-modal\);/);
     assert.match(
       styles,
@@ -92,7 +92,7 @@ describe('Command palette accessibility and visible copy', () => {
       /\.maka-palette-item:active:not\(\[data-disabled="true"\]\)\s*\{[\s\S]*background:\s*var\(--state-selected-bg\);/,
       'Palette rows need pressed feedback via the state-selected background, not a scale transform',
     );
-    assert.match(styles, /\.maka-palette-item:focus-visible\s*\{[\s\S]*outline:\s*2px solid var\(--ring\);/);
+    assert.match(styles, /\.maka-palette-item:focus-visible\s*\{[\s\S]*outline:\s*var\(--focus-ring-width\) solid var\(--ring\);/);
     assert.match(styles, /\.maka-palette-item\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/);
     assert.match(
       styles,

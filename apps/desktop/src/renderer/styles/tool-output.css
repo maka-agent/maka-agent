@@ -76,15 +76,15 @@
 
 .composer .maka-composer-inner {
   position: relative;
-  width: min(var(--maka-chat-measure, 680px), 100%);
-  max-width: var(--maka-chat-measure, 680px);
+  width: min(var(--maka-chat-measure), 100%);
+  max-width: var(--maka-chat-measure);
   margin-inline: auto;
   box-sizing: border-box;
   /* Composer outer chrome uses the universal page-card recipe (atlas §4
      + maka-tokens.css --card-*) at the 12px workspace-plate ceiling.
      The composer reads as a hero card, but radius must still stay within
      the shared chrome vocabulary locked by radius-converge-contract. */
-  border: 1px solid var(--card-border-color);
+  border: var(--border-width-hairline) solid var(--card-border-color);
   border-radius: var(--radius-modal);
   padding: var(--space-2-5) var(--space-3) var(--space-2);
   background: var(--card-bg);
@@ -93,7 +93,7 @@
     0 1px 0 oklch(1 0 0 / 0.76);
   transition:
     border-color var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow 220ms var(--ease-out-strong);
+    box-shadow var(--duration-emphasized) var(--ease-out-strong);
 }
 
 .composer .maka-composer-inner::before,
@@ -114,7 +114,7 @@
    rather than sitting flat (study §8.1, §8.4). */
 .composer .maka-composer-inner:focus-within {
   box-shadow:
-    0 0 0 1px oklch(from var(--focus-ring) l c h / 0.24),
+    0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.24),
     0 14px 34px -28px oklch(from var(--foreground) l c h / 0.24);
 }
 
@@ -144,7 +144,7 @@
   font-size: var(--font-size-caption);
   padding: 1px var(--space-1);
   background: var(--foreground-3);
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
 }
 
 .composerActions {
@@ -194,7 +194,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  border: 1px solid var(--color-border-tertiary);
+  border: var(--border-width-hairline) solid var(--color-border-tertiary);
   border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
   background: oklch(from var(--background) l c h / 0.82);
@@ -240,11 +240,11 @@
   color: var(--info-text);
 }
 .maka-composer-mode-chip[data-pending="true"] {
-  opacity: 0.7;
+  opacity: var(--opacity-muted);
 }
 .maka-composer-mode-chip:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: var(--opacity-disabled);
 }
 
 .maka-composer-mode-menu {
@@ -352,7 +352,7 @@
 .maka-composer-context-plus {
   width: 26px;
   height: 26px;
-  border: 1px solid color-mix(in oklch, var(--foreground) 20%, var(--background));
+  border: var(--border-width-hairline) solid color-mix(in oklch, var(--foreground) 20%, var(--background));
   border-radius: var(--radius-pill);
   background: transparent;
 }
@@ -367,7 +367,7 @@
 .maka-composer-tool-button:hover:not(:disabled) {
   color: var(--foreground);
   background: var(--state-hover-bg);
-  transform: scale(1.02);
+  transform: scale(var(--scale-hover));
 }
 
 .maka-composer-tool-button:active:not(:disabled) {
@@ -375,7 +375,7 @@
 }
 
 .maka-composer-tool-button:disabled {
-  opacity: 0.45;
+  opacity: var(--opacity-disabled);
   cursor: not-allowed;
 }
 

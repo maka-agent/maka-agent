@@ -54,5 +54,3 @@ export function Textarea({
     </span>
   );
 }
-
-export { FieldPrimitive };

@@ -25,6 +25,7 @@ import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
 import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
@@ -1033,18 +1034,20 @@ const TurnView = memo(function TurnView(props: {
         >
           <div className="flex flex-col">
             {turn.assistantThinking && (
-              <details className="maka-turn-thinking">
-                <summary>
+              <Collapsible className="maka-turn-thinking">
+                <CollapsibleTrigger>
                   <span>查看思考过程</span>
                   <span className="maka-turn-thinking-note">模型推理草稿，不是最终答案</span>
-                </summary>
-                <div className="maka-turn-thinking-body">
-                  <Markdown text={turn.assistantThinking} />
-                  <div className="maka-turn-thinking-actions">
-                    <MessageCopyButton text={turn.assistantThinking} label="复制思考过程" />
+                </CollapsibleTrigger>
+                <CollapsiblePanel>
+                  <div className="maka-turn-thinking-body">
+                    <Markdown text={turn.assistantThinking} />
+                    <div className="maka-turn-thinking-actions">
+                      <MessageCopyButton text={turn.assistantThinking} label="复制思考过程" />
+                    </div>
                   </div>
-                </div>
-              </details>
+                </CollapsiblePanel>
+              </Collapsible>
             )}
             {/* PR109d-c: aborted turn body gets a muted "(已中断)" prefix
                 + Ban icon so the user can see this turn was cancelled
@@ -1304,7 +1307,7 @@ const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
  *
  * Default-open during streaming so the user sees the live reasoning;
  * collapses to a single-line summary if user clicks the header. The
- * panel itself is wrapped in a `<details>` for native keyboard a11y
+ * panel itself is wrapped in a Base UI Collapsible for keyboard a11y
  * (Space/Enter toggles).
  *
  * `live=true` means thinking is still streaming (no text yet). Adds
@@ -1413,20 +1416,20 @@ function ReasoningPanel(props: { text: string; live: boolean; truncated: boolean
   // on the next stream-driven re-render (the smoother re-renders at
   // ~60Hz while the stream is live, so any reconciliation drift is
   // immediately visible to the user). Owning the open state via
-  // useState + onToggle makes the panel uncontrolled-from-React's-view:
+  // useState + onOpenChange makes the panel uncontrolled-from-React's-view:
   // the user's collapse sticks because we only write `open` from our
-  // own state, which we only mutate from the onToggle callback.
+  // own state, which we only mutate from the onOpenChange callback.
   // Default-open at mount so users see the reasoning by default; first
   // click toggles to closed and that sticks.
   const [open, setOpen] = useState(true);
   return (
-    <details
+    <Collapsible
       className="maka-reasoning-panel"
       data-live={props.live ? 'true' : undefined}
       open={open}
-      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+      onOpenChange={(v) => setOpen(v)}
     >
-      <summary className="maka-reasoning-panel-header">
+      <CollapsibleTrigger className="maka-reasoning-panel-header">
         {props.live && <span className="maka-reasoning-panel-dot" aria-hidden="true" />}
         <span className="maka-reasoning-panel-label">
           {props.live ? '正在思考…' : '思考过程'}
@@ -1445,9 +1448,11 @@ function ReasoningPanel(props: { text: string; live: boolean; truncated: boolean
           </span>
         )}
         <span className="maka-reasoning-panel-chevron" aria-hidden="true">›</span>
-      </summary>
-      <pre className="maka-reasoning-panel-body">{displayed}</pre>
-    </details>
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <pre className="maka-reasoning-panel-body">{displayed}</pre>
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 

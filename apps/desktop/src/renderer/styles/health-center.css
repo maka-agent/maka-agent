@@ -19,7 +19,7 @@
     align-items: flex-start;
     gap: var(--space-5);
     padding: var(--space-4);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
   }
@@ -59,7 +59,7 @@
    variant="secondary"` and must outrank the Tailwind utility classes baked
    into the primitive. */
 .settingsHealthRefresh {
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   background: var(--background);
   border-radius: var(--radius-control);
   padding: var(--space-1) var(--space-2-5);
@@ -73,8 +73,8 @@
   color: var(--foreground);
 }
 .settingsHealthRefresh:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
 }
 
 .settingsHealthError {
@@ -82,7 +82,7 @@
     flex-direction: column;
     gap: var(--space-2);
     padding: var(--space-4);
-    border: 1px solid oklch(from var(--destructive) l c h / 0.30);
+    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.30);
     background: oklch(from var(--destructive) l c h / 0.08);
     border-radius: var(--radius-surface);
     color: var(--destructive-text);
@@ -120,7 +120,7 @@
     align-items: flex-start;
     gap: var(--space-1);
     padding: var(--space-3) var(--space-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
   }
@@ -140,7 +140,7 @@
   }
 
 .settingsHealthSummaryTile[data-empty="true"] {
-    opacity: 0.55;
+    opacity: var(--opacity-disabled);
   }
 
 .settingsHealthSummaryTile[data-tone="success"] {
@@ -216,7 +216,7 @@
     flex-direction: column;
     gap: var(--space-1-5);
     padding: var(--space-3) var(--space-3);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--background);
     transition: border-color var(--duration-base) var(--ease-out-strong);
@@ -292,7 +292,7 @@
     font-size: var(--font-size-caption);
     padding: 1px var(--space-2);
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border);
+    border: var(--border-width-hairline) solid var(--border);
   }
 
 .settingsHealthSignalBlocker[data-tone="destructive"] {
@@ -310,7 +310,7 @@
 .settingsHealthFootnote {
     margin: 0;
     padding: var(--space-3) var(--space-3);
-    border: 1px dashed var(--border);
+    border: var(--border-width-hairline) dashed var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
     color: var(--foreground-secondary);

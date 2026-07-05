@@ -7,7 +7,7 @@
   line-height: var(--leading-snug);
   color: var(--warning-text);
   background: oklch(from var(--warning) l c h / 0.10);
-  border: 1px solid oklch(from var(--warning) l c h / 0.20);
+  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.20);
 }
 
 .maka-permission-stale-note[data-status="expired"] {
@@ -49,13 +49,12 @@
 }
 
 .maka-permission-raw {
-  border: 1px solid var(--border);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--foreground-2);
 }
 
-.maka-permission-raw > summary {
-  list-style: none;
+.maka-permission-raw [data-slot="collapsible-trigger"] {
   display: flex;
   align-items: center;
   gap: var(--space-1-5);
@@ -64,13 +63,10 @@
   font-size: var(--font-size-caption);
 }
 
-.maka-permission-raw > summary::-webkit-details-marker { display: none; }
-.maka-permission-raw > summary::marker { content: ''; }
-
 /* Rotating disclosure triangle (same recipe as .maka-turn-thinking):
-   without it the bordered summary row read as a text input, not a
+   without it the bordered trigger row read as a text input, not a
    collapsible section. */
-.maka-permission-raw > summary::before {
+.maka-permission-raw [data-slot="collapsible-trigger"]::before {
   content: '';
   flex-shrink: 0;
   width: 0;
@@ -81,12 +77,12 @@
   transition: transform var(--duration-base) var(--ease-out-strong);
 }
 
-.maka-permission-raw[open] > summary::before {
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open]::before {
   transform: rotate(90deg);
 }
 
-.maka-permission-raw[open] > summary {
-  border-bottom: 1px solid var(--border);
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open] {
+  border-bottom: var(--border-width-hairline) solid var(--border);
 }
 
 .maka-permission-raw .maka-code {
@@ -138,13 +134,13 @@
   min-width: min(760px, calc(100vw - 64px));
   min-height: 520px;
   overflow: hidden;
-  border: 1px solid var(--card-border-color);
+  border: var(--border-width-hairline) solid var(--card-border-color);
   border-radius: var(--radius-modal);
   background: var(--card-bg);
   box-shadow:
     var(--card-shadow),
     var(--card-highlight),
-    0 28px 64px oklch(0 0 0 / 0.10);
+    0 28px 64px oklch(from var(--foreground) l c h / 0.10);
   opacity: 1;
 }
 

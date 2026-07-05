@@ -21,6 +21,7 @@ import type {
   SessionListFilter,
   SessionSummary,
   StoredMessage,
+  ThinkingLevel,
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -206,6 +207,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setModel', sessionId, input);
+    },
+    setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setThinkingLevel', sessionId, level ?? undefined);
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);
@@ -586,6 +590,11 @@ contextBridge.exposeInMainWorld('maka', {
     },
     update(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult> {
       return ipcRenderer.invoke('settings:update', patch);
+    },
+    subscribeExternalChanged(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on('settings:externalChanged', listener);
+      return () => ipcRenderer.off('settings:externalChanged', listener);
     },
     testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult> {
       return ipcRenderer.invoke('settings:testNetworkProxy', input);

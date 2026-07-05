@@ -89,6 +89,7 @@ class FileSessionStore implements SessionStore {
       connectionLocked: false,
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
+      ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
 
@@ -367,13 +368,14 @@ class FileSessionStore implements SessionStore {
   }
 }
 
-function assertSafeSessionId(sessionId: string): void {
+/** Shared guard for stores that derive filesystem paths from a session id. */
+export function assertSafeSessionId(sessionId: string): void {
   if (!isSafeSessionId(sessionId)) {
     throw new Error('Invalid session id');
   }
 }
 
-function isSafeSessionId(sessionId: string): boolean {
+export function isSafeSessionId(sessionId: string): boolean {
   return SESSION_ID_PATTERN.test(sessionId);
 }
 
@@ -498,6 +500,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     llmConnectionSlug: header.llmConnectionSlug,
     model: header.model,
     permissionMode: header.permissionMode,
+    ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }
 

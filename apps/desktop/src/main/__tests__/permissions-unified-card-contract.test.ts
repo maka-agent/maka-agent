@@ -29,7 +29,7 @@ describe('PR-PERMISSIONS-UNIFIED-CARD-0 contract (#309)', () => {
     assert.ok(body, '.settingsOsPermissionList rule must exist');
 
     // Grouped card chrome lives on the outer container.
-    assert.match(body, /\bborder:\s*1px\s+solid\s+var\(--border\)/, 'list must own the outer border');
+    assert.match(body, /\bborder:\s*var\(--border-width-hairline\)\s+solid\s+var\(--border\)/, 'list must own the outer border');
     assert.match(body, /\bborder-radius:\s*var\(--radius-surface\)/, 'list must own the 8px outer radius (surface tier)');
     assert.match(body, /\bbackground:\s*var\(--background\)/, 'list must own the outer background');
     assert.match(body, /\boverflow:\s*hidden\b/, 'list must clip rows so divider corners stay clean');
@@ -55,7 +55,7 @@ describe('PR-PERMISSIONS-UNIFIED-CARD-0 contract (#309)', () => {
     // Adjacency selector provides a 6% foreground hairline between rows.
     assert.match(
       css,
-      /\.settingsOsPermissionRow\s*\+\s*\.settingsOsPermissionRow\s*\{[^}]*border-top:\s*1px solid oklch\(from var\(--foreground\) l c h \/ 0\.06\)/,
+      /\.settingsOsPermissionRow\s*\+\s*\.settingsOsPermissionRow\s*\{[^}]*border-top:\s*var\(--border-width-hairline\) solid oklch\(from var\(--foreground\) l c h \/ 0\.06\)/,
       'adjacent rows must share a 6% foreground hairline divider',
     );
   });

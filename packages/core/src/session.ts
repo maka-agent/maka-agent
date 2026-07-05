@@ -101,6 +101,8 @@ export interface SessionHeader {
   connectionLocked: boolean;
   /** Sticky session default model id, captured when the session is created. */
   model: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
+  thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
 
   /** Forward-compatible schema versioning. V0.1 only writes 1. */
@@ -128,6 +130,8 @@ export interface SessionSummary {
   llmConnectionSlug: string;
   /** Sticky session default model id for renderer/header display. */
   model: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
+  thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
 }
 

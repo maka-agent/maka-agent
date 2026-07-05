@@ -1,4 +1,4 @@
-import type { LlmConnection, PermissionMode, SessionSummary } from '@maka/core';
+import type { LlmConnection, PermissionMode, SessionSummary, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { permissionModeDescriptions } from './app-shell-copy';
 
@@ -13,6 +13,7 @@ type ToastApi = {
 export interface AppShellSessionSettingsActions {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   setSessionModel(input: { llmConnectionSlug: string; model: string }): Promise<void>;
+  setSessionThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
 }
 
 export function createAppShellSessionSettingsActions(deps: {
@@ -118,8 +119,38 @@ export function createAppShellSessionSettingsActions(deps: {
     }
   }
 
+  const thinkingLevelLabels: Record<ThinkingLevel, string> = {
+    off: '关',
+    minimal: '最小',
+    low: '低',
+    medium: '中',
+    high: '高',
+    xhigh: '超高',
+    max: '最高',
+  };
+
+  async function setSessionThinkingLevel(level: ThinkingLevel | undefined) {
+    const sessionId = activeIdRef.current;
+    if (!sessionId) return;
+    const current = sessionsRef.current.find((session) => session.id === sessionId);
+    if (current && current.thinkingLevel === level) return;
+    try {
+      const next = await window.maka.sessions.setThinkingLevel(sessionId, level);
+      setSessions((prev) => prev.map((session) => (session.id === next.id ? next : session)));
+      if (activeIdRef.current === sessionId) {
+        toastApi.success('已更新思考级别', level ? thinkingLevelLabels[level] : '默认');
+      }
+      await refreshSessions();
+    } catch (error) {
+      if (activeIdRef.current === sessionId) {
+        toastApi.error('切换思考级别失败', generalizedErrorMessageChinese(error, '思考级别暂时无法切换，请稍后重试。'));
+      }
+    }
+  }
+
   return {
     setPermissionMode,
     setSessionModel,
+    setSessionThinkingLevel,
   };
 }

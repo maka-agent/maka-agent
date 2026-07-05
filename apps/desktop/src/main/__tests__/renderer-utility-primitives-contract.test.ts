@@ -142,7 +142,7 @@ describe('renderer utility surfaces use shared UI primitives', () => {
   it('keeps toast actions and confirm dialog buttons on shared Button without legacy classes', async () => {
     const source = await readFile(join(repoRoot, 'packages/ui/src/toast.tsx'), 'utf8');
 
-    assert.match(source, /import \{ Button \} from '.\/ui\.js';/);
+    assert.match(source, /import \{[^}]*\bButton\b[^}]*\} from '.\/ui\.js';/);
     assert.doesNotMatch(source, /<button\b/, 'ToastProvider controls must use shared Button');
     assert.doesNotMatch(source, /className="maka-button/, 'Confirm dialog actions must not keep legacy maka-button styling');
     assert.match(source, /<Button[\s\S]*className="maka-toast-action"/);

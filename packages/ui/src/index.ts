@@ -5,11 +5,13 @@ export * from './chat-model-helpers.js';
 export * from './clipboard-feedback.js';
 export * from './components.js';
 export * from './composer-helpers.js';
+export * from './input-history.js';
 export * from './daily-review-helpers.js';
 export * from './locale-helpers.js';
 export * from './markdown.js';
 export * from './maka-uri.js';
 export * from './materialize.js';
+export * from './model-picker.js';
 export * from './permission-queue.js';
 export * from './redact.js';
 export * from './overlay-scroll-area.js';
@@ -59,6 +61,20 @@ export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
+export {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsiblePanel,
+} from './primitives/collapsible.js';
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from './primitives/tooltip.js';
+export {
+  NumberField,
+  NumberFieldInput,
+} from './primitives/number-field.js';
 export {
   Tabs as PrimitiveTabs,
   TabsList as PrimitiveTabsList,

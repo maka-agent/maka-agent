@@ -9,8 +9,13 @@
 //   - The look-and-feel never matches the rest of the app.
 //   - macOS IME and accessibility behavior with native prompts is uneven.
 //
-// Toast lifecycle is intentionally tiny: in-memory state and a 4s auto-dismiss
-// timer, cancellable from the toast itself.
+// PR6 (#520): toast surface migrated to Base UI Toast (Provider + manager +
+// Viewport/Root/Title/Description/Action/Close). The confirm dialog + its
+// queue stay hand-written (Base UI Toast has no confirm concept). The
+// `useToast()` / `toast.confirm()` API is unchanged so callers don't move.
+// `render` props keep the existing <ol>/<li role="alert">/<strong>/<small>/
+// <Button> DOM shape so .maka-toast CSS and the toast-position-fixed +
+// toast-confirm-keyboard contracts keep holding.
 
 import {
   createContext,
@@ -22,9 +27,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { Toast as BaseToast } from '@base-ui/react/toast';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from './icons.js';
-import { useModalA11y } from './modal-a11y.js';
-import { Button } from './ui.js';
+import { AlertDialogContent, AlertDialogRoot, Button } from './ui.js';
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -60,15 +65,12 @@ export interface ToastApi {
   dismiss(id: string): void;
 }
 
-interface InternalToast extends Required<Pick<ToastInput, 'title' | 'variant' | 'duration'>> {
-  id: string;
-  description?: string;
-  action?: ToastAction;
-  /** Two-phase dismissal: exit animation plays, then the entry unmounts. */
-  exiting?: boolean;
-}
-
 interface PendingConfirm extends ConfirmInput {
+  // Stable id so <ConfirmDialog key={request.id}> remounts on queue advance —
+  // AlertDialog `defaultOpen` + `initialFocus` only fire on mount, so without
+  // a key the second confirm inherits the first's focus (stuck on the
+  // confirm button → Enter mis-confirms a dangerous op).
+  id: string;
   resolve(result: boolean): void;
 }
 
@@ -77,47 +79,46 @@ const TOAST_POSITION = 'bottom-right';
 const ToastContext = createContext<ToastApi | null>(null);
 
 export function ToastProvider(props: { children: ReactNode }) {
-  const [toasts, setToasts] = useState<InternalToast[]>([]);
+  const toastManager = useMemo(() => BaseToast.createToastManager(), []);
   const [confirmState, setConfirmState] = useState<PendingConfirm | null>(null);
   const activeConfirmRef = useRef<PendingConfirm | null>(null);
   const confirmQueueRef = useRef<PendingConfirm[]>([]);
   const idSeed = useRef(0);
 
-  const TOAST_EXIT_MS = 180; // exit = enter (240ms) x 75% per the motion roadmap
-  const dismiss = useCallback((id: string) => {
-    // Two-phase dismissal (D6 spectrum): mark exiting so CSS can play a
-    // shrink/fade, then unmount after the exit window. Instant unmount
-    // (the old behavior) made toasts vanish mid-glance. Re-entrant calls
-    // for an already-exiting id are no-ops.
-    setToasts((prev) => prev.map((entry) => (entry.id === id ? { ...entry, exiting: true } : entry)));
-    window.setTimeout(() => {
-      setToasts((prev) => prev.filter((entry) => entry.id !== id));
-    }, TOAST_EXIT_MS);
-  }, []);
-
   const push = useCallback(
     (input: ToastInput): string => {
       const id = `t${++idSeed.current}`;
-      const entry: InternalToast = {
+      toastManager.add({
         id,
         title: input.title,
         description: input.description,
-        variant: input.variant ?? 'info',
-        duration: input.duration ?? DEFAULT_DURATION,
-        action: input.action,
-      };
-      setToasts((prev) => [...prev, entry]);
-      if (entry.duration > 0) {
-        window.setTimeout(() => dismiss(id), entry.duration);
-      }
+        type: input.variant ?? 'info',
+        timeout: input.duration ?? DEFAULT_DURATION,
+        actionProps: input.action
+          ? {
+              onClick: () => {
+                input.action!.onClick();
+                toastManager.close(id);
+              },
+              children: input.action.label,
+            }
+          : undefined,
+      });
       return id;
     },
-    [dismiss],
+    [toastManager],
+  );
+
+  const dismiss = useCallback(
+    (id: string) => {
+      toastManager.close(id);
+    },
+    [toastManager],
   );
 
   const confirm = useCallback((input: ConfirmInput): Promise<boolean> => {
     return new Promise((resolve) => {
-      const request: PendingConfirm = { ...input, resolve };
+      const request: PendingConfirm = { id: `c${++idSeed.current}`, ...input, resolve };
       if (activeConfirmRef.current) {
         confirmQueueRef.current.push(request);
         return;
@@ -166,10 +167,12 @@ export function ToastProvider(props: { children: ReactNode }) {
 
   return (
     <ToastContext.Provider value={api}>
-      {props.children}
-      <ToastViewport toasts={toasts} onDismiss={dismiss} />
+      <BaseToast.Provider toastManager={toastManager} timeout={DEFAULT_DURATION} limit={Number.POSITIVE_INFINITY}>
+        {props.children}
+        <ToastViewport />
+      </BaseToast.Provider>
       {confirmState && (
-        <ConfirmDialog request={confirmState} onResolve={resolveConfirm} />
+        <ConfirmDialog key={confirmState.id} request={confirmState} onResolve={resolveConfirm} />
       )}
     </ToastContext.Provider>
   );
@@ -192,62 +195,70 @@ const VARIANT_ICON: Record<ToastVariant, ReactNode> = {
   error: <AlertCircle size={16} strokeWidth={1.75} aria-hidden="true" />,
 };
 
-function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): void }) {
-  if (props.toasts.length === 0) return null;
+function ToastViewport() {
+  const { toasts } = BaseToast.useToastManager();
+  if (toasts.length === 0) return null;
   return (
-    <ol
-      className="maka-toast-viewport"
-      data-position={TOAST_POSITION}
-      role="region"
-      aria-live="polite"
-      aria-label="通知"
+    <BaseToast.Viewport
+      render={
+        <ol
+          className="maka-toast-viewport"
+          data-position={TOAST_POSITION}
+          role="region"
+          aria-live="polite"
+          aria-label="通知"
+        />
+      }
     >
-      {props.toasts.map((entry) => (
-        // role="alert" lets screen readers announce each toast even
-        // though the parent <ol> already has aria-live="polite" —
-        // browsers / AT pairings handle the live region announce
-        // better when the live items themselves carry an alert
-        // role rather than relying on the region inheritance.
-        <li key={entry.id} className="maka-toast" data-variant={entry.variant} data-exiting={entry.exiting ? 'true' : undefined} role="alert">
-          <span className="maka-toast-icon" aria-hidden="true">{VARIANT_ICON[entry.variant]}</span>
-          <div className="maka-toast-copy">
-            <strong>{entry.title}</strong>
-            {entry.description && <small>{entry.description}</small>}
-          </div>
-          {entry.action && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="maka-toast-action"
-              onClick={() => {
-                entry.action!.onClick();
-                props.onDismiss(entry.id);
-              }}
-            >
-              {entry.action.label}
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon-sm"
-            className="maka-toast-close"
-            aria-label="关闭通知"
-            onClick={() => props.onDismiss(entry.id)}
+      {toasts.map((entry) => {
+        const variant = (entry.type as ToastVariant) ?? 'info';
+        return (
+          // role="alert" lets screen readers announce each toast even
+          // though the parent <ol> already has aria-live="polite" —
+          // browsers / AT pairings handle the live region announce
+          // better when the live items themselves carry an alert
+          // role rather than relying on the region inheritance.
+          <BaseToast.Root
+            key={entry.id}
+            toast={entry}
+            render={
+              <li
+                className="maka-toast"
+                data-variant={variant}
+                role="alert"
+              />
+            }
           >
-            <X size={14} strokeWidth={1.75} aria-hidden="true" />
-          </Button>
-        </li>
-      ))}
-    </ol>
+            <span className="maka-toast-icon" aria-hidden="true">{VARIANT_ICON[variant]}</span>
+            <div className="maka-toast-copy">
+              <BaseToast.Title render={<strong />}>{entry.title}</BaseToast.Title>
+              {entry.description && (
+                <BaseToast.Description render={<small />}>{entry.description}</BaseToast.Description>
+              )}
+            </div>
+            {entry.actionProps && (
+              <BaseToast.Action
+                {...entry.actionProps}
+                className="maka-toast-action"
+                render={<Button type="button" variant="ghost" size="sm" />}
+              />
+            )}
+            <BaseToast.Close
+              className="maka-toast-close"
+              aria-label="关闭通知"
+              render={<Button type="button" variant="quiet" size="icon-sm" />}
+            >
+              <X size={14} strokeWidth={1.75} aria-hidden="true" />
+            </BaseToast.Close>
+          </BaseToast.Root>
+        );
+      })}
+    </BaseToast.Viewport>
   );
 }
 
 function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boolean): void }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  useModalA11y(dialogRef, () => props.onResolve(false), cancelRef);
   const {
     title,
     description,
@@ -256,16 +267,16 @@ function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boole
     destructive = false,
   } = props.request;
 
+  // Escape / backdrop close = cancel (onResolve(false)). Base UI AlertDialog
+  // disables pointer dismissal; Escape triggers onOpenChange(false).
   return (
-    <div className="maka-modal-backdrop maka-confirm-backdrop" role="presentation" onClick={() => props.onResolve(false)}>
-      <div
-        ref={dialogRef}
+    <AlertDialogRoot defaultOpen onOpenChange={(open) => { if (!open) props.onResolve(false); }}>
+      <AlertDialogContent
         className="maka-modal maka-confirm-modal"
-        role="alertdialog"
-        aria-modal="true"
         aria-labelledby="maka-confirm-title"
         aria-describedby={description ? 'maka-confirm-description' : undefined}
-        onClick={(event) => event.stopPropagation()}
+        initialFocus={cancelRef}
+        showClose={false}
       >
         <div className="maka-modal-header">
           <h2 className="maka-modal-title" id="maka-confirm-title">{title}</h2>
@@ -290,7 +301,7 @@ function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boole
             {confirmLabel}
           </Button>
         </div>
-      </div>
-    </div>
+      </AlertDialogContent>
+    </AlertDialogRoot>
   );
 }

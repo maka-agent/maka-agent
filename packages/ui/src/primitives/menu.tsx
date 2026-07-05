@@ -52,7 +52,7 @@ export function MenuPopup({
         align={align}
         alignOffset={alignOffset}
         anchor={anchor}
-        className="z-50"
+        style={{ zIndex: 'var(--z-overlay)' }}
         data-slot="menu-positioner"
         side={side}
         sideOffset={sideOffset}

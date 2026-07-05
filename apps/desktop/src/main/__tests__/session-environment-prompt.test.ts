@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { buildSessionEnvironmentPromptFragment } from '../session-environment-prompt.js';
+import { buildSessionEnvironmentPromptFragment } from '@maka/runtime';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 describe('session environment prompt', () => {
@@ -17,7 +17,7 @@ describe('session environment prompt', () => {
     assert.match(prompt, /Git repository: yes/);
     assert.match(prompt, /Git branch: main/);
     assert.match(prompt, /Platform: darwin/);
-    assert.match(prompt, /Today's date: 2026-05-29/);
+    assert.match(prompt, /Today's date: \d{4}-\d{2}-\d{2}/);
   });
 
   it('omits branch when the directory is not a git checkout', () => {
@@ -49,8 +49,8 @@ describe('session environment prompt', () => {
   it('is injected as a current-turn tail instead of durable system prefix', async () => {
     const source = await readMainProcessCombinedSource();
 
-    assert.match(source, /turnTailPrompt:\s*\(\{ cwd \}\) => systemPromptService\.buildTurnTailPrompt\(cwd\)/);
-    assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string\)/);
+    assert.match(source, /turnTailPrompt:\s*\(\{ cwd, sessionId \}\) => systemPromptService\.buildTurnTailPrompt\(cwd, sessionId\)/);
+    assert.match(source, /async function buildTurnTailPrompt\(cwd\?: string, sessionId\?: string\)/);
     assert.match(source, /projectGit:\s*await resolveProjectGitInfo\(cwd\)/);
     assert.doesNotMatch(source, /personalization\.text,\n\s*environment,\n\s*deepResearch/);
   });

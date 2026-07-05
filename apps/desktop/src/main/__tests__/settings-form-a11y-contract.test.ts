@@ -74,9 +74,9 @@ describe('Settings form accessibility labels', () => {
     const settingsRowTitle = styles.match(/\.settingsRow strong\s*\{[\s\S]*?\}/)?.[0] ?? '';
 
     assert.match(connectionRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings connection cards should use reference implementation rounded-lg geometry');
-    assert.match(connectionRow, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings connection cards should use reference implementation near-flat card shadow');
+    assert.match(connectionRow, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Settings connection cards should use the near-flat card shadow (P-SHADOW: foreground-derived, not pure-black)');
     assert.match(authContract, /border-radius:\s*var\(--radius-surface\);/, 'Nested auth contract cards should stay on the same 8px radius');
-    assert.match(authContract, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
+    assert.match(authContract, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Nested auth contract cards should keep the same near-flat shadow');
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan; only `.settingsRow` remains in the live rule. The
     // border-radius / shadow geometry still applies via the same
@@ -86,7 +86,7 @@ describe('Settings form accessibility labels', () => {
     assert.ok(providerCatalogRow, 'Settings provider catalog rows should be governed by the shared .providerCatalogRow (Item) class');
     // PR-DELETE-ORPHAN-CSS: providerIcon assertion removed (orphan).
     assert.match(modelTable, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table should use the same 8px secondary-surface radius');
-    assert.match(modelTable, /box-shadow:\s*0 1px 3px rgba\(0, 0, 0, 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
+    assert.match(modelTable, /box-shadow:\s*0 1px 3px oklch\(from var\(--foreground\) l c h \/ 0\.03\);/, 'Settings model table should stay near-flat instead of returning to legacy panel shadows');
     assert.match(modelTableRow, /border-radius:\s*var\(--radius-surface\);/, 'Settings model rows should use compact 8px row geometry');
     assert.match(modelTableEmpty, /border-radius:\s*var\(--radius-surface\);/, 'Settings model table empty state should align with the same 8px geometry');
     assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
@@ -126,8 +126,8 @@ describe('Settings form accessibility labels', () => {
     assert.match(settingsSelect, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\} className="settingsSelectPositioner">/);
     assert.match(
       styles,
-      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-dropdown\);[\s\S]*\}/,
-      'SettingsSelect popups must stack above full-page Settings rows so visible options are clickable.',
+      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-overlay\);[\s\S]*\}/,
+      'SettingsSelect popups must share the overlay layer so visible options stay clickable above Settings rows, modals, and the Composer.',
     );
 
     // ThemeSettingsPage uses native <button> on purpose for the radio-card

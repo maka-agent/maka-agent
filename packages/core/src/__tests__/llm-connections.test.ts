@@ -16,6 +16,7 @@ import { describe, it } from 'node:test';
 import {
   PROVIDER_DEFAULTS,
   normalizeConnectionBaseUrl,
+  persistedBaseUrl,
   validateConnectionBaseUrl,
 } from '../llm-connections.js';
 
@@ -42,7 +43,7 @@ describe('validateConnectionBaseUrl (PR-UI-IPC-1, @kenji msg 35260e29)', () => {
       const canonical = [
         'https://api.anthropic.com',
         'https://api.openai.com/v1',
-        'https://generativelanguage.googleapis.com',
+        'https://generativelanguage.googleapis.com/v1beta',
         'https://api.deepseek.com',
         'https://api.z.ai/api/coding/paas/v4',
         'https://api.kimi.com/coding/v1',
@@ -195,6 +196,58 @@ describe('provider URL defaults', () => {
     assert.equal(PROVIDER_DEFAULTS['kimi-coding-plan'].signupUrl, 'https://www.kimi.com/code/console');
     assert.equal(PROVIDER_DEFAULTS.moonshot.baseUrl, 'https://api.moonshot.cn/v1');
     assert.equal(PROVIDER_DEFAULTS.moonshot.signupUrl, 'https://platform.kimi.com/console/api-keys');
+  });
+});
+
+describe('persistedBaseUrl', () => {
+  // The store calls this on create / update / save to decide what `baseUrl`
+  // to persist. Only a real override is stored; the provider default collapses
+  // to undefined so the connection follows the live default.
+
+  it('returns undefined for undefined / null / empty / whitespace-only', () => {
+    assert.equal(persistedBaseUrl('openai', undefined), undefined);
+    assert.equal(persistedBaseUrl('openai', null), undefined);
+    assert.equal(persistedBaseUrl('openai', ''), undefined);
+    assert.equal(persistedBaseUrl('openai', '   '), undefined);
+    assert.equal(persistedBaseUrl('openai', '\t\n'), undefined);
+  });
+
+  it('returns undefined when the value equals the provider current default (no override to persist)', () => {
+    assert.equal(
+      persistedBaseUrl('openai', 'https://api.openai.com/v1'),
+      undefined,
+      'openai default must not be persisted as an override',
+    );
+    assert.equal(
+      persistedBaseUrl('google', 'https://generativelanguage.googleapis.com/v1beta'),
+      undefined,
+      'google default must not be persisted as an override',
+    );
+    assert.equal(
+      persistedBaseUrl('ollama', 'http://localhost:11434/v1'),
+      undefined,
+      'ollama default must not be persisted as an override',
+    );
+  });
+
+  it('returns undefined when the value equals the default modulo surrounding whitespace', () => {
+    assert.equal(persistedBaseUrl('openai', '  https://api.openai.com/v1  '), undefined);
+    assert.equal(persistedBaseUrl('openai', '\thttps://api.openai.com/v1\n'), undefined);
+  });
+
+  it('returns the trimmed value for a real custom override', () => {
+    const custom = 'https://my-openai-proxy.example.com/v1';
+    assert.equal(persistedBaseUrl('openai', custom), custom);
+    assert.equal(persistedBaseUrl('openai', `  ${custom}  `), custom, 'whitespace is trimmed');
+    assert.equal(persistedBaseUrl('google', 'https://my-gemini-proxy.example.com/v1beta'), 'https://my-gemini-proxy.example.com/v1beta');
+  });
+
+  it('persists a custom override for openai-compatible (whose default is the empty string)', () => {
+    // openai-compatible is the one provider with no canonical default — any
+    // non-empty value the user supplies is a real override and must persist.
+    const custom = 'https://my-gateway.example.com/v1';
+    assert.equal(persistedBaseUrl('openai-compatible', custom), custom);
+    assert.equal(persistedBaseUrl('openai-compatible', ''), undefined, 'empty still means no override');
   });
 });
 

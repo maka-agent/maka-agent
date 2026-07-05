@@ -39,6 +39,32 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('list summary carries thinkingLevel when set and omits it when cleared', async () => {
+    await withStore(async (store) => {
+      // No level on create: the summary omits the field (UI shows 默认).
+      const header = await store.create(makeInput({ name: 'Thinking' }));
+      assert.equal((await store.list())[0]?.thinkingLevel, undefined);
+
+      // Setting a level persists it and the list summary surfaces it — this is
+      // the projection the renderer's refreshSessions reads, so the model chip
+      // reflects the chosen level instead of silently dropping it.
+      await store.updateHeader(header.id, { thinkingLevel: 'high' });
+      assert.equal((await store.list())[0]?.thinkingLevel, 'high');
+
+      // Clearing it back to undefined removes the field from the summary.
+      await store.updateHeader(header.id, { thinkingLevel: undefined });
+      assert.equal((await store.list())[0]?.thinkingLevel, undefined);
+    });
+  });
+
+  test('create with a thinking level surfaces it in the list summary', async () => {
+    await withStore(async (store) => {
+      const header = await store.create(makeInput({ name: 'Thinking from start', thinkingLevel: 'medium' }));
+      assert.equal(header.thinkingLevel, 'medium');
+      assert.equal((await store.list())[0]?.thinkingLevel, 'medium');
+    });
+  });
+
   test('persists session branch lineage in header and summaries', async () => {
     await withStore(async (store) => {
       const header = await store.create(makeInput({

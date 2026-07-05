@@ -85,7 +85,7 @@ describe('Claude subscription runtime wiring', () => {
   });
 
   test('anthropicV1BaseUrl normalizes base URLs to a single /v1 suffix', async () => {
-    const { anthropicV1BaseUrl } = await import('../subscription-auth.js');
+    const { anthropicV1BaseUrl } = await import('../provider-urls.js');
     assert.equal(anthropicV1BaseUrl('https://api.anthropic.com'), 'https://api.anthropic.com/v1', 'bare root gains /v1');
     assert.equal(anthropicV1BaseUrl('https://api.anthropic.com/'), 'https://api.anthropic.com/v1', 'trailing slash is stripped before re-appending /v1');
     assert.equal(anthropicV1BaseUrl('https://api.anthropic.com/v1'), 'https://api.anthropic.com/v1', 'already-versioned root is idempotent');
