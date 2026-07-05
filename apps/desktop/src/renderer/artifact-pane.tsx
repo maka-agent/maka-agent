@@ -561,22 +561,25 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
               </ToolbarGroup>
               <ToolbarSeparator className="maka-artifact-toolbar-separator" orientation="vertical" />
               <ToolbarGroup className="maka-artifact-toolbar-group maka-artifact-toolbar-danger-group">
-                <Button
-                  type="button"
-                  variant="destructive"
-                  size="sm"
-                  className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive"
-                  onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
-                  disabled={artifactActionBusy}
-                  data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
-                  aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
-                >
-                  <Trash2 size={14} aria-hidden="true" />
-                  {/* Icon-only at rest: the visible label wrapped the toolbar
-                      onto a second line at 1280 pane width, stranding 删除
-                      alone bottom-right. Label stays for screen readers. */}
-                  <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={<Button type="button" variant="destructive" size="sm" className="maka-artifact-toolbar-button maka-artifact-toolbar-destructive" />}
+                    onClick={() => void runArtifactAction(`${selected.id}:delete`, () => deleteArtifact(selected.id))}
+                    disabled={artifactActionBusy}
+                    data-pending={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
+                    aria-busy={pendingArtifactAction === `${selected.id}:delete` ? 'true' : undefined}
+                  >
+                    <Trash2 size={14} aria-hidden="true" />
+                    {/* Icon-only at rest: the visible label wrapped the toolbar
+                        onto a second line at 1280 pane width, stranding 删除
+                        alone bottom-right. The label span stays for screen
+                        readers (visually hidden); the Tooltip mirrors it for
+                        mouse hover, replacing the native hover tooltip this
+                        button lost in the tooltip migration. */}
+                    <span className="maka-artifact-toolbar-destructive-label">{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</span>
+                  </TooltipTrigger>
+                  <TooltipContent>{pendingArtifactAction === `${selected.id}:delete` ? '删除中…' : '删除'}</TooltipContent>
+                </Tooltip>
               </ToolbarGroup>
             </Toolbar>
           )}
