@@ -112,6 +112,29 @@ describe('home composer new-chat model picker', () => {
     );
   });
 
+  it('filters the pending new-chat thinking level against the currently picked model', async () => {
+    const renderer = await readRendererShellSources([
+      'app-shell.tsx',
+      'app-shell-chat-actions.ts',
+    ]);
+
+    assert.match(
+      renderer,
+      /const newChatThinkingLevel\s*=\s*pendingNewChatThinkingLevel && newChatThinkingLevels\.includes\(pendingNewChatThinkingLevel\)\s*\? pendingNewChatThinkingLevel\s*: undefined;/,
+      'AppShell must only surface a pending new-chat thinking level when the current new-chat model supports it',
+    );
+    assert.match(
+      renderer,
+      /pendingNewChatThinkingLevel:\s*newChatThinkingLevel \?\? null/,
+      'send() dependencies must receive the filtered newChatThinkingLevel, not the raw pending state',
+    );
+    assert.match(
+      renderer,
+      /\.{3}\(pendingNewChatThinkingLevel \? \{ thinkingLevel: pendingNewChatThinkingLevel \} : \{\}\)/,
+      'sessions.create still forwards the dependency field, which must already be filtered by AppShell',
+    );
+  });
+
   it('wires the picked new-chat permission mode to one sessions.create call only', async () => {
     const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';

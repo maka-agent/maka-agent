@@ -345,7 +345,9 @@ export function AppShell({
     },
     [newChatModel, connections],
   );
-  const newChatThinkingLevel = pendingNewChatThinkingLevel ?? undefined;
+  const newChatThinkingLevel = pendingNewChatThinkingLevel && newChatThinkingLevels.includes(pendingNewChatThinkingLevel)
+    ? pendingNewChatThinkingLevel
+    : undefined;
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
   // Surface a credential-lifecycle alert directly in the chat header when
@@ -844,7 +846,7 @@ export function AppShell({
     pendingNewChatPermissionMode,
     setPendingNewChatPermissionMode,
     validPendingNewChatModel,
-    pendingNewChatThinkingLevel,
+    pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
   const { handleTurnFooterAction } = createAppShellTurnActions({
