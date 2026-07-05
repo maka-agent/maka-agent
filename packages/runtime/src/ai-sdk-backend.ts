@@ -1165,7 +1165,7 @@ export class AiSdkBackend implements AgentBackend {
     runtimeEventCount?: number;
     contextBudget?: ContextBudgetDiagnostic;
   }> {
-    const projectedMessages = this.materializePriorMessages(
+    const projectedMessages = await this.materializePriorMessages(
       input.context.filter((message) => message.turnId !== input.turnId),
     );
     if (!input.runtimeContext) {
@@ -1345,7 +1345,7 @@ export class AiSdkBackend implements AgentBackend {
 
     if (!plan.hasProviderNativeSemantics) {
       return {
-        messages: plan.textMessages,
+        messages: await this.materializeRuntimeReplayPlan(plan),
         gate: 'runtime_replay_text_only',
         diagnostics: plan.diagnostics,
         runtimeEventCount: runtimeContext.length,
@@ -1364,7 +1364,7 @@ export class AiSdkBackend implements AgentBackend {
     }
 
     return {
-      messages: this.materializeRuntimeReplayPlan(plan),
+      messages: await this.materializeRuntimeReplayPlan(plan),
       gate: 'runtime_replay_provider_native',
       diagnostics: plan.diagnostics,
       runtimeEventCount: runtimeContext.length,
@@ -1975,7 +1975,7 @@ export class AiSdkBackend implements AgentBackend {
     return true;
   }
 
-  private materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): ModelMessage[] {
+  private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
     const out: ModelMessage[] = [];
     let toolBlock: {
       calls: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>[];
@@ -2023,15 +2023,18 @@ export class AiSdkBackend implements AgentBackend {
         continue;
       }
       flushToolBlock();
-      out.push(this.materializeRuntimeReplayItem(item));
+      out.push(await this.materializeRuntimeReplayItem(item));
     }
     flushToolBlock();
     return out;
   }
 
-  private materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): ModelMessage {
+  private async materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): Promise<ModelMessage> {
     switch (item.kind) {
       case 'text':
+        if (item.role === 'user') {
+          return { role: 'user', content: await this.appendImageParts(item.content, item.attachments) } as ModelMessage;
+        }
         return { role: item.role, content: item.content };
       case 'thinking':
         return {
@@ -2067,10 +2070,12 @@ export class AiSdkBackend implements AgentBackend {
     }
   }
 
-  private materializePriorMessages(stored: readonly StoredMessage[]): ModelMessage[] {
+  private async materializePriorMessages(stored: readonly StoredMessage[]): Promise<ModelMessage[]> {
     const out: ModelMessage[] = [];
     for (const m of stored) {
-      if (m.type === 'user') out.push({ role: 'user', content: formatTextWithAttachmentRefs(m.text, m.attachments) });
+      if (m.type === 'user') {
+        out.push({ role: 'user', content: await this.appendImageParts(formatTextWithAttachmentRefs(m.text, m.attachments), m.attachments) } as ModelMessage);
+      }
       else if (m.type === 'assistant') out.push({ role: 'assistant', content: m.text });
       // tool_call / tool_result / permission_decision / token_usage / system_note skipped
     }
@@ -2085,23 +2090,23 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   /**
-   * Build the current user turn's provider-visible content. Non-image
-   * attachments remain as placeholder refs in the text (model reads workspace
-   * files via Read); image attachments are read through the injected reader
-   * and appended as provider image parts. When there are no readable images,
-   * content stays a plain string.
+   * Render provider-visible content for a user message: keep the given
+   * (already-formatted) text, and append image attachments as provider image
+   * parts via the injected reader. Non-image attachments stay as placeholder
+   * refs in the text; when there are no readable images, content stays a
+   * plain string. Shared by the current turn, RuntimeEvent replay, and the
+   * stored-message fallback so all three paths present images identically.
    */
-  private async buildCurrentUserContent(
-    text: string,
+  private async appendImageParts(
+    textContent: string,
     attachments?: AttachmentRef[],
   ): Promise<ModelMessage['content']> {
-    const textWithRefs = formatTextWithAttachmentRefs(text, attachments);
     const images = attachments?.filter((a) => a.kind === 'image') ?? [];
     if (images.length === 0 || !this.input.readAttachmentBytes) {
-      return textWithRefs;
+      return textContent;
     }
     const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }> = [
-      { type: 'text', text: textWithRefs },
+      { type: 'text', text: textContent },
     ];
     for (const image of images) {
       const read = await this.input.readAttachmentBytes(image.ref);
@@ -2110,6 +2115,13 @@ export class AiSdkBackend implements AgentBackend {
       }
     }
     return parts as ModelMessage['content'];
+  }
+
+  private async buildCurrentUserContent(
+    text: string,
+    attachments?: AttachmentRef[],
+  ): Promise<ModelMessage['content']> {
+    return this.appendImageParts(formatTextWithAttachmentRefs(text, attachments), attachments);
   }
 
   private async resolveSystemPrompt(): Promise<string | undefined> {

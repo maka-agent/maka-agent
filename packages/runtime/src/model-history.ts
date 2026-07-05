@@ -99,6 +99,8 @@ export type RuntimeEventModelReplayItem =
       kind: 'text';
       role: 'user' | 'assistant' | 'system';
       content: string;
+      /** Original attachments (if any) so replay can render image parts. */
+      attachments?: AttachmentRef[];
       eventId: string;
       ts: number;
     }
@@ -297,6 +299,7 @@ export function buildRuntimeEventModelReplayPlan(
           kind: 'text',
           role,
           content: formatTextWithAttachmentRefs(event.content),
+          ...(event.content.attachments ? { attachments: event.content.attachments } : {}),
           eventId: event.id,
           ts: event.ts,
         });
