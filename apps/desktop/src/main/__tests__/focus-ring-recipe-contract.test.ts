@@ -34,6 +34,17 @@ const LINK_FOCUS_RE = /outline:\s*1px\s+solid\s+oklch\(from\s+var\(--link\)/i;
 
 // --- scanning --------------------------------------------------------------
 
+/** Walk back from a declaration index to its enclosing selector — the text
+ *  between the previous `}` (or start) and the `{` that opens the rule. */
+function enclosingSelector(css: string, idx: number): string {
+  const before = css.slice(0, idx);
+  const openBrace = before.lastIndexOf('{');
+  if (openBrace < 0) return '';
+  let selStart = before.lastIndexOf('}', openBrace);
+  if (selStart < 0) selStart = 0;
+  return css.slice(selStart, openBrace);
+}
+
 function findFocusRingOffenders(css: string, label: string): string[] {
   const stripped = stripCssComments(css);
   const offenders: string[] = [];
@@ -57,22 +68,26 @@ function findFocusRingOffenders(css: string, label: string): string[] {
   }
 
   // outline-offset: must be var(--focus-ring-offset). The search-highlight
-  // marker (.maka-turn[data-search-highlight]) uses a 6px non-focus offset on
-  // purpose — it's a visual highlight ring (link color), not the keyboard
-  // focus-ring recipe, so it's whitelisted as a one-off.
+  // marker .maka-turn[data-search-highlight="true"] uses a 6px non-focus offset
+  // on purpose (visual highlight, link color) — whitelisted by selector, not
+  // by bare value, so a bare 6px in any other focus selector still fails.
   for (const m of stripped.matchAll(/(?<![-\w])outline-offset:\s*([^;}\n]+)/gi)) {
     const decl = m[0].trim();
     const value = m[1].trim();
     if (/^var\(--focus-ring-offset\)/i.test(value)) continue;
-    if (/^6px$/i.test(value)) continue; // search-highlight one-off (non-focus)
+    const selector = enclosingSelector(stripped, m.index!);
+    if (/\.maka-turn\[data-search-highlight="true"\]/.test(selector)) continue;
     offenders.push(`${label}: ${decl} (bare outline-offset — use var(--focus-ring-offset))`);
   }
 
-  // box-shadow ring width: `0 0 0 <px> <color>` where <color> is var(--ring)
-  // (subtle) or oklch(from var(--focus-ring) … / a) (strong + alpha) — both are
-  // the focus-ring recipe, so the ring width must be var(--focus-ring-width).
-  // Status/info/accent/foreground rings are NOT focus rings (PR4 box-shadow scope).
+  // box-shadow ring width: only inside focus selectors (:focus / :focus-visible
+  // / :focus-within). Non-focus highlights (drag-active, status, info, accent
+  // rings) reuse the focus-ring color but are NOT the keyboard focus-ring
+  // recipe — their box-shadow width convergence is PR4 scope. Walk back from
+  // each box-shadow to its enclosing selector and skip non-focus rules.
   for (const m of stripped.matchAll(/box-shadow:\s*0\s+0\s+0\s+(\d+px)\s+(var\(--ring\)|oklch\(from\s+var\(--focus-ring\)[^)]*\))/gi)) {
+    const selector = enclosingSelector(stripped, m.index!);
+    if (!/:focus(?:-visible|-within)?\b/i.test(selector)) continue; // non-focus, PR4 scope
     offenders.push(`${label}: ${m[0].trim()} (bare ring width in box-shadow — use var(--focus-ring-width))`);
   }
 
@@ -119,18 +134,26 @@ describe('focus-ring recipe negative cases', () => {
     assert.ok(findFocusRingOffenders('outline-offset: 4px', 'test').length > 0, 'bare 4px must fail');
   });
 
-  it('accepts var(--focus-ring-offset) and search-highlight 6px one-off', () => {
+  it('accepts var(--focus-ring-offset) and search-highlight 6px one-off (by selector)', () => {
     assert.deepEqual(findFocusRingOffenders('outline-offset: var(--focus-ring-offset)', 'test'), []);
-    assert.deepEqual(findFocusRingOffenders('outline-offset: 6px', 'test'), []);
+    assert.deepEqual(findFocusRingOffenders('.maka-turn[data-search-highlight="true"] { outline-offset: 6px; }', 'test'), []);
   });
 
-  it('rejects bare ring width in box-shadow: 0 0 0 <px> var(--ring) or oklch(from var(--focus-ring) …)', () => {
-    assert.ok(findFocusRingOffenders('box-shadow: 0 0 0 2px var(--ring)', 'test').length > 0, 'bare ring width must fail');
-    assert.ok(findFocusRingOffenders('box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14)', 'test').length > 0, 'bare 3px alpha ring must fail');
+  it('rejects bare outline-offset 6px without the search-highlight selector', () => {
+    assert.ok(findFocusRingOffenders('outline-offset: 6px', 'test').length > 0, 'bare 6px without selector must fail');
+  });
+
+  it('rejects bare ring width in focus-selector box-shadow: 0 0 0 <px> var(--ring) or oklch(from var(--focus-ring) …)', () => {
+    assert.ok(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 2px var(--ring); }', 'test').length > 0, 'bare ring width must fail');
+    assert.ok(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 3px oklch(from var(--focus-ring) l c h / 0.14); }', 'test').length > 0, 'bare 3px alpha ring must fail');
+  });
+
+  it('accepts non-focus box-shadow ring (drag-active) — PR4 scope, not focus-ring recipe', () => {
+    assert.deepEqual(findFocusRingOffenders('.maka-composer[data-drag-active="true"] { box-shadow: 0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22); }', 'test'), []);
   });
 
   it('accepts box-shadow ring with var(--focus-ring-width) for both ring colors', () => {
-    assert.deepEqual(findFocusRingOffenders('box-shadow: 0 0 0 var(--focus-ring-width) var(--ring)', 'test'), []);
-    assert.deepEqual(findFocusRingOffenders('box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14)', 'test'), []);
+    assert.deepEqual(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 var(--focus-ring-width) var(--ring); }', 'test'), []);
+    assert.deepEqual(findFocusRingOffenders('.maka-button:focus-visible { box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14); }', 'test'), []);
   });
 });
