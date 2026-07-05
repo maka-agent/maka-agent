@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
-import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, useToast } from '@maka/ui';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -259,25 +259,25 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
 
 function SimpleStatsTable(props: { ariaLabel: string; headers: string[]; rows: Array<Array<ReactNode>>; empty?: string }) {
   return (
-    <table className="settingsStatsTable" aria-label={props.ariaLabel}>
-      <thead>
-        <tr>{props.headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr>
-      </thead>
-      <tbody>
+    <Table aria-label={props.ariaLabel}>
+      <TableHeader>
+        <TableRow>{props.headers.map((header) => <TableHead key={header} scope="col">{header}</TableHead>)}</TableRow>
+      </TableHeader>
+      <TableBody>
         {props.rows.length === 0 ? (
-          <tr><td colSpan={props.headers.length}>{props.empty ?? '暂无请求记录'}</td></tr>
+          <TableRow><TableCell colSpan={props.headers.length}>{props.empty ?? '暂无请求记录'}</TableCell></TableRow>
         ) : props.rows.map((row, rowIndex) => (
-          <tr key={rowIndex}>
+          <TableRow key={rowIndex}>
             {row.map((cell, cellIndex) => (
               cellIndex === 0 ? (
-                <th key={cellIndex} scope="row">{cell}</th>
+                <TableHead key={cellIndex} scope="row">{cell}</TableHead>
               ) : (
-                <td key={cellIndex}>{cell}</td>
+                <TableCell key={cellIndex}>{cell}</TableCell>
               )
             ))}
-          </tr>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }

@@ -383,7 +383,6 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsHealthError': '--radius-surface',
       '.settingsHealthRefresh': '--radius-control',
       '.settingsBotHero': '--radius-surface',
-      '.settingsRows': '--radius-surface',
       '.settingsNotice': '--radius-surface',
       '.settingsAboutLogo': '--radius-surface',
       '.settingsAboutPrivacy': '--radius-surface',

@@ -329,12 +329,12 @@ describe('web-search renderer boundary (PR-WEB-SEARCH-TAVILY-0)', () => {
     assert.ok(page, 'Web search settings page block must exist');
     assert.match(
       page![0],
-      /<div className="settingsRows settingsWebSearchCredentialCard">/,
+      /<SettingsRows className="settingsWebSearchCredentialCard">/,
       'Web search credential controls should sit in the shared grouped Settings card primitive',
     );
     assert.match(
       page![0],
-      /<div className="settingsRows settingsWebSearchQueryCard">/,
+      /<SettingsRows className="settingsWebSearchQueryCard">/,
       'Web search live-query controls should sit in the shared grouped Settings card primitive',
     );
     for (const rowClass of [

@@ -290,7 +290,6 @@
     max-width: 520px;
     padding: var(--space-3) var(--space-4);
     border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.3);
-    border-radius: var(--radius-surface);
     background: var(--background-elevated);
     box-shadow: var(--shadow-modal);
   }

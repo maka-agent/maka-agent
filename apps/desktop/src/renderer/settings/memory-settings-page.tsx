@@ -11,6 +11,7 @@ import {
 import { Button, Input, RelativeTime, SettingsSwitch as Switch, Textarea, redactSecrets, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsRows } from './settings-rows';
 
 export function MemorySettingsPage(props: {
   settings: AppSettings;
@@ -586,7 +587,7 @@ export function MemorySettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <div className="settingsRows">
+      <SettingsRows>
         <div className="settingsFormRow">
           <div>
             <strong>本地 MEMORY.md</strong>
@@ -628,7 +629,7 @@ export function MemorySettingsPage(props: {
             onChange={(enabled) => void setWorkspaceInstructionsEnabled(enabled)}
           />
         </div>
-      </div>
+      </SettingsRows>
 
       {workspaceInstructionState && (
         <div className="settingsMemoryPreview">

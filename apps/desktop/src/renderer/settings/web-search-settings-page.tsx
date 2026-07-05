@@ -4,6 +4,7 @@ import { normalizeSearchUrl, webSearchCredentialStatusFromResponse } from '@maka
 import { Button, Input, RelativeTime, SettingsSwitch as Switch, redactSecrets, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsRows } from './settings-rows';
 
 /**
  * PR-WEB-SEARCH-TAVILY-0: Settings → 联网搜索.
@@ -236,7 +237,7 @@ export function WebSearchSettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      <div className="settingsRows settingsWebSearchCredentialCard">
+      <SettingsRows className="settingsWebSearchCredentialCard">
         <div className="settingsRow settingsWebSearchEnableRow">
           <div>
             <strong>启用联网搜索</strong>
@@ -314,9 +315,9 @@ export function WebSearchSettingsPage(props: {
             )}
           </div>
         </div>
-      </div>
+      </SettingsRows>
 
-      <div className="settingsRows settingsWebSearchQueryCard">
+      <SettingsRows className="settingsWebSearchQueryCard">
         <div className="settingsRow settingsWebSearchQueryIntroRow">
           <div>
             <strong>真实查询验证</strong>
@@ -361,7 +362,7 @@ export function WebSearchSettingsPage(props: {
             )}
           </div>
         </div>
-      </div>
+      </SettingsRows>
 
       {liveQueryError && (
         <div className="settingsConnectionMeta" role="alert">

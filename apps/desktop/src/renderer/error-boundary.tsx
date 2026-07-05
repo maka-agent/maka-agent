@@ -8,7 +8,7 @@
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, Check, Clipboard, RotateCw } from '@maka/ui/icons';
-import { Button as UiButton, redactSecrets } from '@maka/ui';
+import { Button as UiButton, Card, redactSecrets } from '@maka/ui';
 
 type State = {
   error: Error | null;
@@ -101,7 +101,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 
     return (
       <div className="maka-error-surface" role="alert" aria-live="assertive">
-        <div className="maka-error-card">
+        <Card className="maka-error-card">
           <span className="maka-error-icon" aria-hidden="true">
             <AlertTriangle size={28} strokeWidth={1.6} />
           </span>
@@ -148,7 +148,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
               <p className="maka-error-copy-status">剪贴板不可用或被系统拒绝；可以手动选择上面的错误摘要。</p>
             )}
           </div>
-        </div>
+        </Card>
       </div>
     );
   }

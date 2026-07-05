@@ -3,6 +3,7 @@ import type { DailyReviewConfig, DailyReviewMode, LlmConnection } from '@maka/co
 import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
 import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsRows } from './settings-rows';
 
 /**
  * PR-DAILY-REVIEW-MVP-0 follow-up: Settings → 每日回顾 is no longer
@@ -157,7 +158,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
         </Alert>
       ) : null}
 
-      <div className="settingsRows">
+      <SettingsRows>
         <div className="settingsRow">
           <div>
             <strong>启用每日回顾</strong>
@@ -275,7 +276,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
             onChange={() => undefined}
           />
         </div>
-      </div>
+      </SettingsRows>
 
       {(props.onOpenDailyReview || hasRunOnceIpc) && (
         <div className="settingsPageFooterActions" role="toolbar" aria-label="每日回顾操作">
