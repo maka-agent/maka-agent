@@ -8,7 +8,7 @@
  * not re-export them (they are internal to the `@maka/ui` Composer surface).
  */
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
 import { ModelPicker } from './model-picker.js';
