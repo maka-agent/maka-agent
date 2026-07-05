@@ -14,23 +14,17 @@
  * 3. `box-shadow: 0 0 0 <px> var(--ring)` (global *:focus-visible ring) must
  *    use `var(--focus-ring-width)` for the ring width.
  *
- * `--focus-ring-width: 2px` + `--focus-ring-offset: 2px` are declared in
- * maka-tokens.css. The link-focus outline (`outline: 1px solid
- * oklch(from var(--link) …)`) is whitelisted as a one-off — it's a link
- * affordance, not the keyboard focus-ring recipe, and uses a different
- * color/width on purpose.
+ * `--focus-ring-width: 2px` + `--focus-ring-offset: 2px` + `--focus-glow-width: 4px`
+ * are declared in maka-tokens.css. The search-highlight marker
+ * (.maka-turn[data-search-highlight="true"]) uses a 1px link-color outline +
+ * 6px non-focus offset on purpose — it's a visual highlight, not the keyboard
+ * focus-ring recipe, and is whitelisted by selector (not by bare value).
  */
 
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { describe, it } from 'node:test';
 import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, assertCustomPropPinnedOnce } from './css-test-helpers.js';
-
-// --- whitelist -------------------------------------------------------------
-
-/** Link-focus one-off: `outline: 1px solid oklch(from var(--link) …)` —
- *  not the keyboard focus-ring recipe (different color + width on purpose). */
-const LINK_FOCUS_RE = /outline:\s*1px\s+solid\s+oklch\(from\s+var\(--link\)/i;
 
 // --- scanning --------------------------------------------------------------
 
@@ -56,10 +50,11 @@ function findFocusRingOffenders(css: string, label: string): string[] {
 
     // outline: none / 0 / 0px — literal disable, OK
     if (/^(?:none|0(?:px)?)\b/i.test(value)) continue;
-    // link-focus one-off whitelist
-    if (LINK_FOCUS_RE.test(decl)) continue;
     // outline: var(--focus-ring-width) solid … — recipe, OK
     if (/^var\(--focus-ring-width\)\s+solid\b/i.test(value)) continue;
+    // search-highlight one-off: 1px link-color outline (non-focus visual marker)
+    const selector = enclosingSelector(stripped, m.index!);
+    if (/\.maka-turn\[data-search-highlight="true"\]/.test(selector) && /^1px\s+solid\s+oklch\(from\s+var\(--link\)/i.test(value)) continue;
 
     // any other outline with a bare px width — offender
     if (/^\d+px\s+solid\b/i.test(value)) {
@@ -126,10 +121,17 @@ describe('focus-ring recipe negative cases', () => {
     assert.deepEqual(findFocusRingOffenders('outline: var(--focus-ring-width) solid oklch(from var(--focus-ring) l c h / 0.42)', 'test'), []);
   });
 
-  it('accepts outline: none / 0 (disable focus) and link-focus one-off', () => {
+  it('accepts outline: none / 0 (disable focus)', () => {
     assert.deepEqual(findFocusRingOffenders('outline: none', 'test'), []);
     assert.deepEqual(findFocusRingOffenders('outline: 0', 'test'), []);
-    assert.deepEqual(findFocusRingOffenders('outline: 1px solid oklch(from var(--link) l c h / 0.34)', 'test'), []);
+  });
+
+  it('rejects bare 1px link-color outline without the search-highlight selector', () => {
+    assert.ok(findFocusRingOffenders('outline: 1px solid oklch(from var(--link) l c h / 0.34)', 'test').length > 0, 'bare 1px link outline without selector must fail');
+  });
+
+  it('accepts search-highlight outline + 6px offset (by selector)', () => {
+    assert.deepEqual(findFocusRingOffenders('.maka-turn[data-search-highlight="true"] { outline: 1px solid oklch(from var(--link) l c h / 0.34); outline-offset: 6px; }', 'test'), []);
   });
 
   it('rejects bare outline-offset px (and negatives)', () => {
