@@ -23,8 +23,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, X } from './icons.js';
-import { useModalA11y } from './modal-a11y.js';
-import { Button } from './ui.js';
+import { AlertDialogContent, AlertDialogRoot, Button } from './ui.js';
 
 export type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -245,9 +244,7 @@ function ToastViewport(props: { toasts: InternalToast[]; onDismiss(id: string): 
 }
 
 function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boolean): void }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
-  useModalA11y(dialogRef, () => props.onResolve(false), cancelRef);
   const {
     title,
     description,
@@ -256,16 +253,16 @@ function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boole
     destructive = false,
   } = props.request;
 
+  // Escape / backdrop close = cancel (onResolve(false)). Base UI AlertDialog
+  // disables pointer dismissal; Escape triggers onOpenChange(false).
   return (
-    <div className="maka-modal-backdrop maka-confirm-backdrop" role="presentation" onClick={() => props.onResolve(false)}>
-      <div
-        ref={dialogRef}
+    <AlertDialogRoot defaultOpen onOpenChange={(open) => { if (!open) props.onResolve(false); }}>
+      <AlertDialogContent
         className="maka-modal maka-confirm-modal"
-        role="alertdialog"
-        aria-modal="true"
         aria-labelledby="maka-confirm-title"
         aria-describedby={description ? 'maka-confirm-description' : undefined}
-        onClick={(event) => event.stopPropagation()}
+        initialFocus={cancelRef}
+        showClose={false}
       >
         <div className="maka-modal-header">
           <h2 className="maka-modal-title" id="maka-confirm-title">{title}</h2>
@@ -290,7 +287,7 @@ function ConfirmDialog(props: { request: PendingConfirm; onResolve(result: boole
             {confirmLabel}
           </Button>
         </div>
-      </div>
-    </div>
+      </AlertDialogContent>
+    </AlertDialogRoot>
   );
 }

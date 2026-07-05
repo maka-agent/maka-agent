@@ -49,7 +49,7 @@ describe('toast.confirm keyboard safety contract', () => {
     const src = await readFile(TOAST_SOURCE, 'utf8');
     const confirmBlock = src.match(/function ConfirmDialog[\s\S]*?\n\}/)?.[0] ?? '';
 
-    assert.match(confirmBlock, /role="alertdialog"/, 'confirm must remain an accessible alertdialog');
+    assert.match(confirmBlock, /AlertDialogRoot/, 'confirm must remain an accessible alertdialog (Base UI AlertDialog auto-sets role)');
     assert.doesNotMatch(
       confirmBlock,
       /addEventListener\('keydown'[\s\S]*event\.key === 'Enter'[\s\S]*onResolve\(true\)/,
@@ -67,7 +67,7 @@ describe('toast.confirm keyboard safety contract', () => {
     const confirmBlock = src.match(/function ConfirmDialog[\s\S]*?\n\}/)?.[0] ?? '';
 
     assert.match(confirmBlock, /const cancelRef = useRef<HTMLButtonElement>\(null\)/);
-    assert.match(confirmBlock, /useModalA11y\(dialogRef, \(\) => props\.onResolve\(false\), cancelRef\)/);
+    assert.match(confirmBlock, /initialFocus=\{cancelRef\}/, 'Base UI AlertDialog focuses the cancel button via initialFocus');
     assert.match(confirmBlock, /<Button\s+ref=\{cancelRef\}[\s\S]*onClick=\{\(\) => props\.onResolve\(false\)\}/);
   });
 });

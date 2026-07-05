@@ -598,12 +598,6 @@
   width: min(420px, calc(100vw - 48px));
 }
 
-.maka-confirm-backdrop {
-  /* Slightly opaque so destructive confirms feel weightier than regular
-     toast notifications. */
-  background: oklch(from var(--background) l c h / 0.7);
-}
-
 .maka-help-modal {
   width: min(560px, calc(100vw - 48px));
   max-height: calc(100dvh - 96px);
