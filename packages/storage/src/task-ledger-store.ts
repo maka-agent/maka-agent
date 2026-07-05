@@ -201,11 +201,16 @@ function decodeTasks(text: string): Task[] {
 function normalizePersistedTask(value: unknown): Task | undefined {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const record = value as Partial<Task>;
+  // Timestamps must be finite: a hand-edited `1e999` parses to Infinity, and
+  // JSON.stringify(Infinity) writes null, so the record would silently vanish
+  // on the next write. Reject it up front (per-record drop) instead.
   if (
     typeof record.id !== 'string' ||
     !isSafeTaskId(record.id) ||
     typeof record.createdAt !== 'number' ||
+    !Number.isFinite(record.createdAt) ||
     typeof record.updatedAt !== 'number' ||
+    !Number.isFinite(record.updatedAt) ||
     !isTaskStatus(record.status)
   ) {
     return undefined;

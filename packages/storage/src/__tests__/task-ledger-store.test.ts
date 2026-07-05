@@ -187,6 +187,28 @@ describe('TaskLedgerStore', () => {
     assert.equal(JSON.parse(raw).length, 3, 'file must be left untouched');
   });
 
+  it('rejects non-finite timestamps (1e999 -> Infinity) so they cannot round-trip to null and vanish', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    // raw JSON with 1e999, which JSON.parse reads as Infinity; JSON.stringify of
+    // Infinity is null, so writing via JSON.stringify could not reproduce this --
+    // only a hand-edited or legacy file carries it.
+    await writeFile(tasksFilePath(root),
+      '[{"id":"good","subject":"ok","status":"pending","createdAt":1,"updatedAt":1},'
+        + '{"id":"bad-ts","subject":"inf","status":"pending","createdAt":1e999,"updatedAt":1e999}]',
+      'utf8');
+    const store = createTaskLedgerStore(root);
+    // read path drops the non-finite record (render degrades to the valid one)
+    assert.deepEqual((await store.list(SESSION_ID)).map((t) => t.id), ['good']);
+    // mutate path: a create must not round-trip the Infinity to null
+    await store.create(SESSION_ID, [{ subject: 'after' }]);
+    const raw = JSON.parse(await readFile(tasksFilePath(root), 'utf8')) as Array<{ createdAt: unknown; updatedAt: unknown }>;
+    for (const r of raw) {
+      assert.equal(Number.isFinite(r.createdAt), true, `createdAt must stay finite after mutate, got ${JSON.stringify(r)}`);
+      assert.equal(Number.isFinite(r.updatedAt), true, `updatedAt must stay finite after mutate, got ${JSON.stringify(r)}`);
+    }
+  });
+
   it('rejects records with unsafe ids (newline, overlong, empty, whitespace) on read', async () => {
     const root = await tempRoot();
     await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
