@@ -2,7 +2,7 @@
 
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { cn } from "../utils.js";
-import { bareFieldClasses, inputClasses } from "../ui.js";
+import { bareFieldClasses, inputClasses } from "./input.js";
 import type React from "react";
 
 // Base UI NumberField wrappers for the gateway/proxy port inputs that

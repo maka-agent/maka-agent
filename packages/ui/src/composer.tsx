@@ -25,7 +25,8 @@ import {
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
 import type { PermissionMode, ProviderType, SessionSummary } from '@maka/core';
-import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
+import { Button as UiButton } from './ui.js';
+import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { Kbd } from './primitives/kbd.js';
 import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';

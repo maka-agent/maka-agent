@@ -11,7 +11,8 @@ import {
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
-import { Button as UiButton, Input, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
+import { Button as UiButton, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
+import { Input } from './primitives/input.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
 import type { SkillEntry } from './module-panel-types.js';

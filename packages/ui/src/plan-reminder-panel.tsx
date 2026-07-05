@@ -56,15 +56,15 @@ import {
   DialogClose,
   DialogContent,
   DialogRoot,
-  Input,
   Switch,
   TabsList,
   TabsPanel,
   TabsRoot,
   TabsTrigger,
-  Textarea as UiTextarea,
 } from './ui.js';
 import { Badge } from './primitives/badge.js';
+import { Input } from './primitives/input.js';
+import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { Alert, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
