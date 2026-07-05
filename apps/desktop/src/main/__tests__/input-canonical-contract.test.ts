@@ -1,64 +1,87 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Input, Textarea } from '@maka/ui';
-import { REPO_ROOT } from './css-test-helpers.js';
+import { Input, Textarea, InputGroupInput, InputGroupTextarea } from '@maka/ui';
 
-const read = (rel: string) => readFileSync(join(REPO_ROOT, rel), 'utf8');
+// #520 item 22: collapse the dual Input tracks onto one canonical
+// primitives/input.tsx + primitives/textarea.tsx. Behavior contract only —
+// what callers and CSS can observe. No source-regex: if a token moves but the
+// rendered shape is wrong, the behavior assertions catch it; if a token moves
+// but the shape is right, there is nothing to fix.
 
-// #22 PR10: collapse the dual Input tracks onto one canonical
-// primitives/input.tsx. The native ui.tsx Input (single <input> + inputClasses)
-// is retired; primitives/input keeps the same single-<input> shape (no span
-// wrapper, so caller CSS targeting `> input` / `input:focus-visible` still
-// matches) but uses Base UI's Input primitive underneath and ports maka's
-// inputClasses styling as the default chrome so the 44 usages keep their look.
-test('input canonical (#22 PR10)', async () => {
-  const inputSrc = read('packages/ui/src/primitives/input.tsx');
-  const textareaSrc = read('packages/ui/src/primitives/textarea.tsx');
+test('canonical Input: styled renders a single <input> with chrome', () => {
+  const markup = renderToStaticMarkup(createElement(Input, { 'aria-label': 'Named field' }));
+  assert.match(markup, /^<input\b/, 'styled Input must render a single <input>, not a span wrapper');
+  assert.match(markup, /data-slot="input"/, 'Input must carry data-slot="input"');
+  assert.doesNotMatch(markup, /data-maka-field-chrome=/, 'styled Input must not carry the field-chrome opt-out flag');
+  assert.match(markup, /border-input/, 'styled Input chrome must include border-input');
+  assert.match(markup, /focus-visible:ring-2/, 'styled Input chrome must include focus-visible:ring-2');
+});
 
-  // 1. inputClasses + bareFieldClasses ported into primitives/input
-  assert.match(inputSrc, /export const inputClasses/, 'inputClasses must be ported into primitives/input');
-  assert.match(inputSrc, /export const bareFieldClasses/, 'bareFieldClasses must be ported into primitives/input');
+test('canonical Input: unstyled opts out of chrome and stays a single <input>', () => {
+  const markup = renderToStaticMarkup(createElement(Input, { unstyled: true, 'aria-label': 'Bare input' }));
+  assert.match(markup, /^<input\b/, 'unstyled Input must render a single <input>');
+  assert.match(markup, /data-slot="input"/);
+  assert.match(markup, /data-maka-field-chrome="none"/, 'unstyled Input must carry data-maka-field-chrome="none"');
+  assert.doesNotMatch(markup, /border-input/, 'unstyled Input must not carry border-input chrome');
+});
 
-  // 2. no span wrapper — single <input> so caller `> input` CSS still matches
-  assert.doesNotMatch(inputSrc, /data-slot="input-control"/, 'primitives/input must drop the span wrapper (single <input>)');
-  assert.doesNotMatch(textareaSrc, /data-slot="textarea-control"/, 'primitives/textarea must drop the span wrapper (single <textarea>)');
+test('canonical Textarea: styled renders a single <textarea> with chrome', () => {
+  const markup = renderToStaticMarkup(createElement(Textarea, { 'aria-label': 'Prompt' }));
+  assert.match(markup, /^<textarea\b/, 'Textarea must render a single <textarea>, not a span wrapper');
+  assert.match(markup, /data-slot="textarea"/);
+  assert.match(markup, /border-input/, 'styled Textarea chrome must include border-input');
+});
 
-  // 3. default chrome reproduces inputClasses tokens (min-h-9, border-input, ring-2 ring-offset-2)
-  assert.match(inputSrc, /min-h-9/, 'default chrome must keep min-h-9');
-  assert.match(inputSrc, /border-input/, 'default chrome must keep border-input');
-  assert.match(inputSrc, /focus-visible:ring-2/, 'default chrome must keep focus-visible:ring-2');
-  assert.match(inputSrc, /focus-visible:ring-offset-2/, 'default chrome must keep focus-visible:ring-offset-2');
+test('canonical Textarea: unstyled opts out of chrome', () => {
+  const markup = renderToStaticMarkup(createElement(Textarea, { unstyled: true, 'aria-label': 'Bare textarea' }));
+  assert.match(markup, /data-maka-field-chrome="none"/, 'unstyled Textarea must carry data-maka-field-chrome="none"');
+  assert.doesNotMatch(markup, /border-input/, 'unstyled Textarea must not carry border-input chrome');
+});
 
-  // 4. ui.tsx Input/Textarea retired
-  const uiSrc = read('packages/ui/src/ui.tsx');
-  assert.doesNotMatch(uiSrc, /export (function|const) Input\b/, 'ui.tsx Input must be retired');
-  assert.doesNotMatch(uiSrc, /export (function|const) Textarea\b/, 'ui.tsx Textarea must be retired');
+test('InputGroup adapters force the inner control bare even if caller passes unstyled={false}', () => {
+  // InputGroupInput/InputGroupTextarea own the chrome; the inner control must
+  // stay bare so there is no double border / focus ring. A caller passing
+  // unstyled={false} must not re-enable the inner chrome (the spread-then-force
+  // ordering in the adapter guarantees this).
+  const inputMarkup = renderToStaticMarkup(
+    createElement(InputGroupInput, { unstyled: false, type: 'search', 'aria-label': 'Search' }),
+  );
+  assert.match(inputMarkup, /data-maka-field-chrome="none"/, 'InputGroupInput must force data-maka-field-chrome="none"');
+  assert.doesNotMatch(inputMarkup, /border-input/, 'InputGroupInput inner control must not carry border-input chrome');
 
-  // 5. index.ts re-exports primitives/input + primitives/textarea as canonical
-  const indexSrc = read('packages/ui/src/index.ts');
-  assert.match(indexSrc, /primitives\/input\.js/, 'index.ts must re-export primitives/input');
-  assert.match(indexSrc, /primitives\/textarea\.js/, 'index.ts must re-export primitives/textarea');
+  const textareaMarkup = renderToStaticMarkup(
+    createElement(InputGroupTextarea, { unstyled: false, 'aria-label': 'Prompt' }),
+  );
+  assert.match(textareaMarkup, /data-maka-field-chrome="none"/, 'InputGroupTextarea must force data-maka-field-chrome="none"');
+  assert.doesNotMatch(textareaMarkup, /border-input/, 'InputGroupTextarea inner control must not carry border-input chrome');
+});
 
-  // 6. bare-field-chrome: unstyled Input renders a single bare <input>
-  const bareMarkup = renderToStaticMarkup(createElement(Input, { unstyled: true, 'aria-label': 'Search skills' }));
-  assert.match(bareMarkup, /^<input\b/, 'unstyled Input must render a single <input>');
-  assert.match(bareMarkup, /data-maka-field-chrome="none"/, 'unstyled Input must keep data-maka-field-chrome="none"');
-  assert.match(bareMarkup, /data-slot="input"/, 'Input must carry data-slot="input"');
+test('canonical Input: type="search" hides the native WebKit search widgets', () => {
+  // Main's primitives/input always hid the WebKit cancel/decoration/results
+  // widgets for type="search" so the app's own clear button is the single clear
+  // affordance. The unified Input keeps this for both styled and bare (InputGroup)
+  // search inputs.
+  const styledMarkup = renderToStaticMarkup(createElement(Input, { type: 'search', 'aria-label': 'Search' }));
+  // renderToStaticMarkup HTML-encodes `&` as `&amp;`, so match the encoded form.
+  assert.match(styledMarkup, /&amp;::-webkit-search-cancel-button\]:appearance-none/, 'styled type="search" Input must hide the WebKit cancel button');
 
-  // 7. styled Input renders a single <input> with chrome (not a span wrapper)
-  const styledMarkup = renderToStaticMarkup(createElement(Input, { 'aria-label': 'Named field' }));
-  assert.match(styledMarkup, /^<input\b/, 'styled Input must render a single <input>, not a span wrapper');
-  assert.match(styledMarkup, /data-slot="input"/);
-  assert.doesNotMatch(styledMarkup, /data-maka-field-chrome=/, 'styled Input must not carry data-maka-field-chrome');
-  assert.match(styledMarkup, /border-input/, 'styled Input chrome must include border-input');
-  assert.match(styledMarkup, /focus-visible:ring-2/, 'styled Input chrome must include focus-visible:ring-2');
+  const bareMarkup = renderToStaticMarkup(createElement(Input, { unstyled: true, type: 'search', 'aria-label': 'Bare search' }));
+  assert.match(bareMarkup, /&amp;::-webkit-search-cancel-button\]:appearance-none/, 'bare type="search" Input (InputGroup path) must hide the WebKit cancel button');
+});
 
-  // 8. Textarea parallel shape
-  const textareaMarkup = renderToStaticMarkup(createElement(Textarea, { 'aria-label': 'Prompt' }));
-  assert.match(textareaMarkup, /^<textarea\b/, 'Textarea must render a single <textarea>');
-  assert.match(textareaMarkup, /data-slot="textarea"/);
+test('canonical Input: type="text" does not carry the WebKit search reset', () => {
+  const markup = renderToStaticMarkup(createElement(Input, { type: 'text', 'aria-label': 'Plain' }));
+  assert.doesNotMatch(markup, /webkit-search-cancel-button/, 'type="text" Input must not carry the WebKit search reset');
+});
+
+test('barrel re-exports the canonical Input/Textarea/InputGroup adapters', () => {
+  // Smoke: importing from @maka/ui resolves to the canonical primitives, not a
+  // stale ui.tsx re-export. If the barrel pointed at ui.tsx (retired Input), this
+  // import would either fail or resolve to a different component shape.
+  assert.strictEqual(typeof Input, 'function', 'Input must be re-exported from @maka/ui');
+  assert.strictEqual(typeof Textarea, 'function', 'Textarea must be re-exported from @maka/ui');
+  assert.strictEqual(typeof InputGroupInput, 'function', 'InputGroupInput must be re-exported from @maka/ui');
+  assert.strictEqual(typeof InputGroupTextarea, 'function', 'InputGroupTextarea must be re-exported from @maka/ui');
 });

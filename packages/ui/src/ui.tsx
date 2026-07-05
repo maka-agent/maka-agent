@@ -114,7 +114,7 @@ export const Button = forwardRef<HTMLElement, ButtonProps>(function Button(
   );
 });
 
-// #22 PR10: Input, Textarea, inputClasses, bareFieldClasses retired onto
+// #520 item 22: Input, Textarea, inputClasses, bareFieldClasses retired onto
 // packages/ui/src/primitives/input.tsx + primitives/textarea.tsx (Base UI
 // Input + ported chrome, single element, no span wrapper). Re-exported from
 // the barrel via index.ts; number-field imports inputClasses/bareFieldClasses

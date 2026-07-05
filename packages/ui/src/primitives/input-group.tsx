@@ -94,12 +94,15 @@ export function InputGroupInput({
   className,
   ...props
 }: InputProps): React.ReactElement {
-  return <Input className={className} unstyled {...props} data-maka-field-chrome="none" />;
+  // Spread props first so a caller's `unstyled={false}` cannot re-enable
+  // the inner chrome (would double the border / focus ring). The InputGroup
+  // owns the chrome; the inner control stays bare.
+  return <Input {...props} className={className} unstyled data-maka-field-chrome="none" />;
 }
 
 export function InputGroupTextarea({
   className,
   ...props
 }: TextareaProps): React.ReactElement {
-  return <Textarea className={className} unstyled {...props} data-maka-field-chrome="none" />;
+  return <Textarea {...props} className={className} unstyled data-maka-field-chrome="none" />;
 }

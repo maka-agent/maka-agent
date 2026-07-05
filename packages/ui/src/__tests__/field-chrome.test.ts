@@ -6,7 +6,7 @@ import { Input } from '../primitives/input.js';
 import { Textarea } from '../primitives/textarea.js';
 import { InputGroup, InputGroupInput, InputGroupTextarea } from '../primitives/input-group.js';
 
-// #22 PR10: primitives/input + primitives/textarea are the canonical fields
+// #520 item 22: primitives/input + primitives/textarea are the canonical fields
 // (the native ui.tsx Input/Textarea retired onto them). unstyled renders a
 // bare single <input>/<textarea> carrying the field-chrome opt-out flag, and
 // the InputGroup adapters explicitly opt their inner fields out so the

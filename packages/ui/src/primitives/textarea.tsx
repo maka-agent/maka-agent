@@ -4,7 +4,7 @@ import { cn } from "../utils.js";
 import { bareFieldClasses, inputClasses } from "./input.js";
 import type * as React from "react";
 
-// #22 PR10: canonical Textarea, parallel to primitives/input. Retires the
+// #520 item 22: canonical Textarea, parallel to primitives/input. Retires the
 // native ui.tsx Textarea. Stays a single <textarea> (no span wrapper, no Base
 // UI Field.Control) so caller CSS targeting `> textarea` / `textarea:focus-
 // visible` still matches. Base UI ships no Textarea component, so this is a
