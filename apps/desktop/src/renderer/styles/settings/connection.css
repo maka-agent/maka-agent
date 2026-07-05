@@ -6,7 +6,7 @@
     border-radius: var(--radius-surface);
     border: var(--border-width-hairline) solid var(--border);
     background: var(--foreground-2);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
 .settingsConnectionRow[data-status="verified"] {
     border-color: oklch(from var(--success) l c h / 0.24);
@@ -172,7 +172,7 @@
     border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
     background: var(--foreground-3);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
 .settingsAuthContractText {
     display: grid;

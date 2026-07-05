@@ -584,8 +584,8 @@
   border-radius: var(--radius-modal);
   background: var(--background);
   box-shadow:
-    0 24px 58px oklch(0 0 0 / 0.18),
-    0 8px 18px oklch(0 0 0 / 0.10);
+    0 24px 58px oklch(from var(--foreground) l c h / 0.18),
+    0 8px 18px oklch(from var(--foreground) l c h / 0.10);
   padding: var(--space-4);
 }
 
