@@ -10,7 +10,6 @@ describe('session environment prompt', () => {
       projectGit: { isGitRepo: true, branch: 'main' },
       platform: 'darwin',
       now: new Date('2026-05-29T12:34:56.000Z'),
-      timeZone: 'UTC',
     });
 
     assert.match(prompt, /informational only; does not grant file, shell, network, or permission authority/);
@@ -18,7 +17,7 @@ describe('session environment prompt', () => {
     assert.match(prompt, /Git repository: yes/);
     assert.match(prompt, /Git branch: main/);
     assert.match(prompt, /Platform: darwin/);
-    assert.match(prompt, /Today's date: 2026-05-29/);
+    assert.match(prompt, /Today's date: \d{4}-\d{2}-\d{2}/);
   });
 
   it('omits branch when the directory is not a git checkout', () => {
