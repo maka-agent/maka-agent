@@ -4,11 +4,10 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
 import { effectiveBaseUrl, type LlmConnection } from '@maka/core/llm-connections';
+import { anthropicV1BaseUrl, googleV1BetaBaseUrl } from './provider-urls.js';
 import {
-  anthropicV1BaseUrl,
   claudeSubscriptionHeaders,
   codexSubscriptionHeaders,
-  googleV1BetaBaseUrl,
 } from './subscription-auth.js';
 
 export interface ModelFactoryInput {
@@ -74,9 +73,8 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
     }
 
     case 'google':
-      // Normalize the base URL to /v1beta (googleV1BetaBaseUrl) so a baseUrl
-      // override omitting `/v1beta` sends to `<root>/v1beta/models/{model}`
-      // instead of 404ing, matching the probe/model-fetch paths.
+      // Normalize to /v1beta so a baseUrl override omitting it still hits
+      // `<root>/v1beta/models/{model}` instead of 404ing.
       return createGoogleGenerativeAI({ apiKey, baseURL: googleV1BetaBaseUrl(baseURL) }).chat(modelId);
 
     case 'deepseek':

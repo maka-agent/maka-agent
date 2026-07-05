@@ -6,7 +6,8 @@ import {
 } from '@maka/core/llm-connections';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import { proxiedFetch } from './bots/proxied-fetch.js';
-import { anthropicV1Url, claudeSubscriptionHeaders, googleApiUrl } from './subscription-auth.js';
+import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
+import { claudeSubscriptionHeaders } from './subscription-auth.js';
 
 const MODEL_FETCH_TIMEOUT_MS = 10_000;
 

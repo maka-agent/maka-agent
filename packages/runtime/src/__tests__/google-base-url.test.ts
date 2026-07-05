@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
-import { googleApiUrl, googleV1BetaBaseUrl } from '../subscription-auth.js';
+import { googleApiUrl, googleV1BetaBaseUrl } from '../provider-urls.js';
 
 describe('googleV1BetaBaseUrl', () => {
   // Force a single /v1beta suffix so a bare-root override self-heals and an

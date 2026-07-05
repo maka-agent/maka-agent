@@ -5,7 +5,8 @@ import {
   type LlmConnection,
 } from '@maka/core/llm-connections';
 import { proxiedFetch } from './bots/proxied-fetch.js';
-import { anthropicV1Url, claudeSubscriptionHeaders, googleApiUrl } from './subscription-auth.js';
+import { anthropicV1Url, googleApiUrl } from './provider-urls.js';
+import { claudeSubscriptionHeaders } from './subscription-auth.js';
 
 const CONNECTION_TEST_TIMEOUT_MS = 15_000;
 
