@@ -81,7 +81,7 @@ describe('task ledger tools', () => {
   test('TaskUpdate schema rejects ids that are not stable tokens and accepts UUID-shaped / simple ids', () => {
     const update = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_UPDATE_TOOL_NAME);
     const params = update.parameters as z.ZodType;
-    const reject = ['a<task-ledger/>b', 'abc\ndef', 'a b', 'X'.repeat(5000), ''];
+    const reject = ['a<task-ledger/>b', 'abc\ndef', 'a b', 'X'.repeat(5000), '', 'ghp_abcdefghijklmnopqrstuvwxyz', 'sk-abcdefghi', 'a'.repeat(40)];
     for (const id of reject) {
       assert.equal(params.safeParse({ id, status: 'completed' }).success, false, `id ${JSON.stringify(id)} must be rejected`);
     }

@@ -78,7 +78,15 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
  * every such character without coupling to the UUID format.
  */
 export function isSafeTaskId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value);
+  // Stable token (alphanumeric plus . _ : -, 1-64 chars) AND redaction-stable:
+  // the renderer runs redactSecrets over the whole formatted list, including
+  // the id, so a secret-shaped id (ghp_..., sk-..., a 40-char hex, AIza...) would
+  // render as (id: [redacted]) while the store holds the real id, and a later
+  // TaskUpdate on [redacted] would miss. Requiring redactSecrets(id) === id
+  // keeps the rendered id and the stored id identical.
+  return typeof value === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value)
+    && redactSecrets(value) === value;
 }
 
 export function normalizeTaskSubject(input: unknown): TaskLedgerNormalizeResult<string> {
@@ -155,7 +163,7 @@ export function formatTaskLedgerList(tasks: readonly Task[]): string {
  * are left intact. Returns '' for an empty ledger.
  */
 export function renderSafeTaskLedgerText(tasks: readonly Task[]): string {
-  return redactSecrets(formatTaskLedgerList(tasks)).replace(/<\/?task-ledger[^>]*>/gi, '');
+  return redactSecrets(formatTaskLedgerList(tasks)).replace(/<\/?task-ledger[^\n>]*>/gi, '');
 }
 
 function invalid<T extends TaskLedgerNormalizeErrorReason>(
