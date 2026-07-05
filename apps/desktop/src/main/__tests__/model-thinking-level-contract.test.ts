@@ -10,7 +10,7 @@ async function readChatModelSwitcherSource(): Promise<string> {
 }
 
 describe('model thinking-level picker contract', () => {
-  it('labels GPT thinking efforts as low/medium/high/xhigh in Chinese', async () => {
+  it('labels thinking efforts in Chinese', async () => {
     const source = await readChatModelSwitcherSource();
 
     assert.match(source, /minimal:\s*'最小'/, 'minimal reasoning effort should render as 最小');
@@ -21,79 +21,51 @@ describe('model thinking-level picker contract', () => {
     assert.match(source, /max:\s*'最高'/, 'max reasoning effort should render as 最高');
   });
 
-  it('commits flyout choices on pointerdown before the host select can dismiss the portal', async () => {
+  it('renders the side flyout as a Base UI Menu anchored to the row', async () => {
     const source = await readChatModelSwitcherSource();
 
-    assert.match(source, /function ThinkingFlyoutItem/, 'ThinkingFlyoutItem must remain the flyout choice seam');
-    assert.match(
-      source,
-      /onPointerDownCapture=\{\(event\) => \{[\s\S]*closest<HTMLButtonElement>\('\[data-thinking-level\]'\)[\s\S]*event\.preventDefault\(\);[\s\S]*event\.stopPropagation\(\);[\s\S]*choose\([\s\S]*\);[\s\S]*\}\}/,
-      'thinking-level flyout must commit during capture before stopping propagation because the portaled host Select can dismiss the flyout before click fires',
-    );
-    assert.match(
-      source,
-      /data-thinking-level=\{props\.level \?\? 'default'\}/,
-      'thinking-level flyout items must expose their level to the capture boundary that commits real pointer selections',
-    );
-    assert.match(
-      source,
-      /onClick=\{\(event\) => \{[\s\S]*event\.detail === 0[\s\S]*props\.onSelect\(\);[\s\S]*\}\}/,
-      'thinking-level flyout items must keep keyboard/screen-reader activation via click without double-firing pointer selections',
-    );
-    assert.doesNotMatch(
-      source,
-      /onClick=\{props\.onSelect\}/,
-      'thinking-level flyout choices must not depend on a bare click handler; real pointer clicks lose click when the host Select closes first',
-    );
+    // The flyout is a Base UI Menu (not a hand-rolled portaled div): MenuRoot
+    // owns open state, MenuTrigger render-props the row so it stays the visible
+    // button inside the host Select popup, MenuPopup is the portaled flyout,
+    // and levels are MenuItems. floating-ui handles positioning/stacking/dismiss.
+    assert.match(source, /<Menu\s+open=\{open\}\s+onOpenChange=\{setOpen\}>/, 'flyout must be a controlled Base UI Menu');
+    assert.match(source, /<MenuTrigger[\s\S]*?render=\{\(triggerProps\) =>/, 'trigger must render-prop the row div');
+    assert.match(source, /<MenuPopup\s+className="maka-thinking-flyout"/, 'flyout popup uses MenuPopup');
+    assert.match(source, /<MenuItem[\s\S]*?onClick=\{\(\) => choose\(/, 'levels render as MenuItems that call choose');
+    // No hand-rolled positioning/commit hacks remain — Menu handles them.
+    assert.doesNotMatch(source, /onPointerDownCapture/, 'no pointerdown commit hack — Menu handles dismiss');
+    assert.doesNotMatch(source, /THINKING_FLYOUT_VIEWPORT_MARGIN/, 'no hand-rolled viewport clamp — floating-ui positions');
+    assert.doesNotMatch(source, /createPortal/, 'no manual portal — MenuPortal does it');
   });
 
   it('closes the host model menu after a thinking-level choice commits', async () => {
     const source = await readChatModelSwitcherSource();
 
+    assert.match(source, /onCommit\?\(\): void;/, 'ThinkingLevelSection must expose a commit hook');
     assert.match(
       source,
-      /onCommit\?\(\): void;/,
-      'ThinkingLevelSection must expose a commit hook so the host Select can close after a level is chosen',
-    );
-    assert.match(
-      source,
-      /const choose = \(level: ThinkingLevel \| undefined\) => \{[\s\S]*setOpen\(false\);[\s\S]*props\.onCommit\?\.\(\);[\s\S]*void props\.onChange\?\.\(level\);[\s\S]*\};/,
-      'thinking-level choices must close both the side flyout and the host model Select before dispatching the change',
+      /const choose = \(level: ThinkingLevel \| undefined\) => \{[\s\S]*props\.onCommit\?\.\(\);[\s\S]*void props\.onChange\?\.\(level\);[\s\S]*\};/,
+      'choose commits then dispatches the change; the Menu closes itself via onOpenChange',
     );
 
-    const thinkingLevelSections = source.match(/<ThinkingLevelSection[\s\S]*?\/>/g) ?? [];
-    assert.equal(thinkingLevelSections.length, 2, 'both the session switcher and new-chat picker should render ThinkingLevelSection');
-    for (const section of thinkingLevelSections) {
+    const sections = source.match(/<ThinkingLevelSection[\s\S]*?\/>/g) ?? [];
+    assert.equal(sections.length, 2, 'both the session switcher and new-chat picker render ThinkingLevelSection');
+    for (const section of sections) {
       assert.match(
         section,
         /onCommit=\{\(\) => setSelectOpen\(false\)\}/,
-        'each ThinkingLevelSection caller must close its owning SelectRoot after a thinking-level choice',
+        'each caller closes its owning SelectRoot after a thinking-level choice',
       );
     }
   });
 
-  it('keeps the thinking-level flyout inside the viewport when opened near the bottom edge', async () => {
+  it('closes the flyout when the host Select closes', async () => {
     const source = await readChatModelSwitcherSource();
 
     assert.match(
       source,
-      /const THINKING_FLYOUT_VIEWPORT_MARGIN = 8;/,
-      'thinking-level flyout positioning must reserve a viewport edge margin',
-    );
-    assert.match(
-      source,
-      /const flyoutRef = useRef<HTMLDivElement>\(null\);/,
-      'thinking-level flyout must keep a ref so it can measure its rendered height',
-    );
-    assert.match(
-      source,
-      /window\.innerHeight[\s\S]*flyoutRef\.current\?\.offsetHeight[\s\S]*viewportHeight - THINKING_FLYOUT_VIEWPORT_MARGIN - renderedHeight[\s\S]*Math\.min\(row\.top, bottomSafeTop\)/,
-      'thinking-level flyout top must be clamped against the measured rendered height and viewport bottom',
-    );
-    assert.match(
-      source,
-      /style=\{\{[\s\S]*top: anchor\.top,[\s\S]*maxHeight: anchor\.maxHeight,[\s\S]*overflowY: 'auto'[\s\S]*\}\}/,
-      'thinking-level flyout must cap its height and scroll if the viewport cannot fit every level',
+      /if \(!props\.parentOpen\) setOpen\(false\)/,
+      'flyout must close when the host Select closes so the portaled Menu is not orphaned',
     );
   });
 });
