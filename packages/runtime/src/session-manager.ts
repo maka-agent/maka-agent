@@ -643,6 +643,7 @@ export class SessionManager {
       backend: header.backend,
       llmConnectionSlug: header.llmConnectionSlug,
       model: header.model,
+      thinkingLevel: header.thinkingLevel,
       permissionMode: header.permissionMode,
       name: input.name ?? `${header.name} · 分支`,
       labels: header.labels,

@@ -13,6 +13,7 @@ import {
   healthSignalFromConnectionRuntime,
   isPermissionMode,
   isThinkingLevel,
+  thinkingVariantsForModel,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -29,6 +30,7 @@ import type {
   SessionEvent,
   SessionHeader,
   SessionListFilter,
+  ThinkingLevel,
   StoredMessage,
   SettingsTestResult,
   UpdateAppSettingsResult,
@@ -91,7 +93,7 @@ import type {
 } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
-import type { LlmConnection } from '@maka/core/llm-connections';
+import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
 import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
@@ -1042,12 +1044,14 @@ function registerIpc(): void {
 
     const requestedSlug = input?.llmConnectionSlug ?? (await connectionStore.getDefault());
     const { connection, model } = await getReadyConnection(requestedSlug, input?.model);
+    const thinkingLevel = normalizeSupportedSessionThinkingLevel(input?.thinkingLevel, connection.providerType, model);
 
     const session = await runtime.createSession({
       cwd,
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
       model,
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
       name: input?.name ?? 'New Chat',
       labels: input?.labels,
@@ -1230,10 +1234,6 @@ function registerIpc(): void {
     return next;
   });
   ipcMain.handle('sessions:setThinkingLevel', async (_event, sessionId: string, input: unknown) => {
-    const thinkingLevel = input === undefined || input === null ? undefined : input;
-    if (thinkingLevel !== undefined && !isThinkingLevel(thinkingLevel)) {
-      throw new Error(`Invalid thinking level: ${String(input)}`);
-    }
     const header = await store.readHeader(sessionId);
     if (header.status === 'running') {
       throw new Error('当前对话正在运行，等结束后再切换思考级别。');
@@ -1241,7 +1241,12 @@ function registerIpc(): void {
     if (header.status === 'waiting_for_user') {
       throw new Error('当前有工具调用正在等待确认，处理后再切换思考级别。');
     }
-    const next = await runtime.updateSession(sessionId, thinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel });
+    const connection = await connectionStore.get(header.llmConnectionSlug);
+    if (!connection) {
+      throw new Error(`Unknown connection: ${header.llmConnectionSlug}`);
+    }
+    const nextThinkingLevel = normalizeSupportedSessionThinkingLevel(input, connection.providerType, header.model);
+    const next = await runtime.updateSession(sessionId, nextThinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel: nextThinkingLevel });
     emitSessionsChanged('updated', sessionId);
     return next;
   });
@@ -1565,6 +1570,22 @@ const readyConnectionDeps = {
 
 function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
+}
+
+function normalizeSupportedSessionThinkingLevel(
+  input: unknown,
+  providerType: ProviderType,
+  model: string,
+): ThinkingLevel | undefined {
+  const thinkingLevel = input === undefined || input === null ? undefined : input;
+  if (thinkingLevel === undefined) return undefined;
+  if (!isThinkingLevel(thinkingLevel)) {
+    throw new Error(`Invalid thinking level: ${String(input)}`);
+  }
+  if (!thinkingVariantsForModel(providerType, model).includes(thinkingLevel)) {
+    throw new Error(`当前模型不支持思考级别：${thinkingLevel}`);
+  }
+  return thinkingLevel;
 }
 
 /**
