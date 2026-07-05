@@ -424,6 +424,11 @@ let lookupPricing = buildPricingLookup();
 // same readiness during reconnect attempts).
 const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
+// botIncoming is wired at module load, before registerIpc() defines the
+// current-project-root resolver. registerIpc reassigns this once the resolver
+// exists; until then the launch directory is the safe fallback. Unifying
+// project-root resolution is tracked as a follow-up.
+let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
 const botRegistry = new BotRegistry({
   onIncomingMessage: (message) => {
     // Only log incoming bot messages in dev — production stdout leaking
@@ -684,7 +689,7 @@ const dailyReview = createDailyReviewMainService({
 botIncoming = createBotIncomingMainService({
   runtime,
   botRegistry,
-  cwd: () => process.cwd(),
+  getCurrentProjectRoot: () => resolveCurrentProjectRoot(),
   getDefaultConnectionSlug: () => connectionStore.getDefault(),
   getReadyConnection,
   readSessionHeader: (sessionId) => store.readHeader(sessionId),
@@ -839,6 +844,7 @@ function registerIpc(): void {
     }
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
   }
+  resolveCurrentProjectRoot = currentProjectRoot;
 
   async function resolveExplicitProjectRoot(projectPath: unknown): Promise<
     | { ok: true; projectPath: string }

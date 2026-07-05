@@ -46,7 +46,7 @@ export interface BotIncomingMainService {
 interface BotIncomingMainServiceDeps {
   runtime: SessionManager;
   botRegistry: BotRegistry;
-  cwd(): string;
+  getCurrentProjectRoot(): Promise<string>;
   getDefaultConnectionSlug(): Promise<string | null>;
   getReadyConnection(
     slug: string | null | undefined,
@@ -235,7 +235,7 @@ export function createBotIncomingMainService(deps: BotIncomingMainServiceDeps): 
         }
         const ready = await deps.getReadyConnection(await deps.getDefaultConnectionSlug(), undefined);
         const summary = await deps.runtime.createSession({
-          cwd: deps.cwd(),
+          cwd: await deps.getCurrentProjectRoot(),
           backend: 'ai-sdk',
           llmConnectionSlug: ready.connection.slug,
           model: ready.model,
