@@ -9,6 +9,7 @@ import {
   Check,
   Copy,
   GitBranch,
+  Loader2,
   RefreshCcw,
   Repeat,
   Sparkles,
@@ -20,11 +21,12 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
-import { DialogClose, DialogContent, DialogRoot } from './ui.js';
+import { DialogContent, DialogRoot } from './ui.js';
 import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
+import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
@@ -693,14 +695,6 @@ export function ChatView(props: {
  * Memoized because chat scroll re-renders the whole list on every streaming
  * delta; this keeps already-final bubbles from re-parsing markdown.
  */
-const ATTACHMENT_KIND_LABEL: Record<AttachmentRef['kind'], string> = {
-  image: '🖼',
-  pdf: '📄',
-  doc: '📘',
-  code: '💻',
-  other: '📎',
-};
-
 function AttachmentImage(props: { attachment: AttachmentRef }) {
   const [src, setSrc] = useState<string | undefined>(undefined);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -730,8 +724,8 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
   }, [props.attachment]);
   if (!src) {
     return (
-      <span className="maka-user-attachment-thumb maka-user-attachment-thumb-pending" aria-hidden="true">
-        {ATTACHMENT_KIND_LABEL.image}
+      <span className="maka-user-attachment-thumb-pending h-32 w-32 rounded-lg border border-border bg-muted grid place-items-center text-muted-foreground/60" aria-hidden="true">
+        <Loader2 className="h-5 w-5 animate-spin" />
       </span>
     );
   }
@@ -739,18 +733,15 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
     <>
       <button
         type="button"
-        className="maka-user-attachment-thumb-button"
+        className="group relative inline-flex rounded-lg overflow-hidden border border-border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={() => setLightboxOpen(true)}
         aria-label={`查看图片 ${props.attachment.name}`}
       >
-        <img className="maka-user-attachment-thumb" src={src} alt={props.attachment.name} />
+        <img className="h-32 w-32 object-cover transition group-hover:opacity-90" src={src} alt={props.attachment.name} />
       </button>
       <DialogRoot open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent className="maka-attachment-lightbox">
-          <img className="maka-attachment-lightbox-image" src={src} alt={props.attachment.name} />
-          <DialogClose className="maka-attachment-lightbox-close" aria-label="关闭">
-            关闭
-          </DialogClose>
+        <DialogContent className="!w-auto !max-w-[90vw] !max-h-[90vh] !bg-transparent !p-0 !shadow-none !rounded-lg overflow-visible">
+          <img className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl" src={src} alt={props.attachment.name} />
         </DialogContent>
       </DialogRoot>
     </>
@@ -771,15 +762,17 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
         <Bubble variant="user">
           <span>{props.text}</span>
           {props.attachments && props.attachments.length > 0 ? (
-            <div className="maka-user-attachments">
+            <div className="maka-user-attachments flex flex-wrap gap-1.5 mt-2">
               {props.attachments.map((attachment, index) => (
                 attachment.kind === 'image' ? (
                   <AttachmentImage key={`${attachment.name}-${index}`} attachment={attachment} />
                 ) : (
-                  <span key={`${attachment.name}-${index}`} className="maka-user-attachment-chip" data-kind={attachment.kind}>
-                    <span className="maka-user-attachment-kind" aria-hidden="true">{ATTACHMENT_KIND_LABEL[attachment.kind]}</span>
-                    <span className="maka-user-attachment-name">{attachment.name}</span>
-                  </span>
+                  <AttachmentFileCard
+                    key={`${attachment.name}-${index}`}
+                    name={attachment.name}
+                    kind={attachment.kind}
+                    size={attachment.bytes}
+                  />
                 )
               ))}
             </div>

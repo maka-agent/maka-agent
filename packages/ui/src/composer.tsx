@@ -26,6 +26,7 @@ import {
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
+import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
 import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
@@ -111,7 +112,7 @@ export const Composer = forwardRef<
     onStop(): void | Promise<void>;
     onPickAttachments?(): void | Promise<void>;
     onAttachFilePaths?(files: File[]): void | Promise<void>;
-    pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string }[];
+    pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
     onRemoveAttachment?(index: number): void;
     modelLabel?: string;
     activeSession?: SessionSummary;
@@ -529,25 +530,15 @@ export const Composer = forwardRef<
         data-streaming={props.streaming ? 'true' : undefined}
       >
         {props.pendingAttachments && props.pendingAttachments.length > 0 ? (
-          <div className="maka-composer-attachments">
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
             {props.pendingAttachments.map((attachment, index) => (
-              <span
+              <AttachmentFileCard
                 key={`${attachment.displayName}-${index}`}
-                className="maka-composer-attachment-chip"
-                data-kind={attachment.kind}
-              >
-                <span className="maka-composer-attachment-name">{attachment.displayName}</span>
-                {props.onRemoveAttachment ? (
-                  <button
-                    type="button"
-                    className="maka-composer-attachment-remove"
-                    aria-label={`移除 ${attachment.displayName}`}
-                    onClick={() => props.onRemoveAttachment?.(index)}
-                  >
-                    ×
-                  </button>
-                ) : null}
-              </span>
+                name={attachment.displayName}
+                kind={attachment.kind}
+                size={attachment.size}
+                onRemove={props.onRemoveAttachment ? () => props.onRemoveAttachment?.(index) : undefined}
+              />
             ))}
           </div>
         ) : null}
