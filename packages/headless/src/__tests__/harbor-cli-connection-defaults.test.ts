@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, test, afterEach } from 'node:test';
-import { applyConnectionDefaults } from '../harbor-cli.js';
+import { applyConnectionDefaults, resolveHarborRunOptions } from '../harbor-cli.js';
 
 /**
  * Tests for applyConnectionDefaults — the function that reads
@@ -51,6 +51,21 @@ describe('applyConnectionDefaults', () => {
     assert.equal(env.MAKA_MODEL, 'anthropic/claude-sonnet-4-20250514');
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, 'harbor-anthropic');
     assert.equal(env.MAKA_BASE_URL, 'http://127.0.0.1:8537');
+  });
+
+  test('sets MAKA_CREDENTIALS_PATH to credentials.json next to the connections file (cross-platform no-env)', () => {
+    // credentials.json lives next to llm-connections.json in the workspace.
+    // Without this, readStoredMakaApiKey falls back to the macOS-only path and
+    // Windows/Linux users can read the default connection but not its API key.
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+      ],
+    });
+    const env: Record<string, string | undefined> = { MAKA_CONNECTIONS_PATH: connectionsPath };
+    applyConnectionDefaults(env);
+    assert.equal(env.MAKA_CREDENTIALS_PATH, join(dirname(connectionsPath), 'credentials.json'));
   });
 
   test('MAKA_MODEL already set → no override', () => {
@@ -378,5 +393,46 @@ describe('applyConnectionDefaults', () => {
     assert.equal(env.MAKA_MODEL, undefined);
     assert.equal(env.MAKA_LLM_CONNECTION_SLUG, undefined);
     assert.equal(env.MAKA_BASE_URL, undefined);
+  });
+});
+
+describe('resolveHarborRunOptions backend guard', () => {
+  test('--backend fake flag skips applyConnectionDefaults (no desktop connection pollution)', async () => {
+    // cliEnv does not forward the --backend flag into env.MAKA_BACKEND, so the
+    // in-function guard inside applyConnectionDefaults only covers the
+    // MAKA_BACKEND env-var path. resolveHarborRunOptions must resolve backend
+    // first and skip applyConnectionDefaults for non-ai-sdk backends.
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+      ],
+    });
+    const opts = await resolveHarborRunOptions(
+      ['--backend', 'fake', '--instruction', 'test'],
+      { MAKA_CONNECTIONS_PATH: connectionsPath },
+    );
+    assert.equal(opts.backend, 'fake');
+    assert.equal(opts.env.MAKA_MODEL, undefined, 'desktop default connection must not pollute fake backend');
+    assert.equal(opts.env.MAKA_LLM_CONNECTION_SLUG, undefined);
+  });
+
+  test('--api-key-file infers provider from the default connection (anthropic, not deepseek)', async () => {
+    // applyApiKeyFile runs after applyConnectionDefaults, so its provider
+    // inference must use the resolved MAKA_MODEL (anthropic), not a hardcoded
+    // default. Without the ordering, --api-key-file would write
+    // DEEPSEEK_API_KEY_FILE for an anthropic default connection.
+    const connectionsPath = makeTempConnections({
+      defaultSlug: 'harbor-anthropic',
+      connections: [
+        { slug: 'harbor-anthropic', providerType: 'anthropic', defaultModel: 'claude-sonnet-4-20250514', baseUrl: 'http://127.0.0.1:8537', enabled: true },
+      ],
+    });
+    const opts = await resolveHarborRunOptions(
+      ['--instruction', 'test', '--api-key-file', '/tmp/key', '--isolation', 'harbor-local'],
+      { MAKA_CONNECTIONS_PATH: connectionsPath },
+    );
+    assert.equal(opts.env.ANTHROPIC_API_KEY_FILE, '/tmp/key');
+    assert.equal(opts.env.DEEPSEEK_API_KEY_FILE, undefined);
   });
 });
