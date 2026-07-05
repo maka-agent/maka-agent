@@ -142,6 +142,7 @@ import {
   validateRendererAttachments,
   type AttachmentValidationFailureReason,
 } from './attachment-approval.js';
+import { createAttachmentByteReader } from './attachment-reader.js';
 import {
   readFolderOutlinesForPromptImport,
   readDroppedTextFilesForPromptImport,
@@ -619,6 +620,7 @@ backends.register('ai-sdk', async (ctx) => {
     recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
     archiveToolResult: (event) => persistArchivedToolResult(event),
     readToolResultArchive: (event) => readArchivedToolResult(event),
+    readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {

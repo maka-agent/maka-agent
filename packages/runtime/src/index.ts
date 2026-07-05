@@ -35,6 +35,7 @@ export type {
   AgentBackend,
   AiSdkBackendInput,
   AppendMessageFn,
+  AttachmentByteReader,
   MakaTool,
   MakaToolContext,
   ModelFactory,

@@ -915,3 +915,6 @@ export {
   isQuickChatMode,
   normalizeQuickChatMode,
 } from './explore-agent.js';
+
+// attachments.ts
+export { attachmentKindFromMimeType } from './attachments.js';
