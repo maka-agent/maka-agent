@@ -3,8 +3,7 @@ import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
-import { Badge, Button as UiButton, Checkbox, DialogContent, DialogRoot } from './ui.js';
-import { useModalA11y } from './modal-a11y.js';
+import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
@@ -42,12 +41,9 @@ export function PermissionDialog(props: {
   const [rememberForTurn, setRememberForTurn] = useState(false);
   const [responsePending, setResponsePending] = useState(false);
   const [now, setNow] = useState(() => Date.now());
-  const dialogRef = useRef<HTMLDivElement>(null);
   const responsePendingRef = useRef(false);
   const permissionMountedRef = useRef(true);
   const activePermissionRequestIdRef = useRef(props.request.requestId);
-  // No onEscape — a permission request requires an explicit allow/deny decision.
-  useModalA11y(dialogRef);
 
   useEffect(() => {
     permissionMountedRef.current = true;
@@ -103,11 +99,9 @@ export function PermissionDialog(props: {
   const waitLabel = formatPermissionRequestWait(health.ageMs);
 
   return (
-    <DialogRoot open disablePointerDismissal>
-      <DialogContent
-        ref={dialogRef}
+    <AlertDialogRoot defaultOpen onOpenChange={(open, details) => { if (!open) details.cancel(); }}>
+      <AlertDialogContent
         className="maka-modal permissionDialog w-[min(92vw,720px)] p-0"
-        role="alertdialog"
         aria-labelledby="permissionTitle"
         data-tone={preset.tone}
         showClose={false}
@@ -182,8 +176,8 @@ export function PermissionDialog(props: {
             {responsePending ? '正在提交…' : isDestructive ? '我已确认，允许' : '允许'}
           </UiButton>
         </div>
-      </DialogContent>
-    </DialogRoot>
+      </AlertDialogContent>
+    </AlertDialogRoot>
   );
 }
 

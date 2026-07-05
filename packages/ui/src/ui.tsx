@@ -2,6 +2,7 @@ import React, { forwardRef } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { Checkbox as BaseCheckbox } from '@base-ui/react/checkbox';
 import { Dialog as BaseDialog } from '@base-ui/react/dialog';
+import { AlertDialog as BaseAlertDialog } from '@base-ui/react/alert-dialog';
 import { Field as BaseField } from '@base-ui/react/field';
 import { Progress as BaseProgress } from '@base-ui/react/progress';
 import { Radio as BaseRadio } from '@base-ui/react/radio';
@@ -250,6 +251,69 @@ export const DialogContent = forwardRef<
         {children}
       </DialogPopup>
     </DialogPortal>
+  );
+});
+
+// AlertDialog — same shape as Dialog, but the alert variant locks modal +
+// disables pointer dismissal, so confirm/permission dialogs require an
+// explicit decision. Escape is NOT auto-disabled (Base UI alert-dialog still
+// closes on Esc); callers that must not be Esc-dismissed intercept onOpenChange
+// and cancel. PR6 (#520).
+const AlertDialogPortal = BaseAlertDialog.Portal;
+
+const AlertDialogBackdrop = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseAlertDialog.Backdrop>>(function AlertDialogBackdrop(
+  { className, ...props },
+  ref,
+) {
+  return (
+    <BaseAlertDialog.Backdrop
+      ref={ref}
+      className={cn('maka-dialog-backdrop fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm', className)}
+      {...props}
+    />
+  );
+});
+
+const AlertDialogPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseAlertDialog.Popup>>(function AlertDialogPopup(
+  { className, children, ...props },
+  ref,
+) {
+  return (
+    <BaseAlertDialog.Popup
+      ref={ref}
+      className={cn(
+        'fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[min(92vw,640px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-maka-panel',
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </BaseAlertDialog.Popup>
+  );
+});
+
+export const AlertDialogRoot = BaseAlertDialog.Root;
+const AlertDialogClose = BaseAlertDialog.Close;
+
+export const AlertDialogContent = forwardRef<
+  HTMLDivElement,
+  React.ComponentPropsWithoutRef<typeof AlertDialogPopup> & { showClose?: boolean }
+>(function AlertDialogContent({ className, children, showClose, ...props }, ref) {
+  return (
+    <AlertDialogPortal>
+      <AlertDialogBackdrop />
+      <AlertDialogPopup ref={ref} className={className} {...props}>
+        {showClose && (
+          <AlertDialogClose
+            className={cn(buttonVariants({ variant: 'quiet', size: 'icon-sm' }), 'absolute right-3 top-3')}
+            aria-label="关闭"
+          >
+            <X aria-hidden="true" />
+          </AlertDialogClose>
+        )}
+        {children}
+      </AlertDialogPopup>
+    </AlertDialogPortal>
   );
 });
 
