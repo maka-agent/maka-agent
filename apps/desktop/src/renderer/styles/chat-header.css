@@ -476,7 +476,7 @@
   100% { opacity: 0; transform: translateY(6px) scale(0.98); }
 }
 
-.maka-toast[data-exiting="true"] {
+.maka-toast[data-ending-style] {
   animation: maka-toast-exit var(--duration-emphasized) var(--ease-in-out-strong) forwards;
   pointer-events: none;
 }

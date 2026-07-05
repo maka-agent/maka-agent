@@ -218,8 +218,6 @@ function ToastViewport() {
           // browsers / AT pairings handle the live region announce
           // better when the live items themselves carry an alert
           // role rather than relying on the region inheritance.
-          // data-exiting maps Base UI's transitionStatus="ending" onto
-          // the existing .maka-toast[data-exiting="true"] exit animation.
           <BaseToast.Root
             key={entry.id}
             toast={entry}
@@ -227,7 +225,6 @@ function ToastViewport() {
               <li
                 className="maka-toast"
                 data-variant={variant}
-                data-exiting={entry.transitionStatus === 'ending' ? 'true' : undefined}
                 role="alert"
               />
             }
