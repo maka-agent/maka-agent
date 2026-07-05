@@ -54,8 +54,7 @@
   background: var(--foreground-2);
 }
 
-.maka-permission-raw > summary {
-  list-style: none;
+.maka-permission-raw [data-slot="collapsible-trigger"] {
   display: flex;
   align-items: center;
   gap: var(--space-1-5);
@@ -64,13 +63,10 @@
   font-size: var(--font-size-caption);
 }
 
-.maka-permission-raw > summary::-webkit-details-marker { display: none; }
-.maka-permission-raw > summary::marker { content: ''; }
-
 /* Rotating disclosure triangle (same recipe as .maka-turn-thinking):
-   without it the bordered summary row read as a text input, not a
+   without it the bordered trigger row read as a text input, not a
    collapsible section. */
-.maka-permission-raw > summary::before {
+.maka-permission-raw [data-slot="collapsible-trigger"]::before {
   content: '';
   flex-shrink: 0;
   width: 0;
@@ -81,11 +77,11 @@
   transition: transform var(--duration-base) var(--ease-out-strong);
 }
 
-.maka-permission-raw[open] > summary::before {
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open]::before {
   transform: rotate(90deg);
 }
 
-.maka-permission-raw[open] > summary {
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open] {
   border-bottom: var(--border-width-hairline) solid var(--border);
 }
 

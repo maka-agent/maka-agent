@@ -3,6 +3,7 @@ import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
@@ -128,10 +129,12 @@ export function PermissionDialog(props: {
           {props.request.hint && (
             <div className="maka-permission-hint" role="note">{props.request.hint}</div>
           )}
-          <details className="maka-permission-raw">
-            <summary>查看完整参数</summary>
-            <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
-          </details>
+          <Collapsible className="maka-permission-raw">
+            <CollapsibleTrigger>查看完整参数</CollapsibleTrigger>
+            <CollapsiblePanel>
+              <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
+            </CollapsiblePanel>
+          </Collapsible>
           <label className="permissionRemember">
             <Checkbox
               checked={rememberForTurn}
@@ -185,7 +188,7 @@ export function PermissionDialog(props: {
  * One-line summary for a browser_* action. Names the concrete action (open /
  * read / click / type) so the prompt reads as a real browser step, not an opaque
  * tool call — reinforcing that a browser grant spans reads AND acts. The typed
- * text and full args stay in the raw `<details>` block below.
+ * text and full args stay in the raw Collapsible block below.
  */
 function renderBrowserSummary(toolName: string, args: Record<string, unknown>): ReactNode {
   const ref = typeof args.ref === 'string' ? args.ref : '';
@@ -211,7 +214,7 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
 /**
  * Per-tool human-readable summary of what the request will do, used at the
  * top of the permission dialog body. Falls back to undefined if we can't
- * recognize the tool — the raw args `<details>` block is always available.
+ * recognize the tool — the raw args Collapsible block is always available.
  */
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
   const args = (request.args ?? {}) as Record<string, unknown>;

@@ -5,6 +5,7 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { LiveIndicator, previewVariants, streamVariants, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
@@ -109,44 +110,46 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
         const errored = item.status === 'errored';
         const permissionDenied = isPermissionDeniedToolResult(item.result);
         return (
-          <details
+          <Collapsible
             key={item.toolUseId}
             data-slot="tool"
             className={toolVariants({ part: 'item' })}
             data-status={item.status}
-            open={isOpenByDefault(item.status)}
+            defaultOpen={isOpenByDefault(item.status)}
           >
-            <summary className={toolVariants({ part: 'header' })}>
+            <CollapsibleTrigger className={toolVariants({ part: 'header' })}>
               <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
               <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item)}</span>
               <span className={toolVariants({ part: 'meta' })}>
                 {duration && <span className={toolVariants({ part: 'duration' })}>{duration}</span>}
                 <span className={toolVariants({ part: 'status-label' })}>{STATUS_LABEL[item.status]}</span>
               </span>
-            </summary>
-            <div className={toolVariants({ part: 'body' })}>
-              {errored && <ToolErrorBanner result={item.result} />}
-              {item.intent && !permissionDenied && <p className={toolVariants({ part: 'intent' })}>{formatToolIntent(item.intent)}</p>}
-              {item.args !== undefined && !permissionDenied && (
-                <pre className={`maka-code ${toolVariants({ part: 'args' })}`}>{formatRedactedJson(item.args)}</pre>
-              )}
-              {item.outputChunks && item.outputChunks.length > 0 && (
-                <ToolOutputStream
-                  chunks={item.outputChunks}
-                  live={item.status === 'running' || item.status === 'pending'}
-                  interrupted={item.status === 'interrupted'}
-                  truncated={item.outputTruncated === true}
-                />
-              )}
-              {item.result && !permissionDenied && (
-                isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
-                  <LoadToolResultPreview args={item.args} value={item.result.value} />
-                ) : (
-                  <ToolResultPreview content={item.result} />
-                )
-              )}
-            </div>
-          </details>
+            </CollapsibleTrigger>
+            <CollapsiblePanel>
+              <div className={toolVariants({ part: 'body' })}>
+                {errored && <ToolErrorBanner result={item.result} />}
+                {item.intent && !permissionDenied && <p className={toolVariants({ part: 'intent' })}>{formatToolIntent(item.intent)}</p>}
+                {item.args !== undefined && !permissionDenied && (
+                  <pre className={`maka-code ${toolVariants({ part: 'args' })}`}>{formatRedactedJson(item.args)}</pre>
+                )}
+                {item.outputChunks && item.outputChunks.length > 0 && (
+                  <ToolOutputStream
+                    chunks={item.outputChunks}
+                    live={item.status === 'running' || item.status === 'pending'}
+                    interrupted={item.status === 'interrupted'}
+                    truncated={item.outputTruncated === true}
+                  />
+                )}
+                {item.result && !permissionDenied && (
+                  isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
+                    <LoadToolResultPreview args={item.args} value={item.result.value} />
+                  ) : (
+                    <ToolResultPreview content={item.result} />
+                  )
+                )}
+              </div>
+            </CollapsiblePanel>
+          </Collapsible>
         );
       })}
     </section>

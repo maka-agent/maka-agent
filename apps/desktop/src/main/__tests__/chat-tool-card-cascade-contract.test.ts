@@ -22,8 +22,10 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  *   2. the running status dot's `@keyframes maka-tool-pulse` ring frames — an
  *      animation can't be a leaf-literal and `getComputedStyle` reads a phase-
  *      dependent value, so the breath is pinned here + by the `chat.tsx` literal;
- *   3. native `<summary>` marker reset — re-keyed off the retired `.maka-tool`
- *      class onto the governed `[data-slot="tool"]` hook.
+ *   3. the `[data-slot="tool"]` base residue (opacity/transform/border-color
+ *      transition) — the native `<summary>` marker reset that used to live here is
+ *      gone after the disclosure → Collapsible migration (the trigger is a button
+ *      with no native marker).
  */
 describe('chat tool-card migration contract (#332 PR3b)', () => {
   it('retires the bespoke tool-card shell selectors (without touching error/preview/maka-code)', async () => {
@@ -90,7 +92,7 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
     }
   });
 
-  it('keeps only the marker reset residue, re-keyed onto [data-slot="tool"]', async () => {
+  it('keeps the tool-card base residue on [data-slot="tool"]', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
     assert.ok(
       !tokens.includes('.maka-tool {') && !tokens.includes('@starting-style {\n    .maka-tool'),
@@ -101,8 +103,6 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       '[data-slot="tool"] {',
       'transform: translateY(0)',
       'transition: border-color var(--duration-base) var(--ease-out-strong);',
-      '[data-slot="tool"] > summary::-webkit-details-marker { display: none; }',
-      "[data-slot=\"tool\"] > summary::marker { content: ''; }",
     ]) {
       assert.ok(
         tokens.includes(residue),
