@@ -452,6 +452,7 @@ export {
   normalizeTaskStatus,
   normalizeTaskSubject,
   normalizeUpdateTaskInput,
+  renderSafeTaskLedgerText,
 } from './task-ledger.js';
 
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.

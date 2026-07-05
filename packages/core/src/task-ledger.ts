@@ -3,6 +3,8 @@
 // current list. P0 scope is intentionally minimal: no priority, dependency, or
 // assignee fields.
 
+import { redactSecrets } from './redaction.js';
+
 export const TASK_SUBJECT_MAX_CHARS = 200;
 /**
  * Hard cap on total tasks per session ledger (any status). The full ledger is
@@ -121,6 +123,18 @@ export function normalizeUpdateTaskInput(
  */
 export function formatTaskLedgerList(tasks: readonly Task[]): string {
   return tasks.map((task) => `- [${task.status}] ${task.subject} (id: ${task.id})`).join('\n');
+}
+
+/**
+ * Safe-render the task list for any face that persists into history or is
+ * re-injected into a prompt: redact secrets, then strip any literal
+ * <task-ledger ...> / </task-ledger ...> tag variants (attributes, whitespace
+ * before `>`, self-closing) so a model-authored subject cannot open or close
+ * the <task-ledger> data envelope early. Other angle brackets (e.g. `a < b`)
+ * are left intact. Returns '' for an empty ledger.
+ */
+export function renderSafeTaskLedgerText(tasks: readonly Task[]): string {
+  return redactSecrets(formatTaskLedgerList(tasks)).replace(/<\/?task-ledger[^>]*>/gi, '');
 }
 
 function invalid<T extends TaskLedgerNormalizeErrorReason>(

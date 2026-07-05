@@ -2,11 +2,10 @@ import { z } from 'zod';
 import {
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
-  formatTaskLedgerList,
+  renderSafeTaskLedgerText,
   type Task,
   type TaskLedgerStore,
 } from '@maka/core/task-ledger';
-import { redactSecrets } from '@maka/core/redaction';
 import type { MakaTool } from './tool-runtime.js';
 
 // PascalCase matches the model-facing builtin tools (Bash/Read/Write); the
@@ -75,9 +74,10 @@ function buildTaskUpdateTool(
 }
 
 // Tool results persist into session history and replay to the provider every
-// turn, so subjects are scrubbed here too — redacting only the turn-tail
-// injection would leave this copy carrying the raw secret.
+// turn, so the shared safe renderer scrubs secrets AND strips any
+// <task-ledger> tag variant — redacting only the turn-tail injection would
+// leave this copy carrying the raw secret or an envelope-escape tag.
 function renderTaskLedger(tasks: readonly Task[]): string {
   if (tasks.length === 0) return '当前没有任务。';
-  return [`当前任务清单（${tasks.length} 项）:`, redactSecrets(formatTaskLedgerList(tasks))].join('\n');
+  return [`当前任务清单（${tasks.length} 项）:`, renderSafeTaskLedgerText(tasks)].join('\n');
 }
