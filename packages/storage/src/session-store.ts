@@ -500,6 +500,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     llmConnectionSlug: header.llmConnectionSlug,
     model: header.model,
     permissionMode: header.permissionMode,
+    ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }
 
