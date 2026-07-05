@@ -1,5 +1,4 @@
 export type { NavSelection } from './nav-selection.js';
-export { useModalA11y } from './modal-a11y.js';
 export { CapabilityAuditStrip } from './capability-audit-strip.js';
 export { SearchModal } from './search-modal.js';
 export { SessionListPanel } from './session-list-panel.js';

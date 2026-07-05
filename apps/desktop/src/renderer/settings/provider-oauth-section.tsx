@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from '@maka/ui/icons';
 import {
   generalizedErrorMessageChinese,
@@ -16,11 +16,10 @@ import {
   ItemTitle,
   RelativeTime,
   Textarea,
-  useModalA11y,
   useToast,
 } from '@maka/ui';
 import { ProviderLogo } from './provider-display';
-import { useProviderSheetBackgroundInert } from './provider-config-sheet';
+import { ProviderSheet } from './provider-config-sheet';
 
 type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
 type OAuthServiceId = OAuthCardId;
@@ -232,20 +231,8 @@ function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description
  * account-state snapshots returned by getAccountState().
  */
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  useModalA11y(dialogRef, props.onClose);
-  useProviderSheetBackgroundInert(dialogRef);
   return (
-    <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
-      <section
-        ref={dialogRef as RefObject<HTMLDivElement>}
-        className="providerConfigSheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Claude Code 登录"
-        data-subscription="claude"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <ProviderSheet onClose={props.onClose} ariaLabel="Claude Code 登录" dataSubscription="claude">
         <header className="providerConfigHeader">
           <div>
             <h3>Claude Code</h3>
@@ -261,15 +248,11 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
           </Button>
         </header>
         <ClaudeSubscriptionCard />
-      </section>
-    </div>
-  );
+      </ProviderSheet>
+    );
 }
 
 function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  useModalA11y(dialogRef, props.onClose);
-  useProviderSheetBackgroundInert(dialogRef);
   const toast = useToast();
   const bridge = pickSubscriptionBridge(props.serviceId);
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
@@ -416,16 +399,7 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
   const actionBusy = pendingAction !== null;
 
   return (
-    <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
-      <section
-        ref={dialogRef as RefObject<HTMLDivElement>}
-        className="providerConfigSheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${display.name} 登录`}
-        data-subscription={props.serviceId}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <ProviderSheet onClose={props.onClose} ariaLabel={`${display.name} 登录`} dataSubscription={props.serviceId}>
         <header className="providerConfigHeader">
           <div>
             <h3>{display.name}</h3>
@@ -471,9 +445,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             )}
           </div>
         </div>
-      </section>
-    </div>
-  );
+      </ProviderSheet>
+    );
 }
 
 type BrowserSubscriptionPendingAction = 'login' | 'logout';

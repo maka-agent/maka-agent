@@ -29,10 +29,7 @@ const SCAN_ROOTS = [
 // Files still hand-writing dialog semantics, pending Base UI Drawer migration
 // (commit 2 of this PR). Each entry must move off this list when its
 // follow-up commit lands; never add a new entry here without a migration plan.
-const PENDING_DRAWER_MIGRATION = new Set<string>([
-  'apps/desktop/src/renderer/settings/provider-config-sheet.tsx',
-  'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
-]);
+const PENDING_DRAWER_MIGRATION = new Set<string>([]);
 
 const FORBIDDEN_PATTERNS: Array<{ name: string; re: RegExp }> = [
   { name: 'role="dialog"', re: /role=["']dialog["']/ },
