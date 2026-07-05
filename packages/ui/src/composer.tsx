@@ -33,23 +33,6 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primiti
 const COMPOSER_MAX_HEIGHT = 240;
 
 /**
- * Electron augments web File objects with the source `path`; the renderer
- * turns dropped/pasted files into {path, mimeType, size} so the main process
- * can ingest them (the renderer cannot read arbitrary filesystem paths).
- * Files without a path (pure web blobs) are dropped — there's no way to
- * snapshot them from the main process.
- */
-function filesToAttachmentPaths(fileList: FileList): { path: string; mimeType?: string; size: number }[] {
-  const out: { path: string; mimeType?: string; size: number }[] = [];
-  for (const file of Array.from(fileList)) {
-    const path = (file as File & { path?: string }).path;
-    if (!path) continue;
-    out.push({ path, mimeType: file.type || undefined, size: file.size });
-  }
-  return out;
-}
-
-/**
  * PR-UI-15 (@yuejing 2026-05-22): Composer copy is locale-aware.
  *
  * Audit §3.5 — placeholder + state copy were hardcoded zh and drifted
@@ -127,7 +110,7 @@ export const Composer = forwardRef<
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void | Promise<void>;
     onPickAttachments?(): void | Promise<void>;
-    onAttachFilePaths?(files: { path: string; mimeType?: string; size: number }[]): void | Promise<void>;
+    onAttachFilePaths?(files: File[]): void | Promise<void>;
     pendingAttachments?: readonly AttachmentRef[];
     onRemoveAttachment?(index: number): void;
     modelLabel?: string;
@@ -476,9 +459,9 @@ export const Composer = forwardRef<
     event.preventDefault();
     setDragActive(false);
     if (!canAcceptDroppedFiles()) return;
-    const paths = filesToAttachmentPaths(event.dataTransfer.files);
-    if (paths.length === 0) return;
-    void runImportAction('attach', () => props.onAttachFilePaths?.(paths));
+    const files = Array.from(event.dataTransfer.files);
+    if (files.length === 0) return;
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -499,10 +482,10 @@ export const Composer = forwardRef<
     if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedFiles()) return;
-    const paths = filesToAttachmentPaths(event.clipboardData.files);
-    if (paths.length === 0) return;
+    const files = Array.from(event.clipboardData.files);
+    if (files.length === 0) return;
     event.preventDefault();
-    void runImportAction('attach', () => props.onAttachFilePaths?.(paths));
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   useEffect(() => {

@@ -248,6 +248,7 @@ declare global {
           | { ok: true; base64: string; mimeType: string }
           | { ok: false; reason: string }
         >;
+        pathsForFiles(files: File[]): { path: string; mimeType?: string; size: number }[];
       };
       search: {
         thread(

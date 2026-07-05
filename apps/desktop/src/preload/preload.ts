@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -380,6 +380,13 @@ contextBridge.exposeInMainWorld('maka', {
       | { ok: false; reason: string }
     > {
       return ipcRenderer.invoke('attachments:readBytes', sessionId, relativePath);
+    },
+    pathsForFiles(files: File[]): { path: string; mimeType?: string; size: number }[] {
+      return files.map((file) => ({
+        path: webUtils.getPathForFile(file),
+        mimeType: file.type || undefined,
+        size: file.size,
+      }));
     },
   },
   search: {

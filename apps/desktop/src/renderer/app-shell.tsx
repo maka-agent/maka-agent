@@ -909,11 +909,13 @@ export function AppShell({
     }
   }
 
-  async function attachFilePaths(files: { path: string; mimeType?: string; size: number }[]): Promise<void> {
+  async function attachFilePaths(files: File[]): Promise<void> {
     const sessionId = activeIdRef.current;
     if (!sessionId || files.length === 0) return;
     try {
-      const attachments = await window.maka.attachments.ingestPaths(sessionId, files);
+      const inputs = window.maka.attachments.pathsForFiles(files);
+      if (inputs.length === 0) return;
+      const attachments = await window.maka.attachments.ingestPaths(sessionId, inputs);
       setPendingAttachments((current) => [...current, ...attachments]);
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));

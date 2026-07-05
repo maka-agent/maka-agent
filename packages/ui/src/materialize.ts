@@ -268,7 +268,13 @@ export function materializeTurns(
     const ts = (message as { ts?: number }).ts ?? 0;
     const turn = ensureTurn(turnId, ts);
     if (message.type === 'user') {
-      turn.user = { id: message.id, role: 'user', text: message.text, ts: message.ts };
+      turn.user = {
+        id: message.id,
+        role: 'user',
+        text: message.text,
+        ts: message.ts,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+      };
     } else if (message.type === 'assistant') {
       turn.assistant = { id: message.id, role: 'assistant', text: message.text, ts: message.ts };
       turn.modelId = message.modelId;
