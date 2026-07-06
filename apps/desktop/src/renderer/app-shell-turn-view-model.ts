@@ -44,9 +44,6 @@ export function deriveAppShellTurnViewModel(input: {
     const metaParts: string[] = [];
     if (turn.modelId) metaParts.push(turn.modelId);
     if (turn.durationMs && turn.durationMs > 0) metaParts.push(formatTurnDuration(turn.durationMs));
-    if (turn.tokens && (turn.tokens.input > 0 || turn.tokens.output > 0)) {
-      metaParts.push(`${turn.tokens.input.toLocaleString()} → ${turn.tokens.output.toLocaleString()} tok`);
-    }
     if (turn.tokens?.costUsd && turn.tokens.costUsd > 0) metaParts.push(`$${turn.tokens.costUsd.toFixed(4)}`);
     const metaSummary = metaParts.length > 0 ? metaParts.join(' · ') : undefined;
     footer[turn.turnId] = deriveTurnFooterActions({

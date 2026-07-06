@@ -1045,7 +1045,6 @@ const TurnView = memo(function TurnView(props: {
           variant="assistant"
           data-turn-status={turn.status}
           aria-label="Maka 的回答"
-          title={turn.assistant.ts ? formatAbsoluteTimestamp(turn.assistant.ts) : undefined}
         >
           <div className="flex flex-col">
             {turn.assistantThinking && (

@@ -112,7 +112,7 @@ const DEFAULT_FOOTER_ACTIONS: ReadonlyArray<TurnFooterActionMeta> = [
   { id: 'regenerate', label: '重新生成', enabled: true, tooltip: '让模型重新生成本轮回答' },
   { id: 'branch', label: '分支', enabled: true, tooltip: '基于此回答的上下文分支出新对话' },
   { id: 'copy', label: '复制', enabled: true, tooltip: '复制回答到剪贴板' },
-  { id: 'info', label: '详情', enabled: true, tooltip: 'claude-sonnet-4-5 · 4.9s · 1,417 → 19 tok · $0.0123' },
+  { id: 'info', label: '详情', enabled: true, tooltip: 'claude-sonnet-4-5 · 4.9s · $0.0123' },
 ];
 
 const baseComposerProps: ComposerProps = {
