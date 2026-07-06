@@ -1,6 +1,7 @@
 import type { StoredMessage } from '@maka/core';
 import {
   deriveTurnLineageMap,
+  formatTurnDuration,
   materializeTurns,
   type ToolActivityItem,
   type TurnFooterActionMeta,
@@ -40,11 +41,20 @@ export function deriveAppShellTurnViewModel(input: {
         pendingForTurn.add(id);
       }
     }
+    const metaParts: string[] = [];
+    if (turn.modelId) metaParts.push(turn.modelId);
+    if (turn.durationMs && turn.durationMs > 0) metaParts.push(formatTurnDuration(turn.durationMs));
+    if (turn.tokens && (turn.tokens.input > 0 || turn.tokens.output > 0)) {
+      metaParts.push(`${turn.tokens.input.toLocaleString()} → ${turn.tokens.output.toLocaleString()} tok`);
+    }
+    if (turn.tokens?.costUsd && turn.tokens.costUsd > 0) metaParts.push(`$${turn.tokens.costUsd.toFixed(4)}`);
+    const metaSummary = metaParts.length > 0 ? metaParts.join(' · ') : undefined;
     footer[turn.turnId] = deriveTurnFooterActions({
       status: turn.status,
       hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
       ...(lineageEntry?.regeneratedToTurnId ? { alreadyRegenerated: true } : {}),
       ...(pendingForTurn.size > 0 ? { pendingActions: pendingForTurn } : {}),
+      ...(metaSummary ? { metaSummary } : {}),
     });
 
     if (turn.status === 'failed') {

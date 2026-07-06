@@ -9,6 +9,7 @@ import {
   Check,
   Copy,
   GitBranch,
+  Info,
   Loader2,
   RefreshCcw,
   Sparkles,
@@ -1210,7 +1211,7 @@ const TurnView = memo(function TurnView(props: {
  * (regenerate / branch) bubble up via `onAction`.
  */
 export interface TurnFooterActionMeta {
-  id: 'regenerate' | 'branch' | 'copy';
+  id: 'regenerate' | 'branch' | 'copy' | 'info';
   label: string;
   enabled: boolean;
   tooltip?: string;
@@ -1332,6 +1333,7 @@ function TurnFooterActions(props: {
       await copyAssistantText();
       return;
     }
+    if (action.id === 'info') return; // tooltip-only meta display, no action
     props.onAction?.(action.id);
   }
   return (
@@ -1383,6 +1385,7 @@ const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
   regenerate: <RefreshCcw size={12} strokeWidth={2} aria-hidden="true" />,
   branch: <GitBranch size={12} strokeWidth={2} aria-hidden="true" />,
   copy: <Copy size={12} strokeWidth={2} aria-hidden="true" />,
+  info: <Info size={12} strokeWidth={2} aria-hidden="true" />,
 };
 
 /**

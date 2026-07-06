@@ -191,6 +191,30 @@ describe('deriveTurnFooterActions', () => {
     });
   });
 
+  describe('info action carries the meta summary (#546)', () => {
+    it('appends an info action whose tooltip is the meta summary, when provided', () => {
+      const actions = deriveTurnFooterActions(
+        ctx({ status: 'completed', metaSummary: 'gpt-5.5 · 4.9s · 1,417 → 19 tok' }),
+      );
+      const info = actions.find((a) => a.id === 'info');
+      assert.ok(info, 'info action should be present when metaSummary is set');
+      assert.equal(info?.tooltip, 'gpt-5.5 · 4.9s · 1,417 → 19 tok');
+    });
+
+    it('omits the info action when no meta summary is provided', () => {
+      const actions = deriveTurnFooterActions(ctx({ status: 'completed' }));
+      assert.equal(actions.find((a) => a.id === 'info'), undefined);
+    });
+
+    it('info action is always enabled (it is informational, not an operation)', () => {
+      const actions = deriveTurnFooterActions(
+        ctx({ status: 'running', metaSummary: 'gpt-5.5 · 进行中' }),
+      );
+      const info = actions.find((a) => a.id === 'info');
+      assert.equal(info?.enabled, true);
+    });
+  });
+
   it('SessionStatus and TurnStatus are kept distinct', () => {
     assert.ok(SESSION_STATUSES.includes('active'));
     assert.ok(SESSION_STATUSES.includes('blocked'));
