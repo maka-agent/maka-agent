@@ -1395,7 +1395,7 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
       <Markdown text={displayed} />
       {props.truncated && (
         <div
-          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-[10px] text-[color:var(--warning-text,var(--info-text))]"
+          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"
           role="status"
           aria-live="polite"
           title="助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。"

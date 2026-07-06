@@ -102,16 +102,18 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
       'overlay base + card kind must both use arbitrary white-space so the kind wins by tailwind-merge',
     );
 
-    // Anti-drift: the literalize vehicle stays arbitrary-value (immune to a later
-    // scale/token re-tuning silently shifting pixels). Pin distinctive literals and
-    // ban the semantic-scale forms they would be swapped for.
-    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[11.5px]', 'max-h-[180px]']) {
+    // Anti-drift: the literalize vehicle stays arbitrary-value for radius /
+    // geometry (immune to a later scale re-tuning silently shifting pixels).
+    // Typography is exempt — #546 PR0 converged text-* / leading-* onto the
+    // token scale (text-xs/sm), so typography literals are no longer pinned
+    // and text-xs/sm are allowed here; only radius scale drift is still banned.
+    for (const literal of ['rounded-[var(--radius-surface)]', 'max-h-[180px]']) {
       assert.ok(block.includes(literal), `previewVariants must keep the literal "${literal}"`);
     }
-    for (const scale of ['rounded-lg', 'rounded-md', 'text-sm', 'text-xs']) {
+    for (const scale of ['rounded-lg', 'rounded-md']) {
       assert.ok(
         !block.includes(scale),
-        `previewVariants must stay literal, not adopt the semantic-scale "${scale}"`,
+        `previewVariants must stay literal on radius, not adopt the semantic-scale "${scale}"`,
       );
     }
   });

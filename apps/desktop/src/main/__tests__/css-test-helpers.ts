@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { readdir, readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 export const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 export const RENDERER_STYLES_ENTRY = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
@@ -45,6 +45,43 @@ export async function readAllRendererCss(): Promise<string> {
   // surface the error so converge contracts catch it instead of silently
   // degrading to only the styles.css entry and skipping styles/*.
   return expandCssImports(RENDERER_STYLES_ENTRY, new Set([RENDERER_STYLES_ENTRY]));
+}
+
+// --- TSX source for converge contracts -------------------------------------
+// Closes the CSS-only blind spot (#546 PR0): arbitrary `text-[..]`/`leading-[..]`
+// Tailwind utilities live in className strings inside .tsx/.ts, which the CSS
+// scanners never read. `readRendererTsxFiles` exposes that source so each
+// contract can scan it with the same value discipline as CSS declarations.
+//
+// Coverage is literal className text only. Runtime-composed classes
+// (clsx/cva variant maps, template-string concatenation) and inline
+// `style={{ fontSize }}` are NOT caught — each contract states this scope
+// honestly in its own comment.
+const TS_SOURCE_DIRS = [
+  resolve(REPO_ROOT, 'packages', 'ui', 'src'),
+  resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer'),
+];
+
+async function listTsFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files = await Promise.all(entries.map(async (entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return listTsFiles(path);
+    return (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) ? [path] : [];
+  }));
+  return files.flat().sort();
+}
+
+export async function readRendererTsxFiles(): Promise<{ path: string; relPath: string; source: string }[]> {
+  const out: { path: string; relPath: string; source: string }[] = [];
+  for (const dir of TS_SOURCE_DIRS) {
+    for (const path of await listTsFiles(dir)) {
+      // Test fixtures assert on class strings, not styling intent — skip them.
+      if (path.includes('__tests__')) continue;
+      out.push({ path, relPath: relative(REPO_ROOT, path), source: await readFile(path, 'utf8') });
+    }
+  }
+  return out;
 }
 
 export function stripCssComments(src: string): string {

@@ -295,7 +295,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
       <AlertOctagon size={16} strokeWidth={2} aria-hidden="true" />
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
-        <AlertDescription className="[font-family:var(--font-mono)] text-[12px] leading-[1.5] whitespace-pre-wrap [word-break:break-word]">
+        <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
           {errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}
         </AlertDescription>
       )}

@@ -91,7 +91,7 @@ test('footer-action merge drops the UiButton base shell so the retired footer pi
     'py-1',
     'rounded-[var(--radius-surface)]',
     'text-[color:var(--muted-foreground)]',
-    'text-[12px]',
+    'text-xs', // #546 PR0: text-[12px] -> text-xs (typography onto token scale)
   ]) {
     assert.ok(merged.includes(win), `footer pixel "${win}" must survive the merge`);
   }
@@ -121,7 +121,7 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
     'py-[1px]',
     'rounded-[var(--radius-pill)]',
     'text-[color:var(--muted-foreground)]',
-    'text-[9px]',
+    'text-xs', // #546 PR0: text-[9px] -> text-xs (typography onto token scale)
   ]) {
     assert.ok(merged.includes(win), `lineage pixel "${win}" must survive the merge`);
   }
@@ -219,8 +219,10 @@ test('toolVariants stays literal and emits the single-backslash waiting_permissi
   const dot = toolVariants({ part: 'dot' });
   for (const cls of [item, dot]) {
     assert.ok(
-      !cls.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'rounded-xl', 'text-sm', 'text-xs', 'bg-primary'].includes(u)),
-      'tool shell must stay literal, not the semantic scale / a recolor',
+      // Typography (text-*) converged onto the scale by #546 PR0, so text-xs/sm
+      // are allowed here; only radius scale + recolor drift stays banned.
+      !cls.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'rounded-xl', 'bg-primary'].includes(u)),
+      'tool shell must stay literal on radius, not the semantic scale / a recolor',
     );
   }
   // exactly one backslash before the underscore (source == runtime via String.raw)

@@ -23,7 +23,7 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, readRendererTsxFiles, stripCssComments } from './css-test-helpers.js';
 
 // --- token whitelist --------------------------------------------------------
 
@@ -117,6 +117,25 @@ describe('PR-TYPOGRAPHY-CONVERGE-0 contract', () => {
     assert.match(styles, /--text-sm:\s*var\(--font-size-ui\)/, '--text-sm must alias --font-size-ui');
     assert.match(styles, /--text-base:\s*var\(--font-size-base\)/, '--text-base must alias --font-size-base');
   });
+
+  // Closes the CSS-only blind spot (#546 PR0): arbitrary font-size utilities in
+  // className strings bypass the token scale the CSS scanner locks. The regex
+  // catches numeric arbitrary (text-[12px], text-[0.7rem]) and length-typed
+  // calc (text-[length:calc(12px)]) — forms that emit font-size off the scale.
+  // Named scales (text-xs/sm/base), token var refs (text-[var(--font-size-*)]),
+  // and color arbitraries (text-[oklch(...)], text-[color:...]) don't match:
+  // var pointing is governed by the CSS token-whitelist contract, and color is
+  // not font-size. NOTE: literal className text only — clsx/cva maps, template
+  // strings, and inline `style={{ fontSize }}` are NOT caught (honest scope,
+  // see css-test-helpers readRendererTsxFiles).
+  it('TSX className strings use no arbitrary text-[..] font-size utilities', async () => {
+    const re = /text-\[(?:length:)?(?:\d|\.\d|calc\()[^\]]*\]/g;
+    const offenders: string[] = [];
+    for (const { relPath, source } of await readRendererTsxFiles()) {
+      for (const m of source.matchAll(re)) offenders.push(`${relPath}: ${m[0]}`);
+    }
+    assert.deepEqual(offenders, [], `Arbitrary text-[..] font-size offenders (use text-xs/sm/base or text-[var(--font-size-*)]):\n  ${offenders.join('\n  ')}`);
+  });
 });
 
 describe('typography whitelist negative cases', () => {
@@ -150,5 +169,17 @@ describe('typography whitelist negative cases', () => {
   it('accepts font: inherit and font: initial', () => {
     assert.deepEqual(findCssOffenders('font: inherit', 'test'), []);
     assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
+  });
+
+  it('TSX font-size regex catches numeric+calc arbitrary and allows var/color', () => {
+    const re = /text-\[(?:length:)?(?:\d|\.\d|calc\()[^\]]*\]/g;
+    const catch_ = (s: string) => (s.match(re) ?? []).length > 0;
+    assert.ok(catch_('text-[12px]'), 'numeric arbitrary must be caught');
+    assert.ok(catch_('text-[length:calc(12px)]'), 'length:calc must be caught');
+    assert.ok(catch_('text-[0.7rem]'), 'rem must be caught');
+    assert.ok(!catch_('text-[var(--font-size-base)]'), 'token var ref must pass');
+    assert.ok(!catch_('text-[length:var(--font-size-ui)]'), 'length:var token ref must pass');
+    assert.ok(!catch_('text-[color:var(--muted-foreground)]'), 'color: ref must pass');
+    assert.ok(!catch_('text-[oklch(from_var(--info-text)_calc(l_-_0.06)_c_h)]'), 'oklch color must pass (not font-size)');
   });
 });
