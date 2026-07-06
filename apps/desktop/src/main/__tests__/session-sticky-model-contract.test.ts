@@ -185,6 +185,10 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(styles, /\.modelPickerPopup\s*\{[\s\S]*display:\s*flex;[\s\S]*overflow:\s*hidden;[\s\S]*\}/);
     assert.match(styles, /\.modelPickerList\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*\}/);
     assert.match(styles, /\.maka-thinking-section\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*\}/);
-    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
+    // [^}]* anchors inside this one rule block so the match can't drift when
+    // cross-file @import order changes (#546 PR1 relocated this rule into
+    // settings/select.css). Value is the control-lg token (= 32px), not a
+    // literal - readRendererContractCss does not inline var().
+    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[^}]*min-height:\s*var\(--h-control-lg\)[^}]*\}/);
   });
 });

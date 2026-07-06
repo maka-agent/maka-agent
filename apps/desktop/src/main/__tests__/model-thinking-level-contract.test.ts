@@ -16,7 +16,7 @@ async function readModelPickerSources(): Promise<string> {
 async function readModelPickerCss(): Promise<string> {
   const [switcher, settingsSelect] = await Promise.all([
     readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/model-switcher.css'), 'utf8'),
-    readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/settings-select.css'), 'utf8'),
+    readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/settings/select.css'), 'utf8'),
   ]);
   return `${switcher}\n${settingsSelect}`;
 }
