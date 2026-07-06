@@ -1262,7 +1262,7 @@ function turnControlSessions(now: number): Array<{ header: SessionHeader; messag
 /**
  * Primary-session message log covering every turn-control surface in
  * one fixture. The turn IDs are short, human-readable strings so the
- * lineage-badge copy (e.g. "重试自 turn turn-ret") stays stable across
+ * lineage-badge copy (e.g. "重新生成自 turn turn-ret") stays stable across
  * regenerations.
  *
  * Turns:
@@ -1370,7 +1370,7 @@ function turnControlPrimaryMessages(now: number): StoredMessage[] {
     partialOutputRetained: true,
   });
 
-  // 4. retry new (forward "重试自 turn-retry-origin" + reverse "已重试 → turn-retry-new")
+  // 4. retry new (forward "重新生成自 turn-retry-origin" + reverse "已重新生成 → turn-retry-new")
   cursor += tickUser;
   messages.push({
     type: 'user',

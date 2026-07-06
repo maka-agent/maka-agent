@@ -1254,7 +1254,7 @@ function SessionBranchBanner(props: {
 
 /**
  * Lineage badge rendered on a turn, either pointing to its origin
- * ("重试自 turn ${id}") or to a descendant ("已重试 → turn ${id}").
+ * ("重新生成自 turn ${id}") or to a descendant ("已重新生成 → turn ${id}").
  * Renderer (main.tsx) computes the labels and targets from the lineage
  * map; @maka/ui renders the badge UI. PR109e-e.
  */
