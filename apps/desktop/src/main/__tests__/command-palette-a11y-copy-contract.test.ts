@@ -23,8 +23,18 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       src,
-      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
-      'Autocomplete.Root must render inline, use mode="none" (palette owns fuzzy + content-search filtering), and autoHighlight="always"',
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` — per Base UI docs, `inline` requires `open` so the list is treated as visible; without `open` the input is not aria-expanded and keyboard nav / activedescendant break. mode="none" (palette owns fuzzy + content-search filtering) + autoHighlight="always"',
+    );
+    assert.match(
+      src,
+      /<Autocomplete\.Root[\s\S]*?itemToStringValue=\{\(cmd\) => cmd\.label\}/,
+      'Autocomplete.Root must serialize object commands via itemToStringValue — without it, item-press can write [object Object] back into the query',
+    );
+    assert.match(
+      src,
+      /onValueChange=\{\(next, details\) => \{[\s\S]*?details\.reason === 'item-press'[\s\S]*?setQuery\(next\)/,
+      'Autocomplete value changes must skip item-press reasons (selection must not write the command object back into the query)',
     );
     assert.match(src, /<Autocomplete\.Input/, 'Palette input must be Autocomplete.Input');
     assert.match(

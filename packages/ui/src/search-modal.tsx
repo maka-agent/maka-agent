@@ -247,11 +247,18 @@ export function SearchModal(props: {
         */}
         <Autocomplete.Root
           inline
+          open
           mode="none"
           autoHighlight="always"
           filter={null}
           value={query}
-          onValueChange={(next) => updateSearchQuery(next)}
+          onValueChange={(next, details) => {
+            // item-press (click / Enter on highlighted) is a selection, not
+            // input — never write the result object back into the query.
+            if (details.reason === 'item-press') return;
+            updateSearchQuery(next);
+          }}
+          itemToStringValue={(result) => result.title ?? ''}
           items={results}
         >
           <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">

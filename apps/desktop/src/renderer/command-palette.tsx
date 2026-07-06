@@ -675,11 +675,18 @@ export function CommandPalette(props: {
         */}
         <Autocomplete.Root
           inline
+          open
           mode="none"
           autoHighlight="always"
           filter={null}
           value={query}
-          onValueChange={setQuery}
+          onValueChange={(next, details) => {
+            // item-press (click / Enter on highlighted) is a selection, not
+            // input — never write the command object back into the query.
+            if (details.reason === 'item-press') return;
+            setQuery(next);
+          }}
+          itemToStringValue={(cmd) => cmd.label}
           items={combined}
         >
           <InputGroup

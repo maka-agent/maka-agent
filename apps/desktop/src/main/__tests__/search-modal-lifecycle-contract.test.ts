@@ -242,8 +242,13 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
-      'Autocomplete.Root must render inline (list stays in modal body, not a floating popup), use mode="none" (server-side IPC filtering, no local filter), and autoHighlight="always" so Enter on the first result works without an extra ArrowDown',
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` — per Base UI docs, `inline` requires `open` so the list is treated as visible; without `open` the input is not aria-expanded and keyboard nav / activedescendant break. mode="none" (server-side IPC filtering, no local filter) + autoHighlight="always" so Enter on the first result works without an extra ArrowDown',
+    );
+    assert.match(
+      searchModal,
+      /<Autocomplete\.Root[\s\S]*?itemToStringValue=\{\(result\) => result\.title/,
+      'Autocomplete.Root must serialize object results via itemToStringValue — without it, item-press can write [object Object] back into the query',
     );
     assert.match(searchModal, /<Autocomplete\.Input/, 'Search input must be Autocomplete.Input');
     assert.match(searchModal, /<Autocomplete\.List/, 'Results must render as Autocomplete.List (listbox)');
@@ -343,7 +348,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(searchModal, /function clearSearchState\(\) \{\s*ticketRef\.current \+= 1;\s*setResults\(\[\]\);/m, 'Shared clear state helper must invalidate in-flight search before clearing results');
     assert.match(searchModal, /function updateSearchQuery\(nextQuery: string\) \{[\s\S]*if \(nextQuery\.trim\(\)\.length === 0\) \{[\s\S]*clearSearchState\(\);[\s\S]*\}/, 'Typing/deleting to an empty query must synchronously invalidate in-flight search');
-    assert.match(searchModal, /onValueChange=\{\(next\) => updateSearchQuery\(next\)\}/, 'Autocomplete value changes must go through the synchronized update helper');
+    assert.match(searchModal, /onValueChange=\{\(next, details\) => \{[\s\S]*?details\.reason === 'item-press'[\s\S]*?updateSearchQuery\(next\)/, 'Autocomplete value changes must go through the synchronized update helper AND skip item-press reasons (selection must not write the result object back into the query)');
     assert.match(searchModal, /keyboardKey\(event, \['Escape'\]\) && query[\s\S]*clearSearchQuery\(\);/, 'Escape clear path must synchronously invalidate in-flight search');
     assert.match(
       searchModal,
