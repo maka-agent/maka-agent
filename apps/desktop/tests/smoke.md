@@ -797,14 +797,12 @@ Repeat with `turn-control-branch-visible` and `turn-control-branch-orphan`.
   inline marker "(已中断)" beside the assistant text; partial output is
   preserved (the user can still read what was generated before abort).
 - **S3 — lineage badges scroll.**
-  - *Forward (descendant top):* on `turn-retry-new` the badge reads
-    "重试自 turn turn-ret" and clicking it scrolls `turn-retry-origin`
+  - *Forward (descendant top):* on `turn-regen-new` the badge reads
+    "重新生成自 turn turn-regen" and clicking it scrolls `turn-regen-origin`
     into the center of the viewport.
-  - *Reverse (origin footer):* on `turn-retry-origin` the badge reads
-    "已重试 → turn turn-ret" and clicking it scrolls `turn-retry-new`
+  - *Reverse (origin footer):* on `turn-regen-origin` the badge reads
+    "已重新生成 → turn turn-regen" and clicking it scrolls `turn-regen-new`
     into the center of the viewport.
-  - The same pair exists for regenerate (`turn-regen-origin` ↔
-    `turn-regen-new`) with "重新生成自" / "已重新生成 →".
 - **S4 — branch banner positive vs negative.**
   - In `turn-control-branch-visible`, the chat header shows
     `分自 ${primary.name}`. The banner is a clickable button that

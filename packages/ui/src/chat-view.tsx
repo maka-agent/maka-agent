@@ -938,13 +938,6 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
 // base-ui Menu's built-in arrow/Home/End handling.
 
 /**
- * Compact summary strip rendered between the user message and the tools/
- * answer for the current turn. Surfaces the @kenji UI-04 follow-up
- * questions: which model, how many tools, how long. Only renders when at
- * least one signal is present so an in-flight first-render doesn't show
- * an empty chip strip.
- */
-/**
  * Renders one conversational turn: user message → tools used → assistant
  * answer, in that order, as a single visual unit. Replaces the previous
  * "message stack + tools panel at end" layout so the user sees the

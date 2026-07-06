@@ -1214,11 +1214,6 @@
     padding: 0 var(--space-2) 0 0;
   }
 
-  /* Turn summary strip + chips (model · tools · duration · tokens) and the
-   * "切换" pill retired to the `@maka/ui` Marker chat primitive
-   * (`summary` / `summary-chip` / `summary-switched`), issue #332 PR2 —
-   * packages/ui/src/primitives/chat.tsx. */
-
   /* Optional reasoning block — collapsed by default, expandable to inspect
    * the model's chain of thought without cluttering the answer.
    *
