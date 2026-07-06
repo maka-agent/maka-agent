@@ -43,14 +43,15 @@ describe('attachment frontend contract', () => {
     const globals = await readRepo('apps/desktop/src/global.d.ts');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
-    // No webUtils.getPathForFile: a renderer-supplied path is untrustworthy
-    // (drop/paste can be forged), so blobs always go through file.arrayBuffer().
+    // No webUtils.getPathForFile: a renderer-supplied path is untrustworthy.
     assert.doesNotMatch(preload, /webUtils/);
-    // Single ingest entry accepting both approval tokens and inline blobs.
-    assert.match(preload, /async ingest\(\s*sessionId: string,\s*items:/);
-    assert.match(globals, /ingest\(\s*sessionId: string,\s*items:/);
-    // send-time ingest routes through the single entry.
-    assert.match(chatActions, /window\.maka\.attachments\.ingest\(sessionId, items\)/);
+    // preload encodes File blobs to bytes via the shared encoder before IPC.
+    assert.match(preload, /encodeIngestItems/);
+    // sessions.send carries attachmentItems (File or approvalId), not pre-ingested refs.
+    assert.match(globals, /attachmentItems\?: RendererIngestInput\[\]/);
+    // renderer maps pending attachments to ingest items at send time.
+    assert.match(chatActions, /toIngestItems\(pending\)/);
+    assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
   });
 
   it('new-chat composer stages attachments via opaque approval tokens and ingests at send time', async () => {
@@ -64,8 +65,9 @@ describe('attachment frontend contract', () => {
     assert.match(globals, /pickFiles\(\): Promise<[\s\S]*files: \{ approvalId: string; name: string/);
     // No pre-send session creation.
     assert.doesNotMatch(appShell, /ensureAttachmentSession/);
-    // pending attachments ingest at send time, after the session is known.
-    assert.match(chatActions, /async function ingestAll[\s\S]*attachments\.ingest\(sessionId, items\)/);
+    // pending attachments are carried as items in sessions.send, ingested main-side at send time.
+    assert.match(chatActions, /toIngestItems\(pending\)/);
+    assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
     assert.match(appShell, /onPickAttachments=\{pickAttachments\}/);
     assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
   });

@@ -31,6 +31,7 @@ export type {
   AbortEvent,
   StorageRef,
   AttachmentRef,
+  AttachmentIngestItem,
 } from './events.js';
 export {
   TOOL_OUTPUT_DELTA_MAX_CHARS,

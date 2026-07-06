@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { encodeIngestItems } from '../main/attachment-ingest-payload.js';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -105,7 +106,9 @@ type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
-type AttachmentIngestPayload = { name: string; mimeType?: string; base64: string };
+type RendererIngestInput =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { file: File };
 
 export type WorkspaceInstructionFileStatus =
   | 'available'
@@ -128,25 +131,6 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-async function fileToBytesPayload(file: File): Promise<AttachmentIngestPayload> {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  const mimeType = file.type || undefined;
-  return {
-    name: file.name || 'clipboard-image.png',
-    ...(mimeType ? { mimeType } : {}),
-    base64: bytesToBase64(bytes),
-  };
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
-
 contextBridge.exposeInMainWorld('maka', {
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -155,7 +139,16 @@ contextBridge.exposeInMainWorld('maka', {
     create(input?: Partial<CreateSessionInput>): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:create', input);
     },
-    send(sessionId: string, command: SessionCommand): Promise<void> {
+    async send(
+      sessionId: string,
+      command:
+        | SessionCommand
+        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+    ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
+      if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
+        const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
+        return ipcRenderer.invoke('sessions:send', sessionId, { ...command, attachmentItems: encoded });
+      }
       return ipcRenderer.invoke('sessions:send', sessionId, command);
     },
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void> {
@@ -392,15 +385,6 @@ contextBridge.exposeInMainWorld('maka', {
       | { ok: false; reason: 'cancelled' }
     > {
       return ipcRenderer.invoke('attachments:pickFiles');
-    },
-    async ingest(
-      sessionId: string,
-      items: ({ approvalId: string; name: string; mimeType?: string } | { file: File })[],
-    ): Promise<AttachmentRef[]> {
-      const payload = await Promise.all(
-        items.map((item) => ('file' in item ? fileToBytesPayload(item.file) : item)),
-      );
-      return ipcRenderer.invoke('attachments:ingest', sessionId, payload);
     },
     readBytes(sessionId: string, relativePath: string): Promise<
       | { ok: true; base64: string; mimeType: string }

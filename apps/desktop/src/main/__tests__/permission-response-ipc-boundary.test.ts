@@ -103,14 +103,14 @@ describe('permission response IPC boundary', () => {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
-        attachments: [{ kind: 'image' }],
+        attachmentItems: [{ approvalId: 'a', name: 'n' }],
         extra: true,
       }),
       {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
-        attachments: [{ kind: 'image' }],
+        attachmentItems: [{ approvalId: 'a', name: 'n' }],
       },
     );
     assert.deepEqual(
@@ -455,7 +455,7 @@ describe('permission response IPC boundary', () => {
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
-      /upsertSessionSummary\(session\)[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
+      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
       'normal Composer first-send must switch/show the new user turn only while the empty-chat surface still owns the async continuation',
     );
     assert.doesNotMatch(
@@ -470,7 +470,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       existingSessionBranch,
-      /showOptimisticUserMessage\(sessionId, turnId, text, attachments\)[\s\S]*window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text,[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      /window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
       'existing sessions should also show the user turn immediately before waiting for persisted storage',
     );
     assert.match(

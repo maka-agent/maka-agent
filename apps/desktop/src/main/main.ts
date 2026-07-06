@@ -141,15 +141,10 @@ import {
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
-import {
-  createAttachmentApprovalRegistry,
-  validateRendererAttachments,
-  type AttachmentValidationFailureReason,
-} from './attachment-approval.js';
+import { createAttachmentApprovalRegistry } from './attachment-approval.js';
 import { createAttachmentByteReader } from './attachment-reader.js';
-import { ingestAttachments, resolveIngestItems } from './attachment-ingest.js';
 import { resizeImageForAttachment } from './attachment-resize-native.js';
-import type { AttachmentRef } from '@maka/core';
+import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
@@ -753,14 +748,6 @@ function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreat
 }
 
 
-function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
-  switch (reason) {
-    case 'too_many_attachments':
-      return '一次最多发送 8 个附件。';
-    case 'invalid_attachment':
-      return '附件信息无效，请重新选择文件后再发送。';
-  }
-}
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
   const raw = redactSecrets(result.error ?? '').trim();
@@ -1147,18 +1134,24 @@ function registerIpc(): void {
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
-    await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(sendCommand.attachments);
-    if (!attachments.ok) {
-      throw new Error(attachmentValidationFailureCopy(attachments.reason));
-    }
-    const turnId = sendCommand.turnId || randomUUID();
+    const { turnId, attachments } = await resolveSessionSend({
+      sessionId,
+      senderId: event.sender.id,
+      command: sendCommand,
+      ensureCanSend: ensureSessionCanSend,
+      readHeader: (id) => store.readHeader(id),
+      approvals: attachmentApprovals,
+      stat: async (path) => ({ size: (await stat(path)).size }),
+      artifactStore,
+      resizeImage: resizeImageForAttachment,
+    });
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
       text: sendCommand.text,
-      attachments: attachments.attachments,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
     void streamEvents(sessionId, iterator, turnId);
+    return { turnId, attachments };
   });
   ipcMain.handle(
     'attachments:pickFiles',
@@ -1176,26 +1169,6 @@ function registerIpc(): void {
       );
       // Paths stay in main; the renderer only gets one-shot opaque tokens.
       return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
-    },
-  );
-  ipcMain.handle(
-    'attachments:ingest',
-    async (event, sessionId: string, items: unknown): Promise<AttachmentRef[]> => {
-      const header = await store.readHeader(sessionId).catch(() => null);
-      if (!header) throw new Error('无法读取会话工作目录。');
-      const files = await resolveIngestItems({
-        senderId: event.sender.id,
-        items,
-        approvals: attachmentApprovals,
-        stat: async (path) => ({ size: (await stat(path)).size }),
-      });
-      return ingestAttachments({
-        files,
-        cwd: header.cwd,
-        sessionId,
-        artifactStore,
-        resizeImage: resizeImageForAttachment,
-      });
     },
   );
   ipcMain.handle(

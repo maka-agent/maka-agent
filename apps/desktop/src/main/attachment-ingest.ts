@@ -117,10 +117,6 @@ function isInsideCwd(cwd: string, target: string): boolean {
 /** A renderer-supplied ingest item: either a main-issued approval token (for
  * user-picked files, whose path never leaves main) or inline base64 bytes (for
  * dragged/pasted blobs, which have no trustworthy path). */
-export type AttachmentIngestItem =
-  | { approvalId: string; name: string; mimeType?: string }
-  | { name: string; mimeType?: string; base64: string };
-
 /**
  * Validate + resolve renderer ingest items into {@link AttachmentIngestFile}s
  * BEFORE any file is read or artifact created. Count, per-file byte cap, and

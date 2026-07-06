@@ -118,12 +118,20 @@ export interface WorkspaceInstructionsState {
 }
 
 declare global {
+  type RendererIngestInput =
+    | { approvalId: string; name: string; mimeType?: string }
+    | { file: File };
   interface Window {
     maka: {
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
-        send(sessionId: string, command: SessionCommand): Promise<void>;
+        send(
+          sessionId: string,
+          command:
+            | SessionCommand
+            | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -240,13 +248,6 @@ declare global {
           | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
           | { ok: false; reason: 'cancelled' }
         >;
-        ingest(
-          sessionId: string,
-          items: (
-            | { approvalId: string; name: string; mimeType?: string }
-            | { file: File }
-          )[],
-        ): Promise<import('@maka/core').AttachmentRef[]>;
         readBytes(sessionId: string, relativePath: string): Promise<
           | { ok: true; base64: string; mimeType: string }
           | { ok: false; reason: string }

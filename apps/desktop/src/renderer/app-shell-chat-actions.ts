@@ -87,17 +87,12 @@ export interface AppShellChatActions {
   retryMessages(sessionId: string): Promise<void>;
 }
 
-async function ingestAll(
-  sessionId: string,
-  pending: readonly PendingAttachment[],
-): Promise<import('@maka/core').AttachmentRef[]> {
-  if (pending.length === 0) return [];
-  const items = pending.map((p) =>
+function toIngestItems(pending: readonly PendingAttachment[]): RendererIngestInput[] {
+  return pending.map((p) =>
     p.source.type === 'approval'
       ? { approvalId: p.source.approvalId, name: p.source.name, ...(p.mimeType ? { mimeType: p.mimeType } : {}) }
       : { file: p.source.file },
   );
-  return window.maka.attachments.ingest(sessionId, items);
 }
 
 export function createAppShellChatActions(deps: {
@@ -220,13 +215,13 @@ export function createAppShellChatActions(deps: {
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
-        const attachments = pending && pending.length > 0 ? await ingestAll(session.id, pending) : undefined;
+        const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
+        const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
-          showOptimisticUserMessage(session.id, turnId, text, attachments, { replaceCurrentMessages: true });
+          showOptimisticUserMessage(session.id, turnId, text, sendResult.attachments, { replaceCurrentMessages: true });
         }
-        await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}) });
         if (activeIdRef.current === session.id) {
           await refreshMessagesUntilTurn(session.id, turnId);
         }
@@ -236,9 +231,9 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
-      const attachments = pending && pending.length > 0 ? await ingestAll(sessionId, pending) : undefined;
-      showOptimisticUserMessage(sessionId, turnId, text, attachments);
-      await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachments && attachments.length > 0 ? { attachments: [...attachments] } : {}) });
+      const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
+      const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
+      showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
     } catch (error) {

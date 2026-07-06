@@ -1,11 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
-import {
-  createAttachmentApprovalRegistry,
-  validateRendererAttachments,
-} from '../attachment-approval.js';
+import { resolve } from 'node:path';
+import { createAttachmentApprovalRegistry } from '../attachment-approval.js';
 
 describe('attachment approval registry (approvalId-based)', () => {
   it('issues opaque approval ids that never expose the path to the renderer', () => {
@@ -74,68 +70,3 @@ describe('attachment approval registry (approvalId-based)', () => {
     assert.ok(approvals.consumeApproval(2, b.approvalId));
   });
 });
-
-describe('renderer attachment validation', () => {
-  it('accepts safe session/workspace relative refs and rejects path escapes', () => {
-    const valid = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'uploads/report.png' },
-      }),
-      attachment({
-        ref: { kind: 'workspace_file', relativePath: 'notes/context.md' },
-      }),
-    ]);
-    const traversal = validateRendererAttachments([
-      attachment({ ref: { kind: 'workspace_file', relativePath: '../secret.md' } }),
-    ]);
-    const absolute = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: join('/tmp', 'secret.md') },
-      }),
-    ]);
-
-    assert.equal(valid.ok, true);
-    assert.deepEqual(traversal, { ok: false, reason: 'invalid_attachment' });
-    assert.deepEqual(absolute, { ok: false, reason: 'invalid_attachment' });
-  });
-
-  it('rejects renderer-supplied external_file refs (path must never round-trip via renderer)', () => {
-    const result = validateRendererAttachments([
-      attachment({ ref: { kind: 'external_file', absolutePath: '/private/tmp/secret.png' } }),
-    ]);
-    assert.deepEqual(result, { ok: false, reason: 'invalid_attachment' });
-  });
-
-  it('rejects malformed and excessive renderer attachment arrays', () => {
-    assert.deepEqual(validateRendererAttachments('not-array'), {
-      ok: false,
-      reason: 'invalid_attachment',
-    });
-    assert.deepEqual(
-      validateRendererAttachments(Array.from({ length: 9 }, () => attachment())),
-      { ok: false, reason: 'too_many_attachments' },
-    );
-    assert.deepEqual(
-      validateRendererAttachments([attachment({ bytes: 51 * 1024 * 1024 })]),
-      { ok: false, reason: 'invalid_attachment' },
-    );
-  });
-
-  it('wires sessions:send through the attachment validation gate', async () => {
-    const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
-
-    assert.match(source, /const attachmentApprovals = createAttachmentApprovalRegistry\(\)/);
-    assert.match(source, /validateRendererAttachments\(sendCommand\.attachments/);
-  });
-});
-
-function attachment(patch: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    kind: 'image',
-    name: 'report.png',
-    mimeType: 'image/png',
-    bytes: 1024,
-    ref: { kind: 'workspace_file', relativePath: 'uploads/report.png' },
-    ...patch,
-  };
-}
