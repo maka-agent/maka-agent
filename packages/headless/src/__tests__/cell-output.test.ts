@@ -272,6 +272,105 @@ describe('Harbor cell output contract', () => {
     });
     assert.deepEqual(validateHarborCellOutput(output), output);
   });
+
+  test('summarizes task experiment tool activation and repeated updates', () => {
+    const output = buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-1',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        events: [
+          runtimeEvent({
+            id: 'task-create',
+            content: { kind: 'function_call', id: 'tool-1', name: 'task_create', args: { description: 'Inspect parser' } },
+          }),
+          runtimeEvent({
+            id: 'task-update-1',
+            content: { kind: 'function_call', id: 'tool-2', name: 'task_update', args: { id: 'task-1', status: 'in_progress' } },
+          }),
+          runtimeEvent({
+            id: 'task-update-2',
+            content: { kind: 'function_call', id: 'tool-3', name: 'task_update', args: { id: 'task-1', status: 'in_progress' } },
+          }),
+          runtimeEvent({
+            id: 'task-list',
+            content: { kind: 'function_call', id: 'tool-4', name: 'task_list', args: {} },
+          }),
+          runtimeEvent({
+            id: 'task-get',
+            content: { kind: 'function_call', id: 'tool-5', name: 'task_get', args: { id: 'task-1' } },
+          }),
+          runtimeEvent({
+            id: 'todo-write',
+            content: {
+              kind: 'function_call',
+              id: 'tool-6',
+              name: 'todo_write',
+              args: { todos: [{ content: 'Run focused check', status: 'pending', priority: 'high' }] },
+            },
+          }),
+        ],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+
+    assert.deepEqual(output.taskToolSummary, {
+      activated: true,
+      actualTaskToolCalls: 6,
+      createCalls: 1,
+      updateCalls: 2,
+      listCalls: 1,
+      getCalls: 1,
+      todoWriteCalls: 1,
+      repeatedUpdateCalls: 1,
+    });
+    assert.deepEqual(validateHarborCellOutput(output), output);
+  });
+
+  test('records zero task tool calls only when the task tool experiment is enabled', () => {
+    const invocation: InvocationResult = {
+      invocationId: 'inv-task-tools-zero',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      events: [
+        runtimeEvent({
+          id: 'regular-tool',
+          content: { kind: 'function_call', id: 'tool-regular', name: 'Read', args: { path: 'README.md' } },
+        }),
+      ],
+      startedAt: 100,
+      finishedAt: 250,
+    };
+
+    const disabled = buildHarborCellOutput({
+      invocation,
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+    assert.equal(disabled.taskToolSummary, undefined);
+
+    const enabled = buildHarborCellOutput({
+      invocation,
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+      taskToolSummaryEnabled: true,
+    });
+    assert.deepEqual(enabled.taskToolSummary, {
+      activated: false,
+      actualTaskToolCalls: 0,
+      createCalls: 0,
+      updateCalls: 0,
+      listCalls: 0,
+      getCalls: 0,
+      todoWriteCalls: 0,
+      repeatedUpdateCalls: 0,
+    });
+    assert.deepEqual(validateHarborCellOutput(enabled), enabled);
+  });
 });
 
 function runtimeEvent(extra: Partial<RuntimeEvent>): RuntimeEvent {
