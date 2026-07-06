@@ -103,7 +103,9 @@ export function PlanReminderPanel(props: {
   onClearRunHistory?(id: string): void | Promise<void>;
   onDelete?(id: string): void | Promise<void>;
 }) {
-  type PlanReminderListFilter = 'all' | PlanReminderStatus;
+  // 'active' = scheduled + paused — the default view and the tab badge
+  // count, matching the sidebar nav badge (which also excludes completed).
+  type PlanReminderListFilter = 'active' | 'all' | PlanReminderStatus;
   type PlanReminderView = 'tasks' | 'runs';
   type PlanReminderRunRange = 'day' | 'week' | 'month' | 'all';
   type PlanReminderSort = 'created-desc' | 'next-run-asc' | 'updated-desc';
@@ -125,7 +127,7 @@ export function PlanReminderPanel(props: {
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [planView, setPlanView] = useState<PlanReminderView>('tasks');
   const [runRange, setRunRange] = useState<PlanReminderRunRange>('week');
-  const [listFilter, setListFilter] = useState<PlanReminderListFilter>('all');
+  const [listFilter, setListFilter] = useState<PlanReminderListFilter>('active');
   const [listSort, setListSort] = useState<PlanReminderSort>('created-desc');
   const [listQuery, setListQuery] = useState('');
   const [refreshPending, setRefreshPending] = useState(false);
@@ -136,7 +138,9 @@ export function PlanReminderPanel(props: {
     : props.reminders;
   const visibleReminders = listFilter === 'all'
     ? searchMatchedReminders
-    : searchMatchedReminders.filter((reminder) => reminder.status === listFilter);
+    : listFilter === 'active'
+      ? searchMatchedReminders.filter((reminder) => reminder.status !== 'completed')
+      : searchMatchedReminders.filter((reminder) => reminder.status === listFilter);
   const sortedReminders = [...visibleReminders].sort((a, b) => comparePlanReminderBySort(a, b, listSort));
   const runRangeStart = planReminderRunRangeStart(runRange, Date.now());
   const visibleRunEntries = props.reminders
@@ -144,6 +148,7 @@ export function PlanReminderPanel(props: {
     .filter((entry) => runRangeStart === null || entry.run.at >= runRangeStart)
     .sort((a, b) => b.run.at - a.run.at);
   const filterCounts: Record<PlanReminderListFilter, number> = {
+    active: searchMatchedReminders.filter((reminder) => reminder.status !== 'completed').length,
     all: searchMatchedReminders.length,
     scheduled: searchMatchedReminders.filter((reminder) => reminder.status === 'scheduled').length,
     paused: searchMatchedReminders.filter((reminder) => reminder.status === 'paused').length,
@@ -364,6 +369,9 @@ export function PlanReminderPanel(props: {
             the empty state (quick-start), so the populated/default view matches
             the reference's clean flow. */}
 
+        {/* Designer audit P1-5: the 保持系统唤醒·即将支持 tag was removed —
+            unshipped features don't belong in first-screen chrome. Reintroduce
+            the control (as a real Switch) when the wake-lock lands. */}
         <Alert variant="info" className="maka-plan-system-alert">
           <div className="maka-plan-system-alert-main">
             <Info strokeWidth={1.75} aria-hidden="true" />
@@ -373,14 +381,6 @@ export function PlanReminderPanel(props: {
                 Maka 会保留执行记录；重复提醒、机器人投递和手动触发都走同一套计划队列。
               </AlertDescription>
             </div>
-          </div>
-          {/* Static tag, not a disabled Switch — the wake-lock isn't wired
-              yet, and a dead toggle promises interactivity it can't deliver
-              (same precedent as the skills marketplace 即将上线 pill and the
-              static filter pills). */}
-          <div className="maka-plan-system-alert-switch">
-            <span>保持系统唤醒</span>
-            <span className="maka-plan-system-alert-soon" data-static="true">即将支持</span>
           </div>
         </Alert>
 
@@ -397,7 +397,7 @@ export function PlanReminderPanel(props: {
             <TabsList variant="underline" className="maka-plan-tabs-list" aria-label="计划提醒视图">
               <TabsTrigger className="maka-plan-tab" value="tasks">
                 我的定时任务
-                <span>{props.reminders.length}</span>
+                <span>{props.reminders.filter((reminder) => reminder.status !== 'completed').length}</span>
               </TabsTrigger>
               <TabsTrigger className="maka-plan-tab" value="runs">
                 执行记录
@@ -435,6 +435,7 @@ export function PlanReminderPanel(props: {
                     onChange={(value) => setListFilter(value)}
                     ariaLabel="计划提醒筛选"
                     options={[
+                      ['active', `进行中 ${filterCounts.active}`],
                       ['all', `全部 ${filterCounts.all}`],
                       ['scheduled', `待触发 ${filterCounts.scheduled}`],
                       ['paused', `已暂停 ${filterCounts.paused}`],

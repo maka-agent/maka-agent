@@ -533,3 +533,13 @@
   min-height: 120px;
   align-content: center;
 }
+
+/* Designer audit P0-4: one-line stand-in for the full empty-state card when
+   saved reports already occupy the page — a second full-height empty card
+   below them read as a broken section. */
+.maka-daily-review-activity-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+}

@@ -334,8 +334,7 @@
   color: oklch(from var(--system-alert-accent) 0.42 min(c, 0.095) h);
 }
 
-.maka-plan-system-alert-main,
-.maka-plan-system-alert-switch {
+.maka-plan-system-alert-main {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -356,35 +355,13 @@
   flex: 0 0 auto;
 }
 
-.maka-plan-system-alert-switch {
-  flex: 0 0 auto;
-  color: oklch(from var(--system-alert-accent) 0.38 min(c, 0.075) h);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-}
-
-/* Static 「即将支持」 tag (was a permanently-disabled Switch). Tinted
-   to the info-alert family so it reads as part of the banner. */
-.maka-plan-system-alert-soon {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 var(--space-2);
-  border: var(--border-width-hairline) solid oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.4);
-  border-radius: var(--radius-pill);
-  background: oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.10);
-  font-weight: var(--font-weight-semibold);
-}
-
 .dark .maka-plan-system-alert {
   border-color: oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.44);
   background: oklch(from var(--system-alert-accent) 0.25 min(c, 0.04) h / 0.52);
   color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 
-.dark .maka-plan-system-alert [class*="lucide"],
-.dark .maka-plan-system-alert-switch {
+.dark .maka-plan-system-alert [class*="lucide"] {
   color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 

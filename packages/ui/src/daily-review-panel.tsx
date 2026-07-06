@@ -502,12 +502,22 @@ export function DailyReviewPanel(props: {
           <div className="maka-skeleton maka-skeleton-line" style={{ width: '75%' }} />
         </div>
       ) : visibleSummary.totals.sessionCount === 0 && visibleSummary.totals.requestCount === 0 ? (
-        <EmptyState
-          Icon={CalendarDays}
-          title={emptyActivityTitle}
-          body={emptyActivityBody}
-          extraClassName="maka-daily-review-summary-empty"
-        />
+        // When saved reports already fill the page, a second full-height
+        // empty card below them read as a broken half-loaded section
+        // (designer audit P0-4). Collapse to a one-line note in that case;
+        // keep the full empty state only when it is the page's sole content.
+        canLoadArchives && archives.length > 0 ? (
+          <p className="maka-daily-review-activity-note" role="status">
+            {emptyActivityTitle} · {emptyActivityBody}
+          </p>
+        ) : (
+          <EmptyState
+            Icon={CalendarDays}
+            title={emptyActivityTitle}
+            body={emptyActivityBody}
+            extraClassName="maka-daily-review-summary-empty"
+          />
+        )
       ) : (
         <>
           <section className="maka-daily-review-totals" aria-label={`${dayLabel}总览`}>

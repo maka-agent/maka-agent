@@ -2,8 +2,7 @@ import type { PlanReminder, SessionSummary } from '@maka/core';
 import type { NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
-import { cn } from './ui.js';
-import { FolderOpen, Grid3X3 } from './icons.js';
+import { SettingsSegmented } from './primitives/settings-segmented.js';
 
 export type SessionViewMode = 'status' | 'project';
 
@@ -47,22 +46,17 @@ export function SessionListPanel(props: {
       />
       {onViewModeChange && (
         <div className="maka-view-mode-toggle">
-          <button
-            className={cn('maka-view-mode-btn', viewMode === 'status' && 'active')}
-            onClick={() => onViewModeChange('status')}
-            title="按状态分组"
-          >
-            <Grid3X3 size={14} />
-            <span>按状态</span>
-          </button>
-          <button
-            className={cn('maka-view-mode-btn', viewMode === 'project' && 'active')}
-            onClick={() => onViewModeChange('project')}
-            title="按项目分组"
-          >
-            <FolderOpen size={14} />
-            <span>按项目</span>
-          </button>
+          {/* Shared segmented primitive — same control family as the
+              daily-review range tabs. The previous hand-rolled buttons
+              referenced tokens that don't exist in maka-tokens
+              (--surface-secondary etc.), rendering an invisible chrome. */}
+          <SettingsSegmented
+            value={viewMode}
+            options={[['status', '按状态'], ['project', '按项目']]}
+            onChange={(mode) => onViewModeChange(mode)}
+            ariaLabel="会话分组方式"
+            className="maka-view-mode-segmented"
+          />
         </div>
       )}
       <SessionHistoryList
