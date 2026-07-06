@@ -1316,6 +1316,44 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(driver.stopCalls, 1);
   });
 
+  test('does not stop again when Esc arrives after Ctrl-C started closing', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // Quit first: close() flips `closed`, then parks awaiting a slow runtime stop.
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The TUI is half-closed but its input listener is still live. A double
+    // Escape in this window must not slip a second stopSession past close().
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(30);
+    assert.equal(driver.stopCalls, 1);
+
+    // Releasing the parked stop lets close() finish shutting the TUI down.
+    driver.releaseStop();
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps Escape as permission deny while a permission prompt is pending', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -1558,6 +1596,64 @@ class SlowStopDriver implements MakaSessionDriver {
   // stopSession that has not finished aborting yet.
   async stop(): Promise<void> {
     this.stopCalls += 1;
+  }
+
+  endTurn(): void {
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class HangingStopDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+  private releaseStopFns: Array<() => void> = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  // stop() parks until releaseStop(), mimicking a runtime whose stopSession has
+  // not finished aborting. close() awaits this while the input listener is still
+  // live, which is the window the Ctrl-C-then-Escape regression exercises.
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.releaseStopFns.push(resolve);
+    });
+  }
+
+  releaseStop(): void {
+    for (const resolve of this.releaseStopFns) resolve();
+    this.releaseStopFns = [];
   }
 
   endTurn(): void {

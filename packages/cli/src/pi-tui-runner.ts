@@ -552,6 +552,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
 
   tui.addInputListener((data) => {
+    // Once closing has begun, swallow every key. A half-closed TUI still has a
+    // live listener while close() awaits the runtime stop; letting Escape or any
+    // other key through here would mutate state or fire a second stop.
+    if (closed) return { consume: true };
     if (tui.hasOverlay()) return undefined;
     if (matchesKey(data, Key.ctrl('o'))) {
       if (toggleLatestToolExpansion(state)) {
