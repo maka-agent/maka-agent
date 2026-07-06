@@ -1371,15 +1371,15 @@ via `deriveTurnLineageMap()`（PR109d）。
 
 **Gate**：
 - core/storage/runtime tests (PR109c) 锁 turn 状态机：cancel 写 aborted
-  且 partial 保留；retry/regenerate 创建新 sibling 不覆盖旧 turn；
+  且 partial 保留；regenerate 创建新 sibling 不覆盖旧 turn；
   branch 复制至 turn boundary + aborted 起点 fallback 到中断前 boundary
 - node:test 锁 UI lineage derive helper：`deriveTurnLineageMap(turns)`
-  返回正确的 `retriedTo` / `regeneratedTo` 反向映射；旧 turn 无
-  retried-to 时不影响
+  返回正确的 `regeneratedTo` 反向映射（含 legacy `retriedTo` fallback）；
+  旧 turn 无 regenerated-to 时不影响
 - node:test 锁 footer action × turn.status enabled matrix
 - fixture scenario `turn-control-history`（PR109d）：seed 一个含 5 turn
   的 session 覆盖每个状态（running × 1, completed × 2, aborted × 1,
-  failed × 1）+ 1 retry sibling + 1 regenerate sibling，让截图覆盖所有
+  failed × 1）+ 1 regenerate sibling（含 1 legacy retried sibling 测 fallback），让截图覆盖所有
   footer 状态
 - smoke Path 15（PR109d）：从 active session cancel → 验 aborted 出现 +
   「(已中断)」prefix + regenerate button 可用；点 regenerate → 新 turn 出现 +

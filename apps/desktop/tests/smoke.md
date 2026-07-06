@@ -405,8 +405,9 @@ Fixture scenario: `turn-narrative`.
   *"查看思考过程 — 模型推理草稿，不是最终答案"* appears above the
   assistant answer; expanding it shows the reasoning with its own
   "复制思考过程" button.
-- For an in-progress turn (user sent, assistant hasn't landed),
-  the duration chip reads *"进行中"*, not a ticking ms count.
+- For an in-progress turn (user sent, assistant hasn't landed), no
+  duration is shown — the footer info tooltip omits the duration line
+  until the assistant turn lands.
 
 **Fail signals.**
 - Tool activity at the very bottom of the chat instead of inside its
