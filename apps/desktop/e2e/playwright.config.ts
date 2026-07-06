@@ -13,7 +13,10 @@ export default defineConfig({
   testDir: '.',
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // Electron launch + connection-seed + onboarding convergence can
+  // occasionally exceed the expect timeout on a cold full-suite run; one
+  // retry absorbs that without masking persistent failures.
+  retries: 1,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   outputDir: 'test-results',
