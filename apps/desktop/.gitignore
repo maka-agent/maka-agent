@@ -1,2 +1,2 @@
 # Playwright E2E run artifacts: traces, videos, screenshots, last-run state.
-e2e/test-results/
+test-results/
