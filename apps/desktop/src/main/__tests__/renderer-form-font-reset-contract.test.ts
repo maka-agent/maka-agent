@@ -12,96 +12,71 @@ import { readAllRendererCss, stripCssComments } from './css-test-helpers.js';
  * (text-*, font-*, leading-*, tracking-*) on every form control in the app —
  * e.g. the Button cva's `text-sm font-medium` never rendered anywhere.
  *
- * Invariant: renderer CSS must not declare font properties on bare
- * form-element type selectors outside a `@layer`. Font inheritance for form
+ * Invariant: renderer-authored CSS never declares font properties on bare
+ * form-element type selectors — layered or not. Font inheritance for form
  * controls is preflight's job; per-surface font styling belongs on classes.
+ * A layered duplicate is banned too: it is dead weight at best and one
+ * un-layering edit away from the original bug, and dropping the exemption
+ * keeps this detector selector-level (no block/layer parsing).
  */
 
-const FORM_TYPES = new Set(['button', 'input', 'textarea', 'select', 'optgroup']);
-const FONT_PROP_RE = /(?:^|[;{\s])(font|font-size|font-weight|font-family|line-height|letter-spacing)\s*:/;
+/** A form-element type name appearing as a complete selector-list item:
+ * at the list start, after a comma, or directly inside `:where(...)`/
+ * `:is(...)` (zero-specificity wrappers still outrank layered utilities
+ * when the rule is unlayered). Compound selectors that scope the type
+ * (`.composer textarea`, `button.chip`, `input[type=checkbox]`) do not
+ * match — those are deliberate per-surface styling, not a reset. */
+const BARE_FORM_ITEM_RE = /(?:^|,|:(?:where|is)\()\s*(?:button|input|textarea|select|optgroup)\s*(?=$|[,)])/i;
+const FONT_PROP_RE = /(?:^|[;\s])(font|font-size|font-weight|font-family|line-height|letter-spacing)\s*:/;
 
 interface Violation {
   selector: string;
   declaration: string;
 }
 
-/**
- * Scans expanded renderer CSS for style rules whose selector list consists
- * solely of bare form-element type selectors (`button, textarea, input,
- * select`), outside any `@layer` block, that declare font properties.
- */
-function findUnlayeredFormFontDeclarations(css: string): Violation[] {
+/** Scans CSS for style rules matching BARE_FORM_ITEM_RE that declare font
+ * properties. Rules are matched innermost-first (`prelude { flat-body }`),
+ * so at-rule wrappers (`@media`/`@layer`) and CSS nesting fall away; text
+ * left of a `;` (prior statements/declarations) is discarded and at-rule
+ * preludes are skipped. */
+function findFormFontDeclarations(css: string): Violation[] {
   const violations: Violation[] = [];
-  let i = 0;
-  let ruleStart = 0;
-  // Stack of open blocks; each entry records whether it is an @layer block.
-  const blockStack: { isLayer: boolean }[] = [];
-
-  while (i < css.length) {
-    const ch = css[i];
-    if (ch === '{') {
-      const prelude = css.slice(ruleStart, i).trim();
-      if (prelude.startsWith('@')) {
-        blockStack.push({ isLayer: /^@layer\b/.test(prelude) });
-        ruleStart = i + 1;
-        i += 1;
-        continue;
-      }
-      // Style rule: capture its body up to the matching close brace.
-      let depth = 1;
-      let j = i + 1;
-      while (j < css.length && depth > 0) {
-        if (css[j] === '{') depth += 1;
-        else if (css[j] === '}') depth -= 1;
-        j += 1;
-      }
-      const body = css.slice(i + 1, j - 1);
-      const inLayer = blockStack.some((b) => b.isLayer);
-      const parts = prelude.split(',').map((p) => p.trim().toLowerCase());
-      const isBareFormSelector = parts.length > 0 && parts.every((p) => FORM_TYPES.has(p));
-      if (!inLayer && isBareFormSelector) {
-        const match = body.match(FONT_PROP_RE);
-        if (match) {
-          violations.push({
-            selector: prelude.replace(/\s+/g, ' '),
-            declaration: match[1],
-          });
-        }
-      }
-      ruleStart = j;
-      i = j;
-      continue;
-    }
-    if (ch === '}') {
-      blockStack.pop();
-      ruleStart = i + 1;
-    } else if (ch === ';' && blockStack.length === 0) {
-      // Top-level at-statement (e.g. @import) terminator.
-      ruleStart = i + 1;
-    }
-    i += 1;
+  for (const rule of stripCssComments(css).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const prelude = rule[1].replace(/^[\s\S]*;/, '').trim();
+    if (!prelude || prelude.startsWith('@')) continue;
+    if (!BARE_FORM_ITEM_RE.test(prelude)) continue;
+    const decl = rule[2].match(FONT_PROP_RE);
+    if (decl) violations.push({ selector: prelude.replace(/\s+/g, ' '), declaration: decl[1] });
   }
   return violations;
 }
 
 describe('renderer form font reset contract', () => {
-  it('declares no font properties on bare form-element type selectors outside @layer', async () => {
-    const css = stripCssComments(await readAllRendererCss());
-    const violations = findUnlayeredFormFontDeclarations(css);
+  it('declares no font properties on bare form-element type selectors', async () => {
+    const violations = findFormFontDeclarations(await readAllRendererCss());
     assert.deepEqual(
       violations,
       [],
-      'Unlayered font declarations on bare button/input/textarea/select type selectors ' +
-        'outrank Tailwind layers and disable every font utility on form controls. ' +
-        'Preflight (@layer base) already provides `font: inherit`; style form-control ' +
-        'fonts via classes instead. See #546.',
+      'Font declarations on bare button/input/textarea/select type selectors ' +
+        'outrank Tailwind layers when unlayered and disable every font utility ' +
+        'on form controls. Preflight (@layer base) already provides `font: inherit`; ' +
+        'style form-control fonts via classes instead. See #546.',
     );
   });
 
-  it('self-check: detector catches the historical unlayered reset', () => {
-    const historical = `button,\n  textarea,\n  input,\n  select {\n    font: inherit;\n  }`;
-    const layered = `@layer base {\n${historical}\n}`;
-    assert.equal(findUnlayeredFormFontDeclarations(historical).length, 1);
-    assert.equal(findUnlayeredFormFontDeclarations(layered).length, 0);
+  it('self-check: catches the historical reset, layered duplicates, mixed lists, and :where()/:is()', () => {
+    const historical = 'button,\n  textarea,\n  input,\n  select {\n    font: inherit;\n  }';
+    assert.equal(findFormFontDeclarations(historical).length, 1);
+    assert.equal(findFormFontDeclarations(`@layer base {\n${historical}\n}`).length, 1);
+    // #568 review P3 bypasses of the old every-part-is-a-form-type check:
+    assert.equal(findFormFontDeclarations('button, body { font: inherit; }').length, 1);
+    assert.equal(findFormFontDeclarations(':where(button, input) { font: inherit; }').length, 1);
+    assert.equal(findFormFontDeclarations(':is(select) { line-height: 1.2; }').length, 1);
+  });
+
+  it('self-check: ignores scoped form selectors and non-font declarations', () => {
+    assert.equal(findFormFontDeclarations('.composer textarea { font-size: 12px; }').length, 0);
+    assert.equal(findFormFontDeclarations('button.chip, input[type="checkbox"] { font-size: 12px; }').length, 0);
+    assert.equal(findFormFontDeclarations('button { transition: color 1s; }').length, 0);
   });
 });
