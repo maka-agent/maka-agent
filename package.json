@@ -16,6 +16,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test:scripts && npm --workspace @maka/core test && npm --workspace @maka/storage test && npm --workspace @maka/runtime test && npm --workspace @maka/headless test && npm --workspace maka-agent test && npm --workspace @maka/ui test && npm --workspace @maka/desktop test",
+    "test:dist": "npm run test:scripts && npm exec -w @maka/core -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/storage -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/runtime -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/headless -- node ../../scripts/run-headless-tests.mjs && npm exec -w maka-agent -- node --test \"dist/**/*.test.js\" && npm exec -w @maka/ui -- node --test \"dist/**/*.test.js\" && npm --workspace @maka/desktop run test",
     "test:scripts": "node --test scripts/run-headless-tests.test.mjs",
     "dev": "npm --workspace @maka/desktop run dev:hmr --",
     "dev:full": "npm run build && npm --workspace @maka/desktop run start",

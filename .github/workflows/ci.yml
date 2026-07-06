@@ -36,7 +36,10 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: npm ci
       - run: npm run build
-      - run: npm run test
+      # test:dist runs the suites against the dist just built above. The
+      # workspace `test` scripts each do `clean && build` first, which would
+      # throw away this dist and rebuild every package a second time.
+      - run: npm run test:dist
 
   e2e:
     runs-on: ubuntu-latest
