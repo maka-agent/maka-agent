@@ -1,5 +1,5 @@
 import { Buffer } from 'node:buffer';
-import { readFile, realpath as fsRealpath } from 'node:fs/promises';
+import { open, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, relative, sep } from 'node:path';
 import { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core';
 import type { ArtifactKind, ArtifactSource, AttachmentRef } from '@maka/core';
@@ -34,7 +34,9 @@ export async function ingestAttachments(input: {
   resizeImage?: (bytes: Uint8Array) => Promise<Uint8Array>;
   realpath?: (path: string) => Promise<string>;
   now?: () => number;
+  maxBytes?: number;
 }): Promise<AttachmentRef[]> {
+  const maxBytes = input.maxBytes ?? MAX_ATTACHMENT_BYTES;
   const refs: AttachmentRef[] = [];
   for (const file of input.files) {
     const name = attachmentFileName(file);
@@ -54,7 +56,7 @@ export async function ingestAttachments(input: {
       continue;
     }
 
-    let bytes: Uint8Array = isPathAttachment(file) ? await readFile(file.path) : file.content;
+    let bytes: Uint8Array = isPathAttachment(file) ? await readFileCapped(file.path, maxBytes) : file.content;
     if (kind === 'image' && input.resizeImage) {
       bytes = await input.resizeImage(bytes);
     }
@@ -83,6 +85,21 @@ export async function ingestAttachments(input: {
 
 function isPathAttachment(file: AttachmentIngestFile): file is Extract<AttachmentIngestFile, { path: string }> {
   return 'path' in file;
+}
+
+/** Read at most maxBytes+1 bytes; reject if the file is larger. Guards against a
+ * TOCTOU where the file grows between stat (size pre-check) and read, so main
+ * never loads an oversized file into memory. */
+async function readFileCapped(path: string, maxBytes: number): Promise<Uint8Array> {
+  const fh = await open(path, 'r');
+  try {
+    const buf = Buffer.alloc(maxBytes + 1);
+    const { bytesRead } = await fh.read(buf, 0, maxBytes + 1, 0);
+    if (bytesRead > maxBytes) throw new Error('单个附件超出大小限制。');
+    return buf.subarray(0, bytesRead);
+  } finally {
+    await fh.close();
+  }
 }
 
 function attachmentFileName(file: AttachmentIngestFile): string {

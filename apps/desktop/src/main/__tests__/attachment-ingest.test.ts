@@ -157,4 +157,35 @@ describe('ingestAttachments', () => {
       await rm(outsideDir, { recursive: true, force: true });
     }
   });
+
+  test('path attachment grown between stat and read is rejected, no artifact created', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'att-cap-'));
+    const externalPath = join(tmpdir(), `grew-${Date.now()}.bin`);
+    try {
+      const store = createArtifactStore(dir);
+      // real file is 11 bytes; files[].size lies small (TOCTOU: stat said 5)
+      await writeFile(externalPath, Buffer.alloc(11));
+      let storeCreates = 0;
+      const realCreate = store.create.bind(store);
+      store.create = async (input) => {
+        storeCreates += 1;
+        return realCreate(input);
+      };
+      await assert.rejects(
+        ingestAttachments({
+          files: [{ path: externalPath, mimeType: 'application/octet-stream', size: 5 }],
+          cwd: dir,
+          sessionId: 's1',
+          artifactStore: store,
+          resizeImage: async (b) => b,
+          maxBytes: 10,
+        }),
+        /超出大小限制/,
+      );
+      assert.equal(storeCreates, 0, 'must not create an artifact for an oversized read');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(externalPath, { force: true });
+    }
+  });
 });
