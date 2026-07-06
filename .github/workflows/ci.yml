@@ -31,6 +31,9 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # runtime's Grep tool shells out to ripgrep; ubuntu runners don't ship it.
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       - run: npm ci
       - run: npm run build
       - run: npm run test
