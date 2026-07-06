@@ -73,6 +73,16 @@
   --text-sm: var(--font-size-ui);
   --text-base: var(--font-size-base);
 
+  /* fix(#546): pin the text-* paired line-heights to the 4-tier leading
+     scale. Without these, bare `text-xs`/`text-sm` utilities carry
+     Tailwind's stock ratios (1.333/1.4286) — off-tier values that PR1
+     (#526) removed everywhere else. 11/13px UI text is the snug zone;
+     15px body stays normal (same value as Tailwind's default, pinned so
+     the trio reads as one decision). */
+  --text-xs--line-height: var(--leading-snug);
+  --text-sm--line-height: var(--leading-snug);
+  --text-base--line-height: var(--leading-normal);
+
   /* PR-LEADING-CONVERGE-0 (#520 PR1): bridge --leading-* to Tailwind
      leading-* utilities so `var(--leading-*)` in CSS and `leading-*`
      in TSX share one source — same inline-bridge pattern as --text-*. */
