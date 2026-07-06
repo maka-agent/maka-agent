@@ -522,10 +522,14 @@ function appendThinking(state: MakaPiTranscriptState, messageId: string, text: s
 }
 
 function setThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
-  const last = state.entries[state.entries.length - 1];
-  if (last?.kind === 'thinking' && last.messageId === messageId) {
-    last.text = text;
-    return;
+  // thinking_complete can arrive after the reply text or tool events; replace
+  // the streamed entry wherever it sits instead of appending a duplicate.
+  for (let index = state.entries.length - 1; index >= 0; index -= 1) {
+    const entry = state.entries[index];
+    if (entry?.kind === 'thinking' && entry.messageId === messageId) {
+      entry.text = text;
+      return;
+    }
   }
   state.entries.push({ kind: 'thinking', messageId, text });
 }
@@ -588,14 +592,16 @@ function toolStatusText(entry: MakaPiToolEntry): string {
  * with a dim `(Ctrl+O)` hint when expanding would reveal more.
  */
 function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[] {
-  const inputSummary = toolInputSummary(entry);
+  // collapseToSingleLine guards both slots: fitLine truncates width, not \n,
+  // so any multi-line summary text would silently break the two-line card.
+  const inputSummary = collapseToSingleLine(toolInputSummary(entry));
   const header = `${ansi.yellow('Tool')} ${entry.title ?? entry.toolName}`
     + `${inputSummary ? ` ${ansi.dim(inputSummary)}` : ''} ${toolStatusText(entry)}`;
   const lines = [fitLine(header, width)];
   const summary = compactToolSummary(entry, width);
   if (summary) {
     const hint = summary.expandable ? ansi.dim(' (Ctrl+O)') : '';
-    lines.push(fitLine(`  ${summary.text}${hint}`, width));
+    lines.push(fitLine(`  ${collapseToSingleLine(summary.text)}${hint}`, width));
   }
   return lines;
 }
@@ -637,10 +643,20 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   }
 
   if (entry.toolName === 'Grep') {
-    const count = grepMatchCount(entry);
+    const count = jsonArrayCount(entry, 'matches');
     if (count !== undefined) {
       return {
         text: `${count} match${count === 1 ? '' : 'es'}`,
+        expandable: count > 0 || hasLiveOutput,
+      };
+    }
+  }
+
+  if (entry.toolName === 'Glob') {
+    const count = jsonArrayCount(entry, 'files');
+    if (count !== undefined) {
+      return {
+        text: `${count} file${count === 1 ? '' : 's'}`,
         expandable: count > 0 || hasLiveOutput,
       };
     }
@@ -702,11 +718,12 @@ function compactDiffSummary(
   };
 }
 
-function grepMatchCount(entry: MakaPiToolEntry): number | undefined {
+/** Row count for list-shaped json results (Grep `matches`, Glob `files`). */
+function jsonArrayCount(entry: MakaPiToolEntry, key: string): number | undefined {
   const result = entry.result;
   if (result?.kind === 'json' && result.value !== null && typeof result.value === 'object') {
-    const matches = (result.value as { matches?: unknown }).matches;
-    if (Array.isArray(matches)) return matches.length;
+    const rows = (result.value as Record<string, unknown>)[key];
+    if (Array.isArray(rows)) return rows.length;
   }
   const text = plainResultText(entry);
   if (!text) return undefined;
@@ -791,10 +808,13 @@ function plainResultText(entry: MakaPiToolEntry): string {
     if (value !== null && typeof value === 'object') {
       const content = (value as { content?: unknown }).content;
       if (typeof content === 'string') return content;
-      const matches = (value as { matches?: unknown }).matches;
-      if (Array.isArray(matches)) return matches.map((row) => String(row)).join('\n');
+      const record = value as { matches?: unknown; files?: unknown };
+      const rows = record.matches ?? record.files;
+      if (Array.isArray(rows)) return rows.map((row) => String(row)).join('\n');
     }
-    return formatUnknown(value);
+    // Single line: this text can land on the compact summary line, and a
+    // pretty-printed JSON body would break the two-line card contract.
+    return formatUnknownInline(value);
   }
   return entry.output ?? '';
 }
@@ -862,9 +882,19 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
       }
       break;
     }
+    case 'Glob': {
+      const pattern = obj?.pattern;
+      if (typeof pattern === 'string' && pattern.trim()) {
+        const cwd = obj?.cwd;
+        return typeof cwd === 'string' && cwd.trim() ? `${pattern} in ${cwd}` : pattern;
+      }
+      break;
+    }
   }
   if (input === undefined) return '';
-  return `input: ${limitText(formatUnknown(input), 600)}`;
+  // Single line: this summary is inlined into the compact header, and a
+  // pretty-printed JSON body would break the two-line card contract.
+  return `input: ${limitText(formatUnknownInline(input), 600)}`;
 }
 
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
@@ -962,6 +992,20 @@ function formatUnknown(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function formatUnknownInline(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+/** Fold line breaks into spaces so a summary can never split a one-line slot. */
+function collapseToSingleLine(text: string): string {
+  return text.replace(/\s*\n\s*/g, ' ');
 }
 
 function limitText(text: string, maxChars: number): string {

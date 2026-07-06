@@ -395,6 +395,27 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(bodyIndex < expanded.findIndex((line) => line.includes('the answer')));
   });
 
+  test('replaces the streamed thinking entry when thinking_complete arrives after the reply', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'partial thought',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'text_delta', messageId: 'message-1', text: 'the reply',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_complete', messageId: 'message-1', text: 'the complete thought',
+    }));
+
+    // No duplicate thinking entry; the streamed one is replaced in place.
+    assert.deepEqual(state.entries.map((entry) => entry.kind), ['thinking', 'assistant']);
+    assert.equal(
+      state.entries[0]?.kind === 'thinking' ? state.entries[0].text : '',
+      'the complete thought',
+    );
+  });
+
   test('keeps tool cards compact until the latest tool is expanded', () => {
     const state = createMakaPiTranscriptState();
     // `head-line` is first; the compact one-line summary shows only the last
@@ -568,6 +589,59 @@ describe('Maka Pi TUI transcript', () => {
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(expanded, /match-0/);
     assert.match(expanded, /match-11/);
+  });
+
+  test('summarizes Glob results as a file count and shows the list expanded', () => {
+    const state = createMakaPiTranscriptState();
+    const files = ['src/a.ts', 'src/b.ts', 'src/c.ts'];
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'glob-1',
+      toolName: 'Glob',
+      args: { pattern: '**/*.ts', cwd: 'packages' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'glob-1',
+      isError: false,
+      content: { kind: 'json', value: { files } },
+    }));
+
+    const compactLines = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    assert.equal(compactLines.length, 3);
+    const compact = compactLines.join('\n');
+    assert.match(compact, /Tool Glob \*\*\/\*\.ts in packages done/);
+    assert.match(compact, /3 files \(Ctrl\+O\)/);
+    assert.doesNotMatch(compact, /src\/a\.ts/);
+
+    assert.equal(toggleLatestToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /src\/a\.ts/);
+    assert.match(expanded, /src\/c\.ts/);
+  });
+
+  test('keeps generic JSON input and result summaries on a single line', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'tool-1',
+      toolName: 'Frobnicate',
+      args: { alpha: 1, beta: 'two' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'tool-1',
+      isError: false,
+      content: { kind: 'json', value: { gamma: 3, delta: 'four' } },
+    }));
+
+    const lines = renderMakaPiTranscript(state, meta(), 200).map(stripAnsi);
+    // Never more than two card lines: multi-line JSON must not split the header.
+    assert.equal(lines.length, 3);
+    assert.match(lines[1] ?? '', /Tool Frobnicate input: \{"alpha":1,"beta":"two"\} done/);
+    assert.match(lines[2] ?? '', /\{"gamma":3,"delta":"four"\}/);
   });
 
   test('summarizes file_diff compactly and colors the expanded diff', () => {
