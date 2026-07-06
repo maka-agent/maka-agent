@@ -152,6 +152,47 @@ describe('SessionManager manual compaction', () => {
     const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
     expect(compactRun?.status).toBe('cancelled');
   });
+
+  test('compactSession rejects while a turn is running and writes no compact artifacts', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const sendGate = makeGate();
+    const turnStarted = makeGate();
+    const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ActiveTurnBackend(ctx, { turnStarted, sendGate, compactCalls }));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(25_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const sendPromise = (async () => {
+      for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hi' })) {
+        // turn held open at the send gate; drained after the compact assertion
+      }
+    })();
+    await turnStarted.promise;
+
+    const compactError = await collectSessionEvents(
+      manager.compactSession(session.id, { turnId: 'turn-compact' }),
+    ).catch((error: unknown) => error);
+    expect(compactError instanceof Error).toBe(true);
+    expect(String((compactError as Error).message)).toMatch(/turn is running|wait for the turn/);
+
+    expect(compactCalls).toEqual([]);
+    const messages = await store.readMessages(session.id);
+    expect(messages.some((message) => message.turnId === 'turn-compact')).toBe(false);
+    const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+    expect(compactRun).toBeUndefined();
+
+    sendGate.release();
+    await sendPromise;
+  });
 });
 
 describe('SessionManager permission mode updates', () => {
@@ -4645,6 +4686,29 @@ class BlockingCompactBackend extends TestBackend {
 
   override async stop(): Promise<void> {
     this.stopCalls += 1;
+  }
+}
+
+class ActiveTurnBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly options: {
+      turnStarted: Gate;
+      sendGate: Gate;
+      compactCalls: Array<{ turnId: string; runtimeContextCount: number }>;
+    },
+  ) {
+    super(ctx, options.sendGate);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.options.turnStarted.release();
+    yield* super.send(input);
+  }
+
+  async compactHistory(input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    this.options.compactCalls.push({ turnId: input.turnId, runtimeContextCount: input.runtimeContext.length });
+    return compactHistoryResult();
   }
 }
 

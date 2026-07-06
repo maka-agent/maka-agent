@@ -106,6 +106,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('Runtime compaction requires AgentRunStore and RuntimeEventStore');
     }
+    if (this.hasActiveRuns(sessionId)) {
+      throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
+    }
 
     const header = await this.deps.store.readHeader(sessionId);
     const turnId = input.turnId ?? this.deps.newId();
