@@ -54,6 +54,7 @@ export interface MakaTool<P = any, R = unknown> {
 export interface MakaToolContext {
   sessionId: string;
   turnId: string;
+  runId?: string;
   /** Session working directory. */
   cwd: string;
   toolCallId: string;
@@ -461,9 +462,11 @@ export class ToolRuntime {
       const pauseTarget = this.input.getPermissionPauseTarget();
       pauseTarget?.pause();
       try {
+        const runId = this.input.getCurrentRunId?.();
         const result = await tool.impl(args as never, {
           sessionId: this.input.sessionId,
           turnId,
+          ...(runId ? { runId } : {}),
           cwd: this.input.header.cwd,
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,

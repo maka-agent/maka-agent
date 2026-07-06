@@ -179,9 +179,14 @@ export {
   buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
+  LEGACY_TASK_CREATE_TOOL_NAME,
+  LEGACY_TASK_UPDATE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
   buildTaskLedgerTools,
+  isTaskLedgerToolsEnabled,
 } from './task-ledger-tools.js';
 export {
   deriveToolArtifactCandidates,
