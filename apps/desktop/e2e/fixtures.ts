@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { createConnectionStore, createFileCredentialStore } from '@maka/storage';
 
 /**
  * Launch helper for desktop E2E.
@@ -18,9 +19,30 @@ import path from 'node:path';
  */
 const DESKTOP_ROOT = process.cwd();
 
+/**
+ * Pre-seed a real-looking connection into the throwaway workspace so onboarding
+ * clears and the composer is enabled. Actual sessions still run on the fake
+ * backend (BackendRegistry override in main); this only satisfies the UI
+ * readiness gates. Kept in the fixture so test data stays out of production main.
+ */
+async function seedE2eConnection(userDataDir: string): Promise<void> {
+  const workspaceRoot = path.join(userDataDir, 'workspaces', 'default');
+  const connections = createConnectionStore(workspaceRoot);
+  const credentials = createFileCredentialStore(workspaceRoot);
+  await connections.create({
+    slug: 'e2e',
+    name: 'E2E',
+    providerType: 'anthropic',
+    defaultModel: 'claude-sonnet-4-5-20250929',
+  });
+  await credentials.setSecret('e2e', 'api_key', 'e2e-placeholder');
+  await connections.setDefault('e2e');
+}
+
 export const test = base.extend<{ window: Page }>({
   window: async ({}, use) => {
     const userDataDir = await mkdtemp(path.join(tmpdir(), 'maka-e2e-'));
+    await seedE2eConnection(userDataDir);
     const app = await electron.launch({
       args: ['.'],
       cwd: DESKTOP_ROOT,
@@ -32,6 +54,11 @@ export const test = base.extend<{ window: Page }>({
     });
     try {
       const page = await app.firstWindow();
+      // Wait for onboarding to render its quickchat input — the cold-start
+      // convergence point (renderer hydrated, seeded connection applied).
+      // Centralizing it here keeps test bodies free of cold-start waits and
+      // makes retries:0 safe.
+      await page.waitForSelector('.maka-onboarding-quickchat-input', { timeout: 20_000 });
       await use(page);
     } finally {
       await app.close();

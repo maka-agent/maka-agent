@@ -13,10 +13,10 @@ export default defineConfig({
   testDir: '.',
   fullyParallel: false,
   workers: 1,
-  // Electron launch + connection-seed + onboarding convergence can
-  // occasionally exceed the expect timeout on a cold full-suite run; one
-  // retry absorbs that without masking persistent failures.
-  retries: 1,
+  // No retries: flakes should fail loudly. The fixture waits for the composer
+  // to mount (the cold-start convergence point — connection seed, onboarding
+  // clear, renderer hydrated), so cold-start variance never reaches the test.
+  retries: 0,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   outputDir: 'test-results',

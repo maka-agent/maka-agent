@@ -183,11 +183,17 @@ import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 
+// E2E switches must never fire in a packaged build: a stray env on a build
+// machine would otherwise redirect userData, swap in the fake backend, seed
+// test data, or hide the window for real users. app.isPackaged is true for
+// asar-packaged builds, so this gates every E2E-only branch below.
+const isE2e = !app.isPackaged && process.env.MAKA_E2E === '1';
+
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
 // developer with Maka open makes the E2E process exit as a "second instance".
-// Only active under MAKA_E2E_USER_DATA_DIR; production builds never set it.
-if (process.env.MAKA_E2E_USER_DATA_DIR) {
+// Gated by isE2e (not just the dir env) so a packaged build ignores it.
+if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
   app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
 }
 
@@ -681,7 +687,7 @@ backends.register('fake', (ctx) =>
 // escape the E2E seam and hit a real provider. Registered after the real
 // ai-sdk factory to override it (BackendRegistry uses last-write-wins).
 // Production builds never set MAKA_E2E.
-if (process.env.MAKA_E2E === '1') {
+if (isE2e) {
   backends.register('ai-sdk', (ctx) =>
     new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
   );
@@ -1765,24 +1771,6 @@ async function ensureBootstrapConnection(): Promise<void> {
   await mkdir(workspaceRoot, { recursive: true });
   if ((await connectionStore.list()).length > 0) return;
 
-  // E2E: seed a real-looking connection so onboarding clears and the composer
-  // becomes enabled. sessions:create still forces the fake backend under
-  // MAKA_E2E (see resolveSessionBackend), so no real API is ever called —
-  // this connection only satisfies the UI readiness gates.
-  if (process.env.MAKA_E2E === '1') {
-    const slug = 'e2e';
-    await connectionStore.create({
-      slug,
-      name: 'E2E',
-      providerType: 'anthropic',
-      defaultModel: 'claude-sonnet-4-5-20250929',
-    });
-    await credentialStore.setSecret(slug, 'api_key', 'e2e-placeholder');
-    await connectionStore.setDefault(slug);
-    emitConnectionListChanged();
-    return;
-  }
-
   if (process.env.ANTHROPIC_API_KEY) {
     const slug = 'env-anthropic';
     await connectionStore.create({
@@ -1824,7 +1812,7 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || process.env.MAKA_E2E) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
