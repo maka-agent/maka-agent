@@ -1,13 +1,12 @@
 import { test, expect } from './fixtures';
 
 /**
- * Attachment upload: enter the chat view, drop a file onto the main composer,
- * and confirm it shows up as a pending attachment card. Uses Playwright's
- * DataTransfer + dispatchEvent because the composer has no <input type=file> —
- * files enter via drag-and-drop (or paste). This covers upload → display; the
- * ingest-on-send path runs through the fake backend and is not asserted here.
+ * Attachment upload + ingest: enter the chat view, drop a file onto the main
+ * composer, confirm it shows as a pending card, then send the message and
+ * verify the fake backend received the attachment by name. Uses Playwright's
+ * DataTransfer + dispatchEvent because the composer has no <input type=file>.
  */
-test('dropping a file onto the composer shows a pending attachment', async ({ window: page }) => {
+test('dropping a file onto the composer delivers it to the backend on send', async ({ window: page }) => {
   // Enter chat view by sending a first message from the quick-chat entry
   const quickChat = page.locator('.maka-onboarding-quickchat-input');
   await quickChat.fill('attach-test');
@@ -25,4 +24,12 @@ test('dropping a file onto the composer shows a pending attachment', async ({ wi
 
   // The dropped file appears as a pending attachment card
   await expect(page.getByText('note.txt')).toBeVisible();
+
+  // Send the message carrying the attachment — the fake backend echoes the
+  // attachment name, proving the ingest-on-send path delivered it (not just
+  // that the UI rendered a card).
+  const textarea = page.locator('.maka-composer textarea');
+  await textarea.fill('sending with a file');
+  await textarea.press('Enter');
+  await expect(page.getByText(/Attachments received: note\.txt/)).toBeVisible();
 });
