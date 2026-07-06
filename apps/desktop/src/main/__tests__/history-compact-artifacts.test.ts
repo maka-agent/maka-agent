@@ -370,7 +370,10 @@ describe('desktop history compact artifact lifecycle', () => {
         kind: 'file',
         content: JSON.stringify({
           ...historyCompactBlock([textEvent('old-5', 'turn-5', 'epsilon')], 'oversized'),
-          estimatedTokens: 9_999,
+          // impl recomputes tokens from the rendered text and deliberately
+          // ignores the persisted estimate, so force an oversized render to
+          // exceed maxEstimatedTokens and trip max_total_tokens.
+          summary: 'oversized '.repeat(500),
         }),
         mimeType: 'application/json',
         source: 'history_compact_block',
