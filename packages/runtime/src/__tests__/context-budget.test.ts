@@ -990,6 +990,41 @@ describe('context-budget history compact', () => {
     assert.equal(events.some((event) => event.id === 'old-1'), true, 'input events remain unchanged');
   });
 
+  test('lookup mode uses loaded blocks but does not synthesize a fallback block', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'alpha context '.repeat(12)),
+      textEvent('old-2', 'turn-2', 'beta context '.repeat(12)),
+      textEvent('recent-1', 'turn-3', 'recent tail'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 1000,
+      minRecentTurns: 1,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        mode: 'lookup',
+        highWaterRatio: 0.01,
+        targetRatio: 0.2,
+      },
+    });
+
+    assert.ok(result);
+    assert.deepEqual(result.events.map((event) => event.id), events.map((event) => event.id));
+    assert.equal(result.historyCompactBlocks?.length ?? 0, 0);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { lookup_miss: 1 });
+    assert.deepEqual(result.diagnostic.compactionDecisions, [
+      {
+        stage: 'priorReplay',
+        sourceKind: 'runtimeEvents',
+        decision: 'unchanged',
+        boundaryKind: 'historyCompact',
+        reason: 'lookup_miss',
+        skippedReasonCounts: { lookup_miss: 1 },
+      },
+    ]);
+  });
+
   test('keeps prior history unchanged below high water', () => {
     const events = [
       textEvent('short-1', 'turn-1', 'short context'),
@@ -1124,13 +1159,14 @@ describe('context-budget history compact', () => {
         textEvent('recent-1', 'turn-3', 'recent tail'),
       ],
       {
-        maxHistoryEstimatedTokens: 180,
+        maxHistoryEstimatedTokens: 10_000,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'lookup',
-          highWaterRatio: 0.5,
+          highWaterRatio: 0.000001,
           targetRatio: 0.2,
+          tailEstimatedTokens: 1,
           minRecentTurns: 1,
           blocks: [loadedBlock],
         },
@@ -1148,6 +1184,154 @@ describe('context-budget history compact', () => {
       result.events[0]?.content?.kind === 'text' ? result.events[0].content.text : '',
       /LOADED_CONTEXT_COMPACT_SENTINEL/,
     );
+  });
+
+  test('lookup history compact keeps matching a loaded prefix after newer turns extend the fold', () => {
+    const covered = [
+      textEvent('old-1', 'turn-1', 'loaded alpha '.repeat(15)),
+      textEvent('old-2', 'turn-2', 'loaded beta '.repeat(15)),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: covered,
+      summary: 'LOADED_CONTEXT_COMPACT_SENTINEL',
+      highWaterName: 'loaded-compact',
+      highWaterSeq: 9,
+      charsPerToken: 1,
+    });
+    const uncoveredFolded = textEvent('former-tail', 'turn-3', 'former retained tail now foldable');
+    const retainedOne = textEvent('recent-1', 'turn-4', 'recent retained one');
+    const retainedTwo = textEvent('recent-2', 'turn-5', 'recent retained two');
+
+    const result = applyRuntimeEventContextBudget(
+      [...covered, uncoveredFolded, retainedOne, retainedTwo],
+      {
+        maxHistoryEstimatedTokens: 10_000,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'lookup',
+          highWaterRatio: 0.000001,
+          tailEstimatedTokens: 1,
+          minRecentTurns: 2,
+          blocks: [loadedBlock],
+        },
+      },
+    );
+
+    assert.ok(result);
+    assert.equal(result.historyCompactBlocks?.[0]?.blockId, loadedBlock.blockId);
+    assert.deepEqual(result.events.map((event) => event.id), [
+      `history-compact:${loadedBlock.blockId}`,
+      'former-tail',
+      'recent-1',
+      'recent-2',
+    ]);
+    assert.equal(result.diagnostic.compactionDecisions?.[0]?.decision, 'replaced');
+  });
+
+  test('lookup prefix compact falls back to normal pruning when uncovered suffix exceeds budget', () => {
+    const covered = [
+      textEvent('old-1', 'turn-1', 'loaded alpha '.repeat(15)),
+      textEvent('old-2', 'turn-2', 'loaded beta '.repeat(15)),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: covered,
+      summary: 'LOADED_CONTEXT_COMPACT_SENTINEL',
+      highWaterName: 'loaded-compact',
+      highWaterSeq: 9,
+      charsPerToken: 1,
+    });
+
+    const result = applyRuntimeEventContextBudget(
+      [
+        ...covered,
+        textEvent('huge-former-tail', 'turn-3', 'huge uncovered suffix '.repeat(50)),
+        textEvent('recent', 'turn-4', 'recent retained'),
+      ],
+      {
+        maxHistoryEstimatedTokens: 80,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'lookup',
+          highWaterRatio: 0.000001,
+          tailEstimatedTokens: 1,
+          minRecentTurns: 1,
+          blocks: [loadedBlock],
+        },
+      },
+    );
+
+    assert.ok(result);
+    assert.equal(result.historyCompactBlocks, undefined);
+    assert.deepEqual(result.events.map((event) => event.id), ['recent']);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, { prefix_over_budget: 1 });
+  });
+
+  test('ignores diagnostic-only runtime turns when retaining recent turns', () => {
+    const result = applyRuntimeEventContextBudget(
+      [
+        textEvent('old-1', 'turn-1', 'old context that should be dropped'),
+        textEvent('recent-1', 'turn-2', 'recent real context'),
+        diagnosticRuntimeEvent('manual-compact-terminal', 'turn-compact'),
+      ],
+      {
+        maxHistoryTurns: 1,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+    );
+
+    assert.ok(result);
+    assert.deepEqual(result.events.map((event) => event.id), ['recent-1']);
+    assert.equal(result.diagnostic.keptTurns, 1);
+  });
+
+  test('ignores diagnostic-only runtime turns when matching loaded compact blocks', () => {
+    const folded = [
+      textEvent('old-1', 'turn-1', 'loaded alpha '.repeat(15)),
+      textEvent('old-2', 'turn-2', 'loaded beta '.repeat(15)),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: folded,
+      summary: 'LOADED_CONTEXT_COMPACT_SENTINEL',
+      highWaterName: 'loaded-compact',
+      highWaterSeq: 9,
+      charsPerToken: 1,
+    });
+
+    const result = applyRuntimeEventContextBudget(
+      [
+        ...folded,
+        textEvent('recent-1', 'turn-3', 'recent retained one'),
+        textEvent('recent-2', 'turn-4', 'recent retained two'),
+        diagnosticRuntimeEvent('manual-compact-terminal', 'turn-compact'),
+      ],
+      {
+        maxHistoryEstimatedTokens: 10_000,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'lookup',
+          highWaterRatio: 0.000001,
+          targetRatio: 0.2,
+          tailEstimatedTokens: 1,
+          minRecentTurns: 2,
+          blocks: [loadedBlock],
+        },
+      },
+    );
+
+    assert.ok(result);
+    assert.equal(result.historyCompactBlocks?.[0]?.blockId, loadedBlock.blockId);
+    assert.deepEqual(result.diagnostic.historyCompactSkippedReasonCounts, undefined);
+    assert.equal(result.events.some((event) => event.id === 'manual-compact-terminal'), false);
+    assert.equal(result.events.some((event) => event.id === 'recent-1'), true);
+    assert.equal(result.events.some((event) => event.id === 'recent-2'), true);
   });
 });
 
@@ -1199,6 +1383,17 @@ function textEvent(id: string, turnId: string, text: string): RuntimeEvent {
     role: 'user',
     author: 'user',
     content: { kind: 'text', text },
+  });
+}
+
+function diagnosticRuntimeEvent(id: string, turnId: string): RuntimeEvent {
+  return baseEvent({
+    id,
+    turnId,
+    role: 'system',
+    author: 'system',
+    status: 'completed',
+    actions: { endInvocation: true },
   });
 }
 

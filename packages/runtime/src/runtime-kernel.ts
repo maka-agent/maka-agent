@@ -1,5 +1,5 @@
 import type { AgentRunStore, RuntimeEventStore } from '@maka/core';
-import type { SessionEvent } from '@maka/core/events';
+import type { CompleteEvent, SessionEvent, TokenUsageEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
   SessionHeader,
@@ -10,11 +10,11 @@ import type {
 import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
-import { AiSdkFlow } from './ai-sdk-flow.js';
+import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
 import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
-import type { InvocationResult, InvocationSource } from './invocation-context.js';
+import type { InvocationContext, InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
-import type { BackendRegistry, SessionStore, StopSessionInput } from './session-manager.js';
+import type { BackendRegistry, CompactSessionInput, SessionStore, StopSessionInput } from './session-manager.js';
 import {
   buildStatusPatch,
   buildTurnStateMessage,
@@ -29,6 +29,7 @@ import {
 
 export interface RuntimeKernelLike {
   startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
+  compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
@@ -96,6 +97,102 @@ export class RuntimeKernel implements RuntimeKernelLike {
     });
 
     yield* this.runAgentTurn(sessionId, input, run);
+  }
+
+  async *compactSession(
+    sessionId: string,
+    input: CompactSessionInput = {},
+  ): AsyncIterable<SessionEvent> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('Runtime compaction requires AgentRunStore and RuntimeEventStore');
+    }
+    if (this.hasActiveRuns(sessionId)) {
+      throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
+    }
+
+    const header = await this.deps.store.readHeader(sessionId);
+    const turnId = input.turnId ?? this.deps.newId();
+    const run = new AgentRun({
+      sessionId,
+      header,
+      userInput: { turnId, text: '' },
+      store: this.deps.store,
+      runStore: this.deps.runStore,
+      runtimeEventStore: this.deps.runtimeEventStore,
+      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+      newId: this.deps.newId,
+      now: this.deps.now,
+      hooks: {
+        ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
+        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
+        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
+        updateStatus: (targetSessionId, status, blockedReason, ts) =>
+          this.updateStatus(targetSessionId, status, blockedReason, ts),
+        appendTurnState: (targetSessionId, nextTurnId, status, lineage, options) =>
+          this.appendTurnState(targetSessionId, nextTurnId, status, lineage, options),
+      },
+    });
+
+    let begin: Awaited<ReturnType<typeof run.beginOperation>>;
+    try {
+      begin = await run.beginOperation();
+    } catch (error) {
+      await run.recordFailure(error);
+      await run.finalize();
+      throw error;
+    }
+
+    try {
+      if (run.isStopped()) return;
+      if (!begin.backend.compactHistory) throw new Error(`Backend ${header.backend} does not support runtime compaction`);
+      const result = await begin.backend.compactHistory({ turnId: run.turnId, runtimeContext: begin.runtimeContext });
+      if (run.isStopped()) return;
+      const tokenUsageEvent: TokenUsageEvent = {
+        type: 'token_usage',
+        id: this.deps.newId(),
+        turnId: run.turnId,
+        ts: this.deps.now(),
+        input: 0,
+        output: 0,
+        ...(result.contextBudget ? { contextBudget: result.contextBudget } : {}),
+      };
+      const completeEvent: CompleteEvent = {
+        type: 'complete',
+        id: this.deps.newId(),
+        turnId: run.turnId,
+        ts: this.deps.now(),
+        stopReason: 'end_turn',
+      };
+      const invocation = this.compactInvocationContext({
+        sessionId,
+        runId: run.runId,
+        turnId: run.turnId,
+        startedAt: begin.startedAt,
+      });
+      await run.acceptMappedEvent(
+        tokenUsageEvent,
+        mapSessionEventToRuntimeEvent(tokenUsageEvent, invocation),
+        { requireTerminalWrite: true },
+      );
+      if (run.isStopped()) return;
+      await run.recordStoredSessionEvent(tokenUsageEvent);
+      if (run.isStopped()) return;
+      yield tokenUsageEvent;
+      if (run.isStopped()) return;
+      await run.acceptMappedEvent(
+        completeEvent,
+        mapSessionEventToRuntimeEvent(completeEvent, invocation),
+        { requireTerminalWrite: true },
+      );
+      if (run.isStopped()) return;
+      yield completeEvent;
+    } catch (error) {
+      await run.recordFailure(error);
+      throw error;
+    } finally {
+      await run.finalize();
+    }
   }
 
   async *startChildTurn(
@@ -230,6 +327,34 @@ export class RuntimeKernel implements RuntimeKernelLike {
       }
       await runnerResult.catch(() => undefined);
     }
+  }
+
+  private compactInvocationContext(input: {
+    sessionId: string;
+    runId: string;
+    turnId: string;
+    startedAt: number;
+  }): InvocationContext {
+    const request = {
+      sessionId: input.sessionId,
+      invocationId: input.runId,
+      runId: input.runId,
+      turnId: input.turnId,
+      text: '',
+      context: [],
+      source: this.deps.runtimeSource ?? 'desktop',
+    } satisfies InvocationContext['request'];
+    return {
+      sessionId: input.sessionId,
+      invocationId: input.runId,
+      runId: input.runId,
+      turnId: input.turnId,
+      source: this.deps.runtimeSource ?? 'desktop',
+      startedAt: input.startedAt,
+      request,
+      newId: this.deps.newId,
+      now: this.deps.now,
+    };
   }
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {

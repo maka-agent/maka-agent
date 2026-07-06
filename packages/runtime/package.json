@@ -25,6 +25,7 @@
     "./file-write-lock": "./dist/file-write-lock.js",
     "./session-manager": "./dist/session-manager.js",
     "./fake-backend": "./dist/fake-backend.js",
+    "./workspace-executor": "./dist/workspace-executor.js",
     "./network/proxy-env": "./dist/network/proxy-env.js",
     "./network/proxy-test": "./dist/network/proxy-test.js",
     "./network/proxy-parser": "./dist/network/proxy-parser.js",

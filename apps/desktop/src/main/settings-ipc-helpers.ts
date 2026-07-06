@@ -115,6 +115,41 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
   };
 }
 
+/**
+ * Return a copy of settings with every secret field OMITTED, for a config
+ * export that does NOT include the `credentials` category. The keys are
+ * removed (not blanked to '') on purpose: `mergeSettings` deep-merges to the
+ * leaf, so an absent key preserves the target machine's existing value on
+ * import, whereas a '' would overwrite and wipe a working proxy/bot/gateway/
+ * search secret. Keep the field list in sync with `maskAppSettings`.
+ */
+export function stripSettingsSecretsForExport(settings: AppSettings): Record<string, unknown> {
+  const proxy = { ...settings.network.proxy } as Record<string, unknown>;
+  delete proxy.password;
+
+  const channels: Record<string, unknown> = {};
+  for (const [provider, channel] of Object.entries(settings.botChat.channels)) {
+    const next = { ...channel } as Record<string, unknown>;
+    delete next.token;
+    delete next.appSecret;
+    channels[provider] = next;
+  }
+
+  const openGateway = { ...settings.openGateway } as Record<string, unknown>;
+  delete openGateway.token;
+
+  const tavily = { ...settings.webSearch.providers.tavily } as Record<string, unknown>;
+  delete tavily.apiKey;
+
+  return {
+    ...settings,
+    network: { ...settings.network, proxy },
+    botChat: { ...settings.botChat, channels },
+    openGateway,
+    webSearch: { ...settings.webSearch, providers: { ...settings.webSearch.providers, tavily } },
+  };
+}
+
 export function buildSettingsUpdateResult(
   settings: AppSettings,
   patch: UpdateAppSettingsInput,

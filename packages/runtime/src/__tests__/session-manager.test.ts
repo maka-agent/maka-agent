@@ -39,6 +39,162 @@ import {
   WEB_RESEARCH_AGENT_ID,
 } from '../agent-catalog.js';
 
+describe('SessionManager manual compaction', () => {
+  test('runs backend history compaction as a runtime turn and persists diagnostics', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new OrderingAgentRunStore();
+    const backends = new BackendRegistry();
+    const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
+    backends.register('fake', (ctx) => new CompactingTestBackend(ctx, compactCalls));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(10_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    runStore.operations = [];
+    const events = await collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+
+    expect(compactCalls).toEqual([{ turnId: 'turn-compact', runtimeContextCount: 3 }]);
+    expect(events.map((event) => event.type)).toEqual(['token_usage', 'complete']);
+    const usage = events[0];
+    if (usage?.type !== 'token_usage') throw new Error('expected token_usage');
+    expect(usage.contextBudget?.compactionDecisions?.[0]?.decision).toBe('replaced');
+
+    const messages = await store.readMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.text.includes('compact'))).toBe(false);
+    expect(messages.some((message) => message.type === 'token_usage' && message.turnId === 'turn-compact')).toBe(true);
+    expect(messages.some((message) => message.type === 'turn_state' && message.turnId === 'turn-compact' && message.status === 'completed')).toBe(true);
+
+    const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+    expect(compactRun?.status).toBe('completed');
+    expect(runStore.operations).toEqual(['terminalRuntimeEvent', 'completedRunHeader']);
+    expect((await runStore.readRuntimeEvents(session.id, compactRun!.runId)).some((event) => event.actions?.tokenUsage?.contextBudget)).toBe(true);
+  });
+
+  test('manual compaction stopped before backend start does not write compact artifacts', async () => {
+    const store = new MemorySessionStore();
+    const readGate = makeGate();
+    const readStarted = makeGate();
+    let blockPriorRead = false;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventRead: async () => {
+        if (!blockPriorRead) return;
+        readStarted.release();
+        await readGate.promise;
+      },
+    });
+    const backends = new BackendRegistry();
+    const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
+    backends.register('fake', (ctx) => new CompactingTestBackend(ctx, compactCalls));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(15_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    blockPriorRead = true;
+    const compactPromise = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await readStarted.promise;
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    readGate.release();
+    const compactEvents = await compactPromise.catch(() => []);
+
+    expect(compactCalls).toEqual([]);
+    expect(compactEvents.some((event) => event.type === 'token_usage')).toBe(false);
+    const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+    expect(compactRun?.status).toBe('cancelled');
+  });
+
+  test('manual compaction is stopped through the active runtime run lifecycle', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const compactGate = makeGate();
+    const compactStarted = makeGate();
+    let compactingBackend: BlockingCompactBackend | undefined;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new BlockingCompactBackend(ctx, {
+      compactGate,
+      onCompactStart: (backend) => {
+        compactingBackend = backend;
+        compactStarted.release();
+      },
+    }));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(20_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const compactPromise = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await compactStarted.promise;
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    compactGate.release();
+    const compactEvents = await compactPromise.catch(() => []);
+
+    expect(compactingBackend?.stopCalls).toBe(1);
+    expect(compactEvents.some((event) => event.type === 'token_usage')).toBe(false);
+    const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+    expect(compactRun?.status).toBe('cancelled');
+  });
+
+  test('compactSession rejects while a turn is running and writes no compact artifacts', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const sendGate = makeGate();
+    const turnStarted = makeGate();
+    const compactCalls: Array<{ turnId: string; runtimeContextCount: number }> = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ActiveTurnBackend(ctx, { turnStarted, sendGate, compactCalls }));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(25_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    const sendPromise = (async () => {
+      for await (const _event of manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hi' })) {
+        // turn held open at the send gate; drained after the compact assertion
+      }
+    })();
+    await turnStarted.promise;
+
+    const compactError = await collectSessionEvents(
+      manager.compactSession(session.id, { turnId: 'turn-compact' }),
+    ).catch((error: unknown) => error);
+    expect(compactError instanceof Error).toBe(true);
+    expect(String((compactError as Error).message)).toMatch(/turn is running|wait for the turn/);
+
+    expect(compactCalls).toEqual([]);
+    const messages = await store.readMessages(session.id);
+    expect(messages.some((message) => message.turnId === 'turn-compact')).toBe(false);
+    const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+    expect(compactRun).toBeUndefined();
+
+    sendGate.release();
+    await sendPromise;
+  });
+});
+
 describe('SessionManager permission mode updates', () => {
   test('updates header, rebuilds active backend, and writes an audit note', async () => {
     const store = new MemorySessionStore();
@@ -3261,16 +3417,16 @@ describe('SessionManager permission mode updates', () => {
     expect(backendInstances[0]?.sendInputs.length ?? 0).toBe(1);
   });
 
-  test('RuntimeKernel production source uses AiSdkFlow instead of an inline mapper flow', async () => {
+  test('RuntimeKernel turn runner uses AiSdkFlow instead of an inline mapper flow', async () => {
     const source = await readFile(new URL('../../src/runtime-kernel.ts', import.meta.url), 'utf8');
-    const startTurnSource = source.slice(
-      source.indexOf('async *startTurn'),
+    const turnRunnerSource = source.slice(
+      source.indexOf('private async *runAgentTurn'),
       source.indexOf('async stopSession'),
     );
 
-    expect(startTurnSource.includes('new AiSdkFlow')).toBe(true);
-    expect(startTurnSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
-    expect(startTurnSource.includes('createSessionEventMapMemory')).toBe(false);
+    expect(turnRunnerSource.includes('new AiSdkFlow')).toBe(true);
+    expect(turnRunnerSource.includes('mapSessionEventToRuntimeEvent')).toBe(false);
+    expect(turnRunnerSource.includes('createSessionEventMapMemory')).toBe(false);
   });
 
   test('rejects backend configuration updates while a turn is actively streaming', async () => {
@@ -4435,6 +4591,16 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
     }
   }
 
+  async *compactSession(
+    sessionId: string,
+    input: Parameters<RuntimeKernelLike['compactSession']>[1] = {},
+  ): AsyncIterable<SessionEvent> {
+    this.starts.push({ sessionId, input: { turnId: input.turnId ?? 'compact-turn', text: '' } });
+    for (const event of this.events) {
+      yield event;
+    }
+  }
+
   async stopSession(sessionId: string): Promise<void> {
     this.stopped.push(sessionId);
   }
@@ -4483,6 +4649,89 @@ class TestBackend implements AgentBackend {
       this.ctx.store.disposeCount += 1;
     }
   }
+}
+
+class CompactingTestBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly compactCalls: Array<{ turnId: string; runtimeContextCount: number }>,
+  ) {
+    super(ctx);
+  }
+
+  async compactHistory(input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    this.compactCalls.push({ turnId: input.turnId, runtimeContextCount: input.runtimeContext.length });
+    return compactHistoryResult();
+  }
+}
+
+class BlockingCompactBackend extends TestBackend {
+  stopCalls = 0;
+
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly options: {
+      compactGate: Gate;
+      onCompactStart: (backend: BlockingCompactBackend) => void;
+    },
+  ) {
+    super(ctx);
+  }
+
+  async compactHistory(_input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    this.options.onCompactStart(this);
+    await this.options.compactGate.promise;
+    return compactHistoryResult();
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+}
+
+class ActiveTurnBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly options: {
+      turnStarted: Gate;
+      sendGate: Gate;
+      compactCalls: Array<{ turnId: string; runtimeContextCount: number }>;
+    },
+  ) {
+    super(ctx, options.sendGate);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.options.turnStarted.release();
+    yield* super.send(input);
+  }
+
+  async compactHistory(input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    this.options.compactCalls.push({ turnId: input.turnId, runtimeContextCount: input.runtimeContext.length });
+    return compactHistoryResult();
+  }
+}
+
+function compactHistoryResult() {
+  return {
+    contextBudget: {
+      enabled: true,
+      policyName: 'unit-budget',
+      estimatedTokensBefore: 1000,
+      estimatedTokensAfter: 400,
+      keptTurns: 1,
+      droppedTurns: 1,
+      keptEvents: 1,
+      droppedEvents: 1,
+      compactionDecisions: [{
+        stage: 'priorReplay' as const,
+        sourceKind: 'runtimeEvents' as const,
+        decision: 'replaced' as const,
+        boundaryKind: 'historyCompact',
+        estimatedTokensSaved: 600,
+      }],
+    },
+  };
 }
 
 class HighVolumeDeltaBackend implements AgentBackend {
@@ -5065,6 +5314,21 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
       a.event.id.localeCompare(b.event.id)
     );
     return ordered.map((item) => item.event);
+  }
+}
+
+class OrderingAgentRunStore extends MemoryAgentRunStore {
+  operations: string[] = [];
+
+  override async updateRun(sessionId: string, runId: string, patch: Partial<AgentRunHeader>): Promise<AgentRunHeader> {
+    const next = await super.updateRun(sessionId, runId, patch);
+    if (patch.status === 'completed') this.operations.push('completedRunHeader');
+    return next;
+  }
+
+  override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    await super.appendRuntimeEvent(sessionId, runId, event);
+    if (isTerminalRuntimeEvent(event)) this.operations.push('terminalRuntimeEvent');
   }
 }
 

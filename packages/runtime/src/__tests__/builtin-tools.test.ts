@@ -4,8 +4,112 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import {
+  LOCAL_WORKSPACE_EXECUTOR_FACTS,
+  type WorkspaceExecInput,
+  type WorkspaceExecutor,
+  type WorkspaceExecutorFacts,
+} from '../workspace-executor.js';
+
+describe('builtin tool executor facts', () => {
+  test('attaches executor facts to every built-in tool', () => {
+    const facts: WorkspaceExecutorFacts = {
+      isolation: 'worktree',
+      writesAffectHost: false,
+      writeBack: 'diff_review',
+      network: 'sandbox',
+      secrets: 'none',
+    };
+
+    const tools = buildBuiltinTools({ executor: fakeExecutor({ facts }) });
+
+    expect(tools.length > 0).toBe(true);
+    expect(tools.every((tool) => tool.executionFacts === facts)).toBe(true);
+  });
+});
 
 describe('builtin Bash streaming output', () => {
+  test('delegates Bash execution to an injected workspace executor', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-executor-'));
+    const calls: WorkspaceExecInput[] = [];
+    const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
+    const bash = buildBuiltinTools({ executor: fakeExecutor({
+      exec: async (input) => {
+        calls.push(input);
+        input.emitOutput?.('stdout', 'delegated-out');
+        return {
+          exitCode: 0,
+          stdout: 'delegated-out',
+          stderr: 'delegated-err',
+          timedOut: false,
+          aborted: false,
+        };
+      },
+    }) }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: 'npm test', timeout_ms: 12_345 },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        cwd,
+        toolCallId: 'tool-1',
+        abortSignal: new AbortController().signal,
+        emitOutput: (stream, chunk) => events.push({ stream, chunk }),
+      },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.command).toBe('npm test');
+    expect(calls[0]?.cwd).toBe(cwd);
+    expect(calls[0]?.timeoutMs).toBe(12_345);
+    expect(events).toEqual([{ stream: 'stdout', chunk: 'delegated-out' }]);
+    expect(result).toMatchObject({
+      kind: 'terminal',
+      cwd,
+      cmd: 'npm test',
+      exitCode: 0,
+      stdout: 'delegated-out',
+      stderr: 'delegated-err',
+    });
+  });
+
+  test('preserves Bash failure contract when the executor reports non-zero exit', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-executor-'));
+    const bash = buildBuiltinTools({ executor: fakeExecutor({
+      exec: async () => ({
+        exitCode: 4,
+        stdout: 'out-data',
+        stderr: 'err-data',
+        timedOut: false,
+        aborted: false,
+      }),
+    }) }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    let err: { code?: number; stdout?: string; stderr?: string } | null = null;
+    try {
+      await bash.impl(
+        { command: 'fail', timeout_ms: 5_000 },
+        {
+          sessionId: 'session-1',
+          turnId: 'turn-1',
+          cwd,
+          toolCallId: 'tool-1',
+          abortSignal: new AbortController().signal,
+          emitOutput: () => {},
+        },
+      );
+    } catch (e: unknown) {
+      err = e as { code?: number; stdout?: string; stderr?: string };
+    }
+
+    expect(err?.code).toBe(4);
+    expect(err?.stdout).toBe('out-data');
+    expect(err?.stderr).toBe('err-data');
+  });
+
   test('emits stdout/stderr chunks before returning terminal result', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-bash-'));
     const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
@@ -148,6 +252,29 @@ describe('builtin Bash streaming output', () => {
 });
 
 describe('builtin read tools path containment', () => {
+  test('Read delegates file loading to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-read-executor-'));
+    await writeFile(join(root, 'inside.txt'), 'local-content', 'utf8');
+    const readInputs: unknown[] = [];
+    const read = buildBuiltinTools({ executor: fakeExecutor({
+      readFile: async (input) => {
+        readInputs.push(input);
+        return { content: 'executor-window' };
+      },
+    }) }).find((candidate) => candidate.name === 'Read');
+    if (!read) throw new Error('Read tool missing');
+
+    const result = await runTool(read, { path: 'inside.txt', offset: 1, limit: 1 }, root);
+
+    expect(readInputs).toHaveLength(1);
+    expect(readInputs[0]).toMatchObject({
+      offset: 1,
+      limit: 1,
+    });
+    expect(String((readInputs[0] as { path?: string }).path)).toMatch(/inside\.txt$/);
+    expect(result).toMatchObject({ content: 'executor-window' });
+  });
+
   test('Read rejects absolute, parent traversal, and symlink escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-read-outside-'));
@@ -183,9 +310,123 @@ describe('builtin read tools path containment', () => {
     const grepResult = await runTool(grep, { pattern: 'token', path: 'src' }, root);
     expect(JSON.stringify(grepResult).includes('main.ts')).toBe(true);
   });
+
+  test('Glob delegates matching to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-glob-executor-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    const calls: Array<{ cwd: string; pattern: string; limit?: number }> = [];
+    const glob = buildBuiltinTools({ executor: fakeExecutor({
+      globFiles: async (input) => {
+        calls.push(input);
+        return { files: ['from-executor.ts'] };
+      },
+    }) }).find((candidate) => candidate.name === 'Glob');
+    if (!glob) throw new Error('Glob tool missing');
+
+    const result = await runTool(glob, { pattern: '**/*.ts', cwd: 'src' }, root);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd.endsWith('src')).toBe(true);
+    expect(calls[0]?.pattern).toBe('**/*.ts');
+    expect(calls[0]?.limit).toBe(200);
+    expect(result).toMatchObject({ files: ['from-executor.ts'] });
+  });
+
+  test('Grep delegates searching to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-grep-executor-'));
+    await mkdir(join(root, 'src'), { recursive: true });
+    await writeFile(join(root, 'src', 'main.ts'), 'local token\n', 'utf8');
+    const calls: Array<{ cwd: string; pattern: string; path: string; glob?: string; maxCountPerFile: number; limit: number }> = [];
+    const grep = buildBuiltinTools({ executor: fakeExecutor({
+      grepFiles: async (input) => {
+        calls.push(input);
+        return { matches: ['from-executor.ts:1:token'] };
+      },
+    }) }).find((candidate) => candidate.name === 'Grep');
+    if (!grep) throw new Error('Grep tool missing');
+
+    const result = await runTool(grep, { pattern: 'token', path: 'src', glob: '*.ts' }, root);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.cwd).toBe(root);
+    expect(calls[0]?.path.endsWith('src')).toBe(true);
+    expect(calls[0]?.glob).toBe('*.ts');
+    expect(calls[0]?.maxCountPerFile).toBe(50);
+    expect(calls[0]?.limit).toBe(200);
+    expect(result).toMatchObject({ matches: ['from-executor.ts:1:token'] });
+  });
 });
 
 describe('builtin write tools path containment', () => {
+  test('Write can delegate path resolution to a remote executor when cwd is not on the host', async () => {
+    const writes: Array<{ cwd: string; path: string; content: string }> = [];
+    const write = buildBuiltinTools({ executor: fakeExecutor({
+      writeLockKey: async ({ cwd, path }) => ({ key: JSON.stringify([cwd, path]) }),
+      resolveWritablePath: async ({ cwd, path }) => ({ path: `${cwd}/${path}` }),
+      writeFile: async ({ cwd, path, content }) => {
+        writes.push({ cwd, path, content });
+        return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+      },
+    }) }).find((candidate) => candidate.name === 'Write');
+    if (!write) throw new Error('Write tool missing');
+
+    const result = await runTool(write, { path: 'created.txt', content: 'from-executor' }, '/workspace');
+
+    expect(writes).toEqual([{
+      cwd: '/workspace',
+      path: '/workspace/created.txt',
+      content: 'from-executor',
+    }]);
+    expect(result).toMatchObject({ ok: true, path: '/workspace/created.txt', bytes: 13 });
+  });
+
+  test('Write delegates file writing to the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-write-executor-'));
+    const writes: Array<{ path: string; content: string }> = [];
+    const write = buildBuiltinTools({ executor: fakeExecutor({
+      writeFile: async ({ path, content }) => {
+        writes.push({ path, content });
+        return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+      },
+    }) }).find((candidate) => candidate.name === 'Write');
+    if (!write) throw new Error('Write tool missing');
+
+    const result = await runTool(write, { path: 'created.txt', content: 'from-executor' }, root);
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.path.endsWith('created.txt')).toBe(true);
+    expect(writes[0]?.content).toBe('from-executor');
+    expect(result).toMatchObject({ ok: true, bytes: 13 });
+  });
+
+  test('Edit reads and writes through the injected workspace executor', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-edit-executor-'));
+    await writeFile(join(root, 'data.txt'), 'local content that should not be used', 'utf8');
+    const reads: string[] = [];
+    const writes: Array<{ path: string; content: string }> = [];
+    const edit = buildBuiltinTools({ executor: fakeExecutor({
+      readFile: async ({ path }) => {
+        reads.push(path);
+        return { content: 'hello world\n' };
+      },
+      writeFile: async ({ path, content }) => {
+        writes.push({ path, content });
+        return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+      },
+    }) }).find((candidate) => candidate.name === 'Edit');
+    if (!edit) throw new Error('Edit tool missing');
+
+    const result = await runTool(edit, { path: 'data.txt', old_string: 'world', new_string: 'Maka' }, root);
+
+    expect(reads).toHaveLength(1);
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.content).toBe('hello Maka\n');
+    expect(result).toMatchObject({
+      ok: true,
+      replacements: 1,
+    });
+  });
+
   test('Write rejects absolute, parent traversal, and symlink-parent escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-write-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-write-outside-'));
@@ -310,4 +551,29 @@ function runTool(tool: ReturnType<typeof buildBuiltinTools>[number], args: unkno
     abortSignal: new AbortController().signal,
     emitOutput: () => {},
   }));
+}
+
+function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor {
+  const base: WorkspaceExecutor = {
+    facts: LOCAL_WORKSPACE_EXECUTOR_FACTS,
+    exec: async () => ({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+      aborted: false,
+    }),
+    readFile: async () => ({ content: '' }),
+    writeFile: async ({ path, content }) => ({
+      ok: true,
+      path,
+      bytes: Buffer.byteLength(content, 'utf8'),
+    }),
+    resolveExistingPath: async ({ path }) => ({ path }),
+    resolveWritablePath: async ({ path }) => ({ path }),
+    writeLockKey: async ({ cwd, path }) => ({ key: `${cwd}:${path}` }),
+    globFiles: async () => ({ files: [] }),
+    grepFiles: async () => ({ matches: [] }),
+  };
+  return Object.assign(base, overrides);
 }

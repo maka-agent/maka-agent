@@ -11,6 +11,7 @@ export interface MakaSessionRuntime {
   listSessions(): Promise<SessionSummary[]>;
   getMessages(sessionId: string): Promise<StoredMessage[]>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
+  compactSession(sessionId: string, input?: { turnId?: string }): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
@@ -34,6 +35,7 @@ export interface MakaSessionSwitchResult {
 export interface MakaSessionDriver {
   listSessions(): Promise<SessionSummary[]>;
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
+  compactSession(): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   setModel(model: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
@@ -66,6 +68,11 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       turnId: this.newId(),
       text: prompt,
     });
+  }
+
+  async *compactSession(): AsyncIterable<SessionEvent> {
+    if (!this.sessionId) throw new Error('Cannot compact before a session starts.');
+    yield* this.input.runtime.compactSession(this.sessionId, { turnId: this.newId() });
   }
 
   async listSessions(): Promise<SessionSummary[]> {

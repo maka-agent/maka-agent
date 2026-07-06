@@ -171,7 +171,7 @@ function classesForOtherTiers(tier: Tier): string[] {
 
 const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/ui.tsx', name: 'buttonVariants', tier: 'control' },
-  { file: 'packages/ui/src/ui.tsx', name: 'inputClasses', tier: 'control' },
+  { file: 'packages/ui/src/primitives/input.tsx', name: 'inputClasses', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
   // #520 PR9: legacy ui.tsx badgeVariants retired onto primitives/badge.tsx.

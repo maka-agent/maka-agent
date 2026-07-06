@@ -15,6 +15,7 @@
 
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
+  CompactSessionInput,
   SessionManagerDeps,
   SessionStore,
   BackendFactory,
@@ -33,6 +34,8 @@ export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './perm
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type {
   AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
   AiSdkBackendInput,
   AppendMessageFn,
   AttachmentByteReader,
@@ -67,7 +70,54 @@ export type {
 } from './pi-agent-backend.js';
 
 export { buildBuiltinTools } from './builtin-tools.js';
-export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';
+export type {
+  BuildBuiltinToolsOptions,
+  MakaTool as BuiltinMakaTool,
+  MakaToolContext as BuiltinMakaToolContext,
+} from './builtin-tools.js';
+export {
+  LOCAL_WORKSPACE_EXECUTOR_FACTS,
+  LocalWorkspaceExecutor,
+  createLocalWorkspaceExecutor,
+} from './workspace-executor.js';
+export type {
+  WorkspaceExecInput,
+  WorkspaceExecResult,
+  WorkspaceBashExecutor,
+  WorkspaceCommandExecutor,
+  WorkspaceEditExecutor,
+  WorkspaceExistingPathResolver,
+  WorkspaceExecutor,
+  WorkspaceExecutorFacts,
+  WorkspaceExecutorFactsProvider,
+  WorkspaceGlobExecutor,
+  WorkspaceGlobFilesExecutor,
+  WorkspaceGlobInput,
+  WorkspaceGlobResult,
+  WorkspaceGrepExecutor,
+  WorkspaceGrepFilesExecutor,
+  WorkspaceGrepInput,
+  WorkspaceGrepResult,
+  WorkspaceIsolationKind,
+  WorkspaceNetworkMode,
+  WorkspaceReadExecutor,
+  WorkspaceReadFileInput,
+  WorkspaceReadFileExecutor,
+  WorkspaceReadFileResult,
+  WorkspaceResolvePathInput,
+  WorkspaceResolvePathResult,
+  WorkspaceSecretMode,
+  WorkspaceSearchExecutor,
+  WorkspaceWritablePathResolver,
+  WorkspaceWriteExecutor,
+  WorkspaceWriteBackMode,
+  WorkspaceWriteFileInput,
+  WorkspaceWriteFileExecutor,
+  WorkspaceWriteFileResult,
+  WorkspaceWriteLockKeyInput,
+  WorkspaceWriteLockProvider,
+  WorkspaceWriteLockKeyResult,
+} from './workspace-executor.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
@@ -130,9 +180,14 @@ export {
   buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
+  LEGACY_TASK_CREATE_TOOL_NAME,
+  LEGACY_TASK_UPDATE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
   buildTaskLedgerTools,
+  isTaskLedgerToolsEnabled,
 } from './task-ledger-tools.js';
 export {
   deriveToolArtifactCandidates,
@@ -188,6 +243,19 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export type {
+  BuildDefaultContextBudgetPolicyOptions,
+  BuildManualCompactLookupPolicyOptions,
+} from './context-budget-policy.js';
+export {
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+} from './history-compact-artifacts.js';
+export type {
+  HistoryCompactArtifactStore,
+  PersistHistoryCompactBlocksDeps,
+} from './history-compact-artifacts.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,

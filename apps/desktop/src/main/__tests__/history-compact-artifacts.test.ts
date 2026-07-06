@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
+  applyRuntimeEventHistoryCompact,
   buildHistoryCompactBlockFromSummary,
   type HistoryCompactBlock,
   type HistoryCompactWriteInput,
@@ -17,7 +18,7 @@ import {
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
-} from '../history-compact-artifacts.js';
+} from '@maka/runtime';
 
 describe('desktop history compact artifact lifecycle', () => {
   test('persists archived RuntimeEvent sources and a compact block', async () => {
@@ -69,6 +70,145 @@ describe('desktop history compact artifact lifecycle', () => {
       assert.equal(loaded.blocks.length, 1);
       assert.equal(loaded.blocks[0]?.blockId, write.blocks[0]?.blockId);
       assert.equal(loaded.skipped, undefined);
+    });
+  });
+
+  test('aborted writes do not create a replayable compact block', async () => {
+    await withStore(async (store) => {
+      const foldedEvents = [
+        textEvent('old-1', 'turn-1', 'alpha fact'),
+        textEvent('old-2', 'turn-2', 'beta fact'),
+      ];
+      const controller = new AbortController();
+      const input: HistoryCompactWriteInput = {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'deterministic fallback'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
+          charsPerToken: 4,
+        },
+        abortSignal: controller.signal,
+      };
+
+      await assert.rejects(
+        persistHistoryCompactBlocksToArtifacts(store, input, {
+          now: () => 1_800_000_000_100,
+          summarize: () => 'host summary alpha beta',
+          onArtifactCreated: (artifact) => {
+            if (artifact.source === 'history_compact_source') controller.abort();
+          },
+        }),
+        /history compact write aborted|This operation was aborted/,
+      );
+
+      const liveRecords = await store.list('session-1');
+      assert.equal(liveRecords.filter((record) => record.source === 'history_compact_source').length, 0);
+      assert.equal(liveRecords.filter((record) => record.source === 'history_compact_block').length, 0);
+      const allRecords = await store.list('session-1', { includeDeleted: true });
+      assert.equal(allRecords.filter((record) => record.source === 'history_compact_source' && record.status === 'deleted').length, 1);
+    });
+  });
+
+  test('aborting during the final compact block write removes the replayable block', async () => {
+    await withStore(async (store) => {
+      const foldedEvents = [
+        textEvent('old-1', 'turn-1', 'alpha fact'),
+        textEvent('old-2', 'turn-2', 'beta fact'),
+      ];
+      const controller = new AbortController();
+      const input: HistoryCompactWriteInput = {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'deterministic fallback'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
+          charsPerToken: 4,
+        },
+        abortSignal: controller.signal,
+      };
+
+      await assert.rejects(
+        persistHistoryCompactBlocksToArtifacts({
+          create: async (createInput) => {
+            const artifact = await store.create(createInput);
+            if (artifact.source === 'history_compact_block') controller.abort();
+            return artifact;
+          },
+          delete: (artifactId) => store.delete(artifactId),
+        }, input, {
+          now: () => 1_800_000_000_100,
+          summarize: () => 'host summary alpha beta',
+        }),
+        /history compact write aborted|This operation was aborted/,
+      );
+
+      const liveRecords = await store.list('session-1');
+      assert.equal(liveRecords.filter((record) => record.source === 'history_compact_source').length, 0);
+      assert.equal(liveRecords.filter((record) => record.source === 'history_compact_block').length, 0);
+      const allRecords = await store.list('session-1', { includeDeleted: true });
+      assert.equal(allRecords.filter((record) => record.source === 'history_compact_source' && record.status === 'deleted').length, 2);
+      assert.equal(allRecords.filter((record) => record.source === 'history_compact_block' && record.status === 'deleted').length, 1);
+    });
+  });
+
+  test('replayed loaded compact blocks keep persisted source archive refs', async () => {
+    await withStore(async (store) => {
+      const foldedEvents = [
+        textEventWithReorderedContent('old-1', 'turn-1', 'alpha fact'),
+        textEventWithReorderedContent('old-2', 'turn-2', 'beta fact'),
+      ];
+      const input: HistoryCompactWriteInput = {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'deterministic fallback'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
+          charsPerToken: 4,
+        },
+      };
+
+      const write = await persistHistoryCompactBlocksToArtifacts(store, input, {
+        now: () => 1_800_000_000_100,
+        summarize: () => 'host summary alpha beta',
+      });
+      const replay = applyRuntimeEventHistoryCompact([
+        ...foldedEvents,
+        textEvent('recent', 'turn-3', 'recent retained fact'),
+      ], {
+        name: 'archive-required-replay',
+        maxHistoryEstimatedTokens: 2_048,
+        minRecentTurns: 1,
+        charsPerToken: 4,
+        historyCompact: {
+          enabled: true,
+          mode: 'lookup',
+          highWaterRatio: 0.000001,
+          tailEstimatedTokens: 1,
+          minRecentTurns: 1,
+          archiveRequired: true,
+          blocks: write.blocks,
+        },
+      });
+
+      assert.equal(replay.blocks.length, 1);
+      assert.equal(replay.blocks[0]?.sourceArchiveRefs?.length, 2);
+      assert.equal(replay.diagnosticPatch.historyCompactSkipped, undefined);
     });
   });
 
@@ -148,7 +288,7 @@ describe('desktop history compact artifact lifecycle', () => {
     });
   });
 
-  test('rejects deleted, wrong-source, wrong-session, malformed, wrong-version, and oversized blocks', async () => {
+  test('rejects deleted, wrong-source, wrong-session, malformed, wrong-version, and oversized blocks, and ignores deleted source artifacts', async () => {
     await withStore(async (store) => {
       await store.create({
         id: 'valid',
@@ -248,6 +388,20 @@ describe('desktop history compact artifact lifecycle', () => {
         now: 160,
       });
       await store.delete('deleted');
+      // A deleted history_compact_source (left behind by an aborted write)
+      // must NOT inflate the compact-block loader's deleted skip count.
+      await store.create({
+        id: 'deleted-source',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'history-compact-source-deleted.json',
+        kind: 'file',
+        content: '{}',
+        mimeType: 'application/json',
+        source: 'history_compact_source',
+        now: 165,
+      });
+      await store.delete('deleted-source');
 
       const loaded = await loadHistoryCompactBlocksFromArtifacts(store, {
         sessionId: 'session-1',
@@ -287,6 +441,13 @@ function textEvent(id: string, turnId: string, text: string): RuntimeEvent {
     role: 'user',
     author: 'user',
     content: { kind: 'text', text },
+  };
+}
+
+function textEventWithReorderedContent(id: string, turnId: string, text: string): RuntimeEvent {
+  return {
+    ...textEvent(id, turnId, text),
+    content: { text, kind: 'text' } as RuntimeEvent['content'],
   };
 }
 

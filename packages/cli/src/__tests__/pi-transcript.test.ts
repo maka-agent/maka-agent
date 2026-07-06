@@ -9,6 +9,7 @@ import {
   createMakaPiTranscriptState,
   renderMakaPiTranscript,
   replaceTranscriptWithStoredMessages,
+  submitCompactToTranscript,
   submitPromptToTranscript,
   toggleLatestToolExpansion,
 } from '../pi-transcript.js';
@@ -84,6 +85,90 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(state.entries[0]?.kind === 'user' ? state.entries[0].text : '', 'hi');
     assert.equal(state.entries[1]?.kind === 'assistant' ? state.entries[1].text : '', 'Hello from Maka');
     assert.ok(changes >= 2);
+  });
+
+  test('reports completed manual compact runs when there was nothing to compact', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([
+      event({ type: 'token_usage', input: 0, output: 0 }),
+      event({ type: 'complete', stopReason: 'end_turn' }),
+    ]);
+
+    await submitCompactToTranscript({ state, driver });
+
+    assert.equal(driver.compactCalls, 1);
+    assert.ok(state.entries.some((entry) => entry.kind === 'notice' && entry.text === 'Nothing to compact.'));
+  });
+
+  test('reports manual compact failed-open diagnostics instead of no-op success', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([
+      event({
+        type: 'token_usage',
+        input: 0,
+        output: 0,
+        contextBudget: {
+          enabled: true,
+          estimatedTokensBefore: 100,
+          estimatedTokensAfter: 100,
+          keptTurns: 2,
+          droppedTurns: 0,
+          keptEvents: 4,
+          droppedEvents: 0,
+          compactionDecisions: [{
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: 'write_failed',
+          }],
+        },
+      }),
+      event({ type: 'complete', stopReason: 'end_turn' }),
+    ]);
+
+    await submitCompactToTranscript({ state, driver });
+
+    assert.ok(state.entries.some((entry) => entry.kind === 'notice' && entry.level === 'error' && entry.text === 'Context compaction skipped: write_failed.'));
+    assert.equal(state.entries.some((entry) => entry.kind === 'notice' && entry.text === 'Nothing to compact.'), false);
+  });
+
+  test('shows failed-open compact diagnostics before success diagnostics', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'token_usage',
+      input: 0,
+      output: 0,
+      contextBudget: {
+        enabled: true,
+        estimatedTokensBefore: 100,
+        estimatedTokensAfter: 40,
+        keptTurns: 1,
+        droppedTurns: 2,
+        keptEvents: 2,
+        droppedEvents: 4,
+        compactionDecisions: [
+          {
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'replaced',
+            boundaryKind: 'historyCompact',
+          },
+          {
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: 'write_failed',
+          },
+        ],
+      },
+    }));
+
+    assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice').map((entry) => ({ level: entry.level, text: entry.text })), [
+      { level: 'error', text: 'Context compaction skipped: write_failed.' },
+    ]);
   });
 
   test('rebuilds transcript from stored session messages', () => {
@@ -194,6 +279,49 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(rawOutput, /\x1b\[32mmaka/);
   });
 
+  test('surfaces context compaction diagnostics as transcript notes', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'token_usage',
+      input: 1200,
+      output: 100,
+      contextBudget: {
+        enabled: true,
+        policyName: 'cli-default-history-budget',
+        maxHistoryEstimatedTokens: 32000,
+        estimatedTokensBefore: 42000,
+        estimatedTokensAfter: 18000,
+        keptTurns: 3,
+        droppedTurns: 5,
+        keptEvents: 7,
+        droppedEvents: 20,
+        highWaterReason: 'history_compact',
+        compactionDecisions: [{
+          stage: 'priorReplay',
+          sourceKind: 'runtimeEvents',
+          decision: 'replaced',
+          boundaryKind: 'historyCompact',
+          coveredTurns: 5,
+          coveredRuntimeEvents: 20,
+          estimatedTokensSaved: 24000,
+        }],
+      },
+    }));
+
+    const visibleLines = renderMakaPiTranscript(state, {
+      title: 'Maka',
+      cwd: '/tmp/project',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'bypass',
+    }, 120).map(stripAnsi);
+
+    assert.ok(visibleLines.some((line) => line.includes('Context compacted')));
+    assert.ok(visibleLines.some((line) => line.includes('historyCompact')));
+    assert.ok(visibleLines.some((line) => line.includes('saved ~24000 tokens')));
+  });
+
   test('surfaces pending permission requests with terminal decision hints', () => {
     const state = createMakaPiTranscriptState();
 
@@ -276,11 +404,17 @@ describe('Maka Pi TUI transcript', () => {
 
 class RecordingDriver {
   readonly prompts: string[] = [];
+  compactCalls = 0;
 
   constructor(private readonly events: SessionEvent[]) {}
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
+    for (const event of this.events) yield event;
+  }
+
+  async *compactSession(): AsyncIterable<SessionEvent> {
+    this.compactCalls += 1;
     for (const event of this.events) yield event;
   }
 }

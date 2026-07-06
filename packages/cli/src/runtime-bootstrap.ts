@@ -7,12 +7,17 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildDefaultContextBudgetPolicy,
+  buildManualCompactLookupPolicy,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   getAIModel,
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createArtifactStore,
   createConnectionStore,
   createFileCredentialStore,
   createRuntimeEventStore,
@@ -53,6 +58,7 @@ export async function createMakaCliRuntimeContext(
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
+  const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
@@ -94,6 +100,12 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
+      contextBudget: buildManualCompactLookupPolicy(
+        buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
+        { highWaterName: 'cli-manual-history-compact' },
+      ),
+      loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
+      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event),
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });

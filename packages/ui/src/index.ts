@@ -61,6 +61,8 @@ export * from './primitives/choice-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
+export * from './primitives/input.js';
+export * from './primitives/textarea.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
 export {

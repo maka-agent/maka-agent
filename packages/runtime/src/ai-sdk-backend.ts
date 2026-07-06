@@ -180,10 +180,20 @@ type AiSdkToolResultOutput =
 // AgentBackend interface
 // ============================================================================
 
+export interface BackendCompactHistoryInput {
+  turnId: string;
+  runtimeContext: readonly RuntimeEvent[];
+}
+
+export interface BackendCompactHistoryResult {
+  contextBudget?: ContextBudgetDiagnostic;
+}
+
 export interface AgentBackend {
   readonly kind: BackendKind;
   readonly sessionId: string;
   send(input: BackendSendInput): AsyncIterable<SessionEvent>;
+  compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
   dispose(): Promise<void>;
@@ -350,6 +360,7 @@ export interface HistoryCompactWriteInput {
   };
   requestShapeHashBefore?: string;
   requestShapeHashAfter?: string;
+  abortSignal?: AbortSignal;
 }
 export interface HistoryCompactWriteResult {
   blocks: HistoryCompactBlock[];
@@ -509,6 +520,7 @@ export class AiSdkBackend implements AgentBackend {
 
   private aborted = false;
   private abortController: AbortController | null = null;
+  private historyCompactAbortController: AbortController | null = null;
   private currentTurnId: string | null = null;
   private currentRunId: string | null = null;
   /** Side-channel for tool.execute() callbacks to push events into the iterator. */
@@ -561,10 +573,92 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   // --------------------------------------------------------------------------
+  // manual history compaction
+  // --------------------------------------------------------------------------
+
+  async compactHistory(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult> {
+    const historyCompactAbortController = new AbortController();
+    this.historyCompactAbortController = historyCompactAbortController;
+    try {
+      const runtimeContext = input.runtimeContext.filter((event) => event.turnId !== input.turnId);
+      const policy = this.buildManualHistoryCompactPolicy(runtimeContext);
+      if (!policy) return {};
+
+      const contextBudget = policy;
+      const budgeted = applyRuntimeEventContextBudget(runtimeContext, contextBudget);
+      let contextBudgetDiagnostic = budgeted?.diagnostic;
+
+      if (
+        budgeted?.historyCompactBlocks?.length &&
+        contextBudget.historyCompact?.mode === 'read_write' &&
+        this.input.writeHistoryCompact
+      ) {
+        const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
+        const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
+        if (draftBlocks.length > 0) {
+          const writePatch = await this.writeHistoryCompactBlocks({
+            turnId: input.turnId,
+            contextBudget,
+            priorRuntimeContext: runtimeContext,
+            draftBlocks,
+            abortSignal: historyCompactAbortController.signal,
+          });
+          if (historyCompactAbortController.signal.aborted) return {};
+          if (writePatch.replacementBlocks.length === 0) {
+            contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(runtimeContext, runtimeContext, contextBudget);
+          }
+          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+            writePatch.diagnosticPatch,
+          );
+        }
+      }
+
+      return contextBudgetDiagnostic ? { contextBudget: contextBudgetDiagnostic } : {};
+    } finally {
+      if (this.historyCompactAbortController === historyCompactAbortController) {
+        this.historyCompactAbortController = null;
+      }
+    }
+  }
+
+  private buildManualHistoryCompactPolicy(
+    runtimeContext: readonly RuntimeEvent[],
+  ): ContextBudgetPolicy | undefined {
+    if (runtimeContext.length === 0 || !this.input.contextBudget || !this.input.writeHistoryCompact) return undefined;
+    const base = this.input.contextBudget;
+    const charsPerToken = base.charsPerToken ?? 4;
+    const estimatedTokens = Math.max(1, estimateRuntimeEventsTokens(runtimeContext, charsPerToken));
+    const current = base.historyCompact;
+    const currentWithoutBlocks = { ...current };
+    delete currentWithoutBlocks.blocks;
+    const maxHistoryEstimatedTokens = estimatedTokens;
+    return {
+      name: base.name ?? 'manual-history-compact',
+      ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
+      maxHistoryEstimatedTokens,
+      minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
+      historyCompact: {
+        ...currentWithoutBlocks,
+        enabled: true,
+        mode: 'read_write',
+        highWaterRatio: 0.01,
+        targetRatio: current?.targetRatio ?? 0.2,
+        minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
+        maxBlocks: current?.maxBlocks ?? 1,
+        maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
+        maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? current?.maxSummaryEstimatedTokens ?? 1024,
+        highWaterName: current?.highWaterName ?? `${base.name ?? 'manual'}-manual-history-compact`,
+      },
+    };
+  }
+
+  // --------------------------------------------------------------------------
   // send()
   // --------------------------------------------------------------------------
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.aborted = false;
     const turnId = input.turnId;
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
@@ -843,6 +937,14 @@ export class AiSdkBackend implements AgentBackend {
           });
         }
 
+        // If the stream loop exited because stop() flipped this.aborted while a
+        // provider kept yielding after abort instead of throwing, route to the
+        // abort handling below. Without this, the post-stream success path would
+        // persist a partial assistant turn and emit a false end_turn completion.
+        if (this.aborted) {
+          throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        }
+
         // Same-turn deferred load: prepareStep expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
         // the final active set — otherwise this turn under-reports the loaded
@@ -1111,6 +1213,7 @@ export class AiSdkBackend implements AgentBackend {
   async stop(_reason: 'user_stop' | 'redirect'): Promise<void> {
     this.aborted = true;
     this.abortController?.abort();
+    this.historyCompactAbortController?.abort();
     if (this.currentTurnId !== null) {
       this.input.permissionEngine.endTurn(this.currentTurnId, 'aborted');
     }
@@ -1206,9 +1309,13 @@ export class AiSdkBackend implements AgentBackend {
           contextBudget,
           priorRuntimeContext,
           draftBlocks,
+          abortSignal: this.abortController?.signal,
         });
         if (writePatch.replacementBlocks.length > 0) {
           runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+        } else {
+          runtimeContext = priorRuntimeContext;
+          contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget);
         }
         contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
           contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
@@ -1863,6 +1970,7 @@ export class AiSdkBackend implements AgentBackend {
     contextBudget: ContextBudgetPolicy;
     priorRuntimeContext: readonly RuntimeEvent[];
     draftBlocks: HistoryCompactBlock[];
+    abortSignal?: AbortSignal;
   }): Promise<{
     diagnosticPatch: Partial<ContextBudgetDiagnostic>;
     replacementBlocks: HistoryCompactBlock[];
@@ -1902,6 +2010,7 @@ export class AiSdkBackend implements AgentBackend {
           },
           limits,
           requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+          abortSignal: input.abortSignal,
         }));
         const blocks = result?.blocks ?? [];
         if (result?.skipped && result.skipped > 0) {
@@ -1935,7 +2044,14 @@ export class AiSdkBackend implements AgentBackend {
             estimatedTokensBefore,
             estimatedTokensAfter: estimatedTokens,
           })
-        : {};
+        : compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
+            ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
+          });
       return {
         replacementBlocks,
         diagnosticPatch: {
@@ -1969,6 +2085,13 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactMode: 'read_write',
           historyCompactWritesAttempted: writesAttempted || 1,
           historyCompactWriteFailures: 1,
+          ...compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: 'write_failed',
+          }),
         },
       };
     }
@@ -2518,14 +2641,12 @@ function mergeCompactionDecisionDiagnostics(
   const replacesHistoryCompact = right.some((decision) =>
     decision.stage === 'priorReplay'
     && decision.boundaryKind === 'historyCompact'
-    && decision.decision === 'replaced'
   );
   const retainedLeft = replacesHistoryCompact
     ? (left ?? []).filter((decision) =>
         !(
           decision.stage === 'priorReplay'
           && decision.boundaryKind === 'historyCompact'
-          && decision.decision === 'replaced'
         )
       )
     : (left ?? []);

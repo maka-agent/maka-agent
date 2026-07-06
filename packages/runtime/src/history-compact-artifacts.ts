@@ -1,18 +1,38 @@
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
-import type { ArtifactRecord } from '@maka/core';
+import type { ArtifactRecord, ArtifactSource } from '@maka/core';
 import {
   buildHistoryCompactBlockFromSummary,
   estimateTokens,
   validateHistoryCompactBlockShape,
   type HistoryCompactBlock,
-  type HistoryCompactLoadInput,
-  type HistoryCompactLoadResult,
   type HistoryCompactSourceArchiveRef,
-  type HistoryCompactWriteInput,
-  type HistoryCompactWriteResult,
-} from '@maka/runtime';
-import type { ArtifactStore } from '@maka/storage';
+} from './context-budget.js';
+import type {
+  HistoryCompactLoadInput,
+  HistoryCompactLoadResult,
+  HistoryCompactWriteInput,
+  HistoryCompactWriteResult,
+} from './ai-sdk-backend.js';
+
+
+export interface HistoryCompactArtifactStore {
+  create(input: {
+    id?: string;
+    sessionId: string;
+    turnId: string;
+    name: string;
+    kind: 'file';
+    content: string;
+    mimeType?: string;
+    source: ArtifactSource;
+    summary?: string;
+    now?: number;
+  }): Promise<ArtifactRecord>;
+  delete(artifactId: string): Promise<void>;
+  list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
+  readText(artifactId: string, options?: { maxBytes?: number }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+}
 
 export interface PersistHistoryCompactBlocksDeps {
   now?: () => number;
@@ -21,10 +41,11 @@ export interface PersistHistoryCompactBlocksDeps {
 }
 
 export async function persistHistoryCompactBlocksToArtifacts(
-  artifactStore: Pick<ArtifactStore, 'create'>,
+  artifactStore: Pick<HistoryCompactArtifactStore, 'create' | 'delete'>,
   input: HistoryCompactWriteInput,
   deps: PersistHistoryCompactBlocksDeps = {},
 ): Promise<HistoryCompactWriteResult> {
+  throwIfHistoryCompactAborted(input.abortSignal);
   const now = deps.now?.() ?? Date.now();
   const sourceArchives = input.source.foldedRuntimeEvents.map((event) => {
     const serializedBody = serializeHistoryCompactSourceBody(event.content ?? {});
@@ -40,6 +61,7 @@ export async function persistHistoryCompactBlocksToArtifacts(
     return { event, ref };
   });
   const sourceArchiveRefs = sourceArchives.map((archive) => archive.ref);
+  const createdArtifacts: ArtifactRecord[] = [];
 
   const hostSummary = await Promise.resolve(deps.summarize?.(input));
   const block = buildHistoryCompactBlockFromSummary({
@@ -61,38 +83,51 @@ export async function persistHistoryCompactBlocksToArtifacts(
   if ((block.estimatedTokens ?? 0) > input.limits.maxEstimatedTokens) {
     return { blocks: [], skipped: 1, skippedReasonCounts: { max_total_tokens: 1 } };
   }
-  for (const { event, ref } of sourceArchives) {
+  try {
+    for (const { event, ref } of sourceArchives) {
+      throwIfHistoryCompactAborted(input.abortSignal);
+      const artifact = await artifactStore.create({
+        id: ref.artifactId,
+        sessionId: input.sessionId,
+        turnId: event.turnId,
+        name: `history-compact-source-${event.id}.json`,
+        kind: 'file',
+        content: JSON.stringify(event, null, 2),
+        mimeType: 'application/json',
+        source: 'history_compact_source',
+        summary: 'Archived RuntimeEvent source for history compact replay',
+        now,
+      });
+      createdArtifacts.push(artifact);
+      throwIfHistoryCompactAborted(input.abortSignal);
+      await deps.onArtifactCreated?.(artifact);
+      throwIfHistoryCompactAborted(input.abortSignal);
+    }
+    throwIfHistoryCompactAborted(input.abortSignal);
     const artifact = await artifactStore.create({
-      id: ref.artifactId,
       sessionId: input.sessionId,
-      turnId: event.turnId,
-      name: `history-compact-source-${event.id}.json`,
+      turnId: input.turnId,
+      name: `history-compact-${block.blockId}.json`,
       kind: 'file',
-      content: JSON.stringify(event, null, 2),
+      content: JSON.stringify(block, null, 2),
       mimeType: 'application/json',
-      source: 'history_compact_source',
-      summary: 'Archived RuntimeEvent source for history compact replay',
+      source: 'history_compact_block',
+      summary: 'History compact block for context budget replay',
       now,
     });
+    createdArtifacts.push(artifact);
+    throwIfHistoryCompactAborted(input.abortSignal);
     await deps.onArtifactCreated?.(artifact);
+    throwIfHistoryCompactAborted(input.abortSignal);
+    return { blocks: [block] };
+  } catch (error) {
+    await deleteCreatedArtifacts(artifactStore, createdArtifacts);
+    throw error;
   }
-  const artifact = await artifactStore.create({
-    sessionId: input.sessionId,
-    turnId: input.turnId,
-    name: `history-compact-${block.blockId}.json`,
-    kind: 'file',
-    content: JSON.stringify(block, null, 2),
-    mimeType: 'application/json',
-    source: 'history_compact_block',
-    summary: 'History compact block for context budget replay',
-    now,
-  });
-  await deps.onArtifactCreated?.(artifact);
-  return { blocks: [block] };
 }
 
 export async function loadHistoryCompactBlocksFromArtifacts(
-  artifactStore: Pick<ArtifactStore, 'list' | 'readText'>,
+  artifactStore: Pick<HistoryCompactArtifactStore, 'list' | 'readText'>,
   input: HistoryCompactLoadInput,
 ): Promise<HistoryCompactLoadResult> {
   const maxBlocks = input.maxBlocks ?? 1;
@@ -102,11 +137,11 @@ export async function loadHistoryCompactBlocksFromArtifacts(
   const blocks: HistoryCompactBlock[] = [];
   const records = await artifactStore.list(input.sessionId, { includeDeleted: true });
   for (const record of records) {
-    if (record.status !== 'live') {
-      incrementHistoryCompactCount(skippedReasonCounts, 'deleted');
+    if (record.source !== 'history_compact_block' || record.kind !== 'file') {
       continue;
     }
-    if (record.source !== 'history_compact_block' || record.kind !== 'file') {
+    if (record.status !== 'live') {
+      incrementHistoryCompactCount(skippedReasonCounts, 'deleted');
       continue;
     }
     if (record.sessionId !== input.sessionId) {
@@ -155,6 +190,20 @@ export async function loadHistoryCompactBlocksFromArtifacts(
     ...(skipped > 0 ? { skipped } : {}),
     ...(skipped > 0 ? { skippedReasonCounts } : {}),
   };
+}
+
+async function deleteCreatedArtifacts(
+  artifactStore: Pick<HistoryCompactArtifactStore, 'delete'>,
+  artifacts: readonly ArtifactRecord[],
+): Promise<void> {
+  for (const artifact of [...artifacts].reverse()) {
+    await artifactStore.delete(artifact.id).catch(() => {});
+  }
+}
+
+function throwIfHistoryCompactAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error('history compact write aborted');
 }
 
 function hasSessionId(value: unknown): value is { sessionId: string } {

@@ -522,6 +522,41 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.stopCalls, 1);
   });
 
+  test('handles /compact through the runtime compact API and progress loader', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredCompactDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    for (const char of '/compact') terminal.input(char);
+    terminal.input('\r');
+
+    await waitFor(() => driver.compactCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Compacting context'));
+
+    assert.deepEqual(driver.prompts, []);
+    assert.equal(terminal.progressStates.at(-1), true);
+
+    driver.releaseCompact();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Context compacted'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -1116,6 +1151,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async *sendPrompt(_prompt: string): AsyncIterable<never> {}
+  async *compactSession(): AsyncIterable<never> {}
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
@@ -1143,6 +1179,8 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     this.permissionRequests += 1;
@@ -1202,6 +1240,8 @@ class ToolOutputDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
@@ -1279,6 +1319,16 @@ class SlashCommandDriver implements MakaSessionDriver {
     };
   }
 
+  async *compactSession(): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'complete',
+      id: 'event-compact-complete',
+      turnId: 'turn-compact',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(model: string): Promise<void> {
@@ -1323,6 +1373,55 @@ class LongTranscriptDriver extends SlashCommandDriver {
   }
 }
 
+class DeferredCompactDriver extends SlashCommandDriver {
+  compactCalls = 0;
+  private resolveCompact: (() => void) | null = null;
+
+  override async *compactSession(): AsyncIterable<SessionEvent> {
+    this.compactCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveCompact = resolve;
+    });
+    yield {
+      type: 'token_usage',
+      id: 'event-token-usage',
+      turnId: 'turn-compact',
+      ts: 1,
+      input: 0,
+      output: 0,
+      contextBudget: {
+        enabled: true,
+        policyName: 'unit-budget',
+        estimatedTokensBefore: 1000,
+        estimatedTokensAfter: 400,
+        keptTurns: 1,
+        droppedTurns: 2,
+        keptEvents: 2,
+        droppedEvents: 4,
+        compactionDecisions: [{
+          stage: 'priorReplay',
+          sourceKind: 'runtimeEvents',
+          decision: 'replaced',
+          boundaryKind: 'historyCompact',
+          estimatedTokensSaved: 600,
+        }],
+      },
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-compact',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  releaseCompact(): void {
+    this.resolveCompact?.();
+    this.resolveCompact = null;
+  }
+}
+
 class DeferredControlDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
@@ -1331,6 +1430,8 @@ class DeferredControlDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
@@ -1375,6 +1476,8 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
@@ -1437,6 +1540,8 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {

@@ -70,6 +70,7 @@ import type {
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { SkillEntry } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
@@ -745,6 +746,29 @@ contextBridge.exposeInMainWorld('maka', {
     // color/symbolColor to the current app theme. No-op on non-Windows.
     setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
+    },
+  },
+  config: {
+    export(input: { categories: ConfigCategory[] }): Promise<
+      | { ok: false; reason: 'no_categories' | 'canceled' }
+      | { ok: true; path: string; includedData: ConfigCategory[] }
+    > {
+      return ipcRenderer.invoke('config:export', input);
+    },
+    import(input: { strategy: 'skip' | 'overwrite' }): Promise<
+      | { ok: false; reason: 'canceled' | 'not_json' | 'malformed' | 'unsupported_version'; message?: string }
+      | {
+          ok: true;
+          includedData: ConfigCategory[];
+          result: {
+            connections?: { created: number; overwritten: number; skipped: number };
+            settings?: { applied: boolean };
+            credentials?: { applied: number; skipped: number };
+            memory?: { applied: boolean };
+          };
+        }
+    > {
+      return ipcRenderer.invoke('config:import', input);
     },
   },
   app: {

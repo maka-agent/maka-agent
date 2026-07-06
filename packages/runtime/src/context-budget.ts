@@ -219,7 +219,7 @@ export interface SynthesisCacheReplayResult {
 
 export interface HistoryCompactPolicy {
   enabled: boolean;
-  /** `read_write` lets a host persist or replace the deterministic draft block before replay. */
+  /** `lookup` only replays supplied blocks; `read_write` may persist a host replacement for a deterministic draft. */
   mode?: 'deterministic' | 'lookup' | 'read_write';
   /** Source-bearing compact blocks available for the current replay projection. */
   blocks?: readonly HistoryCompactBlock[];
@@ -489,7 +489,7 @@ export function applyRuntimeEventContextBudget(
     { charsPerToken, maxHistoryEstimatedTokens: maxTokens },
   );
   const budgetEvents = compacted.blocks.length > 0 ? compacted.events : pruned.events;
-  const turnGroups = groupEventsByTurn(budgetEvents, charsPerToken);
+  const turnGroups = groupEventsByTurn(budgetEvents.filter(isHistoryCompactContentEvent), charsPerToken);
 
   const keptTurnIds = new Set<string>();
   let keptEvents: RuntimeEvent[];
@@ -597,7 +597,8 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const estimatedTokensBefore = estimateRuntimeEventsTokens(events, charsPerToken);
+  const compactableEvents = events.filter(isHistoryCompactContentEvent);
+  const estimatedTokensBefore = estimateRuntimeEventsTokens(compactableEvents, charsPerToken);
   const highWaterRatio = finiteRatio(compactPolicy.highWaterRatio, 0.8);
   const highWaterThreshold = Math.max(1, Math.floor(maxTokens * highWaterRatio));
   if (estimatedTokensBefore <= highWaterThreshold) {
@@ -614,7 +615,7 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const turnGroups = groupEventsByTurn(events, charsPerToken);
+  const turnGroups = groupEventsByTurn(compactableEvents, charsPerToken);
   if (turnGroups.length <= 1) {
     increment(skippedReasonCounts, 'insufficient_turns');
     return {
@@ -659,8 +660,8 @@ export function applyRuntimeEventHistoryCompact(
   }
 
   const foldedTurnIdSet = new Set(foldedTurnIds);
-  const foldedEvents = events.filter((event) => foldedTurnIdSet.has(turnKey(event)));
-  const retainedEvents = events.filter((event) => !foldedTurnIdSet.has(turnKey(event)));
+  const foldedEvents = compactableEvents.filter((event) => foldedTurnIdSet.has(turnKey(event)));
+  const retainedEvents = compactableEvents.filter((event) => !foldedTurnIdSet.has(turnKey(event)));
   if (foldedEvents.length === 0) {
     increment(skippedReasonCounts, 'no_foldable_events');
     return {
@@ -675,14 +676,17 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const loadedBlock = selectLoadedHistoryCompactBlock(
+  const loaded = selectLoadedHistoryCompactBlock(
     foldedEvents,
     compactPolicy,
     { sessionId: foldedEvents[0]?.sessionId ?? '', charsPerToken },
     skippedReasonCounts,
   );
-  if (loadedBlock) {
-    const estimatedTokensBeforeFold = estimateRuntimeEventsTokens(foldedEvents, charsPerToken);
+  if (loaded) {
+    const { block: loadedBlock, coveredEvents } = loaded;
+    const coveredEventIds = new Set(coveredEvents.map((event) => event.id));
+    const uncoveredFoldedEvents = foldedEvents.filter((event) => !coveredEventIds.has(event.id));
+    const estimatedTokensBeforeFold = estimateRuntimeEventsTokens(coveredEvents, charsPerToken);
     const loadedBlockText = renderHistoryCompactBlock(loadedBlock);
     const estimatedTokensAfterFold =
       loadedBlock.estimatedTokens ?? estimateTokens(loadedBlockText.length, charsPerToken);
@@ -691,35 +695,38 @@ export function applyRuntimeEventHistoryCompact(
       preservedAnchor: { tailTurnIds: [...tailTurnIds] },
       validationStatus: 'valid',
     });
-    const outputEvents = [historyCompactBlockToRuntimeEvent(loadedBlock), ...retainedEvents];
-    return {
-      events: outputEvents,
-      blocks: [loadedBlock],
-      diagnosticPatch: {
-        ...basePatch,
-        historyCompactBlocksAvailable: compactPolicy.blocks?.length ?? 0,
-        historyCompactBlocksSelected: 1,
-        historyCompactBlockIds: [loadedBlock.blockId],
-        historyCompactedTurns: loadedBlock.coverage.turnIds.length,
-        historyCompactedEvents: loadedBlock.coverage.runtimeEventIds.length,
-        historyCompactedEstimatedTokensBefore: estimatedTokensBeforeFold,
-        historyCompactedEstimatedTokensAfter: estimatedTokensAfterFold,
-        historyCompactCoverageHashes: loadedBlock.coverage.bodySha256,
-        highWaterName: loadedBlock.highWaterName,
-        highWaterSeq: loadedBlock.highWaterSeq,
-        highWaterReason: 'history_compact',
-        ...compactionDecisionDiagnosticPatch({
-          stage: 'priorReplay',
-          sourceKind: 'runtimeEvents',
-          decision: 'replaced',
-          boundaryKind: boundary.kind,
-          boundaryIds: [boundary.boundaryId],
-          coverage: boundary.coverage,
-          estimatedTokensBefore: estimatedTokensBeforeFold,
-          estimatedTokensAfter: estimatedTokensAfterFold,
-        }),
-      },
-    };
+    const outputEvents = [historyCompactBlockToRuntimeEvent(loadedBlock), ...uncoveredFoldedEvents, ...retainedEvents];
+    if (maxTokens === undefined || estimateRuntimeEventsTokens(outputEvents, charsPerToken) <= maxTokens) {
+      return {
+        events: outputEvents,
+        blocks: [loadedBlock],
+        diagnosticPatch: {
+          ...basePatch,
+          historyCompactBlocksAvailable: compactPolicy.blocks?.length ?? 0,
+          historyCompactBlocksSelected: 1,
+          historyCompactBlockIds: [loadedBlock.blockId],
+          historyCompactedTurns: loadedBlock.coverage.turnIds.length,
+          historyCompactedEvents: loadedBlock.coverage.runtimeEventIds.length,
+          historyCompactedEstimatedTokensBefore: estimatedTokensBeforeFold,
+          historyCompactedEstimatedTokensAfter: estimatedTokensAfterFold,
+          historyCompactCoverageHashes: loadedBlock.coverage.bodySha256,
+          highWaterName: loadedBlock.highWaterName,
+          highWaterSeq: loadedBlock.highWaterSeq,
+          highWaterReason: 'history_compact',
+          ...compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'replaced',
+            boundaryKind: boundary.kind,
+            boundaryIds: [boundary.boundaryId],
+            coverage: boundary.coverage,
+            estimatedTokensBefore: estimatedTokensBeforeFold,
+            estimatedTokensAfter: estimatedTokensAfterFold,
+          }),
+        },
+      };
+    }
+    increment(skippedReasonCounts, 'prefix_over_budget');
   }
 
   const archiveRefs = normalizeHistoryCompactSourceArchiveRefs(compactPolicy.sourceArchiveRefs);
@@ -742,6 +749,22 @@ export function applyRuntimeEventHistoryCompact(
         },
       };
     }
+  }
+
+  if (compactPolicy.mode === 'lookup') {
+    if (!skippedReasonCounts.prefix_over_budget) {
+      increment(skippedReasonCounts, 'lookup_miss');
+    }
+    return {
+      events: [...events],
+      blocks: [],
+      diagnosticPatch: {
+        ...basePatch,
+        historyCompactSkipped: 1,
+        historyCompactSkippedReasonCounts: skippedReasonCounts,
+        ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
+      },
+    };
   }
 
   const block = buildHistoryCompactBlock(foldedEvents, compactPolicy, {
@@ -1505,7 +1528,7 @@ function selectLoadedHistoryCompactBlock(
     charsPerToken: number;
   },
   skippedReasonCounts: Record<string, number>,
-): HistoryCompactBlock | undefined {
+): { block: HistoryCompactBlock; coveredEvents: RuntimeEvent[] } | undefined {
   const blocks = policy.blocks ?? [];
   if (blocks.length === 0) return undefined;
   const maxBlocks = finitePositive(policy.maxBlocks) ?? 1;
@@ -1521,9 +1544,9 @@ function selectLoadedHistoryCompactBlock(
       increment(skippedReasonCounts, 'max_blocks');
       continue;
     }
-    const validationReason = validateHistoryCompactBlockForEvents(block, foldedEvents, options.sessionId);
-    if (validationReason) {
-      increment(skippedReasonCounts, validationReason);
+    const validation = validateHistoryCompactBlockForEvents(block, foldedEvents, options.sessionId);
+    if (validation.reason) {
+      increment(skippedReasonCounts, validation.reason);
       continue;
     }
     const blockTokens =
@@ -1538,7 +1561,7 @@ function selectLoadedHistoryCompactBlock(
     }
     selected += 1;
     selectedTokens += blockTokens;
-    return { ...block, estimatedTokens: blockTokens };
+    return { block: { ...block, estimatedTokens: blockTokens }, coveredEvents: validation.coveredEvents };
   }
   return undefined;
 }
@@ -1547,24 +1570,25 @@ function validateHistoryCompactBlockForEvents(
   block: HistoryCompactBlock,
   foldedEvents: readonly RuntimeEvent[],
   sessionId: string,
-): 'invalid_schema_version' | 'session_mismatch' | 'coverage_miss' | 'source_hash_mismatch' | undefined {
-  if (!validateHistoryCompactBlockShape(block, sessionId || undefined)) return 'invalid_schema_version';
-  if (sessionId.length > 0 && block.sessionId !== sessionId) return 'session_mismatch';
-  const eventsById = new Map(foldedEvents.map((event) => [event.id, event]));
-  for (const eventId of block.coverage.runtimeEventIds) {
-    const event = eventsById.get(eventId);
-    if (!event) return 'coverage_miss';
-    if (!block.coverage.turnIds.includes(turnKey(event))) return 'coverage_miss';
-    if (!block.coverage.contentKinds.includes(event.content?.kind ?? 'none')) return 'coverage_miss';
-    if (!block.coverage.bodySha256.includes(runtimeEventBodySha256(event))) return 'source_hash_mismatch';
-  }
-  const foldedIds = new Set(foldedEvents.map((event) => event.id));
+): {
+  reason?: 'invalid_schema_version' | 'session_mismatch' | 'coverage_miss' | 'source_hash_mismatch';
+  coveredEvents: RuntimeEvent[];
+} {
+  if (!validateHistoryCompactBlockShape(block, sessionId || undefined)) return { reason: 'invalid_schema_version', coveredEvents: [] };
+  if (sessionId.length > 0 && block.sessionId !== sessionId) return { reason: 'session_mismatch', coveredEvents: [] };
+  const coverageIds = new Set(block.coverage.runtimeEventIds);
+  const coveredEvents: RuntimeEvent[] = [];
   for (const event of foldedEvents) {
-    if (!block.coverage.runtimeEventIds.includes(event.id) && foldedIds.has(event.id)) {
-      return 'coverage_miss';
-    }
+    if (!coverageIds.has(event.id)) break;
+    if (!block.coverage.turnIds.includes(turnKey(event))) return { reason: 'coverage_miss', coveredEvents: [] };
+    if (!block.coverage.contentKinds.includes(event.content?.kind ?? 'none')) return { reason: 'coverage_miss', coveredEvents: [] };
+    if (!block.coverage.bodySha256.includes(runtimeEventBodySha256(event))) return { reason: 'source_hash_mismatch', coveredEvents: [] };
+    coveredEvents.push(event);
   }
-  return undefined;
+  if (coveredEvents.length === 0 || coveredEvents.length !== coverageIds.size) {
+    return { reason: 'coverage_miss', coveredEvents: [] };
+  }
+  return { coveredEvents };
 }
 
 function buildHistoryCompactBlock(
@@ -1954,6 +1978,10 @@ function recentTurnIds(events: readonly RuntimeEvent[], count: number): Set<stri
 
 function turnKey(event: RuntimeEvent): string {
   return event.turnId || '<unknown-turn>';
+}
+
+function isHistoryCompactContentEvent(event: RuntimeEvent): boolean {
+  return estimateRuntimeEventChars(event) > 0;
 }
 
 function estimateRuntimeEventChars(event: RuntimeEvent): number {
