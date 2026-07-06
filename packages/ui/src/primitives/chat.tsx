@@ -186,6 +186,10 @@ const markerVariants = cva("", {
         + " [&:hover:not([aria-disabled=true])]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] [&:hover:not([aria-disabled=true])]:text-[color:var(--foreground)]"
         + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
         + " aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
+        // footer actions drop the real `disabled` attr so tooltips can show
+        // on disabled actions; neutralize the UiButton `quiet` variant's base
+        // hover/active so an aria-disabled action does not look clickable.
+        + " [&[aria-disabled=true]]:hover:bg-transparent [&[aria-disabled=true]]:hover:text-[color:var(--muted-foreground)] [&[aria-disabled=true]]:active:bg-transparent"
         + " data-[pending=true]:opacity-[0.78] data-[pending=true]:cursor-progress"
         // Copy-in-progress sets `aria-disabled` and `data-pending` together.
         // `aria-disabled:opacity-[0.45]` and `data-[pending=true]:opacity-[0.78]`

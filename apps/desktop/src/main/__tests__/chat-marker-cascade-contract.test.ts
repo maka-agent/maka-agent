@@ -90,7 +90,7 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       // now that the call sites use `UiButton size="nav"` (bare); it used to
       // come implicitly from `size="sm"`.
       'h-8',
-      '[&:hover:not(:disabled)]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)]',
+      '[&:hover:not([aria-disabled=true])]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)]',
       // focus-visible is a non-leaf conflict (the footer action's outline vs
       // UiButton's box-shadow ring), so the rendered-style script can't force
       // it reliably; this exact literalization of the retired
@@ -98,11 +98,10 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       'focus-visible:[outline:2px_solid_var(--focus-ring)]',
       'focus-visible:[outline-offset:2px]',
       'data-[pending=true]:opacity-[0.78]',
-      // the combined disabled+pending guards: a copy button can be both
-      // `disabled` and `data-pending` (transient copy click), and the retired
-      // CSS kept the 0.78 pending dim winning over the 0.45 disabled dim — these
-      // raise the specificity so emit order can't flip it.
-      'disabled:data-[pending=true]:opacity-[0.78]',
+      // the combined aria-disabled+pending guard: a copy button can be both
+      // `aria-disabled` and `data-pending` (transient copy click), and the
+      // retired CSS kept the 0.78 pending dim winning over the 0.45 disabled
+      // dim — this raises the specificity so emit order can't flip it.
       'aria-disabled:data-[pending=true]:opacity-[0.78]',
       'data-[copy-feedback=copied]:text-[color:var(--link)]',
     ]) {
