@@ -110,6 +110,14 @@ import {
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 
+function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].slug !== b[i].slug || a[i].updatedAt !== b[i].updatedAt) return false;
+  }
+  return true;
+}
+
 type ComposerImportOwner = {
   sessionId: string | undefined;
   navSection: NavSelection['section'];
@@ -1138,7 +1146,7 @@ export function AppShell({
         window.maka.connections.list(),
         window.maka.connections.getDefault(),
       ]);
-      setConnections(next);
+      setConnections((prev) => connectionsEqual(prev, next) ? prev : next);
       setDefaultConnection(nextDefault);
     } catch (error) {
       toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from './icons.js';
 import { SettingsSelect } from './primitives/settings-select.js';
 import type {
@@ -47,6 +47,8 @@ const DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL: Record<DailyReviewArchive['trigger'], 
   manual: '手动',
 };
 
+const EMPTY_MODEL_OPTIONS: ReadonlyArray<readonly [string, string]> = [];
+
 export function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
   onSelectSession?: (sessionId: string) => void;
@@ -71,7 +73,7 @@ export function DailyReviewPanel(props: {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveReloadToken, setArchiveReloadToken] = useState(0);
-  const modelOptions = props.bridge.modelOptions ?? [];
+  const modelOptions = useMemo(() => props.bridge.modelOptions ?? EMPTY_MODEL_OPTIONS, [props.bridge.modelOptions]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(modelOptions[0]?.[0] ?? '');
   const dailyReviewMountedRef = useRef(true);
   const summaryScopeKeyRef = useRef<string | null>(null);
