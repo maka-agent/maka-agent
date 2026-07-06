@@ -64,6 +64,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let permissionInFlight = false;
   let turnRunning = false;
+  let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let resolveClosed: () => void;
   const closedPromise = new Promise<void>((resolve) => {
@@ -180,6 +181,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
     busy = true;
     turnRunning = true;
+    interruptRequested = false;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -193,6 +195,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }).finally(() => {
       busy = false;
       turnRunning = false;
+      interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       requestRender();
@@ -571,10 +574,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // permission branch so Escape keeps meaning "deny" while a prompt is
     // pending, and it only arms while a prompt turn is actually running.
     if (turnRunning && matchesKey(data, Key.escape)) {
+      // Once an interrupt is issued, swallow further Escapes until the turn
+      // ends so a still-settling stop is not requested twice. A rejected stop
+      // re-arms interruption so the user can retry within the same turn.
+      if (interruptRequested) return { consume: true };
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
-        void input.driver.stop().catch(reportError);
+        interruptRequested = true;
+        void input.driver.stop().catch((error) => {
+          interruptRequested = false;
+          reportError(error);
+        });
       } else {
         lastTurnEscapeAt = now;
       }
