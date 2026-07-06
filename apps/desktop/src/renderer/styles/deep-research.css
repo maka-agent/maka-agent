@@ -1,0 +1,95 @@
+/* Deep research workflow + report/scope/evidence/progress. Relocated from sidebar.css — issue #546 PR3. */
+.maka-deep-research-workflow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maka-deep-research-workflow li {
+  min-width: 0;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--focus-ring) l c h / 0.035);
+  padding: var(--space-2-5);
+}
+
+.maka-deep-research-workflow-title {
+  display: block;
+  margin: 0 0 var(--space-1);
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-bold);
+}
+
+.maka-deep-research-workflow-body {
+  display: block;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-deep-research-report,
+.maka-deep-research-scope,
+.maka-deep-research-evidence,
+.maka-deep-research-progress {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) 0 0;
+  border-top: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-deep-research-report h2,
+.maka-deep-research-scope h2,
+.maka-deep-research-evidence h2,
+.maka-deep-research-progress h2 {
+  margin: 0;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-snug);
+}
+
+.maka-deep-research-report ul,
+.maka-deep-research-scope ul,
+.maka-deep-research-evidence ul,
+.maka-deep-research-progress ul {
+  display: grid;
+  gap: var(--space-1-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.maka-deep-research-report li,
+.maka-deep-research-scope li,
+.maka-deep-research-evidence li,
+.maka-deep-research-progress li {
+  display: grid;
+  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
+  gap: var(--space-2-5);
+  align-items: baseline;
+  min-width: 0;
+}
+
+.maka-deep-research-report-title,
+.maka-deep-research-scope-label,
+.maka-deep-research-evidence-title,
+.maka-deep-research-progress-title {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.maka-deep-research-report-body,
+.maka-deep-research-scope-body,
+.maka-deep-research-evidence-body,
+.maka-deep-research-progress-body {
+  min-width: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+

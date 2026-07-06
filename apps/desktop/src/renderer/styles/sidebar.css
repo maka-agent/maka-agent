@@ -1,278 +1,4 @@
-.appFrame {
-  height: 100dvh;
-  width: 100%;
-  padding: 0;
-  /* PR-APPFRAME-FILL-0: `#root` (index.html) is `display:flex;
-     align-items:center; justify-content:center` so the preload
-     skeleton (`.maka-preload`, rendered before React mounts) sits
-     centered. Once React mounts, `.appFrame` is that flex container's
-     only child, and without an explicit main-axis size a flex item
-     shrinks to its content width and gets centered — so on the
-     first-run hero (onboarding content max-content ~680px) the whole
-     app frame floated mid-window with large left/right gutters, while
-     long-message sessions filled the width. Pin `width:100%` so the
-     frame always spans the window regardless of inner content's
-     max-content. The preload centering is unaffected (it's the only
-     child at that point and still centers). */
-  /* PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): the appFrame root
-     was the LAST place still painting the 172deg "上面灰下面白"
-     gradient — round-0 only killed the gradient on
-     `.maka-shell-2col`, and the macOS rule put `shell` to
-     `transparent`, so the appFrame gradient bled through and
-     revived the visual WAWQAQ explicitly rejected. Keep this flat:
-     the shell/backplate is neutral, while `.maka-panel-detail`
-     paints the white content surface. */
-  background: var(--surface-canvas);
-  color: var(--foreground);
-  font-size: var(--font-size-base);
-  box-sizing: border-box;
-}
-
-.app {
-  height: 100%;
-}
-
-.maka-shell-2col {
-  --maka-sidebar-topbar-button-size: 24px;
-  --maka-sidebar-topbar-gap: 8px;
-  --maka-sidebar-topbar-offset-y: calc(var(--maka-titlebar-control-safe-top) - 18px);
-  --maka-sidebar-topbar-offset-x: calc(var(--maka-titlebar-control-safe-left) - 10px);
-  --maka-sidebar-collapsed-topbar-inset: calc(
-    var(--maka-sidebar-topbar-offset-x) + var(--maka-sidebar-topbar-button-size) +
-      var(--maka-sidebar-topbar-button-size) + var(--maka-sidebar-topbar-button-size) +
-      var(--maka-sidebar-topbar-gap) + var(--maka-sidebar-topbar-gap) + 8px
-  );
-  position: relative;
-  display: grid;
-  grid-template-columns:
-    var(--maka-session-list-width, var(--w-sessionlist))
-    var(--maka-resize-handle-width, 0px)
-    minmax(0, 1fr);
-  align-items: stretch;
-  gap: 0;
-  overflow: hidden;
-  /* PR-CHAT-CHROME-FIX-0 (WAWQAQ msg `1e693dee` + `486b5611`):
-     the shell used to carry a 172deg gradient from `--foreground-3`
-     to `--background`. The session sidebar is transparent and
-     showed the gradient through, so users saw "gray top, white
-     bottom" on the sidebar — distracting, and also produced a
-     visible seam where the gradient met the flat-white floating
-     detail panel. Keep the shell flat neutral; no gradient or
-     divider line. */
-  background: var(--surface-canvas);
-}
-
-.maka-panel {
-  min-width: 0;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.maka-floating-panel {
-  border: 0;
-  border-radius: 0;
-  background: var(--background);
-  box-shadow: none;
-}
-
-.maka-panel-list.maka-floating-panel {
-  border-right: 0;
-  background: transparent;
-}
-
-.maka-panel-detail.maka-floating-panel {
-  /* Right column = the workspace content surface (chat / module /
-     artifact panes share it). Border and box-shadow already null'd by
-     the base `.maka-floating-panel` rule above; only the geometry and
-     layout-mode bits live here.
-     PR-CHAT-CHROME-FIX-0 (WAWQAQ msg `486b5611`): symmetric `margin:
-     4px` so all four sides have a gap and the radius reads as a real
-     floating-card edge — was `4px 4px 4px 0` before.
-     PR-CHAT-CHROME-FIX-1 (WAWQAQ msg `4a1b8c13`): "圆盘感觉不对劲，
-     很不明显，尤其是下面的看都看不到" — 6px radius + 4px margin on
-     a same-color surface had no visual handle for the eye. Bumped
-     radius to 12px (matches reference's surface plate), added a soft
-     drop-shadow so the curved edge actually reads against the sidebar
-     translucent backdrop and the bottom corners are visible. The
-     window's outer rounded chrome on macOS is ~10–12px; matching that
-     reads as "card inside chrome" rather than "rectangle bleeding off
-     the bottom". */
-  margin: var(--space-1);
-  border-radius: var(--radius-modal);
-  background: var(--background);
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  box-shadow:
-    0 1px 3px oklch(from var(--foreground) l c h / 0.06),
-    0 8px 24px oklch(from var(--foreground) l c h / 0.08);
-}
-
-.maka-shell-2col[data-sidebar-state="collapsed"] .maka-panel-list.maka-floating-panel {
-  border-right: 0;
-}
-
-.maka-shell-topbar-rail {
-  position: absolute;
-  z-index: var(--z-panel-action);
-  top: var(--maka-sidebar-topbar-offset-y);
-  left: var(--maka-sidebar-topbar-offset-x);
-  min-height: 34px;
-  display: flex;
-  align-items: center;
-  gap: var(--maka-sidebar-topbar-gap);
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(0);
-  transition:
-    opacity var(--duration-quick) var(--ease-out-strong),
-    transform var(--duration-base) var(--ease-out-strong);
-  -webkit-app-region: no-drag;
-}
-
-.maka-shell-topbar-button {
-  width: var(--maka-sidebar-topbar-button-size);
-  height: var(--maka-sidebar-topbar-button-size);
-  border-radius: var(--radius-control);
-  color: var(--foreground-secondary);
-}
-
-.maka-shell-topbar-button:hover {
-  color: var(--foreground);
-  background: var(--state-hover-bg);
-}
-
-.maka-resize-handle {
-  position: relative;
-  width: var(--maka-resize-handle-width, 0px);
-  box-sizing: content-box;
-  padding-inline: var(--space-1);
-  margin-inline: calc(var(--space-1) * -1);
-  outline: none;
-  cursor: col-resize;
-  user-select: none;
-  touch-action: none;
-  background: transparent;
-}
-
-.maka-shell-2col[data-sidebar-state="collapsed"] .maka-resize-handle {
-  pointer-events: none;
-  cursor: default;
-}
-
-.maka-shell-2col[data-sidebar-state="collapsed"] .maka-resize-handle::after {
-  display: none;
-}
-
-.maka-resize-handle::after {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 14px;
-  bottom: 14px;
-  width: 1px;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  transition: background var(--duration-quick) var(--ease-out-strong);
-}
-
-.maka-resize-handle:hover::after,
-.isResizingColumns .maka-resize-handle::after {
-  background: color-mix(in oklch, var(--foreground) 20%, var(--background));
-}
-
-/* Keyboard-focused separator: replace the suppressed native outline with a
-   visible accent ring on the pseudo-element. Hover styling intentionally
-   overrides via cascade order. */
-.maka-resize-handle:focus-visible::after {
-  background: var(--ring);
-  width: 1px;
-  left: 4px;
-}
-
-.isResizingColumns {
-  cursor: col-resize;
-  user-select: none;
-}
-
-.mainColumn {
-  min-width: 0;
-  min-height: 0;
-  height: 100%;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  overflow: hidden;
-  background: transparent;
-}
-
-.mainColumn[data-home-surface="true"] {
-  grid-template-rows: minmax(0, 1fr) auto;
-  align-content: stretch;
-  padding-bottom: 0;
-}
-
-.mainColumn[data-home-surface="true"] .maka-main,
-.mainColumn[data-home-surface="true"] .maka-chat-shell,
-.mainColumn[data-home-surface="true"] .messages {
-  flex: 1 1 auto;
-  min-height: 0;
-}
-
-.mainColumn[data-home-surface="true"] .maka-chatViewport {
-  height: 100%;
-}
-
-.mainColumn[data-home-surface="true"] .maka-chatContent {
-  min-height: 100%;
-  box-sizing: border-box;
-  padding: clamp(var(--space-16), 10vh, 116px) 0 clamp(var(--space-5), 4vh, var(--space-10));
-  display: grid;
-  align-content: center;
-}
-
-.maka-workspace-top-actions {
-  -webkit-app-region: no-drag;
-  position: absolute;
-  /* PR-FE-BUG-HUNT-9 (kenji audit reminder 9, finding #4):
-     was bare `z-index: 4`. Tokenized to `--z-panel-action`.
-     Identical visual stacking, but referenceable + contract-locked. */
-  z-index: var(--z-panel-action);
-  /* Same baseline; 17px correction = 12px half-icon + 5px detail-panel
-     inset. Tokenized in maka-tokens.css so the chat status row can
-     share the toolbar's right edge without duplicating the value. */
-  top: var(--maka-workspace-top-actions-top);
-  right: var(--maka-workspace-top-actions-right);
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  color: var(--foreground-secondary);
-}
-
-.maka-panel-detail[data-agents-view="skills"] .maka-workspace-top-actions,
-.maka-panel-detail[data-agents-view="cron"] .maka-workspace-top-actions,
-.maka-panel-detail[data-agents-view="daily-review"] .maka-workspace-top-actions {
-  display: none;
-}
-
-.maka-workspace-icon-action {
-  width: 24px;
-  height: 24px;
-  border-radius: var(--radius-control);
-  color: var(--foreground-secondary);
-}
-
-.maka-shell-topbar-button,
-.maka-shell-topbar-button *,
-.maka-workspace-icon-action,
-.maka-workspace-icon-action * {
-  -webkit-app-region: no-drag;
-}
-
-.maka-workspace-icon-action:hover {
-  color: var(--foreground);
-  background: var(--state-hover-bg);
-}
-
+/* Sidebar — session panel, nav, session list, list-row layout, view-mode toggle. List-row status family merged back from onboarding.css (was split across files) — issue #546 PR3, zero visual change. */
 .maka-session-panel {
   min-width: 0;
   min-height: 0;
@@ -295,223 +21,6 @@
      4-row layout matching the four participating children
      (header / nav / list / footer). */
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-
-/* Search modal: input + local thread-search results, backed by
- * `window.maka.search.thread()` through the renderer shell. The dialog
- * backdrop is rendered by the shared Dialog primitive (.maka-dialog-backdrop
- * + .maka-modal-backdrop tokens), not a search-modal-specific element. */
-.maka-search-modal {
-  width: min(560px, 92vw);
-  max-height: 64vh;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  padding: 0;
-  overflow: hidden;
-  /* Double-bezel inner highlight — high-end-visual-design §4A: premium
-     modals read as physical hardware via a 1px inner top highlight. The
-     outer chrome (border + shadow) lives on the Dialog primitive; this
-     adds the inner sheen. */
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
-}
-.maka-search-modal-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  padding: var(--space-2) var(--space-3) var(--space-1-5);
-  border-bottom: var(--border-width-hairline) solid var(--border);
-}
-.maka-search-modal-title {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  color: var(--foreground);
-}
-.maka-search-modal-close {
-  width: var(--h-control-sm);
-  height: var(--h-control-sm);
-  border: 0;
-  background: transparent;
-  color: var(--foreground-secondary);
-  font-size: 1.0667em;
-  line-height: var(--leading-none);
-  border-radius: var(--radius-control);
-}
-.maka-search-modal-close:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-.maka-search-modal-close:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-}
-/* PR-UX-POLISH-1 commit 5: real search modal layout.
- * - input-row: text input + leading magnifier icon, sits below the
- *   header band.
- * - body: results list OR empty/loading/error/incognito state. Max
- *   height capped so long result lists scroll inside the modal.
- */
-.maka-search-modal-input-row {
-  width: auto;
-  min-height: 32px;
-  margin: var(--space-2) var(--space-3);
-  /* P-RADIUS concentric formula: dialog shell 12px − 8px inset = 4px. */
-  border-radius: calc(var(--radius-modal)-8px);
-  border-color: var(--border);
-  /* P-INSET: inset step-down on the elevated modal surface. */
-  background: oklch(from var(--foreground) l c h / 0.03);
-}
-.maka-search-modal-input-icon {
-  color: var(--muted-foreground);
-}
-.maka-search-modal-input {
-  width: 100%;
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-snug);
-}
-.maka-search-modal-input::placeholder {
-  color: var(--muted-foreground);
-}
-.maka-search-modal-input::-webkit-search-cancel-button {
-  display: none;
-}
-.maka-search-modal-clear {
-  width: var(--h-control-sm);
-  height: var(--h-control-sm);
-  border-radius: var(--radius-control);
-  color: var(--muted-foreground);
-}
-.maka-search-modal-clear:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-.maka-search-modal-clear:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
-.maka-search-modal-body {
-  display: block;
-  border-top: var(--border-width-hairline) solid var(--border);
-  padding: var(--space-2-5) var(--space-2-5) var(--space-3);
-  min-height: 180px;
-  max-height: calc(70vh - 110px);
-  overflow-y: auto;
-  text-align: left;
-}
-.maka-search-modal-placeholder {
-  margin: var(--space-3) var(--space-2);
-  font-size: var(--font-size-ui);
-  color: var(--muted-foreground);
-  text-align: center;
-}
-/* PR-UX-POLISH-1 commit 5: state cards for incognito / error.
- * Distinct tone (info / warning) from regular placeholder. */
-.maka-search-modal-state {
-  display: grid;
-  gap: var(--space-0-5);
-  padding: var(--space-2-5) var(--space-3);
-  border-radius: var(--radius-control);
-  background: oklch(from var(--foreground) l c h / 0.03);
-  margin: var(--space-1-5) var(--space-1);
-}
-.maka-search-modal-state[data-tone="info"] {
-  background: oklch(from var(--info, var(--status-running)) l c h / 0.06);
-}
-.maka-search-modal-state[data-tone="warning"] {
-  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
-}
-.maka-search-modal-state p {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  color: var(--foreground);
-}
-.maka-search-modal-state .maka-search-modal-state-detail {
-  font-size: var(--font-size-caption);
-  color: var(--foreground-secondary);
-}
-
-.maka-search-modal-result-summary {
-  font-variant-numeric: tabular-nums;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: 0 var(--space-1-5) var(--space-1-5);
-  font-size: var(--font-size-caption);
-  color: var(--muted-foreground);
-}
-
-.maka-search-modal-results {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--space-0-5);
-}
-.maka-search-modal-result {
-  display: grid;
-  gap: var(--space-0-5);
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--foreground);
-  padding: var(--space-1-5) var(--space-2-5);
-  transition:
-    background var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong);
-}
-.maka-search-modal-result:hover:not([disabled]) {
-  background: var(--state-hover-bg);
-  transform: translateX(1px);
-}
-/* #520 PR8: Autocomplete.Item exposes the active (highlighted) item via
-   data-highlighted (activedescendant mode — the input keeps focus, so the
-   item itself is no longer :focus-visible). */
-.maka-search-modal-result[data-highlighted]:not([disabled]) {
-  background: var(--state-selected-bg);
-}
-.maka-search-modal-result[disabled] {
-  cursor: default;
-  opacity: var(--opacity-muted);
-}
-.maka-search-modal-result-title {
-  min-width: 0;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  color: var(--foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.maka-search-modal-result-meta {
-  min-width: 0;
-  font-size: var(--font-size-caption);
-  color: var(--muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.maka-search-modal-result-snippet {
-  font-size: var(--font-size-caption);
-  color: var(--foreground-secondary);
-  line-height: var(--leading-normal);
-  /* Plain text snippet — backend redacts secrets + bounds to
-   * SNIPPET_MAX_CODE_POINTS. We cap visual lines at 3 so very
-   * long snippets don't blow up the row height. */
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.maka-search-modal-snippet-hit {
-  color: var(--foreground);
-  background: oklch(from var(--link) l c h / 0.14);
-  border-radius: var(--radius-control);
-  padding: 0 var(--space-0-5);
 }
 
 .maka-session-panel-header {
@@ -942,160 +451,6 @@
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
 }
 
-.maka-prompt-suggestions {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-2-5);
-  margin: var(--space-5) 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.maka-prompt-suggestions li {
-  display: flex;
-}
-
-.maka-prompt-chip {
-  flex: 1;
-  display: grid;
-  gap: var(--space-0-5);
-  /* PR-UI-LAYOUT-5 (@yuejing): tighter chip chrome — was 12px
-   * radius + var(--background-elevated) bg + 12/14px padding. the reference design
-   * uses lighter pills; we keep two-line content (label + hint)
-   * but pull the visual weight down so the grid feels lighter and
-   * less card-like. Border drops to hairline `--border`,
-   * background to transparent (inherits warm panel bg); hover uses
-   * neutral `--state-hover-bg` + `--border-strong` (no brand tint). */
-  border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--foreground);
-  padding: var(--space-2-5) var(--space-3);
-  text-align: left;
-  transition:
-    border-color var(--duration-base) var(--ease-out-strong),
-    background var(--duration-base) var(--ease-out-strong);
-}
-
-.maka-prompt-chip:hover {
-  border-color: var(--border-strong);
-  background: var(--state-hover-bg);
-}
-
-.maka-prompt-chip:active {
-  background: var(--state-selected-bg);
-}
-
-.maka-prompt-chip-label {
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-prompt-chip-hint {
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.maka-deep-research-workflow {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: var(--space-2);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.maka-deep-research-workflow li {
-  min-width: 0;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  background: oklch(from var(--focus-ring) l c h / 0.035);
-  padding: var(--space-2-5);
-}
-
-.maka-deep-research-workflow-title {
-  display: block;
-  margin: 0 0 var(--space-1);
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
-}
-
-.maka-deep-research-workflow-body {
-  display: block;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
-
-.maka-deep-research-report,
-.maka-deep-research-scope,
-.maka-deep-research-evidence,
-.maka-deep-research-progress {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-3) 0 0;
-  border-top: var(--border-width-hairline) solid var(--border);
-}
-
-.maka-deep-research-report h2,
-.maka-deep-research-scope h2,
-.maka-deep-research-evidence h2,
-.maka-deep-research-progress h2 {
-  margin: 0;
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-snug);
-}
-
-.maka-deep-research-report ul,
-.maka-deep-research-scope ul,
-.maka-deep-research-evidence ul,
-.maka-deep-research-progress ul {
-  display: grid;
-  gap: var(--space-1-5);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.maka-deep-research-report li,
-.maka-deep-research-scope li,
-.maka-deep-research-evidence li,
-.maka-deep-research-progress li {
-  display: grid;
-  grid-template-columns: minmax(72px, max-content) minmax(0, 1fr);
-  gap: var(--space-2-5);
-  align-items: baseline;
-  min-width: 0;
-}
-
-.maka-deep-research-report-title,
-.maka-deep-research-scope-label,
-.maka-deep-research-evidence-title,
-.maka-deep-research-progress-title {
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-bold);
-  white-space: nowrap;
-}
-
-.maka-deep-research-report-body,
-.maka-deep-research-scope-body,
-.maka-deep-research-evidence-body,
-.maka-deep-research-progress-body {
-  min-width: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-}
 
 /* View-mode toggle row (按状态 / 按项目) — chrome comes from the shared
    `.settingsSegmented` primitive (same control family as the daily-review
@@ -1115,4 +470,219 @@
 
 .maka-view-mode-toggle .maka-view-mode-segmented > button {
   flex: 1 1 0;
+}
+
+/* List-row status family — merged back from onboarding.css — issue #546 PR3. */
+.maka-list-row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  overflow: hidden;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  min-width: 0;
+}
+
+.maka-list-row-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Small pulsing accent dot rendered when a session has live streaming
+ * delta in flight. Replaces the unread halo for streaming sessions so the
+ * indicator hierarchy is: streaming > unread > inactive. Respects
+ * prefers-reduced-motion. */
+.maka-list-row-streaming-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-running);
+  box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
+  animation: maka-list-row-streaming-pulse 1.2s var(--ease-in-out-strong) infinite;
+}
+
+@keyframes maka-list-row-streaming-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.18);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 5px oklch(from var(--status-running) l c h / 0.05);
+    transform: scale(1.1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-streaming-dot {
+    animation: none;
+  }
+}
+
+.maka-list-row[data-streaming="true"] .maka-list-row-name > span {
+  color: var(--foreground);
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: meta (relative time) now sits inline at
+ * the row's inline-end instead of stacked below the name. Color +
+ * size kept muted so it reads as secondary info, not a competing
+ * label. `margin-top` from the old stacked layout is removed. */
+.maka-list-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-text` collapses to a single
+ * row (name on the inline-start). The previous stack-of-three
+ * layout (name / preview / meta) is gone — preview drops out of the
+ * default DOM, meta moves inline to the row's right column. */
+.maka-list-row-text {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+}
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
+ * rendered in the default DOM — preview text is exposed via the row
+ * button's native `title=` tooltip on hover so users can still peek
+ * at the last message without paying the layout cost of a second
+ * stacked line. This rule intentionally remains DELETED (no fallback
+ * style). The `sidebar-row-density-contract.test.ts` gate asserts
+ * the rule is gone so a future "let's bring snippet back" patch
+ * lands as an explicit design discussion, not a silent regression.
+ */
+
+/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
+ * rendered in the default DOM (see comment above). The
+ * `[data-active]` variant of that rule is therefore dead and
+ * removed. */
+
+.maka-list-row-unread {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--status-running);
+  box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
+}
+
+/* Stale session — `backend='fake'` or `llmConnectionSlug` no longer
+ * resolves. Pairs with the chat-header banner (PR108e) so users can spot
+ * dead sessions in the sidebar list before clicking in. Visual treatment:
+ *
+ * - Row body dimmed via opacity reduction (preserves all underlying tones
+ *   but reads as "secondary"); active state remains fully opaque so the
+ *   currently-selected row never disappears just because it's stale.
+ * - A small amber pill labelled "已过期" sits next to the session name —
+ *   muted-warning tone, not destructive, because @xuan's send-path silent
+ *   rebind makes these sessions still functional.
+ */
+.maka-list-row[data-stale="true"] {
+  opacity: var(--opacity-muted);
+}
+
+.maka-list-row[data-stale="true"][data-active="true"] {
+  opacity: 1;
+}
+
+/* PR109b: SessionStatusIcon — small inline icon next to session name
+ * representing lifecycle status. Tone-based color from the
+ * design-system token vocabulary; running spins via `animation`
+ * (capped under reduced-motion + visual-smoke per PR-IR-04). */
+.maka-list-row-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: var(--space-1);
+  width: 14px;
+  height: 14px;
+  color: var(--foreground-secondary);
+}
+.maka-list-row-status-icon[data-tone="accent"] {
+  color: var(--nav-active);
+}
+.maka-list-row-status-icon[data-tone="warning"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="destructive"] {
+  color: var(--destructive);
+}
+.maka-list-row-status-icon[data-tone="info"] {
+  color: var(--info-text);
+}
+.maka-list-row-status-icon[data-tone="success"] {
+  /* Success uses the brand-deep tone introduced for Settings hero */
+  color: var(--brand-deep);
+}
+.maka-list-row-status-icon[data-tone="muted"] {
+  color: var(--muted-foreground);
+}
+.maka-list-row-status-icon[data-status="running"] svg {
+  animation: maka-status-spin 1.2s var(--ease-linear) infinite;
+}
+@keyframes maka-status-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .maka-list-row-status-icon[data-status="running"] svg {
+    animation: none;
+  }
+}
+[data-maka-visual-smoke="true"] .maka-list-row-status-icon[data-status="running"] svg {
+  animation: none;
+}
+
+/* Group label as a toggle button (archived group). Matches existing
+ * maka-list-group-label tone so the toggle doesn't visually fight
+ * non-collapsible groups. */
+.maka-list-group-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-1-5);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.maka-list-group-toggle:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+  border-radius: var(--radius-control);
+}
+.maka-list-group-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-list-row-stale-pill {
+  flex-shrink: 0;
+  /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing
+   * so all badges in .maka-list-row-name share the same rhythm. */
+  padding: 1px var(--space-1-5);
+  border-radius: var(--radius-pill);
+  /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
+   * for visual consistency with the banner that explains the same state.
+   * Switched from --info (blue) to --warning (amber) per UI audit §2.9 —
+   * "已过期" is a degraded-state signal, not informational. */
+  background: oklch(from var(--warning, var(--info)) l c h / 0.18);
+  color: var(--warning-text, var(--info-text));
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-snug);
+}
+
+.maka-list-row:hover .maka-list-row-name {
+  color: var(--foreground);
 }

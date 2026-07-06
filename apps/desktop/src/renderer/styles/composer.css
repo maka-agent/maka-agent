@@ -1,3 +1,176 @@
+/* Composer — outer container, controls, pickers, tool buttons, send/workspace/branch/streaming. Composer block merged in from tool-output.css (was misplaced there) — issue #546 PR3. Runtime permission dialog moved to permission-dialog.css. */
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3) var(--space-6) var(--space-4);
+  /* PR-GRAY-CARD-LIFT-5 (WAWQAQ msg `d4277aba` round 3): the composer
+     outer used to paint a vertical white-fade over `--background`,
+     designed for the older parchment shell where the page bg was
+     warm-white. Now that `--background` itself is pure white and the
+     shell is a visibly gray `--surface-canvas`, the composer outer
+     painted itself white-on-white, defeating the gray-plate / white-
+     card lift. Switch to transparent so the gray plate shows around
+     the composer card. */
+  background: transparent;
+}
+
+.maka-composer-streaming-hint .maka-shortcut-kbd {
+  font-size: var(--font-size-caption);
+  padding: 1px var(--space-1);
+  background: var(--foreground-3);
+  border: var(--border-width-hairline) solid var(--border);
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-0-5);
+  border-top: 0;
+}
+
+.maka-composer-left-controls,
+.maka-composer-right-controls {
+  display: flex;
+  align-items: center;
+  /* PR-REFERENCE-PIXEL-8 (WAWQAQ msg `f79de85f` round 8): reference implementation's
+     bundle uses gap values centered on 4-8px (extracted from
+     `globals-UfMzAdiO.css` — 4px is the most common gap, 12px never
+     appears as a toolbar gap). Maka's 12px composer toolbar gap
+     read as too loose vs reference implementation's tighter density. 8px keeps
+     individual controls separable while pulling them into one
+     coherent toolbar group. */
+  gap: var(--space-1-5);
+}
+
+.maka-composer-left-controls {
+  flex: 0 0 auto;
+}
+
+.maka-composer-right-controls {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.maka-composer-status-slot {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  text-align: center;
+}
+
+/* Unified composer picker trigger — permission Select ([data-slot="select-trigger"])
+   + both model pickers (active .maka-model-switcher-trigger, empty-state
+   .maka-composer-model-chip) share ONE quiet-chip geometry so the two
+   controls read identical at rest and on hover. */
+.maka-composer-left-controls [data-slot="select-trigger"],
+.maka-composer-right-controls .maka-model-switcher-trigger,
+.maka-composer-model-chip {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
+}
+.maka-composer-left-controls [data-slot="select-trigger"]:hover,
+.maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]),
+.maka-composer-model-chip:hover {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+  border-color: transparent;
+}
+
+.maka-composer-model-chip {
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher {
+  margin: 0;
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher-trigger {
+  min-width: 100px;
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher-label {
+  display: none;
+}
+.maka-composer-right-controls .maka-model-switcher-value {
+  max-width: 128px;
+  color: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-composer-model-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-model-status {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--destructive);
+  flex: 0 0 auto;
+}
+
+.maka-composer-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground-secondary);
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.maka-composer-context-plus {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.maka-composer-tool-button:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
+  transform: scale(var(--scale-hover));
+}
+
+.maka-composer-tool-button:active:not(:disabled) {
+  background: var(--state-selected-bg);
+}
+
+.maka-composer-tool-button:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+
 /* ============================================================================
    Composer container + input field — single source
    ----------------------------------------------------------------------------
@@ -398,125 +571,3 @@
   font-size: var(--font-size-ui);
 }
 
-/* PR30 Permission dialog: per-reason iconography + per-tool summary block */
-.permissionDialog {
-  width: min(480px, calc(100vw - 48px));
-}
-
-.maka-permission-header {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2);
-}
-
-.maka-permission-icon {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-}
-
-.permissionDialog[data-tone="caution"] .maka-permission-icon {
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
-}
-
-.permissionDialog[data-tone="destructive"] .maka-permission-icon {
-  background: oklch(from var(--destructive) l c h / 0.10);
-  color: var(--destructive-text);
-}
-
-.permissionDialog[data-tone="destructive"] {
-  border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.32);
-}
-
-.maka-permission-tool {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
-}
-
-.maka-permission-age {
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  white-space: nowrap;
-}
-
-.maka-permission-age[data-status="stale"] {
-  color: var(--warning-text);
-}
-
-.maka-permission-age[data-status="expired"] {
-  color: var(--destructive-text);
-}
-
-.maka-permission-body {
-  display: grid;
-  gap: var(--space-2-5);
-}
-
-.maka-permission-summary {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.maka-permission-line {
-  margin: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-}
-
-.maka-permission-path {
-  margin: 0;
-}
-
-.maka-permission-path code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground);
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
-}
-
-.maka-permission-command,
-.maka-permission-preview {
-  margin: 0;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.maka-permission-meta {
-  margin: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-}
-
-.maka-permission-hint {
-  border-radius: var(--radius-control);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-  padding: var(--space-1-5) var(--space-2-5);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-snug);
-}
-
-/* Single-line emphasis under the "记住本轮" checkbox when the action is
- * destructive. Keeps the dialog body readable but draws an extra beat
- * before the user clicks 我已确认，允许. */
-.maka-permission-danger-note {
-  margin: 0;
-  color: var(--destructive);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-  font-weight: var(--font-weight-semibold);
-}
