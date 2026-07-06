@@ -52,6 +52,14 @@ describe('Command palette accessibility and visible copy', () => {
       /<Autocomplete\.Item[\s\S]*?onClick=\{\(\) => commit\(cmd\)\}/,
       'Each command must be Autocomplete.Item with onClick firing commit (pointer click or Enter on highlighted)',
     );
+    // P2-c: Home/End decision — accept Base UI ComboboxInput's input-cursor
+    // default. The old hand-rolled highlight jump (Home/End -> first/last) is
+    // gone and must not return.
+    assert.doesNotMatch(
+      src,
+      /\bjumpActive\w*\(|onInputKeyDown/,
+      'Home/End must NOT jump highlight and there must be no hand-rolled input keydown handler — Base UI input-cursor default is the decided behavior (#562 P2-c)',
+    );
   });
 
   it('uses shared primitive InputGroup for the palette input shell without restoring the old flex wrapper', async () => {

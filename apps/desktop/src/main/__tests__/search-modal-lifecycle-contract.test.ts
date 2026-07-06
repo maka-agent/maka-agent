@@ -278,6 +278,14 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       /\.maka-search-modal-result\[data-highlighted\]/,
       'Highlighted (active) search result must have dedicated styling (Autocomplete data-highlighted replaces the old data-active)',
     );
+    // P2-c: Home/End decision — accept Base UI ComboboxInput's input-cursor
+    // default. The old roving-focus jumpActiveResult (Home/End -> first/last)
+    // must not return.
+    assert.doesNotMatch(
+      searchModal,
+      /\bjumpActive\w*\(/,
+      'Home/End must NOT jump highlight — Base UI input-cursor default is the decided behavior (#562 P2-c)',
+    );
   });
 
   it('search input keeps focus after results load until the user navigates results', async () => {
