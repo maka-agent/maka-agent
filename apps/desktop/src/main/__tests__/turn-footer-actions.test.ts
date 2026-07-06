@@ -194,11 +194,11 @@ describe('deriveTurnFooterActions', () => {
   describe('info action carries the meta summary (#546)', () => {
     it('appends an info action whose tooltip is the meta summary, when provided', () => {
       const actions = deriveTurnFooterActions(
-        ctx({ status: 'completed', metaSummary: 'gpt-5.5 · 4.9s · 1,417 → 19 tok' }),
+        ctx({ status: 'completed', metaSummary: 'gpt-5.5 · 4.9s · $0.0123' }),
       );
       const info = actions.find((a) => a.id === 'info');
       assert.ok(info, 'info action should be present when metaSummary is set');
-      assert.equal(info?.tooltip, 'gpt-5.5 · 4.9s · 1,417 → 19 tok');
+      assert.equal(info?.tooltip, 'gpt-5.5 · 4.9s · $0.0123');
     });
 
     it('omits the info action when no meta summary is provided', () => {
@@ -212,6 +212,24 @@ describe('deriveTurnFooterActions', () => {
       );
       const info = actions.find((a) => a.id === 'info');
       assert.equal(info?.enabled, true);
+    });
+  });
+
+  describe('copy action tooltip reflects enabled state (#546)', () => {
+    it('shows the copy affordance when there is content', () => {
+      const copy = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: true })).find(
+        (a) => a.id === 'copy',
+      );
+      assert.equal(copy?.enabled, true);
+      assert.equal(copy?.tooltip, '复制回答到剪贴板');
+    });
+
+    it('shows the disabled reason when there is no content', () => {
+      const copy = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: false })).find(
+        (a) => a.id === 'copy',
+      );
+      assert.equal(copy?.enabled, false);
+      assert.equal(copy?.tooltip, '此回答尚无可复制的内容');
     });
   });
 

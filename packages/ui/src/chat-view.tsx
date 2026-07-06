@@ -1275,7 +1275,12 @@ function TurnFooterActions(props: {
               ? '复制失败'
               : action.label;
         const isActionPending = isPending || copyIsPending;
-        const tooltipText = isCopyAction ? copyFeedbackLabel : (action.tooltip ?? action.label);
+        // Copy's tooltip comes from the helper (enabled affordance vs disabled
+        // reason). Only while clipboard feedback is active do we surface that
+        // transient state; otherwise the helper's tooltip wins.
+        const tooltipText = isCopyAction
+          ? (copyPhase ? copyFeedbackLabel : (action.tooltip ?? action.label))
+          : (action.tooltip ?? action.label);
         const icon = isCopyAction && copyPhase === 'copied'
           ? <Check size={12} strokeWidth={2} aria-hidden="true" />
           : STATUS_FOOTER_ICON[action.id];
