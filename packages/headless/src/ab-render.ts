@@ -122,7 +122,6 @@ function renderTaskToolLine(summary: AbComparisonSummary): string | undefined {
 function renderTaskToolMetrics(summary: AbTaskToolSummary): string {
   return [
     `activated=${summary.activatedAttempts}/${summary.attempts}`,
-    `calls=${summary.actualTaskToolCalls}`,
     `todo_write=${summary.todoWriteCalls}`,
   ].join(' ');
 }
@@ -132,7 +131,6 @@ function taskToolsOrZero(summary: AbTaskToolSummary | undefined): AbTaskToolSumm
     attempts: 0,
     activatedAttempts: 0,
     activatedAttemptIds: [],
-    actualTaskToolCalls: 0,
     todoWriteCalls: 0,
   };
 }

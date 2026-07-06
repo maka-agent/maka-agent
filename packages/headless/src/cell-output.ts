@@ -82,8 +82,6 @@ export interface HarborCellToolSummary {
 }
 
 export interface HarborCellTaskToolSummary {
-  activated: boolean;
-  actualTaskToolCalls: number;
   todoWriteCalls: number;
 }
 
@@ -193,16 +191,12 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
 
 export function summarizeCellTaskTools(events: readonly RuntimeEvent[]): HarborCellTaskToolSummary {
   const summary: HarborCellTaskToolSummary = {
-    activated: false,
-    actualTaskToolCalls: 0,
     todoWriteCalls: 0,
   };
   for (const event of events) {
     if (event.content?.kind !== 'function_call') continue;
     const name = event.content.name;
     if (name !== 'todo_write') continue;
-    summary.activated = true;
-    summary.actualTaskToolCalls += 1;
     summary.todoWriteCalls += 1;
   }
   return summary;
@@ -400,7 +394,7 @@ function taskToolSummaryField(
   enabled: boolean,
 ): Pick<HarborCellOutput, 'taskToolSummary'> {
   const taskToolSummary = summarizeCellTaskTools(events);
-  return enabled || taskToolSummary.activated ? { taskToolSummary } : {};
+  return enabled || taskToolSummary.todoWriteCalls > 0 ? { taskToolSummary } : {};
 }
 
 function validateTokenSummary(value: unknown): HarborCellTokenSummary {
@@ -439,8 +433,6 @@ function validateToolSummary(value: unknown): HarborCellToolSummary {
 function validateTaskToolSummary(value: unknown): HarborCellTaskToolSummary {
   if (!isRecord(value)) throw new Error('taskToolSummary must be a JSON object');
   return {
-    activated: requireBoolean(value.activated, 'taskToolSummary.activated'),
-    actualTaskToolCalls: requireNumber(value.actualTaskToolCalls, 'taskToolSummary.actualTaskToolCalls'),
     todoWriteCalls: requireNumber(value.todoWriteCalls, 'taskToolSummary.todoWriteCalls'),
   };
 }

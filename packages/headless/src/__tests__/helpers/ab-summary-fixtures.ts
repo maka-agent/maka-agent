@@ -124,8 +124,6 @@ export function taskToolSummary(
   input: Partial<NonNullable<FixedPromptTaskCompletedEvent['taskToolSummary']>>,
 ): NonNullable<FixedPromptTaskCompletedEvent['taskToolSummary']> {
   return {
-    activated: true,
-    actualTaskToolCalls: 0,
     todoWriteCalls: 0,
     ...input,
   };

@@ -299,8 +299,6 @@ describe('Harbor cell output contract', () => {
     });
 
     assert.deepEqual(output.taskToolSummary, {
-      activated: true,
-      actualTaskToolCalls: 1,
       todoWriteCalls: 1,
     });
     assert.deepEqual(validateHarborCellOutput(output), output);
@@ -335,8 +333,6 @@ describe('Harbor cell output contract', () => {
       taskToolSummaryEnabled: true,
     });
     assert.deepEqual(enabled.taskToolSummary, {
-      activated: false,
-      actualTaskToolCalls: 0,
       todoWriteCalls: 0,
     });
     assert.deepEqual(validateHarborCellOutput(enabled), enabled);

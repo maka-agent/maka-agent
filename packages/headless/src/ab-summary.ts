@@ -275,13 +275,11 @@ function summarizeTaskTools(events: readonly FixedPromptTaskWalEvent[]): AbTaskT
     }
   }
   if (summaries.length === 0) return undefined;
+  const activatedSummaries = summaries.filter((entry) => entry.summary.todoWriteCalls > 0);
   return {
     attempts: events.length,
-    activatedAttempts: summaries.filter((entry) => entry.summary.activated).length,
-    activatedAttemptIds: summaries
-      .filter((entry) => entry.summary.activated)
-      .map((entry) => entry.event.id),
-    actualTaskToolCalls: sum(summaries.map((entry) => entry.summary.actualTaskToolCalls)),
+    activatedAttempts: activatedSummaries.length,
+    activatedAttemptIds: activatedSummaries.map((entry) => entry.event.id),
     todoWriteCalls: sum(summaries.map((entry) => entry.summary.todoWriteCalls)),
   };
 }

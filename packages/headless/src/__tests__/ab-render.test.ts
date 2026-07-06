@@ -201,21 +201,21 @@ describe('renderAbComparisonMarkdown', () => {
         {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 5,
             todoWriteCalls: 5,
           }),
         },
         {
           ...completed('t2', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 3,
             todoWriteCalls: 3,
           }),
         },
       ]],
     });
 
-    assert.match(renderAbComparisonMarkdown(result), /Task tools: A activated=0\/0 calls=0 todo_write=0, B activated=2\/2 calls=8 todo_write=8/);
+    const markdown = renderAbComparisonMarkdown(result);
+    assert.match(markdown, /Task tools: A activated=0\/0 todo_write=0, B activated=2\/2 todo_write=8/);
+    assert.doesNotMatch(markdown, /\bcalls=/);
   });
 
   test('renders investigation refs', () => {

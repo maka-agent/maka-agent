@@ -146,7 +146,6 @@ export interface AbTaskToolSummary {
   attempts: number;
   activatedAttempts: number;
   activatedAttemptIds: string[];
-  actualTaskToolCalls: number;
   todoWriteCalls: number;
 }
 

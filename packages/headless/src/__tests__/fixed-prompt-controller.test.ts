@@ -1009,8 +1009,6 @@ describe('fixed prompt controller', () => {
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
       const taskToolSummary = {
-        activated: true,
-        actualTaskToolCalls: 5,
         todoWriteCalls: 5,
       };
 

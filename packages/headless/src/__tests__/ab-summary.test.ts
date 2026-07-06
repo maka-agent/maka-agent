@@ -377,14 +377,12 @@ describe('summarizeAbComparison', () => {
         {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 5,
             todoWriteCalls: 5,
           }),
         },
         {
           ...completed('t2', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 3,
             todoWriteCalls: 3,
           }),
         },
@@ -396,7 +394,6 @@ describe('summarizeAbComparison', () => {
       attempts: 2,
       activatedAttempts: 2,
       activatedAttemptIds: ['event-t1-pass', 'event-t2-pass'],
-      actualTaskToolCalls: 8,
       todoWriteCalls: 8,
     });
   });
@@ -413,7 +410,6 @@ describe('summarizeAbComparison', () => {
         {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 1,
             todoWriteCalls: 1,
           }),
         },
@@ -425,7 +421,6 @@ describe('summarizeAbComparison', () => {
       attempts: 2,
       activatedAttempts: 1,
       activatedAttemptIds: ['event-t1-pass'],
-      actualTaskToolCalls: 1,
       todoWriteCalls: 1,
     });
   });
@@ -442,7 +437,6 @@ describe('summarizeAbComparison', () => {
         {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
-            actualTaskToolCalls: 1,
             todoWriteCalls: 1,
           }),
         },
@@ -454,7 +448,6 @@ describe('summarizeAbComparison', () => {
       attempts: 2,
       activatedAttempts: 1,
       activatedAttemptIds: ['event-t1-pass'],
-      actualTaskToolCalls: 1,
       todoWriteCalls: 1,
     });
   });
@@ -470,11 +463,11 @@ describe('summarizeAbComparison', () => {
       candidateRuns: [[
         {
           ...completed('t1', true),
-          taskToolSummary: taskToolSummary({ activated: false }),
+          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
         },
         {
           ...completed('t2', true),
-          taskToolSummary: taskToolSummary({ activated: false }),
+          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
         },
       ]],
     });
@@ -483,7 +476,6 @@ describe('summarizeAbComparison', () => {
       attempts: 2,
       activatedAttempts: 0,
       activatedAttemptIds: [],
-      actualTaskToolCalls: 0,
       todoWriteCalls: 0,
     });
   });
