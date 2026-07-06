@@ -7,12 +7,17 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildDefaultContextBudgetPolicy,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   getAIModel,
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+  type ContextBudgetPolicy,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createArtifactStore,
   createConnectionStore,
   createFileCredentialStore,
   createRuntimeEventStore,
@@ -47,12 +52,36 @@ export function isMakaClaudeSubscriptionCloakEnabled(
   return env.MAKA_CLAUDE_SUBSCRIPTION_CLOAK !== '0';
 }
 
+function withCliManualCompactLookupPolicy(policy: ContextBudgetPolicy | undefined): ContextBudgetPolicy | undefined {
+  if (!policy) return undefined;
+  const budgetedPolicy = policy.maxHistoryEstimatedTokens === undefined
+    ? { ...policy, maxHistoryEstimatedTokens: 32_000 }
+    : policy;
+  const current = budgetedPolicy.historyCompact;
+  return {
+    ...budgetedPolicy,
+    historyCompact: {
+      ...current,
+      enabled: true,
+      mode: 'lookup',
+      highWaterRatio: 0.000001,
+      tailEstimatedTokens: 1,
+      minRecentTurns: current?.minRecentTurns ?? budgetedPolicy.minRecentTurns ?? 1,
+      maxBlocks: current?.maxBlocks ?? 1,
+      maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
+      maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? 1024,
+      highWaterName: current?.highWaterName ?? 'cli-manual-history-compact',
+    },
+  };
+}
+
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
+  const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
@@ -94,6 +123,11 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
+      contextBudget: withCliManualCompactLookupPolicy(
+        buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
+      ),
+      loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
+      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event),
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
