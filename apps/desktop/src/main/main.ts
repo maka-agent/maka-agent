@@ -674,6 +674,17 @@ backends.register('fake', (ctx) =>
   new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
 
+// E2E: also route 'ai-sdk' (requested by sessions:create and quickChat:start)
+// through the deterministic fake backend, so no session-creation path can
+// escape the E2E seam and hit a real provider. Registered after the real
+// ai-sdk factory to override it (BackendRegistry uses last-write-wins).
+// Production builds never set MAKA_E2E.
+if (process.env.MAKA_E2E === '1') {
+  backends.register('ai-sdk', (ctx) =>
+    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  );
+}
+
 const runtime = new SessionManager({
   store,
   runStore,
@@ -1753,6 +1764,24 @@ async function recoverInterruptedSessionsOnStartup(): Promise<void> {
 async function ensureBootstrapConnection(): Promise<void> {
   await mkdir(workspaceRoot, { recursive: true });
   if ((await connectionStore.list()).length > 0) return;
+
+  // E2E: seed a real-looking connection so onboarding clears and the composer
+  // becomes enabled. sessions:create still forces the fake backend under
+  // MAKA_E2E (see resolveSessionBackend), so no real API is ever called —
+  // this connection only satisfies the UI readiness gates.
+  if (process.env.MAKA_E2E === '1') {
+    const slug = 'e2e';
+    await connectionStore.create({
+      slug,
+      name: 'E2E',
+      providerType: 'anthropic',
+      defaultModel: 'claude-sonnet-4-5-20250929',
+    });
+    await credentialStore.setSecret(slug, 'api_key', 'e2e-placeholder');
+    await connectionStore.setDefault(slug);
+    emitConnectionListChanged();
+    return;
+  }
 
   if (process.env.ANTHROPIC_API_KEY) {
     const slug = 'env-anthropic';
