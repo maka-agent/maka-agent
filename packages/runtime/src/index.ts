@@ -237,8 +237,11 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
-export { buildDefaultContextBudgetPolicy } from './context-budget-policy.js';
-export type { BuildDefaultContextBudgetPolicyOptions } from './context-budget-policy.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export type {
+  BuildDefaultContextBudgetPolicyOptions,
+  BuildManualCompactLookupPolicyOptions,
+} from './context-budget-policy.js';
 export {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,

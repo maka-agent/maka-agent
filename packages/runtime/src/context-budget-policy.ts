@@ -56,6 +56,40 @@ export function buildDefaultContextBudgetPolicy(
   };
 }
 
+export interface BuildManualCompactLookupPolicyOptions {
+  highWaterName?: string;
+}
+
+// Overlay a bounded lookup-only historyCompact policy for manual compaction:
+// replay loaded compact blocks but never synthesize fallback blocks, and cap
+// the replayed history so a manual /compact cannot balloon the context. Keeps
+// every compact default in one place so the CLI and desktop do not diverge.
+export function buildManualCompactLookupPolicy(
+  base: ContextBudgetPolicy | undefined,
+  options: BuildManualCompactLookupPolicyOptions = {},
+): ContextBudgetPolicy | undefined {
+  if (!base) return undefined;
+  const budgetedPolicy = base.maxHistoryEstimatedTokens === undefined
+    ? { ...base, maxHistoryEstimatedTokens: 32_000 }
+    : base;
+  const current = budgetedPolicy.historyCompact;
+  return {
+    ...budgetedPolicy,
+    historyCompact: {
+      ...current,
+      enabled: true,
+      mode: 'lookup',
+      highWaterRatio: 0.000001,
+      tailEstimatedTokens: 1,
+      minRecentTurns: current?.minRecentTurns ?? budgetedPolicy.minRecentTurns ?? 1,
+      maxBlocks: current?.maxBlocks ?? 1,
+      maxEstimatedTokens: current?.maxEstimatedTokens ?? 2_048,
+      maxBlockEstimatedTokens: current?.maxBlockEstimatedTokens ?? 1_024,
+      highWaterName: current?.highWaterName ?? options.highWaterName ?? 'manual-history-compact',
+    },
+  };
+}
+
 function buildStaleToolResultPrunePolicy(
   env: Record<string, string | undefined>,
 ): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> | undefined {
