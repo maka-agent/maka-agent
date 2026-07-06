@@ -12,7 +12,6 @@ import {
   buildManualCompactLookupPolicy,
   buildProviderOptions,
   buildSubscriptionModelFetch,
-  createAiSdkConversationSummarizer,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
@@ -109,18 +108,16 @@ export async function createMakaCliRuntimeContext(
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
         summarize: buildLlmHistorySummarizer({
-          summarizeConversation: createAiSdkConversationSummarizer({
-            // Reuse the same connection/model the session already drives, so the
-            // summary stays consistent with the model that will consume it.
-            resolveModel: () =>
-              getAIModel({
-                connection: ready.connection,
-                apiKey: ready.apiKey,
-                modelId: ready.model,
-                fetch: modelFetch,
-              }),
-            maxOutputTokens: 4096,
-          }),
+          // Reuse the same connection/model the session already drives, so the
+          // summary stays consistent with the model that will consume it.
+          resolveModel: () =>
+            getAIModel({
+              connection: ready.connection,
+              apiKey: ready.apiKey,
+              modelId: ready.model,
+              fetch: modelFetch,
+            }),
+          maxOutputTokens: 4096,
         }),
       }),
       systemPrompt: async ({ cwd }) => {

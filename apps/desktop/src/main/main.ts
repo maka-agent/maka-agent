@@ -149,7 +149,6 @@ import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   buildLlmHistorySummarizer,
-  createAiSdkConversationSummarizer,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
@@ -627,13 +626,11 @@ backends.register('ai-sdk', async (ctx) => {
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       summarize: buildLlmHistorySummarizer({
-        summarizeConversation: createAiSdkConversationSummarizer({
-          // Reuse the same connection/model the session already drives, so the
-          // summary stays consistent with the model that will consume it.
-          resolveModel: () =>
-            getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-          maxOutputTokens: 4096,
-        }),
+        // Reuse the same connection/model the session already drives, so the
+        // summary stays consistent with the model that will consume it.
+        resolveModel: () =>
+          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+        maxOutputTokens: 4096,
       }),
       onArtifactCreated: (artifact) => {
         safeSendToRenderer('artifacts:changed', {

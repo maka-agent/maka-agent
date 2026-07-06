@@ -259,15 +259,7 @@ export type {
 export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,
-  LlmConversationSummarizer,
-  LlmConversationSummarizerInput,
 } from './history-compact-summarizer.js';
-export { createAiSdkConversationSummarizer } from './ai-sdk-conversation-summarizer.js';
-export type {
-  AiSdkGenerateTextLike,
-  AiSdkGenerateTextOptions,
-  CreateAiSdkConversationSummarizerOptions,
-} from './ai-sdk-conversation-summarizer.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,

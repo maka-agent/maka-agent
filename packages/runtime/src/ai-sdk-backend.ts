@@ -100,6 +100,7 @@ import {
   rewriteActiveToolResultsInMessages,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
+import { toolResultOutput } from './ai-sdk-tool-output.js';
 import {
   rewriteActiveFullCompactInMessages,
   type ActiveFullCompactBlock,
@@ -169,12 +170,6 @@ export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
-
-type AiSdkToolResultOutput =
-  | { type: 'text'; value: string }
-  | { type: 'json'; value: JSONValue }
-  | { type: 'error-text'; value: string }
-  | { type: 'error-json'; value: JSONValue };
 
 // ============================================================================
 // AgentBackend interface
@@ -2341,17 +2336,6 @@ function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, nev
   };
 }
 
-function toolResultOutput(value: unknown, isError: boolean): AiSdkToolResultOutput {
-  if (isError) {
-    return typeof value === 'string'
-      ? { type: 'error-text', value }
-      : { type: 'error-json', value: jsonValue(value) };
-  }
-  return typeof value === 'string'
-    ? { type: 'text', value }
-    : { type: 'json', value: jsonValue(value) };
-}
-
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
@@ -2676,16 +2660,4 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
   }
 }
 
-function jsonValue(value: unknown): JSONValue {
-  if (
-    value === null
-    || typeof value === 'string'
-    || typeof value === 'number'
-    || typeof value === 'boolean'
-    || Array.isArray(value)
-    || typeof value === 'object'
-  ) {
-    return value as JSONValue;
-  }
-  return String(value);
-}
+
