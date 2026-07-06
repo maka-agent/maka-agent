@@ -132,7 +132,9 @@ export async function loadHistoryCompactBlocksFromArtifacts(
 ): Promise<HistoryCompactLoadResult> {
   const maxBlocks = input.maxBlocks ?? 1;
   const maxEstimatedTokens = input.maxEstimatedTokens ?? 2_048;
-  const maxBytes = input.maxBytes ?? maxEstimatedTokens * 4;
+  // The block JSON carries per-event provenance and grows with the folded
+  // event count; cap reads defensively by storage size, not by token budget.
+  const maxBytes = input.maxBytes ?? 1_048_576;
   const skippedReasonCounts: Record<string, number> = {};
   const blocks: HistoryCompactBlock[] = [];
   const records = await artifactStore.list(input.sessionId, { includeDeleted: true });

@@ -6,6 +6,7 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { buildHistoryCompactBlockFromSummary } from '../context-budget.js';
 import type { HistoryCompactWriteInput } from '../ai-sdk-backend.js';
 import {
+  loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
   type HistoryCompactArtifactStore,
 } from '../history-compact-artifacts.js';
@@ -47,6 +48,47 @@ describe('history compact artifacts', () => {
     assert.equal(write.blocks.length, 1);
     assert.ok((write.blocks[0]?.estimatedTokens ?? 0) <= 1_024);
     assert.equal(write.blocks[0]?.sourceArchiveRefs?.length, 60);
+  });
+
+  test('loads a metadata-heavy block without an explicit byte cap', async () => {
+    const store = memoryArtifactStore();
+    const foldedEvents = Array.from({ length: 60 }, (_, index) =>
+      textEvent(`old-${index}`, `turn-${Math.floor(index / 4)}`, `folded fact number ${index}`));
+    const write = await persistHistoryCompactBlocksToArtifacts(store, {
+      sessionId: 'session-1',
+      turnId: 'turn-write',
+      source: {
+        draftBlock: buildHistoryCompactBlockFromSummary({
+          sessionId: 'session-1',
+          foldedRuntimeEvents: foldedEvents,
+          summary: 'deterministic fallback',
+          highWaterName: 'test-history-compact',
+          highWaterSeq: 1,
+          now: 1_800_000_000_000,
+          charsPerToken: 4,
+        }),
+        foldedRuntimeEvents: foldedEvents,
+      },
+      limits: {
+        maxBlocks: 1,
+        maxBlockEstimatedTokens: 1_024,
+        maxEstimatedTokens: 2_048,
+        charsPerToken: 4,
+      },
+    }, {
+      now: () => 1_800_000_000_100,
+      summarize: () => 'short summary of a long session',
+    });
+    assert.equal(write.blocks.length, 1);
+
+    const loaded = await loadHistoryCompactBlocksFromArtifacts(store, {
+      sessionId: 'session-1',
+      maxBlocks: 1,
+      maxEstimatedTokens: 2_048,
+    });
+
+    assert.deepEqual(loaded.skippedReasonCounts, undefined);
+    assert.equal(loaded.blocks[0]?.blockId, write.blocks[0]?.blockId);
   });
 });
 
