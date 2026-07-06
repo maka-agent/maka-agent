@@ -33,6 +33,9 @@ interface MainWindowControllerDeps {
   workspaceRoot: string;
   visualSmokeFixture: VisualSmokeFixture | null;
   settingsStore: SettingsReader;
+  // main.ts computes this from the same isE2e gate that also guards userData
+  // and the fake backend, so main-window.ts owns no env policy of its own.
+  startHidden: boolean;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -74,7 +77,7 @@ const titleBarOverlayOptions = (isDark: boolean): { color: string; symbolColor: 
 });
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
-  const { workspaceRoot, visualSmokeFixture, settingsStore } = deps;
+  const { workspaceRoot, visualSmokeFixture, settingsStore, startHidden } = deps;
 
   function getBrowserViews(): BrowserViewManager<BrowserViewController> {
     if (!browserViews) {
@@ -178,7 +181,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // still returns a painted frame on a hidden window because
       // `paintWhenInitiallyHidden` defaults to true. Real runs keep the
       // default `show: true`.
-      ...((!app.isPackaged && (process.env.MAKA_VISUAL_SMOKE_FIXTURE || process.env.MAKA_E2E === '1')) ? { show: false } : {}),
+      ...(!app.isPackaged && startHidden ? { show: false } : {}),
       // Glass material — reference-atlas §1 + §12.1 documents the upstream
       // reference layout's `light-glass` / `dark-glass` themes that paint
       // the sidebar against native macOS vibrancy material. Enabling

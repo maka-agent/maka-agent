@@ -339,10 +339,15 @@ const systemPromptService = createSystemPromptMainService({
   localMemory,
   taskLedger: taskLedgerStore,
 });
+// Window is created hidden for E2E and visual-smoke runs so it never steals
+// focus. Derived from the same isE2e gate as userData/fake-backend so the
+// hidden-window switch stays in lockstep with the rest of the E2E isolation.
+const startHidden = Boolean(visualSmokeFixture) || isE2e;
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
+  startHidden,
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
 // create one if all windows were closed while the app (macOS: still in the
