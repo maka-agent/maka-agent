@@ -121,16 +121,16 @@
 .composer .maka-composer-inner.agents-parchment-paper-surface {
   border: var(--border-width-hairline) solid var(--color-border-tertiary);
   background-color: var(--agents-content-area-bg);
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.035),
-    0 1px 3px oklch(from var(--foreground) l c h / 0.025);
+  /* #546: single hairline ring at rest — dropped the 1px/3px drop shadow so the
+     calm parchment card doesn't carry a heavy lift. */
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.035);
 }
 
 .composer .maka-composer-inner.agents-parchment-paper-surface:focus-within {
-  border-color: var(--color-border-tertiary);
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.07),
-    0 2px 8px -6px oklch(from var(--foreground) l c h / 0.16);
+  /* #546: focus reads as a single accent ring (focus-ring recipe) instead of
+     a neutral ring + drop shadow, so the typing state is alert without a lift. */
+  border-color: oklch(from var(--focus-ring) l c h / 0.45);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
 }
 
 .agents-chat-panel {

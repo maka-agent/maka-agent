@@ -357,13 +357,6 @@
   background: transparent;
 }
 
-.maka-composer-tool-button.maka-composer-mic-button {
-  width: 26px;
-  height: 26px;
-  border: 0;
-  background: transparent;
-}
-
 .maka-composer-tool-button:hover:not(:disabled) {
   color: var(--foreground);
   background: var(--state-hover-bg);
@@ -379,9 +372,3 @@
   cursor: not-allowed;
 }
 
-.maka-composer-tool-button.maka-composer-mic-button:disabled {
-  border: 0;
-  background: transparent;
-  color: var(--muted-foreground);
-  opacity: 1;
-}

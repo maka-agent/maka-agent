@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Mic, Plus } from './icons.js';
+import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
@@ -701,17 +701,6 @@ export const Composer = forwardRef<
                 ) : (
                   <ModelChipStatic label={modelChipLabel} onOpenSettings={props.onOpenModelSettings} />
                 )}
-                <UiButton
-                  variant="quiet"
-                  size="icon-sm"
-                  className="maka-composer-tool-button maka-composer-mic-button"
-                  type="button"
-                  disabled
-                  aria-label="语音输入暂未启用"
-                  title="语音输入暂未启用"
-                >
-                  <Mic size={14} strokeWidth={1.75} aria-hidden="true" />
-                </UiButton>
               </>
             )}
             {props.streaming ? (

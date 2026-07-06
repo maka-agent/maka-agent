@@ -1,42 +1,23 @@
-/* Reference's round send button is an off-black pill gradient with a 1px
-   inner top highlight — a tiny physical sheen, not flat pure #000 (banned
-   per design-taste rules). Uses oklch off-black (charcoal) so the button
-   reads as premium machined hardware. */
+/* Composer send button — flat solid action fill. #546: dropped the gradient
+   + inner sheen + drop shadow (the "machined hardware" look read heavy next
+   to the calm parchment container). Flat --action with darken on hover/press
+   keeps it the clear primary CTA without the weight. */
 .maka-composer-send-button {
   width: var(--h-control-lg);
   height: var(--h-control-lg);
   border-radius: var(--radius-pill);
-  background: linear-gradient(
-    oklch(from var(--action) calc(l - 0.10) c h),
-    oklch(from var(--action) calc(l - 0.20) c h)
-  );
+  background: var(--action);
   color: var(--action-foreground);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.18),
-    0 8px 18px -14px oklch(from var(--action) l c h / 0.5);
-  transition:
-    background var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow var(--duration-emphasized) var(--ease-out-strong);
+  transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-/* PR-FE-BUG-HUNT-7: send button is a primary CTA so it gets a hair
-   more travel than the tool buttons, but still inside the global
-   tactile press range. 1.06→1.03 hover. */
 .maka-composer-send-button:hover:not(:disabled) {
-  background: linear-gradient(
-    oklch(from var(--action) calc(l - 0.05) c h),
-    oklch(from var(--action) calc(l - 0.15) c h)
-  );
+  background: oklch(from var(--action) calc(l - 0.08) c h);
   color: var(--action-foreground);
-  transform: scale(var(--scale-hover));
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.18),
-    0 10px 22px -14px oklch(from var(--action) l c h / 0.55);
 }
 
 .maka-composer-send-button:active:not(:disabled) {
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.10);
+  background: oklch(from var(--action) calc(l - 0.14) c h);
 }
 
 .maka-composer-send-button:disabled {
