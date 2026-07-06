@@ -1824,11 +1824,11 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || process.env.MAKA_E2E) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
-      // active window during a capture run.
+      // active window during a capture run or an E2E run.
       app.dock.hide();
     } else {
       try {

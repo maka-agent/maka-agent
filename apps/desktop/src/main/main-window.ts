@@ -178,7 +178,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // still returns a painted frame on a hidden window because
       // `paintWhenInitiallyHidden` defaults to true. Real runs keep the
       // default `show: true`.
-      ...(process.env.MAKA_VISUAL_SMOKE_FIXTURE ? { show: false } : {}),
+      ...((process.env.MAKA_VISUAL_SMOKE_FIXTURE || process.env.MAKA_E2E) ? { show: false } : {}),
       // Glass material — reference-atlas §1 + §12.1 documents the upstream
       // reference layout's `light-glass` / `dark-glass` themes that paint
       // the sidebar against native macOS vibrancy material. Enabling
