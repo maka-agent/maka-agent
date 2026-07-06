@@ -28,6 +28,7 @@ import {
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
+  toggleLatestThinkingExpansion,
   toggleLatestToolExpansion,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
@@ -546,6 +547,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (tui.hasOverlay()) return undefined;
     if (matchesKey(data, Key.ctrl('o'))) {
       if (toggleLatestToolExpansion(state)) {
+        requestRender();
+        return { consume: true };
+      }
+    }
+    if (matchesKey(data, Key.ctrl('t'))) {
+      if (toggleLatestThinkingExpansion(state)) {
         requestRender();
         return { consume: true };
       }

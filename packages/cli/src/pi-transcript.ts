@@ -18,6 +18,7 @@ export interface MakaPiTranscriptState {
   sawTextDeltaMessageIds: Set<string>;
   pendingPermission?: PermissionRequestEvent;
   expandedToolUseId?: string;
+  expandedThinkingMessageId?: string;
 }
 
 export type MakaPiTranscriptEntry =
@@ -74,6 +75,7 @@ export function replaceTranscriptWithStoredMessages(
   );
   state.pendingPermission = undefined;
   state.expandedToolUseId = undefined;
+  state.expandedThinkingMessageId = undefined;
 }
 
 export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean {
@@ -84,6 +86,20 @@ export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean
   state.expandedToolUseId = state.expandedToolUseId === latestTool.toolUseId
     ? undefined
     : latestTool.toolUseId;
+  return true;
+}
+
+export function toggleLatestThinkingExpansion(state: MakaPiTranscriptState): boolean {
+  const latestThinking = [...state.entries]
+    .reverse()
+    .find(
+      (entry): entry is MakaPiAssistantEntry =>
+        entry.kind === 'assistant' && Boolean(entry.thinking?.trim()),
+    );
+  if (!latestThinking) return false;
+  state.expandedThinkingMessageId = state.expandedThinkingMessageId === latestThinking.messageId
+    ? undefined
+    : latestThinking.messageId;
   return true;
 }
 
@@ -415,7 +431,7 @@ export function renderMakaPiTranscript(
         lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
         break;
       case 'assistant':
-        lines.push(...renderAssistantBlock(entry, safeWidth));
+        lines.push(...renderAssistantBlock(entry, safeWidth, state.expandedThinkingMessageId === entry.messageId));
         break;
       case 'tool':
         lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
@@ -470,16 +486,17 @@ function setAssistantThinking(state: MakaPiTranscriptState, messageId: string, t
   state.entries.push({ kind: 'assistant', messageId, text: '', thinking: text });
 }
 
-function renderAssistantBlock(entry: MakaPiAssistantEntry, width: number): string[] {
+function renderAssistantBlock(entry: MakaPiAssistantEntry, width: number, thinkingExpanded: boolean): string[] {
   const lines = renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
-  // Thinking blocks are collapsed in the transcript: a terminal transcript is
-  // static (no interactive toggle), so we render a one-line marker instead of
-  // the full body, which would flood the scrollback. The text stays on the
-  // entry in case a future viewer wants to surface it; this satisfies the
-  // "can be collapsed/hidden" acceptance without dumping reasoning into the
-  // terminal.
+  // Thinking stays collapsed to a one-line marker by default so reasoning
+  // never floods the scrollback; Ctrl+T expands the latest block on demand.
   if (entry.thinking && entry.thinking.trim()) {
-    lines.push(ansi.dim('思考（已隐藏）'));
+    if (thinkingExpanded) {
+      lines.push(fitLine(ansi.dim('思考'), width));
+      lines.push(...renderIndented(entry.thinking, width, 2).map((line) => fitLine(ansi.dim(line), width)));
+    } else {
+      lines.push(ansi.dim('思考（Ctrl+T 展开）'));
+    }
   }
   return lines;
 }

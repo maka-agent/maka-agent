@@ -151,6 +151,40 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('toggles thinking visibility with Ctrl-T', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ThinkingOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('思考（Ctrl+T 展开）'));
+    assert.equal(plainTerminalOutput(terminal.output()).includes('secret reasoning tail'), false);
+
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('secret reasoning tail'));
+
+    terminal.input('\x14');
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('secret reasoning tail'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('renders the statusline below the input editor', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -1407,6 +1441,54 @@ class InterruptibleTurnDriver implements MakaSessionDriver {
     this.releaseTurn = null;
   }
 
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ThinkingOutputDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta',
+      id: 'event-thinking',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: 'secret reasoning tail',
+    };
+    yield {
+      type: 'text_complete',
+      id: 'event-text',
+      turnId: 'turn-1',
+      ts: 2,
+      messageId: 'message-1',
+      text: 'visible answer',
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
