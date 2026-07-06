@@ -234,6 +234,8 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
+export { buildDefaultContextBudgetPolicy } from './context-budget-policy.js';
+export type { BuildDefaultContextBudgetPolicyOptions } from './context-budget-policy.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
