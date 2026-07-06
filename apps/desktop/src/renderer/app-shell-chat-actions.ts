@@ -8,7 +8,7 @@ export type PendingAttachment = {
   mimeType?: string;
   kind: import('@maka/core').AttachmentRef['kind'];
   size: number;
-  source: { type: 'path'; path: string } | { type: 'file'; file: File };
+  source: { type: 'approval'; approvalId: string; name: string } | { type: 'file'; file: File };
 };
 import {
   isNoRealConnectionError,
@@ -91,26 +91,13 @@ async function ingestAll(
   sessionId: string,
   pending: readonly PendingAttachment[],
 ): Promise<import('@maka/core').AttachmentRef[]> {
-  const pathInputs: { path: string; mimeType?: string; size: number }[] = [];
-  const fileInputs: File[] = [];
-  for (const p of pending) {
-    if (p.source.type === 'path') {
-      pathInputs.push({ path: p.source.path, mimeType: p.mimeType, size: p.size });
-    } else {
-      fileInputs.push(p.source.file);
-    }
-  }
-  const fromPaths = pathInputs.length
-    ? await window.maka.attachments.ingestPaths(sessionId, pathInputs)
-    : [];
-  const fromFiles = fileInputs.length
-    ? await window.maka.attachments.ingestFiles(sessionId, fileInputs)
-    : [];
-  let pathIdx = 0;
-  let fileIdx = 0;
-  return pending.map((p) =>
-    p.source.type === 'path' ? fromPaths[pathIdx++] : fromFiles[fileIdx++],
+  if (pending.length === 0) return [];
+  const items = pending.map((p) =>
+    p.source.type === 'approval'
+      ? { approvalId: p.source.approvalId, name: p.source.name, ...(p.mimeType ? { mimeType: p.mimeType } : {}) }
+      : { file: p.source.file },
   );
+  return window.maka.attachments.ingest(sessionId, items);
 }
 
 export function createAppShellChatActions(deps: {

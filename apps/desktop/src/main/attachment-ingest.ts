@@ -1,8 +1,11 @@
-import { readFile } from 'node:fs/promises';
+import { Buffer } from 'node:buffer';
+import { readFile, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, relative, sep } from 'node:path';
 import { attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import type { ArtifactKind, ArtifactSource, AttachmentRef } from '@maka/core';
 import type { ArtifactStore } from '@maka/storage';
+import type { AttachmentApprovalRegistry } from './attachment-approval.js';
+import { MAX_ATTACHMENT_BYTES, MAX_RENDERER_ATTACHMENTS } from './attachment-approval.js';
 
 export type AttachmentIngestFile =
   | { path: string; mimeType?: string; size: number }
@@ -30,6 +33,7 @@ export async function ingestAttachments(input: {
   sessionId: string;
   artifactStore: ArtifactStore;
   resizeImage?: (bytes: Uint8Array) => Promise<Uint8Array>;
+  realpath?: (path: string) => Promise<string>;
   now?: () => number;
 }): Promise<AttachmentRef[]> {
   const refs: AttachmentRef[] = [];
@@ -38,13 +42,15 @@ export async function ingestAttachments(input: {
     const mimeType = file.mimeType && file.mimeType.length > 0 ? file.mimeType : guessMimeFromName(name);
     const kind = attachmentKindFromMimeType(mimeType, name);
 
-    if (kind !== 'image' && isPathAttachment(file) && isInsideCwd(input.cwd, file.path)) {
+    if (kind !== 'image' && isPathAttachment(file) && (await isInsideCwdReal(input.cwd, file.path, input.realpath))) {
+      const realCwd = await resolveReal(input.cwd, input.realpath);
+      const realTarget = await resolveReal(file.path, input.realpath);
       refs.push({
         kind,
         name,
         mimeType,
         bytes: file.size,
-        ref: { kind: 'workspace_file', relativePath: relative(input.cwd, file.path) },
+        ref: { kind: 'workspace_file', relativePath: relative(realCwd, realTarget) },
       });
       continue;
     }
@@ -87,8 +93,79 @@ function attachmentFileName(file: AttachmentIngestFile): string {
   return name || 'attachment';
 }
 
+async function resolveReal(path: string, realpath?: (path: string) => Promise<string>): Promise<string> {
+  const resolveFn = realpath ?? fsRealpath;
+  try {
+    return await resolveFn(path);
+  } catch {
+    return path;
+  }
+}
+
+async function isInsideCwdReal(cwd: string, target: string, realpath?: (path: string) => Promise<string>): Promise<boolean> {
+  const realCwd = await resolveReal(cwd, realpath);
+  const realTarget = await resolveReal(target, realpath);
+  return isInsideCwd(realCwd, realTarget);
+}
+
 function isInsideCwd(cwd: string, target: string): boolean {
   if (target === cwd) return true;
   const rel = relative(cwd, target);
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
+}
+
+/** A renderer-supplied ingest item: either a main-issued approval token (for
+ * user-picked files, whose path never leaves main) or inline base64 bytes (for
+ * dragged/pasted blobs, which have no trustworthy path). */
+export type AttachmentIngestItem =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { name: string; mimeType?: string; base64: string };
+
+/**
+ * Validate + resolve renderer ingest items into {@link AttachmentIngestFile}s
+ * BEFORE any file is read or artifact created. Count, per-file byte cap, and
+ * approval-token checks all run here so a too-large / unapproved / forged
+ * request is rejected with zero I/O. Path sizes come from main-side `stat`,
+ * never from the renderer. Each approval token is consumed exactly once.
+ */
+export async function resolveIngestItems(input: {
+  senderId: number;
+  items: unknown;
+  approvals: AttachmentApprovalRegistry;
+  stat: (path: string) => Promise<{ size: number }>;
+  maxAttachments?: number;
+  maxBytes?: number;
+}): Promise<AttachmentIngestFile[]> {
+  const maxAttachments = input.maxAttachments ?? MAX_RENDERER_ATTACHMENTS;
+  const maxBytes = input.maxBytes ?? MAX_ATTACHMENT_BYTES;
+  if (!Array.isArray(input.items)) throw new Error('附件信息无效，请重新选择文件后再发送。');
+  if (input.items.length > maxAttachments) throw new Error('一次最多添加 8 个附件。');
+  const files: AttachmentIngestFile[] = [];
+  for (const item of input.items) {
+    if (!item || typeof item !== 'object') throw new Error('附件信息无效，请重新选择文件后再发送。');
+    const record = item as Record<string, unknown>;
+    if (typeof record.approvalId === 'string' && typeof record.name === 'string') {
+      const approved = input.approvals.consumeApproval(input.senderId, record.approvalId);
+      if (!approved) throw new Error('附件来源已过期或无效，请重新选择文件后再发送。');
+      const statResult = await input.stat(approved.path);
+      if (statResult.size > maxBytes) throw new Error('单个附件超出大小限制。');
+      const mimeType = pickMimeType(record.mimeType, approved.mimeType);
+      files.push({ path: approved.path, ...(mimeType ? { mimeType } : {}), size: statResult.size });
+      continue;
+    }
+    if (typeof record.name === 'string' && typeof record.base64 === 'string') {
+      const content = Buffer.from(record.base64, 'base64');
+      if (content.byteLength > maxBytes) throw new Error('单个附件超出大小限制。');
+      const mimeType = typeof record.mimeType === 'string' && record.mimeType.length > 0 ? record.mimeType : undefined;
+      files.push({ name: record.name, ...(mimeType ? { mimeType } : {}), size: content.byteLength, content });
+      continue;
+    }
+    throw new Error('附件信息无效，请重新选择文件后再发送。');
+  }
+  return files;
+}
+
+function pickMimeType(renderer: unknown, approved: string | undefined): string | undefined {
+  if (typeof renderer === 'string' && renderer.length > 0) return renderer;
+  return approved;
 }

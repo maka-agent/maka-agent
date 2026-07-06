@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -105,9 +105,7 @@ type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
-type AttachmentIngestPayload =
-  | { path: string; mimeType?: string; size: number }
-  | { name: string; mimeType?: string; size: number; base64: string };
+type AttachmentIngestPayload = { name: string; mimeType?: string; base64: string };
 
 export type WorkspaceInstructionFileStatus =
   | 'available'
@@ -130,15 +128,12 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-async function fileToAttachmentIngestPayload(file: File): Promise<AttachmentIngestPayload> {
-  const path = webUtils.getPathForFile(file);
-  const mimeType = file.type || undefined;
-  if (path) return { path, ...(mimeType ? { mimeType } : {}), size: file.size };
+async function fileToBytesPayload(file: File): Promise<AttachmentIngestPayload> {
   const bytes = new Uint8Array(await file.arrayBuffer());
+  const mimeType = file.type || undefined;
   return {
     name: file.name || 'clipboard-image.png',
     ...(mimeType ? { mimeType } : {}),
-    size: bytes.byteLength,
     base64: bytesToBase64(bytes),
   };
 }
@@ -393,23 +388,19 @@ contextBridge.exposeInMainWorld('maka', {
   },
   attachments: {
     pickFiles(): Promise<
-      | { ok: true; files: { path: string; mimeType?: string; size: number }[] }
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
       | { ok: false; reason: 'cancelled' }
     > {
       return ipcRenderer.invoke('attachments:pickFiles');
     },
-    pickAndIngest(sessionId: string): Promise<
-      | { ok: true; attachments: AttachmentRef[] }
-      | { ok: false; reason: 'cancelled' | 'no_session' }
-    > {
-      return ipcRenderer.invoke('attachments:pickAndIngest', sessionId);
-    },
-    ingestPaths(sessionId: string, files: { path: string; mimeType?: string; size: number }[]): Promise<AttachmentRef[]> {
-      return ipcRenderer.invoke('attachments:ingestPaths', sessionId, files);
-    },
-    async ingestFiles(sessionId: string, files: File[]): Promise<AttachmentRef[]> {
-      const payload = await Promise.all(files.map(fileToAttachmentIngestPayload));
-      return ipcRenderer.invoke('attachments:ingestFiles', sessionId, payload);
+    async ingest(
+      sessionId: string,
+      items: ({ approvalId: string; name: string; mimeType?: string } | { file: File })[],
+    ): Promise<AttachmentRef[]> {
+      const payload = await Promise.all(
+        items.map((item) => ('file' in item ? fileToBytesPayload(item.file) : item)),
+      );
+      return ipcRenderer.invoke('attachments:ingest', sessionId, payload);
     },
     readBytes(sessionId: string, relativePath: string): Promise<
       | { ok: true; base64: string; mimeType: string }

@@ -114,19 +114,14 @@ type ComposerImportOwner = {
   navSection: NavSelection['section'];
 };
 
-function basenameOf(filePath: string): string {
-  const parts = filePath.split(/[\\/]/);
-  return parts[parts.length - 1] || filePath;
-}
-
-function pathToPending(file: { path: string; mimeType?: string; size: number }): PendingAttachment {
-  const mimeType = file.mimeType ?? guessMimeFromName(file.path);
+function approvalToPending(file: { approvalId: string; name: string; mimeType?: string; size: number }): PendingAttachment {
+  const mimeType = file.mimeType ?? guessMimeFromName(file.name);
   return {
-    displayName: basenameOf(file.path),
+    displayName: file.name,
     mimeType,
-    kind: attachmentKindFromMimeType(mimeType, file.path),
+    kind: attachmentKindFromMimeType(mimeType, file.name),
     size: file.size,
-    source: { type: 'path', path: file.path },
+    source: { type: 'approval', approvalId: file.approvalId, name: file.name },
   };
 }
 
@@ -927,7 +922,7 @@ export function AppShell({
     try {
       const result = await window.maka.attachments.pickFiles();
       if (!result.ok) return;
-      setPendingAttachments((current) => [...current, ...result.files.map(pathToPending)]);
+      setPendingAttachments((current) => [...current, ...result.files.map(approvalToPending)]);
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
     }

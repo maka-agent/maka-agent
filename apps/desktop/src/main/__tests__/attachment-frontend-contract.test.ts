@@ -38,84 +38,36 @@ describe('attachment frontend contract', () => {
     );
   });
 
-  it('renderer attachment import preserves clipboard blobs that have no filesystem path', async () => {
+  it('dragged/pasted blobs are sent as bytes and never round-trip a renderer path', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
-    const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
-    assert.match(
-      preload,
-      /async ingestFiles\(sessionId: string, files: File\[\]\): Promise<AttachmentRef\[\]>/,
-      'preload must expose an async file-ingest helper that can read File bytes when Electron has no path',
-    );
-    assert.match(
-      preload,
-      /webUtils\.getPathForFile\(file\)[\s\S]*file\.arrayBuffer\(\)/,
-      'preload ingestFiles must preserve path-backed files and fall back to File.arrayBuffer() for pasted blobs',
-    );
-    assert.match(
-      globals,
-      /ingestFiles\(sessionId: string, files: File\[\]\): Promise<import\('@maka\/core'\)\.AttachmentRef\[\]>/,
-      'renderer global types must expose the blob-capable attachment API',
-    );
-    assert.doesNotMatch(
-      appShell,
-      /window\.maka\.attachments\.ingestFiles/,
-      'app-shell must not ingest dropped/pasted files at pick time — ingestion is deferred to send so no empty session is created',
-    );
-    assert.match(
-      chatActions,
-      /window\.maka\.attachments\.ingestFiles/,
-      'composer drop/paste blobs must still reach the blob-capable ingest API, now at send time via ingestAll',
-    );
-    assert.doesNotMatch(
-      appShell,
-      /pathsForFiles\(files\)/,
-      'composer drop/paste must not silently drop pasted image blobs with empty filesystem paths',
-    );
+    // No webUtils.getPathForFile: a renderer-supplied path is untrustworthy
+    // (drop/paste can be forged), so blobs always go through file.arrayBuffer().
+    assert.doesNotMatch(preload, /webUtils/);
+    // Single ingest entry accepting both approval tokens and inline blobs.
+    assert.match(preload, /async ingest\(\s*sessionId: string,\s*items:/);
+    assert.match(globals, /ingest\(\s*sessionId: string,\s*items:/);
+    // send-time ingest routes through the single entry.
+    assert.match(chatActions, /window\.maka\.attachments\.ingest\(sessionId, items\)/);
   });
 
-  it('new-chat composer can start attachment import before a session exists', async () => {
+  it('new-chat composer stages attachments via opaque approval tokens and ingests at send time', async () => {
     const preload = await readRepo('apps/desktop/src/preload/preload.ts');
     const globals = await readRepo('apps/desktop/src/global.d.ts');
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
 
-    assert.match(
-      preload,
-      /pickFiles\(\): Promise<[\s\S]*files: \{ path: string; mimeType\?: string; size: number \}\[\]/,
-      'preload must expose a pick-only API so new chat can avoid creating an empty session when the user cancels',
-    );
-    assert.match(
-      globals,
-      /pickFiles\(\): Promise<[\s\S]*files: \{ path: string; mimeType\?: string; size: number \}\[\]/,
-      'renderer global types must expose the pick-only attachment API',
-    );
-    // Cleanest: attachments stage in the renderer and ingest at send time.
-    // Pre-send session creation was removed because it renamed the session
-    // to a placeholder ("新建对话") and swapped the composer draft key,
-    // losing in-progress text on drag/paste.
-    assert.doesNotMatch(
-      appShell,
-      /ensureAttachmentSession/,
-      'attachments must not create a session before send — that swapped the draft key and left placeholder session names',
-    );
-    assert.match(
-      chatActions,
-      /async function ingestAll[\s\S]*attachments\.ingestPaths[\s\S]*attachments\.ingestFiles/,
-      'pending attachments must be ingested at send time, after the session is known',
-    );
-    assert.match(
-      appShell,
-      /onPickAttachments=\{pickAttachments\}/,
-      'Composer must receive the + attachment handler on the new-chat surface too',
-    );
-    assert.match(
-      appShell,
-      /onAttachFilePaths=\{attachFilePaths\}/,
-      'Composer must receive drop/paste attachment handlers on the new-chat surface too',
-    );
+    // pickFiles returns opaque approval tokens, never a path.
+    assert.match(preload, /pickFiles\(\): Promise<[\s\S]*files: \{ approvalId: string; name: string/);
+    assert.match(globals, /pickFiles\(\): Promise<[\s\S]*files: \{ approvalId: string; name: string/);
+    // No pre-send session creation.
+    assert.doesNotMatch(appShell, /ensureAttachmentSession/);
+    // pending attachments ingest at send time, after the session is known.
+    assert.match(chatActions, /async function ingestAll[\s\S]*attachments\.ingest\(sessionId, items\)/);
+    assert.match(appShell, /onPickAttachments=\{pickAttachments\}/);
+    assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
   });
 
   it('generated-files pane excludes user-uploaded attachments', async () => {

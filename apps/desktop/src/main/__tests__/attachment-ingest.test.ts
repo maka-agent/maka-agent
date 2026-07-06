@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -127,6 +127,34 @@ describe('ingestAttachments', () => {
       assert.equal(resizeCalls, 0);
     } finally {
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('workspace symlink escaping cwd is snapshotted, not exposed as a live workspace_file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'att-sym-'));
+    const outsideDir = await mkdtemp(join(tmpdir(), 'att-sym-out-'));
+    try {
+      const store = createArtifactStore(dir);
+      const outsideFile = join(outsideDir, 'secret.md');
+      await writeFile(outsideFile, 'secret');
+      // symlink inside the workspace that resolves to a file outside it
+      const linkPath = join(dir, 'escape.md');
+      await symlink(outsideFile, linkPath);
+      const refs = await ingestAttachments({
+        files: [{ path: linkPath, mimeType: 'text/markdown', size: 6 }],
+        cwd: dir,
+        sessionId: 's1',
+        artifactStore: store,
+      });
+      assert.equal(refs.length, 1);
+      assert.equal(
+        refs[0].ref.kind,
+        'session_file',
+        'a symlink that escapes the workspace must be snapshotted, not read live via workspace_file',
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+      await rm(outsideDir, { recursive: true, force: true });
     }
   });
 });

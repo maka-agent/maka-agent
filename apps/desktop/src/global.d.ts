@@ -237,18 +237,16 @@ declare global {
       };
       attachments: {
         pickFiles(): Promise<
-          | { ok: true; files: { path: string; mimeType?: string; size: number }[] }
+          | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
           | { ok: false; reason: 'cancelled' }
         >;
-        pickAndIngest(sessionId: string): Promise<
-          | { ok: true; attachments: import('@maka/core').AttachmentRef[] }
-          | { ok: false; reason: 'cancelled' | 'no_session' }
-        >;
-        ingestPaths(
+        ingest(
           sessionId: string,
-          files: { path: string; mimeType?: string; size: number }[],
+          items: (
+            | { approvalId: string; name: string; mimeType?: string }
+            | { file: File }
+          )[],
         ): Promise<import('@maka/core').AttachmentRef[]>;
-        ingestFiles(sessionId: string, files: File[]): Promise<import('@maka/core').AttachmentRef[]>;
         readBytes(sessionId: string, relativePath: string): Promise<
           | { ok: true; base64: string; mimeType: string }
           | { ok: false; reason: string }

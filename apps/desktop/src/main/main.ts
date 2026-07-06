@@ -1,7 +1,7 @@
 import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
@@ -147,7 +147,7 @@ import {
   type AttachmentValidationFailureReason,
 } from './attachment-approval.js';
 import { createAttachmentByteReader } from './attachment-reader.js';
-import { ingestAttachments, type AttachmentIngestFile } from './attachment-ingest.js';
+import { ingestAttachments, resolveIngestItems } from './attachment-ingest.js';
 import { resizeImageForAttachment } from './attachment-resize-native.js';
 import type { AttachmentRef } from '@maka/core';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
@@ -757,38 +757,9 @@ function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReas
   switch (reason) {
     case 'too_many_attachments':
       return '一次最多发送 8 个附件。';
-    case 'unapproved_external_path':
-      return '附件来源已过期，请重新选择文件后再发送。';
     case 'invalid_attachment':
       return '附件信息无效，请重新选择文件后再发送。';
   }
-}
-
-function normalizeAttachmentIngestFiles(files: unknown): AttachmentIngestFile[] {
-  if (!Array.isArray(files)) throw new Error('附件信息无效，请重新选择文件后再发送。');
-  return files.map((file) => normalizeAttachmentIngestFile(file));
-}
-
-function normalizeAttachmentIngestFile(file: unknown): AttachmentIngestFile {
-  if (!file || typeof file !== 'object') throw new Error('附件信息无效，请重新选择文件后再发送。');
-  const record = file as Record<string, unknown>;
-  const mimeType = typeof record.mimeType === 'string' && record.mimeType.length > 0 ? record.mimeType : undefined;
-  const size = typeof record.size === 'number' && Number.isFinite(record.size) && record.size >= 0
-    ? record.size
-    : undefined;
-  if (typeof record.path === 'string' && record.path.length > 0 && size !== undefined) {
-    return { path: record.path, ...(mimeType ? { mimeType } : {}), size };
-  }
-  if (typeof record.name === 'string' && record.name.length > 0 && typeof record.base64 === 'string') {
-    const content = Buffer.from(record.base64, 'base64');
-    return {
-      name: record.name,
-      ...(mimeType ? { mimeType } : {}),
-      size: content.byteLength,
-      content,
-    };
-  }
-  throw new Error('附件信息无效，请重新选择文件后再发送。');
 }
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
@@ -1177,10 +1148,7 @@ function registerIpc(): void {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
     await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(sendCommand.attachments, {
-      senderId: event.sender.id,
-      approvals: attachmentApprovals,
-    });
+    const attachments = validateRendererAttachments(sendCommand.attachments);
     if (!attachments.ok) {
       throw new Error(attachmentValidationFailureCopy(attachments.reason));
     }
@@ -1194,8 +1162,8 @@ function registerIpc(): void {
   });
   ipcMain.handle(
     'attachments:pickFiles',
-    async (): Promise<
-      | { ok: true; files: { path: string; mimeType?: string; size: number }[] }
+    async (event): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
       | { ok: false; reason: 'cancelled' }
     > => {
       const result = await mainWindowController.showOpenDialog({
@@ -1203,67 +1171,26 @@ function registerIpc(): void {
         properties: ['openFile', 'multiSelections'],
       });
       if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
-      const files = await Promise.all(
-        result.filePaths.map(async (path) => ({ path, size: (await stat(path)).size })),
+      const chosen = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, name: basename(path), size: (await stat(path)).size })),
       );
-      return { ok: true, files };
+      // Paths stay in main; the renderer only gets one-shot opaque tokens.
+      return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
     },
   );
   ipcMain.handle(
-    'attachments:pickAndIngest',
-    async (_event, sessionId: string): Promise<
-      | { ok: true; attachments: AttachmentRef[] }
-      | { ok: false; reason: 'cancelled' | 'no_session' }
-    > => {
-      const header = await store.readHeader(sessionId).catch(() => null);
-      if (!header) return { ok: false, reason: 'no_session' };
-      const result = await mainWindowController.showOpenDialog({
-        title: '添加附件',
-        properties: ['openFile', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
-      const files = await Promise.all(
-        result.filePaths.map(async (path) => ({ path, size: (await stat(path)).size })),
-      );
-      const attachments = await ingestAttachments({
-        files,
-        cwd: header.cwd,
-        sessionId,
-        artifactStore,
-        resizeImage: resizeImageForAttachment,
-      });
-      return { ok: true, attachments };
-    },
-  );
-  ipcMain.handle(
-    'attachments:ingestPaths',
-    async (
-      _event,
-      sessionId: string,
-      files: { path: string; mimeType?: string; size: number }[],
-    ): Promise<AttachmentRef[]> => {
+    'attachments:ingest',
+    async (event, sessionId: string, items: unknown): Promise<AttachmentRef[]> => {
       const header = await store.readHeader(sessionId).catch(() => null);
       if (!header) throw new Error('无法读取会话工作目录。');
+      const files = await resolveIngestItems({
+        senderId: event.sender.id,
+        items,
+        approvals: attachmentApprovals,
+        stat: async (path) => ({ size: (await stat(path)).size }),
+      });
       return ingestAttachments({
         files,
-        cwd: header.cwd,
-        sessionId,
-        artifactStore,
-        resizeImage: resizeImageForAttachment,
-      });
-    },
-  );
-  ipcMain.handle(
-    'attachments:ingestFiles',
-    async (
-      _event,
-      sessionId: string,
-      files: unknown,
-    ): Promise<AttachmentRef[]> => {
-      const header = await store.readHeader(sessionId).catch(() => null);
-      if (!header) throw new Error('无法读取会话工作目录。');
-      return ingestAttachments({
-        files: normalizeAttachmentIngestFiles(files),
         cwd: header.cwd,
         sessionId,
         artifactStore,
