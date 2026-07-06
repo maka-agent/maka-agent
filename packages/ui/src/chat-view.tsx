@@ -1304,11 +1304,11 @@ function TurnFooterActions(props: {
                   aria-disabled={!action.enabled || copyIsPending}
                   aria-busy={isActionPending || undefined}
                   onClick={() => void handleClick(action)}
-                >
-                  {icon}
-                </UiButton>
+                />
               }
-            />
+            >
+              {icon}
+            </TooltipTrigger>
             <TooltipContent>{tooltipText}</TooltipContent>
           </Tooltip>
         );
