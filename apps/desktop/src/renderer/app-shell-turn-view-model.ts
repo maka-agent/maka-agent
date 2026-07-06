@@ -49,7 +49,11 @@ export function deriveAppShellTurnViewModel(input: {
     footer[turn.turnId] = deriveTurnFooterActions({
       status: turn.status,
       hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
-      ...(lineageEntry?.regeneratedToTurnId ? { alreadyRegenerated: true } : {}),
+      // Match the badge lineage rule (regenerate ?? legacy retry) so a turn
+      // that already has a parallel answer hints at it in the tooltip too.
+      ...((lineageEntry?.regeneratedToTurnId ?? lineageEntry?.retriedToTurnId)
+        ? { alreadyRegenerated: true }
+        : {}),
       ...(pendingForTurn.size > 0 ? { pendingActions: pendingForTurn } : {}),
       ...(metaSummary ? { metaSummary } : {}),
     });
