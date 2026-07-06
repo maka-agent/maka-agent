@@ -1011,12 +1011,7 @@ describe('fixed prompt controller', () => {
       const taskToolSummary = {
         activated: true,
         actualTaskToolCalls: 5,
-        createCalls: 1,
-        updateCalls: 2,
-        listCalls: 1,
-        getCalls: 1,
-        todoWriteCalls: 0,
-        repeatedUpdateCalls: 1,
+        todoWriteCalls: 5,
       };
 
       const result = await runFixedPromptController({

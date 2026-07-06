@@ -84,12 +84,7 @@ export interface HarborCellToolSummary {
 export interface HarborCellTaskToolSummary {
   activated: boolean;
   actualTaskToolCalls: number;
-  createCalls: number;
-  updateCalls: number;
-  listCalls: number;
-  getCalls: number;
   todoWriteCalls: number;
-  repeatedUpdateCalls: number;
 }
 
 export interface HarborCellOutput {
@@ -200,41 +195,15 @@ export function summarizeCellTaskTools(events: readonly RuntimeEvent[]): HarborC
   const summary: HarborCellTaskToolSummary = {
     activated: false,
     actualTaskToolCalls: 0,
-    createCalls: 0,
-    updateCalls: 0,
-    listCalls: 0,
-    getCalls: 0,
     todoWriteCalls: 0,
-    repeatedUpdateCalls: 0,
   };
-  const seenUpdates = new Set<string>();
   for (const event of events) {
     if (event.content?.kind !== 'function_call') continue;
     const name = event.content.name;
-    if (!['task_create', 'task_update', 'task_list', 'task_get', 'todo_write'].includes(name)) continue;
+    if (name !== 'todo_write') continue;
     summary.activated = true;
     summary.actualTaskToolCalls += 1;
-    switch (name) {
-      case 'task_create':
-        summary.createCalls += 1;
-        break;
-      case 'task_update': {
-        summary.updateCalls += 1;
-        const key = canonicalJson(event.content.args);
-        if (seenUpdates.has(key)) summary.repeatedUpdateCalls += 1;
-        seenUpdates.add(key);
-        break;
-      }
-      case 'task_list':
-        summary.listCalls += 1;
-        break;
-      case 'task_get':
-        summary.getCalls += 1;
-        break;
-      case 'todo_write':
-        summary.todoWriteCalls += 1;
-        break;
-    }
+    summary.todoWriteCalls += 1;
   }
   return summary;
 }
@@ -434,17 +403,6 @@ function taskToolSummaryField(
   return enabled || taskToolSummary.activated ? { taskToolSummary } : {};
 }
 
-function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(',')}]`;
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value)
-      .filter(([, entryValue]) => entryValue !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b));
-    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${canonicalJson(entryValue)}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function validateTokenSummary(value: unknown): HarborCellTokenSummary {
   if (!isRecord(value)) throw new Error('tokenSummary must be a JSON object');
   return {
@@ -483,12 +441,7 @@ function validateTaskToolSummary(value: unknown): HarborCellTaskToolSummary {
   return {
     activated: requireBoolean(value.activated, 'taskToolSummary.activated'),
     actualTaskToolCalls: requireNumber(value.actualTaskToolCalls, 'taskToolSummary.actualTaskToolCalls'),
-    createCalls: requireNumber(value.createCalls, 'taskToolSummary.createCalls'),
-    updateCalls: requireNumber(value.updateCalls, 'taskToolSummary.updateCalls'),
-    listCalls: requireNumber(value.listCalls, 'taskToolSummary.listCalls'),
-    getCalls: requireNumber(value.getCalls, 'taskToolSummary.getCalls'),
     todoWriteCalls: requireNumber(value.todoWriteCalls, 'taskToolSummary.todoWriteCalls'),
-    repeatedUpdateCalls: requireNumber(value.repeatedUpdateCalls, 'taskToolSummary.repeatedUpdateCalls'),
   };
 }
 

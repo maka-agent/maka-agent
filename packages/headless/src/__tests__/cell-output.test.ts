@@ -273,7 +273,7 @@ describe('Harbor cell output contract', () => {
     assert.deepEqual(validateHarborCellOutput(output), output);
   });
 
-  test('summarizes task experiment tool activation and repeated updates', () => {
+  test('summarizes todo_write task experiment activation', () => {
     const output = buildHarborCellOutput({
       invocation: {
         invocationId: 'inv-1',
@@ -282,26 +282,6 @@ describe('Harbor cell output contract', () => {
         turnId: 'turn-1',
         status: 'completed',
         events: [
-          runtimeEvent({
-            id: 'task-create',
-            content: { kind: 'function_call', id: 'tool-1', name: 'task_create', args: { description: 'Inspect parser' } },
-          }),
-          runtimeEvent({
-            id: 'task-update-1',
-            content: { kind: 'function_call', id: 'tool-2', name: 'task_update', args: { id: 'task-1', status: 'in_progress' } },
-          }),
-          runtimeEvent({
-            id: 'task-update-2',
-            content: { kind: 'function_call', id: 'tool-3', name: 'task_update', args: { id: 'task-1', status: 'in_progress' } },
-          }),
-          runtimeEvent({
-            id: 'task-list',
-            content: { kind: 'function_call', id: 'tool-4', name: 'task_list', args: {} },
-          }),
-          runtimeEvent({
-            id: 'task-get',
-            content: { kind: 'function_call', id: 'tool-5', name: 'task_get', args: { id: 'task-1' } },
-          }),
           runtimeEvent({
             id: 'todo-write',
             content: {
@@ -320,13 +300,8 @@ describe('Harbor cell output contract', () => {
 
     assert.deepEqual(output.taskToolSummary, {
       activated: true,
-      actualTaskToolCalls: 6,
-      createCalls: 1,
-      updateCalls: 2,
-      listCalls: 1,
-      getCalls: 1,
+      actualTaskToolCalls: 1,
       todoWriteCalls: 1,
-      repeatedUpdateCalls: 1,
     });
     assert.deepEqual(validateHarborCellOutput(output), output);
   });
@@ -362,12 +337,7 @@ describe('Harbor cell output contract', () => {
     assert.deepEqual(enabled.taskToolSummary, {
       activated: false,
       actualTaskToolCalls: 0,
-      createCalls: 0,
-      updateCalls: 0,
-      listCalls: 0,
-      getCalls: 0,
       todoWriteCalls: 0,
-      repeatedUpdateCalls: 0,
     });
     assert.deepEqual(validateHarborCellOutput(enabled), enabled);
   });

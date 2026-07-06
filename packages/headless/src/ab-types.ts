@@ -147,12 +147,7 @@ export interface AbTaskToolSummary {
   activatedAttempts: number;
   activatedAttemptIds: string[];
   actualTaskToolCalls: number;
-  createCalls: number;
-  updateCalls: number;
-  listCalls: number;
-  getCalls: number;
   todoWriteCalls: number;
-  repeatedUpdateCalls: number;
 }
 
 export interface AbTaskArmSummary {

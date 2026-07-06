@@ -123,12 +123,7 @@ function renderTaskToolMetrics(summary: AbTaskToolSummary): string {
   return [
     `activated=${summary.activatedAttempts}/${summary.attempts}`,
     `calls=${summary.actualTaskToolCalls}`,
-    `create=${summary.createCalls}`,
-    `update=${summary.updateCalls}`,
-    `list=${summary.listCalls}`,
-    `get=${summary.getCalls}`,
     `todo_write=${summary.todoWriteCalls}`,
-    `repeated_updates=${summary.repeatedUpdateCalls}`,
   ].join(' ');
 }
 
@@ -138,12 +133,7 @@ function taskToolsOrZero(summary: AbTaskToolSummary | undefined): AbTaskToolSumm
     activatedAttempts: 0,
     activatedAttemptIds: [],
     actualTaskToolCalls: 0,
-    createCalls: 0,
-    updateCalls: 0,
-    listCalls: 0,
-    getCalls: 0,
     todoWriteCalls: 0,
-    repeatedUpdateCalls: 0,
   };
 }
 

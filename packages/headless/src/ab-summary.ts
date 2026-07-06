@@ -282,12 +282,7 @@ function summarizeTaskTools(events: readonly FixedPromptTaskWalEvent[]): AbTaskT
       .filter((entry) => entry.summary.activated)
       .map((entry) => entry.event.id),
     actualTaskToolCalls: sum(summaries.map((entry) => entry.summary.actualTaskToolCalls)),
-    createCalls: sum(summaries.map((entry) => entry.summary.createCalls)),
-    updateCalls: sum(summaries.map((entry) => entry.summary.updateCalls)),
-    listCalls: sum(summaries.map((entry) => entry.summary.listCalls)),
-    getCalls: sum(summaries.map((entry) => entry.summary.getCalls)),
     todoWriteCalls: sum(summaries.map((entry) => entry.summary.todoWriteCalls)),
-    repeatedUpdateCalls: sum(summaries.map((entry) => entry.summary.repeatedUpdateCalls)),
   };
 }
 

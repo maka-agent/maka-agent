@@ -126,12 +126,7 @@ export function taskToolSummary(
   return {
     activated: true,
     actualTaskToolCalls: 0,
-    createCalls: 0,
-    updateCalls: 0,
-    listCalls: 0,
-    getCalls: 0,
     todoWriteCalls: 0,
-    repeatedUpdateCalls: 0,
     ...input,
   };
 }

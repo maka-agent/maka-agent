@@ -202,26 +202,20 @@ describe('renderAbComparisonMarkdown', () => {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
             actualTaskToolCalls: 5,
-            createCalls: 1,
-            updateCalls: 2,
-            listCalls: 1,
-            getCalls: 1,
-            repeatedUpdateCalls: 1,
+            todoWriteCalls: 5,
           }),
         },
         {
           ...completed('t2', true),
           taskToolSummary: taskToolSummary({
             actualTaskToolCalls: 3,
-            createCalls: 1,
-            updateCalls: 1,
-            listCalls: 1,
+            todoWriteCalls: 3,
           }),
         },
       ]],
     });
 
-    assert.match(renderAbComparisonMarkdown(result), /Task tools: A activated=0\/0 calls=0 create=0 update=0 list=0 get=0 todo_write=0 repeated_updates=0, B activated=2\/2 calls=8 create=2 update=3 list=2 get=1 todo_write=0 repeated_updates=1/);
+    assert.match(renderAbComparisonMarkdown(result), /Task tools: A activated=0\/0 calls=0 todo_write=0, B activated=2\/2 calls=8 todo_write=8/);
   });
 
   test('renders investigation refs', () => {

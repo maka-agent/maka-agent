@@ -378,20 +378,14 @@ describe('summarizeAbComparison', () => {
           ...completed('t1', true),
           taskToolSummary: taskToolSummary({
             actualTaskToolCalls: 5,
-            createCalls: 1,
-            updateCalls: 2,
-            listCalls: 1,
-            getCalls: 1,
-            repeatedUpdateCalls: 1,
+            todoWriteCalls: 5,
           }),
         },
         {
           ...completed('t2', true),
           taskToolSummary: taskToolSummary({
             actualTaskToolCalls: 3,
-            createCalls: 1,
-            updateCalls: 1,
-            listCalls: 1,
+            todoWriteCalls: 3,
           }),
         },
       ]],
@@ -403,12 +397,7 @@ describe('summarizeAbComparison', () => {
       activatedAttempts: 2,
       activatedAttemptIds: ['event-t1-pass', 'event-t2-pass'],
       actualTaskToolCalls: 8,
-      createCalls: 2,
-      updateCalls: 3,
-      listCalls: 2,
-      getCalls: 1,
-      todoWriteCalls: 0,
-      repeatedUpdateCalls: 1,
+      todoWriteCalls: 8,
     });
   });
 
@@ -437,12 +426,7 @@ describe('summarizeAbComparison', () => {
       activatedAttempts: 1,
       activatedAttemptIds: ['event-t1-pass'],
       actualTaskToolCalls: 1,
-      createCalls: 0,
-      updateCalls: 0,
-      listCalls: 0,
-      getCalls: 0,
       todoWriteCalls: 1,
-      repeatedUpdateCalls: 0,
     });
   });
 
@@ -471,12 +455,7 @@ describe('summarizeAbComparison', () => {
       activatedAttempts: 1,
       activatedAttemptIds: ['event-t1-pass'],
       actualTaskToolCalls: 1,
-      createCalls: 0,
-      updateCalls: 0,
-      listCalls: 0,
-      getCalls: 0,
       todoWriteCalls: 1,
-      repeatedUpdateCalls: 0,
     });
   });
 
@@ -505,12 +484,7 @@ describe('summarizeAbComparison', () => {
       activatedAttempts: 0,
       activatedAttemptIds: [],
       actualTaskToolCalls: 0,
-      createCalls: 0,
-      updateCalls: 0,
-      listCalls: 0,
-      getCalls: 0,
       todoWriteCalls: 0,
-      repeatedUpdateCalls: 0,
     });
   });
 
