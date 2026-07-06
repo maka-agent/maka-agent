@@ -17,7 +17,7 @@ import {
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
-import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } from './chat-display-helpers.js';
+import { formatAbsoluteTimestamp, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
@@ -602,24 +602,6 @@ export function ChatView(props: {
             )
           )}
           {turns.map((turn, idx) => {
-            // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0 (kenji `af77f61`
-            // session-sticky merge): prefer comparing against the
-            // session's sticky model when available, falling back
-            // to the previous turn's modelId for older sessions
-            // that pre-date the sticky-model field. Either way,
-            // TurnSummary flags the chip when this turn departs
-            // from the expected baseline.
-            const expectedModelId =
-              (props.activeSession?.model && props.activeSession.model.length > 0
-                ? props.activeSession.model
-                : undefined)
-              ?? (() => {
-                for (let i = idx - 1; i >= 0; i--) {
-                  const earlier = turns[i];
-                  if (earlier && earlier.modelId) return earlier.modelId;
-                }
-                return undefined;
-              })();
             return (
               <TurnView
                 key={turn.turnId}
@@ -631,7 +613,6 @@ export function ChatView(props: {
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={stableLineageBadgeClick}
-                previousModelId={expectedModelId}
                 searchHighlighted={highlightedTurnId === turn.turnId}
               />
             );
@@ -934,81 +915,6 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
  * least one signal is present so an in-flight first-render doesn't show
  * an empty chip strip.
  */
-function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
-  const { turn } = props;
-  const hasModel = Boolean(turn.modelId);
-  // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: per-turn override is allowed
-  // but must be visible (kenji 3-way decision lock 7749c411).
-  // When the prior turn used a different model, mark this turn's
-  // model chip with a "切换" pill so the user notices.
-  const modelSwitched =
-    hasModel
-    && typeof props.previousModelId === 'string'
-    && props.previousModelId.length > 0
-    && props.previousModelId !== turn.modelId;
-  const hasTools = turn.tools.length > 0;
-  // Show duration only when the assistant has actually landed (durationMs
-  // is computed from assistant.ts). For in-progress turns we render an
-  // "进行中" pill instead of a number that would tick up forever — per
-  // @kenji's PR82 review.
-  const hasDuration = turn.durationMs !== undefined && turn.durationMs > 0;
-  const inProgress = turn.status === 'running' && turn.user !== undefined && turn.assistant === undefined;
-  const hasTokens = Boolean(turn.tokens && (turn.tokens.input > 0 || turn.tokens.output > 0));
-  // costUsd is only meaningful when present AND > 0 — never fabricate a
-  // "$0.00" hover, that reads as false precision (also @kenji PR82 review).
-  const hasCost = turn.tokens?.costUsd !== undefined && turn.tokens.costUsd > 0;
-  if (!hasModel && !hasTools && !hasDuration && !hasTokens && !inProgress) return null;
-  return (
-    <Marker variant="summary" aria-label="本轮对话摘要">
-      {hasModel && (
-        <Marker
-          as="span"
-          variant="summary-chip"
-          data-kind="model"
-          data-switched={modelSwitched ? 'true' : undefined}
-          title={
-            modelSwitched
-              ? `本轮使用 ${turn.modelId}，session 期望 ${props.previousModelId}`
-              : turn.modelId
-          }
-        >
-          <code>{turn.modelId}</code>
-          {modelSwitched && (
-            <Marker as="span" variant="summary-switched" aria-label="本轮切换了模型">
-              切换
-            </Marker>
-          )}
-        </Marker>
-      )}
-      {hasTools && (
-        <Marker as="span" variant="summary-chip" data-kind="tools">
-          {turn.tools.length} 个工具
-        </Marker>
-      )}
-      {hasDuration ? (
-        <Marker as="span" variant="summary-chip" data-kind="duration">
-          {formatTurnDuration(turn.durationMs!)}
-        </Marker>
-      ) : inProgress ? (
-        <Marker as="span" variant="summary-chip" data-kind="duration" data-state="in-progress">
-          进行中
-        </Marker>
-      ) : null}
-      {hasTokens && (
-        <Marker
-          as="span"
-          variant="summary-chip"
-          data-kind="tokens"
-          title={hasCost ? `$${turn.tokens!.costUsd!.toFixed(4)}` : undefined}
-        >
-          {turn.tokens!.input.toLocaleString()} → {turn.tokens!.output.toLocaleString()} tok
-        </Marker>
-      )}
-    </Marker>
-  );
-}
-
-
 /**
  * Renders one conversational turn: user message → tools used → assistant
  * answer, in that order, as a single visual unit. Replaces the previous
@@ -1050,13 +956,6 @@ const TurnView = memo(function TurnView(props: {
   /** PR109e-e: invoked when the user clicks a lineage badge. The
    *  renderer scrolls the target turn into view. */
   onLineageBadgeClick?: (targetTurnId: string) => void;
-  /**
-   * PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: the most-recent prior turn's
-   * assistant modelId, used by TurnSummary to flag a per-turn
-   * model switch (kenji `7749c411` lock decision: per-turn override
-   * is allowed but MUST be visible).
-   */
-  previousModelId?: string;
   /** True when a search result just navigated to this turn. */
   searchHighlighted?: boolean;
 }) {
@@ -1098,8 +997,6 @@ const TurnView = memo(function TurnView(props: {
           <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
         </Message>
       )}
-      <TurnSummary turn={turn} previousModelId={props.previousModelId} />
-
       {turn.notes.map((note) => (
         <Message
           key={note.id}
