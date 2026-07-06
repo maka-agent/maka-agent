@@ -31,6 +31,7 @@ import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
+import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
 import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
 import type {
@@ -1356,25 +1357,34 @@ function TurnFooterActions(props: {
               ? '复制失败'
               : action.label;
         const isActionPending = isPending || copyIsPending;
+        const tooltipText = isCopyAction ? copyFeedbackLabel : (action.tooltip ?? action.label);
+        const icon = isCopyAction && copyPhase === 'copied'
+          ? <Check size={12} strokeWidth={2} aria-hidden="true" />
+          : STATUS_FOOTER_ICON[action.id];
         return (
-          <UiButton
-            key={action.id}
-            type="button"
-            className={markerVariants({ variant: 'footer-action' })}
-            variant="quiet"
-            size="nav"
-            data-action={action.id}
-            data-pending={isActionPending || undefined}
-            data-copy-feedback={isCopyAction && copyPhase ? copyPhase : undefined}
-            disabled={!action.enabled || copyIsPending}
-            aria-disabled={!action.enabled || copyIsPending}
-            aria-busy={isActionPending || undefined}
-            title={action.tooltip ?? action.label}
-            onClick={() => void handleClick(action)}
-          >
-            {isCopyAction && copyPhase === 'copied' ? <Check size={12} strokeWidth={2} aria-hidden="true" /> : STATUS_FOOTER_ICON[action.id]}
-            <span>{isCopyAction ? copyFeedbackLabel : action.label}</span>
-          </UiButton>
+          <Tooltip key={action.id}>
+            <TooltipTrigger
+              render={
+                <UiButton
+                  type="button"
+                  className={markerVariants({ variant: 'footer-action' })}
+                  variant="quiet"
+                  size="nav"
+                  aria-label={action.label}
+                  data-action={action.id}
+                  data-pending={isActionPending || undefined}
+                  data-copy-feedback={isCopyAction && copyPhase ? copyPhase : undefined}
+                  disabled={!action.enabled || copyIsPending}
+                  aria-disabled={!action.enabled || copyIsPending}
+                  aria-busy={isActionPending || undefined}
+                  onClick={() => void handleClick(action)}
+                >
+                  {icon}
+                </UiButton>
+              }
+            />
+            <TooltipContent>{tooltipText}</TooltipContent>
+          </Tooltip>
         );
       })}
     </Marker>
