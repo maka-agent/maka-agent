@@ -383,6 +383,7 @@ export async function runHarborCellFromEnv(
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(resolvedEnv);
   const continuationPolicy = buildHarborCellContinuationPolicy(resolvedEnv);
   const economyTaskMode = economyTaskModeFromEnv(resolvedEnv.MAKA_ECONOMY_TASK_MODE);
+  const maxSteps = harborCellMaxStepsFromEnv(resolvedEnv);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
@@ -409,6 +410,7 @@ export async function runHarborCellFromEnv(
         env: resolvedEnv,
         now,
         newId,
+        ...(maxSteps !== undefined ? { maxSteps } : {}),
       });
       break;
     }
@@ -495,6 +497,10 @@ export function buildHarborCellContinuationPolicy(
     ) ?? maxTurns * HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN,
     prompt: env.MAKA_HARBOR_CONTINUATION_PROMPT ?? HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT,
   };
+}
+
+export function harborCellMaxStepsFromEnv(env: RunHarborCellEnv = process.env): number | undefined {
+  return positiveIntEnv(env.MAKA_MAX_STEPS, 'MAKA_MAX_STEPS');
 }
 
 function isToolCallStepCap(invocation: InvocationResult): boolean {

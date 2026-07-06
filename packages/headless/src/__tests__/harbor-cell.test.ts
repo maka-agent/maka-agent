@@ -25,6 +25,7 @@ import {
   buildHarborCellContextBudgetBackendOptions,
   buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellAiSdkTools,
+  harborCellMaxStepsFromEnv,
   createHarborCellLocalToolExecutor,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
@@ -827,6 +828,13 @@ describe('runHarborCell', () => {
       assert.match(seenPrompts[0] ?? '', /Use the benchmark prompt/);
       assert.doesNotMatch(seenPrompts[0] ?? '', /Economy-task benchmark policy/);
     });
+  });
+
+  test('parses host-side max steps from MAKA_MAX_STEPS', () => {
+    assert.equal(harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: '200' }), 200);
+    assert.throws(() => harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: '0' }), /MAKA_MAX_STEPS must be a positive integer/);
+    assert.throws(() => harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: 'oops' }), /MAKA_MAX_STEPS must be a positive integer/);
+    assert.equal(harborCellMaxStepsFromEnv({}), undefined);
   });
 
   test('host-side Harbor cell config reads MAKA_ECONOMY_TASK_MODE', async () => {

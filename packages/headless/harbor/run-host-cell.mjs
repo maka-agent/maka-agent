@@ -7,6 +7,7 @@ import {
   buildAiSdkCellBackendRegistration,
   buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellContinuationPolicy,
+  harborCellMaxStepsFromEnv,
   normalizeHarborCellContextEnv,
   runHarborCell,
 } from '#harbor-cell';
@@ -33,6 +34,7 @@ export async function main(options = {}) {
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(contextEnv);
   const continuationPolicy = buildHarborCellContinuationPolicy(env);
   const economyTaskMode = economyTaskModeFromEnv(env.MAKA_ECONOMY_TASK_MODE);
+  const maxSteps = harborCellMaxStepsFromEnv(env);
   const now = Date.now;
   const newId = randomId;
 
@@ -57,6 +59,7 @@ export async function main(options = {}) {
       env: await backendEnv({ ...env, MAKA_OUTPUT_DIR: outputDir, MAKA_STORAGE_ROOT: storageRoot }, provider),
       now,
       newId,
+      ...(maxSteps !== undefined ? { maxSteps } : {}),
     }),
     realBackendIsolation: {
       kind: 'external',
