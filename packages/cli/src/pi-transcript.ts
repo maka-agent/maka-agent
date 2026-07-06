@@ -5,20 +5,39 @@ import {
   wrapTextWithAnsi,
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
-import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
+import type {
+  PermissionRequestEvent,
+  SessionEvent,
+  ToolOutputStream,
+  ToolResultContent,
+} from '@maka/core/events';
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { ansi } from './tui-ansi.js';
+import { colorDiff } from './tui-diff.js';
 
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
   sawTextDeltaMessageIds: Set<string>;
   pendingPermission?: PermissionRequestEvent;
-  expandedToolUseId?: string;
+  /**
+   * Per-tool expansion state, keyed by toolUseId. Ctrl+O toggles the latest
+   * tool, but earlier tools stay expanded across later turns within a session.
+   * In-memory only; never persisted to storage. Resume starts empty.
+   */
+  expandedToolUseIds: Set<string>;
   expandedThinkingMessageId?: string;
+}
+
+/** A single live output chunk from a `tool_output_delta` event. */
+export interface MakaPiToolOutputDelta {
+  seq: number;
+  stream: ToolOutputStream;
+  chunk: string;
+  redacted: boolean;
 }
 
 export type MakaPiTranscriptEntry =
@@ -30,8 +49,12 @@ export type MakaPiTranscriptEntry =
       toolName: string;
       title?: string;
       input: unknown;
+      /** Structured result; preferred over `output` when present. */
+      result?: ToolResultContent;
+      /** Flattened result text, kept as a fallback for text/json/unknown kinds. */
       output?: string;
       progress: string[];
+      outputDeltas: MakaPiToolOutputDelta[];
       durationMs?: number;
       status: 'running' | 'done' | 'error';
     }
@@ -53,6 +76,7 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
   return {
     entries: [],
     sawTextDeltaMessageIds: new Set(),
+    expandedToolUseIds: new Set(),
   };
 }
 
@@ -74,7 +98,7 @@ export function replaceTranscriptWithStoredMessages(
       .map((entry) => entry.messageId),
   );
   state.pendingPermission = undefined;
-  state.expandedToolUseId = undefined;
+  state.expandedToolUseIds = new Set();
   state.expandedThinkingMessageId = undefined;
 }
 
@@ -83,9 +107,11 @@ export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean
     .reverse()
     .find((entry): entry is MakaPiToolEntry => entry.kind === 'tool');
   if (!latestTool) return false;
-  state.expandedToolUseId = state.expandedToolUseId === latestTool.toolUseId
-    ? undefined
-    : latestTool.toolUseId;
+  if (state.expandedToolUseIds.has(latestTool.toolUseId)) {
+    state.expandedToolUseIds.delete(latestTool.toolUseId);
+  } else {
+    state.expandedToolUseIds.add(latestTool.toolUseId);
+  }
   return true;
 }
 
@@ -191,6 +217,7 @@ export function applyMakaSessionEventToTranscript(
         ...(event.displayName ? { title: event.displayName } : {}),
         input: event.args,
         progress: [],
+        outputDeltas: [],
         status: 'running',
       });
       break;
@@ -199,6 +226,7 @@ export function applyMakaSessionEventToTranscript(
       const tool = findToolEntry(state, event.toolUseId);
       if (tool) {
         tool.status = event.isError ? 'error' : 'done';
+        tool.result = event.content;
         tool.output = formatToolResultContent(event.content);
         tool.durationMs = event.durationMs;
       } else {
@@ -208,6 +236,8 @@ export function applyMakaSessionEventToTranscript(
           toolName: event.toolUseId,
           input: undefined,
           progress: [],
+          outputDeltas: [],
+          result: event.content,
           output: formatToolResultContent(event.content),
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
@@ -227,7 +257,12 @@ export function applyMakaSessionEventToTranscript(
     case 'tool_output_delta': {
       const tool = findToolEntry(state, event.toolUseId);
       if (tool) {
-        tool.progress.push(`[${event.stream}] ${event.chunk}`);
+        tool.outputDeltas.push({
+          seq: event.seq,
+          stream: event.stream,
+          chunk: event.chunk,
+          redacted: event.redacted,
+        });
       }
       break;
     }
@@ -331,6 +366,8 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiTranscript
     ...(item.displayName ? { title: item.displayName } : {}),
     input: item.args,
     progress: [],
+    outputDeltas: [],
+    ...(item.result ? { result: item.result } : {}),
     ...(output ? { output } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
@@ -434,7 +471,7 @@ export function renderMakaPiTranscript(
         lines.push(...renderAssistantBlock(entry, safeWidth, state.expandedThinkingMessageId === entry.messageId));
         break;
       case 'tool':
-        lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseId === entry.toolUseId));
+        lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseIds.has(entry.toolUseId)));
         break;
       case 'notice':
         lines.push(...renderNotice(entry, safeWidth));
@@ -528,6 +565,12 @@ function renderTextBlock(
   return lines;
 }
 
+interface RenderedToolPart {
+  lines: string[];
+  /** True when compact rendering hides detail that expanding would reveal. */
+  truncated: boolean;
+}
+
 function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolean): string[] {
   const status = entry.status === 'running'
     ? ansi.yellow('running')
@@ -538,38 +581,235 @@ function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolea
   const lines = [
     fitLine(`${ansi.yellow('Tool')} ${entry.title ?? entry.toolName} ${status}${duration}`, width),
   ];
+  let truncated = false;
+
   const inputSummary = toolInputSummary(entry);
   if (inputSummary) lines.push(...renderIndented(inputSummary, width, 2).map(ansi.dim));
+
   if (entry.progress.length > 0) {
-    lines.push(...renderToolText(entry.progress.join(''), width, expanded).map(ansi.dim));
+    const progress = renderToolText(entry.progress.join(''), width, expanded);
+    lines.push(...progress.lines.map(ansi.dim));
+    truncated = truncated || progress.truncated;
   }
-  if (entry.output) {
-    lines.push(...renderToolText(entry.output, width, expanded));
+
+  const streams = renderToolStreams(entry.outputDeltas, width, expanded);
+  lines.push(...streams.lines);
+  truncated = truncated || streams.truncated;
+
+  if (entry.result || entry.output) {
+    const result = renderToolResult(entry, width, expanded);
+    lines.push(...result.lines);
+    truncated = truncated || result.truncated;
   }
-  if (!expanded && toolHasHiddenDetail(entry)) {
+
+  if (!expanded && truncated) {
     lines.push(fitLine(ansi.dim('Ctrl+O expand'), width));
   }
   return lines.map((line) => fitLine(line, width));
 }
 
-function renderToolText(text: string, width: number, expanded: boolean): string[] {
+function renderToolText(text: string, width: number, expanded: boolean): RenderedToolPart {
   const limit = expanded ? 12_000 : 600;
-  return renderIndented(limitText(text, limit), width, 2);
+  return {
+    lines: renderIndented(limitText(text, limit), width, 2),
+    truncated: !expanded && text.length > limit,
+  };
 }
 
-function toolHasHiddenDetail(entry: MakaPiToolEntry): boolean {
-  return entry.progress.join('').length > 600 || (entry.output?.length ?? 0) > 600;
+/**
+ * Render live `tool_output_delta` chunks. Chunks are de-duped and ordered by
+ * `seq` (so a late or repeated seq cannot corrupt the display), consecutive
+ * same-stream chunks are grouped under a single dim `[stream]` label, and any
+ * redacted chunk shows a `[redacted]` marker instead of its raw content.
+ */
+function renderToolStreams(
+  deltas: readonly MakaPiToolOutputDelta[],
+  width: number,
+  expanded: boolean,
+): RenderedToolPart {
+  const groups = groupOutputDeltas(deltas);
+  if (groups.length === 0) return { lines: [], truncated: false };
+  const lines: string[] = [];
+  let truncated = false;
+  for (const group of groups) {
+    lines.push(fitLine(ansi.dim(`[${group.stream}]`), width));
+    const body = renderToolText(group.text, width, expanded);
+    lines.push(...body.lines.map(ansi.dim));
+    truncated = truncated || body.truncated;
+  }
+  return { lines, truncated };
+}
+
+function groupOutputDeltas(
+  deltas: readonly MakaPiToolOutputDelta[],
+): Array<{ stream: ToolOutputStream; text: string }> {
+  const bySeq = new Map<number, MakaPiToolOutputDelta>();
+  for (const delta of deltas) {
+    if (!bySeq.has(delta.seq)) bySeq.set(delta.seq, delta);
+  }
+  const ordered = [...bySeq.values()].sort((a, b) => a.seq - b.seq);
+  const groups: Array<{ stream: ToolOutputStream; text: string }> = [];
+  for (const delta of ordered) {
+    const chunk = delta.redacted ? '[redacted]' : delta.chunk;
+    const last = groups[groups.length - 1];
+    if (last && last.stream === delta.stream) {
+      last.text += chunk;
+    } else {
+      groups.push({ stream: delta.stream, text: chunk });
+    }
+  }
+  return groups;
+}
+
+function renderToolResult(entry: MakaPiToolEntry, width: number, expanded: boolean): RenderedToolPart {
+  const result = entry.result;
+  if (result?.kind === 'terminal') return renderTerminalResult(result, width, expanded);
+  if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width, expanded);
+  if (result?.kind === 'file_write') {
+    return { lines: renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2), truncated: false };
+  }
+
+  const text = plainResultText(entry);
+  if (entry.toolName === 'Read') return renderReadResult(text, width, expanded);
+  if (entry.toolName === 'Grep') return renderGrepResult(text, width, expanded);
+  return renderToolText(text, width, expanded);
+}
+
+/** Best-effort extraction of the human-readable body from a tool result. */
+function plainResultText(entry: MakaPiToolEntry): string {
+  const result = entry.result;
+  if (result?.kind === 'text') return result.text;
+  if (result?.kind === 'json') {
+    const value = result.value;
+    if (value !== null && typeof value === 'object') {
+      const content = (value as { content?: unknown }).content;
+      if (typeof content === 'string') return content;
+      const matches = (value as { matches?: unknown }).matches;
+      if (Array.isArray(matches)) return matches.map((row) => String(row)).join('\n');
+    }
+    return formatUnknown(value);
+  }
+  return entry.output ?? '';
+}
+
+function renderTerminalResult(
+  content: Extract<ToolResultContent, { kind: 'terminal' }>,
+  width: number,
+  expanded: boolean,
+): RenderedToolPart {
+  const lines: string[] = [];
+  let truncated = false;
+  if (content.exitCode !== 0) {
+    lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
+  }
+
+  if (expanded) {
+    if (content.stdout) {
+      const body = renderToolText(content.stdout, width, true);
+      lines.push(...body.lines);
+    }
+    if (content.stderr) {
+      lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
+      const body = renderToolText(content.stderr, width, true);
+      lines.push(...body.lines.map(ansi.dim));
+    }
+    return { lines, truncated: false };
+  }
+
+  // Compact: the tail of combined output is where results and errors land.
+  const combined = [content.stdout, content.stderr].filter(Boolean).join('\n');
+  const tail = tailLines(combined, 5);
+  if (tail.text) lines.push(...renderIndented(tail.text, width, 2));
+  truncated = truncated || tail.hidden > 0;
+  return { lines, truncated };
+}
+
+function renderReadResult(text: string, width: number, expanded: boolean): RenderedToolPart {
+  if (expanded) {
+    return { lines: renderIndented(limitText(text, 12_000), width, 2), truncated: false };
+  }
+  if (!text) return { lines: [], truncated: false };
+  const lineCount = text.split('\n').length;
+  const summary = `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
+  return { lines: renderIndented(summary, width, 2).map(ansi.dim), truncated: true };
+}
+
+function renderGrepResult(text: string, width: number, expanded: boolean): RenderedToolPart {
+  if (expanded) {
+    return { lines: renderIndented(limitText(text, 12_000), width, 2), truncated: false };
+  }
+  const allLines = text ? text.split('\n') : [];
+  const head = allLines.slice(0, 5);
+  const hidden = allLines.length - head.length;
+  const lines = head.length > 0 ? renderIndented(head.join('\n'), width, 2) : [];
+  if (hidden > 0) {
+    lines.push(...renderIndented(ansi.dim(`… +${hidden} more matches`), width, 2));
+  }
+  return { lines, truncated: hidden > 0 };
+}
+
+function renderDiffResult(diff: string, width: number, expanded: boolean): RenderedToolPart {
+  const capped = expanded ? limitText(diff, 12_000) : diff;
+  const allLines = capped.split('\n');
+  const maxLines = expanded ? allLines.length : 8;
+  const shown = allLines.slice(0, maxLines);
+  const hidden = allLines.length - shown.length;
+  const lines = renderIndented(colorDiff(shown.join('\n')), width, 2);
+  if (!expanded && hidden > 0) {
+    lines.push(...renderIndented(ansi.dim(`… +${hidden} more lines`), width, 2));
+  }
+  return { lines, truncated: !expanded && hidden > 0 };
+}
+
+/** Return the last `count` lines of `text` plus how many earlier lines were dropped. */
+function tailLines(text: string, count: number): { text: string; hidden: number } {
+  if (!text) return { text: '', hidden: 0 };
+  const allLines = text.split('\n');
+  if (allLines.length <= count) return { text, hidden: 0 };
+  return { text: allLines.slice(-count).join('\n'), hidden: allLines.length - count };
+}
+
+function byteLength(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
 }
 
 function toolInputSummary(entry: MakaPiToolEntry): string {
   const input = entry.input;
-  if (entry.toolName === 'Bash' && input !== null && typeof input === 'object') {
-    const command = (input as { command?: unknown }).command;
-    if (typeof command === 'string' && command.trim()) return `command: ${command}`;
-  }
-  if ((entry.toolName === 'Write' || entry.toolName === 'Edit') && input !== null && typeof input === 'object') {
-    const path = (input as { path?: unknown }).path;
-    if (typeof path === 'string' && path.trim()) return `path: ${path}`;
+  const obj = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : undefined;
+  switch (entry.toolName) {
+    case 'Bash': {
+      const command = obj?.command;
+      if (typeof command === 'string' && command.trim()) {
+        return `$ ${command.split('\n')[0]}`;
+      }
+      break;
+    }
+    case 'Read': {
+      const path = obj?.path;
+      if (typeof path === 'string' && path.trim()) {
+        const parts = [path];
+        if (typeof obj?.offset === 'number') parts.push(`offset ${obj.offset}`);
+        if (typeof obj?.limit === 'number') parts.push(`limit ${obj.limit}`);
+        return parts.join(' ');
+      }
+      break;
+    }
+    case 'Write':
+    case 'Edit': {
+      const path = obj?.path;
+      if (typeof path === 'string' && path.trim()) return path;
+      break;
+    }
+    case 'Grep': {
+      const pattern = obj?.pattern;
+      if (typeof pattern === 'string' && pattern.trim()) {
+        const parts = [pattern];
+        if (typeof obj?.path === 'string' && obj.path.trim()) parts.push(`in ${obj.path}`);
+        if (typeof obj?.glob === 'string' && obj.glob.trim()) parts.push(`glob ${obj.glob}`);
+        return parts.join(' ');
+      }
+      break;
+    }
   }
   if (input === undefined) return '';
   return `input: ${limitText(formatUnknown(input), 600)}`;

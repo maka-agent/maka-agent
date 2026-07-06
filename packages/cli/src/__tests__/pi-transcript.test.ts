@@ -354,7 +354,9 @@ describe('Maka Pi TUI transcript', () => {
 
   test('keeps tool cards compact until the latest tool is expanded', () => {
     const state = createMakaPiTranscriptState();
-    const longStdout = `${'x'.repeat(900)}\nexpanded-tail`;
+    // `head-line` is first; the compact tail (last ~5 lines) hides it while the
+    // trailing rows stay visible, and expanding reveals the full stdout.
+    const stdout = `head-line\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`;
 
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start',
@@ -371,7 +373,7 @@ describe('Maka Pi TUI transcript', () => {
         cwd: '/repo',
         cmd: 'npm test',
         exitCode: 0,
-        stdout: longStdout,
+        stdout,
         stderr: '',
       },
     }));
@@ -385,9 +387,10 @@ describe('Maka Pi TUI transcript', () => {
     }, 100).map(stripAnsi).join('\n');
 
     assert.match(compact, /Tool Bash done/);
-    assert.match(compact, /command: npm test/);
+    assert.match(compact, /\$ npm test/);
+    assert.match(compact, /row-29/);
     assert.match(compact, /Ctrl\+O expand/);
-    assert.doesNotMatch(compact, /expanded-tail/);
+    assert.doesNotMatch(compact, /head-line/);
 
     assert.equal(toggleLatestToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, {
@@ -398,9 +401,176 @@ describe('Maka Pi TUI transcript', () => {
       permissionMode: 'ask',
     }, 100).map(stripAnsi).join('\n');
 
-    assert.match(expanded, /expanded-tail/);
+    assert.match(expanded, /head-line/);
+  });
+
+  test('summarizes Read results as a line/byte count when compact and shows text expanded', () => {
+    const state = createMakaPiTranscriptState();
+    const fileText = Array.from({ length: 4 }, (_, i) => `content-line-${i}`).join('\n');
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'read-1',
+      toolName: 'Read',
+      args: { path: 'src/app.ts', offset: 10, limit: 20 },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'read-1',
+      isError: false,
+      content: { kind: 'json', value: { content: fileText } },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(compact, /src\/app\.ts offset 10 limit 20/);
+    assert.match(compact, /4 lines,/);
+    assert.doesNotMatch(compact, /content-line-0/);
+
+    assert.equal(toggleLatestToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /content-line-0/);
+  });
+
+  test('summarizes Grep results with a match-count truncation notice', () => {
+    const state = createMakaPiTranscriptState();
+    const matches = Array.from({ length: 12 }, (_, i) => `match-${i}`);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'grep-1',
+      toolName: 'Grep',
+      args: { pattern: 'TODO', path: 'packages', glob: '*.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'grep-1',
+      isError: false,
+      content: { kind: 'json', value: { matches } },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(compact, /TODO in packages glob \*\.ts/);
+    assert.match(compact, /match-0/);
+    assert.match(compact, /match-4/);
+    assert.doesNotMatch(compact, /match-5/);
+    assert.match(compact, /… \+7 more matches/);
+  });
+
+  test('colors file_diff results with add/del ANSI', () => {
+    const state = createMakaPiTranscriptState();
+    const diff = ['--- a/file.ts', '+++ b/file.ts', '@@ -1 +1 @@', '-removed line', '+added line'].join('\n');
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'edit-1',
+      toolName: 'Edit',
+      args: { path: 'file.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'edit-1',
+      isError: false,
+      content: { kind: 'file_diff', paths: ['file.ts'], diff },
+    }));
+
+    const raw = renderMakaPiTranscript(state, meta(), 100).join('\n');
+    // Green (32) around the added line, red (31) around the removed line.
+    assert.match(raw, /\x1b\[32m\+added line\x1b\[39m/);
+    assert.match(raw, /\x1b\[31m-removed line\x1b\[39m/);
+  });
+
+  test('renders file_write results as a byte summary', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'write-1',
+      toolName: 'Write',
+      args: { path: 'out.txt' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'write-1',
+      isError: false,
+      content: { kind: 'file_write', path: 'out.txt', bytes: 42 },
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /Wrote 42 bytes to out\.txt/);
+  });
+
+  test('keeps earlier tools expanded when a later tool starts and finishes', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-a', toolName: 'Read', args: { path: 'a.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'tool-a',
+      isError: false,
+      content: { kind: 'json', value: { content: 'alpha-body-line' } },
+    }));
+
+    // Expand tool A (the latest tool).
+    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.ok(state.expandedToolUseIds.has('tool-a'));
+
+    // A later tool starts and finishes in a subsequent turn.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-b', toolName: 'Read', args: { path: 'b.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'tool-b',
+      isError: false,
+      content: { kind: 'json', value: { content: 'beta-body-line' } },
+    }));
+
+    // Tool A stays expanded; tool B is still compact.
+    assert.ok(state.expandedToolUseIds.has('tool-a'));
+    assert.equal(state.expandedToolUseIds.has('tool-b'), false);
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /alpha-body-line/);
+    assert.doesNotMatch(rendered, /beta-body-line/);
+  });
+
+  test('orders and de-dupes tool_output_delta by seq and marks redacted chunks', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-1', toolName: 'Bash', args: { command: 'run' },
+    }));
+    // Out-of-order + duplicate seq + a redacted chunk.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'bash-1', seq: 2, stream: 'stdout', chunk: 'SECOND', redacted: false,
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'bash-1', seq: 1, stream: 'stdout', chunk: 'FIRST', redacted: false,
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'bash-1', seq: 1, stream: 'stdout', chunk: 'DUPLICATE', redacted: false,
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'bash-1', seq: 3, stream: 'stderr', chunk: 'secret', redacted: true,
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.ok(rendered.indexOf('FIRST') < rendered.indexOf('SECOND'));
+    assert.doesNotMatch(rendered, /DUPLICATE/);
+    assert.doesNotMatch(rendered, /secret/);
+    assert.match(rendered, /\[redacted\]/);
+    assert.match(rendered, /\[stderr\]/);
   });
 });
+
+function meta() {
+  return {
+    title: 'Maka',
+    cwd: '/tmp/project',
+    model: 'deepseek-v4-flash',
+    connectionSlug: 'deepseek',
+    permissionMode: 'ask',
+  } as const;
+}
 
 class RecordingDriver {
   readonly prompts: string[] = [];

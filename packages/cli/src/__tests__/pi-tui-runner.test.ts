@@ -1752,7 +1752,9 @@ class ToolOutputDriver implements MakaSessionDriver {
         cwd: '/repo',
         cmd: 'npm test',
         exitCode: 0,
-        stdout: `${'x'.repeat(900)}\nexpanded-tail`,
+        // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
+        // hides it; expanding reveals the full output including this head line.
+        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
         stderr: '',
       },
     };
