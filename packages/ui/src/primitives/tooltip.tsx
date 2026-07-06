@@ -51,7 +51,7 @@ export function TooltipContent({
       <TooltipPrimitive.Positioner sideOffset={6}>
         <TooltipPrimitive.Popup
           className={cn(
-            "z-[var(--z-overlay)] max-w-[min(90vw,320px)] rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-maka-panel",
+            "z-[var(--z-overlay)] max-w-[min(90vw,460px)] rounded-md bg-popover px-2 py-1 text-xs text-popover-foreground shadow-maka-panel",
             className,
           )}
           data-slot="tooltip-content"
