@@ -5,9 +5,13 @@ import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { AgentRunHeader, LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
+import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-model.js';
+import { materializeSession } from '../materializer.js';
+import type { InvocationContext } from '../invocation-context.js';
 import type { ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
@@ -5303,6 +5307,107 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
     // and fails — which is what proves the wiring the ToolRuntime unit test alone
     // cannot.
     assert.equal(resets, 2, 'resetTurnState runs at turn start and at cleanup');
+  });
+});
+
+describe('AiSdkBackend thinking persistence', () => {
+  test('emits a non-partial thinking_complete that survives read-model projection and materialization', async () => {
+    const chunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'Let me ' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'reason.' },
+      // Anthropic delivers the signed signature on a standalone empty delta.
+      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-123' } } },
+      { type: 'reasoning-end', id: 'r1' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'Final answer.' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 2, text: 1, reasoning: 1 },
+        },
+      },
+    ];
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    const thinkingComplete = events.find(
+      (event): event is Extract<SessionEvent, { type: 'thinking_complete' }> =>
+        event.type === 'thinking_complete',
+    );
+    assert.ok(thinkingComplete, 'backend must emit a thinking_complete event');
+    assert.equal(thinkingComplete.text, 'Let me reason.');
+    assert.equal(thinkingComplete.signature, 'sig-123');
+
+    // Thinking must be finalized before the assistant text so the read-model
+    // has an assistant row to attach it to (order-independent, but assert the
+    // intended emission order for clarity).
+    const thinkingIndex = events.findIndex((event) => event.type === 'thinking_complete');
+    const textIndex = events.findIndex((event) => event.type === 'text_complete');
+    assert.ok(thinkingIndex >= 0 && textIndex >= 0 && thinkingIndex < textIndex);
+
+    // End-to-end: SessionEvent → RuntimeEvent → StoredMessage projection.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      now: () => 42,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeEvents = events.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runHeader: AgentRunHeader = {
+      runId: 'run-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      backendKind: 'ai-sdk',
+      llmConnectionSlug: 'anthropic-main',
+      modelId: 'mock-model-id',
+      cwd: '/tmp/maka',
+      permissionMode: 'ask',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, { runHeaders: [runHeader] });
+    const assistant = projection.messages.find((message) => message.type === 'assistant');
+    assert.ok(assistant && assistant.type === 'assistant');
+    assert.equal(assistant.text, 'Final answer.');
+    assert.equal(assistant.thinking?.text, 'Let me reason.');
+    assert.equal(assistant.thinking?.signature, 'sig-123');
+
+    // materializeSession (session reload) surfaces the reconstructed thinking.
+    const viewModel = materializeSession(projection.messages);
+    const assistantItem = viewModel.items.find((item) => item.kind === 'assistant');
+    assert.ok(assistantItem && assistantItem.kind === 'assistant');
+    assert.equal(assistantItem.message.thinking?.text, 'Let me reason.');
+    assert.equal(assistantItem.message.thinking?.signature, 'sig-123');
   });
 });
 

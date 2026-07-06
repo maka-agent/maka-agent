@@ -38,6 +38,7 @@ import type {
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
+  ThinkingCompleteEvent,
   TokenUsageEvent,
   StorageRef,
   AttachmentRef,
@@ -928,7 +929,7 @@ export class AiSdkBackend implements AgentBackend {
             onText: (t) => { assistantText += t; },
             onTextComplete: (t) => { assistantText = t; },
             onThinking: (t) => { thinkingText += t; },
-            onThinkingComplete: (t, sig) => { thinkingText = t; thinkingSignature = sig; },
+            onThinkingSignature: (sig) => { thinkingSignature = sig; },
           });
         }
 
@@ -993,6 +994,24 @@ export class AiSdkBackend implements AgentBackend {
               : {}),
           };
           await this.input.appendMessage(msg);
+          // Emit the terminal thinking event before text_complete so the
+          // RuntimeEvent stream carries a non-partial `thinking` message. Only
+          // partial `thinking_delta`s were emitted during streaming, so without
+          // this the read-model projection (and materialized session) drops all
+          // reasoning. Gated on accumulated thinking text so a turn without
+          // reasoning emits nothing; the read-model attaches this to the
+          // same-turn assistant text row.
+          if (thinkingText.length > 0) {
+            queue.push({
+              type: 'thinking_complete',
+              id: this.newId(),
+              turnId,
+              ts: this.now(),
+              messageId: assistantMessageId,
+              text: thinkingText,
+              ...(thinkingSignature !== undefined ? { signature: thinkingSignature } : {}),
+            } satisfies ThinkingCompleteEvent);
+          }
           queue.push({
             type: 'text_complete',
             id: this.newId(),
