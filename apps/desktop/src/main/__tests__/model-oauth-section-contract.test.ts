@@ -288,7 +288,15 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(overlay, /className="providerConfigSheetClose"/);
     assert.match(overlay, /aria-label="关闭模型配置"/);
     assert.match(overlay, /<X strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
-    assert.match(styles, /\.providerConfigSheet\s*\{[\s\S]*position:\s*relative;/);
+    assert.match(styles, /\.providerConfigOverlay\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
+    assert.doesNotMatch(
+      styles,
+      /\.providerConfigOverlay\s*\{[^}]*justify-content:\s*flex-end;/,
+      'Base UI renders Backdrop and Popup as siblings; overlay flex must not be treated as sheet layout',
+    );
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*position:\s*absolute;/);
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*inset:\s*var\(--space-3\)\s+var\(--space-3\)\s+var\(--space-3\)\s+auto;/);
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*width:\s*min\(430px,\s*calc\(100%\s*-\s*\(var\(--space-3\)\s*\*\s*2\)\)\);/);
     assert.match(styles, /\.providerConfigSheetClose\s*\{[\s\S]*position:\s*absolute;[\s\S]*right:\s*14px;/);
     // The close button reuses the governed quiet icon Button, so its rest /
     // hover / focus states come from the component, not hand-written CSS. The
