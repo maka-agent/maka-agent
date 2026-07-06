@@ -80,12 +80,12 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       executionFacts,
       impl: async ({ path, offset, limit }, { cwd }) => {
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
-        const { content } = await executor.readFile({ cwd, path: resolvedPath });
-        if (offset === undefined && limit === undefined) return { content };
-        const lines = content.split('\n');
-        const start = offset ?? 0;
-        const end = limit ? start + limit : lines.length;
-        return { content: lines.slice(start, end).join('\n') };
+        return await executor.readFile({
+          cwd,
+          path: resolvedPath,
+          ...(offset !== undefined ? { offset } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+        });
       },
     },
     {

@@ -22,6 +22,9 @@ export {
   isolatedToolExecutorToWorkspaceExecutor,
 } from './workspace-executor-adapter.js';
 export type {
+  IsolatedWorkspaceExecutorAdapter,
+} from './workspace-executor-adapter.js';
+export type {
   ArtifactFreezeResult,
   BenchmarkContract,
   CommandVerifierSpec,

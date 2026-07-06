@@ -41,6 +41,8 @@ export interface WorkspaceExecResult {
 export interface WorkspaceReadFileInput {
   cwd: string;
   path: string;
+  offset?: number;
+  limit?: number;
 }
 
 export interface WorkspaceReadFileResult {
@@ -103,17 +105,81 @@ export interface WorkspaceGrepResult {
   matches: string[];
 }
 
-export interface WorkspaceExecutor {
+export interface WorkspaceExecutorFactsProvider {
   readonly facts: WorkspaceExecutorFacts;
+}
+
+export interface WorkspaceCommandExecutor {
   exec(input: WorkspaceExecInput): Promise<WorkspaceExecResult>;
+}
+
+export interface WorkspaceReadFileExecutor {
   readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult>;
+}
+
+export interface WorkspaceWriteFileExecutor {
   writeFile(input: WorkspaceWriteFileInput): Promise<WorkspaceWriteFileResult>;
+}
+
+export interface WorkspaceExistingPathResolver {
   resolveExistingPath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult>;
+}
+
+export interface WorkspaceWritablePathResolver {
   resolveWritablePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult>;
+}
+
+export interface WorkspaceWriteLockProvider {
   writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult>;
+}
+
+export interface WorkspaceGlobFilesExecutor {
   globFiles(input: WorkspaceGlobInput): Promise<WorkspaceGlobResult>;
+}
+
+export interface WorkspaceGrepFilesExecutor {
   grepFiles(input: WorkspaceGrepInput): Promise<WorkspaceGrepResult>;
 }
+
+export type WorkspaceBashExecutor = WorkspaceExecutorFactsProvider & WorkspaceCommandExecutor;
+
+export type WorkspaceReadExecutor =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceExistingPathResolver
+  & WorkspaceReadFileExecutor;
+
+export type WorkspaceWriteExecutor =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceWritablePathResolver
+  & WorkspaceWriteLockProvider
+  & WorkspaceWriteFileExecutor;
+
+export type WorkspaceEditExecutor =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceExistingPathResolver
+  & WorkspaceWriteLockProvider
+  & WorkspaceReadFileExecutor
+  & WorkspaceWriteFileExecutor;
+
+export type WorkspaceGlobExecutor =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceExistingPathResolver
+  & WorkspaceGlobFilesExecutor;
+
+export type WorkspaceGrepExecutor =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceExistingPathResolver
+  & WorkspaceGrepFilesExecutor;
+
+export type WorkspaceSearchExecutor = WorkspaceGlobExecutor & WorkspaceGrepExecutor;
+
+export interface WorkspaceExecutor
+  extends WorkspaceBashExecutor,
+    WorkspaceReadExecutor,
+    WorkspaceWriteExecutor,
+    WorkspaceEditExecutor,
+    WorkspaceGlobExecutor,
+    WorkspaceGrepExecutor {}
 
 export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   readonly facts = LOCAL_WORKSPACE_EXECUTOR_FACTS;
@@ -135,7 +201,12 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   }
 
   async readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
-    return { content: await fs.readFile(input.path, 'utf8') };
+    const content = await fs.readFile(input.path, 'utf8');
+    if (input.offset === undefined && input.limit === undefined) return { content };
+    const lines = content.split('\n');
+    const start = input.offset ?? 0;
+    const end = input.limit ? start + input.limit : lines.length;
+    return { content: lines.slice(start, end).join('\n') };
   }
 
   async writeFile(input: WorkspaceWriteFileInput): Promise<WorkspaceWriteFileResult> {

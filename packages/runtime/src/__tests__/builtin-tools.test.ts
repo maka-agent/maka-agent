@@ -255,20 +255,24 @@ describe('builtin read tools path containment', () => {
   test('Read delegates file loading to the injected workspace executor', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-executor-'));
     await writeFile(join(root, 'inside.txt'), 'local-content', 'utf8');
-    const readPaths: string[] = [];
+    const readInputs: unknown[] = [];
     const read = buildBuiltinTools({ executor: fakeExecutor({
-      readFile: async ({ path }) => {
-        readPaths.push(path);
-        return { content: 'executor-line-1\nexecutor-line-2\nexecutor-line-3' };
+      readFile: async (input) => {
+        readInputs.push(input);
+        return { content: 'executor-window' };
       },
     }) }).find((candidate) => candidate.name === 'Read');
     if (!read) throw new Error('Read tool missing');
 
     const result = await runTool(read, { path: 'inside.txt', offset: 1, limit: 1 }, root);
 
-    expect(readPaths).toHaveLength(1);
-    expect(readPaths[0]?.endsWith('inside.txt')).toBe(true);
-    expect(result).toMatchObject({ content: 'executor-line-2' });
+    expect(readInputs).toHaveLength(1);
+    expect(readInputs[0]).toMatchObject({
+      offset: 1,
+      limit: 1,
+    });
+    expect(String((readInputs[0] as { path?: string }).path)).toMatch(/inside\.txt$/);
+    expect(result).toMatchObject({ content: 'executor-window' });
   });
 
   test('Read rejects absolute, parent traversal, and symlink escape paths', async () => {

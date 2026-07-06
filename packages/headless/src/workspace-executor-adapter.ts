@@ -1,7 +1,8 @@
 import type {
   WorkspaceExecInput,
   WorkspaceExecResult,
-  WorkspaceExecutor,
+  WorkspaceExistingPathResolver,
+  WorkspaceExecutorFactsProvider,
   WorkspaceExecutorFacts,
   WorkspaceResolvePathInput,
   WorkspaceResolvePathResult,
@@ -9,8 +10,8 @@ import type {
   WorkspaceGlobResult,
   WorkspaceGrepInput,
   WorkspaceGrepResult,
-  WorkspaceReadFileInput,
-  WorkspaceReadFileResult,
+  WorkspaceWritablePathResolver,
+  WorkspaceWriteExecutor,
   WorkspaceWriteFileInput,
   WorkspaceWriteFileResult,
   WorkspaceWriteLockKeyInput,
@@ -35,44 +36,33 @@ export const EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts 
   secrets: 'brokered',
 };
 
+export type IsolatedWorkspaceExecutorAdapter =
+  & WorkspaceExecutorFactsProvider
+  & WorkspaceExistingPathResolver
+  & WorkspaceWritablePathResolver
+  & WorkspaceWriteExecutor;
+
 export function isolatedToolExecutorToWorkspaceExecutor(
   executor: IsolatedToolExecutor,
   facts: WorkspaceExecutorFacts = ISOLATED_WORKSPACE_EXECUTOR_FACTS,
-): WorkspaceExecutor {
-  return {
+): IsolatedWorkspaceExecutorAdapter {
+  const adapter = {
     facts,
-    exec: (input) => isolatedExec(executor, input),
-    readFile: unsupportedReadFile,
-    writeFile: (input) => isolatedWriteFile(executor, input),
+    exec: unsupportedExec,
+    writeFile: (input: WorkspaceWriteFileInput) => isolatedWriteFile(executor, input),
     resolveExistingPath: isolatedResolvePath,
     resolveWritablePath: isolatedResolvePath,
     writeLockKey: isolatedWriteLockKey,
-    globFiles: (input) => isolatedGlobFiles(executor, input),
-    grepFiles: (input) => isolatedGrepFiles(executor, input),
+    globFiles: unsupportedGlobFiles,
+    grepFiles: unsupportedGrepFiles,
   };
+  return adapter;
 }
 
-async function isolatedExec(
-  executor: IsolatedToolExecutor,
-  input: WorkspaceExecInput,
-): Promise<WorkspaceExecResult> {
-  const result = await executor.exec({
-    command: input.command,
-    cwd: input.cwd,
-    timeoutMs: input.timeoutMs,
-    boundedTail: true,
-  });
-  return {
-    exitCode: result.exitCode,
-    stdout: result.stdout,
-    stderr: result.stderr,
-    timedOut: false,
-    aborted: false,
-  };
-}
-
-async function unsupportedReadFile(_input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
-  throw new Error('IsolatedToolExecutor adapter does not provide readFile; use headless isolated Read tool instead');
+async function unsupportedExec(_input: WorkspaceExecInput): Promise<WorkspaceExecResult> {
+  throw new Error(
+    'IsolatedToolExecutor adapter does not adapt Bash; WorkspaceExecutor.exec requires abort, timeout, and live-output controls that IsolatedToolExecutor cannot preserve. Use buildIsolatedHeadlessTools instead.',
+  );
 }
 
 async function isolatedWriteFile(
@@ -102,37 +92,22 @@ async function isolatedWriteLockKey(input: WorkspaceWriteLockKeyInput): Promise<
   };
 }
 
-async function isolatedGlobFiles(
-  executor: IsolatedToolExecutor,
-  input: WorkspaceGlobInput,
-): Promise<WorkspaceGlobResult> {
-  if (!executor.globFiles) {
-    throw new Error('IsolatedToolExecutor adapter requires native globFiles for WorkspaceExecutor.globFiles');
-  }
-  const result = await executor.globFiles({
-    cwd: input.cwd,
-    pattern: input.pattern,
-  });
-  return { files: result.files.slice(0, input.limit ?? result.files.length) };
+async function unsupportedGlobFiles(_input: WorkspaceGlobInput): Promise<WorkspaceGlobResult> {
+  throw new Error(
+    'IsolatedToolExecutor adapter does not adapt Glob; WorkspaceExecutor.globFiles requires search and limit controls that IsolatedToolExecutor cannot preserve. Use buildIsolatedHeadlessTools instead.',
+  );
 }
 
-async function isolatedGrepFiles(
-  executor: IsolatedToolExecutor,
-  input: WorkspaceGrepInput,
-): Promise<WorkspaceGrepResult> {
-  if (!executor.grepFiles) {
-    throw new Error('IsolatedToolExecutor adapter requires native grepFiles for WorkspaceExecutor.grepFiles');
-  }
-  const result = await executor.grepFiles({
-    cwd: input.cwd,
-    pattern: input.pattern,
-    path: input.path,
-    ...(input.glob ? { glob: input.glob } : {}),
-  });
-  return { matches: result.matches.slice(0, input.limit) };
+async function unsupportedGrepFiles(_input: WorkspaceGrepInput): Promise<WorkspaceGrepResult> {
+  throw new Error(
+    'IsolatedToolExecutor adapter does not adapt Grep; WorkspaceExecutor.grepFiles requires abort, timeout, max-count, and limit controls that IsolatedToolExecutor cannot preserve. Use buildIsolatedHeadlessTools instead.',
+  );
 }
 
 function resolveIsolatedWorkspacePath(cwd: string, inputPath: string, label: string): string {
+  // Lexical preflight only. The isolated workspace may live in a remote/container
+  // filesystem that this process cannot realpath; symlink and mount escape checks
+  // are the responsibility of the native isolated backend.
   if (inputPath.length === 0 || /^[A-Za-z]:[\\/]/.test(inputPath)) {
     throw new Error(`${label} must stay inside workspace`);
   }

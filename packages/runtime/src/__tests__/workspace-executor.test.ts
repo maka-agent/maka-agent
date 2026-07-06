@@ -61,6 +61,26 @@ describe('LocalWorkspaceExecutor exec', () => {
     expect(result.timedOut).toBe(true);
     expect(result.stdout).toBe('before-timeout');
   });
+
+  test('reports abort with captured output', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-exec-'));
+    const executor = new LocalWorkspaceExecutor();
+    const controller = new AbortController();
+
+    const resultPromise = executor.exec({
+      command: 'printf "before-abort"; sleep 5; printf "after-abort"',
+      cwd,
+      timeoutMs: 5_000,
+      abortSignal: controller.signal,
+    });
+    setTimeout(() => controller.abort(), 100);
+    const result = await resultPromise;
+
+    expect(result.exitCode).toBe(130);
+    expect(result.aborted).toBe(true);
+    expect(result.timedOut).toBe(false);
+    expect(result.stdout).toBe('before-abort');
+  });
 });
 
 describe('LocalWorkspaceExecutor file operations', () => {
@@ -79,6 +99,17 @@ describe('LocalWorkspaceExecutor file operations', () => {
     });
     expect(readResult).toMatchObject({ content: 'hello' });
     expect(await readFile(file, 'utf8')).toBe('hello');
+  });
+
+  test('applies read offset and limit at the executor boundary', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-workspace-files-'));
+    const executor = new LocalWorkspaceExecutor();
+    const file = join(cwd, 'data.txt');
+    await writeFile(file, 'line1\nline2\nline3\nline4', 'utf8');
+
+    const readResult = await executor.readFile({ cwd, path: file, offset: 1, limit: 2 });
+
+    expect(readResult).toMatchObject({ content: 'line2\nline3' });
   });
 
   test('globs files from the provided cwd with a result cap', async () => {

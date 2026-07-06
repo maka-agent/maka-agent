@@ -5,6 +5,7 @@ import {
   isolatedToolExecutorToWorkspaceExecutor,
 } from '../workspace-executor-adapter.js';
 import type { IsolatedToolExecutor } from '../isolation.js';
+import type { WorkspaceExecutor, WorkspaceWriteExecutor } from '@maka/runtime/workspace-executor';
 
 describe('isolatedToolExecutorToWorkspaceExecutor', () => {
   test('defaults to conservative local-impact facts unless isolation is explicitly asserted', async () => {
@@ -44,46 +45,12 @@ describe('isolatedToolExecutorToWorkspaceExecutor', () => {
     });
   });
 
-  test('adapts isolated exec into workspace exec', async () => {
+  test('fails closed for shell and search operations that cannot preserve runtime controls', async () => {
     const calls: unknown[] = [];
     const isolated: IsolatedToolExecutor = {
       async exec(input) {
         calls.push(input);
         return { exitCode: 0, stdout: 'out', stderr: 'err' };
-      },
-    };
-    const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
-
-    const result = await executor.exec({
-      command: 'npm test',
-      cwd: '/workspace',
-      timeoutMs: 12_000,
-    });
-
-    assert.deepEqual(calls, [{
-      command: 'npm test',
-      cwd: '/workspace',
-      timeoutMs: 12_000,
-      boundedTail: true,
-    }]);
-    assert.deepEqual(result, {
-      exitCode: 0,
-      stdout: 'out',
-      stderr: 'err',
-      timedOut: false,
-      aborted: false,
-    });
-  });
-
-  test('delegates native write, glob, and grep operations when the isolated executor provides them', async () => {
-    const calls: unknown[] = [];
-    const isolated: IsolatedToolExecutor = {
-      async exec() {
-        return { exitCode: 0, stdout: '', stderr: '' };
-      },
-      async writeFile(input) {
-        calls.push({ kind: 'write', input });
-        return { ok: true, path: input.path, bytes: 5 };
       },
       async globFiles(input) {
         calls.push({ kind: 'glob', input });
@@ -95,29 +62,83 @@ describe('isolatedToolExecutorToWorkspaceExecutor', () => {
       },
     };
     const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
+    const unsafeExecutor = executor as unknown as Pick<WorkspaceExecutor, 'exec' | 'globFiles' | 'grepFiles'>;
 
-    assert.deepEqual(await executor.writeFile({ cwd: '/workspace', path: 'out.txt', content: 'hello' }), {
-      ok: true,
-      path: 'out.txt',
-      bytes: 5,
-    });
-    assert.deepEqual(await executor.globFiles({ cwd: '/workspace', pattern: '**/*.ts', limit: 200 }), {
-      files: ['src/main.ts'],
-    });
-    assert.deepEqual(await executor.grepFiles({
+    await assert.rejects(() => unsafeExecutor.exec({
+      command: 'npm test',
+      cwd: '/workspace',
+      timeoutMs: 12_000,
+    }), /does not adapt Bash/);
+    await assert.rejects(() => unsafeExecutor.globFiles({
+      cwd: '/workspace',
+      pattern: '**/*.ts',
+      limit: 200,
+    }), /does not adapt Glob/);
+    await assert.rejects(() => unsafeExecutor.grepFiles({
       cwd: '/workspace',
       pattern: 'token',
       path: 'src',
       maxCountPerFile: 50,
       limit: 200,
       timeoutMs: 12_000,
-    }), {
-      matches: ['src/main.ts:1:token'],
+    }), /does not adapt Grep/);
+    assert.deepEqual(calls, []);
+  });
+
+  test('delegates native write operations when the isolated executor provides them', async () => {
+    const calls: unknown[] = [];
+    const isolated: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+      async writeFile(input) {
+        calls.push({ kind: 'write', input });
+        return { ok: true, path: input.path, bytes: 5 };
+      },
+    };
+    const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
+
+    assert.deepEqual(await executor.writeFile({ cwd: '/workspace', path: 'out.txt', content: 'hello' }), {
+      ok: true,
+      path: 'out.txt',
+      bytes: 5,
     });
     assert.deepEqual(calls, [
       { kind: 'write', input: { cwd: '/workspace', path: 'out.txt', content: 'hello' } },
-      { kind: 'glob', input: { cwd: '/workspace', pattern: '**/*.ts' } },
-      { kind: 'grep', input: { cwd: '/workspace', pattern: 'token', path: 'src' } },
     ]);
   });
+
+  test('fails closed when writeFile is used without native isolated write support', async () => {
+    const isolated: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
+
+    await assert.rejects(
+      () => executor.writeFile({ cwd: '/workspace', path: 'out.txt', content: 'hello' }),
+      /requires native writeFile/,
+    );
+  });
+
+  test('exposes only supported workspace capabilities at the type boundary', () => {
+    const isolated: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+      async writeFile(input) {
+        return { ok: true, path: input.path, bytes: 0 };
+      },
+    };
+    const executor = isolatedToolExecutorToWorkspaceExecutor(isolated);
+
+    acceptsWorkspaceWriteExecutor(executor);
+    // @ts-expect-error The adapter must not type-check as a full WorkspaceExecutor.
+    acceptsWorkspaceExecutor(executor);
+  });
 });
+
+function acceptsWorkspaceWriteExecutor(_executor: WorkspaceWriteExecutor): void {}
+
+function acceptsWorkspaceExecutor(_executor: WorkspaceExecutor): void {}
