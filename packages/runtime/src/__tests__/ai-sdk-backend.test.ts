@@ -1380,6 +1380,484 @@ describe('AiSdkBackend model history', () => {
     });
   });
 
+  test('manual compactHistory writes shared history compact artifacts and returns diagnostics', async () => {
+    const writeInputs: Array<{ turnId: string; foldedIds: string[] }> = [];
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'manual-compact-old-1',
+        turnId: 'turn-old-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual alpha compact source '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-compact-old-2',
+        turnId: 'turn-old-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual beta compact source '.repeat(12),
+      }),
+    ];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      writeHistoryCompact: async (input) => {
+        writeInputs.push({
+          turnId: input.turnId,
+          foldedIds: input.source.foldedRuntimeEvents.map((event) => event.id),
+        });
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        ...oldEvents,
+        runtimeTextEvent({
+          id: 'manual-compact-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'manual recent retained context',
+        }),
+      ],
+    });
+
+    assert.deepEqual(writeInputs, [{
+      turnId: 'turn-compact',
+      foldedIds: ['manual-compact-old-1', 'manual-compact-old-2'],
+    }]);
+    assert.equal(result.contextBudget?.historyCompactWritesAttempted, 1);
+    assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
+  });
+
+  test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
+    const covered = [
+      runtimeTextEvent({
+        id: 'manual-prefix-old-1',
+        turnId: 'turn-old-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual prefix alpha '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-prefix-old-2',
+        turnId: 'turn-old-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual prefix beta '.repeat(12),
+      }),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: covered,
+      summary: 'OLD_MANUAL_HISTORY_COMPACT_SENTINEL',
+      highWaterName: 'loaded-manual-compact',
+      highWaterSeq: 1,
+      charsPerToken: 1,
+    });
+    let loadCalls = 0;
+    const writeInputs: string[][] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      loadHistoryCompact: async () => {
+        loadCalls += 1;
+        return { blocks: [loadedBlock] };
+      },
+      writeHistoryCompact: async (input) => {
+        writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'NEW_MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        ...covered,
+        runtimeTextEvent({
+          id: 'manual-prefix-former-tail',
+          turnId: 'turn-former-tail',
+          role: 'user',
+          author: 'user',
+          text: 'manual former retained tail now foldable '.repeat(8),
+        }),
+        runtimeTextEvent({
+          id: 'manual-prefix-recent',
+          turnId: 'turn-recent',
+          role: 'model',
+          author: 'agent',
+          text: 'manual recent retained context',
+        }),
+      ],
+    });
+
+    assert.equal(loadCalls, 0);
+    assert.deepEqual(writeInputs, [[
+      'manual-prefix-old-1',
+      'manual-prefix-old-2',
+      'manual-prefix-former-tail',
+    ]]);
+  });
+
+  test('manual compactHistory is a no-op when context budget is disabled', async () => {
+    let writes = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      writeHistoryCompact: async () => {
+        writes += 1;
+        return { blocks: [] };
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
+        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+      ],
+    });
+
+    assert.deepEqual(result, {});
+    assert.equal(writes, 0);
+  });
+
+  test('manual compactHistory is a no-op when no durable writer is configured', async () => {
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
+        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+      ],
+    });
+
+    assert.deepEqual(result, {});
+  });
+
+  test('manual compactHistory does not report replaced when durable write fails', async () => {
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'manual-compact-old-1',
+        turnId: 'turn-old-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual alpha compact source '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-compact-old-2',
+        turnId: 'turn-old-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual beta compact source '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-compact-recent',
+        turnId: 'turn-recent',
+        role: 'user',
+        author: 'user',
+        text: 'manual recent retained context',
+      }),
+    ];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      writeHistoryCompact: async () => {
+        throw new Error('artifact write failed');
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: oldEvents,
+    });
+
+    assert.equal(result.contextBudget?.historyCompactWriteFailures, 1);
+    assert.equal(result.contextBudget?.historyCompactBlockIds, undefined);
+    assert.equal(result.contextBudget?.historyCompactBlocksSelected, undefined);
+    assert.equal(result.contextBudget?.historyCompactedEvents, undefined);
+    assert.equal(result.contextBudget?.highWaterReason, undefined);
+    assert.deepEqual(
+      result.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
+      ['failedOpen'],
+    );
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.failOpenReason, 'write_failed');
+  });
+
+  test('stopping manual compactHistory does not poison the next backend turn', async () => {
+    const writeGate = makeGate();
+    let writeStarted: (() => void) | undefined;
+    let writeAbortSignal: AbortSignal | undefined;
+    const writeStartedPromise = new Promise<void>((resolve) => {
+      writeStarted = resolve;
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => textCompletionModel('NEXT_OK'),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      writeHistoryCompact: async (input) => {
+        writeAbortSignal = input.abortSignal;
+        writeStarted?.();
+        await writeGate.promise;
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const compactPromise = backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
+        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+      ],
+    });
+    await writeStartedPromise;
+    assert.equal(writeAbortSignal?.aborted, false);
+    await backend.stop('user_stop');
+    assert.equal(writeAbortSignal?.aborted, true);
+    writeGate.release();
+    await compactPromise;
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-next', text: 'next', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+  });
+
+  test('stopped manual compactHistory stays suppressed when the next send starts before the writer returns', async () => {
+    const writeGate = makeGate();
+    let writeStarted: (() => void) | undefined;
+    const writeStartedPromise = new Promise<void>((resolve) => {
+      writeStarted = resolve;
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => textCompletionModel('NEXT_OK'),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      writeHistoryCompact: async (input) => {
+        writeStarted?.();
+        await writeGate.promise;
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const compactPromise = backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
+        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+      ],
+    });
+    await writeStartedPromise;
+    await backend.stop('user_stop');
+
+    const sendEventsPromise = (async () => {
+      const events: SessionEvent[] = [];
+      for await (const event of backend.send({ turnId: 'turn-next', text: 'next', context: [] })) {
+        events.push(event);
+      }
+      return events;
+    })();
+    writeGate.release();
+
+    const [compactResult, events] = await Promise.all([compactPromise, sendEventsPromise]);
+    assert.equal(compactResult.contextBudget, undefined);
+    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+  });
+
+  test('stopping after manual compactHistory returns does not poison the next backend turn', async () => {
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => textCompletionModel('NEXT_OK'),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      writeHistoryCompact: async (input) => ({
+        blocks: [buildHistoryCompactBlockFromSummary({
+          sessionId: input.sessionId,
+          foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+          summary: 'MANUAL_HISTORY_COMPACT_SENTINEL',
+          highWaterName: input.source.draftBlock.highWaterName,
+          highWaterSeq: input.source.draftBlock.highWaterSeq,
+          charsPerToken: input.limits.charsPerToken,
+        })],
+      }),
+    });
+
+    await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({ id: 'old-1', turnId: 'turn-old-1', role: 'user', author: 'user', text: 'old alpha '.repeat(20) }),
+        runtimeTextEvent({ id: 'old-2', turnId: 'turn-old-2', role: 'model', author: 'agent', text: 'old beta '.repeat(20) }),
+        runtimeTextEvent({ id: 'recent', turnId: 'turn-recent', role: 'user', author: 'user', text: 'recent' }),
+      ],
+    });
+    await backend.stop('user_stop');
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-next', text: 'next', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
+  });
+
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
@@ -1482,6 +1960,91 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
   });
 
+  test('read_write history compact fail-open sends original history when durable write fails', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'compact-fail-old-1',
+        turnId: 'turn-old-1',
+        role: 'user',
+        author: 'user',
+        text: 'fail alpha compact source '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'compact-fail-old-2',
+        turnId: 'turn-old-2',
+        role: 'model',
+        author: 'agent',
+        text: 'fail beta compact source '.repeat(12),
+      }),
+    ];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'history-compact-write-failure-test',
+        maxHistoryEstimatedTokens: 220,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'read_write',
+          highWaterRatio: 0.5,
+          targetRatio: 0.2,
+          minRecentTurns: 1,
+          maxSummaryEstimatedTokens: 120,
+        },
+      },
+      writeHistoryCompact: async () => {
+        throw new Error('artifact write failed');
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current',
+      text: 'continue after compact write failure',
+      context: [],
+      runtimeContext: [
+        ...oldEvents,
+        runtimeTextEvent({
+          id: 'compact-fail-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'fail recent retained context',
+        }),
+      ],
+    })) {
+      events.push(event);
+    }
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /fail alpha compact source/);
+    assert.match(prompt, /fail beta compact source/);
+    assert.equal(prompt.includes('Compacted 2 older turns'), false);
+    assert.match(prompt, /fail recent retained context/);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.historyCompactWriteFailures, 1);
+    assert.equal(usage?.contextBudget?.historyCompactBlockIds, undefined);
+    assert.equal(usage?.contextBudget?.historyCompactedEvents, undefined);
+    assert.deepEqual(
+      usage?.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
+      ['failedOpen'],
+    );
+  });
+
   test('loads persisted history compact blocks before replay and does not rewrite them', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
@@ -1525,14 +2088,15 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
       contextBudget: {
         name: 'history-compact-load-test',
-        maxHistoryEstimatedTokens: 220,
+        maxHistoryEstimatedTokens: 10_000,
         minRecentTurns: 1,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'read_write',
-          highWaterRatio: 0.5,
+          highWaterRatio: 0.000001,
           targetRatio: 0.2,
+          tailEstimatedTokens: 1,
           minRecentTurns: 1,
           maxBlocks: 1,
           maxEstimatedTokens: 4096,
@@ -4643,6 +5207,41 @@ function archiveGatedTurnEvents(
   ];
 }
 
+function textCompletionModel(text: string): MockLanguageModelV3 {
+  const chunks: LanguageModelV3StreamPart[] = [
+    { type: 'stream-start', warnings: [] },
+    { type: 'text-start', id: 'text-1' },
+    { type: 'text-delta', id: 'text-1', delta: text },
+    { type: 'text-end', id: 'text-1' },
+    {
+      type: 'finish',
+      finishReason: { unified: 'stop', raw: 'stop' },
+      usage: {
+        inputTokens: {
+          total: 1,
+          noCache: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+        },
+        outputTokens: {
+          total: 1,
+          text: 1,
+          reasoning: 0,
+        },
+      },
+    },
+  ];
+  return new MockLanguageModelV3({
+    doStream: {
+      stream: simulateReadableStream({
+        chunks,
+        initialDelayInMs: null,
+        chunkDelayInMs: null,
+      }),
+    },
+  });
+}
+
 function completionModel(): MockLanguageModelV3 {
   const chunks: LanguageModelV3StreamPart[] = [
     { type: 'stream-start', warnings: [] },
@@ -4888,6 +5487,14 @@ async function drain(iterable: AsyncIterable<unknown>): Promise<void> {
   for await (const _ of iterable) {
     // consume
   }
+}
+
+function makeGate(): { promise: Promise<void>; release: () => void } {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { promise, release };
 }
 
 function header(permissionMode: SessionHeader['permissionMode'] = 'ask'): SessionHeader {
