@@ -259,11 +259,6 @@ describe('issue #406 design-system governance contract', () => {
       assert.ok(contrastRatio(destrText, bg) >= 4.5, `${selector} --destructive-text contrast < 4.5:1`);
       assert.ok(contrastRatio(accentText, bg) >= 4.5, `${selector} accent chip (foreground-secondary) contrast < 4.5:1`);
     }
-    // Structural: chip text color must be the readable variant, not the raw tone.
-    const chipCss = stripCssComments(await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'));
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="info"\]\s*\{[^}]*color:\s*var\(--info-text\)/);
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="destructive"\]\s*\{[^}]*color:\s*var\(--destructive-text\)/);
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="accent"\]\s*\{[^}]*color:\s*var\(--foreground-secondary\)/);
   });
 
   it('uses radius tokens for preview card surfaces', async () => {

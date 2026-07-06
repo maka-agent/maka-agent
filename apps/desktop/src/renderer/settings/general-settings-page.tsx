@@ -13,11 +13,8 @@ import {
   Input,
   NumberField,
   NumberFieldInput,
-  Menu,
-  MenuTrigger,
   ModelPicker,
-  PERMISSION_MODE_META,
-  PermissionModeMenuPopup,
+  PermissionModeSelect,
   SettingsSelect,
   SettingsSwitch as Switch,
   modelChoiceValue,
@@ -25,7 +22,6 @@ import {
   parseModelChoiceValue,
   useToast,
 } from '@maka/ui';
-import { ChevronDown } from '@maka/ui/icons';
 import { ProviderLogo } from './ProvidersPanel';
 import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
@@ -89,10 +85,9 @@ export function GeneralSettingsPage(props: {
  * a second picker right below 默认模型, backed by
  * `settings.chatDefaults.permissionMode` (persisted via the generic
  * `settings.update` patch, unlike the model picker's dedicated
- * `connections.setDefaultModel` IPC). Reuses `PERMISSION_MODE_META` from
- * `@maka/ui` so the labels/hints can never drift from the composer picker
- * (see PR-DEFAULT-PERMISSION-MODE-1 below for why it's a `<Menu>`, not a
- * `<SettingsSelect>`).
+ * `connections.setDefaultModel` IPC). Renders the shared
+ * `PermissionModeSelect` (Base UI Select) so labels, hints, and markup
+ * can't drift from the composer picker.
  */
 function GeneralDefaultsCard(props: {
   connections: readonly LlmConnection[];
@@ -207,34 +202,19 @@ function GeneralDefaultsCard(props: {
               hint — the shared popup already shows every option's hint). */}
           <small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。</small>
         </div>
-        {/* Shared popup with the composer's picker (PermissionModeMenuPopup)
-            so every option shows its label + hint before picking, and the
-            two surfaces can't drift. Only the trigger differs: a
-            select-style outline button here vs. the composer's tinted chip. */}
-        <Menu>
-          <MenuTrigger
-            render={(triggerProps) => (
-              <Button
-                {...triggerProps}
-                type="button"
-                variant="outline"
-                className="settingsSelectTrigger max-w-[320px] w-full justify-between"
-                disabled={savingPermissionMode}
-                aria-label="默认权限模式"
-              >
-                <span>{PERMISSION_MODE_META[props.permissionMode].label}</span>
-                <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-              </Button>
-            )}
-          />
-          <PermissionModeMenuPopup
-            activeMode={props.permissionMode}
-            onSelect={(mode) => {
-              void persistPermissionMode(mode);
-            }}
-            align="end"
-          />
-        </Menu>
+        {/* Shared Base UI Select picker with the composer (PermissionModeSelect)
+            — same component, so option markup can't drift between the two
+            surfaces. Every option shows its label + hint before picking. */}
+        <PermissionModeSelect
+          activeMode={props.permissionMode}
+          onSelect={(mode) => {
+            void persistPermissionMode(mode);
+          }}
+          align="end"
+          disabled={savingPermissionMode}
+          ariaLabel="默认权限模式"
+          className="settingsSelectTrigger max-w-[320px] w-full justify-between"
+        />
       </div>
     </SettingsRows>
   );

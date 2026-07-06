@@ -139,11 +139,11 @@ describe('General settings page 默认权限模式 picker', () => {
     );
   });
 
-  it('renders the shared PermissionModeMenuPopup so options and hints cannot drift from the composer picker', async () => {
+  it('renders the shared PermissionModeSelect so options and hints cannot drift from the composer picker', async () => {
     const src = await readSettingsCombinedSource();
     assert.match(
       src,
-      /<PermissionModeMenuPopup\s+activeMode=\{props\.permissionMode\}/,
+      /<PermissionModeSelect\s+activeMode=\{props\.permissionMode\}/,
       '默认权限模式 must render the shared popup from @maka/ui (label + hint per option, same markup as the composer picker), not a bespoke copy',
     );
   });

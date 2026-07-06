@@ -933,10 +933,9 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
 
 // PR-MOVE-PERMISSION-MODE: the chat-header `PermissionModeSwitcher`
 // radiogroup was deleted. Mode picking now lives inside the composer's
-// left-controls dropdown (see Composer + maka-composer-mode-chip / -menu)
-// so the picker sits where you actually start typing, matching the
-// reference product. The `radiogroup` keyboard contract was traded for
-// base-ui Menu's built-in arrow/Home/End handling.
+// left-controls as a Base UI Select (PermissionModeSelect), so the picker
+// sits where you actually start typing, matching the reference product.
+// Keyboard arrow/Home/End handling is delegated to the Select primitive.
 
 /**
  * Renders one conversational turn: user message → tools used → assistant

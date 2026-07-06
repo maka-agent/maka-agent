@@ -188,7 +188,6 @@
   text-align: center;
 }
 
-.maka-composer-mode-chip,
 .maka-composer-model-chip {
   height: 26px;
   display: inline-flex;
@@ -208,7 +207,6 @@
     border-color var(--duration-base) var(--ease-out-strong);
 }
 
-.maka-composer-mode-chip:hover,
 .maka-composer-model-chip:hover {
   background: var(--state-hover-bg);
   color: var(--foreground);
@@ -219,70 +217,6 @@
   max-width: min(180px, 28vw);
 }
 
-/* PR-MOVE-PERMISSION-MODE (WAWQAQ 2026-06-23): permission-mode chip
-   in the composer left-controls + its dropdown menu. The chip reuses
-   the shared `.maka-composer-role-chip` / `.maka-composer-mode-chip`
-   geometry (h-24 pill, foreground-65 ink); only the menu styling
-   below is new. */
-.maka-composer-mode-chip {
-  font-variant-numeric: tabular-nums;
-}
-.maka-composer-mode-chip[data-tone="accent"] {
-  border-color: oklch(from var(--nav-active) l c h / 0.32);
-  color: var(--foreground-secondary);
-}
-.maka-composer-mode-chip[data-tone="destructive"] {
-  border-color: oklch(from var(--destructive) l c h / 0.32);
-  color: var(--destructive-text);
-}
-.maka-composer-mode-chip[data-tone="info"] {
-  border-color: oklch(from var(--info) l c h / 0.32);
-  color: var(--info-text);
-}
-.maka-composer-mode-chip[data-pending="true"] {
-  opacity: var(--opacity-muted);
-}
-.maka-composer-mode-chip:disabled {
-  cursor: not-allowed;
-  opacity: var(--opacity-disabled);
-}
-
-.maka-composer-mode-menu {
-  min-width: 280px;
-  padding: var(--space-1);
-  border-radius: var(--radius-surface);
-}
-.maka-composer-mode-menu [role="menuitem"] {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-2-5);
-  border-radius: var(--radius-control);
-}
-.maka-composer-mode-menu-item {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-  min-width: 0;
-}
-.maka-composer-mode-menu-label {
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  color: var(--foreground);
-}
-.maka-composer-mode-menu-hint {
-  font-size: var(--font-size-caption);
-  color: var(--muted-foreground);
-  line-height: var(--leading-snug);
-  white-space: normal;
-}
-.maka-composer-mode-menu [data-active="true"] {
-  background: var(--state-selected-bg);
-}
-.maka-composer-mode-menu [data-active="true"] .maka-composer-mode-menu-label {
-  color: var(--foreground);
-}
 
 .maka-composer-right-controls .maka-model-switcher {
   margin: 0;

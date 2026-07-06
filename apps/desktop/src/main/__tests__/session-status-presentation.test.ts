@@ -166,19 +166,17 @@ describe('permission mode transition guard copy', () => {
     assert.match(composerReasonBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
   });
 
-  it('composer mode chip disables itself when pending or disabledReason is present', async () => {
+  it('composer permission picker disables itself when pending or disabledReason is present', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
-    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \([\s\S]*?\) : null/)?.[0] ?? '';
 
-    assert.ok(dropdownBlock, 'composer.tsx must render a composer permission-mode Menu dropdown');
-    assert.match(dropdownBlock, /const triggerDisabled = props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\);/);
-    assert.match(dropdownBlock, /disabled=\{triggerDisabled\}/);
-    assert.match(dropdownBlock, /title=\{props\.permissionModeDisabledReason \?\? meta\.hint\}/);
-    assert.match(dropdownBlock, /data-pending=\{props\.permissionModePending \? 'true' : undefined\}/);
-    assert.match(dropdownBlock, /aria-label=\{`权限模式：\$\{meta\.label\}`\}/);
+    assert.ok(dropdownBlock, 'composer.tsx must render a PermissionModeSelect picker');
+    assert.match(dropdownBlock, /<PermissionModeSelect/);
+    assert.match(dropdownBlock, /disabled=\{props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\)\}/);
+    assert.match(dropdownBlock, /disabledReason=\{props\.permissionModeDisabledReason\}/);
   });
 
-  it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
+  it('composer permission picker uses the shared Base UI Select', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
     const menuModule = await readFile(join(REPO_ROOT, 'packages/ui/src/permission-mode-menu.tsx'), 'utf8');
 
@@ -193,16 +191,16 @@ describe('permission mode transition guard copy', () => {
       /export const PERMISSION_MODE_ORDER: readonly ChatDefaultPermissionMode\[\] = CHAT_DEFAULT_PERMISSION_MODES;/,
     );
 
-    // Mode chip uses base-ui Menu (not a custom radiogroup) — keyboard
-    // arrow / Home / End navigation is delegated to the primitive. The
-    // popup body is the shared PermissionModeMenuPopup so the composer and
-    // Settings pickers render identical option markup.
-    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
-    assert.match(dropdownBlock, /<Menu>/);
-    assert.match(dropdownBlock, /<MenuTrigger/);
-    assert.match(dropdownBlock, /<PermissionModeMenuPopup/);
+    // Permission picker is Base UI Select (the correct primitive for a
+    // single-value choice), not a hand-styled Menu + chip. The composer
+    // renders the shared PermissionModeSelect so option markup can't drift
+    // from the Settings picker; keyboard arrow/Home/End is delegated to
+    // the Select primitive.
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \([\s\S]*?\) : null/)?.[0] ?? '';
+    assert.match(dropdownBlock, /<PermissionModeSelect/);
+    assert.match(dropdownBlock, /activeMode=\{props\.permissionMode/);
     assert.match(dropdownBlock, /void props\.onPermissionModeChange\?\.\(mode\);/);
-    assert.match(menuModule, /<MenuPopup className="maka-composer-mode-menu"/);
+    assert.match(menuModule, /export function PermissionModeSelect/);
     assert.match(menuModule, /PERMISSION_MODE_ORDER\.map\(\(mode\) =>/);
   });
 
