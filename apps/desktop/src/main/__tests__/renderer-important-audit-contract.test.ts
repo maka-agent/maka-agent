@@ -62,9 +62,9 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared field ring shadow override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/empty-state.css',
     anchor: '.maka-session-list .maka-session-empty-state',
-    reason: 'shared empty-state card reset in sidebar surface',
+    reason: 'shared empty-state card reset (relocated from onboarding.css — issue #546 PR3)',
   },
   {
     fileSuffix: 'apps/desktop/src/renderer/styles/settings/nav-sidebar.css',
