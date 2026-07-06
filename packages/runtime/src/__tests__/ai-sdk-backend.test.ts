@@ -1858,6 +1858,75 @@ describe('AiSdkBackend model history', () => {
     assert.equal(events.some((event) => event.type === 'text_delta' && event.text === 'NEXT_OK'), true);
   });
 
+  test('aborting the model stream mid-flight routes to the abort path instead of false success', async () => {
+    const gate = makeGate();
+    let streamReachedGate = false;
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          async start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({ type: 'text-start', id: 'text-1' });
+            controller.enqueue({ type: 'text-delta', id: 'text-1', delta: 'PARTIAL' });
+            controller.enqueue({ type: 'text-end', id: 'text-1' });
+            streamReachedGate = true;
+            // Hold the stream open so stop() can flip this.aborted before the
+            // finish chunk arrives. The mock ignores the abort signal on
+            // purpose, simulating a provider that keeps yielding after abort.
+            await gate.promise;
+            controller.enqueue({
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: {
+                inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                outputTokens: { total: 1, text: 1, reasoning: 0 },
+              },
+            });
+            controller.close();
+          },
+        }),
+      },
+    });
+    const appended: string[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        appended.push(message.type);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const events: SessionEvent[] = [];
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+        events.push(event);
+      }
+    })();
+    await waitFor(() => streamReachedGate);
+    await backend.stop('user_stop');
+    gate.release();
+    await sendPromise;
+
+    // No partial assistant turn or usage should be persisted after a stop.
+    assert.equal(appended.includes('assistant'), false);
+    assert.equal(appended.includes('token_usage'), false);
+    // The turn must close as a user_stop, not a false end_turn success.
+    assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
+    const completes = events.filter((event) => event.type === 'complete');
+    assert.equal(completes.length > 0, true);
+    assert.equal(
+      completes.every((event) => (event as { stopReason?: string }).stopReason === 'user_stop'),
+      true,
+    );
+  });
+
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];

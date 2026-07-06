@@ -928,6 +928,14 @@ export class AiSdkBackend implements AgentBackend {
           });
         }
 
+        // If the stream loop exited because stop() flipped this.aborted while a
+        // provider kept yielding after abort instead of throwing, route to the
+        // abort handling below. Without this, the post-stream success path would
+        // persist a partial assistant turn and emit a false end_turn completion.
+        if (this.aborted) {
+          throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        }
+
         // Same-turn deferred load: prepareStep expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
         // the final active set — otherwise this turn under-reports the loaded
