@@ -441,26 +441,16 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   - 5 态：default / hover (button) / focus / active — 同 Button；
     disabled / loading / error 不适用
 
-### 3.8 TurnView + TurnSummary（`components.tsx:1237` + `:1174`）
+### 3.8 TurnView + footer info tooltip（`chat-view.tsx`）
 
 - **职责**：把"user → tools → assistant"渲染为一个 visual unit (`<section
-  class="maka-turn">`)。TurnSummary 是 chip strip：model · tools · duration ·
-  tokens。
-- **token**：chip 走 `.maka-turn-summary-chip` recipe；`data-kind="tools"`
-  着色为 accent；`data-state="in-progress"` 用 in-progress accent fill。
-- **ARIA**：summary chip 是普通 span；不打 button role（不可交互）；duration
-  chip 用 `font-variant-numeric: tabular-nums`。
-- **关键不变量**（`materialize.ts:158-160`）：
-  - `durationMs` 仅在 assistant message 落地后赋值，否则保持 undefined → UI
-    渲染 **"进行中"** 字符串（不要把 Date.now() - startedAt 显式 tick）。
-  - `tokens.costUsd` 仅当 > 0 时显示 tooltip；从不渲染 `$0.0000`。
-- **5 态**：
-  - default：完成态，chip 灰底
-  - hover：chip 不响应 hover；title 提供 tooltip（model id 用 mono）
-  - focus：N/A（不可交互）
-  - active：N/A
-  - in-progress：duration chip swap 为 "进行中"，accent fill；不显示
-    duration 数字
+  class="maka-turn">`)。turn 的 meta（model · duration · cost）落在 footer
+  的 info action tooltip——#546 删除了顶部 TurnSummary chip strip，meta 收进
+  tooltip，tooltip 只在 hover 时出现。
+- **关键不变量**（`materialize.ts`）：
+  - `durationMs` 仅在 assistant message 落地后赋值，否则保持 undefined →
+    info tooltip 不含 duration 项。
+  - `tokens.costUsd` 仅当 > 0 时进 tooltip；从不渲染 `$0.0000`。
 
 ### 3.9 ToolActivity（`components.tsx:1524`）
 
@@ -1334,15 +1324,14 @@ interface TurnRecord {
 
 Lineage 只写正向字段。旧 turn immutable：除自身 `running →
 completed/aborted/failed` 的状态变化外，未来 sibling 出现不会回写旧 turn。
-UI 需要 "已重试 →" / "已重新生成 →" 时，从当前 turn list derive 反向 map
+UI 需要 "已重新生成 →" 时，从当前 turn list derive 反向 map
 via `deriveTurnLineageMap()`（PR109d）。
 
 **操作清单**（UI 触发 → core/runtime 处理）：
 
 | 操作 | UI 文案 | 触发位置 | 适用 turn.status | 行为 | 旧 turn 处理 |
 |---|---|---|---|---|---|
-| `retry` | 「重试」 | turn footer hover | `failed` / `aborted` | sibling turn 复用同 user message + 写 `retriedFromTurnId` | immutable，自身 status 不变 |
-| `regenerate` | 「重新生成」 | assistant message footer hover | `completed` | sibling turn 复用同 user message + 写 `regeneratedFromTurnId` | immutable |
+| `regenerate` | 「重新生成」 | assistant message footer | `failed` / `aborted` / `completed` | sibling turn 复用同 user message + 写 `regeneratedFromTurnId`（legacy retry 的 `retriedFromTurnId` 在 badge 层 fallback 读） | immutable |
 | `branch-from-turn` | 「分支」 | turn header context menu | 任意（含 `aborted`） | 新 session via `sessions:branchFromTurn` + `branchOfTurnId` + `parentSessionId` + 复制至该 turn boundary（aborted 起点复制到中断前最后可用 boundary） | 原 session 不变；artifacts v1 只复制引用，不复制 bytes |
 | `cancel` | 「取消」 | streaming 中的 Composer Stop / Esc | `running` | turn → `aborted`；session → `aborted`；partial output 保留 | n/a — turn 自身 status 转 |
 | `checkpoint-before-tools` | n/a (自动) | 自动（destructive tool 前） | n/a | snapshot workspace；失败阻止 tool | n/a |
