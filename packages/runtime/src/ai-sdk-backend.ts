@@ -1810,11 +1810,13 @@ export class AiSdkBackend implements AgentBackend {
       return { policy };
     }
     try {
+      // No maxBytes here: the block JSON carries per-event provenance and
+      // legitimately outgrows the token budget; the loader caps reads by
+      // storage size, and token limits are enforced on the loaded blocks.
       const result = await Promise.resolve(this.input.loadHistoryCompact({
         sessionId: this.sessionId,
         maxBlocks: historyCompact.maxBlocks,
         maxEstimatedTokens: historyCompact.maxEstimatedTokens,
-        maxBytes: (historyCompact.maxEstimatedTokens ?? 2_048) * (policy.charsPerToken ?? 4),
       }));
       const blocks = result.blocks ?? [];
       return {
