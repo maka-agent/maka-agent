@@ -986,7 +986,8 @@ describe('context-budget history compact', () => {
     assert.equal(synthetic?.author, 'system');
     const compactText = synthetic?.content?.kind === 'text' ? synthetic.content.text : '';
     assert.match(compactText, /<maka_history_compact_block/);
-    assert.match(compactText, /runtimeEventIds=\[old-1, old-2, old-call, old-result\]/);
+    assert.match(compactText, /coverage: 4 runtime events across 3 turns/);
+    assert.doesNotMatch(compactText, /runtimeEventIds=\[/);
     assert.equal(events.some((event) => event.id === 'old-1'), true, 'input events remain unchanged');
   });
 
@@ -1124,7 +1125,10 @@ describe('context-budget history compact', () => {
     assert.equal(first.blocks.length, 1);
     assert.equal(first.blocks[0]?.blockId, second.blocks[0]?.blockId);
     assert.equal(validateHistoryCompactBlockShape(first.blocks[0], 'session-1'), true);
-    assert.match(renderHistoryCompactBlock(first.blocks[0]!), /bodySha256=/);
+    const rendered = renderHistoryCompactBlock(first.blocks[0]!);
+    assert.match(rendered, /coverage: 2 runtime events across 2 turns/);
+    assert.doesNotMatch(rendered, /bodySha256=/);
+    assert.ok((first.blocks[0]?.coverage.bodySha256.length ?? 0) > 0, 'hashes stay in the block JSON');
     assert.equal(first.events[0]?.id, `history-compact:${first.blocks[0]?.blockId}`);
     const boundary = historyCompactBlockToCompactionBoundary(first.blocks[0]!, {
       renderedText: renderHistoryCompactBlock(first.blocks[0]!),

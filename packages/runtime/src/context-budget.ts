@@ -1163,20 +1163,16 @@ export function renderSynthesisCacheBlock(block: SynthesisCacheBlock): string {
   ].join('\n');
 }
 
+// Model-visible rendering stays bounded regardless of how many events the
+// block folds: per-event ids, hashes, and archive refs live only in the
+// persisted block JSON, where coverage validation and replay read them.
 export function renderHistoryCompactBlock(block: HistoryCompactBlock): string {
-  const sourceText = block.sourceRefs.map((ref) => renderSynthesisSourceRef(ref)).join('; ');
-  const archiveText = (block.sourceArchiveRefs ?? [])
-    .map((ref) =>
-      `archive(runtimeEventId=${ref.runtimeEventId}, artifactId=${ref.artifactId}, bodySha256=${ref.bodySha256})`
-    )
-    .join('; ');
+  const archiveCount = block.sourceArchiveRefs?.length ?? 0;
   return [
     `<maka_history_compact_block id="${escapeAttribute(block.blockId)}" high_water="${escapeAttribute(block.highWaterName)}" seq="${block.highWaterSeq}" version="${block.version}">`,
     `summary: ${block.summary}`,
-    `coverage: turnIds=[${block.coverage.turnIds.join(', ')}], runtimeEventIds=[${block.coverage.runtimeEventIds.join(', ')}], contentKinds=[${block.coverage.contentKinds.join(', ')}], bodySha256=[${block.coverage.bodySha256.join(', ')}]`,
+    `coverage: ${block.coverage.runtimeEventIds.length} runtime events across ${block.coverage.turnIds.length} turns, contentKinds=[${block.coverage.contentKinds.join(', ')}]${archiveCount > 0 ? `, archivedSources=${archiveCount}` : ''}`,
     `limitations: ${block.limitations.join('; ')}`,
-    `sources: ${sourceText}`,
-    ...(archiveText.length > 0 ? [`archives: ${archiveText}`] : []),
     '</maka_history_compact_block>',
   ].join('\n');
 }
