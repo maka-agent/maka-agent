@@ -183,11 +183,16 @@ import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
 
-// E2E switches must never fire in a packaged build: a stray env on a build
-// machine would otherwise redirect userData, swap in the fake backend, seed
-// test data, or hide the window for real users. app.isPackaged is true for
-// asar-packaged builds, so this gates every E2E-only branch below.
-const isE2e = !app.isPackaged && process.env.MAKA_E2E === '1';
+// E2E switches must never fire in a packaged build, and must never run against
+// the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
+// swap in the fake backend or hide the window. app.isPackaged is true for
+// asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
+// backend can't write test sessions into a real profile if someone sets only
+// MAKA_E2E.
+const isE2e =
+  !app.isPackaged &&
+  process.env.MAKA_E2E === '1' &&
+  !!process.env.MAKA_E2E_USER_DATA_DIR;
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
