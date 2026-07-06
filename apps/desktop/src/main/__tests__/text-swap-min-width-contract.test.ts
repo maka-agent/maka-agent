@@ -41,7 +41,7 @@
  *    its onClick handler. The scan also requires every discovered button to
  *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
  *    can't bypass the value lock; the whitelist pins the exact value so a
- *    refactor can't shrink a real lock to the wrong value. Chat summary-chip / stream-count variant locks live in
+ *    refactor can't shrink a real lock to the wrong value. Chat stream-count variant locks live in
  *    the variant definition, so they're pinned by their literal declaration
  *    substrings.
  */
@@ -173,7 +173,7 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
     }
   });
 
-  it('chat summary-chip / stream-count variants keep their min-w declarations', async () => {
+  it('chat stream-count variants keep their min-w declarations', async () => {
     const byFile = new Map<string, typeof CHAT_VARIANT_LOCKS>();
     for (const l of CHAT_VARIANT_LOCKS) {
       const arr = byFile.get(l.file) ?? [];
