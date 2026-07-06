@@ -1,15 +1,13 @@
 import assert from 'node:assert/strict';
-import { Buffer } from 'node:buffer';
 import { describe, test } from 'node:test';
-import type { ArtifactRecord } from '@maka/core';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import { buildHistoryCompactBlockFromSummary } from '../context-budget.js';
 import type { HistoryCompactWriteInput } from '../ai-sdk-backend.js';
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
-  type HistoryCompactArtifactStore,
 } from '../history-compact-artifacts.js';
+import { memoryArtifactStore } from './memory-artifact-store.js';
 
 describe('history compact artifacts', () => {
   test('persists a compact block within default limits when the fold covers many events', async () => {
@@ -123,43 +121,6 @@ describe('history compact artifacts', () => {
     assert.deepEqual(loaded.skippedReasonCounts, { max_total_tokens: 1 });
   });
 });
-
-function memoryArtifactStore(): HistoryCompactArtifactStore {
-  const records = new Map<string, { record: ArtifactRecord; content: string }>();
-  return {
-    async create(input) {
-      const id = input.id ?? `artifact-${records.size + 1}`;
-      const record: ArtifactRecord = {
-        id,
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        createdAt: input.now ?? 0,
-        name: input.name,
-        kind: input.kind,
-        relativePath: input.name,
-        sizeBytes: Buffer.byteLength(input.content, 'utf8'),
-        mimeType: input.mimeType,
-        source: input.source,
-        summary: input.summary,
-        status: 'live',
-      };
-      records.set(id, { record, content: input.content });
-      return record;
-    },
-    async delete(artifactId) {
-      const entry = records.get(artifactId);
-      if (entry) entry.record.status = 'deleted';
-    },
-    async list() {
-      return [...records.values()].map((entry) => entry.record);
-    },
-    async readText(artifactId) {
-      const entry = records.get(artifactId);
-      if (!entry) return { ok: false, reason: 'not_found' };
-      return { ok: true, text: entry.content };
-    },
-  };
-}
 
 function textEvent(id: string, turnId: string, text: string): RuntimeEvent {
   return {

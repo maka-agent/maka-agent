@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { ArtifactRecord, LlmConnection, SessionHeader } from '@maka/core';
+import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolResultMessage } from '@maka/core/session';
@@ -40,6 +40,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '../history-compact-artifacts.js';
+import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import type { SemanticCompactBlock } from '../semantic-compact.js';
@@ -2227,41 +2228,7 @@ describe('AiSdkBackend model history', () => {
       author: index % 2 === 0 ? 'user' : 'agent',
       text: `large fold source fact ${index}`,
     }));
-    const artifacts = new Map<string, { record: ArtifactRecord; content: string }>();
-    const artifactStore = {
-      create: async (input: {
-        id?: string; sessionId: string; turnId: string; name: string; kind: 'file';
-        content: string; mimeType?: string; source: ArtifactRecord['source'];
-        summary?: string; now?: number;
-      }) => {
-        const id = input.id ?? `artifact-${artifacts.size + 1}`;
-        const record: ArtifactRecord = {
-          id,
-          sessionId: input.sessionId,
-          turnId: input.turnId,
-          createdAt: input.now ?? 0,
-          name: input.name,
-          kind: input.kind,
-          relativePath: input.name,
-          sizeBytes: Buffer.byteLength(input.content, 'utf8'),
-          mimeType: input.mimeType,
-          source: input.source,
-          summary: input.summary,
-          status: 'live' as const,
-        };
-        artifacts.set(id, { record, content: input.content });
-        return record;
-      },
-      delete: async (artifactId: string) => {
-        const entry = artifacts.get(artifactId);
-        if (entry) entry.record.status = 'deleted';
-      },
-      list: async () => [...artifacts.values()].map((entry) => entry.record),
-      readText: async (artifactId: string) => {
-        const entry = artifacts.get(artifactId);
-        return entry ? { ok: true as const, text: entry.content } : { ok: false as const, reason: 'not_found' };
-      },
-    };
+    const artifactStore = memoryArtifactStore();
     const persisted = await persistHistoryCompactBlocksToArtifacts(artifactStore, {
       sessionId: 'session-1',
       turnId: 'turn-persist',
@@ -2284,8 +2251,9 @@ describe('AiSdkBackend model history', () => {
       },
     }, { summarize: () => 'PERSISTED_LARGE_COMPACT_SENTINEL' });
     assert.equal(persisted.blocks.length, 1);
-    const blockRecord = [...artifacts.values()].find((entry) => entry.record.source === 'history_compact_block');
-    assert.ok((blockRecord?.record.sizeBytes ?? 0) > 4_096, 'provenance JSON outgrows the token-derived byte cap');
+    const blockRecord = (await artifactStore.list('session-1'))
+      .find((record) => record.source === 'history_compact_block');
+    assert.ok((blockRecord?.sizeBytes ?? 0) > 4_096, 'provenance JSON outgrows the token-derived byte cap');
 
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
