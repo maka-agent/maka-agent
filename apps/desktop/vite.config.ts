@@ -31,7 +31,11 @@ export default defineConfig({
     ],
   },
   build: {
-    outDir: '../../dist/renderer',
+    // Renderer bundle lives in dist-renderer (sibling of dist), separate from
+    // dist/renderer. dist/renderer holds tsc side-files that build:main emits
+    // for helpers imported by main/__tests__; emptyOutDir:true clears only
+    // dist-renderer, leaving those side-files intact. See check-stale-dist.mjs.
+    outDir: '../../dist-renderer',
     emptyOutDir: true,
   },
 });
