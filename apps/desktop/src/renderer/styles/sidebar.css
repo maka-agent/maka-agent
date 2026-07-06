@@ -743,9 +743,6 @@
   flex: 0 0 auto;
 }
 
-.maka-list-group[data-variant="project"] .maka-list-row-main {
-  padding-left: var(--space-8);
-}
 
 .maka-list-project-more {
   min-height: var(--h-control-lg);
