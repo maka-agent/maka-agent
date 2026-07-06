@@ -108,12 +108,10 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];
 
-// Chat summary-chip / stream-count variant locks: the min-w-[Nrem]
+// Chat stream-count variant lock: the min-w-[Nrem]
 // declaration lives in the variant definition (chat.tsx), not at the call
 // site, so we pin the literal declaration substrings.
 const CHAT_VARIANT_LOCKS: Array<{ file: string; substr: string; note: string }> = [
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=tools]:min-w-[5rem]', note: 'summary-chip tools count (N 个工具)' },
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=duration]:min-w-[4rem]', note: 'summary-chip duration (进行中 ↔ 时长)' },
   { file: 'packages/ui/src/primitives/chat.tsx', substr: 'min-w-[5rem] [font-variant-numeric:tabular-nums]', note: 'streamVariants count (stdout/stderr/已脱敏 N)' },
 ];
 

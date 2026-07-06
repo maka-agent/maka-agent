@@ -71,20 +71,8 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
     // retired `.maka-turn-*` rules exactly (pixels, oklch relative-color tints,
     // var() tokens) and never the semantic scale.
     for (const literal of [
-      // summary strip + chip + switched pill (maka-tokens.css)
+      // footer / lineage-row measure column (maka-tokens.css)
       'max-w-[var(--maka-chat-measure,680px)]',
-      "[&:not(:first-child)]:before:content-['·']",
-      '[&_code]:[font-family:var(--font-mono)]',
-      'data-[kind=model]:[&_code]:text-[color:var(--foreground-secondary)]',
-      // every chip `data-[kind]` conditional is pinned, not just `model`, so
-      // dropping the tools tint / duration+tokens tabular-nums / tokens mono
-      // fails the contract.
-      'data-[kind=tools]:text-[color:var(--muted-foreground)]',
-      'data-[kind=duration]:[font-variant-numeric:tabular-nums]',
-      'data-[kind=tokens]:[font-family:var(--font-mono)]',
-      'data-[state=in-progress]:text-[color:var(--status-running)]',
-      'data-[state=in-progress]:font-semibold',
-      'bg-[oklch(from_var(--foreground)_l_c_h_/_0.06)]',
       // aborted marker (models.css)
       'bg-[var(--foreground-5)]',
       '[&_em]:italic',

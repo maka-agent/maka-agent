@@ -136,28 +136,6 @@ export function Bubble({
 const markerVariants = cva("", {
   variants: {
     variant: {
-      // `.maka-turn-summary` + the `tool-output.css` measure-column re-anchor:
-      // one quiet caption line (model · tools · duration · tokens).
-      summary:
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-1.5 mb-0.5 ml-0 mr-auto text-[color:var(--muted-foreground)] [font-variant-numeric:tabular-nums]",
-      // `.maka-turn-summary-chip` (+ `::before` middot, nested `code`, and the
-      // `[data-kind]` / `[data-state]` / `[data-switched]` conditionals). The
-      // call site keeps passing `data-kind` / `data-state` / `data-switched`,
-      // which the literalized `data-[…]:` variants read.
-      "summary-chip":
-        "inline-flex items-center gap-1 text-[color:var(--muted-foreground)] text-[12px] font-medium leading-[1.4]"
-        + " [&:not(:first-child)]:before:content-['·'] [&:not(:first-child)]:before:mr-1 [&:not(:first-child)]:before:text-[color:var(--muted-foreground)] [&:not(:first-child)]:before:font-normal"
-        + " [&_code]:bg-transparent [&_code]:text-[color:inherit] [&_code]:[font-family:var(--font-mono)] [&_code]:text-[12px]"
-        + " data-[kind=model]:[&_code]:text-[color:var(--foreground-secondary)] data-[kind=model]:[&_code]:font-semibold"
-        + " data-[kind=tools]:text-[color:var(--muted-foreground)]"
-        + " data-[kind=duration]:[font-variant-numeric:tabular-nums]"
-        + " data-[kind=tools]:min-w-[5rem] data-[kind=duration]:min-w-[4rem]"
-        + " data-[kind=tokens]:[font-variant-numeric:tabular-nums] data-[kind=tokens]:[font-family:var(--font-mono)] data-[kind=tokens]:text-[12px]"
-        + " data-[state=in-progress]:text-[color:var(--status-running)] data-[state=in-progress]:font-semibold"
-        + " data-[kind=model]:data-[switched=true]:[&_code]:text-[color:var(--foreground-secondary)]",
-      // `.maka-turn-summary-chip-switched` — the muted "切换" pill.
-      "summary-switched":
-        "ml-1 px-1.5 py-[1px] rounded-[var(--radius-pill)] bg-[oklch(from_var(--foreground)_l_c_h_/_0.06)] text-[color:var(--foreground-secondary)] text-[11px] font-semibold",
       // `.maka-turn-aborted-marker` (+ its italic `em`) — dormant, muted.
       aborted:
         "inline-flex w-fit items-center gap-1 mx-0 mt-0.5 mb-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--foreground-secondary)] text-[12px] italic [&_em]:italic",
