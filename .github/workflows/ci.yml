@@ -36,7 +36,10 @@ jobs:
       - name: Ensure ripgrep
         run: command -v rg >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y ripgrep; }
       - run: npm ci
-      - run: npm run build
+      # build:test skips the renderer bundle (vite); test:dist only consumes
+      # tsc outputs (dist/main + dist/renderer side-files), never the vite
+      # bundle. e2e builds its own renderer in a separate job.
+      - run: npm run build:test
       # test:dist runs the suites against the dist just built above. The
       # workspace `test` scripts each do `clean && build` first, which would
       # throw away this dist and rebuild every package a second time.

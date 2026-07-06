@@ -12,6 +12,7 @@
     "storybook": "storybook dev -p 6006 -c .storybook",
     "build-storybook": "storybook build -c .storybook --output-dir storybook-static",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
+    "build:test": "npm run build:main && npm run build:preload",
     "clean:main": "node ../../scripts/clean-paths.mjs dist/main tsconfig.main.tsbuildinfo",
     "build:main": "tsc -p tsconfig.main.json",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload/preload.cjs --external:electron",
