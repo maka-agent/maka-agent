@@ -6,6 +6,8 @@ import {
   ProcessTerminal,
   SelectList,
   TUI,
+  isKeyRelease,
+  isKeyRepeat,
   matchesKey,
   truncateToWidth,
   visibleWidth,
@@ -556,14 +558,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // live listener while close() awaits the runtime stop; letting Escape or any
     // other key through here would mutate state or fire a second stop.
     if (closed) return { consume: true };
+    // Kitty keyboard protocol terminals (Ghostty/Kitty) emit separate press and
+    // release events. pi-tui only filters releases on the focused-component
+    // path, but this raw listener runs before that, so a release would
+    // immediately undo a Ctrl+O/Ctrl+T toggle and a single Escape's
+    // press+release pair could count as a double Escape. We never act on
+    // releases here; returning undefined lets the TUI apply its own filtering.
+    if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
-    if (matchesKey(data, Key.ctrl('o'))) {
+    if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
       if (toggleLatestToolExpansion(state)) {
         requestRender();
         return { consume: true };
       }
     }
-    if (matchesKey(data, Key.ctrl('t'))) {
+    if (matchesKey(data, Key.ctrl('t')) && !isKeyRepeat(data)) {
       if (toggleLatestThinkingExpansion(state)) {
         requestRender();
         return { consume: true };
