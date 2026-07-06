@@ -62,6 +62,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let busy = false;
   let closed = false;
   let permissionInFlight = false;
+  let turnRunning = false;
+  let lastTurnEscapeAt = 0;
   let resolveClosed: () => void;
   const closedPromise = new Promise<void>((resolve) => {
     resolveClosed = resolve;
@@ -176,6 +178,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (handleSlashCommand(prompt)) return;
 
     busy = true;
+    turnRunning = true;
+    lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
     requestRender();
@@ -187,6 +191,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       onChange: requestRender,
     }).finally(() => {
       busy = false;
+      turnRunning = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       requestRender();
@@ -530,6 +535,19 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
+    // Double Escape interrupts the running turn. This must sit below the
+    // permission branch so Escape keeps meaning "deny" while a prompt is
+    // pending, and it only arms while a prompt turn is actually running.
+    if (turnRunning && matchesKey(data, Key.escape)) {
+      const now = Date.now();
+      if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
+        lastTurnEscapeAt = 0;
+        void input.driver.stop().catch(reportError);
+      } else {
+        lastTurnEscapeAt = now;
+      }
+      return { consume: true };
+    }
     if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       void close();
       return { consume: true };
@@ -753,3 +771,6 @@ function padLine(text: string, width: number): string {
 }
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
+
+// Two Escapes this close together read as one deliberate "stop the turn".
+const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;

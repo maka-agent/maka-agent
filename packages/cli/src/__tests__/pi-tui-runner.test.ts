@@ -1105,6 +1105,82 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('interrupts the running turn on double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Stopped: user_stop'));
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    // Idle double Escape must not stop anything: the session is between turns.
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps Escape as permission deny while a permission prompt is pending', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.permissionResponses.length >= 1);
+
+    // Both Escapes route to the permission prompt, never to turn interruption.
+    assert.equal(driver.permissionResponses[0]?.decision, 'deny');
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('clears the permission prompt when the turn errors', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionThenErrorDriver();
@@ -1174,6 +1250,7 @@ class RejectingStopDriver implements MakaSessionDriver {
 class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
+  stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -1218,12 +1295,57 @@ class PermissionPromptDriver implements MakaSessionDriver {
     };
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
     this.continueAfterPermission?.();
   }
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class InterruptibleTurnDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // The turn parks like a real long-running provider call until stop() aborts it.
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
