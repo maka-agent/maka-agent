@@ -130,7 +130,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (closed) return;
     closed = true;
     try {
-      await input.driver.stop();
+      // A double-Escape interrupt may already have a stop in flight for this
+      // turn; reuse it instead of firing a second stopSession that would append
+      // a duplicate abort note. Otherwise stop the runtime as part of closing.
+      if (!interruptRequested) {
+        await input.driver.stop();
+      }
     } catch {
       // Closing the terminal must win even if the runtime stop path
       // has already failed or the session never fully started.

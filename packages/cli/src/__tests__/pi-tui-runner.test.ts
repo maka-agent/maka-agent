@@ -1281,6 +1281,41 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('does not stop again when Ctrl-C exits mid-interrupt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The interrupt is issued but the runtime stop has not settled and the turn
+    // is still parked. Quitting with Ctrl-C must reuse that in-flight stop, not
+    // fire a second stopSession through close() that appends a duplicate abort.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+
+    assert.equal(driver.stopCalls, 1);
+  });
+
   test('keeps Escape as permission deny while a permission prompt is pending', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
