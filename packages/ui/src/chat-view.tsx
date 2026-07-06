@@ -11,7 +11,6 @@ import {
   GitBranch,
   Loader2,
   RefreshCcw,
-  Repeat,
   Sparkles,
 } from './icons.js';
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
@@ -1208,10 +1207,10 @@ const TurnView = memo(function TurnView(props: {
  *
  * Copy action is handled locally (write to clipboard) so the
  * consumer doesn't need a clipboard IPC for it. Other actions
- * (retry / regenerate / branch) bubble up via `onAction`.
+ * (regenerate / branch) bubble up via `onAction`.
  */
 export interface TurnFooterActionMeta {
-  id: 'retry' | 'regenerate' | 'branch' | 'copy';
+  id: 'regenerate' | 'branch' | 'copy';
   label: string;
   enabled: boolean;
   tooltip?: string;
@@ -1381,7 +1380,6 @@ function TurnFooterActions(props: {
 }
 
 const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
-  retry: <Repeat size={12} strokeWidth={2} aria-hidden="true" />,
   regenerate: <RefreshCcw size={12} strokeWidth={2} aria-hidden="true" />,
   branch: <GitBranch size={12} strokeWidth={2} aria-hidden="true" />,
   copy: <Copy size={12} strokeWidth={2} aria-hidden="true" />,

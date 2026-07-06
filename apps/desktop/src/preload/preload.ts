@@ -37,7 +37,6 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
-  RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -160,9 +159,6 @@ contextBridge.exposeInMainWorld('maka', {
     },
     listTurns(sessionId: string): Promise<TurnRecord[]> {
       return ipcRenderer.invoke('sessions:listTurns', sessionId);
-    },
-    retryTurn(sessionId: string, input: RetryTurnInput): Promise<void> {
-      return ipcRenderer.invoke('sessions:retryTurn', sessionId, input);
     },
     regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void> {
       return ipcRenderer.invoke('sessions:regenerateTurn', sessionId, input);

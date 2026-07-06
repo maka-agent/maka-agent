@@ -233,7 +233,6 @@ export type {
   ChildAgentTurnInput,
   CreateSessionInput,
   RegenerateTurnInput,
-  RetryTurnInput,
   UserMessageInput,
   SessionListFilter,
 } from './runtime-inputs.js';

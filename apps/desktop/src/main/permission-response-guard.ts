@@ -2,7 +2,6 @@ import type {
   BranchFromTurnInput,
   PermissionResponse,
   RegenerateTurnInput,
-  RetryTurnInput,
 } from '@maka/core';
 
 const MAX_PERMISSION_REQUEST_ID_LENGTH = 128;
@@ -40,14 +39,6 @@ export function normalizePermissionResponse(input: unknown): PermissionResponse 
     requestId: value.requestId,
     decision: value.decision,
     ...(value.rememberForTurn !== undefined ? { rememberForTurn: value.rememberForTurn } : {}),
-  };
-}
-
-export function normalizeRetryTurnInput(input: unknown): RetryTurnInput {
-  const value = requireObject(input, 'Invalid retry turn input');
-  return {
-    sourceTurnId: normalizeRequiredString(value.sourceTurnId, 'Invalid retry turn sourceTurnId', MAX_TURN_ID_LENGTH),
-    ...normalizeOptionalTurnId(value.turnId),
   };
 }
 

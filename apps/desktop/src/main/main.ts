@@ -49,7 +49,6 @@ import {
   normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
-  normalizeRetryTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from './permission-response-guard.js';
@@ -1187,12 +1186,6 @@ function registerIpc(): void {
       return { ok: true, base64: result.base64, mimeType: result.mimeType };
     },
   );
-  ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
-    await ensureSessionCanSend(sessionId);
-    const normalized = normalizeRetryTurnInput(input);
-    const turnId = normalized.turnId ?? randomUUID();
-    void streamEvents(sessionId, runtime.retryTurn(sessionId, { ...normalized, turnId }), turnId);
-  });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRegenerateTurnInput(input);

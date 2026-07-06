@@ -41,7 +41,6 @@ import type {
   CreateSessionInput,
   BranchFromTurnInput,
   RegenerateTurnInput,
-  RetryTurnInput,
   UserMessageInput,
   SessionListFilter,
 } from '@maka/core/runtime-inputs';
@@ -608,21 +607,6 @@ export class SessionManager {
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
     await this.runtimeKernel.stopSession(sessionId, input);
-  }
-
-  async *retryTurn(
-    sessionId: string,
-    input: RetryTurnInput,
-  ): AsyncIterable<SessionEvent> {
-    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['failed', 'aborted'], 'retry');
-    const user = await this.requireUserMessageForTurn(sessionId, source.turnId);
-    yield* this.sendMessage(sessionId, {
-      turnId: input.turnId ?? this.deps.newId(),
-      text: user.text,
-      ...(user.attachments ? { attachments: user.attachments } : {}),
-      parentTurnId: source.turnId,
-      retriedFromTurnId: source.turnId,
-    });
   }
 
   async *regenerateTurn(

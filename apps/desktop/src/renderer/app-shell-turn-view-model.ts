@@ -38,7 +38,7 @@ export function deriveAppShellTurnViewModel(input: {
   for (const turn of turnsForLineage) {
     const lineageEntry = lineage.get(turn.turnId);
     const pendingForTurn = new Set<TurnFooterActionMeta['id']>();
-    for (const id of ['retry', 'regenerate', 'branch', 'copy'] as const) {
+    for (const id of ['regenerate', 'branch', 'copy'] as const) {
       if (input.activeId && input.pendingTurnActions.has(input.pendingKeyOf(input.activeId, turn.turnId, id))) {
         pendingForTurn.add(id);
       }
@@ -46,7 +46,6 @@ export function deriveAppShellTurnViewModel(input: {
     footer[turn.turnId] = deriveTurnFooterActions({
       status: turn.status,
       hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
-      ...(lineageEntry?.retriedToTurnId ? { alreadyRetried: true } : {}),
       ...(lineageEntry?.regeneratedToTurnId ? { alreadyRegenerated: true } : {}),
       ...(pendingForTurn.size > 0 ? { pendingActions: pendingForTurn } : {}),
     });

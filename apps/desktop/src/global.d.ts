@@ -35,7 +35,6 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
-  RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -136,7 +135,6 @@ declare global {
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
-        retryTurn(sessionId: string, input: RetryTurnInput): Promise<void>;
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
