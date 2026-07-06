@@ -456,10 +456,15 @@ export interface AiSdkBackendInput {
   recordToolArtifacts?: ToolArtifactRecorder;
   /**
    * Optional attachment byte reader. When set, image attachments on the current
-   * user turn are rendered as provider image parts instead of placeholder text.
+   * user turn may be rendered as provider image parts instead of placeholder text.
    * Caller wires this to the session ArtifactStore; runtime never imports storage.
    */
   readAttachmentBytes?: AttachmentByteReader;
+  /**
+   * Whether the selected model accepts image input. Only explicit true sends
+   * image parts; false/unknown stay as text refs with a fallback note.
+   */
+  supportsVision?: boolean;
   /**
    * Optional archive writer for replay-only stale tool-result pruning. The
    * runtime rewrites only candidates whose original body has been durably
@@ -490,6 +495,10 @@ export interface SystemPromptContext {
   sessionId: string;
   cwd: string;
   workspaceRoot: string;
+}
+
+function appendNonVisionImageFallbackNotice(textContent: string): string {
+  return `${textContent}\n\n[image attachments omitted: the selected model does not support image input. Tell the user you cannot view the attached image(s) and ask them to describe the image or switch to a vision-capable model.]`;
 }
 
 // ============================================================================
@@ -2217,17 +2226,22 @@ export class AiSdkBackend implements AgentBackend {
   /**
    * Render provider-visible content for a user message: keep the given
    * (already-formatted) text, and append image attachments as provider image
-   * parts via the injected reader. Non-image attachments stay as placeholder
-   * refs in the text; when there are no readable images, content stays a
-   * plain string. Shared by the current turn, RuntimeEvent replay, and the
-   * stored-message fallback so all three paths present images identically.
+   * parts only for explicitly vision-capable models. Non-image attachments stay
+   * as placeholder refs in the text. Shared by the current turn, RuntimeEvent
+   * replay, and the stored-message fallback so all paths present images identically.
    */
   private async appendImageParts(
     textContent: string,
     attachments?: AttachmentRef[],
   ): Promise<ModelMessage['content']> {
     const images = attachments?.filter((a) => a.kind === 'image') ?? [];
-    if (images.length === 0 || !this.input.readAttachmentBytes) {
+    if (images.length === 0) {
+      return textContent;
+    }
+    if (this.input.supportsVision !== true) {
+      return appendNonVisionImageFallbackNotice(textContent);
+    }
+    if (!this.input.readAttachmentBytes) {
       return textContent;
     }
     const parts: Array<{ type: 'text'; text: string } | { type: 'image'; image: Uint8Array; mediaType: string }> = [

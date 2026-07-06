@@ -1,7 +1,7 @@
 import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
@@ -15,6 +15,7 @@ import {
   isPermissionMode,
   isThinkingLevel,
   thinkingVariantsForModel,
+  resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -57,7 +58,7 @@ import { CodexSubscriptionService } from './oauth/codex-subscription-service.js'
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { PricingConfig } from '@maka/core/usage-stats/types';
+import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
   TestProxyInput,
   TestProxyResult,
@@ -86,6 +87,9 @@ import {
   setActiveProxy,
 } from '@maka/runtime';
 import type {
+  BotIncomingMessage,
+  BotStatus,
+  MakaTool,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -137,19 +141,10 @@ import {
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
-import {
-  createAttachmentApprovalRegistry,
-  validateRendererAttachments,
-  type AttachmentValidationFailureReason,
-} from './attachment-approval.js';
-import {
-  readFolderOutlinesForPromptImport,
-  readDroppedTextFilesForPromptImport,
-  readTextFilesForPromptImport,
-  type DroppedTextFilePayload,
-  type FolderOutlineImportFailureReason,
-  type TextFileImportFailureReason,
-} from './text-file-import.js';
+import { createAttachmentApprovalRegistry } from './attachment-approval.js';
+import { createAttachmentByteReader } from './attachment-reader.js';
+import { resizeImageForAttachment } from './attachment-resize-native.js';
+import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
@@ -375,14 +370,14 @@ const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
 // and advertise every tool every turn (legacy behavior).
 const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools = [buildRiveWorkflowTool()];
-const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
+const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
+const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // Embedded-browser observe→act tools. They drive the conversation's own
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
-const browserTools = buildBrowserTools();
-const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const browserTools: MakaTool[] = buildBrowserTools();
+const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -392,8 +387,8 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
-const builtinTools = [
-  ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+const builtinTools: MakaTool[] = [
+  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -431,7 +426,7 @@ let botIncoming: ReturnType<typeof createBotIncomingMainService>;
 // project-root resolution is tracked as a follow-up.
 let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
 const botRegistry = new BotRegistry({
-  onIncomingMessage: (message) => {
+  onIncomingMessage: (message: BotIncomingMessage) => {
     // Only log incoming bot messages in dev — production stdout leaking
     // platform + chatId is operational noise at best and a small privacy
     // signal at worst (which bridges are connected, with what frequency).
@@ -440,7 +435,7 @@ const botRegistry = new BotRegistry({
     }
     void botIncoming.handleBotIncomingMessage(message);
   },
-  onStatusChange: (status) => {
+  onStatusChange: (status: BotStatus) => {
     safeSendToRenderer('settings:bots:statusChanged', status);
     // PR-BOT-LASTERROR-FROM-SEND-0: persist send-path failure reasons
     // to settings so they survive a Settings page close/reopen. The
@@ -578,10 +573,15 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
 }
 
+function modelSupportsVision(connection: LlmConnection, model: string): boolean {
+  return resolveModelVisionSupport(connection.providerType, connection.models, model);
+}
+
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
+  const supportsVision = modelSupportsVision(connection, model);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -605,8 +605,8 @@ backends.register('ai-sdk', async (ctx) => {
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     lookupPricing,
-    recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
-    recordToolInvocation: (event) =>
+    recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
+    recordToolInvocation: (event: ToolInvocationRecord) =>
       recordToolInvocation(
         { repo: telemetryRepo },
         // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
@@ -617,9 +617,11 @@ backends.register('ai-sdk', async (ctx) => {
           ? { ...event, argsSummary: undefined }
           : event,
       ),
-    recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
-    archiveToolResult: (event) => persistArchivedToolResult(event),
-    readToolResultArchive: (event) => readArchivedToolResult(event),
+    recordToolArtifacts: (event: ToolArtifactRecorderInput) => persistToolArtifacts(ctx.header.cwd, event),
+    archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
+    readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
+    readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
+    supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
@@ -746,54 +748,7 @@ function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreat
   }
 }
 
-function textFileImportFailureCopy(reason: TextFileImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选文件不存在或不是普通文件。';
-    case 'too-large':
-      return '文件过大；请先截取需要讨论的部分。';
-    case 'binary':
-      return '这个文件不像纯文本，已取消导入。';
-    case 'too-many-files':
-      return '一次最多导入 5 个文件。';
-    case 'office-file':
-      return 'Office 文档请用导入文件按钮选择；拖放或粘贴拿不到可授权的本地路径。';
-    case 'unsupported-type':
-      return '只支持直接导入文本文件和 Office 文档。';
-    case 'read-failed':
-      return '读取文件失败。';
-    case 'officecli_missing':
-      return '本机未检测到 officecli，暂时无法导入 Office 文档内容。';
-    case 'officecli_timeout':
-      return 'Office 文档内容导入超时。';
-    case 'officecli_failed':
-      return 'Office 文档内容导入失败。';
-  }
-}
 
-function folderOutlineImportFailureCopy(reason: FolderOutlineImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选位置不存在或不是文件夹。';
-    case 'read-failed':
-      return '读取文件夹目录失败。';
-    case 'too-many-folders':
-      return '一次最多导入 3 个文件夹目录。';
-    case 'empty':
-      return '这个文件夹里没有可导入的文件目录。';
-  }
-}
-
-function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
-  switch (reason) {
-    case 'too_many_attachments':
-      return '一次最多发送 8 个附件。';
-    case 'unapproved_external_path':
-      return '附件来源已过期，请重新选择文件后再发送。';
-    case 'invalid_attachment':
-      return '附件信息无效，请重新选择文件后再发送。';
-  }
-}
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
   const raw = redactSecrets(result.error ?? '').trim();
@@ -992,78 +947,6 @@ function registerIpc(): void {
       return { ok: true };
     },
   );
-  ipcMain.handle(
-    'context:importTextFile',
-    async (): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const textFileFilters = [
-        { name: 'Text', extensions: ['txt', 'text', 'md', 'markdown', 'mdx', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cc', 'cpp', 'h', 'hh', 'hpp', 'sh', 'zsh', 'sql', 'ini', 'conf', 'env'] },
-        { name: 'Office', extensions: ['docx', 'xlsx', 'pptx'] },
-        { name: 'All Files', extensions: ['*'] },
-      ];
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件内容',
-        properties: ['openFile', 'multiSelections'],
-        filters: textFileFilters,
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readTextFilesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importDroppedTextFiles',
-    async (_event, payloads: unknown): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const safePayloads: DroppedTextFilePayload[] = Array.isArray(payloads)
-        ? payloads.map((payload) => {
-            const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-            return {
-              name: typeof value.name === 'string' ? value.name : '',
-              size: typeof value.size === 'number' ? value.size : 0,
-              type: typeof value.type === 'string' ? value.type : '',
-              text: typeof value.text === 'string' ? value.text : '',
-            };
-          })
-        : [];
-      const imported = readDroppedTextFilesForPromptImport(safePayloads);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importFolderOutline',
-    async (): Promise<
-      | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: FolderOutlineImportFailureReason; message: string }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件夹目录',
-        properties: ['openDirectory', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readFolderOutlinesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: folderOutlineImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
   registerWorkspaceResourcesIpc({
     workspaceRoot,
     artifactStore,
@@ -1253,22 +1136,57 @@ function registerIpc(): void {
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
-    await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(sendCommand.attachments, {
+    const { turnId, attachments } = await resolveSessionSend({
+      sessionId,
       senderId: event.sender.id,
+      command: sendCommand,
+      ensureCanSend: ensureSessionCanSend,
+      readHeader: (id) => store.readHeader(id),
       approvals: attachmentApprovals,
+      stat: async (path) => ({ size: (await stat(path)).size }),
+      artifactStore,
+      resizeImage: resizeImageForAttachment,
     });
-    if (!attachments.ok) {
-      throw new Error(attachmentValidationFailureCopy(attachments.reason));
-    }
-    const turnId = sendCommand.turnId || randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
       text: sendCommand.text,
-      attachments: attachments.attachments,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
     void streamEvents(sessionId, iterator, turnId);
+    return { turnId, attachments };
   });
+  ipcMain.handle(
+    'attachments:pickFiles',
+    async (event): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > => {
+      const result = await mainWindowController.showOpenDialog({
+        title: '添加附件',
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
+      const chosen = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, name: basename(path), size: (await stat(path)).size })),
+      );
+      // Paths stay in main; the renderer only gets one-shot opaque tokens.
+      return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
+    },
+  );
+  ipcMain.handle(
+    'attachments:readBytes',
+    async (_event, sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > => {
+      // Session-scoped read: only attachments filed under this session.
+      const record = await artifactStore.get(relativePath).catch(() => null);
+      if (!record || record.sessionId !== sessionId) return { ok: false, reason: 'not_found' };
+      const result = await artifactStore.readBinary(relativePath);
+      if (!result.ok) return result;
+      return { ok: true, base64: result.base64, mimeType: result.mimeType };
+    },
+  );
   ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRetryTurnInput(input);

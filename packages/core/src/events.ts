@@ -420,12 +420,16 @@ export interface AbortEvent extends BaseEvent {
  * its fields, so there is exactly ONE shape for a permission decision in
  * the codebase.
  */
+export type AttachmentIngestItem =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { name: string; mimeType?: string; base64: string };
+
 export type SessionCommand =
   | {
       type: 'send';
       turnId: string;
       text: string;
-      attachments?: AttachmentRef[];
+      attachmentItems?: AttachmentIngestItem[];
     }
   | { type: 'stop' }
   | { type: 'permission_response'; response: PermissionResponse }

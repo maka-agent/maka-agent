@@ -12,7 +12,7 @@ import type {
   ThemePreference,
   ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel, attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -90,12 +90,12 @@ import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
-import { createAppShellChatActions } from './app-shell-chat-actions';
+import { createAppShellChatActions, type PendingAttachment } from './app-shell-chat-actions';
+import { appendPending, clearPending, removePending, selectPending, type PendingByKey } from './app-shell-pending-attachments';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
 import { createAppShellDailyReviewActions } from './app-shell-daily-review-actions';
-import { createAppShellImportActions } from './app-shell-import-actions';
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
@@ -114,6 +114,28 @@ type ComposerImportOwner = {
   sessionId: string | undefined;
   navSection: NavSelection['section'];
 };
+
+function approvalToPending(file: { approvalId: string; name: string; mimeType?: string; size: number }): PendingAttachment {
+  const mimeType = file.mimeType ?? guessMimeFromName(file.name);
+  return {
+    displayName: file.name,
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType, file.name),
+    size: file.size,
+    source: { type: 'approval', approvalId: file.approvalId, name: file.name },
+  };
+}
+
+function fileToPending(file: File): PendingAttachment {
+  const mimeType = file.type || undefined;
+  return {
+    displayName: file.name,
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType ?? '', file.name),
+    size: file.size,
+    source: { type: 'file', file },
+  };
+}
 
 export function AppShell({
   initialOnboardingSnapshot = null,
@@ -145,6 +167,9 @@ export function AppShell({
     });
   }
   const [activeId, setActiveIdState] = useState<string | undefined>();
+  const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
+  const attachmentDraftKey = activeId ?? 'new-session';
+  const pendingAttachments = selectPending(pendingByKey, attachmentDraftKey);
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -896,17 +921,31 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  const {
-    importDroppedTextFilesIntoComposer,
-    importDroppedTextFilesPrompt,
-    importFolderOutlineIntoComposer,
-    importTextFileIntoComposer,
-  } = createAppShellImportActions({
-    captureComposerImportOwner,
-    composerRef,
-    isComposerImportOwnerActive,
-    toastApi,
-  });
+  async function pickAttachments(): Promise<void> {
+    try {
+      const result = await window.maka.attachments.pickFiles();
+      if (!result.ok) return;
+      setPendingByKey((map) => appendPending(map, attachmentDraftKey, result.files.map(approvalToPending)));
+    } catch (error) {
+      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+    }
+  }
+
+  async function attachFilePaths(files: File[]): Promise<void> {
+    if (files.length === 0) return;
+    setPendingByKey((map) => appendPending(map, attachmentDraftKey, files.map(fileToPending)));
+  }
+
+  function removeAttachment(index: number): void {
+    setPendingByKey((map) => removePending(map, attachmentDraftKey, index));
+  }
+
+  async function sendWithAttachments(text: string): Promise<boolean | void> {
+    const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
+    const ok = await send(text, pending);
+    if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
+    return ok;
+  }
 
   const stop = createAppShellStopAction({
     activeIdRef,
@@ -1439,7 +1478,6 @@ export function AppShell({
                             toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
                           }
                         }}
-                        onImportDroppedTextFiles={importDroppedTextFilesPrompt}
                       />
                       {onboardingState.kind === 'ready_empty' && (
                         <FirstRunChecklist
@@ -1473,12 +1511,13 @@ export function AppShell({
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
                 streaming={activeStreamingLive}
-                onSend={send}
+                onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                onImportTextFile={importTextFileIntoComposer}
-                onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
-                onImportFolderOutline={importFolderOutlineIntoComposer}
+                pendingAttachments={pendingAttachments}
+                onRemoveAttachment={removeAttachment}
+                onPickAttachments={pickAttachments}
+                onAttachFilePaths={attachFilePaths}
                 modelLabel={
                   activeModelLabel
                   ?? newChatModelLabel

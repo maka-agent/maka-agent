@@ -1,5 +1,5 @@
 import { deriveTurnRecords } from '@maka/core';
-import type { StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
+import type { AttachmentRef, StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 
 export interface ChatItem {
   id: string;
@@ -7,6 +7,8 @@ export interface ChatItem {
   text: string;
   /** Wall-clock timestamp of the source StoredMessage; surfaced for hover meta. */
   ts?: number;
+  /** User-message attachments projected from StoredMessage; absent on assistant/system rows. */
+  attachments?: AttachmentRef[];
 }
 
 /**
@@ -75,7 +77,15 @@ const SYSTEM_NOTE_LABELS: Record<string, string> = {
 export function materializeChat(messages: StoredMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
   for (const message of messages) {
-    if (message.type === 'user') items.push({ id: message.id, role: 'user', text: message.text, ts: message.ts });
+    if (message.type === 'user') {
+      items.push({
+        id: message.id,
+        role: 'user',
+        text: message.text,
+        ts: message.ts,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+      });
+    }
     if (message.type === 'assistant') items.push({ id: message.id, role: 'assistant', text: message.text, ts: message.ts });
     if (message.type === 'system_note' && VISIBLE_SYSTEM_NOTES.has(message.kind)) {
       items.push({
@@ -258,7 +268,13 @@ export function materializeTurns(
     const ts = (message as { ts?: number }).ts ?? 0;
     const turn = ensureTurn(turnId, ts);
     if (message.type === 'user') {
-      turn.user = { id: message.id, role: 'user', text: message.text, ts: message.ts };
+      turn.user = {
+        id: message.id,
+        role: 'user',
+        text: message.text,
+        ts: message.ts,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+      };
     } else if (message.type === 'assistant') {
       turn.assistant = { id: message.id, role: 'assistant', text: message.text, ts: message.ts };
       turn.modelId = message.modelId;

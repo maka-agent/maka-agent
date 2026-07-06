@@ -1,0 +1,207 @@
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import type { ComponentProps } from 'react';
+import type { AttachmentRef, SessionSummary, StoredMessage } from '@maka/core';
+import { ChatView, Composer } from '../src/components.js';
+import type { ChatModelChoice } from '../src/chat-model-helpers.js';
+
+const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
+
+// 64x64 solid-color PNGs so the thumbnail/lightbox actually show an image
+// (the renderer reads attachment bytes via window.maka.attachments.readBytes).
+const RED_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACv0lEQVR4nO3TMQ0AMAzAsELcPcSDNRg9YskA8mTeuZA16wWwyACkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSPvHHhWvMw1VrQAAAABJRU5ErkJggg==';
+const BLUE_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACwElEQVR4nO3TMQ0AMAzAsEIckuEcrMHoEUsGkCdz7oOsWS+ARQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQJoBSDMAaQYgzQCkGYA0A5BmANIMQNoHahEW2x9npg0AAAAASUVORK5CYII=';
+
+const meta = {
+  title: 'Product/Attachments',
+  parameters: { layout: 'fullscreen' },
+  decorators: [
+    (Story: () => React.ReactElement) => {
+      (window as unknown as { maka?: { attachments?: { readBytes?: (sessionId: string, relativePath: string) => Promise<{ ok: true; base64: string; mimeType: string }> } } }).maka = {
+        attachments: {
+          readBytes: async (_sessionId: string, relativePath: string) => ({
+            ok: true as const,
+            base64: relativePath.includes('metrics') ? BLUE_PNG : RED_PNG,
+            mimeType: 'image/png',
+          }),
+        },
+      };
+      return Story();
+    },
+  ],
+} satisfies Meta;
+
+export default meta;
+
+type Story = StoryObj<typeof meta>;
+type ComposerProps = ComponentProps<typeof Composer>;
+type ChatViewProps = ComponentProps<typeof ChatView>;
+
+const modelChoices: ChatModelChoice[] = [
+  { connectionSlug: 'anthropic-main', providerType: 'anthropic', model: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+];
+
+function noop() {
+  return undefined;
+}
+
+function session(o: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    id: 's',
+    name: '附件展示',
+    isFlagged: false,
+    isArchived: false,
+    labels: [],
+    hasUnread: false,
+    lastMessageAt: NOW,
+    lastMessagePreview: '帮我看下这几个文件。',
+    status: 'active',
+    backend: 'ai-sdk',
+    llmConnectionSlug: 'anthropic-main',
+    model: 'claude-sonnet-4-5',
+    permissionMode: 'ask',
+    ...o,
+  };
+}
+
+function attachment(kind: AttachmentRef['kind'], name: string, mimeType: string, bytes = 1024): AttachmentRef {
+  return { kind, name, mimeType, bytes, ref: { kind: 'session_file', sessionId: 's', relativePath: name } };
+}
+
+const imageAttachment = attachment('image', 'dashboard.png', 'image/png', 480_000);
+const metricsAttachment = attachment('image', 'metrics.png', 'image/png', 920_000);
+const pdfAttachment = attachment('pdf', 'design-spec.pdf', 'application/pdf', 512_000);
+const docAttachment = attachment('doc', '周报.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 128_000);
+const codeAttachment = attachment('code', 'handler.ts', 'text/typescript', 4_096);
+const otherAttachment = attachment('other', 'archive.zip', 'application/zip', 88_000);
+
+const baseComposer: ComposerProps = {
+  draftKey: 'storybook-attachments',
+  onSend: noop,
+  onStop: noop,
+  modelLabel: 'Claude Sonnet 4.5',
+  activeSession: session(),
+  activeConnectionLabel: 'Anthropic',
+  activeModel: 'claude-sonnet-4-5',
+  activeModelLabel: 'Claude Sonnet 4.5',
+  modelChoices,
+  permissionMode: 'ask',
+  onPermissionModeChange: noop,
+  workspacePicker: { label: 'maka-agent', branch: 'main', onOpen: noop, onSelect: noop },
+  onPickAttachments: noop,
+  onAttachFilePaths: noop,
+};
+
+const baseChat: ChatViewProps = {
+  messages: [],
+  streamingText: '',
+  tools: [],
+  activeSession: session(),
+  activeConnectionLabel: 'Anthropic',
+  activeModel: 'claude-sonnet-4-5',
+  activeModelLabel: 'Claude Sonnet 4.5',
+  modelChoices,
+  userLabel: '你',
+  mode: 'sessions',
+  onNew: noop,
+  onPromptSuggestion: noop,
+};
+
+function user(id: string, turnId: string, text: string, attachments: AttachmentRef[]): StoredMessage {
+  return { type: 'user', id, turnId, ts: NOW, text, attachments };
+}
+
+function Frame({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        width: 960,
+        maxWidth: 'calc(100vw - 48px)',
+        margin: '0 auto',
+        background: 'var(--background)',
+        display: 'flex',
+        minHeight: 360,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+export const ComposerPendingChips: Story = {
+  render: () => (
+    <Frame>
+      <div style={{ padding: '0 24px 24px', width: '100%' }}>
+      <Composer
+        {...baseComposer}
+        draftKey="composer-pending-chips"
+        pendingAttachments={[
+          { displayName: 'chart.png', kind: 'image', mimeType: 'image/png', size: 480_000 },
+          { displayName: 'design-spec.pdf', kind: 'pdf', mimeType: 'application/pdf', size: 512_000 },
+          { displayName: 'handler.ts', kind: 'code', mimeType: 'text/typescript', size: 4_096 },
+          { displayName: 'archive.zip', kind: 'other', mimeType: 'application/zip', size: 88_000 },
+        ]}
+        onRemoveAttachment={noop}
+      />
+      </div>
+    </Frame>
+  ),
+};
+
+export const ChatAttachmentChips: Story = {
+  render: () => (
+    <Frame>
+      <ChatView
+        {...baseChat}
+        messages={[user('u1', 't1', '帮我看下这几个文件，哪些要改。', [pdfAttachment, docAttachment, codeAttachment, otherAttachment])]}
+      />
+    </Frame>
+  ),
+};
+
+export const ImageThumbnails: Story = {
+  render: () => (
+    <Frame>
+      <ChatView
+        {...baseChat}
+        messages={[user('u2', 't2', '这两张截图帮我对比一下。', [imageAttachment, metricsAttachment])]}
+      />
+    </Frame>
+  ),
+};
+
+export const PendingSkeleton: Story = {
+  render: () => (
+    <Frame>
+      <ChatView
+        {...baseChat}
+        messages={[user('u3', 't3', '这张图还在读。', [attachment('image', 'loading.png', 'image/png', 1024)])]}
+      />
+    </Frame>
+  ),
+  decorators: [
+    (Story: () => React.ReactElement) => {
+      // No readBytes mock — the thumbnail stays in the pending skeleton state.
+      (window as unknown as { maka?: unknown }).maka = undefined;
+      return Story();
+    },
+  ],
+};
+
+export const Lightbox: Story = {
+  render: () => (
+    <Frame>
+      <ChatView
+        {...baseChat}
+        messages={[user('u4', 't4', '点击图片放大查看。', [imageAttachment])]}
+      />
+    </Frame>
+  ),
+  play: async ({ canvasElement }) => {
+    await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    const btn = canvasElement.querySelector<HTMLButtonElement>('button[aria-label^="查看图片"]');
+    btn?.click();
+  },
+};

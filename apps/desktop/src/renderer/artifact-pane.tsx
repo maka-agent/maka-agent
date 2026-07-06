@@ -168,7 +168,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }, [collapsed]);
 
   const activeRecords = useMemo(
-    () => (recordsSessionId === sessionId ? records : []),
+    () => (recordsSessionId === sessionId ? records.filter((record) => record.source !== 'user_upload') : []),
     [records, recordsSessionId, sessionId],
   );
 

@@ -390,9 +390,8 @@ export const ImportActions: Story = {
         activeConnectionLabel: undefined,
         activeModel: undefined,
         activeModelLabel: undefined,
-        onImportTextFile: noop,
-        onImportFolderOutline: noop,
-        onImportDroppedTextFiles: noop,
+        onPickAttachments: noop,
+        onAttachFilePaths: noop,
         newChatModel: {
           llmConnectionSlug: 'anthropic-main',
           model: 'claude-sonnet-4-5',

@@ -24,9 +24,10 @@ import {
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
-import type { PermissionMode, ProviderType, SessionSummary } from '@maka/core';
+import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
+import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
 import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
@@ -91,7 +92,7 @@ export interface ComposerHandle {
   focus(): void;
 }
 
-type ComposerImportActionId = 'file' | 'folder' | 'drop' | 'paste';
+type ComposerImportActionId = 'pick' | 'attach';
 
 export const Composer = forwardRef<
   ComposerHandle,
@@ -110,9 +111,10 @@ export const Composer = forwardRef<
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void | Promise<void>;
-    onImportTextFile?(): void | Promise<void>;
-    onImportFolderOutline?(): void | Promise<void>;
-    onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
+    onPickAttachments?(): void | Promise<void>;
+    onAttachFilePaths?(files: File[]): void | Promise<void>;
+    pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
+    onRemoveAttachment?(index: number): void;
     modelLabel?: string;
     activeSession?: SessionSummary;
     activeConnectionLabel?: string;
@@ -430,8 +432,8 @@ export const Composer = forwardRef<
     saveCurrentDraft();
   }
 
-  function canAcceptDroppedTextFiles(): boolean {
-    return Boolean(props.onImportDroppedTextFiles && !props.disabled && !props.streaming && !pendingImportActionRef.current);
+  function canAcceptDroppedFiles(): boolean {
+    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !pendingImportActionRef.current);
   }
 
   function hasDraggedFiles(event: DragEvent<HTMLFormElement>): boolean {
@@ -443,7 +445,7 @@ export const Composer = forwardRef<
   }
 
   function onComposerDragOver(event: DragEvent<HTMLFormElement>) {
-    if (!canAcceptDroppedTextFiles() || !hasDraggedFiles(event)) return;
+    if (!canAcceptDroppedFiles() || !hasDraggedFiles(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setDragActive(true);
@@ -458,10 +460,10 @@ export const Composer = forwardRef<
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     setDragActive(false);
-    if (!canAcceptDroppedTextFiles()) return;
+    if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
-    void runImportAction('drop', () => props.onImportDroppedTextFiles?.(files));
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -481,11 +483,11 @@ export const Composer = forwardRef<
     const native = event.nativeEvent;
     if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
     if (!hasPastedFiles(event)) return;
-    if (!canAcceptDroppedTextFiles()) return;
+    if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
-    void runImportAction('paste', () => props.onImportDroppedTextFiles?.(files));
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   useEffect(() => {
@@ -518,6 +520,7 @@ export const Composer = forwardRef<
       ref={formRef}
       className="maka-composer composer"
       data-drag-active={dragActive ? 'true' : undefined}
+      data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}
       onDragLeave={onComposerDragLeave}
       onDrop={onComposerDrop}
@@ -527,6 +530,19 @@ export const Composer = forwardRef<
         className="maka-composer-inner composerInner agents-parchment-paper-surface"
         data-streaming={props.streaming ? 'true' : undefined}
       >
+        {props.pendingAttachments && props.pendingAttachments.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {props.pendingAttachments.map((attachment, index) => (
+              <AttachmentFileCard
+                key={`${attachment.displayName}-${index}`}
+                name={attachment.displayName}
+                kind={attachment.kind}
+                size={attachment.size}
+                onRemove={props.onRemoveAttachment ? () => props.onRemoveAttachment?.(index) : undefined}
+              />
+            ))}
+          </div>
+        ) : null}
         <UiTextarea
           ref={textareaRef}
           unstyled
@@ -549,48 +565,18 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && props.onImportTextFile && props.onImportFolderOutline ? (
-              <Menu>
-                <MenuTrigger
-                  className="maka-composer-tool-button maka-composer-context-plus"
-                  type="button"
-                  disabled={props.disabled || importActionBusy}
-                  aria-label={pendingImportAction ? '正在添加上下文' : '添加上下文'}
-                  aria-busy={pendingImportAction ? 'true' : undefined}
-                  data-pending={pendingImportAction ? 'true' : undefined}
-                  title={pendingImportAction ? '正在添加上下文' : '添加上下文'}
-                >
-                  <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
-                </MenuTrigger>
-                <MenuPopup className="maka-composer-context-menu" align="start">
-                  <MenuItem
-                    onClick={() => void runImportAction('file', props.onImportTextFile)}
-                    disabled={props.disabled || importActionBusy}
-                  >
-                    <FileEdit size={14} strokeWidth={1.75} aria-hidden="true" />
-                    导入文件内容
-                  </MenuItem>
-                  <MenuItem
-                    onClick={() => void runImportAction('folder', props.onImportFolderOutline)}
-                    disabled={props.disabled || importActionBusy}
-                  >
-                    <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
-                    导入文件夹目录
-                  </MenuItem>
-                </MenuPopup>
-              </Menu>
-            ) : !props.streaming && props.onImportTextFile ? (
+            {!props.streaming && props.onPickAttachments ? (
               <UiButton
                 variant="quiet"
                 size="icon-sm"
                 className="maka-composer-tool-button maka-composer-context-plus"
                 type="button"
                 disabled={props.disabled || importActionBusy}
-                onClick={() => void runImportAction('file', props.onImportTextFile)}
-                aria-label={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
-                aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
-                data-pending={pendingImportAction === 'file' ? 'true' : undefined}
-                title={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
+                onClick={() => void runImportAction('pick', props.onPickAttachments)}
+                aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加附件'}
+                aria-busy={pendingImportAction === 'pick' ? 'true' : undefined}
+                data-pending={pendingImportAction === 'pick' ? 'true' : undefined}
+                title="添加附件"
               >
                 <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
               </UiButton>

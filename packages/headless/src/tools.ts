@@ -12,11 +12,18 @@ import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
 import { buildHeavyTaskProgressTools, type HeavyTaskProgressRecorder } from './heavy-task-progress.js';
 import { buildHeavyTaskSelfCheckTools, type HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
 import type { IsolatedToolExecutor } from './isolation.js';
+import {
+  buildTaskLedgerExperimentTools,
+  type TaskLedgerExperimentStore,
+} from './task-ledger-experiment.js';
 
 export interface BuildIsolatedHeadlessToolsOptions {
   heavyTaskEvidence?: HeavyTaskEvidenceRecorder;
   heavyTaskProgress?: HeavyTaskProgressRecorder;
   heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
+  taskLedgerExperiment?: {
+    store: TaskLedgerExperimentStore;
+  };
 }
 
 // Key Write and Edit on a JSON [cwd, path] pair (JSON.stringify so no path
@@ -52,6 +59,9 @@ export function buildIsolatedHeadlessTools(
   }
   if (options.heavyTaskSelfCheck) {
     tools.push(...buildHeavyTaskSelfCheckTools(options.heavyTaskSelfCheck));
+  }
+  if (options.taskLedgerExperiment) {
+    tools.push(...buildTaskLedgerExperimentTools(options.taskLedgerExperiment));
   }
   return tools;
 }

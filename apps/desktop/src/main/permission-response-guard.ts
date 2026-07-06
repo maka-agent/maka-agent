@@ -14,7 +14,7 @@ interface NormalizedSendSessionCommand {
   type: 'send';
   turnId?: string;
   text: string;
-  attachments?: unknown;
+  attachmentItems?: unknown;
 }
 type NormalizedStopSessionInput = { source?: 'stop_button' };
 
@@ -82,7 +82,7 @@ export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessi
     type: 'send',
     ...normalizeOptionalSendTurnId(value.turnId),
     text: normalizeRequiredString(value.text, 'Invalid send text', MAX_SESSION_SEND_TEXT_LENGTH),
-    ...(value.attachments !== undefined ? { attachments: value.attachments } : {}),
+    ...(value.attachmentItems !== undefined ? { attachmentItems: value.attachmentItems } : {}),
   };
 }
 

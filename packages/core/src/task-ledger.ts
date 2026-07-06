@@ -1,11 +1,14 @@
 // Session-scoped task ledger primitive for the main agent. The model manages a
 // flat task list via TaskCreate/TaskUpdate; each turn tail re-injects the
-// current list. P0 scope is intentionally minimal: no priority, dependency, or
-// assignee fields.
+// current list. The durable contract is intentionally narrow: task status,
+// compact evidence/reason fields, append-only task events, and conservative
+// resume trust diagnostics. Priority, dependencies, and assignee fields remain
+// out of scope.
 
 import { redactSecrets } from './redaction.js';
 
 export const TASK_SUBJECT_MAX_CHARS = 200;
+export const TASK_EVIDENCE_MAX_CHARS = 1000;
 /**
  * Hard cap on total tasks per session ledger (any status). The full ledger is
  * re-injected into every turn tail, so an unbounded ledger burns context on
@@ -21,8 +24,11 @@ export const TASK_LEDGER_MAX_TASKS = 200;
  */
 export const TASK_ID_MAX_CHARS = 64;
 
-export const TASK_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'] as const;
+export const TASK_STATUSES = ['pending', 'in_progress', 'blocked', 'completed', 'failed', 'cancelled'] as const;
 export type TaskStatus = typeof TASK_STATUSES[number];
+
+export const TASK_RESUME_TRUST_LEVELS = ['trusted', 'needs_revalidation', 'stale', 'repaired', 'untrusted'] as const;
+export type ResumeTrust = typeof TASK_RESUME_TRUST_LEVELS[number];
 
 export interface Task {
   id: string;
@@ -30,6 +36,18 @@ export interface Task {
   status: TaskStatus;
   createdAt: number;
   updatedAt: number;
+  blockedReason?: string;
+  failureReason?: string;
+  completionEvidence?: string;
+  resumeTrust?: ResumeTrust;
+}
+
+export interface TaskLedgerMutationContext {
+  runId?: string;
+  turnId?: string;
+  toolCallId?: string;
+  source?: 'tool' | 'system' | 'recovery' | 'import';
+  actor?: 'main_agent' | 'user' | 'system';
 }
 
 /**
@@ -40,9 +58,14 @@ export interface Task {
  * ledger never leaves the store through the mutation result.
  */
 export interface TaskLedgerStore {
-  list(sessionId: string): Promise<Task[]>;
-  create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; total: number }>;
-  update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; total: number }>;
+  list(sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]>;
+  get(sessionId: string, id: string, options?: TaskLedgerListOptions): Promise<Task | undefined>;
+  create(sessionId: string, drafts: unknown, context?: TaskLedgerMutationContext): Promise<{ created: Task[]; total: number }>;
+  update(sessionId: string, id: string, patch: unknown, context?: TaskLedgerMutationContext): Promise<{ updated: Task; total: number }>;
+}
+
+export interface TaskLedgerListOptions {
+  classifyResumeTrust?: boolean;
 }
 
 export interface CreateTaskInput {
@@ -52,13 +75,25 @@ export interface CreateTaskInput {
 export interface UpdateTaskInput {
   subject?: unknown;
   status?: unknown;
+  blockedReason?: unknown;
+  failureReason?: unknown;
+  completionEvidence?: unknown;
+  explicitReopen?: unknown;
 }
 
 export type TaskLedgerNormalizeResult<T> =
   | { ok: true; value: T }
   | {
     ok: false;
-    reason: 'invalid_subject' | 'invalid_status' | 'empty_patch';
+    reason:
+      | 'invalid_subject'
+      | 'invalid_status'
+      | 'invalid_blocked_reason'
+      | 'invalid_failure_reason'
+      | 'invalid_completion_evidence'
+      | 'invalid_resume_trust'
+      | 'invalid_transition'
+      | 'empty_patch';
     message: string;
   };
 
@@ -66,6 +101,10 @@ type TaskLedgerNormalizeErrorReason = Extract<TaskLedgerNormalizeResult<never>, 
 
 export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);
+}
+
+export function isResumeTrust(value: unknown): value is ResumeTrust {
+  return typeof value === 'string' && (TASK_RESUME_TRUST_LEVELS as readonly string[]).includes(value);
 }
 
 /**
@@ -113,6 +152,30 @@ export function normalizeTaskStatus(input: unknown): TaskLedgerNormalizeResult<T
   return { ok: true, value: input };
 }
 
+export function normalizeResumeTrust(input: unknown): TaskLedgerNormalizeResult<ResumeTrust> {
+  if (!isResumeTrust(input)) {
+    return invalid('invalid_resume_trust', `Task resumeTrust must be one of ${TASK_RESUME_TRUST_LEVELS.join(', ')}`);
+  }
+  return { ok: true, value: input };
+}
+
+export function normalizeTaskEvidenceText(
+  input: unknown,
+  field: 'blockedReason' | 'failureReason' | 'completionEvidence',
+): TaskLedgerNormalizeResult<string> {
+  if (typeof input !== 'string') {
+    return invalid(evidenceReason(field), `${field} must be a string`);
+  }
+  const value = input.normalize('NFC').replace(/\s+/g, ' ').trim();
+  if (value.length === 0) {
+    return invalid(evidenceReason(field), `${field} cannot be empty`);
+  }
+  if (Array.from(value).length > TASK_EVIDENCE_MAX_CHARS) {
+    return invalid(evidenceReason(field), `${field} must be ${TASK_EVIDENCE_MAX_CHARS} characters or fewer`);
+  }
+  return { ok: true, value };
+}
+
 export function normalizeCreateTaskInput(input: unknown): TaskLedgerNormalizeResult<{ subject: string }> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('invalid_subject', 'Task input must be an object');
@@ -125,12 +188,26 @@ export function normalizeCreateTaskInput(input: unknown): TaskLedgerNormalizeRes
 
 export function normalizeUpdateTaskInput(
   input: unknown,
-): TaskLedgerNormalizeResult<{ subject?: string; status?: TaskStatus }> {
+): TaskLedgerNormalizeResult<{
+  subject?: string;
+  status?: TaskStatus;
+  blockedReason?: string;
+  failureReason?: string;
+  completionEvidence?: string;
+  explicitReopen?: boolean;
+}> {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) {
     return invalid('empty_patch', 'Task update must be an object');
   }
   const record = input as UpdateTaskInput;
-  const patch: { subject?: string; status?: TaskStatus } = {};
+  const patch: {
+    subject?: string;
+    status?: TaskStatus;
+    blockedReason?: string;
+    failureReason?: string;
+    completionEvidence?: string;
+    explicitReopen?: boolean;
+  } = {};
   if (record.subject !== undefined) {
     const subject = normalizeTaskSubject(record.subject);
     if (!subject.ok) return subject;
@@ -141,10 +218,274 @@ export function normalizeUpdateTaskInput(
     if (!status.ok) return status;
     patch.status = status.value;
   }
-  if (patch.subject === undefined && patch.status === undefined) {
-    return invalid('empty_patch', 'Task update must change at least one of subject or status');
+  if (record.blockedReason !== undefined) {
+    const blockedReason = normalizeTaskEvidenceText(record.blockedReason, 'blockedReason');
+    if (!blockedReason.ok) return blockedReason;
+    patch.blockedReason = blockedReason.value;
+  }
+  if (record.failureReason !== undefined) {
+    const failureReason = normalizeTaskEvidenceText(record.failureReason, 'failureReason');
+    if (!failureReason.ok) return failureReason;
+    patch.failureReason = failureReason.value;
+  }
+  if (record.completionEvidence !== undefined) {
+    const completionEvidence = normalizeTaskEvidenceText(record.completionEvidence, 'completionEvidence');
+    if (!completionEvidence.ok) return completionEvidence;
+    patch.completionEvidence = completionEvidence.value;
+  }
+  if (record.explicitReopen !== undefined) {
+    patch.explicitReopen = record.explicitReopen === true;
+  }
+  if (
+    patch.subject === undefined
+    && patch.status === undefined
+    && patch.blockedReason === undefined
+    && patch.failureReason === undefined
+    && patch.completionEvidence === undefined
+    && patch.explicitReopen === undefined
+  ) {
+    return invalid('empty_patch', 'Task update must change at least one field');
   }
   return { ok: true, value: patch };
+}
+
+export interface TaskStatusTransitionOptions {
+  explicitReopen?: boolean;
+}
+
+export function canTransitionTaskStatus(
+  from: TaskStatus,
+  to: TaskStatus,
+  options: TaskStatusTransitionOptions = {},
+): boolean {
+  if (from === to) return true;
+  switch (from) {
+    case 'pending':
+      return to === 'in_progress' || to === 'cancelled';
+    case 'in_progress':
+      return to === 'blocked' || to === 'completed' || to === 'failed' || to === 'cancelled';
+    case 'blocked':
+      return to === 'in_progress' || to === 'cancelled' || to === 'failed';
+    case 'failed':
+      return to === 'pending' || to === 'cancelled';
+    case 'completed':
+      return options.explicitReopen === true && to === 'in_progress';
+    case 'cancelled':
+      return options.explicitReopen === true && to === 'pending';
+  }
+}
+
+export function validateTaskEvidence(task: Pick<Task, 'status' | 'blockedReason' | 'failureReason' | 'completionEvidence'>): TaskLedgerNormalizeResult<void> {
+  if (task.status === 'blocked' && !task.blockedReason) {
+    return invalid('invalid_blocked_reason', 'Blocked tasks require blockedReason');
+  }
+  if (task.status === 'failed' && !task.failureReason) {
+    return invalid('invalid_failure_reason', 'Failed tasks require failureReason');
+  }
+  if (task.status === 'completed' && !task.completionEvidence) {
+    return invalid('invalid_completion_evidence', 'Completed tasks require completionEvidence');
+  }
+  return { ok: true, value: undefined };
+}
+
+export interface ValidateTaskUpdateOptions extends TaskStatusTransitionOptions {}
+
+export function validateTaskUpdate(
+  previousTask: Task,
+  input: unknown,
+  options: ValidateTaskUpdateOptions = {},
+): TaskLedgerNormalizeResult<{
+  subject?: string;
+  status?: TaskStatus;
+  blockedReason?: string;
+  failureReason?: string;
+  completionEvidence?: string;
+  explicitReopen?: boolean;
+}> {
+  const normalized = normalizeUpdateTaskInput(input);
+  if (!normalized.ok) return normalized;
+  const { explicitReopen: patchExplicitReopen, ...taskPatch } = normalized.value;
+  const nextTask: Task = {
+    ...previousTask,
+    ...taskPatch,
+  };
+  const explicitReopen = options.explicitReopen === true || patchExplicitReopen === true;
+  if (
+    normalized.value.status !== undefined
+    && !canTransitionTaskStatus(previousTask.status, normalized.value.status, { ...options, explicitReopen })
+  ) {
+    return invalid(
+      'invalid_transition',
+      `Invalid task status transition from ${previousTask.status} to ${normalized.value.status}`,
+    );
+  }
+  const evidence = validateTaskEvidence(nextTask);
+  if (!evidence.ok) return evidence;
+  return normalized;
+}
+
+export interface TaskResumeTrustRefs {
+  corruptLedger?: boolean;
+  missingReferences?: boolean;
+  interrupted?: boolean;
+  repaired?: boolean;
+  needsRevalidation?: boolean;
+}
+
+export function classifyTaskResumeTrust(
+  task: Pick<Task, 'status' | 'blockedReason' | 'failureReason' | 'completionEvidence'>,
+  refs: TaskResumeTrustRefs = {},
+): ResumeTrust {
+  if (refs.corruptLedger || refs.missingReferences) return 'untrusted';
+  if (refs.repaired) return 'repaired';
+  if (refs.interrupted || task.status === 'in_progress') return 'stale';
+  if (refs.needsRevalidation) return 'needs_revalidation';
+  if (!validateTaskEvidence(task).ok) return 'needs_revalidation';
+  return 'trusted';
+}
+
+export const TASK_LEDGER_EVENT_TYPES = [
+  'task_created',
+  'task_updated',
+  'task_started',
+  'task_blocked',
+  'task_completed',
+  'task_failed',
+  'task_cancelled',
+  'task_reopened',
+  'task_resume_classified',
+  'task_repaired',
+  'task_imported',
+] as const;
+export type TaskLedgerEventType = typeof TASK_LEDGER_EVENT_TYPES[number];
+
+export interface TaskLedgerEventRefs {
+  runId?: string;
+  turnId?: string;
+  toolCallId?: string;
+}
+
+export interface TaskLedgerEvent {
+  eventId: string;
+  type: TaskLedgerEventType;
+  ts: number;
+  sessionId: string;
+  taskId: string;
+  previousStatus?: TaskStatus;
+  nextStatus: TaskStatus;
+  task: Task;
+  reason?: string;
+  evidence?: string;
+  refs?: TaskLedgerEventRefs;
+  source?: TaskLedgerMutationContext['source'];
+  actor?: TaskLedgerMutationContext['actor'];
+}
+
+export interface TaskLedgerProjection {
+  tasks: Task[];
+  diagnostics: string[];
+}
+
+export function taskLedgerEventTypeForCreate(task: Task): TaskLedgerEventType {
+  return taskLedgerEventTypeForStatus(task.status, true);
+}
+
+export function taskLedgerEventTypeForUpdate(previous: Task, next: Task): TaskLedgerEventType {
+  if (previous.status === next.status) return 'task_updated';
+  if (
+    (previous.status === 'completed' && next.status === 'in_progress')
+    || (previous.status === 'cancelled' && next.status === 'pending')
+    || (previous.status === 'failed' && next.status === 'pending')
+  ) {
+    return 'task_reopened';
+  }
+  return taskLedgerEventTypeForStatus(next.status, false);
+}
+
+export function projectTaskLedgerEvents(events: readonly TaskLedgerEvent[]): TaskLedgerProjection {
+  const tasks = new Map<string, Task>();
+  const diagnostics: string[] = [];
+  for (const event of events) {
+    if (!isTaskLedgerEvent(event)) {
+      diagnostics.push('invalid task ledger event shape');
+      continue;
+    }
+    const current = tasks.get(event.taskId);
+    const typeDiagnostic = validateTaskLedgerEventType(event, current);
+    if (typeDiagnostic) diagnostics.push(typeDiagnostic);
+    if (event.type === 'task_created' || event.type === 'task_imported') {
+      if (current) diagnostics.push(`duplicate ${event.type} for ${event.taskId}`);
+      tasks.set(event.taskId, { ...event.task });
+      continue;
+    }
+    if (!current) {
+      diagnostics.push(`task event ${event.type} references unknown task ${event.taskId}`);
+      tasks.set(event.taskId, { ...event.task });
+      continue;
+    }
+    if (event.previousStatus !== undefined && current.status !== event.previousStatus) {
+      diagnostics.push(
+        `task event ${event.type} for ${event.taskId} expected previous status ${event.previousStatus} but saw ${current.status}`,
+      );
+    }
+    if (!canTransitionTaskStatus(current.status, event.nextStatus, {
+      explicitReopen: event.type === 'task_reopened',
+    })) {
+      diagnostics.push(`invalid task transition ${current.status} -> ${event.nextStatus} for ${event.taskId}`);
+    }
+    tasks.set(event.taskId, { ...event.task });
+  }
+  return {
+    tasks: [...tasks.values()],
+    diagnostics,
+  };
+}
+
+function validateTaskLedgerEventType(event: TaskLedgerEvent, current: Task | undefined): string | undefined {
+  switch (event.type) {
+    case 'task_created':
+      return event.nextStatus === 'pending'
+        ? undefined
+        : `task_created for ${event.taskId} must create a pending task, saw ${event.nextStatus}`;
+    case 'task_updated':
+      if (!current) return undefined;
+      return current.status === event.nextStatus
+        ? undefined
+        : `task_updated for ${event.taskId} changed status ${current.status} -> ${event.nextStatus}`;
+    case 'task_started':
+      return event.nextStatus === 'in_progress'
+        ? undefined
+        : `task_started for ${event.taskId} must set status in_progress, saw ${event.nextStatus}`;
+    case 'task_blocked':
+      return event.nextStatus === 'blocked'
+        ? undefined
+        : `task_blocked for ${event.taskId} must set status blocked, saw ${event.nextStatus}`;
+    case 'task_completed':
+      return event.nextStatus === 'completed'
+        ? undefined
+        : `task_completed for ${event.taskId} must set status completed, saw ${event.nextStatus}`;
+    case 'task_failed':
+      return event.nextStatus === 'failed'
+        ? undefined
+        : `task_failed for ${event.taskId} must set status failed, saw ${event.nextStatus}`;
+    case 'task_cancelled':
+      return event.nextStatus === 'cancelled'
+        ? undefined
+        : `task_cancelled for ${event.taskId} must set status cancelled, saw ${event.nextStatus}`;
+    case 'task_reopened':
+      if (!current) return undefined;
+      return (
+        (current.status === 'completed' && event.nextStatus === 'in_progress')
+        || (current.status === 'cancelled' && event.nextStatus === 'pending')
+        || (current.status === 'failed' && event.nextStatus === 'pending')
+      )
+        ? undefined
+        : `task_reopened for ${event.taskId} must reopen completed -> in_progress, cancelled -> pending, or failed -> pending, saw ${current.status} -> ${event.nextStatus}`;
+    case 'task_resume_classified':
+    case 'task_repaired':
+    case 'task_imported':
+      return undefined;
+  }
 }
 
 /**
@@ -173,8 +514,117 @@ export function renderSafeTaskLedgerText(tasks: readonly Task[]): string {
   if (tasks.length === 0) return '';
   return tasks.map((task) => {
     const safeSubject = redactSecrets(task.subject).replace(/<\/?task-ledger[^\n>]*>/gi, '');
-    return `id=${task.id} status=${task.status} subject=${JSON.stringify(safeSubject)}`;
+    const fields = [`id=${task.id}`, `status=${task.status}`, `subject=${JSON.stringify(safeSubject)}`];
+    if (task.blockedReason) fields.push(`blockedReason=${JSON.stringify(safeTaskLedgerField(task.blockedReason))}`);
+    if (task.failureReason) fields.push(`failureReason=${JSON.stringify(safeTaskLedgerField(task.failureReason))}`);
+    if (task.completionEvidence) fields.push(`completionEvidence=${JSON.stringify(safeTaskLedgerField(task.completionEvidence))}`);
+    return fields.join(' ');
   }).join('\n');
+}
+
+export function renderTaskLedgerDebugText(tasks: readonly Task[]): string {
+  if (tasks.length === 0) return '';
+  return tasks.map((task) => {
+    const fields = [renderSafeTaskLedgerText([task])];
+    if (task.resumeTrust) fields.push(`resumeTrust=${task.resumeTrust}`);
+    return fields.join(' ');
+  }).join('\n');
+}
+
+export function filterModelVisibleTaskLedgerTasks(tasks: readonly Task[]): Task[] {
+  return tasks.filter((task) => task.resumeTrust !== 'untrusted');
+}
+
+export function isTaskLedgerEvent(value: unknown): value is TaskLedgerEvent {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const record = value as Partial<TaskLedgerEvent>;
+  if (!isTaskLedgerEventTask(record.task, { allowLegacyMissingEvidence: record.type === 'task_imported' })) return false;
+  return typeof record.eventId === 'string'
+    && (TASK_LEDGER_EVENT_TYPES as readonly string[]).includes(String(record.type))
+    && typeof record.ts === 'number'
+    && Number.isFinite(record.ts)
+    && typeof record.sessionId === 'string'
+    && typeof record.taskId === 'string'
+    && record.taskId === record.task.id
+    && isTaskStatus(record.nextStatus)
+    && record.nextStatus === record.task.status
+    && (record.previousStatus === undefined || isTaskStatus(record.previousStatus))
+    && (record.reason === undefined || typeof record.reason === 'string')
+    && (record.evidence === undefined || typeof record.evidence === 'string')
+    && (record.refs === undefined || isTaskLedgerEventRefs(record.refs))
+    && (record.source === undefined || record.source === 'tool' || record.source === 'system' || record.source === 'recovery' || record.source === 'import')
+    && (record.actor === undefined || record.actor === 'main_agent' || record.actor === 'user' || record.actor === 'system');
+}
+
+function taskLedgerEventTypeForStatus(status: TaskStatus, create: boolean): TaskLedgerEventType {
+  if (create) return 'task_created';
+  switch (status) {
+    case 'pending':
+      return 'task_updated';
+    case 'in_progress':
+      return 'task_started';
+    case 'blocked':
+      return 'task_blocked';
+    case 'completed':
+      return 'task_completed';
+    case 'failed':
+      return 'task_failed';
+    case 'cancelled':
+      return 'task_cancelled';
+  }
+}
+
+function isTaskLedgerEventTask(
+  value: unknown,
+  options: { allowLegacyMissingEvidence?: boolean } = {},
+): value is Task {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const task = value as Partial<Task>;
+  if (
+    !isSafeTaskId(task.id)
+    || !normalizeTaskSubject(task.subject).ok
+    || !isTaskStatus(task.status)
+    || typeof task.createdAt !== 'number'
+    || !Number.isFinite(task.createdAt)
+    || typeof task.updatedAt !== 'number'
+    || !Number.isFinite(task.updatedAt)
+    || (task.blockedReason !== undefined && !normalizeTaskEvidenceText(task.blockedReason, 'blockedReason').ok)
+    || (task.failureReason !== undefined && !normalizeTaskEvidenceText(task.failureReason, 'failureReason').ok)
+    || (task.completionEvidence !== undefined && !normalizeTaskEvidenceText(task.completionEvidence, 'completionEvidence').ok)
+    || (task.resumeTrust !== undefined && !isResumeTrust(task.resumeTrust))
+  ) {
+    return false;
+  }
+  if (options.allowLegacyMissingEvidence === true) return true;
+  return validateTaskEvidence({
+    status: task.status,
+    blockedReason: task.blockedReason,
+    failureReason: task.failureReason,
+    completionEvidence: task.completionEvidence,
+  }).ok;
+}
+
+function isTaskLedgerEventRefs(value: unknown): value is TaskLedgerEventRefs {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const refs = value as Partial<TaskLedgerEventRefs>;
+  return (refs.runId === undefined || typeof refs.runId === 'string')
+    && (refs.turnId === undefined || typeof refs.turnId === 'string')
+    && (refs.toolCallId === undefined || typeof refs.toolCallId === 'string');
+}
+
+function safeTaskLedgerField(value: string): string {
+  return redactSecrets(value).replace(/<\/?task-ledger[^\n>]*>/gi, '');
+}
+
+function evidenceReason(field: 'blockedReason' | 'failureReason' | 'completionEvidence'): TaskLedgerNormalizeErrorReason {
+  switch (field) {
+    case 'blockedReason':
+      return 'invalid_blocked_reason';
+    case 'failureReason':
+      return 'invalid_failure_reason';
+    case 'completionEvidence':
+      return 'invalid_completion_evidence';
+  }
 }
 
 function invalid<T extends TaskLedgerNormalizeErrorReason>(

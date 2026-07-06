@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { encodeIngestItems } from '../main/attachment-ingest-payload.js';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -74,6 +75,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
+  AttachmentRef,
   OnboardingMilestone,
   OnboardingMilestoneId,
   OnboardingState,
@@ -105,6 +107,10 @@ type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
+type RendererIngestInput =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { file: File };
+
 export type WorkspaceInstructionFileStatus =
   | 'available'
   | 'missing'
@@ -126,14 +132,6 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 contextBridge.exposeInMainWorld('maka', {
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -142,7 +140,16 @@ contextBridge.exposeInMainWorld('maka', {
     create(input?: Partial<CreateSessionInput>): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:create', input);
     },
-    send(sessionId: string, command: SessionCommand): Promise<void> {
+    async send(
+      sessionId: string,
+      command:
+        | SessionCommand
+        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+    ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
+      if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
+        const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
+        return ipcRenderer.invoke('sessions:send', sessionId, { ...command, attachmentItems: encoded });
+      }
       return ipcRenderer.invoke('sessions:send', sessionId, command);
     },
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void> {
@@ -373,15 +380,18 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('workspaceInstructions:createFile', file);
     },
   },
-  context: {
-    importTextFile(): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importTextFile');
+  attachments: {
+    pickFiles(): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > {
+      return ipcRenderer.invoke('attachments:pickFiles');
     },
-    importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importDroppedTextFiles', files);
-    },
-    importFolderOutline(): Promise<FolderOutlineImportResult> {
-      return ipcRenderer.invoke('context:importFolderOutline');
+    readBytes(sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > {
+      return ipcRenderer.invoke('attachments:readBytes', sessionId, relativePath);
     },
   },
   search: {

@@ -179,14 +179,15 @@ export async function loadHistoryCompactBlocksFromArtifacts(
       incrementHistoryCompactCount(skippedReasonCounts, 'invalid_schema_version');
       continue;
     }
+    const block = parsed as HistoryCompactBlock;
     // Never trust the persisted token estimate: recompute from the rendered
     // model-visible text, which is what actually enters the prompt.
-    const estimatedTokens = estimateTokens(renderHistoryCompactBlock(parsed).length, 4);
+    const estimatedTokens = estimateTokens(renderHistoryCompactBlock(block).length, 4);
     if (estimatedTokens > maxEstimatedTokens) {
       incrementHistoryCompactCount(skippedReasonCounts, 'max_total_tokens');
       continue;
     }
-    blocks.push({ ...parsed, estimatedTokens });
+    blocks.push({ ...block, estimatedTokens });
   }
   const skipped = Object.values(skippedReasonCounts).reduce((total, count) => total + count, 0);
   return {

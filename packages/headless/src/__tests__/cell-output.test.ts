@@ -272,6 +272,71 @@ describe('Harbor cell output contract', () => {
     });
     assert.deepEqual(validateHarborCellOutput(output), output);
   });
+
+  test('summarizes todo_write task experiment activation', () => {
+    const output = buildHarborCellOutput({
+      invocation: {
+        invocationId: 'inv-1',
+        runId: 'run-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        events: [
+          runtimeEvent({
+            id: 'todo-write',
+            content: {
+              kind: 'function_call',
+              id: 'tool-6',
+              name: 'todo_write',
+              args: { todos: [{ content: 'Run focused check', status: 'pending', priority: 'high' }] },
+            },
+          }),
+        ],
+        startedAt: 100,
+        finishedAt: 250,
+      },
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+
+    assert.deepEqual(output.taskToolSummary, {
+      todoWriteCalls: 1,
+    });
+    assert.deepEqual(validateHarborCellOutput(output), output);
+  });
+
+  test('records zero task tool calls only when the task tool experiment is enabled', () => {
+    const invocation: InvocationResult = {
+      invocationId: 'inv-task-tools-zero',
+      sessionId: 'session-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      events: [
+        runtimeEvent({
+          id: 'regular-tool',
+          content: { kind: 'function_call', id: 'tool-regular', name: 'Read', args: { path: 'README.md' } },
+        }),
+      ],
+      startedAt: 100,
+      finishedAt: 250,
+    };
+
+    const disabled = buildHarborCellOutput({
+      invocation,
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+    assert.equal(disabled.taskToolSummary, undefined);
+
+    const enabled = buildHarborCellOutput({
+      invocation,
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+      taskToolSummaryEnabled: true,
+    });
+    assert.deepEqual(enabled.taskToolSummary, {
+      todoWriteCalls: 0,
+    });
+    assert.deepEqual(validateHarborCellOutput(enabled), enabled);
+  });
 });
 
 function runtimeEvent(extra: Partial<RuntimeEvent>): RuntimeEvent {

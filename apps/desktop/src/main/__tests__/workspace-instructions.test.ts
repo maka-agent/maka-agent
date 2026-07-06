@@ -67,9 +67,9 @@ describe('workspace instructions prompt fragment', () => {
       const state = await getWorkspaceInstructionsState(workspaceRoot);
 
       assert.equal(state.detectedCount, 1);
-      assert.deepEqual(state.files.map((file) => file.file), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+      assert.deepEqual(state.files.map((file: { file: string }) => file.file), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
       assert.deepEqual(
-        state.files.map((file) => file.status),
+        state.files.map((file: { status: string }) => file.status),
         ['available', 'empty', 'missing'],
       );
       assert.equal('text' in state.files[0]!, false);

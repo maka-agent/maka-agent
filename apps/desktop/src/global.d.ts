@@ -118,21 +118,21 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 declare global {
+  type RendererIngestInput =
+    | { approvalId: string; name: string; mimeType?: string }
+    | { file: File };
   interface Window {
     maka: {
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
-        send(sessionId: string, command: SessionCommand): Promise<void>;
+        send(
+          sessionId: string,
+          command:
+            | SessionCommand
+            | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -244,10 +244,15 @@ declare global {
         openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
         createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
       };
-      context: {
-        importTextFile(): Promise<TextFileImportResult>;
-        importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult>;
-        importFolderOutline(): Promise<FolderOutlineImportResult>;
+      attachments: {
+        pickFiles(): Promise<
+          | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+          | { ok: false; reason: 'cancelled' }
+        >;
+        readBytes(sessionId: string, relativePath: string): Promise<
+          | { ok: true; base64: string; mimeType: string }
+          | { ok: false; reason: string }
+        >;
       };
       search: {
         thread(

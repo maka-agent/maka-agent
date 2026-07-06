@@ -66,6 +66,66 @@ describe('runRuntimePolicyAbComparison', () => {
     ]);
   });
 
+  test('builds and runs task-tool runtime-policy arms with arm-local context env', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const taskToolsOff = { id: 'task-tools-off', contextEnv: {} } as const;
+      const taskToolsOn = {
+        id: 'task-tools-on',
+        contextEnv: {
+          MAKA_CONTEXT_TASK_TOOLS: 'on',
+          MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS: '700',
+        },
+      } as const;
+      const manifest = buildRuntimePolicyAbRunManifest({
+        arms: [taskToolsOff, taskToolsOn],
+        promptHash: sha256('p'),
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek/deepseek-v4-flash',
+        taskBudgetSec: 1800,
+        harborTimeoutMs: 2_100_000,
+        subjectFingerprint: sha256('s'),
+        taskSourceFingerprint: sha256('t'),
+        toolchainFingerprint: sha256('c'),
+        evaluationTaskIds: ['t1'],
+        reps: 1,
+        candidateLimit: null,
+        maxConcurrency: 1,
+      });
+      const calls: string[] = [];
+
+      await runRuntimePolicyAbComparison({
+        runId: 'runtime-ab-run',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        evaluationTasks: [{ id: 't1', path: '/bench/t1' }],
+        reps: 1,
+        arms: [taskToolsOff, taskToolsOn],
+        resumeFingerprint: 'caller-salt',
+        harborRunner: async (input) => {
+          calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
+          return harborOutput(input);
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.notEqual(manifest.arms[0].fingerprint, manifest.arms[1].fingerprint);
+      assert.deepEqual(manifest.arms[1].metadata?.contextEnv, {
+        MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS: '700',
+        MAKA_CONTEXT_TASK_TOOLS: 'on',
+      });
+      assert.deepEqual(calls.sort(), [
+        'ab-task-tools-off-r0-t1:{}',
+        'ab-task-tools-on-r0-t1:{"MAKA_CONTEXT_TASK_TOOLS":"on","MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS":"700"}',
+      ]);
+    });
+  });
+
   test('rejects unsupported context env keys before fingerprinting runtime-policy arms', () => {
     assert.throws(
       () => buildRuntimePolicyAbRunManifest({

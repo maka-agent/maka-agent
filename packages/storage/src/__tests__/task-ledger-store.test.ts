@@ -16,6 +16,10 @@ function tasksFilePath(root: string): string {
   return join(root, 'sessions', SESSION_ID, 'tasks.json');
 }
 
+function taskEventsFilePath(root: string): string {
+  return join(root, 'sessions', SESSION_ID, 'task-events.jsonl');
+}
+
 describe('TaskLedgerStore', () => {
   it('creates tasks with normalized subjects and pending status, returning created tasks and the new total', async () => {
     const root = await tempRoot();
@@ -35,11 +39,126 @@ describe('TaskLedgerStore', () => {
 
     const raw = JSON.parse(await readFile(tasksFilePath(root), 'utf8')) as unknown[];
     assert.equal(raw.length, 2);
+    const eventLines = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n');
+    assert.equal(eventLines.length, 2);
+    const firstEvent = JSON.parse(eventLines[0]!) as { type: string; refs?: unknown };
+    assert.equal(firstEvent.type, 'task_created');
+  });
+
+  it('persists mutation context refs in task events', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+
+    const { created: [task] } = await store.create(
+      SESSION_ID,
+      [{ subject: 'context task' }],
+      { runId: 'run-1', turnId: 'turn-1', toolCallId: 'call-1', source: 'tool', actor: 'main_agent' },
+    );
+    assert.ok(task);
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    await store.update(
+      SESSION_ID,
+      task.id,
+      { status: 'completed', completionEvidence: 'node --test passed' },
+      { runId: 'run-2', turnId: 'turn-2', toolCallId: 'call-2', source: 'tool', actor: 'main_agent' },
+    );
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as {
+        type: string;
+        refs?: { runId?: string; turnId?: string; toolCallId?: string };
+        source?: string;
+        actor?: string;
+      });
+    assert.equal(events[0]?.type, 'task_created');
+    assert.equal(events[0]?.refs?.runId, 'run-1');
+    assert.equal(events[0]?.refs?.turnId, 'turn-1');
+    assert.equal(events[0]?.refs?.toolCallId, 'call-1');
+    assert.equal(events[0]?.source, 'tool');
+    assert.equal(events[0]?.actor, 'main_agent');
+    assert.equal(events[1]?.type, 'task_started');
+    assert.equal(events[2]?.type, 'task_completed');
+    assert.equal(events[2]?.refs?.runId, 'run-2');
+    assert.equal(events[2]?.refs?.turnId, 'turn-2');
+    assert.equal(events[2]?.refs?.toolCallId, 'call-2');
+  });
+
+  it('clears stale evidence when tasks leave evidence-bearing statuses', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'evidence lifecycle' }]);
+    assert.ok(task);
+
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    const blocked = await store.update(SESSION_ID, task.id, {
+      status: 'blocked',
+      blockedReason: 'waiting for user input',
+    });
+    assert.equal(blocked.updated.blockedReason, 'waiting for user input');
+
+    const resumed = await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    assert.equal(resumed.updated.status, 'in_progress');
+    assert.equal(resumed.updated.blockedReason, undefined);
+
+    const completed = await store.update(SESSION_ID, task.id, {
+      status: 'completed',
+      completionEvidence: 'node --test passed',
+    });
+    assert.equal(completed.updated.completionEvidence, 'node --test passed');
+
+    const reopened = await store.update(SESSION_ID, task.id, {
+      status: 'in_progress',
+      explicitReopen: true,
+    });
+    assert.equal(reopened.updated.status, 'in_progress');
+    assert.equal(reopened.updated.completionEvidence, undefined);
+
+    const listed = await store.list(SESSION_ID);
+    const reloaded = listed.find((t) => t.id === task.id);
+    assert.equal(reloaded?.blockedReason, undefined);
+    assert.equal(reloaded?.completionEvidence, undefined);
+  });
+
+  it('requires explicit reopen and records task_reopened events', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'reopen task' }]);
+    assert.ok(task);
+
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, task.id, { status: 'completed', completionEvidence: 'verified' });
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'in_progress' }), /Invalid task status transition/);
+
+    const reopened = await store.update(SESSION_ID, task.id, { status: 'in_progress', explicitReopen: true });
+    assert.equal(reopened.updated.status, 'in_progress');
+    assert.equal('explicitReopen' in reopened.updated, false);
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { type: string; previousStatus?: string; nextStatus?: string; task?: Record<string, unknown> });
+    const reopenEvent = events.at(-1);
+    assert.equal(reopenEvent?.type, 'task_reopened');
+    assert.equal(reopenEvent?.previousStatus, 'completed');
+    assert.equal(reopenEvent?.nextStatus, 'in_progress');
+    assert.equal(reopenEvent?.task?.completionEvidence, undefined);
   });
 
   it('lists an empty ledger when the file does not exist', async () => {
     const root = await tempRoot();
     assert.deepEqual(await createTaskLedgerStore(root).list(SESSION_ID), []);
+  });
+
+  it('gets one task by id and classifies resume trust on recovery reads', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'recover me' }]);
+    assert.ok(task);
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+
+    const plain = await store.get(SESSION_ID, task.id);
+    assert.equal(plain?.resumeTrust, undefined);
+    const classified = await store.get(SESSION_ID, task.id, { classifyResumeTrust: true });
+    assert.equal(classified?.resumeTrust, 'stale');
+    assert.equal(await store.get(SESSION_ID, 'missing'), undefined);
   });
 
   it('updates a task status and subject, returning the updated task and the new total', async () => {
@@ -70,9 +189,11 @@ describe('TaskLedgerStore', () => {
     const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'x' }]);
     assert.ok(task);
 
-    await assert.rejects(() => store.update(SESSION_ID, 'no-such-id', { status: 'completed' }), /No such task/);
+    await assert.rejects(() => store.update(SESSION_ID, 'no-such-id', { status: 'completed', completionEvidence: 'done' }), /No such task/);
     await assert.rejects(() => store.update(SESSION_ID, task.id, {}), /at least one/);
     await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'bogus' }), /Task status/);
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'completed' }), /completionEvidence/);
     await assert.rejects(() => store.create(SESSION_ID, []), /at least one/);
     await assert.rejects(() => store.create(SESSION_ID, [{ subject: '   ' }]), /empty/);
   });
@@ -83,7 +204,7 @@ describe('TaskLedgerStore', () => {
     await store.create(SESSION_ID, [{ subject: 'x' }]);
     const before = await readFile(tasksFilePath(root), 'utf8');
 
-    await assert.rejects(() => store.update(SESSION_ID, 'no-such-id', { status: 'completed' }), /No such task/);
+    await assert.rejects(() => store.update(SESSION_ID, 'no-such-id', { status: 'completed', completionEvidence: 'done' }), /No such task/);
 
     const after = await readFile(tasksFilePath(root), 'utf8');
     assert.equal(after, before);
@@ -108,7 +229,7 @@ describe('TaskLedgerStore', () => {
         /corrupt; refusing to overwrite/,
       );
       await assert.rejects(
-        () => store.update(SESSION_ID, 'any-id', { status: 'completed' }),
+        () => store.update(SESSION_ID, 'any-id', { status: 'completed', completionEvidence: 'done' }),
         /corrupt; refusing to overwrite/,
       );
       // The mutation must not have replaced the damaged file with fn([]).
@@ -116,6 +237,32 @@ describe('TaskLedgerStore', () => {
       // The render path still degrades to empty so turns are not wedged.
       assert.deepEqual(await store.list(SESSION_ID), []);
     }
+  });
+
+  it('treats a corrupt task event log as authoritative corruption', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    await store.create(SESSION_ID, [{ subject: 'x' }]);
+    await writeFile(taskEventsFilePath(root), 'not json\n', 'utf8');
+
+    const rendered = await store.list(SESSION_ID);
+    assert.equal(rendered.length, 1);
+    assert.equal(rendered[0]?.subject, 'x');
+    assert.equal(rendered[0]?.resumeTrust, 'untrusted');
+    await assert.rejects(() => store.create(SESSION_ID, [{ subject: 'new' }]), /task event ledger|Invalid task event/i);
+  });
+
+  it('degrades to an empty render ledger when corrupt task events have no readable cache', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(taskEventsFilePath(root), 'not json\n', 'utf8');
+    await writeFile(tasksFilePath(root), '{not json', 'utf8');
+
+    const store = createTaskLedgerStore(root);
+    assert.deepEqual(await store.list(SESSION_ID), []);
+    await assert.rejects(() => store.create(SESSION_ID, [{ subject: 'new' }]), /task event ledger|Invalid task event/i);
+    assert.equal(await readFile(taskEventsFilePath(root), 'utf8'), 'not json\n');
+    assert.equal(await readFile(tasksFilePath(root), 'utf8'), '{not json');
   });
 
   it('drops malformed entries while keeping valid ones', async () => {
@@ -184,7 +331,7 @@ describe('TaskLedgerStore', () => {
     assert.deepEqual(await store.list(SESSION_ID), []);
     // mutate path stays fail-closed: an update must not silently keep both
     // dups and rewrite a "half-correct" file (first updated, second stale).
-    await assert.rejects(() => store.update(SESSION_ID, 'dup-id', { status: 'completed' }), /corrupt|duplicate|ambiguous/i);
+    await assert.rejects(() => store.update(SESSION_ID, 'dup-id', { status: 'completed', completionEvidence: 'done' }), /corrupt|duplicate|ambiguous/i);
     const raw = await readFile(tasksFilePath(root), 'utf8');
     assert.equal(JSON.parse(raw).length, 3, 'file must be left untouched');
   });
@@ -306,7 +453,8 @@ describe('TaskLedgerStore', () => {
     // Completing tasks does not free capacity: the cap is on total count.
     const first = tasks[0];
     assert.ok(first);
-    await store.update(SESSION_ID, first.id, { status: 'completed' });
+    await store.update(SESSION_ID, first.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, first.id, { status: 'completed', completionEvidence: 'done' });
     await assert.rejects(() => store.create(SESSION_ID, [{ subject: 'still-over' }]), /hard runaway guard/);
 
     // A single batch larger than the cap rejects at the front door (per-batch
@@ -315,5 +463,165 @@ describe('TaskLedgerStore', () => {
     const oversizedBatch = Array.from({ length: TASK_LEDGER_MAX_TASKS + 1 }, (_, i) => ({ subject: `b${i}` }));
     await assert.rejects(() => freshStore.create(SESSION_ID, oversizedBatch), /per-batch cap/);
     assert.deepEqual(await freshStore.list(SESSION_ID), []);
+  });
+
+  it('persists blocked failed completed evidence fields and resumeTrust when present on disk', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [first, second, third] } = await store.create(SESSION_ID, [
+      { subject: 'blocked task' },
+      { subject: 'failed task' },
+      { subject: 'completed task' },
+    ]);
+    assert.ok(first);
+    assert.ok(second);
+    assert.ok(third);
+
+    await store.update(SESSION_ID, first.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, second.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, third.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, first.id, { status: 'blocked', blockedReason: 'waiting for user approval' });
+    await store.update(SESSION_ID, second.id, { status: 'failed', failureReason: 'test suite cannot pass' });
+    await store.update(SESSION_ID, third.id, { status: 'completed', completionEvidence: 'npm test passed' });
+
+    const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.equal(reloaded.find((t) => t.id === first.id)?.blockedReason, 'waiting for user approval');
+    assert.equal(reloaded.find((t) => t.id === second.id)?.failureReason, 'test suite cannot pass');
+    assert.equal(reloaded.find((t) => t.id === third.id)?.completionEvidence, 'npm test passed');
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { type: string });
+    assert.deepEqual(events.map((event) => event.type), [
+      'task_created',
+      'task_created',
+      'task_created',
+      'task_started',
+      'task_started',
+      'task_started',
+      'task_blocked',
+      'task_failed',
+      'task_completed',
+    ]);
+  });
+
+  it('prefers task event replay over a stale tasks.json cache', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'event source' }]);
+    assert.ok(task);
+    await writeFile(tasksFilePath(root), JSON.stringify([], null, 2), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.equal(tasks.length, 1);
+    assert.equal(tasks[0]?.subject, 'event source');
+  });
+
+  it('falls back to legacy tasks.json when no task event log exists', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'legacy-task', subject: 'old task', status: 'pending', createdAt: 1, updatedAt: 1 },
+    ]), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.deepEqual(tasks.map((t) => t.id), ['legacy-task']);
+  });
+
+  it('imports legacy tasks into the event log before appending the first create', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'legacy-task', subject: 'old task', status: 'pending', createdAt: 1, updatedAt: 1 },
+    ]), 'utf8');
+    const store = createTaskLedgerStore(root);
+
+    const { created: [created], total } = await store.create(SESSION_ID, [{ subject: 'new task' }]);
+    assert.ok(created);
+    assert.equal(total, 2);
+
+    const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.deepEqual(reloaded.map((t) => t.id), ['legacy-task', created.id]);
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { type: string; taskId: string; source?: string; actor?: string });
+    assert.deepEqual(events.map((event) => event.type), ['task_imported', 'task_created']);
+    assert.equal(events[0]?.taskId, 'legacy-task');
+    assert.equal(events[0]?.source, 'import');
+    assert.equal(events[0]?.actor, 'system');
+    assert.equal(events[1]?.taskId, created.id);
+  });
+
+  it('imports legacy tasks into the event log before appending the first update', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'legacy-task', subject: 'old task', status: 'pending', createdAt: 1, updatedAt: 1 },
+    ]), 'utf8');
+    const store = createTaskLedgerStore(root);
+
+    const { updated, total } = await store.update(SESSION_ID, 'legacy-task', { status: 'in_progress' });
+    assert.equal(updated.status, 'in_progress');
+    assert.equal(total, 1);
+
+    const reloaded = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.deepEqual(reloaded.map((t) => [t.id, t.status]), [['legacy-task', 'in_progress']]);
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { type: string; taskId: string });
+    assert.deepEqual(events.map((event) => event.type), ['task_imported', 'task_started']);
+    assert.equal(events[0]?.taskId, 'legacy-task');
+    assert.equal(events[1]?.taskId, 'legacy-task');
+  });
+
+  it('keeps legacy completed and cancelled tasks readable without evidence', async () => {
+    const root = await tempRoot();
+    await mkdir(join(root, 'sessions', SESSION_ID), { recursive: true });
+    await writeFile(tasksFilePath(root), JSON.stringify([
+      { id: 'legacy-completed', subject: 'old done', status: 'completed', createdAt: 1, updatedAt: 1 },
+      { id: 'legacy-cancelled', subject: 'old cancelled', status: 'cancelled', createdAt: 2, updatedAt: 2 },
+    ]), 'utf8');
+    const tasks = await createTaskLedgerStore(root).list(SESSION_ID);
+    assert.deepEqual(tasks.map((t) => t.id), ['legacy-completed', 'legacy-cancelled']);
+  });
+
+  it('can retry a failed task as pending without poisoning event replay', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'retry me' }]);
+    assert.ok(task);
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    await store.update(SESSION_ID, task.id, { status: 'failed', failureReason: 'test failed' });
+
+    const retried = await store.update(SESSION_ID, task.id, { status: 'pending' });
+    assert.equal(retried.updated.status, 'pending');
+    assert.equal(retried.updated.failureReason, undefined);
+
+    const reloadedStore = createTaskLedgerStore(root);
+    assert.equal((await reloadedStore.get(SESSION_ID, task.id))?.status, 'pending');
+    const { created: [afterRetry], total } = await reloadedStore.create(SESSION_ID, [{ subject: 'after retry' }]);
+    assert.ok(afterRetry);
+    assert.equal(total, 2);
+
+    const events = (await readFile(taskEventsFilePath(root), 'utf8')).trim().split('\n')
+      .map((line) => JSON.parse(line) as { type: string; taskId: string });
+    assert.deepEqual(events.map((event) => event.type), [
+      'task_created',
+      'task_started',
+      'task_failed',
+      'task_reopened',
+      'task_created',
+    ]);
+  });
+
+  it('rejects blocked failed and completed updates without required evidence without rewriting', async () => {
+    const root = await tempRoot();
+    const store = createTaskLedgerStore(root);
+    const { created: [task] } = await store.create(SESSION_ID, [{ subject: 'x' }]);
+    assert.ok(task);
+    await store.update(SESSION_ID, task.id, { status: 'in_progress' });
+    const before = await readFile(tasksFilePath(root), 'utf8');
+
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'blocked' }), /blockedReason/);
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'failed' }), /failureReason/);
+    await assert.rejects(() => store.update(SESSION_ID, task.id, { status: 'completed' }), /completionEvidence/);
+    assert.equal(await readFile(tasksFilePath(root), 'utf8'), before);
   });
 });

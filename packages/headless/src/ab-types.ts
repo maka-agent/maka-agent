@@ -66,6 +66,7 @@ export interface AbArmSummary {
   contextBudgetPolicy?: AbContextBudgetPolicySummary;
   contextBudget?: AbContextBudgetSummary;
   continuation?: AbContinuationSummary;
+  taskTools?: AbTaskToolSummary;
   activePruneSubset?: AbActivePruneSubsetSummary;
 }
 
@@ -139,6 +140,13 @@ export interface AbContinuationSummary {
   perTurnStepCapHits: boolean[];
   maxTurns: number | null;
   maxTotalRuntimeSteps: number | null;
+}
+
+export interface AbTaskToolSummary {
+  attempts: number;
+  activatedAttempts: number;
+  activatedAttemptIds: string[];
+  todoWriteCalls: number;
 }
 
 export interface AbTaskArmSummary {
