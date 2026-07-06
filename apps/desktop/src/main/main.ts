@@ -165,6 +165,7 @@ import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
 import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
+import { createMainAutomationWiring } from './automation-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -303,6 +304,26 @@ const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
 
+// Unified Automation — single "Automation" tool for heartbeat + cron.
+// Deps are resolved lazily since runtime/store aren't ready at this point.
+const automationWiring = createMainAutomationWiring({
+  workspaceRoot,
+  async canFire(sessionId: string): Promise<boolean> {
+    const header = await store.readHeader(sessionId);
+    if (!header || header.archivedAt) return false;
+    if (header.status === 'running' || header.status === 'blocked') return false;
+    return true;
+  },
+  injectTurn(sessionId: string, prompt: string, _automationId: string) {
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(sessionId, { turnId, text: prompt });
+    void streamEvents(sessionId, iterator, turnId);
+  },
+});
+
+// Load durable automations from disk on startup (fire-and-forget; errors are logged inside).
+void automationWiring.loadDurableAutomations();
+
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
   return { incognitoActive: settings.privacy.incognitoActive === true };
@@ -408,6 +429,8 @@ const builtinTools: MakaTool[] = [
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
+  // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
+  ...automationWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -1869,6 +1892,7 @@ async function runBackgroundStartup(): Promise<void> {
     onConnectionsChanged: () => emitConnectionListChanged(),
     onSettingsChanged: () => void handleExternalSettingsChange(),
   });
+  automationWiring.scheduler.start();
 }
 
 app.on('window-all-closed', () => {
@@ -1876,6 +1900,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  automationWiring.scheduler.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();

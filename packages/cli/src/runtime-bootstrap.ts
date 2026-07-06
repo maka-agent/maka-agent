@@ -3,9 +3,12 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   AiSdkBackend,
+  AutomationManager,
+  AutomationScheduler,
   BackendRegistry,
   PermissionEngine,
   SessionManager,
+  buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
   buildManualCompactLookupPolicy,
@@ -14,10 +17,12 @@ import {
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
+  type AutomationDefinition,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
   createArtifactStore,
+  createAutomationStore,
   createConnectionStore,
   createFileCredentialStore,
   createRuntimeEventStore,
@@ -34,6 +39,8 @@ export interface MakaCliRuntimeContext {
   runtime: SessionManager;
   target: ReadySessionTarget;
   tools: ReturnType<typeof buildBuiltinTools>;
+  automationManager: AutomationManager;
+  automationScheduler: AutomationScheduler;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -70,6 +77,23 @@ export async function createMakaCliRuntimeContext(
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
   const tools = buildBuiltinTools();
+  const automationManager = new AutomationManager({
+    generateId: () => randomUUID(),
+    now: () => Date.now(),
+  });
+  const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
+  const syncAutomations = (): void => {
+    const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
+    automationStore.sync(durable).catch(() => {});
+  };
+  const automationTool = buildAutomationTool({ automationManager, onAutomationChange: syncAutomations });
+  const allTools = [...tools, automationTool];
+
+  // Load durable automations from disk.
+  try {
+    const saved = await automationStore.loadAll();
+    automationManager.registerAll(saved);
+  } catch { /* best-effort */ }
 
   backends.register('ai-sdk', async (ctx) => {
     const ready = await resolveDefaultSessionTarget({
@@ -98,7 +122,7 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools,
+      tools: allTools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       contextBudget: buildManualCompactLookupPolicy(
         buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
@@ -110,7 +134,7 @@ export async function createMakaCliRuntimeContext(
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
       },
-      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd }),
+      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager }),
       newId: randomUUID,
       now: Date.now,
     });
@@ -125,12 +149,34 @@ export async function createMakaCliRuntimeContext(
     now: Date.now,
   });
 
+  const automationScheduler = new AutomationScheduler({
+    automationManager,
+    canFire: async (sessionId) => {
+      const header = await store.readHeader(sessionId);
+      if (!header || header.archivedAt) return false;
+      if (header.status === 'running' || header.status === 'blocked') return false;
+      return true;
+    },
+    injectTurn: (sessionId, prompt) => {
+      const turnId = randomUUID();
+      const iterator = runtime.sendMessage(sessionId, { turnId, text: prompt });
+      void (async () => { for await (const _ of iterator) { /* drain */ } })().catch(() => {});
+    },
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+    onStateChange: syncAutomations,
+  });
+
+  automationScheduler.start();
+
   return {
     workspaceRoot: input.workspaceRoot,
     cwd: input.cwd,
     runtime,
     target,
     tools,
+    automationManager,
+    automationScheduler,
   };
 }
 

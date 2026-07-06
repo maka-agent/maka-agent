@@ -593,3 +593,19 @@ export {
 export type { ProjectGitInfo } from './system-prompt/project-context.js';
 export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
 export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Unified Automation (Codex-style: heartbeat + cron, single tool).
+// ───────────────────────────────────────────────────────────────────────────
+export { AutomationManager, computeNextCronFire, matchesCronField } from './automation-state.js';
+export type {
+  AutomationDefinition,
+  AutomationKind,
+  AutomationSchedule,
+  AutomationStatus,
+  AutomationManagerDeps,
+} from './automation-state.js';
+export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, MAX_DEFER_RETRIES } from './automation-scheduler.js';
+export type { AutomationSchedulerDeps } from './automation-scheduler.js';
+export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
+export type { AutomationToolDeps } from './automation-tools.js';
