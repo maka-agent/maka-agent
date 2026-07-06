@@ -25,8 +25,10 @@ import {
   buildHarborCellContextBudgetBackendOptions,
   buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellAiSdkTools,
+  buildHarborCellTaskLedgerExperimentPolicy,
   harborCellMaxStepsFromEnv,
   createHarborCellLocalToolExecutor,
+  HARBOR_CELL_CONTEXT_ENV_KEYS,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
   resolveHarborCellAiSdkEnv,
@@ -946,6 +948,156 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Bash')?.permissionRequired, false);
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Write')?.permissionRequired, false);
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor task experiment context flag enables task tools and replay only when requested', async () => {
+    assert.ok(HARBOR_CELL_CONTEXT_ENV_KEYS.includes('MAKA_CONTEXT_TASK_TOOLS' as never));
+    assert.ok(HARBOR_CELL_CONTEXT_ENV_KEYS.includes('MAKA_CONTEXT_TASK_TOOL_SHAPE' as never));
+    assert.deepEqual(buildHarborCellTaskLedgerExperimentPolicy({ MAKA_CONTEXT_TASK_TOOLS: 'off' }), undefined);
+    assert.deepEqual(buildHarborCellTaskLedgerExperimentPolicy({
+      MAKA_CONTEXT_TASK_TOOLS: 'on',
+      MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS: '700',
+    }), { enabled: true, replayMaxChars: 700, shape: 'todo_write' });
+    assert.deepEqual(buildHarborCellTaskLedgerExperimentPolicy({
+      MAKA_CONTEXT_TASK_TOOLS: 'on',
+      MAKA_CONTEXT_TASK_TOOL_SHAPE: 'todo_write',
+    }), { enabled: true, replayMaxChars: 4_000, shape: 'todo_write' });
+
+    await withDirs(async ({ workspaceDir }) => {
+      const offRegistry = new BackendRegistry();
+      const offRegister = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+      });
+      const toolExecutor = fakeToolExecutor();
+      await offRegister(offRegistry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const offBackend = await offRegistry.build('ai-sdk', backendContext(workspaceDir));
+      const offInput = (offBackend as unknown as {
+        input: { tools: Array<{ name: string }>; turnTailPrompt?: unknown };
+      }).input;
+      assert.ok(!offInput.tools.some((tool) => tool.name.startsWith('task_')));
+      assert.equal(offInput.turnTailPrompt, undefined);
+
+      const crudRegistry = new BackendRegistry();
+      const crudRegister = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_CONTEXT_TASK_TOOLS: 'on',
+          MAKA_CONTEXT_TASK_TOOL_SHAPE: 'crud',
+          MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS: '700',
+        },
+        now: () => 123,
+        newId: testIdFactory(),
+      });
+      await crudRegister(crudRegistry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const crudBackend = await crudRegistry.build('ai-sdk', backendContext(workspaceDir));
+      const crudInput = (crudBackend as unknown as {
+        input: {
+          tools: Array<{ name: string; impl: Function }>;
+          turnTailPrompt?: (context: { sessionId: string; cwd?: string; workspaceRoot?: string }) => Promise<string | undefined>;
+        };
+      }).input;
+      for (const expected of ['task_create', 'task_update', 'task_list', 'task_get']) {
+        assert.ok(crudInput.tools.some((tool) => tool.name === expected), `expected task tool ${expected}`);
+      }
+
+      const create = crudInput.tools.find((tool) => tool.name === 'task_create');
+      assert.ok(create);
+      await create.impl({ description: 'Inspect parser failure' }, {
+        sessionId: 'session-task',
+        turnId: 'turn-1',
+        cwd: workspaceDir,
+        toolCallId: 'tool-task-create',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      });
+
+      assert.ok(crudInput.turnTailPrompt);
+      const replay = await crudInput.turnTailPrompt({ sessionId: 'session-task', cwd: workspaceDir });
+      assert.match(replay ?? '', /Task ledger experiment state/);
+      assert.match(replay ?? '', /Inspect parser failure/);
+      assert.ok((replay ?? '').length <= 700);
+
+      const todoRegistry = new BackendRegistry();
+      const todoRegister = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_CONTEXT_TASK_TOOLS: 'on',
+        },
+        now: () => 123,
+        newId: testIdFactory(),
+      });
+      await todoRegister(todoRegistry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const todoBackend = await todoRegistry.build('ai-sdk', backendContext(workspaceDir));
+      const todoInput = (todoBackend as unknown as {
+        input: {
+          tools: Array<{ name: string; impl: Function }>;
+          turnTailPrompt?: (context: { sessionId: string; cwd?: string; workspaceRoot?: string }) => Promise<string | undefined>;
+        };
+      }).input;
+      assert.ok(todoInput.tools.some((tool) => tool.name === 'todo_write'));
+      assert.ok(!todoInput.tools.some((tool) => tool.name.startsWith('task_')));
+      assert.ok(todoInput.turnTailPrompt);
+      const emptyTodoReplay = await todoInput.turnTailPrompt({ sessionId: 'session-todo', cwd: workspaceDir });
+      assert.match(emptyTodoReplay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
+
+      const todoWrite = todoInput.tools.find((tool) => tool.name === 'todo_write');
+      assert.ok(todoWrite);
+      await todoWrite.impl({
+        todos: [{ content: 'Run focused benchmark slice', status: 'in_progress' }],
+      }, {
+        sessionId: 'session-todo',
+        turnId: 'turn-1',
+        cwd: workspaceDir,
+        toolCallId: 'tool-todo-write',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      });
+
+      const todoReplay = await todoInput.turnTailPrompt({ sessionId: 'session-todo', cwd: workspaceDir });
+      assert.match(todoReplay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
+      assert.match(todoReplay ?? '', /Run focused benchmark slice/);
     });
   });
 
@@ -1992,6 +2144,11 @@ function fakeToolExecutor(): IsolatedToolExecutor {
       return { exitCode: 0, stdout: '', stderr: '' };
     },
   };
+}
+
+function testIdFactory(): () => string {
+  let i = 0;
+  return () => `id-${++i}`;
 }
 
 function sha256(text: string): string {
