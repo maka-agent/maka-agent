@@ -237,6 +237,14 @@ export type {
 export { buildDefaultContextBudgetPolicy } from './context-budget-policy.js';
 export type { BuildDefaultContextBudgetPolicyOptions } from './context-budget-policy.js';
 export {
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+} from './history-compact-artifacts.js';
+export type {
+  HistoryCompactArtifactStore,
+  PersistHistoryCompactBlocksDeps,
+} from './history-compact-artifacts.js';
+export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,

@@ -350,6 +350,7 @@ export interface HistoryCompactWriteInput {
   };
   requestShapeHashBefore?: string;
   requestShapeHashAfter?: string;
+  abortSignal?: AbortSignal;
 }
 export interface HistoryCompactWriteResult {
   blocks: HistoryCompactBlock[];
