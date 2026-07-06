@@ -42,7 +42,8 @@ export interface MakaPiToolOutputDelta {
 
 export type MakaPiTranscriptEntry =
   | { kind: 'user'; text: string }
-  | { kind: 'assistant'; messageId: string; text: string; thinking?: string }
+  | { kind: 'assistant'; messageId: string; text: string }
+  | { kind: 'thinking'; messageId: string; text: string }
   | {
       kind: 'tool';
       toolUseId: string;
@@ -89,9 +90,7 @@ export function replaceTranscriptWithStoredMessages(
   messages: readonly StoredMessage[],
 ): void {
   const view = materializeSession(messages);
-  state.entries = view.items
-    .map(chatItemToTranscriptEntry)
-    .filter((entry): entry is MakaPiTranscriptEntry => entry !== undefined);
+  state.entries = view.items.flatMap(chatItemToTranscriptEntries);
   state.sawTextDeltaMessageIds = new Set(
     state.entries
       .filter((entry): entry is Extract<MakaPiTranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
@@ -119,8 +118,8 @@ export function toggleLatestThinkingExpansion(state: MakaPiTranscriptState): boo
   const latestThinking = [...state.entries]
     .reverse()
     .find(
-      (entry): entry is MakaPiAssistantEntry =>
-        entry.kind === 'assistant' && Boolean(entry.thinking?.trim()),
+      (entry): entry is MakaPiThinkingEntry =>
+        entry.kind === 'thinking' && Boolean(entry.text.trim()),
     );
   if (!latestThinking) return false;
   state.expandedThinkingMessageId = state.expandedThinkingMessageId === latestThinking.messageId
@@ -202,11 +201,11 @@ export function applyMakaSessionEventToTranscript(
       break;
 
     case 'thinking_delta':
-      appendAssistantThinking(state, event.messageId, event.text);
+      appendThinking(state, event.messageId, event.text);
       break;
 
     case 'thinking_complete':
-      if (event.text) setAssistantThinking(state, event.messageId, event.text);
+      if (event.text) setThinking(state, event.messageId, event.text);
       break;
 
     case 'tool_start':
@@ -335,21 +334,26 @@ export function applyMakaSessionEventToTranscript(
   }
 }
 
-function chatItemToTranscriptEntry(item: ChatItem): MakaPiTranscriptEntry | undefined {
+function chatItemToTranscriptEntries(item: ChatItem): MakaPiTranscriptEntry[] {
   switch (item.kind) {
     case 'user':
-      return { kind: 'user', text: item.message.text };
-    case 'assistant':
-      return {
-        kind: 'assistant',
-        messageId: item.message.id,
-        text: item.message.text,
-        ...(item.message.thinking?.text ? { thinking: item.message.thinking.text } : {}),
-      };
+      return [{ kind: 'user', text: item.message.text }];
+    case 'assistant': {
+      const entries: MakaPiTranscriptEntry[] = [];
+      // Stored thinking happened before the reply text, so it resumes above it.
+      const thinking = item.message.thinking?.text;
+      if (thinking?.trim()) {
+        entries.push({ kind: 'thinking', messageId: item.message.id, text: thinking });
+      }
+      entries.push({ kind: 'assistant', messageId: item.message.id, text: item.message.text });
+      return entries;
+    }
     case 'tool':
-      return toolActivityToTranscriptEntry(item.item);
-    case 'system_note':
-      return systemNoteToTranscriptEntry(item.message);
+      return [toolActivityToTranscriptEntry(item.item)];
+    case 'system_note': {
+      const entry = systemNoteToTranscriptEntry(item.message);
+      return entry ? [entry] : [];
+    }
   }
 }
 
@@ -468,7 +472,10 @@ export function renderMakaPiTranscript(
         lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
         break;
       case 'assistant':
-        lines.push(...renderAssistantBlock(entry, safeWidth, state.expandedThinkingMessageId === entry.messageId));
+        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
+        break;
+      case 'thinking':
+        lines.push(...renderThinkingBlock(entry, safeWidth, state.expandedThinkingMessageId === entry.messageId));
         break;
       case 'tool':
         lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseIds.has(entry.toolUseId)));
@@ -505,40 +512,36 @@ function appendAssistantText(state: MakaPiTranscriptState, messageId: string, te
   state.entries.push({ kind: 'assistant', messageId, text });
 }
 
-function appendAssistantThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
+function appendThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
   const last = state.entries[state.entries.length - 1];
-  if (last?.kind === 'assistant' && last.messageId === messageId) {
-    last.thinking = (last.thinking ?? '') + text;
+  if (last?.kind === 'thinking' && last.messageId === messageId) {
+    last.text += text;
     return;
   }
-  state.entries.push({ kind: 'assistant', messageId, text: '', thinking: text });
+  state.entries.push({ kind: 'thinking', messageId, text });
 }
 
-function setAssistantThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
+function setThinking(state: MakaPiTranscriptState, messageId: string, text: string): void {
   const last = state.entries[state.entries.length - 1];
-  if (last?.kind === 'assistant' && last.messageId === messageId) {
-    last.thinking = text;
+  if (last?.kind === 'thinking' && last.messageId === messageId) {
+    last.text = text;
     return;
   }
-  state.entries.push({ kind: 'assistant', messageId, text: '', thinking: text });
+  state.entries.push({ kind: 'thinking', messageId, text });
 }
 
-function renderAssistantBlock(entry: MakaPiAssistantEntry, width: number, thinkingExpanded: boolean): string[] {
-  const lines = renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
-  // Thinking stays collapsed to a one-line marker by default so reasoning
-  // never floods the scrollback; Ctrl+T expands the latest block on demand.
-  if (entry.thinking && entry.thinking.trim()) {
-    if (thinkingExpanded) {
-      lines.push(fitLine(ansi.dim('思考'), width));
-      lines.push(...renderIndented(entry.thinking, width, 2).map((line) => fitLine(ansi.dim(line), width)));
-    } else {
-      lines.push(ansi.dim('思考（Ctrl+T 展开）'));
-    }
-  }
+// Thinking stays collapsed to a one-line marker by default so reasoning
+// never floods the scrollback; Ctrl+T expands the latest block on demand.
+function renderThinkingBlock(entry: MakaPiThinkingEntry, width: number, expanded: boolean): string[] {
+  if (!entry.text.trim()) return [];
+  if (!expanded) return [fitLine(ansi.dim('思考（Ctrl+T 展开）'), width)];
+  const lines = [fitLine(ansi.dim('思考'), width)];
+  lines.push(...renderIndented(entry.text, width, 2).map((line) => fitLine(ansi.dim(line), width)));
   return lines;
 }
 
 type MakaPiAssistantEntry = Extract<MakaPiTranscriptEntry, { kind: 'assistant' }>;
+type MakaPiThinkingEntry = Extract<MakaPiTranscriptEntry, { kind: 'thinking' }>;
 
 type MakaPiToolEntry = Extract<MakaPiTranscriptEntry, { kind: 'tool' }>;
 type MakaPiNoticeEntry = Extract<MakaPiTranscriptEntry, { kind: 'notice' }>;

@@ -11,6 +11,7 @@ import {
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
+  toggleLatestThinkingExpansion,
   toggleLatestToolExpansion,
 } from '../pi-transcript.js';
 
@@ -188,6 +189,7 @@ describe('Maka Pi TUI transcript', () => {
         turnId: 'turn-1',
         ts: 2,
         text: 'We decided to keep the TUI small.',
+        thinking: { text: 'recall the decision' },
         modelId: 'deepseek-v4-flash',
       },
       {
@@ -209,13 +211,15 @@ describe('Maka Pi TUI transcript', () => {
       },
     ] satisfies StoredMessage[]);
 
-    assert.deepEqual(state.entries.map((entry) => entry.kind), ['user', 'assistant', 'tool']);
+    // Stored thinking happened before the reply text, so it resumes above it.
+    assert.deepEqual(state.entries.map((entry) => entry.kind), ['user', 'thinking', 'assistant', 'tool']);
     assert.equal(state.entries[0]?.kind === 'user' ? state.entries[0].text : '', 'What did we decide?');
+    assert.equal(state.entries[1]?.kind === 'thinking' ? state.entries[1].text : '', 'recall the decision');
     assert.equal(
-      state.entries[1]?.kind === 'assistant' ? state.entries[1].text : '',
+      state.entries[2]?.kind === 'assistant' ? state.entries[2].text : '',
       'We decided to keep the TUI small.',
     );
-    assert.equal(state.entries[2]?.kind === 'tool' ? state.entries[2].output : '', 'README contents');
+    assert.equal(state.entries[3]?.kind === 'tool' ? state.entries[3].output : '', 'README contents');
   });
 
   test('renders every transcript line within the terminal width', () => {
@@ -350,6 +354,45 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(visibleLines.some((line) => line.includes('npm test')));
     assert.ok(visibleLines.some((line) => line.includes('y/Enter allow')));
     assert.ok(visibleLines.some((line) => line.includes('n/Esc deny')));
+  });
+
+  test('orders thinking entries by arrival, before text and around tools', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'plan ',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'first',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read', args: { path: 'a.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'text_delta', messageId: 'message-1', text: 'the answer',
+    }));
+
+    // Entries mirror event order: thinking, then the tool, then the reply.
+    assert.deepEqual(state.entries.map((entry) => entry.kind), ['thinking', 'tool', 'assistant']);
+    assert.equal(state.entries[0]?.kind === 'thinking' ? state.entries[0].text : '', 'plan first');
+
+    const collapsed = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    const markerIndex = collapsed.findIndex((line) => line.includes('思考（Ctrl+T 展开）'));
+    const toolIndex = collapsed.findIndex((line) => line.includes('Tool Read'));
+    const answerIndex = collapsed.findIndex((line) => line.includes('the answer'));
+    assert.ok(markerIndex >= 0);
+    assert.ok(markerIndex < toolIndex);
+    assert.ok(toolIndex < answerIndex);
+    assert.equal(collapsed.some((line) => line.includes('plan first')), false);
+
+    assert.equal(toggleLatestThinkingExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    const bodyIndex = expanded.findIndex((line) => line.includes('plan first'));
+    assert.ok(bodyIndex >= 0);
+    assert.ok(bodyIndex < expanded.findIndex((line) => line.includes('the answer')));
   });
 
   test('keeps tool cards compact until the latest tool is expanded', () => {
