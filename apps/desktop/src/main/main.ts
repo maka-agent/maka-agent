@@ -166,6 +166,8 @@ import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring } from './automation-wiring.js';
+import { createMainGoalWiring } from './goal-wiring.js';
+import { handleGoalContinuation } from '@maka/runtime';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -311,7 +313,7 @@ const automationWiring = createMainAutomationWiring({
   async canFire(sessionId: string): Promise<boolean> {
     const header = await store.readHeader(sessionId);
     if (!header || header.archivedAt) return false;
-    if (header.status === 'running' || header.status === 'blocked') return false;
+    if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
     return true;
   },
   injectTurn(sessionId: string, prompt: string, _automationId: string) {
@@ -323,6 +325,43 @@ const automationWiring = createMainAutomationWiring({
 
 // Load durable automations from disk on startup (fire-and-forget; errors are logged inside).
 void automationWiring.loadDurableAutomations();
+
+// Goal execution — autonomous turn-boundary continuation with an external
+// evaluator (CC-style). Bridges to the Automation system on external waits.
+const goalWiring = createMainGoalWiring({
+  getDefaultConnectionSlug: () => connectionStore.getDefault(),
+  getConnection: (slug) => connectionStore.get(slug),
+  resolveConnectionSecret,
+  buildSubscriptionModelFetch,
+  getAIModel: (input) => getAIModel(input),
+  buildProviderOptions: (connection, modelId) => buildProviderOptions(connection, modelId),
+  getRecentMessages: async (sessionId) => {
+    const messages = await runtime.getMessages(sessionId);
+    return messages.slice(-10).map((m) => ({
+      type: m.type,
+      text: m.type === 'user' || m.type === 'assistant' ? m.text : undefined,
+    }));
+  },
+  getTokenCount: async (sessionId) => {
+    const messages = await runtime.getMessages(sessionId);
+    let total = 0;
+    for (const m of messages) {
+      if (m.type === 'token_usage') total += (m.total ?? (m.input + m.output));
+    }
+    return total;
+  },
+  injectTurn: (sessionId, text) => {
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(sessionId, { turnId, text });
+    void streamEvents(sessionId, iterator, turnId);
+  },
+  canContinue: async (sessionId) => {
+    const header = await store.readHeader(sessionId);
+    if (!header || header.archivedAt) return false;
+    if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
+    return true;
+  },
+});
 
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
@@ -340,6 +379,7 @@ const systemPromptService = createSystemPromptMainService({
   workspaceRoot,
   localMemory,
   taskLedger: taskLedgerStore,
+  goalManager: goalWiring.manager,
 });
 const mainWindowController = createMainWindowController({
   workspaceRoot,
@@ -431,6 +471,8 @@ const builtinTools: MakaTool[] = [
   ...taskLedgerWiring.tools,
   // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
   ...automationWiring.tools,
+  // Goal execution: GoalSet/Clear/Status/Pause/Resume — autonomous turn-boundary continuation.
+  ...goalWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -1232,6 +1274,9 @@ function registerIpc(): void {
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
+    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
+    goalWiring.manager.remove(sessionId);
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
   ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
@@ -1305,6 +1350,9 @@ function registerIpc(): void {
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
     await releaseBrowserSession(sessionId);
+    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
+    goalWiring.manager.remove(sessionId);
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
   });
 
@@ -1540,11 +1588,15 @@ async function streamEvents(
 ): Promise<void> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
+  let turnAborted = false;
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
+      }
+      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+        turnAborted = true;
       }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
@@ -1558,6 +1610,12 @@ async function streamEvents(
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
+    }
+    // Goal auto-continuation: after a turn completes cleanly (NOT user-aborted —
+    // the Stop button must halt the loop), evaluate the active goal and continue,
+    // hand off to polling, or stop. Failures never surface to the turn.
+    if (!turnAborted) {
+      void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
     }
   } catch (error) {
     const event = {
@@ -1901,6 +1959,7 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
   automationWiring.scheduler.dispose();
+  goalWiring.manager.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
