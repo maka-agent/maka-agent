@@ -30,6 +30,7 @@
 @import "./styles/tool-stream.css";
 @import "./styles/daily-review.css";
 @import "./styles/theme-glass.css";
+@import "./styles/prompt-rail.css";
 
 @theme inline {
   --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;

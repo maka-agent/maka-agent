@@ -20,6 +20,7 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
+import { PromptAnchorRail } from './prompt-anchor-rail.js';
 import type { PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
@@ -297,6 +298,20 @@ export function ChatView(props: {
   const storedTools = useMemo(() => materializeTools(visibleMessages), [visibleMessages]);
   const tools = useMemo(() => mergeTools(storedTools, props.tools), [storedTools, props.tools]);
   const turns = useMemo(() => materializeTurns(visibleMessages, props.tools), [visibleMessages, props.tools]);
+  // One rail tick per turn that carries a user prompt (Codex-style prompt
+  // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
+  // on every render.
+  const promptRailTurns = useMemo(
+    () =>
+      turns
+        .filter((turn) => (turn.user?.text ?? '').trim().length > 0)
+        .map((turn) => ({
+          turnId: turn.turnId,
+          label: turn.user?.text ?? '',
+          reply: turn.assistant?.text ?? '',
+        })),
+    [turns],
+  );
   // Stable event wrappers (advanced-use-latest): parent handlers are
   // recreated per render upstream; routing through refs keeps the
   // memoized TurnView's function props identity-stable without
@@ -661,6 +676,7 @@ export function ChatView(props: {
               folds these into the `__loose` turn, so this is normally a
               no-op. */}
         </OverlayScrollArea>
+        <PromptAnchorRail turns={promptRailTurns} scrollRef={scrollRef} />
         {!pinnedToBottom && (
           <UiButton
             type="button"
