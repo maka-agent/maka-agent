@@ -811,7 +811,6 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   // construction — same primitive, same class, same icon metrics — instead
   // of a look-alike bespoke treatment.
   const footer = props.footerStyle === true;
-  const visibleLabel = footer ? (props.label ?? '复制') : props.label;
   const iconSize = footer ? 12 : 14;
 
   const baseLabel = props.label ?? (footer ? '复制' : '复制消息');
@@ -822,15 +821,45 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       : copyPhase === 'failed'
         ? '复制失败'
         : baseLabel;
+  const icon = copied
+    ? <Check size={iconSize} strokeWidth={2} aria-hidden="true" />
+    : <Copy size={iconSize} strokeWidth={footer ? 2 : 1.75} aria-hidden="true" />;
+
+  if (footer) {
+    // icon-only + tooltip, matching the assistant footer copy action (#546)
+    // so the user-message copy and the assistant copy read as one button.
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <UiButton
+              type="button"
+              className={markerVariants({ variant: 'footer-action' })}
+              variant="quiet"
+              size="nav"
+              aria-label={baseLabel}
+              aria-busy={copyPending ? 'true' : undefined}
+              disabled={copyPending}
+              data-copied={copied}
+              data-copy-feedback={copyPhase ?? undefined}
+              data-pending={copyPending ? 'true' : undefined}
+              onClick={() => void copy()}
+            />
+          }
+        >
+          {icon}
+        </TooltipTrigger>
+        <TooltipContent>{actionLabel}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
   return (
     <UiButton
       type="button"
-      className={footer ? markerVariants({ variant: 'footer-action' }) : 'maka-message-copy'}
+      className="maka-message-copy"
       variant="quiet"
-      // `nav` is the bare size: the footer-action marker shell owns its own
-      // height/padding/font (see `markerVariants`), so it doesn't inherit —
-      // and then have to merge out — `sm`'s `h-8`/`px-2.5`/`text-xs`.
-      size={footer ? 'nav' : 'icon-sm'}
+      size="icon-sm"
       onClick={() => void copy()}
       aria-label={copyPhase ? `${actionLabel} · ${baseLabel}` : baseLabel}
       aria-busy={copyPending ? 'true' : undefined}
@@ -838,10 +867,10 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       data-copied={copied}
       data-copy-feedback={copyPhase ?? undefined}
       data-pending={copyPending ? 'true' : undefined}
-      data-labelled={(!footer && props.label) ? 'true' : undefined}
+      data-labelled={props.label ? 'true' : undefined}
     >
-      {copied ? <Check size={iconSize} strokeWidth={2} aria-hidden="true" /> : <Copy size={iconSize} strokeWidth={footer ? 2 : 1.75} aria-hidden="true" />}
-      {visibleLabel && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : visibleLabel}</span>}
+      {icon}
+      {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
     </UiButton>
   );
 }
