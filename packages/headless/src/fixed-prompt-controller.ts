@@ -7,6 +7,7 @@ import {
   type HarborCellContextBudgetSummary,
   type HarborCellContinuationSummary,
   type HarborCellOutput,
+  type HarborCellTaskToolSummary,
   type HarborCellTokenSummary,
 } from './cell-output.js';
 import type { Config } from './contracts.js';
@@ -92,6 +93,7 @@ export interface FixedPromptTaskCompletedEvent {
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
+  taskToolSummary?: HarborCellTaskToolSummary;
   steps: number;
   durationMs: number;
   runtimeEventsPath: string;
@@ -161,6 +163,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
+  taskToolSummary?: HarborCellTaskToolSummary;
   steps: number;
   durationMs: number;
   runtimeEventsPath: string;
@@ -619,6 +622,7 @@ function taskCompletedEvent(input: {
     ...(output.cell.contextBudgetPolicy ? { contextBudgetPolicy: output.cell.contextBudgetPolicy } : {}),
     ...(output.cell.contextBudgetSummary ? { contextBudgetSummary: output.cell.contextBudgetSummary } : {}),
     ...(output.cell.continuationSummary ? { continuationSummary: output.cell.continuationSummary } : {}),
+    ...(output.cell.taskToolSummary ? { taskToolSummary: output.cell.taskToolSummary } : {}),
     steps: output.cell.steps,
     durationMs: output.cell.durationMs,
     runtimeEventsPath: output.cell.runtimeEventsPath,
@@ -672,6 +676,9 @@ function taskPlumbingFailedEvent(input: {
       : {}),
     ...(input.output.cell.continuationSummary
       ? { continuationSummary: input.output.cell.continuationSummary }
+      : {}),
+    ...(input.output.cell.taskToolSummary
+      ? { taskToolSummary: input.output.cell.taskToolSummary }
       : {}),
     steps: input.output.cell.steps,
     durationMs: input.output.cell.durationMs,
