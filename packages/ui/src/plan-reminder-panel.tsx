@@ -10,7 +10,6 @@ import {
   Plus,
   RefreshCcw,
   Repeat,
-  Sparkles,
   Trash2,
   X,
 } from './icons.js';
@@ -346,15 +345,11 @@ export function PlanReminderPanel(props: {
             >
               <RefreshCcw size={15} strokeWidth={1.75} aria-hidden="true" />
             </UiButton>
-            <UiButton
-              type="button"
-              variant="secondary"
-              className="maka-plan-create-through"
-              onClick={openCreateReminderDialog}
-            >
-              <Sparkles size={14} strokeWidth={1.75} aria-hidden="true" />
-              通过 Maka 创建
-            </UiButton>
+            {/* Designer audit P2-14: 通过 Maka 创建 was a second button
+                wired to the EXACT same handler as 新建定时任务 — pure
+                duplication competing for the primary action. One entry
+                point; reintroduce a second button only when a genuinely
+                different (chat-driven) flow exists. */}
             <UiButton type="button" className="maka-plan-new-task-button" onClick={openCreateReminderDialog}>
               <Plus size={15} strokeWidth={1.75} aria-hidden="true" />
               新建定时任务
