@@ -1,5 +1,4 @@
-export const MAX_INGEST_ITEMS = 8;
-export const MAX_INGEST_FILE_BYTES = 50 * 1024 * 1024;
+import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core';
 
 export type IngestInput =
   | { approvalId: string; name: string; mimeType?: string }
@@ -19,14 +18,14 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 export async function encodeIngestItems(items: IngestInput[]): Promise<IngestPayload[]> {
-  if (items.length > MAX_INGEST_ITEMS) throw new Error('附件数量超过 8 个');
+  if (items.length > MAX_ATTACHMENT_COUNT) throw new Error('附件数量超过 8 个');
   const out: IngestPayload[] = [];
   for (const item of items) {
     if ('file' in item) {
       // Reject oversized blobs before arrayBuffer() so the renderer never
       // loads the bytes into memory. Main-side resolveIngestItems is the
       // authoritative backstop; this guard exists only to avoid renderer OOM.
-      if (item.file.size > MAX_INGEST_FILE_BYTES) throw new Error('附件大小超过 50MB');
+      if (item.file.size > MAX_ATTACHMENT_BYTES) throw new Error('附件大小超过 50MB');
       const bytes = new Uint8Array(await item.file.arrayBuffer());
       const mimeType = item.file.type || undefined;
       out.push({

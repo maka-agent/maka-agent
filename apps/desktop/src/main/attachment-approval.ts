@@ -3,8 +3,6 @@ import { resolve } from 'node:path';
 
 export const ATTACHMENT_APPROVAL_TTL_MS = 30 * 60 * 1000;
 export const MAX_APPROVED_ATTACHMENT_PATHS = 1000;
-export const MAX_RENDERER_ATTACHMENTS = 8;
-export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
 
 /**
  * Token handed to the renderer in place of a local path. The path never leaves

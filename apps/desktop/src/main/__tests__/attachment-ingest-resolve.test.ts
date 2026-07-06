@@ -164,6 +164,29 @@ describe('resolveIngestItems (pre-read validation)', () => {
     );
   });
 
+  test('rejects a duplicate approvalId without consuming either token', async () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const [issued] = approvals.issueApprovals(1, [{ path: '/tmp/a.txt', name: 'a.txt', size: 10 }]);
+    let statCalls = 0;
+    await assert.rejects(
+      resolveIngestItems({
+        senderId: 1,
+        items: [
+          { approvalId: issued.approvalId, name: 'a.txt' },
+          { approvalId: issued.approvalId, name: 'a.txt' },
+        ],
+        approvals,
+        stat: async () => (statCalls++, { size: 10 }),
+      }),
+      /重复/,
+    );
+    assert.notEqual(
+      approvals.consumeApproval(1, issued.approvalId),
+      null,
+      'a duplicate approvalId must be rejected before any token is consumed',
+    );
+  });
+
   test('rejects malformed items', async () => {
     const approvals = createAttachmentApprovalRegistry();
     await assert.rejects(

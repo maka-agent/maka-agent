@@ -921,4 +921,4 @@ export {
 } from './explore-agent.js';
 
 // attachments.ts
-export { attachmentKindFromMimeType, guessMimeFromName } from './attachments.js';
+export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';

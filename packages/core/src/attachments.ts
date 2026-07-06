@@ -1,5 +1,12 @@
 import type { AttachmentRef } from './events.js';
 
+/** Per-send cap on attachment count, shared by renderer preflight and main resolve. */
+export const MAX_ATTACHMENT_COUNT = 8;
+
+/** Per-file byte cap, shared by renderer preflight, preload encode, and main resolve. */
+export const MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+
+
 const MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
   png: 'image/png',
   jpg: 'image/jpeg',

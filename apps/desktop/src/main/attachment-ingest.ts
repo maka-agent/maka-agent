@@ -1,11 +1,10 @@
 import { Buffer } from 'node:buffer';
 import { readFile, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, relative, sep } from 'node:path';
-import { attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
+import { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from '@maka/core';
 import type { ArtifactKind, ArtifactSource, AttachmentRef } from '@maka/core';
 import type { ArtifactStore } from '@maka/storage';
 import type { AttachmentApprovalRegistry } from './attachment-approval.js';
-import { MAX_ATTACHMENT_BYTES, MAX_RENDERER_ATTACHMENTS } from './attachment-approval.js';
 
 export type AttachmentIngestFile =
   | { path: string; mimeType?: string; size: number }
@@ -132,7 +131,7 @@ export async function resolveIngestItems(input: {
   maxAttachments?: number;
   maxBytes?: number;
 }): Promise<AttachmentIngestFile[]> {
-  const maxAttachments = input.maxAttachments ?? MAX_RENDERER_ATTACHMENTS;
+  const maxAttachments = input.maxAttachments ?? MAX_ATTACHMENT_COUNT;
   const maxBytes = input.maxBytes ?? MAX_ATTACHMENT_BYTES;
   if (!Array.isArray(input.items)) throw new Error('附件信息无效，请重新选择文件后再发送。');
   if (input.items.length > maxAttachments) throw new Error('一次最多添加 8 个附件。');
@@ -140,10 +139,13 @@ export async function resolveIngestItems(input: {
   // peeked (not consumed) so a later invalid item does not burn earlier ones.
   const planned: AttachmentIngestFile[] = [];
   const approvalIds: string[] = [];
+  const seenApprovalIds = new Set<string>();
   for (const item of input.items) {
     if (!item || typeof item !== 'object') throw new Error('附件信息无效，请重新选择文件后再发送。');
     const record = item as Record<string, unknown>;
     if (typeof record.approvalId === 'string' && typeof record.name === 'string') {
+      if (seenApprovalIds.has(record.approvalId)) throw new Error('附件来源重复，请勿重复添加同一文件。');
+      seenApprovalIds.add(record.approvalId);
       const approved = input.approvals.peekApproval(input.senderId, record.approvalId);
       if (!approved) throw new Error('附件来源已过期或无效，请重新选择文件后再发送。');
       const statResult = await input.stat(approved.path);
