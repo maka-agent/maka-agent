@@ -16,10 +16,11 @@ import type {
   AbTaskArmSummary,
   AbTaskComparison,
   AbTaskLevelSummary,
+  AbTaskToolSummary,
   AbTokenCostSummary,
   SummarizeAbComparisonInput,
 } from './ab-types.js';
-import type { HarborCellContextBudgetSummary } from './cell-output.js';
+import type { HarborCellContextBudgetSummary, HarborCellTaskToolSummary } from './cell-output.js';
 
 const DEFAULT_NON_INFERIORITY_MARGIN = 0.10;
 const NON_INFERIORITY_CONFIDENCE_LEVEL = 0.95;
@@ -89,6 +90,7 @@ function summarizeArm(
   const durations = budgetedRuns.map((event) => event.durationMs);
   const contextBudget = summarizeContextBudget(observedAttempts);
   const continuation = summarizeContinuation(observed, wallTimeoutMs);
+  const taskTools = summarizeTaskTools(observed);
   const activePruneSubset = summarizeActivePruneSubset(observedAttempts, activePrunePairIds);
   const contextBudgetPolicy = summarizeContextBudgetPolicy(observed);
   const tokenCostSummary = summarizeTokenCost(budgetedRuns);
@@ -110,6 +112,7 @@ function summarizeArm(
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(contextBudget ? { contextBudget } : {}),
     ...(continuation ? { continuation } : {}),
+    ...(taskTools ? { taskTools } : {}),
     ...(activePruneSubset ? { activePruneSubset } : {}),
   };
 }
@@ -261,6 +264,30 @@ function summarizeContinuation(
     perTurnStepCapHits: summaries.flatMap((summary) => summary.turns.map((turn) => turn.stepCapHit)),
     maxTurns: summaries.length > 0 ? Math.max(...summaries.map((summary) => summary.maxTurns)) : null,
     maxTotalRuntimeSteps: summaries.length > 0 ? Math.max(...summaries.map((summary) => summary.maxTotalRuntimeSteps)) : null,
+  };
+}
+
+function summarizeTaskTools(events: readonly FixedPromptTaskWalEvent[]): AbTaskToolSummary | undefined {
+  const summaries: { event: FixedPromptTaskWalEvent; summary: HarborCellTaskToolSummary }[] = [];
+  for (const event of events) {
+    if ((event.type === 'task_completed' || event.type === 'task_plumbing_failed') && event.taskToolSummary) {
+      summaries.push({ event, summary: event.taskToolSummary });
+    }
+  }
+  if (summaries.length === 0) return undefined;
+  return {
+    attempts: events.length,
+    activatedAttempts: summaries.filter((entry) => entry.summary.activated).length,
+    activatedAttemptIds: summaries
+      .filter((entry) => entry.summary.activated)
+      .map((entry) => entry.event.id),
+    actualTaskToolCalls: sum(summaries.map((entry) => entry.summary.actualTaskToolCalls)),
+    createCalls: sum(summaries.map((entry) => entry.summary.createCalls)),
+    updateCalls: sum(summaries.map((entry) => entry.summary.updateCalls)),
+    listCalls: sum(summaries.map((entry) => entry.summary.listCalls)),
+    getCalls: sum(summaries.map((entry) => entry.summary.getCalls)),
+    todoWriteCalls: sum(summaries.map((entry) => entry.summary.todoWriteCalls)),
+    repeatedUpdateCalls: sum(summaries.map((entry) => entry.summary.repeatedUpdateCalls)),
   };
 }
 
