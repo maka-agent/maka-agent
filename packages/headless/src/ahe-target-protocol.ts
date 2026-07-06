@@ -253,7 +253,7 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
       { path: 'packages/runtime/src/context-budget.ts' },
       { path: 'packages/runtime/src/active-full-compact.ts' },
       { path: 'packages/runtime/src/semantic-compact.ts' },
-      { path: 'apps/desktop/src/main/context-budget-policy.ts' },
+      { path: 'packages/runtime/src/context-budget-policy.ts' },
     ],
   },
   {

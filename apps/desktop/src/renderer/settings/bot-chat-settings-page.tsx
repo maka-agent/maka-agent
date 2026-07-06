@@ -21,12 +21,10 @@ import {
   DialogContent,
   DialogRoot,
   Input,
-  PrimitiveBadge,
   RelativeTime,
   SettingsSelect,
   SettingsSwitch as Switch,
   Textarea,
-  useModalA11y,
   useToast,
 } from '@maka/ui';
 import { PasswordInput } from './password-input';
@@ -265,13 +263,11 @@ function WeChatScanLoginModal(props: {
   const [qr, setQr] = useState<{ qrcodeUrl: string; qrToken: string } | null>(null);
   const [status, setStatus] = useState<'fetching' | 'waiting' | 'expired' | 'confirmed' | 'error'>('fetching');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const fetchingQrRef = useRef(false);
   const scanLoginPollingRef = useRef(false);
   const scanLoginConfirmingRef = useRef(false);
   const scanLoginMountedRef = useRef(false);
   const scanLoginFetchTicketRef = useRef(0);
-  useModalA11y(dialogRef, props.onClose);
 
   async function fetchQr() {
     if (fetchingQrRef.current) return;
@@ -365,14 +361,16 @@ function WeChatScanLoginModal(props: {
   })();
 
   return (
-    <div className="settingsModalBackdrop" role="presentation" onClick={props.onClose}>
-      <div
-        ref={dialogRef}
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
         className="settingsBotScanLoginModal"
-        role="dialog"
-        aria-modal="true"
         aria-label="微信扫码登录"
-        onClick={(event) => event.stopPropagation()}
+        showClose={false}
       >
         <header className="settingsBotScanLoginHeader">
           <h3>微信扫码登录</h3>
@@ -381,7 +379,7 @@ function WeChatScanLoginModal(props: {
             variant="quiet"
             size="icon-sm"
             className="settingsCloseButton"
-            aria-label="关闭"
+            aria-label="关闭微信扫码登录"
             onClick={props.onClose}
           >
             <X strokeWidth={1.75} aria-hidden="true" />
@@ -414,8 +412,8 @@ function WeChatScanLoginModal(props: {
             {status === 'confirmed' ? '关闭' : '取消'}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }
 
@@ -423,13 +421,11 @@ function WechatQrLoginModal(props: {
   onClose(): void;
   onRefreshStatuses(): void | Promise<unknown>;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const [result, setResult] = useState<WechatBridgeQrCodeResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
   const notifiedLoggedInRef = useRef(false);
   const loadingQrRef = useRef(false);
-  useModalA11y(dialogRef, props.onClose);
 
   function reloadQrCode() {
     if (loadingQrRef.current) return;
@@ -493,19 +489,16 @@ function WechatQrLoginModal(props: {
   const error = result && !result.ok ? result : null;
 
   return (
-    <div
-      className="settingsWechatQrBackdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) props.onClose();
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
       }}
     >
-      <div
-        ref={dialogRef}
+      <DialogContent
         className="settingsWechatQrModal"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="settingsWechatQrTitle"
+        showClose={false}
       >
         <div className="settingsWechatQrHeader">
           <div>
@@ -564,8 +557,8 @@ function WechatQrLoginModal(props: {
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }
 

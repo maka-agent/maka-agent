@@ -80,6 +80,7 @@ const autonomousMaxWallTimeMs = process.env.MAKA_AUTONOMOUS_MAX_WALL_TIME_SEC
   ? Number(process.env.MAKA_AUTONOMOUS_MAX_WALL_TIME_SEC) * 1000
   : undefined;
 const taskRunOutDir = process.env.MAKA_TASK_RUN_OUT_DIR;
+const benchmarkDataset = process.env.MAKA_BENCHMARK_DATASET ?? 'terminal-bench/terminal-bench-2-1';
 const now = Date.now;
 const useMakeMipsAutonomousSelfCheck = makeMipsSmokeHint || controlledMakeMipsSmoke;
 
@@ -524,7 +525,7 @@ try {
             kind: 'terminal_bench',
             adapter: 'terminal-bench',
             instanceId: taskId,
-            dataset: 'terminal-bench/terminal-bench-2',
+            dataset: benchmarkDataset,
             testCommand: 'false',
             protectedPaths: [],
             adapterOptions: {

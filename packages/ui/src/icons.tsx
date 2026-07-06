@@ -59,6 +59,7 @@ export {
   Globe,
   Grid3X3,
   HelpCircle,
+  History,
   Hourglass,
   Info,
   KeyRound,

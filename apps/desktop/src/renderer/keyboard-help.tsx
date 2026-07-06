@@ -2,13 +2,13 @@
 //
 // Discoverable keyboard cheat sheet. Modal triggered by `?` (when no input is
 // focused) or `⌘/` / `Ctrl+/`. Lists every shortcut the renderer reacts to so
-// users don't need to scrape the README. Reuses the same useModalA11y hook
-// as Settings/Permission so focus trapping + escape + return-focus are
-// already covered.
+// users don't need to scrape the README. Routed through Base UI Dialog
+// (DialogRoot + DialogContent) so focus trapping, Esc, and focus restoration
+// are handled by the same shell as SearchModal / Permission (#520 PR7).
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Keyboard, X } from '@maka/ui/icons';
-import { Button, Kbd, useModalA11y } from '@maka/ui';
+import { Button, DialogContent, DialogRoot, Kbd } from '@maka/ui';
 
 type Section = {
   heading: string;
@@ -112,18 +112,17 @@ export function useKeyboardHelp(): [boolean, () => void, () => void] {
 }
 
 export function KeyboardHelpModal(props: { onClose(): void }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  useModalA11y(dialogRef, props.onClose);
-
   return (
-    <div className="maka-modal-backdrop maka-help-backdrop" role="presentation" onClick={props.onClose}>
-      <div
-        ref={dialogRef}
+    <DialogRoot
+      open
+      onOpenChange={(open) => {
+        if (!open) props.onClose();
+      }}
+    >
+      <DialogContent
         className="maka-modal maka-help-modal"
-        role="dialog"
-        aria-modal="true"
         aria-labelledby="maka-help-title"
-        onClick={(event) => event.stopPropagation()}
+        showClose={false}
       >
         <div className="maka-modal-header maka-help-header">
           <div>
@@ -166,7 +165,7 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
             </section>
           ))}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </DialogRoot>
   );
 }

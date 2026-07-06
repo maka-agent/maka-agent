@@ -248,7 +248,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     mainWindow.webContents.on('did-finish-load', () => {
       mainWindow?.webContents.executeJavaScript(`
         (() => {
-          const block = (e) => { e.preventDefault(); e.stopPropagation(); };
+          const block = (e) => {
+            const target = e.target instanceof Element ? e.target : e.target?.parentElement;
+            if (target?.closest('[data-maka-file-drop-target="true"]')) return;
+            e.preventDefault();
+            e.stopPropagation();
+          };
           window.addEventListener('dragover', block, true);
           window.addEventListener('drop', block, true);
         })();

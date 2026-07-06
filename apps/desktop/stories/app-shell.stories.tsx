@@ -132,11 +132,12 @@ const baseComposerProps: ComposerProps = {
   modelChoices,
   permissionMode: 'ask',
   onPermissionModeChange: noop,
-  workspacePicker: {
-    label: 'maka-agent',
-    branch: 'opencode/storybook-surface-coverage',
-    onOpen: noop,
-  },
+	  workspacePicker: {
+	    label: 'maka-agent',
+	    branch: 'opencode/storybook-surface-coverage',
+	    onOpen: noop,
+	    onSelect: noop,
+	  },
 };
 
 function ShellFrame(props: { children: ReactNode }) {

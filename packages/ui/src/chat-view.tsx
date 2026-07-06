@@ -9,6 +9,7 @@ import {
   Check,
   Copy,
   GitBranch,
+  Loader2,
   RefreshCcw,
   Repeat,
   Sparkles,
@@ -20,10 +21,13 @@ import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } fro
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
-import type { PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
+import { DialogContent, DialogRoot } from './ui.js';
+import { PromptAnchorRail } from './prompt-anchor-rail.js';
+import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
 import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
+import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
@@ -297,6 +301,20 @@ export function ChatView(props: {
   const storedTools = useMemo(() => materializeTools(visibleMessages), [visibleMessages]);
   const tools = useMemo(() => mergeTools(storedTools, props.tools), [storedTools, props.tools]);
   const turns = useMemo(() => materializeTurns(visibleMessages, props.tools), [visibleMessages, props.tools]);
+  // One rail tick per turn that carries a user prompt (Codex-style prompt
+  // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
+  // on every render.
+  const promptRailTurns = useMemo(
+    () =>
+      turns
+        .filter((turn) => (turn.user?.text ?? '').trim().length > 0)
+        .map((turn) => ({
+          turnId: turn.turnId,
+          label: turn.user?.text ?? '',
+          reply: turn.assistant?.text ?? '',
+        })),
+    [turns],
+  );
   // Stable event wrappers (advanced-use-latest): parent handlers are
   // recreated per render upstream; routing through refs keeps the
   // memoized TurnView's function props identity-stable without
@@ -661,6 +679,7 @@ export function ChatView(props: {
               folds these into the `__loose` turn, so this is normally a
               no-op. */}
         </OverlayScrollArea>
+        <PromptAnchorRail turns={promptRailTurns} scrollRef={scrollRef} />
         {!pinnedToBottom && (
           <UiButton
             type="button"
@@ -692,7 +711,60 @@ export function ChatView(props: {
  * Memoized because chat scroll re-renders the whole list on every streaming
  * delta; this keeps already-final bubbles from re-parsing markdown.
  */
-const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number }) {
+function AttachmentImage(props: { attachment: AttachmentRef }) {
+  const [src, setSrc] = useState<string | undefined>(undefined);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  useEffect(() => {
+    if (props.attachment.ref.kind !== 'session_file') return;
+    const reader = (window as unknown as {
+      maka?: {
+        attachments?: {
+          readBytes?: (
+            sessionId: string,
+            relativePath: string,
+          ) => Promise<{ ok: true; base64: string; mimeType: string } | { ok: false }>;
+        };
+      };
+    }).maka?.attachments?.readBytes;
+    if (!reader) return;
+    let cancelled = false;
+    reader(props.attachment.ref.sessionId, props.attachment.ref.relativePath)
+      .then((result) => {
+        if (cancelled || !result.ok) return;
+        setSrc(`data:${result.mimeType};base64,${result.base64}`);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [props.attachment]);
+  if (!src) {
+    return (
+      <span className="maka-user-attachment-thumb-pending h-32 w-32 rounded-lg border border-border bg-muted grid place-items-center text-muted-foreground/60" aria-hidden="true">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </span>
+    );
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="group relative inline-flex rounded-lg overflow-hidden border border-border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        onClick={() => setLightboxOpen(true)}
+        aria-label={`查看图片 ${props.attachment.name}`}
+      >
+        <img className="h-32 w-32 object-cover transition group-hover:opacity-90" src={src} alt={props.attachment.name} />
+      </button>
+      <DialogRoot open={lightboxOpen} onOpenChange={setLightboxOpen}>
+        <DialogContent className="!w-auto !max-w-[90vw] !max-h-[90vh] !bg-transparent !p-0 !shadow-none !rounded-lg overflow-visible">
+          <img className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl" src={src} alt={props.attachment.name} />
+        </DialogContent>
+      </DialogRoot>
+    </>
+  );
+}
+
+const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
     // the right (so the right-anchor reads even for long messages), with a
@@ -705,6 +777,22 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
       <>
         <Bubble variant="user">
           <span>{props.text}</span>
+          {props.attachments && props.attachments.length > 0 ? (
+            <div className="maka-user-attachments flex flex-wrap gap-1.5 mt-2">
+              {props.attachments.map((attachment, index) => (
+                attachment.kind === 'image' ? (
+                  <AttachmentImage key={`${attachment.name}-${index}`} attachment={attachment} />
+                ) : (
+                  <AttachmentFileCard
+                    key={`${attachment.name}-${index}`}
+                    name={attachment.name}
+                    kind={attachment.kind}
+                    size={attachment.bytes}
+                  />
+                )
+              ))}
+            </div>
+          ) : null}
         </Bubble>
         <div className="maka-message-meta">
           {props.ts !== undefined && (
@@ -1006,7 +1094,7 @@ const TurnView = memo(function TurnView(props: {
           aria-label="你发送的消息"
           title={turn.user.ts ? formatAbsoluteTimestamp(turn.user.ts) : undefined}
         >
-          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} />
+          <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
         </Message>
       )}
       <TurnSummary turn={turn} previousModelId={props.previousModelId} />

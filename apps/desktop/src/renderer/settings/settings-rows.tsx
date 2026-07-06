@@ -1,7 +1,12 @@
 import type { ReactNode } from 'react';
+import { Card } from '@maka/ui';
 
-export function SettingsRows(props: { children: ReactNode }) {
-  return <div className="settingsRows">{props.children}</div>;
+export function SettingsRows({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <Card className={className ? `settingsRows ${className}` : 'settingsRows'}>
+      {children}
+    </Card>
+  );
 }
 
 export function SettingRow(props: { title: string; detail: string; value: string; mono?: boolean }) {

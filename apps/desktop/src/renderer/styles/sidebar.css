@@ -459,13 +459,11 @@
   background: var(--state-hover-bg);
   transform: translateX(1px);
 }
-.maka-search-modal-result[data-active="true"]:not([disabled]) {
+/* #520 PR8: Autocomplete.Item exposes the active (highlighted) item via
+   data-highlighted (activedescendant mode — the input keeps focus, so the
+   item itself is no longer :focus-visible). */
+.maka-search-modal-result[data-highlighted]:not([disabled]) {
   background: var(--state-selected-bg);
-}
-.maka-search-modal-result:focus-visible {
-  outline: none;
-  background: var(--state-hover-bg);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
 }
 .maka-search-modal-result[disabled] {
   cursor: default;
@@ -1037,4 +1035,41 @@
   color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
+}
+
+/* View-mode toggle for the sidebar session list (按状态 / 按项目). */
+.maka-view-mode-toggle {
+  display: flex;
+  gap: 1px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface-secondary);
+  border-radius: var(--radius-sm);
+  margin: var(--space-1) var(--space-2);
+}
+
+.maka-view-mode-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  justify-content: center;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  transition: background var(--duration-quick) var(--ease-out-strong),
+              color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-view-mode-btn.active {
+  background: var(--surface-primary);
+  color: var(--foreground-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.maka-view-mode-btn:hover:not(.active) {
+  background: var(--surface-tertiary);
+  color: var(--foreground-primary);
 }

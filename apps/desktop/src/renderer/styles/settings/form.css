@@ -103,27 +103,6 @@
   background: var(--background);
 }
 
-.settingsModalBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-modal);
-  display: grid;
-  place-items: center;
-  /* PR-UI-LAYOUT-2: stronger backdrop blur + slightly darker scrim
-   * so the underlying chat reads as "paused behind a dialog"
-   * (matches the reference design's settings screenshot 2/3/4 where the chat is
-   * still semi-visible but clearly dimmed). Was: blur 8px + 0.34
-   * scrim. Now: blur 14px + 0.42 scrim. The dialog itself shrinks
-   * (see .settingsModal below) so the visible "frame" of chat
-   * around the dialog grows — that gives the modal feeling. */
-  background: oklch(0.40 0.004 286 / 0.42);
-  backdrop-filter: blur(14px) saturate(0.85);
-  -webkit-backdrop-filter: blur(14px) saturate(0.85);
-  padding: var(--space-8);
-  opacity: 1;
-  overscroll-behavior: contain;
-}
-
 .settingsModal {
   /* Modal-mode Settings (when the page mode override below is not set). Sized
      to match the upstream reference layout's settings dialog (~88vw / 76vh,

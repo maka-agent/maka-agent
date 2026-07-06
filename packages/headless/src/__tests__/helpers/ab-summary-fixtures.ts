@@ -119,3 +119,12 @@ export function continuationSummary(
     ...input,
   };
 }
+
+export function taskToolSummary(
+  input: Partial<NonNullable<FixedPromptTaskCompletedEvent['taskToolSummary']>>,
+): NonNullable<FixedPromptTaskCompletedEvent['taskToolSummary']> {
+  return {
+    todoWriteCalls: 0,
+    ...input,
+  };
+}

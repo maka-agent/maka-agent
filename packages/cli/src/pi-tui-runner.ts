@@ -26,6 +26,7 @@ import {
   renderMakaPiStatusLine,
   renderMakaPiTranscript,
   replaceTranscriptWithStoredMessages,
+  submitCompactToTranscript,
   submitPromptToTranscript,
   toggleLatestToolExpansion,
   type MakaPiTranscriptMetadata,
@@ -268,6 +269,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     overlay = showBottomPicker(picker);
   };
 
+  const compactSession = async () => {
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: 'Compacting context…',
+    });
+    requestRender();
+    await submitCompactToTranscript({
+      state,
+      driver: input.driver,
+      onChange: requestRender,
+    });
+  };
+
   const showSessionList = async () => {
     const sessions = await input.driver.listSessions();
     const currentSessions = sessions.filter(
@@ -361,6 +376,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const slashCommands: MakaSlashCommand[] = [
+    {
+      name: 'compact',
+      description: 'Compact session context',
+      run: (parts: string[]) => {
+        if (parts.length !== 1) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /compact',
+          });
+          requestRender();
+          return;
+        }
+        void runControl(compactSession);
+      },
+    },
     {
       name: 'exit',
       description: 'Exit Maka',

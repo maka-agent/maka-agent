@@ -99,8 +99,8 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       renderer,
-      /onPickNewChatModel=\{\(input\) => setPendingNewChatModel\(input\)\}/,
-      'main.tsx must wire the composer pick to setPendingNewChatModel',
+      /onPickNewChatModel=\{\(input\) => \{[\s\S]*setPendingNewChatModel\(input\);[\s\S]*saveComposerDefaults\(\{ model: input \}\);[\s\S]*\}\}/,
+      'main.tsx must wire the composer pick to state and persisted composer defaults',
     );
     // A pick only stays in effect while it is still an offered choice; once the
     // connection/model is removed the picker must fall back to the default so it
@@ -145,12 +145,27 @@ describe('home composer new-chat model picker', () => {
   it('wires the picked new-chat permission mode to one sessions.create call only', async () => {
     const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
-    const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
+    const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
 
     assert.match(
       renderer,
       /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
-      'AppShell must keep the picked empty-state permission mode in renderer-only state',
+      'AppShell must keep the no-session permission pick renderer-only and start it from null',
+    );
+    assert.doesNotMatch(
+      renderer,
+      /saveComposerDefaults\(\{\s*permissionMode:/,
+      'permission mode must not be persisted into composer defaults',
+    );
+    assert.match(
+      renderer,
+      /setPendingNewChatPermissionMode: \(mode: PendingNewChatPermissionMode\) => void;/,
+      'createAppShellChatActions deps must include setPendingNewChatPermissionMode so send() can reset the one-shot pick',
+    );
+    assert.match(
+      renderer,
+      /setPendingNewChatPermissionMode,[\s\S]*validPendingNewChatModel,/,
+      'createAppShellChatActions must destructure setPendingNewChatPermissionMode before send() calls it',
     );
     assert.match(
       setPermissionModeBlock,
@@ -172,10 +187,9 @@ describe('home composer new-chat model picker', () => {
   it('does not let stale new-chat send creation steal the active session after navigation', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',
-      'app-shell-import-actions.ts',
       'app-shell.tsx',
     ]);
-    const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
+    const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
 
     assert.match(
       renderer,
@@ -190,12 +204,12 @@ describe('home composer new-chat model picker', () => {
     assert.match(sendBlock, /upsertSessionSummary\(session\);/);
     assert.match(
       sendBlock,
-      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, \{ replaceCurrentMessages: true \}\);[\s\S]*\}/,
+      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\);[\s\S]*\}/,
       'newly-created sessions may only become active if the user is still on the original empty new-chat surface',
     );
     assert.match(
       sendBlock,
-      /await window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text \}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
+      /await window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*\}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
       'background new-chat sends should continue and refresh the list, but must not poll messages unless the created session is active',
     );
   });

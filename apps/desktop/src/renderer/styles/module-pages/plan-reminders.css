@@ -323,15 +323,15 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  border-color: oklch(0.90 0.04 240);
+  border-color: oklch(from var(--system-alert-accent) 0.90 min(c, 0.04) h);
   border-radius: var(--radius-surface);
-  background: oklch(0.965 0.035 235);
-  color: oklch(0.50 0.13 245);
+  background: oklch(from var(--system-alert-accent) 0.965 min(c, 0.035) h);
+  color: oklch(from var(--system-alert-accent) 0.50 min(c, 0.13) h);
   padding: var(--space-3) var(--space-4);
 }
 
 .maka-plan-system-alert [class*="lucide"] {
-  color: oklch(0.42 0.095 245);
+  color: oklch(from var(--system-alert-accent) 0.42 min(c, 0.095) h);
 }
 
 .maka-plan-system-alert-main,
@@ -358,7 +358,7 @@
 
 .maka-plan-system-alert-switch {
   flex: 0 0 auto;
-  color: oklch(0.38 0.075 245);
+  color: oklch(from var(--system-alert-accent) 0.38 min(c, 0.075) h);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   white-space: nowrap;
@@ -371,21 +371,21 @@
   align-items: center;
   height: 20px;
   padding: 0 var(--space-2);
-  border: var(--border-width-hairline) solid oklch(0.56 0.08 245 / 0.4);
+  border: var(--border-width-hairline) solid oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.4);
   border-radius: var(--radius-pill);
-  background: oklch(0.56 0.08 245 / 0.10);
+  background: oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.10);
   font-weight: var(--font-weight-semibold);
 }
 
 .dark .maka-plan-system-alert {
-  border-color: oklch(0.56 0.08 245 / 0.44);
-  background: oklch(0.25 0.04 245 / 0.52);
-  color: oklch(0.84 0.07 245);
+  border-color: oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.44);
+  background: oklch(from var(--system-alert-accent) 0.25 min(c, 0.04) h / 0.52);
+  color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 
 .dark .maka-plan-system-alert [class*="lucide"],
 .dark .maka-plan-system-alert-switch {
-  color: oklch(0.84 0.07 245);
+  color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 
 .maka-plan-tabs {

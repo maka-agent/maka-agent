@@ -81,6 +81,10 @@ export interface HarborCellToolSummary {
   actualToolCallCounts: Record<string, number>;
 }
 
+export interface HarborCellTaskToolSummary {
+  todoWriteCalls: number;
+}
+
 export interface HarborCellOutput {
   schemaVersion: typeof HARBOR_CELL_OUTPUT_SCHEMA_VERSION;
   status: InvocationResult['status'];
@@ -92,6 +96,7 @@ export interface HarborCellOutput {
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
   toolSummary: HarborCellToolSummary;
+  taskToolSummary?: HarborCellTaskToolSummary;
   steps: number;
   durationMs: number;
   startedAt: number;
@@ -104,6 +109,7 @@ export function buildHarborCellOutput(input: {
   runtimeEventsPath: string;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   continuationSummary?: HarborCellContinuationSummary;
+  taskToolSummaryEnabled?: boolean;
 }): HarborCellOutput {
   const { invocation } = input;
   return {
@@ -117,6 +123,7 @@ export function buildHarborCellOutput(input: {
     ...contextBudgetSummaryField(invocation.events),
     ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
     toolSummary: summarizeCellTools(invocation.events),
+    ...taskToolSummaryField(invocation.events, input.taskToolSummaryEnabled ?? false),
     steps: invocation.events.length,
     durationMs: invocation.finishedAt - invocation.startedAt,
     startedAt: invocation.startedAt,
@@ -153,6 +160,9 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     ? validateContinuationSummary(value.continuationSummary)
     : undefined;
   const toolSummary = validateToolSummary(value.toolSummary);
+  const taskToolSummary = 'taskToolSummary' in value
+    ? validateTaskToolSummary(value.taskToolSummary)
+    : undefined;
   const steps = requireNumber(value.steps, 'steps');
   const durationMs = requireNumber(value.durationMs, 'durationMs');
   const startedAt = requireNumber(value.startedAt, 'startedAt');
@@ -169,6 +179,7 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     ...(contextBudgetSummary !== undefined ? { contextBudgetSummary } : {}),
     ...(continuationSummary !== undefined ? { continuationSummary } : {}),
     toolSummary,
+    ...(taskToolSummary !== undefined ? { taskToolSummary } : {}),
     steps,
     durationMs,
     startedAt,
@@ -176,6 +187,19 @@ export function validateHarborCellOutput(value: unknown): HarborCellOutput {
     runtimeRefs,
   };
   return output;
+}
+
+export function summarizeCellTaskTools(events: readonly RuntimeEvent[]): HarborCellTaskToolSummary {
+  const summary: HarborCellTaskToolSummary = {
+    todoWriteCalls: 0,
+  };
+  for (const event of events) {
+    if (event.content?.kind !== 'function_call') continue;
+    const name = event.content.name;
+    if (name !== 'todo_write') continue;
+    summary.todoWriteCalls += 1;
+  }
+  return summary;
 }
 
 function validateContinuationSummary(value: unknown): HarborCellContinuationSummary {
@@ -365,6 +389,14 @@ function contextBudgetSummaryField(
   return contextBudgetSummary ? { contextBudgetSummary } : {};
 }
 
+function taskToolSummaryField(
+  events: readonly RuntimeEvent[],
+  enabled: boolean,
+): Pick<HarborCellOutput, 'taskToolSummary'> {
+  const taskToolSummary = summarizeCellTaskTools(events);
+  return enabled || taskToolSummary.todoWriteCalls > 0 ? { taskToolSummary } : {};
+}
+
 function validateTokenSummary(value: unknown): HarborCellTokenSummary {
   if (!isRecord(value)) throw new Error('tokenSummary must be a JSON object');
   return {
@@ -395,6 +427,13 @@ function validateToolSummary(value: unknown): HarborCellToolSummary {
     actualToolCalls: requireNumber(value.actualToolCalls, 'toolSummary.actualToolCalls'),
     actualToolNames: validateStringArray(value.actualToolNames, 'toolSummary.actualToolNames'),
     actualToolCallCounts,
+  };
+}
+
+function validateTaskToolSummary(value: unknown): HarborCellTaskToolSummary {
+  if (!isRecord(value)) throw new Error('taskToolSummary must be a JSON object');
+  return {
+    todoWriteCalls: requireNumber(value.todoWriteCalls, 'taskToolSummary.todoWriteCalls'),
   };
 }
 

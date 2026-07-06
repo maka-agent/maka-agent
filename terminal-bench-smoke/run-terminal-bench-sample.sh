@@ -187,6 +187,8 @@ function retryConfig() {
 }
 
 const taskPattern = env('TASK_PATTERN') || defaults.taskPattern || '*sqlite-with-gcov';
+const datasetName = env('DATASET_NAME') || (defaults.dataset && defaults.dataset.name) || 'terminal-bench-sample';
+const datasetVersion = env('DATASET_VERSION') || (defaults.dataset && defaults.dataset.version) || '2.0';
 const nTasksRaw = env('N_TASKS');
 const nTasks = nTasksRaw ? Number(nTasksRaw) : null;
 if (nTasksRaw && (!Number.isInteger(nTasks) || nTasks <= 0)) {
@@ -217,6 +219,9 @@ const maxSteps = env('MAX_STEPS');
 if (maxSteps) agentEnv.MAKA_MAX_STEPS = maxSteps;
 const agentTimeoutSec = env('AGENT_TIMEOUT_SEC');
 if (agentTimeoutSec) agentEnv.MAKA_HARBOR_AGENT_TIMEOUT_SEC = agentTimeoutSec;
+if (profileName.startsWith('maka-') && !agentEnv.MAKA_BENCHMARK_DATASET) {
+  agentEnv.MAKA_BENCHMARK_DATASET = env('MAKA_BENCHMARK_DATASET') || datasetName;
+}
 
 const extraInstructionPaths = Object.prototype.hasOwnProperty.call(profile, 'extraInstructionPaths')
   ? profile.extraInstructionPaths
@@ -278,8 +283,8 @@ const config = {
   datasets: [
     {
       path: null,
-      name: env('DATASET_NAME') || (defaults.dataset && defaults.dataset.name) || 'terminal-bench-sample',
-      version: env('DATASET_VERSION') || (defaults.dataset && defaults.dataset.version) || '2.0',
+      name: datasetName,
+      version: datasetVersion,
       ref: null,
       registry_url: null,
       registry_path: null,

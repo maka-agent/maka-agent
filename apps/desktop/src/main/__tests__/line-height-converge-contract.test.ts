@@ -20,6 +20,12 @@
  * 3. Tailwind `--leading-*` aliases in `styles.css` `@theme inline` map to
  *    `var(--leading-*)` so TSX `leading-*` utilities stay single-sourced
  *    with hand-written CSS — same inline-bridge pattern as `--text-*`.
+ *
+ * 4. `--text-{xs,sm,base}--line-height` pairs in `styles.css` `@theme inline`
+ *    pin the paired line-height of bare `text-*` utilities to the leading
+ *    scale (#546). Without the pins, `text-xs`/`text-sm` carry Tailwind's
+ *    stock ratios (1.333/1.4286) — off-tier values invariant 1 can't see
+ *    because they never appear as a `line-height:` declaration in our CSS.
  */
 
 import { strict as assert } from 'node:assert';
@@ -117,6 +123,13 @@ describe('PR-LEADING-CONVERGE-0 contract', () => {
     assertCustomPropPinnedOnce(styles, '--leading-tight', 'var(--leading-tight)', 'styles.css');
     assertCustomPropPinnedOnce(styles, '--leading-snug', 'var(--leading-snug)', 'styles.css');
     assertCustomPropPinnedOnce(styles, '--leading-normal', 'var(--leading-normal)', 'styles.css');
+  });
+
+  it('--text-*--line-height pairs are declared exactly once pinned to the leading scale in @theme inline', async () => {
+    const styles = await readFile(STYLES_FILE, 'utf8');
+    assertCustomPropPinnedOnce(styles, '--text-xs--line-height', 'var(--leading-snug)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--text-sm--line-height', 'var(--leading-snug)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--text-base--line-height', 'var(--leading-normal)', 'styles.css');
   });
 });
 

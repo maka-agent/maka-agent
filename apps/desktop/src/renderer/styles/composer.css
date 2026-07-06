@@ -53,6 +53,7 @@
   width: min(var(--maka-chat-measure), 100%);
   display: flex;
   justify-content: flex-start;
+  gap: var(--space-1);
   box-sizing: border-box;
   margin: var(--space-2) auto 0;
 }
@@ -97,6 +98,77 @@
   max-width: 180px;
   overflow: hidden;
   color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-branch-picker {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  min-width: 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-tight);
+  text-align: left;
+  transition: color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-composer-branch-picker:hover {
+  color: var(--foreground-secondary);
+  background: var(--state-hover-bg);
+}
+
+.maka-composer-branch-picker:focus-visible {
+  outline: none;
+  border-radius: var(--radius-control);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
+}
+
+.maka-composer-branch-picker svg {
+  flex: 0 0 auto;
+}
+
+.maka-composer-branch-current {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-branch-empty {
+  padding: var(--space-2) var(--space-2);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  text-align: center;
+}
+
+.maka-composer-branch-check {
+  margin-left: auto;
+}
+
+/* Workspace directory picker menu — mirrors the branch menu layout.
+   Shows recently opened directories at the top with a separator before
+   the "选择其他目录..." option. */
+.maka-composer-workspace-menu {
+  min-width: 200px;
+}
+.maka-composer-workspace-menu [data-slot="menu-item"] svg {
+  flex: 0 0 auto;
+}
+.maka-composer-workspace-menu [data-slot="menu-item"] span {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

@@ -1,8 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, clearGlobalInputHistory, useToast } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
+import { Button, SettingsSelect, SettingsSwitch as Switch, clearGlobalInputHistory, useToast } from '@maka/ui';
 import { openPathFailureCopy, openPathActionLabel } from '../open-path';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+
+const CONFIG_CATEGORY_OPTIONS: ReadonlyArray<{
+  id: ConfigCategory;
+  label: string;
+  detail: string;
+  sensitive?: boolean;
+}> = [
+  { id: 'connections', label: '模型连接', detail: '供应商连接与默认模型（不含密钥）' },
+  { id: 'settings', label: '应用设置', detail: '常规、搜索、机器人、代理等设置' },
+  { id: 'memory', label: '本地记忆', detail: '本机 MEMORY.md 的内容' },
+  {
+    id: 'credentials',
+    label: '凭据（API 密钥、令牌）',
+    detail: '模型密钥与订阅令牌等敏感信息',
+    sensitive: true,
+  },
+];
+
+type ConfigImportResult = Extract<
+  Awaited<ReturnType<typeof window.maka.config.import>>,
+  { ok: true }
+>['result'];
+
+function summarizeImportResult(result: ConfigImportResult): string {
+  const parts: string[] = [];
+  const conn = result.connections;
+  if (conn) parts.push(`连接 新增${conn.created}·覆盖${conn.overwritten}·跳过${conn.skipped}`);
+  if (result.settings?.applied) parts.push('设置已应用');
+  if (result.credentials) {
+    const cred = result.credentials;
+    parts.push(cred.skipped > 0 ? `凭据 ${cred.applied}（跳过 ${cred.skipped}）` : `凭据 ${cred.applied}`);
+  }
+  if (result.memory?.applied) parts.push('记忆已应用');
+  return parts.join(' · ') || '文件不含可导入的内容';
+}
 
 export function DataSettingsPage() {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof window.maka.app.info>> | null>(null);
@@ -11,6 +47,11 @@ export function DataSettingsPage() {
   const pendingDataActionRef = useRef<string | null>(null);
   const dataPageMountedRef = useRef(false);
   const toast = useToast();
+  const [selectedCategories, setSelectedCategories] = useState<Set<ConfigCategory>>(
+    () => new Set<ConfigCategory>(['connections', 'settings']),
+  );
+  const [importStrategy, setImportStrategy] = useState<'skip' | 'overwrite'>('skip');
+  const [configBusy, setConfigBusy] = useState<null | 'export' | 'import'>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,6 +134,54 @@ export function DataSettingsPage() {
     });
   }
 
+  function toggleCategory(id: ConfigCategory) {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function exportConfig() {
+    if (configBusy) return;
+    const categories = [...selectedCategories];
+    if (categories.length === 0) {
+      toast.error('请至少选择一个类别');
+      return;
+    }
+    setConfigBusy('export');
+    try {
+      const res = await window.maka.config.export({ categories });
+      if (res.ok) {
+        toast.success('已导出配置', `包含：${res.includedData.join('、')}`);
+      } else if (res.reason !== 'canceled') {
+        toast.error('导出失败', res.reason === 'no_categories' ? '未选择任何类别' : '请稍后重试');
+      }
+    } catch (error) {
+      toast.error('导出失败', settingsActionErrorMessage(error));
+    } finally {
+      setConfigBusy(null);
+    }
+  }
+
+  async function importConfig() {
+    if (configBusy) return;
+    setConfigBusy('import');
+    try {
+      const res = await window.maka.config.import({ strategy: importStrategy });
+      if (res.ok) {
+        toast.success('已导入配置', summarizeImportResult(res.result));
+      } else if (res.reason !== 'canceled') {
+        toast.error('导入失败', res.message ?? '文件无效或版本不受支持。');
+      }
+    } catch (error) {
+      toast.error('导入失败', settingsActionErrorMessage(error));
+    } finally {
+      setConfigBusy(null);
+    }
+  }
+
   return (
     <div className="settingsStructuredPage">
       <SettingsRows>
@@ -149,6 +238,56 @@ export function DataSettingsPage() {
           无法载入工作区路径：{infoError}
         </div>
       )}
+
+      <section className="settingsAboutPrivacy" aria-label="配置导入导出">
+        <h3>配置导入导出</h3>
+        <p className="settingsHelpText">
+          勾选要导出的内容，生成一个 JSON 备份文件；换机或重装时可再导入。默认不含密钥。
+        </p>
+        <div role="group" aria-label="选择导出内容" className="settingsConfigCategoryList">
+          {CONFIG_CATEGORY_OPTIONS.map((option) => {
+            const checked = selectedCategories.has(option.id);
+            return (
+              <div key={option.id} className="settingsConfigCategoryItem">
+                <Switch
+                  ariaLabel={`导出${option.label}`}
+                  checked={checked}
+                  onChange={() => toggleCategory(option.id)}
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                  <small>{option.detail}</small>
+                  {option.sensitive && checked ? (
+                    <small role="alert" data-tone="destructive">
+                      ⚠️ 密钥将以明文写入导出文件。任何拿到该文件的人都能使用这些密钥，请妥善保管、不要分享。
+                    </small>
+                  ) : null}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="settingsConfigStrategy">
+          <span className="settingsHelpText">导入时同名连接：</span>
+          <SettingsSelect
+            value={importStrategy}
+            ariaLabel="导入时同名连接的处理方式"
+            options={[
+              ['skip', '跳过'],
+              ['overwrite', '覆盖'],
+            ] satisfies Array<readonly [typeof importStrategy, string]>}
+            onChange={(strategy) => setImportStrategy(strategy)}
+          />
+        </div>
+        <div className="settingsActionRow">
+          <Button type="button" disabled={configBusy !== null} onClick={() => void exportConfig()}>
+            {configBusy === 'export' ? '导出中…' : '导出配置…'}
+          </Button>
+          <Button type="button" disabled={configBusy !== null} onClick={() => void importConfig()}>
+            {configBusy === 'import' ? '导入中…' : '导入配置…'}
+          </Button>
+        </div>
+      </section>
     </div>
   );
 }

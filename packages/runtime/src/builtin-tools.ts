@@ -6,18 +6,19 @@
 // Bash / Write / Edit go through PermissionEngine.
 
 import { z } from 'zod';
-import { promises as fs } from 'node:fs';
-import { exec } from 'node:child_process';
-import { promisify } from 'node:util';
-import { glob as nodeGlob } from 'node:fs/promises'; // Node 22+ stable glob
-import { dirname, isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
 import {
   buildBackgroundBashTool,
-  buildLocalForegroundBashTool,
   buildShellRunControlTools,
+  shapeTerminalResult,
 } from './shell-tools.js';
 import type { ShellRunToolController } from './shell-tools.js';
+import {
+  createLocalWorkspaceExecutor,
+  type WorkspaceExecResult,
+  type WorkspaceExecutor,
+} from './workspace-executor.js';
 
 // Single source of truth for tool shape. AiSdkBackend exports them; we just
 // re-export here for back-compat with external callers that imported from
@@ -26,7 +27,6 @@ import type { MakaTool, MakaToolContext } from './ai-sdk-backend.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 
-const execAsync = promisify(exec);
 // Generous wall-clock cap for the ripgrep-backed Grep tool. A search should be
 // near-instant; this only bounds a pathological hang now that the stream
 // watchdog is paused during tool execution.
@@ -34,22 +34,18 @@ const GREP_TIMEOUT_MS = 120_000;
 
 export interface BuildBuiltinToolsOptions {
   shellRuns?: ShellRunToolController;
-}
-
-// Key Write and Edit on the lexically resolved absolute path so both lock the
-// same file and spellings ("a", "./a", "d//a") collapse onto one key. realpath
-// canonicalizes only the cwd (which always exists); the path itself stays lexical,
-// so the key is stable across the file's creation and never splits it mid-flight.
-// (withFileWriteLock documents why concurrent writes are serialized and which
-// aliases a lexical key does not merge.)
-async function fileWriteLockKey(cwd: string, inputPath: string): Promise<string> {
-  return resolve(await fs.realpath(cwd), inputPath);
+  executor?: WorkspaceExecutor;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
+  const executor = options.executor ?? createLocalWorkspaceExecutor();
+  const executionFacts = executor.facts;
   const bashTools = options.shellRuns
-    ? [buildBackgroundBashTool(options.shellRuns), ...buildShellRunControlTools(options.shellRuns)]
-    : [buildLocalForegroundBashTool()];
+    ? [
+      buildBackgroundBashTool(options.shellRuns, { executionFacts }),
+      ...buildShellRunControlTools(options.shellRuns),
+    ]
+    : [buildExecutorBashTool(executor)];
   return [
     ...bashTools,
     {
@@ -61,14 +57,15 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         limit: z.number().int().positive().optional(),
       }),
       permissionRequired: false,
+      executionFacts,
       impl: async ({ path, offset, limit }, { cwd }) => {
-        const abs = await resolveExistingInsideCwd(cwd, path, 'Read');
-        const content = await fs.readFile(abs, 'utf8');
-        if (offset === undefined && limit === undefined) return { content };
-        const lines = content.split('\n');
-        const start = offset ?? 0;
-        const end = limit ? start + limit : lines.length;
-        return { content: lines.slice(start, end).join('\n') };
+        const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
+        return await executor.readFile({
+          cwd,
+          path: resolvedPath,
+          ...(offset !== undefined ? { offset } : {}),
+          ...(limit !== undefined ? { limit } : {}),
+        });
       },
     },
     {
@@ -76,15 +73,12 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       description: 'Write content to a file (creates or overwrites). Subject to permission policy.',
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
+      executionFacts,
       impl: async ({ path, content }, { cwd }) => {
-        // Resolve inside the lock so the containment check and the write are one
-        // atomic critical section per file (no concurrent op can alter the target
-        // between them). The key is lexical, so it is stable whether or not the
-        // file exists yet.
-        return await withFileWriteLock(await fileWriteLockKey(cwd, path), async () => {
-          const abs = await resolveWritableInsideCwd(cwd, path, 'Write');
-          await fs.writeFile(abs, content, 'utf8');
-          return { ok: true, path: abs, bytes: Buffer.byteLength(content, 'utf8') };
+        const { key } = await executor.writeLockKey({ cwd, path });
+        return await withFileWriteLock(key, async () => {
+          const { path: resolvedPath } = await executor.resolveWritablePath({ cwd, path, label: 'Write' });
+          return await executor.writeFile({ cwd, path: resolvedPath, content });
         });
       },
     },
@@ -102,19 +96,17 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         new_string: z.string(),
       }),
       permissionRequired: true,
+      executionFacts,
       impl: async ({ path, old_string, new_string }, { cwd }) => {
-        // Resolve + read + write all inside the lock so the read-modify-write is
-        // one atomic critical section per file. The key is lexical (stable across
-        // creation), so a Write that creates this file and a following Edit share
-        // the lock rather than racing.
-        return await withFileWriteLock(await fileWriteLockKey(cwd, path), async () => {
-          const abs = await resolveExistingInsideCwd(cwd, path, 'Edit');
-          const current = await fs.readFile(abs, 'utf8');
+        const { key } = await executor.writeLockKey({ cwd, path });
+        return await withFileWriteLock(key, async () => {
+          const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Edit' });
+          const { content: current } = await executor.readFile({ cwd, path: resolvedPath });
           const result = computeEditedSource(current, old_string, new_string, path);
-          await fs.writeFile(abs, result.content, 'utf8');
+          await executor.writeFile({ cwd, path: resolvedPath, content: result.content });
           return {
             ok: true,
-            path: abs,
+            path: resolvedPath,
             replacements: 1,
             matchedVia: result.matchedVia,
             startLine: result.startLine,
@@ -132,15 +124,15 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         cwd: z.string().optional(),
       }),
       permissionRequired: false,
+      executionFacts,
       impl: async ({ pattern, cwd: relCwd }, { cwd }) => {
         assertRelativeGlobPattern(pattern);
-        const base = relCwd ? await resolveExistingInsideCwd(cwd, relCwd, 'Glob cwd') : await fs.realpath(cwd);
-        const files: string[] = [];
-        for await (const f of nodeGlob(pattern, { cwd: base })) {
-          files.push(typeof f === 'string' ? f : (f as any).name);
-          if (files.length >= 200) break;
-        }
-        return { files };
+        const { path: base } = await executor.resolveExistingPath({
+          cwd,
+          path: relCwd ?? '.',
+          label: 'Glob cwd',
+        });
+        return await executor.globFiles({ cwd: base, pattern, limit: 200 });
       },
     },
     {
@@ -152,73 +144,75 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
         glob: z.string().optional(),
       }),
       permissionRequired: false,
+      executionFacts,
       impl: async ({ pattern, path, glob }, { cwd, abortSignal }) => {
-        const args = ['-n', '--no-heading', '--max-count=50'];
-        if (glob) args.push('--glob', glob);
-        args.push(pattern);
-        const searchPath = path ? await resolveExistingInsideCwd(cwd, path, 'Grep') : await fs.realpath(cwd);
-        args.push(searchPath);
-        const cmd = `rg ${args.map(shellEscape).join(' ')}`;
-        try {
-          // Self-bound: ripgrep finishes in well under a second normally, but a
-          // pathological tree (network mount, /proc, a FIFO) could hang it. The
-          // stream watchdog no longer caps tool execution, so each spawning tool
-          // must carry its own wall-clock timeout and honour the turn's abort.
-          const { stdout } = await execAsync(cmd, {
-            cwd,
-            maxBuffer: 5 * 1024 * 1024,
-            timeout: GREP_TIMEOUT_MS,
-            ...(abortSignal ? { signal: abortSignal } : {}),
-          });
-          return { matches: stdout.split('\n').filter(Boolean).slice(0, 200) };
-        } catch (e: any) {
-          if (e?.code === 1) return { matches: [] }; // ripgrep "no match"
-          throw e;
-        }
+        const { path: searchPath } = await executor.resolveExistingPath({
+          cwd,
+          path: path ?? '.',
+          label: 'Grep',
+        });
+        // Self-bound: ripgrep finishes in well under a second normally, but a
+        // pathological tree (network mount, /proc, a FIFO) could hang it. The
+        // stream watchdog no longer caps tool execution, so each spawning tool
+        // must carry its own wall-clock timeout and honour the turn's abort.
+        return await executor.grepFiles({
+          cwd,
+          pattern,
+          path: searchPath,
+          ...(glob ? { glob } : {}),
+          maxCountPerFile: 50,
+          limit: 200,
+          timeoutMs: GREP_TIMEOUT_MS,
+          ...(abortSignal ? { abortSignal } : {}),
+        });
       },
     },
   ];
 }
 
-function shellEscape(arg: string): string {
-  return `'${arg.replaceAll("'", "'\\''")}'`;
+function buildExecutorBashTool(executor: WorkspaceExecutor): MakaTool {
+  return {
+    name: 'Bash',
+    description: 'Run a shell command in the session cwd. Subject to permission policy.',
+    parameters: z.object({
+      command: z.string().describe('The shell command to execute'),
+      timeout_ms: z.number().int().positive().max(600_000).optional(),
+    }),
+    permissionRequired: true,
+    executionFacts: executor.facts,
+    impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
+      const timeout = timeout_ms ?? 120_000;
+      const result = await executor.exec({
+        command,
+        cwd,
+        timeoutMs: timeout,
+        ...(abortSignal ? { abortSignal } : {}),
+        emitOutput,
+      });
+      if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
+      if (result.aborted) throw terminalError('Command aborted', result, 130);
+      if (result.exitCode !== 0) {
+        throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
+      }
+      return shapeTerminalResult({ cwd, command, result });
+    },
+  };
 }
 
-async function resolveWritableInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  if (isAbsolute(inputPath)) {
-    throw new Error(`${label} path must be relative to session cwd`);
-  }
-  const root = await fs.realpath(cwd);
-  const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  const parent = await fs.realpath(dirname(candidate));
-  if (!isInside(root, parent)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  return candidate;
-}
-
-async function resolveExistingInsideCwd(cwd: string, inputPath: string, label: string): Promise<string> {
-  if (isAbsolute(inputPath)) {
-    throw new Error(`${label} path must be relative to session cwd`);
-  }
-  const root = await fs.realpath(cwd);
-  const candidate = resolve(root, inputPath);
-  if (!isInside(root, candidate)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  const target = await fs.realpath(candidate);
-  if (!isInside(root, target)) {
-    throw new Error(`${label} path must stay inside session cwd`);
-  }
-  return target;
-}
-
-function isInside(root: string, target: string): boolean {
-  const rel = relative(root, target);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+function terminalError(
+  message: string,
+  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'>,
+  code: number,
+): Error {
+  const error = new Error(message);
+  Object.assign(error, {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    stdoutTruncated: result.stdoutTruncated,
+    stderrTruncated: result.stderrTruncated,
+    code,
+  });
+  return error;
 }
 
 function assertRelativeGlobPattern(pattern: string): void {

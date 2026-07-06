@@ -1,8 +1,8 @@
 export type { NavSelection } from './nav-selection.js';
-export { useModalA11y } from './modal-a11y.js';
 export { CapabilityAuditStrip } from './capability-audit-strip.js';
 export { SearchModal } from './search-modal.js';
 export { SessionListPanel } from './session-list-panel.js';
+export type { SessionViewMode } from './session-list-panel.js';
 export type { SkillEntry } from './module-panel-types.js';
 export { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
 export { formatBytes, OverlayHost, ToolActivity } from './tool-activity.js';

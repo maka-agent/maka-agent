@@ -7,7 +7,15 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import { PermissionEngine, type PermissionEngineDeps } from '../permission-engine.js';
-import type { PermissionResponse } from '@maka/core/permission';
+import type { PermissionResponse, ToolExecutionFacts } from '@maka/core/permission';
+
+const LOCAL_EXECUTION_FACTS: ToolExecutionFacts = {
+  isolation: 'none',
+  writesAffectHost: true,
+  writeBack: 'direct',
+  network: 'host',
+  secrets: 'host_env',
+};
 
 function makeEngine(): { engine: PermissionEngine; deps: TestDeps } {
   const deps = new TestDeps();
@@ -80,6 +88,25 @@ describe('PermissionEngine.evaluate — allow path', () => {
       mode: 'ask',
     });
     expect(r3.kind).toBe('prompt');
+  });
+
+  test('execution facts are accepted without changing current policy decisions', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute',
+      executionFacts: LOCAL_EXECUTION_FACTS,
+    });
+
+    expect(r.kind).toBe('allow');
+    if (r.kind === 'allow') {
+      expect(r.category).toBe('shell_unsafe');
+    }
   });
 });
 

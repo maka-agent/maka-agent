@@ -15,7 +15,7 @@ import {
   type ModelInfo,
 } from '@maka/core';
 import { formatRelativeTimestamp } from '@maka/core';
-import { Button, FieldDescription, FieldRoot, Input, Label, useToast } from '@maka/ui';
+import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
@@ -375,8 +375,8 @@ export function ConnectionDetail(props: {
           <p>{display.name}</p>
         </div>
         <span className="providerHeaderBadges">
-          {props.isDefault && <span className="settingsBadge">默认</span>}
-          <span className="settingsBadge">{categoryLabel(defaults.category)}</span>
+          {props.isDefault && <Chip variant="neutral" size="sm">默认</Chip>}
+          <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
         </span>
       </header>
       <FieldRoot className="grid gap-1.5">

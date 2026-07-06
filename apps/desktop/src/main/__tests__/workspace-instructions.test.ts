@@ -67,9 +67,9 @@ describe('workspace instructions prompt fragment', () => {
       const state = await getWorkspaceInstructionsState(workspaceRoot);
 
       assert.equal(state.detectedCount, 1);
-      assert.deepEqual(state.files.map((file) => file.file), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
+      assert.deepEqual(state.files.map((file: { file: string }) => file.file), ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md']);
       assert.deepEqual(
-        state.files.map((file) => file.status),
+        state.files.map((file: { status: string }) => file.status),
         ['available', 'empty', 'missing'],
       );
       assert.equal('text' in state.files[0]!, false);
@@ -139,13 +139,18 @@ describe('workspace instructions prompt fragment', () => {
     });
   });
 
-  it('wires create action through main, preload, and Settings UI without arbitrary paths', async () => {
+  it('wires instruction actions through the selected project root without arbitrary paths', async () => {
     const main = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
     const preload = await readFile(join(process.cwd(), 'src/preload/preload.ts'), 'utf8');
     const settings = await readSettingsCombinedSource();
 
+    assert.match(main, /workspaceInstructions:getState/);
+    assert.match(main, /getWorkspaceInstructionsState\(await currentProjectRoot\(\)\)/);
+    assert.match(main, /workspaceInstructions:openFile/);
+    assert.match(main, /resolveWorkspaceInstructionFileForOpen\(await currentProjectRoot\(\), typeof file === 'string' \? file : ''\)/);
     assert.match(main, /workspaceInstructions:createFile/);
-    assert.match(main, /createWorkspaceInstructionFile\(process\.cwd\(\), typeof file === 'string' \? file : ''\)/);
+    assert.match(main, /createWorkspaceInstructionFile\(await currentProjectRoot\(\), typeof file === 'string' \? file : ''\)/);
+    assert.doesNotMatch(main, /workspaceInstructions:[\s\S]*InstructionFile[^(]*\(process\.cwd\(\)/);
     assert.match(preload, /createFile\(file: string\)/);
     assert.match(settings, /file\.status === 'missing'/);
     assert.match(settings, /createWorkspaceInstructionFile\(file\.file\)/);

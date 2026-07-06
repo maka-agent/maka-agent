@@ -1,7 +1,7 @@
 import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
@@ -15,6 +15,7 @@ import {
   isPermissionMode,
   isThinkingLevel,
   thinkingVariantsForModel,
+  resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -57,7 +58,7 @@ import { CodexSubscriptionService } from './oauth/codex-subscription-service.js'
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { PricingConfig } from '@maka/core/usage-stats/types';
+import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
   TestProxyInput,
   TestProxyResult,
@@ -87,6 +88,9 @@ import {
   ShellRunProcessManager,
 } from '@maka/runtime';
 import type {
+  BotIncomingMessage,
+  BotStatus,
+  MakaTool,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -123,6 +127,7 @@ import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from 
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
+import { listLocalBranches, checkoutBranch } from './git-branch.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -147,25 +152,16 @@ import {
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
-import {
-  createAttachmentApprovalRegistry,
-  validateRendererAttachments,
-  type AttachmentValidationFailureReason,
-} from './attachment-approval.js';
-import {
-  readFolderOutlinesForPromptImport,
-  readDroppedTextFilesForPromptImport,
-  readTextFilesForPromptImport,
-  type DroppedTextFilePayload,
-  type FolderOutlineImportFailureReason,
-  type TextFileImportFailureReason,
-} from './text-file-import.js';
+import { createAttachmentApprovalRegistry } from './attachment-approval.js';
+import { createAttachmentByteReader } from './attachment-reader.js';
+import { resizeImageForAttachment } from './attachment-resize-native.js';
+import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
-} from './history-compact-artifacts.js';
+} from '@maka/runtime';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
@@ -177,7 +173,7 @@ import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
-import { buildContextBudgetPolicy } from './context-budget-policy.js';
+import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
@@ -191,6 +187,7 @@ import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
 import { registerConnectionsIpc } from './connections-ipc-main.js';
+import { registerConfigIpc } from './config-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
@@ -390,14 +387,14 @@ const shellRuns = new ShellRunProcessManager({
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
 // and advertise every tool every turn (legacy behavior).
 const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools = [buildRiveWorkflowTool()];
-const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
+const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
+const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // Embedded-browser observe→act tools. They drive the conversation's own
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
-const browserTools = buildBrowserTools();
-const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const browserTools: MakaTool[] = buildBrowserTools();
+const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -407,8 +404,8 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
-const builtinTools = [
-  ...buildBuiltinTools({ shellRuns }).filter((tool) => tool.name !== 'Edit'),
+const builtinTools: MakaTool[] = [
+  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -440,8 +437,13 @@ let lookupPricing = buildPricingLookup();
 // same readiness during reconnect attempts).
 const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
+// botIncoming is wired at module load, before registerIpc() defines the
+// current-project-root resolver. registerIpc reassigns this once the resolver
+// exists; until then the launch directory is the safe fallback. Unifying
+// project-root resolution is tracked as a follow-up.
+let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
 const botRegistry = new BotRegistry({
-  onIncomingMessage: (message) => {
+  onIncomingMessage: (message: BotIncomingMessage) => {
     // Only log incoming bot messages in dev — production stdout leaking
     // platform + chatId is operational noise at best and a small privacy
     // signal at worst (which bridges are connected, with what frequency).
@@ -450,7 +452,7 @@ const botRegistry = new BotRegistry({
     }
     void botIncoming.handleBotIncomingMessage(message);
   },
-  onStatusChange: (status) => {
+  onStatusChange: (status: BotStatus) => {
     safeSendToRenderer('settings:bots:statusChanged', status);
     // PR-BOT-LASTERROR-FROM-SEND-0: persist send-path failure reasons
     // to settings so they survive a Settings page close/reopen. The
@@ -588,10 +590,15 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
 }
 
+function modelSupportsVision(connection: LlmConnection, model: string): boolean {
+  return resolveModelVisionSupport(connection.providerType, connection.models, model);
+}
+
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
+  const supportsVision = modelSupportsVision(connection, model);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -608,7 +615,7 @@ backends.register('ai-sdk', async (ctx) => {
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
     providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
-    contextBudget: buildContextBudgetPolicy(connection),
+    contextBudget: buildDefaultContextBudgetPolicy(connection, { name: 'desktop-default-history-budget' }),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
@@ -616,8 +623,8 @@ backends.register('ai-sdk', async (ctx) => {
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     shellRunContextSummary: ctx.shellRunContextSummary,
     lookupPricing,
-    recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
-    recordToolInvocation: (event) =>
+    recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
+    recordToolInvocation: (event: ToolInvocationRecord) =>
       recordToolInvocation(
         { repo: telemetryRepo },
         // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
@@ -628,9 +635,11 @@ backends.register('ai-sdk', async (ctx) => {
           ? { ...event, argsSummary: undefined }
           : event,
       ),
-    recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
-    archiveToolResult: (event) => persistArchivedToolResult(event),
-    readToolResultArchive: (event) => readArchivedToolResult(event),
+    recordToolArtifacts: (event: ToolArtifactRecorderInput) => persistToolArtifacts(ctx.header.cwd, event),
+    archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
+    readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
+    readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
+    supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
       onArtifactCreated: (artifact) => {
@@ -702,7 +711,7 @@ const dailyReview = createDailyReviewMainService({
 botIncoming = createBotIncomingMainService({
   runtime,
   botRegistry,
-  cwd: () => process.cwd(),
+  getCurrentProjectRoot: () => resolveCurrentProjectRoot(),
   getDefaultConnectionSlug: () => connectionStore.getDefault(),
   getReadyConnection,
   readSessionHeader: (sessionId) => store.readHeader(sessionId),
@@ -758,54 +767,7 @@ function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreat
   }
 }
 
-function textFileImportFailureCopy(reason: TextFileImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选文件不存在或不是普通文件。';
-    case 'too-large':
-      return '文件过大；请先截取需要讨论的部分。';
-    case 'binary':
-      return '这个文件不像纯文本，已取消导入。';
-    case 'too-many-files':
-      return '一次最多导入 5 个文件。';
-    case 'office-file':
-      return 'Office 文档请用导入文件按钮选择；拖放或粘贴拿不到可授权的本地路径。';
-    case 'unsupported-type':
-      return '只支持直接导入文本文件和 Office 文档。';
-    case 'read-failed':
-      return '读取文件失败。';
-    case 'officecli_missing':
-      return '本机未检测到 officecli，暂时无法导入 Office 文档内容。';
-    case 'officecli_timeout':
-      return 'Office 文档内容导入超时。';
-    case 'officecli_failed':
-      return 'Office 文档内容导入失败。';
-  }
-}
 
-function folderOutlineImportFailureCopy(reason: FolderOutlineImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选位置不存在或不是文件夹。';
-    case 'read-failed':
-      return '读取文件夹目录失败。';
-    case 'too-many-folders':
-      return '一次最多导入 3 个文件夹目录。';
-    case 'empty':
-      return '这个文件夹里没有可导入的文件目录。';
-  }
-}
-
-function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
-  switch (reason) {
-    case 'too_many_attachments':
-      return '一次最多发送 8 个附件。';
-    case 'unapproved_external_path':
-      return '附件来源已过期，请重新选择文件后再发送。';
-    case 'invalid_attachment':
-      return '附件信息无效，请重新选择文件后再发送。';
-  }
-}
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
   const raw = redactSecrets(result.error ?? '').trim();
@@ -821,11 +783,57 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
 }
 
 function registerIpc(): void {
+  const LAST_PROJECT_PATH_FILE = join(workspaceRoot, 'last-project-path.json');
+
   let selectedProjectRoot: string | null = null;
+
+  async function loadPersistedProjectRoot(): Promise<string | null> {
+    try {
+      const raw = await readFile(LAST_PROJECT_PATH_FILE, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.projectPath === 'string' && parsed.projectPath) {
+        await stat(parsed.projectPath);
+        return await resolveProjectRoot([parsed.projectPath]);
+      }
+    } catch {
+      // File missing, invalid, or points at a deleted directory.
+    }
+    return null;
+  }
+  const persistedProjectRootPromise = loadPersistedProjectRoot();
+
+  async function saveLastProjectPath(projectPath: string): Promise<void> {
+    try {
+      await writeFile(LAST_PROJECT_PATH_FILE, JSON.stringify({ projectPath }), 'utf8');
+    } catch {
+      // Best-effort; failure should not block the selection.
+    }
+  }
 
   async function currentProjectRoot(): Promise<string> {
     if (selectedProjectRoot) return selectedProjectRoot;
+    const persistedProjectRoot = await persistedProjectRootPromise;
+    if (persistedProjectRoot) {
+      selectedProjectRoot = persistedProjectRoot;
+      return persistedProjectRoot;
+    }
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
+  }
+  resolveCurrentProjectRoot = currentProjectRoot;
+
+  async function resolveExplicitProjectRoot(projectPath: unknown): Promise<
+    | { ok: true; projectPath: string }
+    | { ok: false; reason: 'invalid-path' | 'not-found' }
+  > {
+    if (typeof projectPath !== 'string' || !projectPath) {
+      return { ok: false, reason: 'invalid-path' };
+    }
+    try {
+      await stat(projectPath);
+    } catch {
+      return { ok: false, reason: 'not-found' };
+    }
+    return { ok: true, projectPath: await resolveProjectRoot([projectPath]) };
   }
 
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
@@ -879,6 +887,7 @@ function registerIpc(): void {
       if (!selectedPath) return { ok: false, reason: 'missing-selection' };
       const projectPath = await resolveProjectRoot([selectedPath]);
       selectedProjectRoot = projectPath;
+      void saveLastProjectPath(projectPath);
       return {
         ok: true,
         projectPath,
@@ -886,12 +895,64 @@ function registerIpc(): void {
       };
     },
   );
+  ipcMain.handle(
+    'app:selectProjectRoot',
+    async (_event, projectPath: unknown): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > => {
+      const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+      if (!explicitRoot.ok) return explicitRoot;
+      const resolved = explicitRoot.projectPath;
+      selectedProjectRoot = resolved;
+      void saveLastProjectPath(resolved);
+      return {
+        ok: true,
+        projectPath: resolved,
+        projectGit: await resolveProjectGitInfo(resolved),
+      };
+    },
+  );
+  ipcMain.handle(
+    'app:resolveProjectGitInfo',
+    async (
+      _event,
+      projectPath: unknown,
+    ): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > => {
+      if (projectPath !== undefined) {
+        const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+        if (!explicitRoot.ok) return explicitRoot;
+        const resolved = explicitRoot.projectPath;
+        return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
+      }
+      const resolved = await currentProjectRoot();
+      return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
+    },
+  );
+  ipcMain.handle('app:listGitBranches', async () => {
+    const projectPath = await currentProjectRoot();
+    return listLocalBranches(projectPath);
+  });
+  ipcMain.handle(
+    'app:checkoutGitBranch',
+    async (_event, branch: unknown): Promise<{ ok: boolean; branch?: string; reason?: string; message?: string }> => {
+      if (typeof branch !== 'string' || !branch) {
+        return { ok: false, reason: 'failed', message: '无效的分支名' };
+      }
+      const projectPath = await currentProjectRoot();
+      return checkoutBranch(projectPath, branch);
+    },
+  );
   registerMemoryIpc({ localMemory });
-  ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
+  registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
+  ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',
     async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const resolved = await resolveWorkspaceInstructionFileForOpen(process.cwd(), typeof file === 'string' ? file : '');
+      const resolved = await resolveWorkspaceInstructionFileForOpen(await currentProjectRoot(), typeof file === 'string' ? file : '');
       if (!resolved.ok) return { ok: false, message: workspaceInstructionOpenFailureCopy(resolved.reason) };
       const error = await shell.openPath(resolved.path);
       return error ? { ok: false, message: workspaceInstructionOpenFailureCopy('open-failed') } : { ok: true };
@@ -900,81 +961,9 @@ function registerIpc(): void {
   ipcMain.handle(
     'workspaceInstructions:createFile',
     async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const created = await createWorkspaceInstructionFile(process.cwd(), typeof file === 'string' ? file : '');
+      const created = await createWorkspaceInstructionFile(await currentProjectRoot(), typeof file === 'string' ? file : '');
       if (!created.ok) return { ok: false, message: workspaceInstructionCreateFailureCopy(created.reason) };
       return { ok: true };
-    },
-  );
-  ipcMain.handle(
-    'context:importTextFile',
-    async (): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const textFileFilters = [
-        { name: 'Text', extensions: ['txt', 'text', 'md', 'markdown', 'mdx', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cc', 'cpp', 'h', 'hh', 'hpp', 'sh', 'zsh', 'sql', 'ini', 'conf', 'env'] },
-        { name: 'Office', extensions: ['docx', 'xlsx', 'pptx'] },
-        { name: 'All Files', extensions: ['*'] },
-      ];
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件内容',
-        properties: ['openFile', 'multiSelections'],
-        filters: textFileFilters,
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readTextFilesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importDroppedTextFiles',
-    async (_event, payloads: unknown): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const safePayloads: DroppedTextFilePayload[] = Array.isArray(payloads)
-        ? payloads.map((payload) => {
-            const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-            return {
-              name: typeof value.name === 'string' ? value.name : '',
-              size: typeof value.size === 'number' ? value.size : 0,
-              type: typeof value.type === 'string' ? value.type : '',
-              text: typeof value.text === 'string' ? value.text : '',
-            };
-          })
-        : [];
-      const imported = readDroppedTextFilesForPromptImport(safePayloads);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importFolderOutline',
-    async (): Promise<
-      | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: FolderOutlineImportFailureReason; message: string }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件夹目录',
-        properties: ['openDirectory', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readFolderOutlinesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: folderOutlineImportFailureCopy(imported.reason) };
-      }
-      return imported;
     },
   );
   registerWorkspaceResourcesIpc({
@@ -1045,7 +1034,7 @@ function registerIpc(): void {
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
-    const cwd = input?.cwd ?? process.cwd();
+    const cwd = input?.cwd ?? (await currentProjectRoot());
     if (input?.backend === 'fake') {
       if (!canCreateFakeSessionFromRenderer()) {
         throw new Error('FakeBackend sessions are only available in development.');
@@ -1166,22 +1155,57 @@ function registerIpc(): void {
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
-    await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(sendCommand.attachments, {
+    const { turnId, attachments } = await resolveSessionSend({
+      sessionId,
       senderId: event.sender.id,
+      command: sendCommand,
+      ensureCanSend: ensureSessionCanSend,
+      readHeader: (id) => store.readHeader(id),
       approvals: attachmentApprovals,
+      stat: async (path) => ({ size: (await stat(path)).size }),
+      artifactStore,
+      resizeImage: resizeImageForAttachment,
     });
-    if (!attachments.ok) {
-      throw new Error(attachmentValidationFailureCopy(attachments.reason));
-    }
-    const turnId = sendCommand.turnId || randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
       text: sendCommand.text,
-      attachments: attachments.attachments,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
     void streamEvents(sessionId, iterator, turnId);
+    return { turnId, attachments };
   });
+  ipcMain.handle(
+    'attachments:pickFiles',
+    async (event): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > => {
+      const result = await mainWindowController.showOpenDialog({
+        title: '添加附件',
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
+      const chosen = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, name: basename(path), size: (await stat(path)).size })),
+      );
+      // Paths stay in main; the renderer only gets one-shot opaque tokens.
+      return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
+    },
+  );
+  ipcMain.handle(
+    'attachments:readBytes',
+    async (_event, sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > => {
+      // Session-scoped read: only attachments filed under this session.
+      const record = await artifactStore.get(relativePath).catch(() => null);
+      if (!record || record.sessionId !== sessionId) return { ok: false, reason: 'not_found' };
+      const result = await artifactStore.readBinary(relativePath);
+      if (!result.ok) return result;
+      return { ok: true, base64: result.base64, mimeType: result.mimeType };
+    },
+  );
   ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
     const normalized = normalizeRetryTurnInput(input);
@@ -1309,7 +1333,7 @@ function registerIpc(): void {
   // surfaces (connectionSlug / model) will land in PR110c/d when the
   // model-picker UI is ready.
   ipcMain.handle('quickChat:start', async (_event, input: unknown) => {
-    return handleQuickChatStart(input);
+    return handleQuickChatStart(input, currentProjectRoot);
   });
 
   ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());
@@ -1631,7 +1655,10 @@ function normalizeSupportedSessionThinkingLevel(
  * `./quick-chat.ts` so it can be unit-tested without spinning up an
  * Electron app.
  */
-async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult> {
+async function handleQuickChatStart(
+  rawInput: unknown,
+  getCurrentProjectRoot: () => Promise<string>,
+): Promise<QuickChatResult> {
   return runQuickChatStart(rawInput, {
     getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
     createSession: async (input) => {
@@ -1650,7 +1677,7 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
           : resolveDefaultPermissionMode(() => settingsStore.get()),
       ]);
       return runtime.createSession({
-        cwd: process.cwd(),
+        cwd: await getCurrentProjectRoot(),
         backend: 'ai-sdk',
         llmConnectionSlug: ready.connection.slug,
         model: ready.model,

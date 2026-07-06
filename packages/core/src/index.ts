@@ -31,6 +31,7 @@ export type {
   AbortEvent,
   StorageRef,
   AttachmentRef,
+  AttachmentIngestItem,
 } from './events.js';
 export {
   TOOL_OUTPUT_DELTA_MAX_CHARS,
@@ -172,6 +173,11 @@ export type {
   PermissionMode,
   ToolCategory,
   PolicyDecision,
+  ToolExecutionFacts,
+  ToolExecutionIsolation,
+  ToolExecutionNetwork,
+  ToolExecutionSecrets,
+  ToolExecutionWriteBack,
   PreToolUseInput,
   PreToolUseResult,
   PermissionRequest,
@@ -458,24 +464,46 @@ export {
 // task-ledger.ts (main agent session task tracking)
 export type {
   CreateTaskInput,
+  ResumeTrust,
   Task,
+  TaskLedgerEvent,
+  TaskLedgerEventRefs,
+  TaskLedgerEventType,
+  TaskLedgerListOptions,
+  TaskLedgerMutationContext,
   TaskLedgerNormalizeResult,
+  TaskLedgerProjection,
   TaskLedgerStore,
   TaskStatus,
   UpdateTaskInput,
 } from './task-ledger.js';
 export {
+  TASK_EVIDENCE_MAX_CHARS,
   TASK_ID_MAX_CHARS,
+  TASK_LEDGER_EVENT_TYPES,
   TASK_LEDGER_MAX_TASKS,
+  TASK_RESUME_TRUST_LEVELS,
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
+  canTransitionTaskStatus,
+  classifyTaskResumeTrust,
+  filterModelVisibleTaskLedgerTasks,
   isSafeTaskId,
+  isResumeTrust,
   isTaskStatus,
   normalizeCreateTaskInput,
+  normalizeResumeTrust,
+  normalizeTaskEvidenceText,
   normalizeTaskStatus,
   normalizeTaskSubject,
   normalizeUpdateTaskInput,
+  projectTaskLedgerEvents,
+  renderTaskLedgerDebugText,
   renderSafeTaskLedgerText,
+  taskLedgerEventTypeForCreate,
+  taskLedgerEventTypeForUpdate,
+  validateTaskEvidence,
+  validateTaskUpdate,
 } from './task-ledger.js';
 
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
@@ -708,6 +736,9 @@ export {
   validateChatDefaultModel,
 } from './model-catalog.js';
 
+// model-metadata.ts
+export { resolveModelVisionSupport } from './model-metadata.js';
+
 // settings.ts
 export type {
   AppearanceSettings,
@@ -929,3 +960,6 @@ export {
   isQuickChatMode,
   normalizeQuickChatMode,
 } from './explore-agent.js';
+
+// attachments.ts
+export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';

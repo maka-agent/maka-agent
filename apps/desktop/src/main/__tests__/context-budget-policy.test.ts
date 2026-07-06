@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { buildContextBudgetPolicy } from '../context-budget-policy.js';
+import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 
 const ACTIVE_PRUNE_ENV_KEYS = [
   'MAKA_CONTEXT_BUDGET',
@@ -32,7 +32,7 @@ describe('desktop activeToolResultPrune policy', () => {
   });
 
   test('is enabled by default with the measured 2048-token threshold', () => {
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy?.activeToolResultPrune?.enabled, true);
     assert.equal(policy?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 2048);
     assert.equal(policy?.activeToolResultPrune?.minStepNumber, 1);
@@ -40,31 +40,31 @@ describe('desktop activeToolResultPrune policy', () => {
 
   test('can be disabled with explicit false', () => {
     process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE = 'false';
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy?.activeToolResultPrune, undefined);
   });
 
   test('can be disabled with explicit off', () => {
     process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE = 'off';
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy?.activeToolResultPrune, undefined);
   });
 
   test('respects max current result estimated tokens env', () => {
     process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MAX_ESTIMATED_TOKENS = '4096';
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy?.activeToolResultPrune?.maxCurrentResultEstimatedTokens, 4096);
   });
 
   test('respects min step number env', () => {
     process.env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_MIN_STEP_NUMBER = '3';
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy?.activeToolResultPrune?.minStepNumber, 3);
   });
 
   test('MAKA_CONTEXT_BUDGET=off disables the whole policy including activeToolResultPrune', () => {
     process.env.MAKA_CONTEXT_BUDGET = 'off';
-    const policy = buildContextBudgetPolicy(openaiConnection());
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: "desktop-default-history-budget" });
     assert.equal(policy, undefined);
   });
 });

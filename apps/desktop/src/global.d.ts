@@ -70,6 +70,7 @@ import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
 import type { SkillEntry } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -117,21 +118,21 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 declare global {
+  type RendererIngestInput =
+    | { approvalId: string; name: string; mimeType?: string }
+    | { file: File };
   interface Window {
     maka: {
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
-        send(sessionId: string, command: SessionCommand): Promise<void>;
+        send(
+          sessionId: string,
+          command:
+            | SessionCommand
+            | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
@@ -243,10 +244,15 @@ declare global {
         openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
         createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
       };
-      context: {
-        importTextFile(): Promise<TextFileImportResult>;
-        importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult>;
-        importFolderOutline(): Promise<FolderOutlineImportResult>;
+      attachments: {
+        pickFiles(): Promise<
+          | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+          | { ok: false; reason: 'cancelled' }
+        >;
+        readBytes(sessionId: string, relativePath: string): Promise<
+          | { ok: true; base64: string; mimeType: string }
+          | { ok: false; reason: string }
+        >;
       };
       search: {
         thread(
@@ -403,6 +409,25 @@ declare global {
         // color/symbolColor to the current app theme. No-op on non-Windows.
         setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
       };
+      config: {
+        export(input: { categories: ConfigCategory[] }): Promise<
+          | { ok: false; reason: 'no_categories' | 'canceled' }
+          | { ok: true; path: string; includedData: ConfigCategory[] }
+        >;
+        import(input: { strategy: 'skip' | 'overwrite' }): Promise<
+          | { ok: false; reason: 'canceled' | 'not_json' | 'malformed' | 'unsupported_version'; message?: string }
+          | {
+              ok: true;
+              includedData: ConfigCategory[];
+              result: {
+                connections?: { created: number; overwritten: number; skipped: number };
+                settings?: { applied: boolean };
+                credentials?: { applied: number; skipped: number };
+                memory?: { applied: boolean };
+              };
+            }
+        >;
+      };
       app: {
         info(): Promise<{
           appVersion: string;
@@ -436,6 +461,27 @@ declare global {
           | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
           | { ok: false; reason: 'cancelled' | 'missing-selection' }
         >;
+        selectProjectRoot(projectPath: string): Promise<
+          | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+          | { ok: false; reason: 'invalid-path' | 'not-found' }
+        >;
+        resolveProjectGitInfo(projectPath: string): Promise<
+          | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+          | { ok: false; reason: 'invalid-path' | 'not-found' }
+        >;
+        listGitBranches(): Promise<{
+          ok: boolean;
+          branches?: string[];
+          current?: string;
+          reason?: string;
+          message?: string;
+        }>;
+        checkoutGitBranch(branch: string): Promise<{
+          ok: boolean;
+          branch?: string;
+          reason?: string;
+          message?: string;
+        }>;
         openArtifactPath(
           artifactId: string,
         ): Promise<

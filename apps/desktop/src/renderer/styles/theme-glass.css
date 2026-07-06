@@ -80,7 +80,12 @@ html[data-os="darwin"] {
      light-glass extraction was warm ivory (#fdfcfa/#faf9f6/#f5f3ee),
      which read beige against vibrancy blur. zinc-family equivalents
      keep the same lightness steps but zero warm cast. */
-  --color-bg-container: #fafafa;
+  /* PALETTE-LEAK-0: the zinc hex here (#fafafa) overrode reference-shell's
+     var(--background)-derived container for ALL of darwin, so the main
+     content pane ignored palette switches entirely. Re-anchor on
+     --background so hue/chroma follow the active palette; the default
+     palette (background l=1.0) resolves to the same value. */
+  --color-bg-container: oklch(from var(--background) calc(l - 0.015) c h);
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
 
@@ -89,7 +94,9 @@ html[data-os="darwin"] {
    sat under near-white foreground text and the parchment surfaces glowed
    against the dark shell, so the dark variants below re-tune lightness. */
 html[data-os="darwin"].dark {
-  --color-bg-container: oklch(0.24 0.004 286);
+  /* PALETTE-LEAK-0: same derivation as the light block — dark default
+     background (l=0.205) resolves to the previous 0.24 literal. */
+  --color-bg-container: oklch(from var(--background) calc(l + 0.035) c h);
 }
 
 

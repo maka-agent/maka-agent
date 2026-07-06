@@ -4,6 +4,7 @@ export * from './chat-empty-hero.js';
 export * from './chat-model-helpers.js';
 export * from './clipboard-feedback.js';
 export * from './components.js';
+export type { SessionHistoryStatusGroup } from './session-history-list.js';
 export * from './composer-helpers.js';
 export * from './input-history.js';
 export * from './daily-review-helpers.js';
@@ -30,6 +31,7 @@ export * from './utils.js';
 export * from './bot-brand.js';
 export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
+export * from './primitives/card.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / a
 // single-consumer dot that the chat call sites apply via relative import, so
@@ -59,6 +61,8 @@ export * from './primitives/choice-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
+export * from './primitives/input.js';
+export * from './primitives/textarea.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
 export {
@@ -91,13 +95,16 @@ export {
   AccordionPanel as PrimitiveAccordionPanel,
   AccordionPrimitive as PrimitiveAccordionPrimitive,
 } from './primitives/accordion.js';
-// PR-USE-SHADCN-BASE-UI-BADGE: the canonical shadcn/base-ui Badge primitive
-// (variants: default / destructive / error / info / outline / secondary /
-// success / warning). Aliased to PrimitiveBadge so it doesn't collide with
-// the legacy `Badge` exported from `ui.tsx`; consumers can pick the version
-// they want by import name.
-export {
-  Badge as PrimitiveBadge,
-  badgeVariants as primitiveBadgeVariants,
-} from './primitives/badge.js';
-export type { BadgeProps as PrimitiveBadgeProps } from './primitives/badge.js';
+// PR-USE-SHADCN-BASE-UI-BADGE: the canonical pill Badge primitive. #520 PR9
+// collapsed the legacy ui.tsx Badge onto this one. Badge is the pill emphasis
+// marker (health/permission center). Variants: default / destructive / error
+// / info / outline / secondary / success / warning.
+export { Badge, badgeVariants } from './primitives/badge.js';
+export type { BadgeProps } from './primitives/badge.js';
+// PR-USE-SHADCN-BASE-UI-CHIP: squared compact status label. #520 PR9 collapsed
+// .settingsBadge + .settingsConnectionBadge CSS chips onto this one. Chip is
+// the squared (radius-control) counterpart to pill Badge, for dense settings
+// status rows. Variants mirror StatusTone: neutral / info / success / warning
+// / destructive.
+export { Chip, chipVariants } from './primitives/chip.js';
+export type { ChipProps } from './primitives/chip.js';

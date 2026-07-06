@@ -6,6 +6,7 @@ import {
   completed,
   contextBudgetSummary,
   continuationSummary,
+  taskToolSummary,
   withTrace,
   withUsage,
 } from './helpers/ab-summary-fixtures.js';
@@ -362,6 +363,121 @@ describe('summarizeAbComparison', () => {
       maxTotalRuntimeSteps: 150,
     });
 
+  });
+
+  test('summarizes task experiment tool usage for A/B baseline review', () => {
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'task-tools-off',
+      candidateArmId: 'task-tools-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[completed('t1', true), completed('t2', true)]],
+      candidateRuns: [[
+        {
+          ...completed('t1', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 5,
+          }),
+        },
+        {
+          ...completed('t2', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 3,
+          }),
+        },
+      ]],
+    });
+
+    assert.equal(result.baseline.taskTools, undefined);
+    assert.deepEqual(result.candidate.taskTools, {
+      attempts: 2,
+      activatedAttempts: 2,
+      activatedAttemptIds: ['event-t1-pass', 'event-t2-pass'],
+      todoWriteCalls: 8,
+    });
+  });
+
+  test('uses observed cell attempts as the task tool activation denominator', () => {
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'task-tools-off',
+      candidateArmId: 'task-tools-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[completed('t1', true), completed('t2', true)]],
+      candidateRuns: [[
+        {
+          ...completed('t1', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 1,
+          }),
+        },
+        completed('t2', true),
+      ]],
+    });
+
+    assert.deepEqual(result.candidate.taskTools, {
+      attempts: 2,
+      activatedAttempts: 1,
+      activatedAttemptIds: ['event-t1-pass'],
+      todoWriteCalls: 1,
+    });
+  });
+
+  test('counts budget-exhausted attempts in the task tool activation denominator', () => {
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'task-tools-off',
+      candidateArmId: 'task-tools-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[completed('t1', true), completed('t2', true)]],
+      candidateRuns: [[
+        {
+          ...completed('t1', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 1,
+          }),
+        },
+        budgetExhausted('t2'),
+      ]],
+    });
+
+    assert.deepEqual(result.candidate.taskTools, {
+      attempts: 2,
+      activatedAttempts: 1,
+      activatedAttemptIds: ['event-t1-pass'],
+      todoWriteCalls: 1,
+    });
+  });
+
+  test('summarizes enabled task tools with zero activation', () => {
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'task-tools-off',
+      candidateArmId: 'task-tools-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[completed('t1', true), completed('t2', true)]],
+      candidateRuns: [[
+        {
+          ...completed('t1', true),
+          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
+        },
+        {
+          ...completed('t2', true),
+          taskToolSummary: taskToolSummary({ todoWriteCalls: 0 }),
+        },
+      ]],
+    });
+
+    assert.deepEqual(result.candidate.taskTools, {
+      attempts: 2,
+      activatedAttempts: 0,
+      activatedAttemptIds: [],
+      todoWriteCalls: 0,
+    });
   });
 
   test('records activated attempts and investigation refs for follow-up', () => {

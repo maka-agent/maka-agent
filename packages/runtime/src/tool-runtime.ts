@@ -12,7 +12,7 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory } from '@maka/core/permission';
+import type { ToolCategory, ToolExecutionFacts } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -45,6 +45,8 @@ export interface MakaTool<P = any, R = unknown> {
   displayName?: string;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
+  /** Optional trusted facts about the executor that runs this tool. */
+  executionFacts?: ToolExecutionFacts;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
@@ -319,6 +321,7 @@ export class ToolRuntime {
         toolName: tool.name,
         args,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
+        ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         mode: this.input.header.permissionMode,
       });
 
@@ -459,11 +462,11 @@ export class ToolRuntime {
       const pauseTarget = this.input.getPermissionPauseTarget();
       pauseTarget?.pause();
       try {
-        const currentRunId = this.input.getCurrentRunId?.();
+        const runId = this.input.getCurrentRunId?.();
         const result = await tool.impl(args as never, {
           sessionId: this.input.sessionId,
-          ...(currentRunId ? { runId: currentRunId } : {}),
           turnId,
+          ...(runId ? { runId } : {}),
           cwd: this.input.header.cwd,
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
@@ -781,7 +784,13 @@ function coerceTerminalFailure(
   err: unknown,
 ): { content: Extract<ToolResultContent, { kind: 'terminal' }>; message: string } | null {
   if (tool.name !== 'Bash' || !err || typeof err !== 'object') return null;
-  const error = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
+  const error = err as {
+    code?: unknown;
+    stdout?: unknown;
+    stderr?: unknown;
+    stdoutTruncated?: unknown;
+    stderrTruncated?: unknown;
+  };
   if (typeof error.code !== 'number') return null;
   const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
     ? (args as { command: string }).command
@@ -797,8 +806,8 @@ function coerceTerminalFailure(
       exitCode: error.code,
       stdout,
       stderr,
-      stdoutTruncated: false,
-      stderrTruncated: false,
+      stdoutTruncated: error.stdoutTruncated === true,
+      stderrTruncated: error.stderrTruncated === true,
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the

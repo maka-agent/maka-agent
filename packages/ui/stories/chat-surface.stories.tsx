@@ -116,11 +116,12 @@ const baseComposerProps: ComposerProps = {
   modelChoices,
   permissionMode: 'ask',
   onPermissionModeChange: noop,
-  workspacePicker: {
-    label: 'maka-agent',
-    branch: 'codex/storybook-chat-surface',
-    onOpen: noop,
-  },
+	  workspacePicker: {
+	    label: 'maka-agent',
+	    branch: 'codex/storybook-chat-surface',
+	    onOpen: noop,
+	    onSelect: noop,
+	  },
 };
 
 function SurfaceFrame(props: { children: ReactNode; narrow?: boolean }) {
@@ -392,9 +393,8 @@ export const ImportActions: Story = {
         activeConnectionLabel: undefined,
         activeModel: undefined,
         activeModelLabel: undefined,
-        onImportTextFile: noop,
-        onImportFolderOutline: noop,
-        onImportDroppedTextFiles: noop,
+        onPickAttachments: noop,
+        onAttachFilePaths: noop,
         newChatModel: {
           llmConnectionSlug: 'anthropic-main',
           model: 'claude-sonnet-4-5',

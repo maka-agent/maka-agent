@@ -7,6 +7,7 @@ import {
   completed,
   contextBudgetSummary,
   continuationSummary,
+  taskToolSummary,
   withTrace,
   withUsage,
 } from './helpers/ab-summary-fixtures.js';
@@ -186,6 +187,35 @@ describe('renderAbComparisonMarkdown', () => {
     });
 
     assert.match(renderAbComparisonMarkdown(result), /Continuation: A enabled=2\/2 wall_timeout=600000ms turns=5 continued=3 step_cap_hits=4 per_turn_step_cap_hits=\[true,false,true,true,true\] cap_exhausted=1 runtime_steps=102 max_turns=3 max_total_steps=150, B enabled=2\/2 wall_timeout=600000ms turns=3 continued=1 step_cap_hits=1 per_turn_step_cap_hits=\[false,true,false\] cap_exhausted=0 runtime_steps=64 max_turns=3 max_total_steps=150/);
+  });
+
+  test('renders task experiment tool diagnostics', () => {
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'task-tools-off',
+      candidateArmId: 'task-tools-on',
+      evaluationTaskIds: ['t1', 't2'],
+      baselineRuns: [[completed('t1', true), completed('t2', true)]],
+      candidateRuns: [[
+        {
+          ...completed('t1', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 5,
+          }),
+        },
+        {
+          ...completed('t2', true),
+          taskToolSummary: taskToolSummary({
+            todoWriteCalls: 3,
+          }),
+        },
+      ]],
+    });
+
+    const markdown = renderAbComparisonMarkdown(result);
+    assert.match(markdown, /Task tools: A activated=0\/0 todo_write=0, B activated=2\/2 todo_write=8/);
+    assert.doesNotMatch(markdown, /\bcalls=/);
   });
 
   test('renders investigation refs', () => {

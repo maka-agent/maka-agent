@@ -1,6 +1,7 @@
 import type { LlmConnection, PermissionMode, SessionSummary, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { permissionModeDescriptions } from './app-shell-copy';
+import { saveComposerDefaults } from './composer-defaults';
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
@@ -110,6 +111,8 @@ export function createAppShellSessionSettingsActions(deps: {
           `${connection?.name ?? next.llmConnectionSlug} · ${next.model}`,
         );
       }
+      // Sync the global default so a subsequent "新任务" inherits this pick.
+      saveComposerDefaults({ model: input });
       await refreshSessions();
     } catch (error) {
       if (activeIdRef.current === sessionId) toastApi.error('切换模型失败', generalizedErrorMessageChinese(error, '模型暂时无法切换，请稍后重试。'));

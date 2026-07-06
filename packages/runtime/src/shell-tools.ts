@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { redactSecrets } from '@maka/core/redaction';
 import type { ToolResultContent } from '@maka/core/events';
+import type { ToolExecutionFacts } from '@maka/core/permission';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
 import { truncateToolOutput } from './tool-output.js';
@@ -29,6 +30,7 @@ export interface ForegroundBashResult {
 
 export interface BuildForegroundBashToolOptions {
   description: string;
+  executionFacts?: ToolExecutionFacts;
   defaultTimeoutMs?: (command: string) => number | undefined;
   maxTimeoutMs?: number;
   emitReturnedOutput?: boolean;
@@ -61,6 +63,7 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
       timeout_ms: z.number().int().positive().max(maxTimeoutMs).optional(),
     }),
     permissionRequired: true,
+    ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     impl: async ({ command, timeout_ms }, ctx) => {
       const timeoutMs = timeout_ms ?? options.defaultTimeoutMs?.(command);
       const result = await options.execute({ command, cwd: ctx.cwd, timeoutMs, ctx });
@@ -78,9 +81,10 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
   };
 }
 
-export function buildLocalForegroundBashTool(): MakaTool {
+export function buildLocalForegroundBashTool(options: { executionFacts?: ToolExecutionFacts } = {}): MakaTool {
   return buildForegroundBashTool({
     description: 'Run a shell command in the session cwd. Subject to permission policy.',
+    ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     defaultTimeoutMs: () => 120_000,
     execute: async ({ command, cwd, timeoutMs, ctx }) => runShellWithBoundedTail(command, {
       cwd,
@@ -91,7 +95,10 @@ export function buildLocalForegroundBashTool(): MakaTool {
   });
 }
 
-export function buildBackgroundBashTool(shellRuns: ShellRunToolController): MakaTool {
+export function buildBackgroundBashTool(
+  shellRuns: ShellRunToolController,
+  options: { executionFacts?: ToolExecutionFacts } = {},
+): MakaTool {
   return {
     name: 'Bash',
     description:
@@ -102,6 +109,7 @@ export function buildBackgroundBashTool(shellRuns: ShellRunToolController): Maka
       yield_time_ms: z.number().int().positive().optional(),
     }),
     permissionRequired: true,
+    ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     impl: async ({ command, timeout_ms, yield_time_ms }, ctx) => shellRuns.runBash({
       sessionId: ctx.sessionId,
       ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
