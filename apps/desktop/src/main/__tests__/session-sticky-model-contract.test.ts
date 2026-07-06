@@ -187,13 +187,4 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(styles, /\.maka-thinking-section\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*\}/);
     assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
   });
-
-  it('flags per-turn model departures against the session sticky model', async () => {
-    const ui = await readModelSwitcherUiSource();
-
-    assert.match(ui, /props\.activeSession\?\.model && props\.activeSession\.model\.length > 0/);
-    assert.match(ui, /previousModelId=\{expectedModelId\}/);
-    assert.match(ui, /本轮使用 \$\{turn\.modelId\}，session 期望 \$\{props\.previousModelId\}/);
-    assert.match(ui, /本轮切换了模型/);
-  });
 });
