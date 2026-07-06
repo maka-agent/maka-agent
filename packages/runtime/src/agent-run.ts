@@ -86,6 +86,12 @@ export interface AgentRunBeginResult {
   initialRuntimeEvent: RuntimeEvent;
 }
 
+export interface AgentRunOperationBeginResult {
+  backend: AgentBackend;
+  runtimeContext: RuntimeEvent[];
+  startedAt: number;
+}
+
 interface PriorRuntimeContext {
   events: RuntimeEvent[];
   runs: AgentRunHeader[];
@@ -142,6 +148,10 @@ export class AgentRun {
   stop(source: StopSessionInput['source'] | undefined): void {
     this.stopped = true;
     this.abortSource = normalizeStopSessionSource(source);
+  }
+
+  isStopped(): boolean {
+    return this.stopped;
   }
 
   recordRunTrace(event: RunTraceEvent): void {
@@ -325,6 +335,33 @@ export class AgentRun {
     };
   }
 
+  async beginOperation(): Promise<AgentRunOperationBeginResult> {
+    await this.createRunRecord();
+
+    const startedAt = this.input.now();
+    this.lastTs = startedAt;
+    if (this.recordsSessionMessages()) {
+      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage, { ts: startedAt });
+    }
+
+    if (!this.header.connectionLocked) {
+      this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
+    }
+
+    this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
+    this.input.hooks.registerRun(this.active, this);
+    await this.markRunStarted(startedAt);
+
+    await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, startedAt);
+
+    const priorRuntimeContext = await this.buildPriorRuntimeContext();
+    return {
+      backend: this.active.backend,
+      runtimeContext: priorRuntimeContext?.events ?? [],
+      startedAt,
+    };
+  }
+
   private buildInitialRuntimeEvent(id: string, ts: number): RuntimeEvent {
     return buildInitialUserRuntimeEvent({
       id,
@@ -336,6 +373,13 @@ export class AgentRun {
       text: this.input.userInput.text,
       ...(this.input.userInput.attachments !== undefined ? { attachments: this.input.userInput.attachments } : {}),
     });
+  }
+
+  async recordStoredSessionEvent(ev: SessionEvent): Promise<void> {
+    if (!this.recordsSessionMessages()) return;
+    if (ev.type === 'token_usage') {
+      await this.input.store.appendMessage(this.sessionId, { ...ev } satisfies StoredMessage);
+    }
   }
 
   async recordSessionEvent(ev: SessionEvent): Promise<void> {

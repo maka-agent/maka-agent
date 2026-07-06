@@ -16,8 +16,8 @@
 
 import type {
   SessionEvent,
-  TextDeltaEvent,
   CompleteEvent,
+  TextDeltaEvent,
   ErrorEvent,
   AbortEvent,
   PermissionDecisionAckEvent,
@@ -87,6 +87,10 @@ import {
 
 export interface StopSessionInput {
   source?: 'stop_button';
+}
+
+export interface CompactSessionInput {
+  turnId?: string;
 }
 
 export interface SpawnChildAgentInput {
@@ -463,6 +467,13 @@ export class SessionManager {
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
     yield* this.runtimeKernel.startTurn(sessionId, input);
+  }
+
+  async *compactSession(
+    sessionId: string,
+    input: CompactSessionInput = {},
+  ): AsyncIterable<SessionEvent> {
+    yield* this.runtimeKernel.compactSession(sessionId, input);
   }
 
   async *startChildTurn(

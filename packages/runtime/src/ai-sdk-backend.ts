@@ -180,10 +180,20 @@ type AiSdkToolResultOutput =
 // AgentBackend interface
 // ============================================================================
 
+export interface BackendCompactHistoryInput {
+  turnId: string;
+  runtimeContext: readonly RuntimeEvent[];
+}
+
+export interface BackendCompactHistoryResult {
+  contextBudget?: ContextBudgetDiagnostic;
+}
+
 export interface AgentBackend {
   readonly kind: BackendKind;
   readonly sessionId: string;
   send(input: BackendSendInput): AsyncIterable<SessionEvent>;
+  compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
   dispose(): Promise<void>;
@@ -1198,9 +1208,13 @@ export class AiSdkBackend implements AgentBackend {
           contextBudget,
           priorRuntimeContext,
           draftBlocks,
+          abortSignal: this.abortController?.signal,
         });
         if (writePatch.replacementBlocks.length > 0) {
           runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+        } else {
+          runtimeContext = priorRuntimeContext;
+          contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget);
         }
         contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
           contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
@@ -1855,6 +1869,7 @@ export class AiSdkBackend implements AgentBackend {
     contextBudget: ContextBudgetPolicy;
     priorRuntimeContext: readonly RuntimeEvent[];
     draftBlocks: HistoryCompactBlock[];
+    abortSignal?: AbortSignal;
   }): Promise<{
     diagnosticPatch: Partial<ContextBudgetDiagnostic>;
     replacementBlocks: HistoryCompactBlock[];
@@ -1894,6 +1909,7 @@ export class AiSdkBackend implements AgentBackend {
           },
           limits,
           requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+          abortSignal: input.abortSignal,
         }));
         const blocks = result?.blocks ?? [];
         if (result?.skipped && result.skipped > 0) {
@@ -1927,7 +1943,14 @@ export class AiSdkBackend implements AgentBackend {
             estimatedTokensBefore,
             estimatedTokensAfter: estimatedTokens,
           })
-        : {};
+        : compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
+            ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
+          });
       return {
         replacementBlocks,
         diagnosticPatch: {
@@ -1961,6 +1984,13 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactMode: 'read_write',
           historyCompactWritesAttempted: writesAttempted || 1,
           historyCompactWriteFailures: 1,
+          ...compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'failedOpen',
+            boundaryKind: 'historyCompact',
+            failOpenReason: 'write_failed',
+          }),
         },
       };
     }
@@ -2505,14 +2535,12 @@ function mergeCompactionDecisionDiagnostics(
   const replacesHistoryCompact = right.some((decision) =>
     decision.stage === 'priorReplay'
     && decision.boundaryKind === 'historyCompact'
-    && decision.decision === 'replaced'
   );
   const retainedLeft = replacesHistoryCompact
     ? (left ?? []).filter((decision) =>
         !(
           decision.stage === 'priorReplay'
           && decision.boundaryKind === 'historyCompact'
-          && decision.decision === 'replaced'
         )
       )
     : (left ?? []);

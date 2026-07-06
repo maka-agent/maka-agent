@@ -15,6 +15,7 @@
 
 export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
+  CompactSessionInput,
   SessionManagerDeps,
   SessionStore,
   BackendFactory,
@@ -33,6 +34,8 @@ export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './perm
 export { AiSdkBackend } from './ai-sdk-backend.js';
 export type {
   AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
   AiSdkBackendInput,
   AppendMessageFn,
   MakaTool,
