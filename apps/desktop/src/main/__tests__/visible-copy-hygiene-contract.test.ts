@@ -491,7 +491,8 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /复制失败/, 'Turn footer copy should show failure feedback.');
     assert.match(footerBlock, /data-copy-feedback/, 'Turn footer copy should expose stable state data for CSS and review.');
     assert.match(footerBlock, /aria-busy=\{isActionPending/, 'Turn footer copy should expose busy state to assistive tech.');
-    assert.match(footerBlock, /disabled=\{!action\.enabled \|\| copyIsPending\}/, 'Turn footer copy should disable while pending.');
+    assert.match(footerBlock, /aria-disabled=\{!action\.enabled \|\| copyIsPending\}/, 'Turn footer copy should set aria-disabled while pending.');
+    assert.doesNotMatch(footerBlock, /[^-]disabled=\{/, 'Turn footer copy must not set a real disabled prop — it brings pointer-events-none and hides the tooltip.');
     assert.doesNotMatch(
       footerBlock,
       /silent — clipboard may be unavailable/,

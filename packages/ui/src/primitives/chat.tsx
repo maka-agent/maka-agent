@@ -183,18 +183,17 @@ const markerVariants = cva("", {
         // Folding them in keeps the exact pixels while the marker shell owns its
         // geometry (verified equal to `main` by computed style, headless electron).
         "inline-flex items-center gap-1.5 min-h-[28px] h-8 px-2 py-1 rounded-[var(--radius-surface)] [border:0] bg-transparent text-[color:var(--muted-foreground)] text-[12px] leading-[16px] [transition:background_120ms_ease,color_120ms_ease,opacity_120ms_ease]"
-        + " [&:hover:not(:disabled)]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] [&:hover:not(:disabled)]:text-[color:var(--foreground)]"
+        + " [&:hover:not([aria-disabled=true])]:bg-[oklch(from_var(--foreground)_l_c_h_/_0.05)] [&:hover:not([aria-disabled=true])]:text-[color:var(--foreground)]"
         + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
-        + " disabled:opacity-[0.45] disabled:cursor-not-allowed aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
+        + " aria-disabled:opacity-[0.45] aria-disabled:cursor-not-allowed"
         + " data-[pending=true]:opacity-[0.78] data-[pending=true]:cursor-progress"
-        // Copy-in-progress sets BOTH `disabled` and `data-pending`. The plain
-        // `data-[pending=true]:opacity-[0.78]` and `disabled:opacity-[0.45]`
-        // utilities have equal specificity (0,2,0), so the pending value would
-        // only win on Tailwind's source order. These combined-modifier guards
-        // raise pending to (0,3,0) so it beats the disabled dim by specificity,
-        // not order — keeping the in-progress 0.78 stable regardless of emit
-        // sequence. (Both `disabled`/`aria-disabled` are always set together.)
-        + " disabled:data-[pending=true]:opacity-[0.78] aria-disabled:data-[pending=true]:opacity-[0.78]"
+        // Copy-in-progress sets `aria-disabled` and `data-pending` together.
+        // `aria-disabled:opacity-[0.45]` and `data-[pending=true]:opacity-[0.78]`
+        // have equal specificity (0,2,0), so pending would only win on source
+        // order. This combined modifier raises pending to (0,3,0) so it beats
+        // the disabled dim by specificity, not order — keeping the in-progress
+        // 0.78 stable regardless of emit sequence.
+        + " aria-disabled:data-[pending=true]:opacity-[0.78]"
         + " data-[copy-feedback=copied]:text-[color:var(--link)] data-[copy-feedback=failed]:text-[color:var(--destructive)]",
     },
   },
