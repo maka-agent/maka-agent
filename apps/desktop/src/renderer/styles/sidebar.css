@@ -459,13 +459,11 @@
   background: var(--state-hover-bg);
   transform: translateX(1px);
 }
-.maka-search-modal-result[data-active="true"]:not([disabled]) {
+/* #520 PR8: Autocomplete.Item exposes the active (highlighted) item via
+   data-highlighted (activedescendant mode — the input keeps focus, so the
+   item itself is no longer :focus-visible). */
+.maka-search-modal-result[data-highlighted]:not([disabled]) {
   background: var(--state-selected-bg);
-}
-.maka-search-modal-result:focus-visible {
-  outline: none;
-  background: var(--state-hover-bg);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.18);
 }
 .maka-search-modal-result[disabled] {
   cursor: default;
