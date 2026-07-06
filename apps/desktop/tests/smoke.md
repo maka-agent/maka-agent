@@ -398,9 +398,9 @@ Fixture scenario: `turn-narrative`.
 - The user message, the tool activity panel, and the assistant
   answer are visually grouped as **one turn block** (`<section
   class="maka-turn">`), not three free-floating items.
-- Below the user message, a summary chip strip shows the model id
-  (e.g. `claude-sonnet-4-5`), tool count (`1 个工具`), duration
-  (`X.X s`), and tokens (`N → N tok`).
+- Turn meta (model id e.g. `claude-sonnet-4-5`, duration `X.X s`, cost
+  `$X.XXXX`) lives in the footer's info-action tooltip, shown on hover
+  (#546 removed the top summary chip strip).
 - If the model supplied thinking, a collapsed `<details>` block
   *"查看思考过程 — 模型推理草稿，不是最终答案"* appears above the
   assistant answer; expanding it shows the reasoning with its own

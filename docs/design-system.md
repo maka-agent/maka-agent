@@ -1346,22 +1346,22 @@ via `deriveTurnLineageMap()`（PR109d）。
   `deriveTurnLineageMap(turns)` 在 PR109d 加入 `materialize-turns.ts`，
   只 derive 反向 UI 链接，不持久化反向字段
 
-**UI 表现** (PR109d 接口约定):
+**UI 表现**（#546 接口约定）:
 
-- **Turn footer hover actions** (`↻ 重试 / 🌿 分支 / 📋 复制`)：根据 turn.status
-  动态决定 enabled set
-  - `running`：仅显示 `📋 复制`（其他 action 长任务结束后再露）
-  - `completed`：`🔁 重新生成 / 🌿 分支 / 📋 复制`
-  - `failed` / `aborted`：`↻ 重试 / 🌿 分支 / 📋 复制`
+- **Turn footer actions**（icon-only：`🔁 重新生成 / 🌿 分支 / 📋 复制 / ℹ 详情`）：
+  根据 turn.status 动态决定 enabled set
+  - `running`：仅 `📋 复制`（其他 action 长任务结束后再露）
+  - `completed` / `failed` / `aborted`：`🔁 重新生成 / 🌿 分支 / 📋 复制`，
+    外加 `ℹ 详情`（hover tooltip：model · duration · cost）
 - **Aborted turn 视觉**：assistant message body 前缀灰色斜体 "(已中断)"；
   turn header 显示 muted `Ban` icon
 - **Failed turn 视觉**：使用 PR58 的 AlertOctagon 红色 banner + copy-error
   按钮，文案走 generalizedErrorMessage
 - **Lineage badges**：
-  - 新 turn 顶部 small badge「重试自 turn ${shortId}」/「重新生成自
-    turn ${shortId}」点击 scroll 到原 turn
-  - 旧 turn footer 通过 UI-side derive 显示「已重试 → turn ${shortId}」/
-    「已重新生成 → turn ${shortId}」点击 scroll 到新 turn
+  - 新 turn 顶部 small badge「重新生成自 turn ${shortId}」点击 scroll 到原 turn
+  - 旧 turn footer 通过 UI-side derive 显示「已重新生成 → turn ${shortId}」
+    点击 scroll 到新 turn（legacy retry 的 retriedFromTurnId 在 badge 层
+    fallback 读，统一显示为「重新生成」语义）
   - branched session sidebar 顶部 banner「分自 ${parentSessionName}」+
     点击跳回 parent
 - **Branch 复制语义**：aborted 起点的 branch 文案明示「从中断前分支」
@@ -1382,7 +1382,7 @@ via `deriveTurnLineageMap()`（PR109d）。
   failed × 1）+ 1 retry sibling + 1 regenerate sibling，让截图覆盖所有
   footer 状态
 - smoke Path 15（PR109d）：从 active session cancel → 验 aborted 出现 +
-  「(已中断)」prefix + retry button 可用；点 retry → 新 turn 出现 +
+  「(已中断)」prefix + regenerate button 可用；点 regenerate → 新 turn 出现 +
   badge 链接；点 regenerate completed → sibling 出现，原 assistant
   仍可见
 
