@@ -2,6 +2,7 @@ import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage,
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
+import { preflightAttachmentItems } from './attachment-preflight.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -197,6 +198,7 @@ export function createAppShellChatActions(deps: {
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
+        if (pending && pending.length > 0) preflightAttachmentItems(pending);
         const session = await window.maka.sessions.create({
           // Only send permissionMode when the user explicitly picked one in
           // the composer. Omitting it lets main.ts's sessions:create resolve
