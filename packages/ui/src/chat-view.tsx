@@ -785,8 +785,9 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
       </>
     );
   }
-  // Assistant / system body: open prose, no bubble. Per-turn timing lives in
-  // the turn summary; copy + the other actions live in the turn footer.
+  // Assistant / system body: open prose, no bubble. Per-turn meta (model ·
+  // duration · cost) lives in the footer's info tooltip; copy + the other
+  // actions live in the turn footer.
   return (
     <Bubble variant="assistant" className="maka-bubble-with-actions">
       <Markdown text={props.text} />
@@ -1120,10 +1121,12 @@ const TurnView = memo(function TurnView(props: {
 });
 
 /**
- * Turn footer actions row (PR109d-b). Renders icon+text buttons for
- * `重试 / 重新生成 / 分支 / 复制` driven by the pure helper's enabled
- * matrix. Disabled buttons stay rendered so the user can see what
- * actions exist on the turn; click handlers no-op when disabled.
+ * Turn footer actions row. Renders icon-only buttons (regenerate /
+ * branch / copy, plus an optional info action whose tooltip carries
+ * the turn meta) driven by the pure helper's enabled matrix. Disabled
+ * buttons stay rendered so the user can see what actions exist on the
+ * turn; click handlers no-op when disabled (#546: retry merged into
+ * regenerate).
  *
  * Copy action is handled locally (write to clipboard) so the
  * consumer doesn't need a clipboard IPC for it. Other actions

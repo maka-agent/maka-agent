@@ -1349,7 +1349,6 @@ via `deriveTurnLineageMap()`（PR109d）。
 
 **IPC / projection（PR109c locked）**：
 - `sessions:listTurns(sessionId) -> TurnRecord[]`
-- `sessions:retryTurn(sessionId, { sourceTurnId, turnId? })`
 - `sessions:regenerateTurn(sessionId, { sourceTurnId, turnId? })`
 - `sessions:branchFromTurn(sessionId, { sourceTurnId, name? }) -> SessionSummary`
 - `SessionChangedReason` 新增 `turn-status-change`（独立于 session-level
