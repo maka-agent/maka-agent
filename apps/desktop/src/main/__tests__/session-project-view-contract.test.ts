@@ -44,14 +44,16 @@ describe('sidebar project view mode', () => {
     assert.match(fallbackMarkup, /待发送/);
   });
 
-  it('renders the status/project view mode controls as pressed buttons', () => {
+  it('renders the status/project view mode controls as a pressed segmented control', () => {
+    // #571 routes the toggle through the shared SettingsSegmented primitive,
+    // whose <button> carries aria-pressed and puts the label inline (no <span>).
     const statusMarkup = renderSessionListPanel({ viewMode: 'status' });
-    assert.match(statusMarkup, /<button[^>]*type="button"[^>]*aria-pressed="true"[^>]*>[\s\S]*?<span>按状态/);
-    assert.match(statusMarkup, /<button[^>]*type="button"[^>]*aria-pressed="false"[^>]*>[\s\S]*?<span>按项目/);
+    assert.match(statusMarkup, /<button[^>]*aria-pressed="true"[^>]*>按状态/);
+    assert.match(statusMarkup, /<button[^>]*aria-pressed="false"[^>]*>按项目/);
 
     const projectMarkup = renderSessionListPanel({ viewMode: 'project' });
-    assert.match(projectMarkup, /<button[^>]*type="button"[^>]*aria-pressed="false"[^>]*>[\s\S]*?<span>按状态/);
-    assert.match(projectMarkup, /<button[^>]*type="button"[^>]*aria-pressed="true"[^>]*>[\s\S]*?<span>按项目/);
+    assert.match(projectMarkup, /<button[^>]*aria-pressed="false"[^>]*>按状态/);
+    assert.match(projectMarkup, /<button[^>]*aria-pressed="true"[^>]*>按项目/);
   });
 
   it('renders project groups as folder headers with an initial four-session preview', () => {
