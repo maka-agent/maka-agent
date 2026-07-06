@@ -91,6 +91,7 @@ import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
 import { createAppShellChatActions, type PendingAttachment } from './app-shell-chat-actions';
+import { appendPending, clearPending, removePending, selectPending, type PendingByKey } from './app-shell-pending-attachments';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
@@ -166,7 +167,9 @@ export function AppShell({
     });
   }
   const [activeId, setActiveIdState] = useState<string | undefined>();
-  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
+  const attachmentDraftKey = activeId ?? 'new-session';
+  const pendingAttachments = selectPending(pendingByKey, attachmentDraftKey);
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -922,7 +925,7 @@ export function AppShell({
     try {
       const result = await window.maka.attachments.pickFiles();
       if (!result.ok) return;
-      setPendingAttachments((current) => [...current, ...result.files.map(approvalToPending)]);
+      setPendingByKey((map) => appendPending(map, attachmentDraftKey, result.files.map(approvalToPending)));
     } catch (error) {
       toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
     }
@@ -930,17 +933,17 @@ export function AppShell({
 
   async function attachFilePaths(files: File[]): Promise<void> {
     if (files.length === 0) return;
-    setPendingAttachments((current) => [...current, ...files.map(fileToPending)]);
+    setPendingByKey((map) => appendPending(map, attachmentDraftKey, files.map(fileToPending)));
   }
 
   function removeAttachment(index: number): void {
-    setPendingAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setPendingByKey((map) => removePending(map, attachmentDraftKey, index));
   }
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
-    if (ok !== false) setPendingAttachments([]);
+    if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
     return ok;
   }
 
