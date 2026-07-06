@@ -1297,7 +1297,6 @@ function TurnFooterActions(props: {
                   data-action={action.id}
                   data-pending={isActionPending || undefined}
                   data-copy-feedback={isCopyAction && copyPhase ? copyPhase : undefined}
-                  disabled={!action.enabled || copyIsPending}
                   aria-disabled={!action.enabled || copyIsPending}
                   aria-busy={isActionPending || undefined}
                   onClick={() => void handleClick(action)}
