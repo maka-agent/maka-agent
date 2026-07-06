@@ -525,13 +525,13 @@ describe('turn footer copy feedback contract', () => {
       /data-\[copy-feedback=failed\]:text-\[color:var\(--destructive\)\]/,
       'Turn footer failed copy state should have a stable styling hook.',
     );
-    // Copy-in-progress is disabled AND pending at once; the pending 0.78 dim
-    // must beat the disabled 0.45 dim by specificity (combined-modifier guard),
-    // not by Tailwind emit order — so it stays stable across rebuilds.
+    // Copy-in-progress is aria-disabled AND pending at once; the pending 0.78
+    // dim must beat the aria-disabled 0.45 dim by specificity (combined-modifier
+    // guard), not by Tailwind emit order — so it stays stable across rebuilds.
     assert.match(
       src,
-      /disabled:data-\[pending=true\]:opacity-\[0\.78\]/,
-      'Pending copy opacity must outrank the disabled dim by specificity, not source order.',
+      /aria-disabled:data-\[pending=true\]:opacity-\[0\.78\]/,
+      'Pending copy opacity must outrank the aria-disabled dim by specificity, not source order.',
     );
   });
 });
