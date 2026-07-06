@@ -629,7 +629,10 @@ export class SessionManager {
     sessionId: string,
     input: RegenerateTurnInput,
   ): AsyncIterable<SessionEvent> {
-    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['completed'], 'regenerate');
+    // retry semantics merged into regenerate (#546): regenerate now accepts
+    // failed/aborted turns too, not just completed — one action re-runs the
+    // turn regardless of how the previous attempt ended.
+    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['failed', 'aborted', 'completed'], 'regenerate');
     const user = await this.requireUserMessageForTurn(sessionId, source.turnId);
     yield* this.sendMessage(sessionId, {
       turnId: input.turnId ?? this.deps.newId(),

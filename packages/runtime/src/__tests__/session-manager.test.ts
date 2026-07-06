@@ -2263,6 +2263,36 @@ describe('SessionManager permission mode updates', () => {
     expect(regenState?.regeneratedFromTurnId).toBe('source');
   });
 
+  test('regenerate accepts an aborted source turn (retry semantics merged into regenerate)', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_780) });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'source-run',
+      turnId: 'source',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 102,
+      completedAt: 102,
+    }), [
+      runtimeEvent({ id: 'source-user', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'aborted turn text' } }),
+      runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
+    ]);
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    await drain(manager.regenerateTurn(session.id, { sourceTurnId: 'source', turnId: 'regen-aborted' }));
+
+    const regenUser = (await store.readMessages(session.id))
+      .find((message) => message.type === 'user' && message.turnId === 'regen-aborted');
+    expect(regenUser?.type === 'user' ? regenUser.text : undefined).toBe('aborted turn text');
+  });
+
   test('branchFromTurn copies through the RuntimeEvent-primary message boundary', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
