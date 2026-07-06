@@ -850,6 +850,66 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /rename without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename PR 946 修复');
+    terminal.input('\r');
+
+    await waitFor(() => driver.renames.length === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Session renamed to "PR 946 修复"'));
+
+    assert.deepEqual(driver.renames, ['PR 946 修复']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects /rename without a new name', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Usage: /rename <new name>'));
+    assert.deepEqual(driver.renames, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
@@ -1235,6 +1295,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1303,6 +1364,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
     this.permissionResponses.push(response);
     this.continueAfterPermission?.();
   }
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1346,6 +1408,7 @@ class InterruptibleTurnDriver implements MakaSessionDriver {
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1402,6 +1465,7 @@ class ToolOutputDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1419,6 +1483,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly permissionModes: PermissionMode[] = [];
   readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
+  readonly renames: string[] = [];
   private sessionId = 'session-1';
 
   constructor(
@@ -1455,6 +1520,9 @@ class SlashCommandDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(model: string): Promise<void> {
     this.models.push(model);
+  }
+  async renameSession(name: string): Promise<void> {
+    this.renames.push(name);
   }
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
@@ -1581,6 +1649,7 @@ class DeferredControlDriver implements MakaSessionDriver {
     this.resolveSetModel = null;
   }
 
+  async renameSession(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
@@ -1625,6 +1694,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
     throw new Error('permission response rejected');
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1702,6 +1772,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
     this.respondCalls += 1;
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}

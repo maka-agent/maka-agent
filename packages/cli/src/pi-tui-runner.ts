@@ -485,6 +485,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
     },
     {
+      name: 'rename',
+      description: 'Rename current session',
+      run: (parts: string[]) => {
+        const name = parts.slice(1).join(' ').trim();
+        if (!name) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /rename <new name>',
+          });
+          requestRender();
+          return;
+        }
+        void runControl(async () => {
+          await input.driver.renameSession(name);
+          state.entries.push({
+            kind: 'notice',
+            level: 'info',
+            text: `Session renamed to "${name}"`,
+          });
+          requestRender();
+        });
+      },
+    },
+    {
       name: 'session',
       description: 'Resume session',
       run: (parts: string[]) => {
