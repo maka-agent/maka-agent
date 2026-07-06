@@ -1,3 +1,33 @@
+/* ============================================================================
+   Hero / empty-state chrome
+   ----------------------------------------------------------------------------
+   Split out of chat-header.css + chat-message.css (#546 PR2, relocate —
+   zero visual change). chat-message.css was 100% hero (empty-state)
+   content with zero message selectors, so it folds into hero.css. The
+   message body lives in TSX today; chat-message.css will be repopulated
+   when PR4 extracts the chat bubble into CSS.                            */
+
+/* PR-UI-1 (@yuejing 2026-05-22): unified hero chrome.
+ *
+ * `.maka-hero` is the shared layout for both EmptyChatHero (after a
+ * session exists but has no messages) and OnboardingHero variants
+ * (first-run / setup / ready_empty / blocked). Same width / margin /
+ * gap / eyebrow / heading scale, so the visual switch between
+ * "first-run" and "empty session" no longer feels jarring.
+ *
+ * Legacy `.emptyChat` and `.eyebrow` are kept as aliases so any
+ * external CSS / smoke fixture references still match.
+ */
+.maka-hero {
+  width: min(750px, 80vw);
+  margin: auto;
+  padding: 0;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-6);
+  color: var(--foreground);
+  text-align: center;
+}
 
   .maka-hero header,
   .maka-hero-empty-chat header {

@@ -10,7 +10,7 @@
  * send button). So the unmodified recipe painted every menu hover blue —
  * clashing with the rest of the app, which highlights list rows with the
  * neutral `--state-selected-bg` token (see `.maka-search-modal-result`,
- * `.maka-palette-item` in sidebar.css / chat-header.css).
+ * `.maka-palette-item` in sidebar.css / palette.css).
  *
  * This contract pins the converged recipe: menu highlight must use
  * `--state-selected-bg` (neutral), never `--accent`, and must not recolor the

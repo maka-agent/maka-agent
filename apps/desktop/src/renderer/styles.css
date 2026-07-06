@@ -19,7 +19,11 @@
 @import "./styles/field-focus.css";
 @import "./styles/model-switcher.css";
 @import "./styles/chat-header.css";
-@import "./styles/chat-message.css";
+@import "./styles/error.css";
+@import "./styles/toast.css";
+@import "./styles/help.css";
+@import "./styles/palette.css";
+@import "./styles/hero.css";
 @import "./styles/tool-output.css";
 @import "./styles/composer.css";
 @import "./styles/settings.css";

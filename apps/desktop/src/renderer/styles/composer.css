@@ -11,11 +11,15 @@
    Rest / textarea / placeholder values are the exact computed winners — no
    visual change for those. One deliberate change: tool-output's
    `.composer .maka-composer-inner::before { content: none }` shared specificity
-   (0,2,1) with — and was imported after — the streaming top-sweep in
-   chat-header.css (`.maka-composer-inner[data-streaming="true"]::before`), so
-   it was silently suppressing that deliberate streaming indicator. Removing
+   (0,2,1) with — and was imported after — the streaming top-sweep that used to
+   live in chat-header.css (`.maka-composer-inner[data-streaming="true"]::before`),
+   so it was silently suppressing that deliberate streaming indicator. Removing
    the reset restores the sweep; the matching `::after` reset had no competing
-   rule and was genuinely dead. */
+   rule and was genuinely dead.
+
+   #546 PR2 relocated that streaming top-sweep here so all `.maka-composer-inner`
+   chrome (rest / focus / streaming state) is in one file; see the
+   `[data-streaming="true"]` block below the card chrome. */
 
 /* The composer card — a calm parchment surface: hairline border + 1px ring
    at rest, single accent ring on focus. The shared `.agents-parchment-paper-
@@ -44,6 +48,41 @@
 .composer .maka-composer-inner:focus-within {
   border-color: oklch(from var(--focus-ring) l c h / 0.45);
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
+}
+
+/* D6 spectrum #2 (Command Input processing): while the assistant is
+   streaming, a slow top-edge light sweep on the composer shell keeps
+   "working" visible at the exact place the user's attention returns
+   to. 1px line, foreground-derived, infinite = functional status.
+   Relocated from chat-header.css (#546 PR2) so the card's own rest /
+   focus / streaming states live together. */
+.maka-composer-inner[data-streaming="true"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.maka-composer-inner[data-streaming="true"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(from var(--status-running) l c h / 0.55) 50%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: maka-processing-sweep 2.2s var(--ease-in-out-strong) infinite;
+  pointer-events: none;
+}
+
+@keyframes maka-processing-sweep {
+  0%   { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
 }
 
 /* The textarea owns no chrome (the card does). It auto-resizes from
