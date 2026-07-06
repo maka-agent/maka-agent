@@ -52,7 +52,6 @@ import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type
 import {
   createInMemoryTaskLedgerExperimentStore,
   renderTaskLedgerExperimentReplay,
-  type TaskLedgerExperimentShape,
 } from './task-ledger-experiment.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
@@ -136,7 +135,6 @@ export interface HarborCellContextBudgetBackendOptions {
 export interface HarborCellTaskLedgerExperimentPolicy {
   enabled: true;
   replayMaxChars: number;
-  shape: TaskLedgerExperimentShape;
 }
 
 export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
@@ -205,7 +203,6 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
   'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
   'MAKA_CONTEXT_TASK_TOOLS',
-  'MAKA_CONTEXT_TASK_TOOL_SHAPE',
   'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
 ] as const;
 
@@ -656,7 +653,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
           ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
           ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
-            ? { taskLedgerExperiment: { store: taskLedgerExperimentStore, shape: taskLedgerExperimentPolicy.shape } }
+            ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
             : {}),
         }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
@@ -667,7 +664,6 @@ export function buildAiSdkCellBackendRegistration(input: {
               turnTailPrompt: async ({ sessionId }) =>
                 renderTaskLedgerExperimentReplay(await taskLedgerExperimentStore.list(sessionId), {
                   maxChars: taskLedgerExperimentPolicy.replayMaxChars,
-                  shape: taskLedgerExperimentPolicy.shape,
                 }),
             }
           : {}),
@@ -971,11 +967,9 @@ export function buildHarborCellTaskLedgerExperimentPolicy(
   normalizeHarborCellContextEnv(env);
   const enabled = booleanEnv(env.MAKA_CONTEXT_TASK_TOOLS, 'MAKA_CONTEXT_TASK_TOOLS') ?? false;
   if (!enabled) return undefined;
-  const shape = taskLedgerExperimentShapeEnv(env.MAKA_CONTEXT_TASK_TOOL_SHAPE) ?? 'todo_write';
   return {
     enabled: true,
     replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
-    shape,
   };
 }
 
@@ -1274,12 +1268,6 @@ function numericEnv(raw: string | undefined): number | undefined {
   if (raw === undefined || raw.trim() === '') return undefined;
   const value = Number(raw);
   return Number.isFinite(value) && value >= 0 ? value : undefined;
-}
-
-function taskLedgerExperimentShapeEnv(raw: string | undefined): TaskLedgerExperimentShape | undefined {
-  if (raw === undefined || raw.trim() === '') return undefined;
-  if (raw === 'crud' || raw === 'todo_write') return raw;
-  throw new Error(`MAKA_CONTEXT_TASK_TOOL_SHAPE must be crud or todo_write, got ${JSON.stringify(raw)}`);
 }
 
 function positiveIntEnv(raw: string | undefined, name: string): number | undefined {

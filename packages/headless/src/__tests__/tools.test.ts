@@ -14,7 +14,6 @@ import { createHeavyTaskEvidenceRecorder } from '../heavy-task-evidence.js';
 import {
   createInMemoryTaskLedgerExperimentStore,
   TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES,
-  TASK_LEDGER_EXPERIMENT_TOOL_NAMES,
 } from '../task-ledger-experiment.js';
 import { createInMemoryTaskRunStore } from '../task-run-store.js';
 import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
@@ -182,9 +181,7 @@ describe('isolated headless tools', () => {
     assert.ok(!names.includes('todo_update'));
     assert.ok(!names.includes('self_check_plan_submit'));
     assert.ok(!names.includes('self_check_submit'));
-    for (const taskToolName of TASK_LEDGER_EXPERIMENT_TOOL_NAMES) {
-      assert.ok(!names.includes(taskToolName));
-    }
+    assert.ok(!names.some((name) => name.startsWith('task_')));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
     assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));
@@ -205,27 +202,7 @@ describe('isolated headless tools', () => {
     for (const taskToolName of TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES) {
       assert.ok(names.includes(taskToolName));
     }
-    for (const taskToolName of TASK_LEDGER_EXPERIMENT_TOOL_NAMES) {
-      assert.ok(!names.includes(taskToolName));
-    }
-
-    const crudTools = buildIsolatedHeadlessTools({
-      async exec() {
-        return { exitCode: 0, stdout: '', stderr: '' };
-      },
-    }, {
-      taskLedgerExperiment: {
-        store: createInMemoryTaskLedgerExperimentStore({ now: () => 1, newId: () => 'task-1' }),
-        shape: 'crud',
-      },
-    });
-    const crudNames = crudTools.map((tool) => tool.name);
-    for (const taskToolName of TASK_LEDGER_EXPERIMENT_TOOL_NAMES) {
-      assert.ok(crudNames.includes(taskToolName));
-    }
-    for (const taskToolName of TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES) {
-      assert.ok(!crudNames.includes(taskToolName));
-    }
+    assert.ok(!names.some((name) => name.startsWith('task_')));
   });
 
   test('progress and self-check tools are included only when heavy-task recorders are enabled', () => {

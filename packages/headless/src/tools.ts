@@ -14,7 +14,6 @@ import { buildHeavyTaskSelfCheckTools, type HeavyTaskSelfCheckRecorder } from '.
 import type { IsolatedToolExecutor } from './isolation.js';
 import {
   buildTaskLedgerExperimentTools,
-  type TaskLedgerExperimentShape,
   type TaskLedgerExperimentStore,
 } from './task-ledger-experiment.js';
 
@@ -24,7 +23,6 @@ export interface BuildIsolatedHeadlessToolsOptions {
   heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
   taskLedgerExperiment?: {
     store: TaskLedgerExperimentStore;
-    shape?: TaskLedgerExperimentShape;
   };
 }
 
