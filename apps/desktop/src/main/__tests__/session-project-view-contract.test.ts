@@ -68,8 +68,13 @@ describe('sidebar project view mode', () => {
       viewMode: 'project',
     });
 
-    assert.match(markup, /class="[^"]*maka-list-project-heading[^"]*"/);
-    assert.match(markup, /<button[^>]*class="[^"]*maka-list-project-heading[^"]*"[^>]*aria-expanded="true"[^>]*aria-controls="maka-list-group-body-project:[^"]+"/);
+    // The heading is a UiButton (Base UI <button>); BaseButton reorders props
+    // so class is not guaranteed to precede aria-*. Assert the disclosure
+    // contract on the matched opening tag without assuming attribute order.
+    const headingTag = markup.match(/<button[^>]*maka-list-project-heading[^>]*>/)?.[0];
+    assert.ok(headingTag, 'project heading button must render');
+    assert.match(headingTag, /aria-expanded="true"/);
+    assert.match(headingTag, /aria-controls="maka-list-group-body-project:[^"]+"/);
     assert.match(markup, /lucide-folder-open/);
     assert.match(markup, />testzcode</);
     assert.match(markup, /Project chat 1/);

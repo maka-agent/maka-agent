@@ -289,7 +289,12 @@
 }
 
 .maka-session-panel[data-collapsed="true"] {
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  /* Collapsed rail hides the view-mode toggle (display: none above). A
+     display:none item does NOT participate in grid layout, so reserving a
+     5th row for it drops the footer into the minmax(0, 1fr) track. Keep the
+     4-row layout matching the four participating children
+     (header / nav / list / footer). */
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
 /* Search modal: input + local thread-search results, backed by
@@ -715,6 +720,7 @@
 .maka-list-project-heading {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--space-1-5);
   width: 100%;
   min-height: var(--h-control-lg);
@@ -728,19 +734,11 @@
   text-align: left;
 }
 
-.maka-list-project-heading:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
-.maka-list-project-heading:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-}
-
+/* Hover / focus-visible / svg sizing are contributed by UiButton
+   (variant="quiet" size="nav"), matching the status-group header — no
+   bespoke :hover/:focus-visible here. Only the folder-glyph tint +
+   flex-shrink guard remain heading-specific. */
 .maka-list-project-heading svg {
-  width: var(--icon-size);
-  height: var(--icon-size);
   color: var(--muted-foreground);
   flex: 0 0 auto;
 }
@@ -753,6 +751,7 @@
   min-height: var(--h-control-lg);
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   border: 0;
   background: transparent;
   color: var(--muted-foreground);
@@ -761,15 +760,6 @@
   text-align: left;
 }
 
-.maka-list-project-more:hover {
-  color: var(--foreground-secondary);
-}
-
-.maka-list-project-more:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-  border-radius: var(--radius-control);
-}
 
 /* PR-SIDEBAR-IA-0 Phase 3 (WAWQAQ msgs `14ed98b5`, `761141c5` —
  * "list 很丑、很肥很臃肿"; xuan `6b28984e` sign-off + "32-40px 薄行";

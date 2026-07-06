@@ -373,8 +373,10 @@ function ProjectSessionGroup(props: {
 
   return (
     <div className="maka-list-group" data-variant="project">
-      <button
+      <UiButton
         type="button"
+        variant="quiet"
+        size="nav"
         className="maka-list-project-heading"
         onClick={() => setExpanded((current) => !current)}
         aria-expanded={expanded}
@@ -382,7 +384,7 @@ function ProjectSessionGroup(props: {
       >
         <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
         <span>{props.label}</span>
-      </button>
+      </UiButton>
       {expanded && (
         <>
           <div id={`maka-list-group-body-${props.groupKey}`}>
@@ -399,14 +401,16 @@ function ProjectSessionGroup(props: {
             ))}
           </div>
           {hiddenCount > 0 && (
-            <button
+            <UiButton
               type="button"
+              variant="quiet"
+              size="nav"
               className="maka-list-project-more"
               onClick={() => setRevealed(true)}
               aria-label={`显示 ${hiddenCount} 条更多对话`}
             >
               显示更多
-            </button>
+            </UiButton>
           )}
         </>
       )}
