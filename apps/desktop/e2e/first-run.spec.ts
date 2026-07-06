@@ -7,7 +7,7 @@ import { test, expect } from './fixtures';
  * E2E isolation seam (MAKA_E2E_USER_DATA_DIR) and the fake-backend switch
  * (MAKA_E2E) that the rest of the suite depends on.
  */
-test('boots to the main window on a fresh workspace', async ({ window: page }) => {
+test('boots to the main window on a fresh workspace', async ({ emptyWindow: page }) => {
   await expect(page).toHaveTitle('Maka');
   await expect(page.locator('#root')).not.toBeEmpty();
 });
