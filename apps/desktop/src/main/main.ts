@@ -148,6 +148,8 @@ import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
+  buildLlmHistorySummarizer,
+  createAiSdkConversationSummarizer,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
@@ -624,6 +626,15 @@ backends.register('ai-sdk', async (ctx) => {
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+      summarize: buildLlmHistorySummarizer({
+        summarizeConversation: createAiSdkConversationSummarizer({
+          // Reuse the same connection/model the session already drives, so the
+          // summary stays consistent with the model that will consume it.
+          resolveModel: () =>
+            getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+          maxOutputTokens: 4096,
+        }),
+      }),
       onArtifactCreated: (artifact) => {
         safeSendToRenderer('artifacts:changed', {
           reason: 'created',
@@ -1192,6 +1203,11 @@ function registerIpc(): void {
     const normalized = normalizeRetryTurnInput(input);
     const turnId = normalized.turnId ?? randomUUID();
     void streamEvents(sessionId, runtime.retryTurn(sessionId, { ...normalized, turnId }), turnId);
+  });
+  ipcMain.handle('sessions:compact', async (_event, sessionId: string) => {
+    await ensureSessionCanSend(sessionId);
+    const turnId = randomUUID();
+    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
   });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);

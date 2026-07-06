@@ -941,6 +941,10 @@ export function AppShell({
   }
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
+    if (text.trim() === '/compact') {
+      if (activeId) await window.maka.sessions.compact(activeId);
+      return true;
+    }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
     if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
