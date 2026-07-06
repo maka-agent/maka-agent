@@ -11,6 +11,7 @@
     "./permission-engine": "./dist/permission-engine.js",
     "./ai-sdk-backend": "./dist/ai-sdk-backend.js",
     "./builtin-tools": "./dist/builtin-tools.js",
+    "./workspace-executor": "./dist/workspace-executor.js",
     "./tool-artifacts": "./dist/tool-artifacts.js",
     "./tool-output-delta": "./dist/tool-output-delta.js",
     "./stream-watchdog": "./dist/stream-watchdog.js",

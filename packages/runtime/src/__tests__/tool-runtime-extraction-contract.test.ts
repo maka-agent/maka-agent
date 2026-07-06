@@ -130,7 +130,7 @@ describe('RunTrace extraction contract', () => {
     assert.match(backend, /trace\.turnStarted\(\)/);
     assert.match(backend, /trace\.modelResolved\(\)/);
     assert.match(backend, /trace\.modelStreamStarted\(activeTools, \{/);
-    assert.match(backend, /trace\.usageRecorded\(\{\n\s+\.\.\.tokenUsage,/);
+    assert.match(backend, /trace\.usageRecorded\(\{\r?\n\s+\.\.\.tokenUsage,/);
     assert.match(backend, /this\.currentRunTrace\?\.abortRequested\(_reason\)/);
     assert.match(barrel, /RunTraceEvent/);
     assert.match(barrel, /RunTraceRecorder/);

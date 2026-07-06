@@ -10,7 +10,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
-    const r = await runShellWithBoundedTail("printf 'hello\\nworld\\n'", base());
+    const r = await runShellWithBoundedTail("node -e \"process.stdout.write('hello\\nworld\\n')\"", base());
     assert.deepEqual(
       { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, aborted: r.aborted },
       { exitCode: 0, stdout: 'hello\nworld\n', stderr: '', timedOut: false, aborted: false },
@@ -19,7 +19,7 @@ describe('runShellWithBoundedTail', () => {
 
   test('keeps only the bounded, line-aligned TAIL of large output (never killed by size)', async () => {
     const r = await runShellWithBoundedTail(
-      "printf 'HEADMARK\\n'; seq 1 50; printf 'TAILMARK\\n'",
+      "node -e \"console.log('HEADMARK'); for (let i = 1; i <= 50; i++) console.log(i); console.log('TAILMARK')\"",
       base({ maxRetainedChars: 12 }),
     );
     assert.equal(r.exitCode, 0);
@@ -29,19 +29,19 @@ describe('runShellWithBoundedTail', () => {
   });
 
   test('captures stderr and a non-zero exit code as data (does not reject)', async () => {
-    const r = await runShellWithBoundedTail("printf 'oops\\n' >&2; exit 3", base());
+    const r = await runShellWithBoundedTail("node -e \"process.stderr.write('oops\\n'); process.exit(3)\"", base());
     assert.equal(r.exitCode, 3);
     assert.equal(r.stderr, 'oops\n');
     assert.equal(r.stdout, '');
   });
 
   test('times out a slow command, kills it, and reports timedOut', async () => {
-    const r = await runShellWithBoundedTail('sleep 5', base({ timeoutMs: 150 }));
+    const r = await runShellWithBoundedTail('node -e "setTimeout(() => {}, 5000)"', base({ timeoutMs: 150 }));
     assert.equal(r.timedOut, true);
     assert.equal(r.exitCode, 124);
   });
 
-  test('on timeout, escalates SIGTERM->SIGKILL and resolves only after the child is actually dead', async () => {
+  test('on timeout, escalates SIGTERM->SIGKILL and resolves only after the child is actually dead', { skip: process.platform === 'win32' }, async () => {
     // A child that traps/ignores SIGTERM would, under the old "kill then resolve
     // immediately" path, keep running (and emitting) after we told the caller
     // "timed out". Now we wait for the child to actually exit (SIGKILL after the
@@ -71,7 +71,7 @@ describe('runShellWithBoundedTail', () => {
     }
   });
 
-  test('on timeout, kills the whole process tree so a child holding the pipe cannot hang the runner', async () => {
+  test('on timeout, kills the whole process tree so a child holding the pipe cannot hang the runner', { skip: process.platform === 'win32' }, async () => {
     // The shell spawns a grandchild (node) that inherits stdout and never exits.
     // Killing only the shell PID would leave it holding the pipe, so 'close'
     // would never fire and this test would HANG. Killing the process group lets
@@ -97,7 +97,7 @@ describe('runShellWithBoundedTail', () => {
     // One 500-char line with no newline, cap 50: BashTailBuffer drops it whole
     // (no safe truncation boundary), so without a marker the result would look
     // like the command produced nothing.
-    const r = await runShellWithBoundedTail("head -c 500 /dev/zero | tr '\\0' x", base({ maxRetainedChars: 50 }));
+    const r = await runShellWithBoundedTail("node -e \"process.stdout.write('x'.repeat(500))\"", base({ maxRetainedChars: 50 }));
     assert.equal(r.exitCode, 0);
     assert.ok(!r.stdout.includes('xxxx'), 'dropped content is not leaked');
     assert.ok(r.stdout.includes('omitted for safety'), 'a recoverable safety marker is present');
@@ -109,7 +109,7 @@ describe('runShellWithBoundedTail', () => {
   test('emits every chunk live via emitOutput', async () => {
     const seen: Array<[string, string]> = [];
     await runShellWithBoundedTail(
-      "printf 'aaa'; printf 'bbb' >&2",
+      "node -e \"process.stdout.write('aaa'); process.stderr.write('bbb')\"",
       base({ emitOutput: (s: 'stdout' | 'stderr', c: string) => seen.push([s, c]) }),
     );
     assert.ok(seen.some(([s, c]) => s === 'stdout' && c.includes('aaa')));
@@ -119,7 +119,7 @@ describe('runShellWithBoundedTail', () => {
   test('caps live emitOutput per stream with a single suppressed marker (result keeps full tail)', async () => {
     const seen: Array<[string, string]> = [];
     const r = await runShellWithBoundedTail(
-      "printf 'HEAD\\n'; seq 1 2000; printf 'TAIL\\n'",
+      "node -e \"console.log('HEAD'); for (let i = 1; i <= 2000; i++) console.log(i); console.log('TAIL')\"",
       base({
         maxLiveEmitChars: 20, // tiny cap so the stream trips it almost immediately
         emitOutput: (s: 'stdout' | 'stderr', c: string) => seen.push([s, c]),

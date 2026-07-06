@@ -1,9 +1,10 @@
 import { describe, test } from 'node:test';
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import type { WorkspaceExecutor } from '../workspace-executor.js';
 
 describe('builtin Bash streaming output', () => {
   test('emits stdout/stderr chunks before returning terminal result', async () => {
@@ -14,7 +15,7 @@ describe('builtin Bash streaming output', () => {
 
     const result = await bash.impl(
       {
-        command: 'printf "out"; printf "err" >&2',
+        command: 'node -e "process.stdout.write(\'out\'); process.stderr.write(\'err\')"',
         timeout_ms: 5_000,
       },
       {
@@ -32,7 +33,7 @@ describe('builtin Bash streaming output', () => {
     expect(result).toMatchObject({
       kind: 'terminal',
       cwd,
-      cmd: 'printf "out"; printf "err" >&2',
+      cmd: 'node -e "process.stdout.write(\'out\'); process.stderr.write(\'err\')"',
       exitCode: 0,
       stdout: 'out',
       stderr: 'err',
@@ -48,7 +49,7 @@ describe('builtin Bash streaming output', () => {
 
     const run = bash.impl(
       {
-        command: 'printf "started"; sleep 5',
+        command: 'node -e "process.stdout.write(\'started\'); setTimeout(() => {}, 5000)"',
         timeout_ms: 10_000,
       },
       {
@@ -73,7 +74,7 @@ describe('builtin Bash streaming output', () => {
     if (!bash) throw new Error('Bash tool missing');
 
     const result = await bash.impl(
-      { command: "awk 'BEGIN{for(i=1;i<=5000;i++)print \"line\"i}'", timeout_ms: 10_000 },
+      { command: 'node -e "for (let i = 1; i <= 5000; i++) console.log(\'line\' + i)"', timeout_ms: 10_000 },
       {
         sessionId: 'session-1',
         turnId: 'turn-1',
@@ -98,7 +99,10 @@ describe('builtin Bash streaming output', () => {
     let err: { code?: number; stdout?: string; stderr?: string } | null = null;
     try {
       await bash.impl(
-        { command: 'printf "out-data"; printf "err-data" >&2; exit 3', timeout_ms: 5_000 },
+        {
+          command: 'node -e "process.stdout.write(\'out-data\'); process.stderr.write(\'err-data\'); process.exit(3)"',
+          timeout_ms: 5_000,
+        },
         {
           sessionId: 'session-1',
           turnId: 'turn-1',
@@ -125,7 +129,10 @@ describe('builtin Bash streaming output', () => {
     let err: { code?: number; stdout?: string; stderr?: string } | null = null;
     try {
       await bash.impl(
-        { command: 'printf "out-before"; printf "err-before" >&2; sleep 5', timeout_ms: 200 },
+        {
+          command: 'node -e "process.stdout.write(\'out-before\'); process.stderr.write(\'err-before\'); setTimeout(() => {}, 5000)"',
+          timeout_ms: 200,
+        },
         {
           sessionId: 'session-1',
           turnId: 'turn-1',
@@ -147,18 +154,71 @@ describe('builtin Bash streaming output', () => {
   });
 });
 
+describe('builtin tools workspace executor routing', () => {
+  test('Bash and file tools can be redirected to a sandbox cwd without mutating the real cwd', async () => {
+    const realCwd = await mkdtemp(join(tmpdir(), 'maka-real-workspace-'));
+    const sandboxCwd = await mkdtemp(join(tmpdir(), 'maka-sandbox-workspace-'));
+    await mkdir(join(realCwd, 'src'), { recursive: true });
+    await mkdir(join(sandboxCwd, 'src'), { recursive: true });
+    await writeFile(join(realCwd, 'src', 'data.txt'), 'real token\n', 'utf8');
+    await writeFile(join(sandboxCwd, 'src', 'data.txt'), 'sandbox token\n', 'utf8');
+
+    const executor = makeSandboxExecutor(realCwd, sandboxCwd);
+    const tools = buildBuiltinTools({ executor });
+    const bash = requireTool(tools, 'Bash');
+    const read = requireTool(tools, 'Read');
+    const write = requireTool(tools, 'Write');
+    const edit = requireTool(tools, 'Edit');
+    const glob = requireTool(tools, 'Glob');
+    const grep = requireTool(tools, 'Grep');
+
+    const events: Array<{ stream: 'stdout' | 'stderr'; chunk: string }> = [];
+    const bashResult = await runTool(bash, { command: 'touch generated-by-bash.txt', timeout_ms: 5_000 }, realCwd, {
+      emitOutput: (stream, chunk) => events.push({ stream, chunk }),
+    });
+    await runTool(write, { path: 'src/new.txt', content: 'created in sandbox\n' }, realCwd);
+    await runTool(edit, {
+      path: 'src/data.txt',
+      old_string: 'sandbox token',
+      new_string: 'edited sandbox token',
+    }, realCwd);
+
+    const readResult = await runTool(read, { path: 'src/data.txt' }, realCwd);
+    const globResult = await runTool(glob, { pattern: '*.txt', cwd: 'src' }, realCwd);
+    const grepResult = await runTool(grep, { pattern: 'edited sandbox token', path: 'src' }, realCwd);
+
+    expect(bashResult).toMatchObject({
+      kind: 'terminal',
+      cwd: realCwd,
+      cmd: 'touch generated-by-bash.txt',
+      exitCode: 0,
+      stdout: 'sandbox stdout',
+    });
+    expect(events.some((event) => event.stream === 'stdout' && event.chunk.includes('sandbox stdout'))).toBe(true);
+    expect(readResult).toMatchObject({ content: 'edited sandbox token\n' });
+    expect(globResult).toMatchObject({ files: ['data.txt', 'new.txt'] });
+    expect(grepResult).toMatchObject({ matches: ['src/data.txt:1:edited sandbox token'] });
+    expect(await readOptional(join(realCwd, 'src', 'data.txt'))).toBe('real token\n');
+    expect(await readOptional(join(realCwd, 'src', 'new.txt'))).toBeNull();
+    expect(await readOptional(join(realCwd, 'generated-by-bash.txt'))).toBeNull();
+    expect(await readFile(join(sandboxCwd, 'src', 'data.txt'), 'utf8')).toBe('edited sandbox token\n');
+    expect(await readFile(join(sandboxCwd, 'src', 'new.txt'), 'utf8')).toBe('created in sandbox\n');
+    expect(await readFile(join(sandboxCwd, 'generated-by-bash.txt'), 'utf8')).toBe('touch generated-by-bash.txt\n');
+  });
+});
+
 describe('builtin read tools path containment', () => {
   test('Read rejects absolute, parent traversal, and symlink escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-read-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-read-outside-'));
     await writeFile(join(root, 'inside.txt'), 'inside', 'utf8');
     await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8');
-    await symlink(join(outside, 'secret.txt'), join(root, 'secret-link.txt'));
+    await linkDirectory(outside, join(root, 'outside-link'));
     const read = tool('Read');
 
     await expectRejects(runTool(read, { path: '/etc/hosts' }, root), /Read path must be relative/);
     await expectRejects(runTool(read, { path: '../outside.txt' }, root), /Read path must stay inside/);
-    await expectRejects(runTool(read, { path: 'secret-link.txt' }, root), /Read path must stay inside/);
+    await expectRejects(runTool(read, { path: 'outside-link/secret.txt' }, root), /Read path must stay inside/);
 
     const result = await runTool(read, { path: 'inside.txt' }, root);
     expect(result).toMatchObject({ content: 'inside' });
@@ -169,7 +229,7 @@ describe('builtin read tools path containment', () => {
     const outside = await mkdtemp(join(tmpdir(), 'maka-read-outside-'));
     await mkdir(join(root, 'src'), { recursive: true });
     await writeFile(join(root, 'src', 'main.ts'), 'export const token = 1;\n', 'utf8');
-    await symlink(outside, join(root, 'outside-link'));
+    await linkDirectory(outside, join(root, 'outside-link'));
     const glob = tool('Glob');
     const grep = tool('Grep');
 
@@ -189,7 +249,7 @@ describe('builtin write tools path containment', () => {
   test('Write rejects absolute, parent traversal, and symlink-parent escape paths', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-write-root-'));
     const outside = await mkdtemp(join(tmpdir(), 'maka-write-outside-'));
-    await symlink(outside, join(root, 'outside-link'));
+    await linkDirectory(outside, join(root, 'outside-link'));
     const write = tool('Write');
 
     await expectRejects(runTool(write, { path: '/tmp/outside.txt', content: 'x' }, root), /Write path must be relative/);
@@ -206,12 +266,12 @@ describe('builtin write tools path containment', () => {
     const outside = await mkdtemp(join(tmpdir(), 'maka-edit-outside-'));
     await writeFile(join(root, 'inside.txt'), 'hello world', 'utf8');
     await writeFile(join(outside, 'secret.txt'), 'secret', 'utf8');
-    await symlink(join(outside, 'secret.txt'), join(root, 'secret-link.txt'));
+    await linkDirectory(outside, join(root, 'outside-link'));
     const edit = tool('Edit');
 
     await expectRejects(runTool(edit, { path: '/tmp/outside.txt', old_string: 'x', new_string: 'y' }, root), /Edit path must be relative/);
     await expectRejects(runTool(edit, { path: '../outside.txt', old_string: 'x', new_string: 'y' }, root), /Edit path must stay inside/);
-    await expectRejects(runTool(edit, { path: 'secret-link.txt', old_string: 'secret', new_string: 'edited' }, root), /Edit path must stay inside/);
+    await expectRejects(runTool(edit, { path: 'outside-link/secret.txt', old_string: 'secret', new_string: 'edited' }, root), /Edit path must stay inside/);
 
     await runTool(edit, { path: 'inside.txt', old_string: 'world', new_string: 'Maka' }, root);
     expect(await readFile(join(root, 'inside.txt'), 'utf8')).toBe('hello Maka');
@@ -301,13 +361,107 @@ function tool(name: string) {
   return found;
 }
 
-function runTool(tool: ReturnType<typeof buildBuiltinTools>[number], args: unknown, cwd: string): Promise<unknown> {
+function requireTool(tools: ReturnType<typeof buildBuiltinTools>, name: string) {
+  const found = tools.find((candidate) => candidate.name === name);
+  if (!found) throw new Error(`${name} tool missing`);
+  return found;
+}
+
+function runTool(
+  tool: ReturnType<typeof buildBuiltinTools>[number],
+  args: unknown,
+  cwd: string,
+  options: { emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void } = {},
+): Promise<unknown> {
   return Promise.resolve(tool.impl(args as never, {
     sessionId: 'session-1',
     turnId: 'turn-1',
     cwd,
     toolCallId: 'tool-1',
     abortSignal: new AbortController().signal,
-    emitOutput: () => {},
+    emitOutput: options.emitOutput ?? (() => {}),
   }));
+}
+
+function makeSandboxExecutor(realCwd: string, sandboxCwd: string): WorkspaceExecutor {
+  const mapCwd = (cwd: string) => {
+    expect(cwd).toBe(realCwd);
+    return sandboxCwd;
+  };
+  return {
+    facts: {
+      isolation: 'worktree',
+      writesAffectHost: false,
+      writeBack: 'diff_review',
+      network: 'host',
+      secrets: 'host_env',
+      gitMetadata: 'host_shared',
+    },
+    exec: async ({ command, cwd, emitOutput }: {
+      command: string;
+      cwd: string;
+      emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+    }) => {
+      const sandbox = mapCwd(cwd);
+      await writeFile(join(sandbox, 'generated-by-bash.txt'), `${command}\n`, 'utf8');
+      emitOutput?.('stdout', 'sandbox stdout');
+      return { exitCode: 0, stdout: 'sandbox stdout', stderr: '', timedOut: false, aborted: false };
+    },
+    readFile: async ({ cwd, path, offset, limit }: {
+      cwd: string;
+      path: string;
+      offset?: number;
+      limit?: number;
+    }) => {
+      const content = await readFile(join(mapCwd(cwd), path), 'utf8');
+      if (offset === undefined && limit === undefined) return { content };
+      const lines = content.split('\n');
+      const start = offset ?? 0;
+      const end = limit ? start + limit : lines.length;
+      return { content: lines.slice(start, end).join('\n') };
+    },
+    writeFile: async ({ cwd, path, content }: { cwd: string; path: string; content: string }) => {
+      const abs = join(mapCwd(cwd), path);
+      await mkdir(join(abs, '..'), { recursive: true });
+      await writeFile(abs, content, 'utf8');
+      return { ok: true, path: abs, bytes: Buffer.byteLength(content, 'utf8') };
+    },
+    globFiles: async ({ cwd, searchCwd }: { cwd: string; pattern: string; searchCwd?: string }) => {
+      const base = searchCwd ? join(mapCwd(cwd), searchCwd) : mapCwd(cwd);
+      const files = (await readdir(base)).filter((name) => name.endsWith('.txt')).sort();
+      return { files };
+    },
+    grepFiles: async ({ cwd, pattern, path }: { cwd: string; pattern: string; path?: string }) => {
+      const base = path ? join(mapCwd(cwd), path) : mapCwd(cwd);
+      const matches: string[] = [];
+      await collectTextMatches(base, path ?? '', pattern, matches);
+      return { matches };
+    },
+  };
+}
+
+async function collectTextMatches(abs: string, rel: string, pattern: string, matches: string[]): Promise<void> {
+  const current = await stat(abs);
+  if (current.isDirectory()) {
+    for (const name of await readdir(abs)) {
+      await collectTextMatches(join(abs, name), rel ? `${rel}/${name}` : name, pattern, matches);
+    }
+    return;
+  }
+  const lines = (await readFile(abs, 'utf8')).split('\n');
+  lines.forEach((line, index) => {
+    if (line.includes(pattern)) matches.push(`${rel}:${index + 1}:${line}`);
+  });
+}
+
+async function readOptional(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+async function linkDirectory(target: string, path: string): Promise<void> {
+  await symlink(target, path, process.platform === 'win32' ? 'junction' : 'dir');
 }

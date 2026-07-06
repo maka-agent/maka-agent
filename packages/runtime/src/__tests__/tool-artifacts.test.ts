@@ -52,7 +52,7 @@ describe('deriveToolArtifactCandidates', () => {
       result: { stdout: 'wrote /tmp/guessed.html', stderr: 'see report.pdf' },
     });
 
-    expect(candidate?.sourcePath).toBe('/workspace/maka/reports/build.log');
+    expect(portablePath(candidate?.sourcePath)).toBe('/workspace/maka/reports/build.log');
     expect(candidate?.kind).toBe('file');
 
     expect(deriveToolArtifactCandidates({
@@ -200,4 +200,8 @@ function nextId(): () => string {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function portablePath(path: string | undefined): string | undefined {
+  return path?.replace(/^[A-Z]:/i, '').replaceAll('\\', '/');
 }
