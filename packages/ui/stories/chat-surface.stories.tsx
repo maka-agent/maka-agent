@@ -119,6 +119,8 @@ const baseComposerProps: ComposerProps = {
   draftKey: 'storybook-chat-surface',
   onSend: noop,
   onStop: noop,
+  onPickAttachments: noop,
+  onAttachFilePaths: noop,
   modelLabel: 'Claude Sonnet 4.5',
   activeSession: session(),
   activeConnectionLabel: 'Anthropic',

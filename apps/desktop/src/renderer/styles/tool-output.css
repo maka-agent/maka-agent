@@ -74,72 +74,6 @@
   background: transparent;
 }
 
-.composer .maka-composer-inner {
-  position: relative;
-  width: min(var(--maka-chat-measure), 100%);
-  max-width: var(--maka-chat-measure);
-  margin-inline: auto;
-  box-sizing: border-box;
-  /* Composer outer chrome uses the universal page-card recipe (atlas §4
-     + maka-tokens.css --card-*) at the 12px workspace-plate ceiling.
-     The composer reads as a hero card, but radius must still stay within
-     the shared chrome vocabulary locked by radius-converge-contract. */
-  border: var(--border-width-hairline) solid var(--card-border-color);
-  border-radius: var(--radius-modal);
-  padding: var(--space-2-5) var(--space-3) var(--space-2);
-  background: var(--card-bg);
-  box-shadow:
-    0 10px 30px -24px oklch(from var(--foreground) l c h / 0.25),
-    0 1px 0 oklch(1 0 0 / 0.76);
-  transition:
-    border-color var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow var(--duration-emphasized) var(--ease-out-strong);
-}
-
-.composer .maka-composer-inner::before,
-.composer .maka-composer-inner::after {
-  content: none;
-}
-
-.composer .maka-composer-inner::before {
-  box-shadow: none;
-}
-
-.composer .maka-composer-inner::after {
-  box-shadow: none;
-}
-
-/* PR-UI-PIXEL-3: on focus the composer gains a soft lift (ring + faint
-   drop glow), so the input feels alive — the reference's composer breathes
-   rather than sitting flat (study §8.1, §8.4). */
-.composer .maka-composer-inner:focus-within {
-  box-shadow:
-    0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.24),
-    0 14px 34px -28px oklch(from var(--foreground) l c h / 0.24);
-}
-
-.composer textarea {
-  /* Auto-resizing textarea: starts at min-height for a single line, grows up
-     to max-height as the user adds lines, then scrolls internally. The JS
-     side caps at 240px (see `COMPOSER_MAX_HEIGHT` in @maka/ui). */
-  min-height: var(--h-composer-min, 84px);
-  max-height: 240px;
-  resize: none;
-  overflow-y: auto;
-}
-
-/* The composer wrapper owns the visible field chrome. The textarea uses
-   bare field reset from the shared UI component. */
-.composer .maka-composer-textarea {
-  display: block;
-  width: 100%;
-  min-height: var(--h-composer-min, 56px);
-  color: var(--foreground);
-  font-family: var(--font-default);
-  font-size: var(--font-size-base);
-  line-height: var(--leading-normal);
-}
-
 .maka-composer-streaming-hint .maka-shortcut-kbd {
   font-size: var(--font-size-caption);
   padding: 1px var(--space-1);
@@ -188,67 +122,56 @@
   text-align: center;
 }
 
+/* Unified composer picker trigger — permission Select ([data-slot="select-trigger"])
+   + both model pickers (active .maka-model-switcher-trigger, empty-state
+   .maka-composer-model-chip) share ONE quiet-chip geometry so the two
+   controls read identical at rest and on hover. */
+.maka-composer-left-controls [data-slot="select-trigger"],
+.maka-composer-right-controls .maka-model-switcher-trigger,
 .maka-composer-model-chip {
   height: 26px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-1);
-  border: var(--border-width-hairline) solid var(--color-border-tertiary);
-  border-radius: var(--radius-pill);
   padding: 0 var(--space-2);
-  background: oklch(from var(--background) l c h / 0.82);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
   color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
-    color var(--duration-base) var(--ease-out-strong),
-    border-color var(--duration-base) var(--ease-out-strong);
+    color var(--duration-base) var(--ease-out-strong);
 }
-
+.maka-composer-left-controls [data-slot="select-trigger"]:hover,
+.maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]),
 .maka-composer-model-chip:hover {
   background: var(--state-hover-bg);
   color: var(--foreground);
-  border-color: oklch(from var(--foreground) l c h / 0.16);
+  border-color: transparent;
 }
 
 .maka-composer-model-chip {
   max-width: min(180px, 28vw);
 }
-
-
 .maka-composer-right-controls .maka-model-switcher {
   margin: 0;
   max-width: min(180px, 28vw);
-  font-size: var(--font-size-caption);
 }
-
 .maka-composer-right-controls .maka-model-switcher-trigger {
   min-width: 100px;
   max-width: min(180px, 28vw);
-  height: 26px;
-  gap: var(--space-1);
-  padding: 0 var(--space-2);
-  border-color: var(--color-border-tertiary);
-  background: var(--background);
-  color: var(--foreground-secondary);
 }
-
-.maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]) {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-  border-color: oklch(from var(--foreground) l c h / 0.16);
-}
-
 .maka-composer-right-controls .maka-model-switcher-label {
   display: none;
 }
-
 .maka-composer-right-controls .maka-model-switcher-value {
   max-width: 128px;
   color: inherit;
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
 }
 
@@ -286,7 +209,6 @@
 .maka-composer-context-plus {
   width: 26px;
   height: 26px;
-  border: var(--border-width-hairline) solid color-mix(in oklch, var(--foreground) 20%, var(--background));
   border-radius: var(--radius-pill);
   background: transparent;
 }

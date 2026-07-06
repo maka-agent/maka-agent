@@ -1789,43 +1789,6 @@
     padding: var(--space-4) var(--space-6);
     background: var(--background);
   }
-  .maka-composer-inner {
-    max-width: 760px;
-    margin: 0 auto;
-    /* PR-UI-LAYOUT-8: composer chrome refresh.
-     * - Radius 14 → 16 (matches the new floating panel feel without
-     *   feeling like a pillow).
-     * - Background: var(--background-elevated) instead of plain
-     *   `--background` so the composer reads as "the thing you
-     *   type into" with a slight lift from the panel surface.
-     * - Padding 12/14 → 14/16 for more typing room.
-     * - Box shadow drops 3-layer `--shadow-minimal` for a single
-     *   1px ring + 4px soft glow that's calm at rest. */
-    box-shadow:
-      0 0 0 1px oklch(from var(--foreground) l c h / 0.04),
-      0 1px 3px oklch(from var(--foreground) l c h / 0.04);
-    border-radius: var(--radius-modal);
-    background: var(--background-elevated);
-    padding: var(--space-3) var(--space-4);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2-5);
-    border: var(--border-width-hairline) solid var(--border);
-    transition: border-color var(--duration-base) var(--ease-out-strong), box-shadow var(--duration-base) var(--ease-out-strong), background var(--duration-base) var(--ease-out-strong);
-  }
-
-  /* Composer focus ring — `:focus-within` lets the wrapping shell glow
-     when the textarea or any toolbar button is focused, instead of the
-     ugly textarea native outline. PR-UI-LAYOUT-8: ring opacity dropped
-     slightly so the focus state feels alert without being aggressive. */
-  .maka-composer-inner:focus-within {
-    border-color: oklch(from var(--focus-ring) l c h / 0.40);
-    background: var(--background);
-    box-shadow:
-      0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20),
-      0 0 0 var(--focus-glow-width) oklch(from var(--focus-ring) l c h / 0.08),
-      0 1px 3px oklch(from var(--foreground) l c h / 0.04);
-  }
   .maka-composer[data-drag-active="true"] .maka-composer-inner {
     border-color: oklch(from var(--focus-ring) l c h / 0.46);
     background: oklch(from var(--focus-ring) 0.98 calc(c * 0.20) h / 0.35);
@@ -1833,33 +1796,6 @@
       0 0 0 1px oklch(from var(--focus-ring) l c h / 0.22),
       0 0 0 4px oklch(from var(--focus-ring) l c h / 0.08),
       0 1px 3px oklch(from var(--foreground) l c h / 0.04);
-  }
-  .maka-composer textarea {
-    appearance: none;
-    border: none;
-    outline: none;
-    width: 100%;
-    resize: none;
-    background: transparent;
-    color: var(--foreground);
-    font-family: var(--font-default);
-    font-size: var(--font-size-base);
-    line-height: var(--leading-normal);
-    min-height: var(--h-composer-min);
-    max-height: 240px;
-  }
-  .maka-composer textarea::placeholder {
-    color: var(--muted-foreground);
-    /* PR-CHAT-COMPOSER-PLACEHOLDER-0 (WAWQAQ 10min loop):
-       fade the placeholder slightly when the textarea is focused
-       and not yet typed in, so the focus state reads as "we're
-       listening" instead of "the placeholder is just sitting
-       there." The fade is small (1 → 0.55) — enough to register,
-       small enough not to feel like a glitch. */
-    transition: opacity var(--duration-emphasized) var(--ease-out-strong);
-  }
-  .maka-composer textarea:focus::placeholder {
-    opacity: var(--opacity-disabled);
   }
   .maka-composer-toolbar {
     display: flex;

@@ -108,29 +108,14 @@
   box-shadow: none;
 }
 
-/* `.agents-parchment-paper-surface` is reused by the composer body —
-   composer keeps its border (overridden below). The bare class on the
-   content area drops its border so we don't double up with the
-   floating-panel rule above. */
+/* `.agents-parchment-paper-surface` is reused by the composer body. The bare
+   class drops its border so the content area doesn't double up with the
+   floating-panel rule above; the composer re-establishes its own card chrome
+   on top (see `.composer .maka-composer-inner` in styles/composer.css). */
 .agents-parchment-paper-surface {
   border: 0;
   background-color: var(--agents-content-area-bg);
   box-shadow: none;
-}
-
-.composer .maka-composer-inner.agents-parchment-paper-surface {
-  border: var(--border-width-hairline) solid var(--color-border-tertiary);
-  background-color: var(--agents-content-area-bg);
-  /* #546: single hairline ring at rest — dropped the 1px/3px drop shadow so the
-     calm parchment card doesn't carry a heavy lift. */
-  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.035);
-}
-
-.composer .maka-composer-inner.agents-parchment-paper-surface:focus-within {
-  /* #546: focus reads as a single accent ring (focus-ring recipe) instead of
-     a neutral ring + drop shadow, so the typing state is alert without a lift. */
-  border-color: oklch(from var(--focus-ring) l c h / 0.45);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
 }
 
 .agents-chat-panel {

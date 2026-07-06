@@ -370,7 +370,7 @@ describe('radius token governance (#406 gap 4)', () => {
     const SELECTOR_TIER: Record<string, string> = {
       '.maka-code': '--radius-surface',
       '.maka-skeleton-card': '--radius-surface',
-      '.maka-composer-inner': '--radius-modal',
+      '.composer .maka-composer-inner': '--radius-modal',
       '.settingsPermissionRefresh': '--radius-control',
       '.settingsCapabilityGuidanceActions code': '--radius-surface',
       '.settingsModal': '--radius-modal',
