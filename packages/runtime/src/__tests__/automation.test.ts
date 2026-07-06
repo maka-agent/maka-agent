@@ -336,4 +336,137 @@ describe('computeNextCronFire', () => {
     const d = new Date(next!);
     assert.ok(d.getMinutes() === 0 || d.getMinutes() === 30);
   });
+
+  test('range/step 10-30/5 only matches 10,15,20,25,30', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    const results: number[] = [];
+    let cursor = base;
+    for (let i = 0; i < 10; i++) {
+      const next = computeNextCronFire('10-30/5 * * * *', cursor);
+      if (!next) break;
+      results.push(new Date(next).getMinutes());
+      cursor = next;
+    }
+    for (const min of results) {
+      assert.ok(min >= 10 && min <= 30, `minute ${min} should be in range 10-30`);
+      assert.equal((min - 10) % 5, 0, `minute ${min} should be step of 5 from 10`);
+    }
+  });
+
+  test('range/step */10 matches 0,10,20,30,40,50', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    const next = computeNextCronFire('*/10 * * * *', base);
+    assert.ok(next);
+    const min = new Date(next!).getMinutes();
+    assert.equal(min % 10, 0);
+  });
+
+  test('range/step 5-15/3 does not match 18,21,24...', () => {
+    // Verify values outside the range don't match
+    assert.equal(matchesCronField('5-15/3', 18, 0, 59), false);
+    assert.equal(matchesCronField('5-15/3', 21, 0, 59), false);
+    assert.equal(matchesCronField('5-15/3', 5, 0, 59), true);
+    assert.equal(matchesCronField('5-15/3', 8, 0, 59), true);
+    assert.equal(matchesCronField('5-15/3', 11, 0, 59), true);
+    assert.equal(matchesCronField('5-15/3', 14, 0, 59), true);
+    assert.equal(matchesCronField('5-15/3', 15, 0, 59), false); // 15-5=10, 10%3≠0
+  });
+
+  test('timestamps are on clean minute boundaries', () => {
+    const base = new Date('2026-07-06T10:00:37.123').getTime();
+    const next = computeNextCronFire('*/5 * * * *', base);
+    assert.ok(next);
+    const d = new Date(next!);
+    assert.equal(d.getSeconds(), 0);
+    assert.equal(d.getMilliseconds(), 0);
+  });
+});
+
+describe('AutomationManager edge cases', () => {
+  test('create rejects invalid cron expression', () => {
+    const mgr = createManager();
+    const result = mgr.create({
+      kind: 'heartbeat', name: 'bad cron', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'cron', expression: 'not valid' },
+    });
+    assert.ok('error' in result);
+    assert.ok(result.error.includes('Invalid cron'));
+  });
+
+  test('pruneTerminal removes old completed automations', () => {
+    const mgr = createManager();
+    // Create and complete 10 automations
+    for (let i = 0; i < 10; i++) {
+      const auto = mgr.create({
+        kind: 'heartbeat', name: `auto-${i}`, prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+      });
+      assert.ok(!('error' in auto));
+      mgr.markFired(auto.id);
+    }
+    // Pruning is triggered on next create
+    mgr.create({
+      kind: 'heartbeat', name: 'trigger-prune', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+    });
+    const all = mgr.listForSession('sess-1');
+    const completed = all.filter(a => a.status === 'completed');
+    assert.ok(completed.length <= 5, `Expected <=5 completed, got ${completed.length}`);
+  });
+
+  test('skipFire advances nextFireAt without incrementing fireCount', () => {
+    let time = 1700000000000;
+    const mgr = new AutomationManager({
+      generateId: () => 'skip-test',
+      now: () => time,
+    });
+    const auto = mgr.create({
+      kind: 'heartbeat', name: 'skip test', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+    });
+    assert.ok(!('error' in auto));
+    const originalNext = auto.nextFireAt!;
+    // Advance time so skipFire computes a different nextFireAt
+    time += 30000;
+    mgr.skipFire(auto.id);
+    const updated = mgr.get(auto.id)!;
+    assert.ok(updated.nextFireAt! > originalNext, `expected ${updated.nextFireAt} > ${originalNext}`);
+    assert.equal(updated.fireCount, 0);
+  });
+
+  test('markFailure does not overwrite completed status', () => {
+    const mgr = createManager();
+    const auto = mgr.create({
+      kind: 'heartbeat', name: 'terminal', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+    });
+    assert.ok(!('error' in auto));
+    mgr.markFired(auto.id); // completes (one-shot)
+    mgr.markFailure(auto.id, 'should not change status');
+    assert.equal(mgr.get(auto.id)?.status, 'completed');
+  });
+
+  test('listAll returns all automations regardless of status', () => {
+    const mgr = createManager();
+    mgr.create({ kind: 'heartbeat', name: 'active', prompt: 'p', sessionId: 's1', schedule: { type: 'interval', seconds: 60 } });
+    const once = mgr.create({ kind: 'heartbeat', name: 'done', prompt: 'p', sessionId: 's1', schedule: { type: 'once', delaySeconds: 10 } });
+    assert.ok(!('error' in once));
+    mgr.markFired(once.id);
+
+    const all = mgr.listAll();
+    assert.ok(all.length >= 2);
+    const statuses = all.map(a => a.status);
+    assert.ok(statuses.includes('active'));
+    assert.ok(statuses.includes('completed'));
+  });
+
+  test('registerAll bulk-loads automations', () => {
+    const mgr = createManager();
+    mgr.registerAll([
+      { id: 'loaded-1', kind: 'heartbeat', name: 'a', status: 'active', prompt: 'p', sessionId: 's1', schedule: { type: 'interval', seconds: 60 }, createdAt: 0, updatedAt: 0, nextFireAt: 999, lastFireAt: null, lastRunId: null, fireCount: 0, maxFires: null, expiresAt: null, lastError: null, consecutiveFailures: 0 },
+      { id: 'loaded-2', kind: 'cron', name: 'b', status: 'paused', prompt: 'p', sessionId: 's1', schedule: { type: 'cron', expression: '0 9 * * *' }, createdAt: 0, updatedAt: 0, nextFireAt: 999, lastFireAt: null, lastRunId: null, fireCount: 0, maxFires: null, expiresAt: null, lastError: null, consecutiveFailures: 0 },
+    ]);
+    assert.equal(mgr.get('loaded-1')?.name, 'a');
+    assert.equal(mgr.get('loaded-2')?.status, 'paused');
+  });
 });
