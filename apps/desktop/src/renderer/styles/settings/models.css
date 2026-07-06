@@ -250,18 +250,16 @@
 .providerConfigOverlay {
   position: absolute;
   inset: 0;
-  display: flex;
-  justify-content: flex-end;
   background: oklch(from var(--background) calc(l - 0.05) c h / 0.64);
   backdrop-filter: blur(2px);
   border-radius: var(--radius-modal);
-  padding: var(--space-3);
 }
 
 .providerConfigSheet {
-  position: relative;
-  width: min(430px, 100%);
-  min-height: 100%;
+  position: absolute;
+  inset: var(--space-3) var(--space-3) var(--space-3) auto;
+  width: min(430px, calc(100% - (var(--space-3) * 2)));
+  min-height: 0;
   overflow: auto;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-modal);
@@ -1016,4 +1014,3 @@
   border-color: oklch(from var(--warning) l c h / 0.42);
   color: var(--warning-text, var(--info-text));
 }
-

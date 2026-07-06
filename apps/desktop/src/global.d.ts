@@ -135,6 +135,7 @@ declare global {
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
+        compact(sessionId: string): Promise<void>;
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;

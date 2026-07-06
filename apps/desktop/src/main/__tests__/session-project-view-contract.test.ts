@@ -44,6 +44,47 @@ describe('sidebar project view mode', () => {
     assert.match(fallbackMarkup, /待发送/);
   });
 
+  it('renders the status/project view mode controls as a pressed segmented control', () => {
+    // #571 routes the toggle through the shared SettingsSegmented primitive,
+    // whose <button> carries aria-pressed and puts the label inline (no <span>).
+    const statusMarkup = renderSessionListPanel({ viewMode: 'status' });
+    assert.match(statusMarkup, /<button[^>]*aria-pressed="true"[^>]*>按状态/);
+    assert.match(statusMarkup, /<button[^>]*aria-pressed="false"[^>]*>按项目/);
+
+    const projectMarkup = renderSessionListPanel({ viewMode: 'project' });
+    assert.match(projectMarkup, /<button[^>]*aria-pressed="false"[^>]*>按状态/);
+    assert.match(projectMarkup, /<button[^>]*aria-pressed="true"[^>]*>按项目/);
+  });
+
+  it('renders project groups as folder headers with an initial four-session preview', () => {
+    const sessions = Array.from({ length: 5 }, (_, index) => makeSessionSummary({
+      id: `project-session-${index + 1}`,
+      name: `Project chat ${index + 1}`,
+      cwd: 'D:\\work\\testzcode',
+      lastMessageAt: 10 - index,
+    }));
+
+    const markup = renderSessionListPanel({
+      sessions,
+      statusGroups: deriveProjectGroups(sessions),
+      viewMode: 'project',
+    });
+
+    // The heading is a UiButton (Base UI <button>); BaseButton reorders props
+    // so class is not guaranteed to precede aria-*. Assert the disclosure
+    // contract on the matched opening tag without assuming attribute order.
+    const headingTag = markup.match(/<button[^>]*maka-list-project-heading[^>]*>/)?.[0];
+    assert.ok(headingTag, 'project heading button must render');
+    assert.match(headingTag, /aria-expanded="true"/);
+    assert.match(headingTag, /aria-controls="maka-list-group-body-project:[^"]+"/);
+    assert.match(markup, /lucide-folder-open/);
+    assert.match(markup, />testzcode</);
+    assert.match(markup, /Project chat 1/);
+    assert.match(markup, /Project chat 4/);
+    assert.doesNotMatch(markup, /Project chat 5/);
+    assert.match(markup, /显示更多/);
+  });
+
   it('AppShell derives status and project groups from the same visible session set', async () => {
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');

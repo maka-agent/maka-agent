@@ -256,6 +256,10 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
+export type {
+  BuildLlmHistorySummarizerOptions,
+} from './history-compact-summarizer.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,

@@ -883,16 +883,24 @@
 }
 
 .maka-empty-state {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: min(205px, calc(100% - 40px));
-  transform: translate(-50%, -50%);
   display: grid;
   justify-items: center;
   gap: var(--space-1-5);
   text-align: center;
   color: var(--foreground-secondary);
+}
+
+/* Absolute centering is a SIDEBAR-only concern (the empty session list
+   centers inside the scroll viewport). It used to live on the base class,
+   so every module page's shared EmptyState floated at 46% of the page and
+   overlapped banners/cards (part of designer audit P0-4's "broken
+   half-loaded card" impression). Scope it to the session list. */
+.maka-session-list .maka-empty-state {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  width: min(205px, calc(100% - 40px));
+  transform: translate(-50%, -50%);
 }
 
 .maka-empty-state-icon {

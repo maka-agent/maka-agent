@@ -447,7 +447,7 @@ export function ChatView(props: {
         <header className="maka-module-main-header">
           <div>
             <h2>每日回顾</h2>
-            <p>查看本机对话、请求、Token、费用和工具调用汇总。</p>
+            <p>自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。</p>
           </div>
         </header>
         {props.dailyReviewBridge ? (

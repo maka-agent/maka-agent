@@ -15,6 +15,7 @@ import {
   formatDailyReviewArchiveGeneratedAt,
   formatDailyReviewArchiveTitle,
   formatDailyReviewMarkdown,
+  formatDailyReviewModelLabel,
 } from './daily-review-helpers.js';
 import { Button as UiButton } from './ui.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
@@ -300,12 +301,6 @@ export function DailyReviewPanel(props: {
           className="maka-daily-review-range-tabs"
         />
       </header>
-      <section className="maka-daily-review-info" aria-label="每日回顾说明">
-        <p className="maka-daily-review-info-hint">
-          自动汇总本机对话历史，生成<strong>对话摘要</strong>与<strong>遗漏提醒</strong>；
-          <strong>深度分析</strong>覆盖更长周期的趋势与调研。可在设置中开启<strong>定时执行</strong>。
-        </p>
-      </section>
       {canManualRun && (
         <div className="maka-daily-review-quick-runs" aria-label="手动触发回顾">
           {modelOptions.length > 0 && (
@@ -502,12 +497,22 @@ export function DailyReviewPanel(props: {
           <div className="maka-skeleton maka-skeleton-line" style={{ width: '75%' }} />
         </div>
       ) : visibleSummary.totals.sessionCount === 0 && visibleSummary.totals.requestCount === 0 ? (
-        <EmptyState
-          Icon={CalendarDays}
-          title={emptyActivityTitle}
-          body={emptyActivityBody}
-          extraClassName="maka-daily-review-summary-empty"
-        />
+        // When saved reports already fill the page, a second full-height
+        // empty card below them read as a broken half-loaded section
+        // (designer audit P0-4). Collapse to a one-line note in that case;
+        // keep the full empty state only when it is the page's sole content.
+        canLoadArchives && archives.length > 0 ? (
+          <p className="maka-daily-review-activity-note" role="status">
+            {emptyActivityTitle} · {emptyActivityBody}
+          </p>
+        ) : (
+          <EmptyState
+            Icon={CalendarDays}
+            title={emptyActivityTitle}
+            body={emptyActivityBody}
+            extraClassName="maka-daily-review-summary-empty"
+          />
+        )
       ) : (
         <>
           <section className="maka-daily-review-totals" aria-label={`${dayLabel}总览`}>
@@ -612,7 +617,7 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
           <h4>{formatDailyReviewArchiveTitle(archive)}</h4>
           <p>
             {DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL[archive.trigger]}生成 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
-            {archive.modelKey ? ` · ${archive.modelKey}` : ' · 默认对话模型'}
+            {archive.modelKey ? ` · ${formatDailyReviewModelLabel(archive.modelKey)}` : ' · 默认对话模型'}
           </p>
         </div>
         <span className="maka-daily-review-archive-status" data-status={archive.status}>

@@ -36,24 +36,6 @@
 /* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
    manual-trigger row. Banner uses the page-card recipe with a softer
    tint so it reads as supporting context, not a primary surface. */
-/* Unboxed: the old two-paragraph banner card pushed real content
-   below the fold; the explanation is now a single quiet hint line. */
-.maka-daily-review-info {
-    display: grid;
-    gap: var(--space-1);
-    padding: 0 var(--space-0-5);
-  }
-.maka-daily-review-info-hint {
-    margin: 0;
-    font-size: var(--font-size-caption);
-    line-height: var(--leading-normal);
-    color: var(--muted-foreground);
-  }
-.maka-daily-review-info-hint strong {
-    font-weight: var(--font-weight-semibold);
-    color: var(--foreground-secondary);
-  }
-
 .maka-daily-review-quick-runs {
   /* WAWQAQ msg `3871e56b` 2026-06-25: "按钮的位置也不对。按道理一般都
      是在右边，现在都是直接靠近文本的。"
@@ -532,4 +514,14 @@
   transform: none;
   min-height: 120px;
   align-content: center;
+}
+
+/* Designer audit P0-4: one-line stand-in for the full empty-state card when
+   saved reports already occupy the page — a second full-height empty card
+   below them read as a broken section. */
+.maka-daily-review-activity-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
 }

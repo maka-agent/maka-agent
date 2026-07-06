@@ -29,12 +29,25 @@ function SkillLibraryPanel(props: {
   searchQuery?: string;
 }) {
   const skillCount = props.skills?.length ?? 0;
-  const [activeSkillTab, setActiveSkillTab] = useState<'market' | 'builtin' | 'installed'>('market');
+  // Designer audit P1-5: land on skills the user can actually run, not the
+  // marketplace — every market card is still 即将上线, and leading with
+  // things you can't install undermines trust in the whole page.
+  const [activeSkillTab, setActiveSkillTab] = useState<'market' | 'builtin' | 'installed'>(() => {
+    const skills = props.skills ?? [];
+    if (skills.some((skill) => skill.sourceType !== 'bundled')) return 'installed';
+    if (skills.length > 0) return 'builtin';
+    return 'market';
+  });
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
     if (!normalizedSkillQuery) return true;
     return `${skill.id} ${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(normalizedSkillQuery);
   });
+  // 内置 = bundled skills shipped with the app; 已安装 = everything the user
+  // added themselves (workspace / unknown source). The two tabs used to
+  // render the SAME list, which made them meaningless.
+  const bundledSkills = filteredSkills.filter((skill) => skill.sourceType === 'bundled');
+  const installedSkills = filteredSkills.filter((skill) => skill.sourceType !== 'bundled');
   const filteredMarketCards = SKILL_MARKETPLACE_CARDS.filter((card) => {
     if (!normalizedSkillQuery) return true;
     return `${card.title} ${card.body} ${card.meta}`.toLowerCase().includes(normalizedSkillQuery);
@@ -70,8 +83,8 @@ function SkillLibraryPanel(props: {
       <TabsList variant="underline" className="maka-skill-tabs" aria-label="技能视图">
         {([
           ['market', '市场', filteredMarketCards.length],
-          ['builtin', '内置', filteredSkills.length],
-          ['installed', '已安装', skillCount],
+          ['builtin', '内置', bundledSkills.length],
+          ['installed', '已安装', installedSkills.length],
         ] as const).map(([tab, label, count]) => (
           <TabsTrigger
             key={tab}
@@ -79,19 +92,14 @@ function SkillLibraryPanel(props: {
             value={tab}
           >
             {label}
-            {tab === 'installed' && <span>{count}</span>}
+            <span>{count}</span>
           </TabsTrigger>
         ))}
       </TabsList>
-      {activeSkillTab === 'market' && (
-        <div className="maka-skill-filter-actions" aria-label="技能筛选排序">
-          {/* Static labels, not disabled buttons: filter/sort are not
-              wired yet, and a styled-but-dead button visually promises
-              interactivity it can't deliver. */}
-          <span className="maka-skill-filter-pill" data-static="true">全部</span>
-          <span className="maka-skill-filter-pill" data-static="true">排序：热门</span>
-        </div>
-      )}
+      {/* Designer audit P1-9: the static 全部 / 排序：热门 pills were removed
+          entirely — they were styled like buttons but dead, which reads as a
+          broken control. Bring back real filter/sort controls with the
+          marketplace launch. */}
     </div>
   );
 
@@ -242,8 +250,8 @@ function SkillLibraryPanel(props: {
       <TabsRoot value={activeSkillTab} onValueChange={(v) => setActiveSkillTab(v as 'market' | 'builtin' | 'installed')}>
         {tabs}
         <TabsPanel value="market">{market}</TabsPanel>
-        <TabsPanel value="builtin">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
-        <TabsPanel value="installed">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
+        <TabsPanel value="builtin">{skillList(bundledSkills, normalizedSkillQuery ? '没有匹配的内置技能' : '暂无内置技能', normalizedSkillQuery ? '换一个关键词试试。' : '应用自带的技能会出现在这里。', '内置技能')}</TabsPanel>
+        <TabsPanel value="installed">{skillList(installedSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
       </TabsRoot>
       {props.skills && props.skills.length > 0 ? (
         <span className="maka-skill-tool-summary-hidden" aria-hidden="true">

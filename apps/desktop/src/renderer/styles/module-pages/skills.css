@@ -236,29 +236,6 @@ color: oklch(0.55 0.015 220);
   padding: 0 var(--space-1);
 }
 
-.maka-skill-filter-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding-bottom: var(--space-1-5);
-}
-
-.maka-skill-filter-pill {
-  /* Rendered as a static <span> since the filter/sort controls are not
-     wired yet (was a disabled UiButton that promised interactivity). */
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  padding: 0 var(--space-3);
-  opacity: 1;
-}
-
 .maka-skill-market {
   display: grid;
   gap: var(--space-3);

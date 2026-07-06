@@ -151,6 +151,9 @@ contextBridge.exposeInMainWorld('maka', {
       }
       return ipcRenderer.invoke('sessions:send', sessionId, command);
     },
+    compact(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:compact', sessionId);
+    },
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void> {
       return ipcRenderer.invoke('sessions:stop', sessionId, input);
     },
