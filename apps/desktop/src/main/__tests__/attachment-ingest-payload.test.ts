@@ -44,4 +44,11 @@ describe('encodeIngestItems', () => {
     assert.equal(payload.mimeType, 'image/png');
     assert.equal(payload.base64, btoa(String.fromCharCode(...bytes)));
   });
+
+  test('rejects a raw base64 item that is neither a File nor an approval token', async () => {
+    await assert.rejects(
+      encodeIngestItems([{ name: 'forged', base64: 'AAAA' }] as never),
+      /无效/,
+    );
+  });
 });

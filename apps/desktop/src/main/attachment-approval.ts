@@ -46,6 +46,7 @@ export interface AttachmentApprovalRegistry {
    * belongs to another sender, or has expired. Redemption is one-shot: a
    * second call with the same id returns null.
    */
+  peekApproval(senderId: number, approvalId: string): ApprovedAttachmentPath | null;
   consumeApproval(senderId: number, approvalId: string): ApprovedAttachmentPath | null;
   clearSender(senderId: number): void;
   prune(now?: number): void;
@@ -94,6 +95,17 @@ export function createAttachmentApprovalRegistry(input: {
           size: file.size,
         };
       });
+    },
+    peekApproval(senderId, approvalId) {
+      prune(now());
+      const entry = approvals.get(approvalId);
+      if (!entry || entry.senderId !== senderId) return null;
+      return {
+        path: entry.path,
+        name: entry.name,
+        ...(entry.mimeType ? { mimeType: entry.mimeType } : {}),
+        size: entry.size,
+      };
     },
     consumeApproval(senderId, approvalId) {
       prune(now());

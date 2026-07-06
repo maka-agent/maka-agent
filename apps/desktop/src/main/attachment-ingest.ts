@@ -136,29 +136,46 @@ export async function resolveIngestItems(input: {
   const maxBytes = input.maxBytes ?? MAX_ATTACHMENT_BYTES;
   if (!Array.isArray(input.items)) throw new Error('附件信息无效，请重新选择文件后再发送。');
   if (input.items.length > maxAttachments) throw new Error('一次最多添加 8 个附件。');
-  const files: AttachmentIngestFile[] = [];
+  // Phase 1: validate every item with no side effects. Approval tokens are
+  // peeked (not consumed) so a later invalid item does not burn earlier ones.
+  const planned: AttachmentIngestFile[] = [];
+  const approvalIds: string[] = [];
   for (const item of input.items) {
     if (!item || typeof item !== 'object') throw new Error('附件信息无效，请重新选择文件后再发送。');
     const record = item as Record<string, unknown>;
     if (typeof record.approvalId === 'string' && typeof record.name === 'string') {
-      const approved = input.approvals.consumeApproval(input.senderId, record.approvalId);
+      const approved = input.approvals.peekApproval(input.senderId, record.approvalId);
       if (!approved) throw new Error('附件来源已过期或无效，请重新选择文件后再发送。');
       const statResult = await input.stat(approved.path);
       if (statResult.size > maxBytes) throw new Error('单个附件超出大小限制。');
       const mimeType = pickMimeType(record.mimeType, approved.mimeType);
-      files.push({ path: approved.path, ...(mimeType ? { mimeType } : {}), size: statResult.size });
+      planned.push({ path: approved.path, ...(mimeType ? { mimeType } : {}), size: statResult.size });
+      approvalIds.push(record.approvalId);
       continue;
     }
     if (typeof record.name === 'string' && typeof record.base64 === 'string') {
+      // Reject by base64 string length BEFORE Buffer.from: a forged huge
+      // string must not be decoded into main memory. base64 encodes 3 bytes
+      // per 4 chars, so ceil(maxBytes*4/3)+padding is a safe upper bound.
+      const maxBase64Len = Math.ceil((maxBytes * 4) / 3) + 4;
+      if (record.base64.length > maxBase64Len) throw new Error('单个附件超出大小限制。');
       const content = Buffer.from(record.base64, 'base64');
       if (content.byteLength > maxBytes) throw new Error('单个附件超出大小限制。');
       const mimeType = typeof record.mimeType === 'string' && record.mimeType.length > 0 ? record.mimeType : undefined;
-      files.push({ name: record.name, ...(mimeType ? { mimeType } : {}), size: content.byteLength, content });
+      planned.push({ name: record.name, ...(mimeType ? { mimeType } : {}), size: content.byteLength, content });
       continue;
     }
     throw new Error('附件信息无效，请重新选择文件后再发送。');
   }
-  return files;
+  // Phase 2: consume all approval tokens now that every item validated. Peek
+  // passed, so each consume succeeds unless a concurrent request raced on the
+  // same token; in that rare case we surface it as an expired-token error.
+  for (const id of approvalIds) {
+    if (!input.approvals.consumeApproval(input.senderId, id)) {
+      throw new Error('附件来源已过期或无效，请重新选择文件后再发送。');
+    }
+  }
+  return planned;
 }
 
 function pickMimeType(renderer: unknown, approved: string | undefined): string | undefined {

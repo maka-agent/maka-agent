@@ -34,8 +34,10 @@ export async function encodeIngestItems(items: IngestInput[]): Promise<IngestPay
         ...(mimeType ? { mimeType } : {}),
         base64: bytesToBase64(bytes),
       });
-    } else {
+    } else if (typeof item.approvalId === 'string') {
       out.push(item);
+    } else {
+      throw new Error('附件信息无效。');
     }
   }
   return out;

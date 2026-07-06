@@ -71,22 +71,33 @@ describe('resolveIngestItems (pre-read validation)', () => {
     assert.equal(statCalls, 1);
   });
 
-  test('rejects an oversized blob attachment after decode, before artifact create', async () => {
+  test('rejects an oversized blob attachment before decoding it', async () => {
     const approvals = createAttachmentApprovalRegistry();
     const oversized = Buffer.alloc(200).toString('base64');
     let statCalls = 0;
-    await assert.rejects(
-      () =>
-        resolveIngestItems({
-          senderId: 1,
-          items: [{ name: 'big.bin', base64: oversized }],
-          approvals,
-          stat: async () => (statCalls++, { size: 1 }),
-          maxBytes: 100,
-        }),
-      /超出大小限制/,
-    );
-    assert.equal(statCalls, 0);
+    let decodeCalls = 0;
+    const realFrom = Buffer.from;
+    Buffer.from = ((...args: unknown[]) => {
+      decodeCalls += 1;
+      return realFrom(args[0] as string, args[1] as BufferEncoding);
+    }) as typeof Buffer.from;
+    try {
+      await assert.rejects(
+        () =>
+          resolveIngestItems({
+            senderId: 1,
+            items: [{ name: 'big.bin', base64: oversized }],
+            approvals,
+            stat: async () => (statCalls++, { size: 1 }),
+            maxBytes: 100,
+          }),
+        /超出大小限制/,
+      );
+      assert.equal(statCalls, 0);
+      assert.equal(decodeCalls, 0, 'must reject by base64 string length before Buffer.from');
+    } finally {
+      Buffer.from = realFrom;
+    }
   });
 
   test('consumes each approval token exactly once', async () => {
@@ -128,6 +139,29 @@ describe('resolveIngestItems (pre-read validation)', () => {
     assert.equal(files.length, 2);
     assert.equal('path' in files[0], true);
     assert.equal('content' in files[1], true);
+  });
+
+  test('a later invalid item does not burn earlier approval tokens', async () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const [issued] = approvals.issueApprovals(1, [{ path: '/tmp/a.txt', name: 'a.txt', size: 10 }]);
+    let statCalls = 0;
+    await assert.rejects(
+      resolveIngestItems({
+        senderId: 1,
+        items: [
+          { approvalId: issued.approvalId, name: 'a.txt' },
+          { wat: 'nope' },
+        ],
+        approvals,
+        stat: async () => (statCalls++, { size: 10 }),
+      }),
+      /无效/,
+    );
+    assert.notEqual(
+      approvals.consumeApproval(1, issued.approvalId),
+      null,
+      'earlier approval token must survive a later item failure so the user can retry',
+    );
   });
 
   test('rejects malformed items', async () => {
