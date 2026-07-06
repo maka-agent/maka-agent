@@ -20,6 +20,7 @@
     "typecheck:stories": "tsc -p tsconfig.storybook.json --noEmit",
     "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && node ../../scripts/check-console.mjs && node ../../scripts/check-a11y.mjs && node ../../scripts/check-copy.mjs",
     "test": "npm run clean:main && npm run build:main && node --test \"dist/main/**/*.test.js\"",
+    "e2e": "npm run build && playwright test --config e2e/playwright.config.ts",
     "screenshots": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/capture-screenshots.mjs --all",
     "screenshots:single": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/capture-screenshots.mjs --scenario",
     "smoke:real-window": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/desktop-real-window-smoke.mjs",
@@ -50,6 +51,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@storybook/react-vite": "^10.4.6",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.7",

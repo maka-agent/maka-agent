@@ -172,6 +172,7 @@ import {
   toAppNetworkPatch,
   toContractNetworkSettings,
 } from './network-settings-main.js';
+import { resolveSessionBackend } from './session-backend-resolver.js';
 import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
@@ -217,6 +218,11 @@ try {
     process.exit(1);
   }
   throw error;
+}
+// E2E isolation: redirect userData to a throwaway dir so each test run is hermetic.
+// Only active under MAKA_E2E_USER_DATA_DIR; production builds never set it.
+if (process.env.MAKA_E2E_USER_DATA_DIR) {
+  app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
 let configWatcher: ConfigFileWatcher | undefined;
@@ -1016,18 +1022,19 @@ function registerIpc(): void {
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());
-    if (input?.backend === 'fake') {
+    const backend = resolveSessionBackend(input, process.env);
+    if (backend === 'fake') {
       if (!canCreateFakeSessionFromRenderer()) {
         throw new Error('FakeBackend sessions are only available in development.');
       }
       const session = await runtime.createSession({
         cwd,
         backend: 'fake',
-        llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
-        model: input.model ?? 'fake-model',
-        permissionMode: input.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
-        name: input.name ?? 'New Chat',
-        labels: input.labels,
+        llmConnectionSlug: input?.llmConnectionSlug ?? 'fake',
+        model: input?.model ?? 'fake-model',
+        permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
+        name: input?.name ?? 'New Chat',
+        labels: input?.labels,
       });
       emitSessionsChanged('created', session.id);
       return session;
@@ -1470,7 +1477,8 @@ function canCreateFakeSessionFromRenderer(): boolean {
   return !app.isPackaged && (
     Boolean(visualSmokeFixture) ||
     Boolean(process.env.VITE_DEV_SERVER_URL) ||
-    process.env.NODE_ENV === 'development'
+    process.env.NODE_ENV === 'development' ||
+    process.env.MAKA_E2E === '1'
   );
 }
 
