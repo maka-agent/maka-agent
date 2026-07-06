@@ -20,9 +20,9 @@ function conn(slug: string): LlmConnection {
 function settingsWithSecrets(): AppSettings {
   return {
     theme: 'dark',
-    network: { proxy: { password: 'proxy-secret' } },
-    botChat: { channels: { telegram: { token: 'bot-secret', appSecret: 'app-secret' } } },
-    openGateway: { token: 'gw-secret' },
+    network: { proxy: { host: '127.0.0.1', password: 'proxy-secret' } },
+    botChat: { channels: { telegram: { chatId: '42', token: 'bot-secret', appSecret: 'app-secret' } } },
+    openGateway: { port: 8848, token: 'gw-secret' },
     webSearch: { providers: { tavily: { apiKey: 'tavily-secret' } } },
   } as unknown as AppSettings;
 }
@@ -79,15 +79,23 @@ describe('config-transfer-service', () => {
     assert.equal(bundle.data.credentials, undefined);
   });
 
-  it('strips settings secrets when credentials are NOT included', async () => {
+  it('omits (does not blank) settings secrets when credentials are NOT included', async () => {
+    // Secret keys must be ABSENT, not '' — mergeSettings deep-merges to the
+    // leaf, so an absent key preserves the target machine's existing secret on
+    // import, whereas '' would overwrite and wipe it.
     const { deps } = makeDeps();
     const bundle = await gatherConfigExport(['settings'], deps);
     const s = bundle.data.settings as Record<string, any>;
-    assert.equal(s.network.proxy.password, '');
-    assert.equal(s.botChat.channels.telegram.token, '');
-    assert.equal(s.openGateway.token, '');
-    assert.equal(s.webSearch.providers.tavily.apiKey, '');
-    assert.equal(s.theme, 'dark', 'non-secret fields pass through');
+    assert.equal('password' in s.network.proxy, false, 'proxy password key omitted');
+    assert.equal('token' in s.botChat.channels.telegram, false, 'bot token key omitted');
+    assert.equal('appSecret' in s.botChat.channels.telegram, false, 'bot appSecret key omitted');
+    assert.equal('token' in s.openGateway, false, 'gateway token key omitted');
+    assert.equal('apiKey' in s.webSearch.providers.tavily, false, 'tavily apiKey key omitted');
+    // Non-secret fields at every level pass through untouched.
+    assert.equal(s.theme, 'dark');
+    assert.equal(s.network.proxy.host, '127.0.0.1');
+    assert.equal(s.botChat.channels.telegram.chatId, '42');
+    assert.equal(s.openGateway.port, 8848);
   });
 
   it('keeps settings secrets and enumerates credentials when credentials ARE included', async () => {
@@ -121,7 +129,44 @@ describe('config-transfer-service', () => {
     assert.equal(result.settings?.applied, true);
     assert.equal(updatedSettings.length, 1);
     assert.deepEqual(setCreds, [{ slug: 'brand-new', kind: 'api_key', value: 'sk-imported' }]);
-    assert.equal(result.credentials?.applied, 1);
+    assert.deepEqual(result.credentials, { applied: 1, skipped: 0 });
     assert.deepEqual(writtenMemory, ['# imported memory']);
+  });
+
+  it('does NOT write credentials for a connection the user skipped', async () => {
+    // `deepseek-main` already exists on the target; with strategy=skip the
+    // connection is not written, so its stored secret must stay untouched.
+    const { deps, saved, setCreds } = makeDeps();
+    const bundle = {
+      schemaVersion: 1,
+      exportedAt: '',
+      appVersion: '0.1.0',
+      includedData: ['connections', 'credentials'] as const,
+      data: {
+        connections: [conn('deepseek-main')],
+        credentials: [{ slug: 'deepseek-main', kind: 'api_key', value: 'sk-should-not-write' }],
+      },
+    };
+    const result = await applyConfigImport(bundle as any, 'skip', deps);
+    assert.equal(saved.length, 0, 'existing connection is skipped');
+    assert.deepEqual(setCreds, [], 'skipped connection keeps its existing secret');
+    assert.deepEqual(result.credentials, { applied: 0, skipped: 1 });
+  });
+
+  it('writes credentials for a connection that was overwritten', async () => {
+    const { deps, setCreds } = makeDeps();
+    const bundle = {
+      schemaVersion: 1,
+      exportedAt: '',
+      appVersion: '0.1.0',
+      includedData: ['connections', 'credentials'] as const,
+      data: {
+        connections: [conn('deepseek-main')],
+        credentials: [{ slug: 'deepseek-main', kind: 'api_key', value: 'sk-new' }],
+      },
+    };
+    const result = await applyConfigImport(bundle as any, 'overwrite', deps);
+    assert.deepEqual(setCreds, [{ slug: 'deepseek-main', kind: 'api_key', value: 'sk-new' }]);
+    assert.deepEqual(result.credentials, { applied: 1, skipped: 0 });
   });
 });

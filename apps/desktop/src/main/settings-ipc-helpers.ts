@@ -116,35 +116,37 @@ export function maskAppSettings(settings: AppSettings, revealPatch: UpdateAppSet
 }
 
 /**
- * Empty every secret field in settings for a config export that does NOT
- * include the `credentials` category. Unlike `maskAppSettings` (which returns
- * a masked sentinel for display), this returns '' so a re-imported bundle
- * carries no secret material at all — it must not round-trip a masked value as
- * if it were real. Keep the field list in sync with `maskAppSettings`.
+ * Return a copy of settings with every secret field OMITTED, for a config
+ * export that does NOT include the `credentials` category. The keys are
+ * removed (not blanked to '') on purpose: `mergeSettings` deep-merges to the
+ * leaf, so an absent key preserves the target machine's existing value on
+ * import, whereas a '' would overwrite and wipe a working proxy/bot/gateway/
+ * search secret. Keep the field list in sync with `maskAppSettings`.
  */
-export function stripSettingsSecretsForExport(settings: AppSettings): AppSettings {
+export function stripSettingsSecretsForExport(settings: AppSettings): Record<string, unknown> {
+  const proxy = { ...settings.network.proxy } as Record<string, unknown>;
+  delete proxy.password;
+
+  const channels: Record<string, unknown> = {};
+  for (const [provider, channel] of Object.entries(settings.botChat.channels)) {
+    const next = { ...channel } as Record<string, unknown>;
+    delete next.token;
+    delete next.appSecret;
+    channels[provider] = next;
+  }
+
+  const openGateway = { ...settings.openGateway } as Record<string, unknown>;
+  delete openGateway.token;
+
+  const tavily = { ...settings.webSearch.providers.tavily } as Record<string, unknown>;
+  delete tavily.apiKey;
+
   return {
     ...settings,
-    network: {
-      ...settings.network,
-      proxy: { ...settings.network.proxy, password: '' },
-    },
-    botChat: {
-      ...settings.botChat,
-      channels: Object.fromEntries(
-        Object.entries(settings.botChat.channels).map(([provider, channel]) => [
-          provider,
-          { ...channel, token: '', appSecret: '' },
-        ]),
-      ) as AppSettings['botChat']['channels'],
-    },
-    openGateway: { ...settings.openGateway, token: '' },
-    webSearch: {
-      ...settings.webSearch,
-      providers: {
-        tavily: { ...settings.webSearch.providers.tavily, apiKey: '' },
-      },
-    },
+    network: { ...settings.network, proxy },
+    botChat: { ...settings.botChat, channels },
+    openGateway,
+    webSearch: { ...settings.webSearch, providers: { ...settings.webSearch.providers, tavily } },
   };
 }
 

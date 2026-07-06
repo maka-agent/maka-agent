@@ -753,7 +753,7 @@ contextBridge.exposeInMainWorld('maka', {
           result: {
             connections?: { created: number; overwritten: number; skipped: number };
             settings?: { applied: boolean };
-            credentials?: { applied: number };
+            credentials?: { applied: number; skipped: number };
             memory?: { applied: boolean };
           };
         }

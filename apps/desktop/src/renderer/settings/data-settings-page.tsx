@@ -32,7 +32,10 @@ function summarizeImportResult(result: ConfigImportResult): string {
   const conn = result.connections;
   if (conn) parts.push(`连接 新增${conn.created}·覆盖${conn.overwritten}·跳过${conn.skipped}`);
   if (result.settings?.applied) parts.push('设置已应用');
-  if (result.credentials) parts.push(`凭据 ${result.credentials.applied}`);
+  if (result.credentials) {
+    const cred = result.credentials;
+    parts.push(cred.skipped > 0 ? `凭据 ${cred.applied}（跳过 ${cred.skipped}）` : `凭据 ${cred.applied}`);
+  }
   if (result.memory?.applied) parts.push('记忆已应用');
   return parts.join(' · ') || '文件不含可导入的内容';
 }

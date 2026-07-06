@@ -94,7 +94,7 @@ export async function gatherConfigExport(
 export interface ConfigImportResult {
   connections?: { created: number; overwritten: number; skipped: number };
   settings?: { applied: boolean };
-  credentials?: { applied: number };
+  credentials?: { applied: number; skipped: number };
   memory?: { applied: boolean };
 }
 
@@ -104,6 +104,10 @@ export async function applyConfigImport(
   deps: ConfigTransferDeps,
 ): Promise<ConfigImportResult> {
   const result: ConfigImportResult = {};
+  // Credentials are only applied for connections actually written this import
+  // (created or overwritten). A slug the user chose to skip must not have its
+  // stored secret silently overwritten.
+  const appliedConnectionSlugs = new Set<string>();
 
   if (Array.isArray(bundle.data.connections)) {
     const incoming = bundle.data.connections as LlmConnection[];
@@ -111,6 +115,7 @@ export async function applyConfigImport(
     const plan = planConnectionMerge(existing, incoming, strategy);
     for (const connection of [...plan.create, ...plan.overwrite]) {
       await deps.connectionStore.save(connection);
+      appliedConnectionSlugs.add(connection.slug);
     }
     result.connections = {
       created: plan.create.length,
@@ -126,19 +131,26 @@ export async function applyConfigImport(
 
   if (Array.isArray(bundle.data.credentials)) {
     let applied = 0;
+    let skipped = 0;
     for (const entry of bundle.data.credentials as ExportedCredential[]) {
-      if (
+      const valid =
         entry &&
         typeof entry.slug === 'string' &&
         typeof entry.value === 'string' &&
         entry.value.length > 0 &&
-        VALID_CREDENTIAL_KINDS.has(entry.kind)
-      ) {
-        await deps.credentialStore.setSecret(entry.slug, entry.kind, entry.value);
-        applied += 1;
+        VALID_CREDENTIAL_KINDS.has(entry.kind);
+      if (!valid) continue;
+      // Only write a secret for a connection that was created or overwritten
+      // in this import. Skipped (or not-imported) slugs keep their existing
+      // stored secret untouched.
+      if (!appliedConnectionSlugs.has(entry.slug)) {
+        skipped += 1;
+        continue;
       }
+      await deps.credentialStore.setSecret(entry.slug, entry.kind, entry.value);
+      applied += 1;
     }
-    result.credentials = { applied };
+    result.credentials = { applied, skipped };
   }
 
   if (typeof bundle.data.memory === 'string') {
