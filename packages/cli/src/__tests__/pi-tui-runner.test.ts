@@ -136,7 +136,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('n');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Ctrl+O expand'));
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');

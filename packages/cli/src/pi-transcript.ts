@@ -17,7 +17,7 @@ import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { ansi } from './tui-ansi.js';
-import { colorDiff } from './tui-diff.js';
+import { colorDiff, diffLineKind } from './tui-diff.js';
 
 export interface MakaPiTranscriptState {
   entries: MakaPiTranscriptEntry[];
@@ -565,55 +565,172 @@ function renderTextBlock(
   return lines;
 }
 
-interface RenderedToolPart {
-  lines: string[];
-  /** True when compact rendering hides detail that expanding would reveal. */
-  truncated: boolean;
+function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolean): string[] {
+  return expanded ? renderExpandedToolBlock(entry, width) : renderCompactToolBlock(entry, width);
 }
 
-function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded: boolean): string[] {
+function toolStatusText(entry: MakaPiToolEntry): string {
   const status = entry.status === 'running'
     ? ansi.yellow('running')
     : entry.status === 'error'
       ? ansi.red('error')
       : ansi.green('done');
   const duration = entry.durationMs === undefined ? '' : ansi.dim(` ${entry.durationMs}ms`);
-  const lines = [
-    fitLine(`${ansi.yellow('Tool')} ${entry.title ?? entry.toolName} ${status}${duration}`, width),
-  ];
-  let truncated = false;
+  return `${status}${duration}`;
+}
 
+/**
+ * Compact tool card: at most two lines. Line 1 carries the tool name, an
+ * inline dim input summary, and status; line 2 is a one-line result summary
+ * with a dim `(Ctrl+O)` hint when expanding would reveal more.
+ */
+function renderCompactToolBlock(entry: MakaPiToolEntry, width: number): string[] {
+  const inputSummary = toolInputSummary(entry);
+  const header = `${ansi.yellow('Tool')} ${entry.title ?? entry.toolName}`
+    + `${inputSummary ? ` ${ansi.dim(inputSummary)}` : ''} ${toolStatusText(entry)}`;
+  const lines = [fitLine(header, width)];
+  const summary = compactToolSummary(entry, width);
+  if (summary) {
+    const hint = summary.expandable ? ansi.dim(' (Ctrl+O)') : '';
+    lines.push(fitLine(`  ${summary.text}${hint}`, width));
+  }
+  return lines;
+}
+
+function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[] {
+  const lines = [
+    fitLine(`${ansi.yellow('Tool')} ${entry.title ?? entry.toolName} ${toolStatusText(entry)}`, width),
+  ];
   const inputSummary = toolInputSummary(entry);
   if (inputSummary) lines.push(...renderIndented(inputSummary, width, 2).map(ansi.dim));
-
   if (entry.progress.length > 0) {
-    const progress = renderToolText(entry.progress.join(''), width, expanded);
-    lines.push(...progress.lines.map(ansi.dim));
-    truncated = truncated || progress.truncated;
+    lines.push(...renderToolText(entry.progress.join(''), width).map(ansi.dim));
   }
-
-  const streams = renderToolStreams(entry.outputDeltas, width, expanded);
-  lines.push(...streams.lines);
-  truncated = truncated || streams.truncated;
-
+  lines.push(...renderToolStreams(entry.outputDeltas, width));
   if (entry.result || entry.output) {
-    const result = renderToolResult(entry, width, expanded);
-    lines.push(...result.lines);
-    truncated = truncated || result.truncated;
-  }
-
-  if (!expanded && truncated) {
-    lines.push(fitLine(ansi.dim('Ctrl+O expand'), width));
+    lines.push(...renderToolResult(entry, width));
   }
   return lines.map((line) => fitLine(line, width));
 }
 
-function renderToolText(text: string, width: number, expanded: boolean): RenderedToolPart {
-  const limit = expanded ? 12_000 : 600;
+interface CompactToolSummary {
+  text: string;
+  /** True when expanding would reveal more than this one-line summary. */
+  expandable: boolean;
+}
+
+function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolSummary | undefined {
+  const hasLiveOutput = entry.outputDeltas.length > 0 || entry.progress.length > 0;
+  if (entry.status === 'running' && hasLiveOutput) {
+    const live = latestLiveOutputLine(entry);
+    if (live) return { text: live, expandable: true };
+  }
+
+  const result = entry.result;
+  if (result?.kind === 'terminal') return compactTerminalSummary(result, hasLiveOutput);
+  if (result?.kind === 'file_diff') return compactDiffSummary(result);
+  if (result?.kind === 'file_write') {
+    return { text: `wrote ${result.bytes} bytes ${result.path}`, expandable: hasLiveOutput };
+  }
+
+  if (entry.toolName === 'Grep') {
+    const count = grepMatchCount(entry);
+    if (count !== undefined) {
+      return {
+        text: `${count} match${count === 1 ? '' : 'es'}`,
+        expandable: count > 0 || hasLiveOutput,
+      };
+    }
+  }
+
+  const text = plainResultText(entry);
+  if (!text) return undefined;
+  if (entry.toolName === 'Read') {
+    const lineCount = text.split('\n').length;
+    return {
+      text: `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`,
+      expandable: true,
+    };
+  }
+  const firstLine = text.split('\n', 1)[0] ?? '';
   return {
-    lines: renderIndented(limitText(text, limit), width, 2),
-    truncated: !expanded && text.length > limit,
+    text: firstLine,
+    expandable: text.includes('\n') || hasLiveOutput || firstLine.length + 2 > width,
   };
+}
+
+function compactTerminalSummary(
+  content: Extract<ToolResultContent, { kind: 'terminal' }>,
+  hasLiveOutput: boolean,
+): CompactToolSummary {
+  const hasOutput = Boolean(content.stdout || content.stderr);
+  if (content.exitCode !== 0) {
+    const stderrLine = lastNonEmptyLine(content.stderr);
+    const exit = ansi.red(`exit ${content.exitCode}`);
+    return {
+      text: stderrLine ? `${exit} ${stderrLine}` : exit,
+      expandable: hasOutput || hasLiveOutput,
+    };
+  }
+  const combined = [content.stdout, content.stderr].filter(Boolean).join('\n').replace(/\n+$/, '');
+  if (!combined) return { text: ansi.dim('(no output)'), expandable: hasLiveOutput };
+  const totalLines = combined.split('\n').length;
+  const prefix = totalLines > 1 ? ansi.dim(`(${totalLines} lines) `) : '';
+  return {
+    text: `${prefix}${lastNonEmptyLine(combined)}`,
+    expandable: totalLines > 1 || hasLiveOutput,
+  };
+}
+
+function compactDiffSummary(
+  content: Extract<ToolResultContent, { kind: 'file_diff' }>,
+): CompactToolSummary {
+  let adds = 0;
+  let dels = 0;
+  for (const line of content.diff.split('\n')) {
+    const kind = diffLineKind(line);
+    if (kind === 'add') adds += 1;
+    else if (kind === 'del') dels += 1;
+  }
+  const path = content.paths[0];
+  return {
+    text: `${ansi.green(`+${adds}`)} ${ansi.red(`-${dels}`)}${path ? ` ${path}` : ''}`,
+    expandable: true,
+  };
+}
+
+function grepMatchCount(entry: MakaPiToolEntry): number | undefined {
+  const result = entry.result;
+  if (result?.kind === 'json' && result.value !== null && typeof result.value === 'object') {
+    const matches = (result.value as { matches?: unknown }).matches;
+    if (Array.isArray(matches)) return matches.length;
+  }
+  const text = plainResultText(entry);
+  if (!text) return undefined;
+  return text.split('\n').filter((line) => line.trim()).length;
+}
+
+/** Latest non-empty output line from live deltas (redaction-aware), else progress. */
+function latestLiveOutputLine(entry: MakaPiToolEntry): string {
+  const groups = groupOutputDeltas(entry.outputDeltas);
+  if (groups.length > 0) {
+    const fromDeltas = lastNonEmptyLine(groups.map((group) => group.text).join('\n'));
+    if (fromDeltas) return fromDeltas;
+  }
+  return lastNonEmptyLine(entry.progress.join(''));
+}
+
+function lastNonEmptyLine(text: string): string {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (line && line.trim()) return line;
+  }
+  return '';
+}
+
+function renderToolText(text: string, width: number): string[] {
+  return renderIndented(limitText(text, 12_000), width, 2);
 }
 
 /**
@@ -622,22 +739,13 @@ function renderToolText(text: string, width: number, expanded: boolean): Rendere
  * same-stream chunks are grouped under a single dim `[stream]` label, and any
  * redacted chunk shows a `[redacted]` marker instead of its raw content.
  */
-function renderToolStreams(
-  deltas: readonly MakaPiToolOutputDelta[],
-  width: number,
-  expanded: boolean,
-): RenderedToolPart {
-  const groups = groupOutputDeltas(deltas);
-  if (groups.length === 0) return { lines: [], truncated: false };
+function renderToolStreams(deltas: readonly MakaPiToolOutputDelta[], width: number): string[] {
   const lines: string[] = [];
-  let truncated = false;
-  for (const group of groups) {
+  for (const group of groupOutputDeltas(deltas)) {
     lines.push(fitLine(ansi.dim(`[${group.stream}]`), width));
-    const body = renderToolText(group.text, width, expanded);
-    lines.push(...body.lines.map(ansi.dim));
-    truncated = truncated || body.truncated;
+    lines.push(...renderToolText(group.text, width).map(ansi.dim));
   }
-  return { lines, truncated };
+  return lines;
 }
 
 function groupOutputDeltas(
@@ -661,18 +769,14 @@ function groupOutputDeltas(
   return groups;
 }
 
-function renderToolResult(entry: MakaPiToolEntry, width: number, expanded: boolean): RenderedToolPart {
+function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   const result = entry.result;
-  if (result?.kind === 'terminal') return renderTerminalResult(result, width, expanded);
-  if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width, expanded);
+  if (result?.kind === 'terminal') return renderTerminalResult(result, width);
+  if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
   if (result?.kind === 'file_write') {
-    return { lines: renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2), truncated: false };
+    return renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2);
   }
-
-  const text = plainResultText(entry);
-  if (entry.toolName === 'Read') return renderReadResult(text, width, expanded);
-  if (entry.toolName === 'Grep') return renderGrepResult(text, width, expanded);
-  return renderToolText(text, width, expanded);
+  return renderToolText(plainResultText(entry), width);
 }
 
 /** Best-effort extraction of the human-readable body from a tool result. */
@@ -695,78 +799,23 @@ function plainResultText(entry: MakaPiToolEntry): string {
 function renderTerminalResult(
   content: Extract<ToolResultContent, { kind: 'terminal' }>,
   width: number,
-  expanded: boolean,
-): RenderedToolPart {
+): string[] {
   const lines: string[] = [];
-  let truncated = false;
   if (content.exitCode !== 0) {
     lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
   }
-
-  if (expanded) {
-    if (content.stdout) {
-      const body = renderToolText(content.stdout, width, true);
-      lines.push(...body.lines);
-    }
-    if (content.stderr) {
-      lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
-      const body = renderToolText(content.stderr, width, true);
-      lines.push(...body.lines.map(ansi.dim));
-    }
-    return { lines, truncated: false };
+  if (content.stdout) {
+    lines.push(...renderToolText(content.stdout, width));
   }
-
-  // Compact: the tail of combined output is where results and errors land.
-  const combined = [content.stdout, content.stderr].filter(Boolean).join('\n');
-  const tail = tailLines(combined, 5);
-  if (tail.text) lines.push(...renderIndented(tail.text, width, 2));
-  truncated = truncated || tail.hidden > 0;
-  return { lines, truncated };
+  if (content.stderr) {
+    lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
+    lines.push(...renderToolText(content.stderr, width).map(ansi.dim));
+  }
+  return lines;
 }
 
-function renderReadResult(text: string, width: number, expanded: boolean): RenderedToolPart {
-  if (expanded) {
-    return { lines: renderIndented(limitText(text, 12_000), width, 2), truncated: false };
-  }
-  if (!text) return { lines: [], truncated: false };
-  const lineCount = text.split('\n').length;
-  const summary = `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
-  return { lines: renderIndented(summary, width, 2).map(ansi.dim), truncated: true };
-}
-
-function renderGrepResult(text: string, width: number, expanded: boolean): RenderedToolPart {
-  if (expanded) {
-    return { lines: renderIndented(limitText(text, 12_000), width, 2), truncated: false };
-  }
-  const allLines = text ? text.split('\n') : [];
-  const head = allLines.slice(0, 5);
-  const hidden = allLines.length - head.length;
-  const lines = head.length > 0 ? renderIndented(head.join('\n'), width, 2) : [];
-  if (hidden > 0) {
-    lines.push(...renderIndented(ansi.dim(`… +${hidden} more matches`), width, 2));
-  }
-  return { lines, truncated: hidden > 0 };
-}
-
-function renderDiffResult(diff: string, width: number, expanded: boolean): RenderedToolPart {
-  const capped = expanded ? limitText(diff, 12_000) : diff;
-  const allLines = capped.split('\n');
-  const maxLines = expanded ? allLines.length : 8;
-  const shown = allLines.slice(0, maxLines);
-  const hidden = allLines.length - shown.length;
-  const lines = renderIndented(colorDiff(shown.join('\n')), width, 2);
-  if (!expanded && hidden > 0) {
-    lines.push(...renderIndented(ansi.dim(`… +${hidden} more lines`), width, 2));
-  }
-  return { lines, truncated: !expanded && hidden > 0 };
-}
-
-/** Return the last `count` lines of `text` plus how many earlier lines were dropped. */
-function tailLines(text: string, count: number): { text: string; hidden: number } {
-  if (!text) return { text: '', hidden: 0 };
-  const allLines = text.split('\n');
-  if (allLines.length <= count) return { text, hidden: 0 };
-  return { text: allLines.slice(-count).join('\n'), hidden: allLines.length - count };
+function renderDiffResult(diff: string, width: number): string[] {
+  return renderIndented(colorDiff(limitText(diff, 12_000)), width, 2);
 }
 
 function byteLength(text: string): number {
