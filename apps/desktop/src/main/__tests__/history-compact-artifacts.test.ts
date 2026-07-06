@@ -18,7 +18,7 @@ import {
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
-} from '../history-compact-artifacts.js';
+} from '@maka/runtime';
 
 describe('desktop history compact artifact lifecycle', () => {
   test('persists archived RuntimeEvent sources and a compact block', async () => {
