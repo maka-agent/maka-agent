@@ -1,0 +1,121 @@
+/* Settings → Web Search (联网搜索) live-query result list.
+   Relocated from tool-stream.css — issue #546 PR1 (zero visual change). */
+/* ────────────────────────────────────────────────────────────────
+   PR-WEB-SEARCH-TAVILY-0: Settings → 联网搜索 live-query result list.
+   Plain-text rows only (title + source + snippet); never markdown,
+   never HTML.
+   ──────────────────────────────────────────────────────────────── */
+.settingsWebSearchControlCluster,
+.settingsWebSearchSearchControls {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2-5);
+}
+
+.settingsWebSearchStatusCluster {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.settingsWebSearchStatusCluster small {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.settingsWebSearchKeyRow > .settingsPasswordField,
+.settingsWebSearchQueryInputRow > input {
+  width: min(100%, 360px);
+  justify-self: end;
+}
+
+.settingsWebSearchActionButtons {
+  justify-content: flex-end;
+}
+
+.settingsWebSearchQueryIntroRow {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.settingsWebSearchDisabledReason {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  text-align: right;
+}
+.settingsWebSearchResults {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2-5);
+  }
+.settingsWebSearchResult {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+.settingsWebSearchResult a {
+    font-weight: var(--font-weight-semibold);
+    color: var(--foreground);
+    text-decoration: none;
+  }
+.settingsWebSearchResult a:hover {
+    text-decoration: underline;
+  }
+.settingsWebSearchResult small {
+    color: var(--muted-foreground);
+    font-size: var(--font-size-caption);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wider);
+  }
+.settingsWebSearchResult p {
+    margin: 0;
+    font-size: var(--font-size-ui);
+    color: var(--foreground-secondary);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+@media (max-width: 720px) {
+  .settingsWebSearchEnableRow,
+  .settingsWebSearchKeyRow,
+  .settingsWebSearchCredentialActionRow,
+  .settingsWebSearchQueryInputRow,
+  .settingsWebSearchSearchRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .settingsWebSearchControlCluster,
+  .settingsWebSearchSearchControls,
+  .settingsWebSearchActionButtons {
+    justify-content: flex-start;
+  }
+
+  .settingsWebSearchStatusCluster {
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .settingsWebSearchKeyRow > .settingsPasswordField,
+  .settingsWebSearchQueryInputRow > input {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .settingsWebSearchDisabledReason {
+    text-align: left;
+  }
+}

@@ -978,3 +978,230 @@
 .maka-empty-state-cta {
   min-width: 88px;
 }
+
+/* First-run checklist + onboarding ready/quickchat. Relocated from tool-stream.css — issue #546 PR1. */
+/* ────────────────────────────────────────────────────────────────
+   PR-FIRST-RUN-CHECKLIST-0: "接下来可以探索" card.
+   Rendered below OnboardingHero ready_empty hero. Each row is a
+   real jumpable affordance; done rows mute.
+   ──────────────────────────────────────────────────────────────── */
+.maka-onboarding-stack {
+    display: grid;
+    gap: var(--space-6);
+    align-content: start;
+    justify-items: center;
+    width: 100%;
+    min-height: calc(100dvh - 84px);
+    padding: clamp(var(--space-10), 7vh, 76px) var(--space-6) var(--space-12);
+  }
+.maka-onboarding-stack > .maka-onboarding-ready {
+    margin: 0;
+  }
+.maka-onboarding-ready {
+    width: min(760px, 100%);
+    padding: 0;
+    gap: 0;
+  }
+.maka-first-run-checklist {
+    width: min(760px, 100%);
+    border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+    border-radius: var(--radius-surface);
+    padding: var(--space-3);
+    background: oklch(from var(--background-elevated, var(--background)) l c h / 0.58);
+    display: grid;
+    gap: var(--space-3);
+    box-shadow: 0 10px 30px oklch(from var(--foreground) l c h / 0.04);
+  }
+.maka-first-run-checklist-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--foreground-secondary);
+    padding: 0 var(--space-1) var(--space-0-5);
+  }
+.maka-first-run-checklist-header strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+.maka-first-run-checklist-count {
+    margin-left: auto;
+    font-size: var(--font-size-caption);
+    letter-spacing: var(--tracking-wider);
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+.maka-first-run-checklist-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
+  color: var(--warning-text, var(--info-text));
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  padding: var(--space-2) var(--space-2-5);
+}
+
+.maka-first-run-checklist-error-action {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  height: auto;
+  min-height: var(--h-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--warning-text, var(--info-text));
+  font-size: var(--font-size-ui);
+}
+
+.maka-first-run-checklist-error-action:hover {
+  background: var(--state-hover-bg);
+}
+
+.maka-first-run-checklist-error-action:disabled {
+  cursor: default;
+  opacity: var(--opacity-disabled);
+}
+
+.maka-first-run-checklist-error-action:disabled:hover {
+  background: var(--background);
+}
+
+.maka-first-run-checklist-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+
+.maka-first-run-checklist-row > button {
+  height: auto;
+  min-height: var(--h-control-xl);
+  background: var(--background);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+  border-radius: var(--radius-control);
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1-5) var(--space-2);
+  display: inline-grid;
+  grid-template-columns: 20px max-content 0;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: auto;
+  text-align: left;
+  color: var(--foreground-secondary);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-first-run-checklist-row > button:hover {
+  background: var(--background-elevated, var(--background));
+  border-color: oklch(from var(--foreground) l c h / 0.14);
+  color: var(--foreground);
+}
+
+.maka-first-run-checklist-row[data-done="true"] > button {
+  color: var(--muted-foreground);
+  cursor: default;
+}
+
+.maka-first-run-checklist-row[data-done="true"] > button:hover {
+  background: var(--background);
+  border-color: transparent;
+}
+
+.maka-first-run-checklist-status {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--foreground-5);
+  color: var(--foreground-secondary);
+}
+
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-status {
+  background: oklch(from var(--success, var(--info)) l c h / 0.12);
+  color: var(--success-text, var(--info-text));
+}
+
+.maka-first-run-checklist-copy {
+  display: block;
+  min-width: 0;
+}
+
+.maka-first-run-checklist-copy strong {
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.maka-first-run-checklist-copy small {
+  display: none;
+  font-size: var(--font-size-ui);
+  color: var(--muted-foreground);
+  line-height: var(--leading-normal);
+}
+
+.maka-first-run-checklist-arrow {
+  display: none;
+  color: var(--muted-foreground);
+}
+
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-arrow {
+  display: none;
+}
+
+@media (max-width: 760px) {
+    .maka-onboarding-stack {
+      gap: var(--space-6);
+      padding: var(--space-6) var(--space-4) var(--space-8);
+    }
+
+  .maka-onboarding-ready header h1 {
+    font-size: 1.6em;
+    line-height: var(--leading-tight);
+  }
+
+  .maka-onboarding-ready header p {
+    margin-top: var(--space-2);
+  }
+
+  .maka-onboarding-quickchat-input {
+    min-height: 88px;
+    padding: 0;
+  }
+
+  .maka-onboarding-quickchat-field {
+    padding: var(--space-4) var(--space-4) var(--space-16);
+  }
+
+  .maka-onboarding-quickchat-example {
+    padding-inline: 0;
+    margin-bottom: 0;
+  }
+
+  .maka-onboarding-quickchat-submit {
+    right: 16px;
+    bottom: 16px;
+    width: calc(100% - 32px);
+    justify-content: center;
+  }
+
+  .maka-first-run-task-suggestions-header {
+    justify-content: center;
+  }
+    .maka-first-run-checklist-list {
+      justify-content: center;
+    }
+
+    .maka-first-run-checklist {
+      padding: var(--space-3);
+    }
+}
