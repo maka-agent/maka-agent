@@ -308,6 +308,24 @@ describe('Maka session driver', () => {
     assert.match(runtime.sent[0]?.input.turnId ?? '', /^[0-9a-f-]{36}$/);
   });
 
+  test('compacts the active session through the runtime compact API', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: fixedIds('turn-1', 'turn-compact'),
+    });
+
+    await collect(driver.sendPrompt('hello'));
+    const events = await collect(driver.compactSession());
+
+    assert.deepEqual(runtime.compacted, [{ sessionId: 'session-1', input: { turnId: 'turn-compact' } }]);
+    assert.deepEqual(runtime.sent.map((item) => item.input.text), ['hello']);
+    assert.deepEqual(events.map((event) => event.type), ['complete']);
+  });
+
   test('routes permission responses to the active session', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -339,6 +357,7 @@ describe('Maka session driver', () => {
 class RecordingRuntime {
   readonly created: CreateSessionInput[] = [];
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
+  readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined } }> = [];
@@ -377,6 +396,17 @@ class RecordingRuntime {
       id: 'event-2',
       turnId: input.turnId,
       ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async *compactSession(sessionId: string, input: { turnId?: string } = {}): AsyncIterable<SessionEvent> {
+    this.compacted.push({ sessionId, input });
+    yield {
+      type: 'complete',
+      id: 'event-compact-complete',
+      turnId: input.turnId ?? 'turn-compact',
+      ts: 3,
       stopReason: 'end_turn',
     };
   }
@@ -433,6 +463,11 @@ class RecordingRuntime {
 function nextId(prefix: string): () => string {
   let count = 0;
   return () => `${prefix}-${++count}`;
+}
+
+function fixedIds(...ids: string[]): () => string {
+  let index = 0;
+  return () => ids[index++] ?? ids[ids.length - 1] ?? 'id';
 }
 
 function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {

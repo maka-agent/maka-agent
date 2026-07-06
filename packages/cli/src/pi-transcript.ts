@@ -7,6 +7,7 @@ import {
 } from '@earendil-works/pi-tui';
 import type { PermissionRequestEvent, SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
+import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
@@ -98,6 +99,38 @@ export async function submitPromptToTranscript(input: {
   try {
     for await (const event of input.driver.sendPrompt(input.prompt)) {
       applyMakaSessionEventToTranscript(input.state, event);
+      input.onChange?.();
+    }
+  } catch (error) {
+    input.state.entries.push({
+      kind: 'notice',
+      level: 'error',
+      text: error instanceof Error ? error.message : String(error),
+    });
+    input.onChange?.();
+  }
+}
+
+export async function submitCompactToTranscript(input: {
+  state: MakaPiTranscriptState;
+  driver: Pick<MakaSessionDriver, 'compactSession'>;
+  onChange?: () => void;
+}): Promise<void> {
+  let completed = false;
+  let sawCompactionNotice = false;
+  try {
+    for await (const event of input.driver.compactSession()) {
+      if (event.type === 'token_usage' && contextBudgetOutcomeNotice(event.contextBudget)) sawCompactionNotice = true;
+      if (event.type === 'complete' && event.stopReason === 'end_turn') completed = true;
+      applyMakaSessionEventToTranscript(input.state, event);
+      input.onChange?.();
+    }
+    if (completed && !sawCompactionNotice) {
+      input.state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: 'Nothing to compact.',
+      });
       input.onChange?.();
     }
   } catch (error) {
@@ -207,6 +240,18 @@ export function applyMakaSessionEventToTranscript(
       });
       break;
 
+    case 'token_usage': {
+      const notice = contextBudgetOutcomeNotice(event.contextBudget);
+      if (notice) {
+        state.entries.push({
+          kind: 'notice',
+          level: notice.level,
+          text: notice.text,
+        });
+      }
+      break;
+    }
+
     case 'error':
       state.pendingPermission = undefined;
       state.entries.push({
@@ -298,6 +343,45 @@ function systemNoteToTranscriptEntry(message: SystemNoteMessage): MakaPiTranscri
     level: message.kind === 'error' ? 'error' : 'info',
     text,
   };
+}
+
+function contextBudgetOutcomeNotice(
+  contextBudget: ContextBudgetDiagnostic | undefined,
+): { level: 'info' | 'error'; text: string } | undefined {
+  const failedOpen = contextBudgetFailureNoticeText(contextBudget);
+  if (failedOpen) return { level: 'error', text: failedOpen };
+  const replaced = contextBudgetNoticeText(contextBudget);
+  if (replaced) return { level: 'info', text: replaced };
+  return undefined;
+}
+
+function contextBudgetNoticeText(contextBudget: ContextBudgetDiagnostic | undefined): string | undefined {
+  const decision = contextBudget?.compactionDecisions?.find((candidate) => candidate.decision === 'replaced');
+  if (!contextBudget || !decision) return undefined;
+  const kind = decision.boundaryKind ?? contextBudget.highWaterReason ?? 'context';
+  const coveredTurns = decision.coveredTurns ?? contextBudget.historyCompactedTurns;
+  const coveredEvents = decision.coveredRuntimeEvents ?? contextBudget.historyCompactedEvents;
+  const savedTokens = decision.estimatedTokensSaved
+    ?? tokenDelta(contextBudget.historyCompactedEstimatedTokensBefore, contextBudget.historyCompactedEstimatedTokensAfter)
+    ?? tokenDelta(contextBudget.estimatedTokensBefore, contextBudget.estimatedTokensAfter);
+  const parts = [`Context compacted: ${kind}`];
+  if (coveredTurns !== undefined || coveredEvents !== undefined) {
+    parts.push(`${coveredTurns ?? '?'} turns / ${coveredEvents ?? '?'} events`);
+  }
+  if (savedTokens !== undefined && savedTokens > 0) parts.push(`saved ~${Math.round(savedTokens)} tokens`);
+  return `${parts.join('; ')}.`;
+}
+
+function contextBudgetFailureNoticeText(contextBudget: ContextBudgetDiagnostic | undefined): string | undefined {
+  const decision = contextBudget?.compactionDecisions?.find((candidate) => candidate.decision === 'failedOpen');
+  const reason = decision?.failOpenReason ?? decision?.reason;
+  if (!decision || !reason) return undefined;
+  return `Context compaction skipped: ${reason}.`;
+}
+
+function tokenDelta(before: number | undefined, after: number | undefined): number | undefined {
+  if (before === undefined || after === undefined) return undefined;
+  return Math.max(0, before - after);
 }
 
 function systemNoteText(message: SystemNoteMessage): string | undefined {
