@@ -23,8 +23,8 @@ describe('Command palette accessibility and visible copy', () => {
     );
     assert.match(
       src,
-      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
-      'Autocomplete.Root must render `inline open` — per Base UI docs, `inline` requires `open` so the list is treated as visible; without `open` the input is not aria-expanded and keyboard nav / activedescendant break. mode="none" (palette owns fuzzy + content-search filtering) + autoHighlight="always"',
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?\bkeepHighlight\b[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` + keepHighlight: `inline open` so the list is treated as visible (Base UI docs); keepHighlight so pointer leave preserves the hovered highlight (hover item -> leave -> Enter runs that item, not the first — #562 P2); mode="none" (palette owns fuzzy + content-search filtering) + autoHighlight="always"',
     );
     assert.match(
       src,
@@ -59,6 +59,13 @@ describe('Command palette accessibility and visible copy', () => {
       src,
       /\bjumpActive\w*\(|onInputKeyDown/,
       'Home/End must NOT jump highlight and there must be no hand-rolled input keydown handler — Base UI input-cursor default is the decided behavior (#562 P2-c)',
+    );
+    // P2: empty state renders inside Autocomplete.List, not a standalone div,
+    // so the input always references a stable listbox container.
+    assert.doesNotMatch(
+      src,
+      /<div className="maka-palette-list"/,
+      'Empty state must render inside Autocomplete.List, not a standalone div — input must always reference a listbox container (#562 P2)',
     );
   });
 

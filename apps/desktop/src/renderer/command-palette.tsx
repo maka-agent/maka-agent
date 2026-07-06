@@ -678,6 +678,7 @@ export function CommandPalette(props: {
           open
           mode="none"
           autoHighlight="always"
+          keepHighlight
           filter={null}
           value={query}
           onValueChange={(next, details) => {
@@ -721,8 +722,8 @@ export function CommandPalette(props: {
               </span>
             </InputGroupAddon>
           </InputGroup>
-          {grouped.length === 0 ? (
-            <div className="maka-palette-list" id="maka-palette-list">
+          <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
+            {grouped.length === 0 ? (
               <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
                 <EmptyHeader>
                   <EmptyMedia variant="icon">
@@ -732,10 +733,8 @@ export function CommandPalette(props: {
                   <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
                 </EmptyHeader>
               </Empty>
-            </div>
-          ) : (
-            <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
-              {grouped.map((group) => (
+            ) : (
+              grouped.map((group) => (
                 <Autocomplete.Group key={group.label} className="maka-palette-group">
                   <Autocomplete.GroupLabel className="maka-palette-group-label">
                     {group.label}
@@ -774,9 +773,9 @@ export function CommandPalette(props: {
                     );
                   })}
                 </Autocomplete.Group>
-              ))}
-            </Autocomplete.List>
-          )}
+              ))
+            )}
+          </Autocomplete.List>
         </Autocomplete.Root>
         <div className="maka-palette-footer">
           <span>

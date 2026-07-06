@@ -250,6 +250,7 @@ export function SearchModal(props: {
           open
           mode="none"
           autoHighlight="always"
+          keepHighlight
           filter={null}
           value={query}
           onValueChange={(next, details) => {

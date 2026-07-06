@@ -242,8 +242,8 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(
       searchModal,
-      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?filter=\{null\}/,
-      'Autocomplete.Root must render `inline open` — per Base UI docs, `inline` requires `open` so the list is treated as visible; without `open` the input is not aria-expanded and keyboard nav / activedescendant break. mode="none" (server-side IPC filtering, no local filter) + autoHighlight="always" so Enter on the first result works without an extra ArrowDown',
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?\bkeepHighlight\b[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` + keepHighlight: `inline open` so the list is treated as visible (Base UI docs); keepHighlight so pointer leave preserves the hovered highlight (hover item -> leave -> Enter runs that item, not the first — #562 P2); mode="none" (server-side IPC filtering, no local filter) + autoHighlight="always" so Enter on the first result works without an extra ArrowDown',
     );
     assert.match(
       searchModal,
