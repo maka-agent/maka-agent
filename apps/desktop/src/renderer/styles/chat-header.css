@@ -845,7 +845,10 @@
   background: var(--state-hover-bg);
 }
 
-.maka-palette-item[data-active="true"] {
+/* #520 PR8: Autocomplete.Item exposes the active (highlighted) item via
+   data-highlighted (activedescendant mode — the input keeps focus, so the
+   item itself is no longer :focus-visible). */
+.maka-palette-item[data-highlighted] {
   background: var(--state-selected-bg);
   color: var(--foreground);
 }
@@ -881,9 +884,19 @@
     color var(--duration-base) var(--ease-out-strong);
 }
 
-.maka-palette-item[data-active="true"] .maka-palette-icon {
+.maka-palette-item[data-highlighted] .maka-palette-icon {
   background: var(--state-selected-bg);
   color: var(--foreground);
+}
+
+/* #520 PR8: the CornerDownLeft cursor hint shows only on the highlighted
+   item (was `!cmd.hint && active` in JS; now CSS-driven via data-highlighted
+   so we don't need a hand-rolled highlight state). */
+.maka-palette-cursor {
+  visibility: hidden;
+}
+.maka-palette-item[data-highlighted] .maka-palette-cursor {
+  visibility: visible;
 }
 
 .maka-palette-label {
