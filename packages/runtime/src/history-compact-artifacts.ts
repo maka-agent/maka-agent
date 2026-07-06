@@ -4,6 +4,7 @@ import type { ArtifactRecord, ArtifactSource } from '@maka/core';
 import {
   buildHistoryCompactBlockFromSummary,
   estimateTokens,
+  renderHistoryCompactBlock,
   validateHistoryCompactBlockShape,
   type HistoryCompactBlock,
   type HistoryCompactSourceArchiveRef,
@@ -178,7 +179,9 @@ export async function loadHistoryCompactBlocksFromArtifacts(
       incrementHistoryCompactCount(skippedReasonCounts, 'invalid_schema_version');
       continue;
     }
-    const estimatedTokens = parsed.estimatedTokens ?? estimateTokens(read.text.length, 4);
+    // Never trust the persisted token estimate: recompute from the rendered
+    // model-visible text, which is what actually enters the prompt.
+    const estimatedTokens = estimateTokens(renderHistoryCompactBlock(parsed).length, 4);
     if (estimatedTokens > maxEstimatedTokens) {
       incrementHistoryCompactCount(skippedReasonCounts, 'max_total_tokens');
       continue;

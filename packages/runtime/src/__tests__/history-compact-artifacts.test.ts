@@ -90,6 +90,38 @@ describe('history compact artifacts', () => {
     assert.deepEqual(loaded.skippedReasonCounts, undefined);
     assert.equal(loaded.blocks[0]?.blockId, write.blocks[0]?.blockId);
   });
+
+  test('skips a block whose persisted token estimate understates its rendered size', async () => {
+    const store = memoryArtifactStore();
+    const foldedEvents = [textEvent('old-0', 'turn-0', 'folded fact')];
+    const block = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: foldedEvents,
+      summary: 'short summary',
+      highWaterName: 'test-history-compact',
+      highWaterSeq: 1,
+      now: 1_800_000_000_000,
+      charsPerToken: 4,
+    });
+    await store.create({
+      sessionId: 'session-1',
+      turnId: 'turn-write',
+      name: `history-compact-${block.blockId}.json`,
+      kind: 'file',
+      content: JSON.stringify({ ...block, summary: 'oversized '.repeat(4_000), estimatedTokens: 1 }),
+      mimeType: 'application/json',
+      source: 'history_compact_block',
+    });
+
+    const loaded = await loadHistoryCompactBlocksFromArtifacts(store, {
+      sessionId: 'session-1',
+      maxBlocks: 1,
+      maxEstimatedTokens: 2_048,
+    });
+
+    assert.equal(loaded.blocks.length, 0);
+    assert.deepEqual(loaded.skippedReasonCounts, { max_total_tokens: 1 });
+  });
 });
 
 function memoryArtifactStore(): HistoryCompactArtifactStore {
