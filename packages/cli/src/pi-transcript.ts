@@ -530,6 +530,10 @@ function transcriptEntrySignature(
   expandAllThinking: boolean,
 ): string {
   switch (entry.kind) {
+    // user and assistant text is append-only (user is immutable; assistant only
+    // grows via appendAssistantText, and text_complete is guarded from replacing
+    // it), so length is a safe change key. If a path ever replaces their text in
+    // place, switch these to full-text keys like thinking below.
     case 'user':
       return `user|${width}|${entry.text.length}`;
     case 'assistant':

@@ -113,6 +113,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return;
+    // Control actions are user-initiated and append their result (a notice, a
+    // compaction summary); follow the tail so it is visible even if the user had
+    // scrolled up.
+    layout.followTailNow();
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -185,6 +189,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    // A submission is the user acting; snap back to the tail so their prompt and
+    // its response are visible, rather than treating the appended rows as
+    // background stream output and preserving a scrolled-up position.
+    layout.followTailNow();
     if (handleSlashCommand(prompt)) return;
 
     busy = true;

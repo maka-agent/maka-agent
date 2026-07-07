@@ -203,6 +203,42 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('re-pins to the tail when the user submits after scrolling up', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new MultiTurnLongDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('t1-para-39'));
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('t1-para-00');
+    });
+
+    // Submitting a new prompt while scrolled up must snap back to the tail so the
+    // new turn is visible, not preserve the old scrolled-up position.
+    terminal.input('again');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('t2-para-39'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -1920,6 +1956,37 @@ class ScrollThenSwitchDriver implements MakaSessionDriver {
     }
     messages.push(storedAssistantMessage('a-last', 't', 'switched-tail-marker'));
     return switchResult(fakeSessionSummary(sessionId, '/repo'), messages);
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class MultiTurnLongDriver implements MakaSessionDriver {
+  private turn = 0;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    this.turn += 1;
+    const n = this.turn;
+    const body = Array.from({ length: 40 }, (_, i) => `t${n}-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: `e${n}`, turnId: `t${n}`, ts: 1, messageId: `m${n}`, text: body };
+    yield { type: 'complete', id: `c${n}`, turnId: `t${n}`, ts: 2, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
   }
   getSessionId(): string {
     return 'session-1';
