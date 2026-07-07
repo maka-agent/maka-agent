@@ -1183,6 +1183,46 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('re-pins to the tail after switching sessions while scrolled up', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ScrollThenSwitchDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && /↑ \d+ more/.test(screen);
+    });
+    // Scroll up into history so the layout is no longer following the tail.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('para-00');
+    });
+
+    // Switching replaces the transcript wholesale; the resumed session must open
+    // at its tail, not carry the old scroll offset into a different document.
+    terminal.input('/session session-2');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('switched-tail-marker'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('shows only current-cwd sessions in the session picker', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([
@@ -1846,6 +1886,41 @@ class ThinkingOutputDriver implements MakaSessionDriver {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ScrollThenSwitchDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [fakeSessionSummary('session-2', '/repo')];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 2, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    // A history long enough to overflow the viewport, ending in a marker line so
+    // the test can assert the tail is on screen after the switch.
+    const messages: StoredMessage[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      messages.push(storedUserMessage(`u${i}`, 't', `history-q-${i}`));
+      messages.push(storedAssistantMessage(`a${i}`, 't', `history-a-${i}`));
+    }
+    messages.push(storedAssistantMessage('a-last', 't', 'switched-tail-marker'));
+    return switchResult(fakeSessionSummary(sessionId, '/repo'), messages);
+  }
   getSessionId(): string {
     return 'session-1';
   }

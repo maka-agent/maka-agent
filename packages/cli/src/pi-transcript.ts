@@ -535,7 +535,10 @@ function transcriptEntrySignature(
     case 'assistant':
       return `assistant|${width}|${entry.text.length}`;
     case 'thinking':
-      return `thinking|${width}|${expandAllThinking ? 1 : 0}|${entry.text.length}`;
+      // Not just the length: `thinking_complete` can replace the streamed text
+      // in place with a same-length final, which a length-only key would miss and
+      // then serve stale reasoning from the cache. Key on the full text.
+      return `thinking|${width}|${expandAllThinking ? 1 : 0}|${entry.text}`;
     case 'notice':
       return `notice|${width}|${entry.level}|${entry.text.length}`;
     case 'tool':
@@ -610,12 +613,13 @@ export function windowTranscriptLines(
 }
 
 function transcriptScrollIndicator(hiddenAbove: number, hiddenBelow: number): string {
+  // Only reached from the scrollable path, where the window is smaller than the
+  // transcript, so at least one side always has hidden lines.
   const counts: string[] = [];
   if (hiddenAbove > 0) counts.push(`↑ ${hiddenAbove} more`);
   if (hiddenBelow > 0) counts.push(`↓ ${hiddenBelow} more`);
-  const status = counts.join('  ') || 'top';
   const keys = hiddenBelow > 0 ? 'PgUp/PgDn scroll · PgDn to follow' : 'PgUp/PgDn scroll';
-  return ansi.dim(`── ${status} · ${keys} ──`);
+  return ansi.dim(`── ${counts.join('  ')} · ${keys} ──`);
 }
 
 export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {

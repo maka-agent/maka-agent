@@ -989,6 +989,25 @@ describe('transcript entry render memoization', () => {
     assert.notEqual(expanded, collapsed);
     assert.match(expanded, /beta/);
   });
+
+  test('re-renders thinking when a same-length final replaces the streamed text', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'AAAA',
+    }));
+    assert.equal(toggleAllThinkingExpansion(state), true);
+    const streamed = renderMakaPiTranscript(state, meta(), 80).map(stripAnsi).join('\n');
+    assert.match(streamed, /AAAA/);
+
+    // thinking_complete replaces the text in place; same length must still bust
+    // the render cache so the final reasoning is shown, not the streamed draft.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_complete', messageId: 'message-1', text: 'BBBB',
+    }));
+    const finalized = renderMakaPiTranscript(state, meta(), 80).map(stripAnsi).join('\n');
+    assert.match(finalized, /BBBB/);
+    assert.doesNotMatch(finalized, /AAAA/);
+  });
 });
 
 function meta() {

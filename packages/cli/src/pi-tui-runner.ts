@@ -245,6 +245,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
+    // The transcript is a different document now; drop any scroll position so the
+    // resumed session opens following its latest messages, not mid-history.
+    layout.followTailNow();
     if (messages.length === 0) {
       state.entries.push({
         kind: 'notice',
@@ -743,6 +746,17 @@ class MakaPiLayoutComponent extends Container {
   /** Scroll toward newer output by one page. Returns false when already following the tail. */
   scrollDown(): boolean {
     return this.scrollBy(-this.pageSize());
+  }
+
+  /**
+   * Re-pin to the live tail. Call when the transcript is replaced wholesale (a
+   * session switch), so the render's "new lines appended" heuristic does not
+   * mistake a different, larger transcript for appended output and open the
+   * resumed session scrolled into its history.
+   */
+  followTailNow(): void {
+    this.followTail = true;
+    this.scrollOffset = 0;
   }
 }
 
