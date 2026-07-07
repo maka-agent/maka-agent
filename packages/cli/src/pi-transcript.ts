@@ -954,9 +954,14 @@ function renderCappedResultText(
   width: number,
   style: (line: string) => string = (line) => line,
 ): string[] {
-  const sourceLines = text.split('\n');
+  // Command output almost always ends in a newline; splitting raw would count
+  // that trailing empty string as a line, capping 7 real lines as if they were
+  // 8 and spending a tail slot on a blank. Drop trailing newlines before both
+  // the cap decision and the slice so the head/tail counts are real lines.
+  const trimmed = text.replace(/\n+$/, '');
+  const sourceLines = trimmed.split('\n');
   if (sourceLines.length <= EXPANDED_TOOL_HEAD_LINES + EXPANDED_TOOL_TAIL_LINES + 1) {
-    return renderToolText(text, width).map(style);
+    return renderToolText(trimmed, width).map(style);
   }
   const hidden = sourceLines.length - EXPANDED_TOOL_HEAD_LINES - EXPANDED_TOOL_TAIL_LINES;
   const head = sourceLines.slice(0, EXPANDED_TOOL_HEAD_LINES).join('\n');
@@ -973,6 +978,19 @@ function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
   const lineCount = text ? text.split('\n').length : 0;
   const summary = `Read ${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
   return renderIndented(ansi.dim(summary), width, 2);
+}
+
+/**
+ * A Read whose path is a real file, not a `maka://runtime/...` resource. The
+ * runtime scheme surfaces things like background-task output that only lives in
+ * the transcript, so it must render its content rather than a "read" summary.
+ */
+function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
+  const input = entry.input;
+  const path = input !== null && typeof input === 'object'
+    ? (input as { path?: unknown }).path
+    : undefined;
+  return typeof path === 'string' && path.length > 0 && !path.startsWith('maka://runtime/');
 }
 
 /**
@@ -1013,10 +1031,14 @@ function groupOutputDeltas(
 
 function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   const result = entry.result;
-  // A successful Read pulled the file into the model's context; the transcript
-  // only needs to note that it happened, so skip the content and keep a summary.
-  // A failed Read falls through so its error is still visible.
-  if (entry.toolName === 'Read' && entry.status !== 'error') return renderReadSummary(entry, width);
+  // A successful filesystem Read pulled the file into the model's context; the
+  // transcript only needs to note that it happened, so skip the content and keep
+  // a summary. A failed Read falls through so its error is still visible, and a
+  // `maka://runtime/...` resource Read (e.g. background-task output) also falls
+  // through — that output only lives here, so it must not be summarized away.
+  if (entry.toolName === 'Read' && entry.status !== 'error' && isFilesystemReadPath(entry)) {
+    return renderReadSummary(entry, width);
+  }
   if (result?.kind === 'terminal') return renderTerminalResult(result, width);
   // Diffs are the deliberate exception to the head/tail cap: the whole change
   // is what the user is expanding to see.

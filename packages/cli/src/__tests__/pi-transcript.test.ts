@@ -590,6 +590,26 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /Read 4 lines, 59 bytes/);
   });
 
+  test('shows maka://runtime resource Read output instead of a read summary', () => {
+    const state = createMakaPiTranscriptState();
+    // Reading a maka://runtime/... resource returns live state (e.g. background
+    // task output) that only lives in the transcript, so it must not be summarized.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-rt', toolName: 'Read',
+      args: { path: 'maka://runtime/background-tasks/abc' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-rt', isError: false,
+      content: { kind: 'text', text: 'task-status: running\nlast-line-output' },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /task-status: running/);
+    assert.match(expanded, /last-line-output/);
+    assert.doesNotMatch(expanded, /Read \d+ lines,/);
+  });
+
   test('summarizes Grep results as a match count and shows matches expanded', () => {
     const state = createMakaPiTranscriptState();
     const matches = Array.from({ length: 12 }, (_, i) => `match-${i}`);
@@ -777,6 +797,46 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /out-19/);
     assert.doesNotMatch(expanded, /out-10\b/);
     assert.match(expanded, /⋯ 14 lines hidden ⋯/);
+  });
+
+  test('ignores a trailing newline when counting terminal output for the cap', () => {
+    const state = createMakaPiTranscriptState();
+    // Real command output ends in a newline. The seven content lines are within
+    // the cap, so a trailing newline must not push the count to eight and cap it.
+    const stdout = `${Array.from({ length: 7 }, (_, i) => `row-${i}`).join('\n')}\n`;
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-nl', toolName: 'Bash', args: { command: 'seq 7' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-nl', isError: false, content: terminalResult(stdout),
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /row-0\b/);
+    assert.match(expanded, /row-3\b/);
+    assert.match(expanded, /row-6\b/);
+    assert.doesNotMatch(expanded, /lines hidden/);
+  });
+
+  test('counts real tail lines past a trailing newline when capping', () => {
+    const state = createMakaPiTranscriptState();
+    // Ten real lines plus a trailing newline: the tail must be the last three
+    // real lines (not two plus a blank), and the hidden count must be four.
+    const stdout = `${Array.from({ length: 10 }, (_, i) => `row-${i}`).join('\n')}\n`;
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-nl2', toolName: 'Bash', args: { command: 'seq 10' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-nl2', isError: false, content: terminalResult(stdout),
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /row-7\b/);
+    assert.match(expanded, /row-9\b/);
+    assert.doesNotMatch(expanded, /row-5\b/);
+    assert.match(expanded, /⋯ 4 lines hidden ⋯/);
   });
 
   test('shows a long diff in full when expanded — diffs are the head/tail exception', () => {
