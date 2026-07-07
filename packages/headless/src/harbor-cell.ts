@@ -26,15 +26,20 @@ import {
   defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
+  loadSynthesisCacheBlocksFromArtifacts,
+  persistSynthesisCacheBlocksToArtifacts,
   runShellWithBoundedTail,
   type MakaTool,
   type InvocationResult,
   type ContextBudgetPolicy,
+  type SynthesisCacheLoader,
+  type SynthesisCacheWriter,
   type ToolResultArchiveReader,
   type ToolResultArchiveRecorder,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
+  createArtifactStore,
   createRuntimeEventStore,
   createSessionStore,
 } from '@maka/storage';
@@ -230,6 +235,11 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_ESTIMATED_TOKENS',
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MODE',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS',
+  'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS',
   'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
   'MAKA_CONTEXT_TASK_TOOLS',
   'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
@@ -686,6 +696,14 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
+  // Back the synthesis cache with the run-scoped `@maka/storage` artifact store
+  // (blocks land under `{storageRoot}/artifacts/{sessionId}/`, run- and
+  // session-scoped, sharing the same lift as desktop). Only constructed when the
+  // policy is active so a baseline arm stays untouched.
+  const synthesisCacheCallbacks = buildHarborCellSynthesisCacheCallbacks(
+    input.env,
+    contextBudgetBackendOptions.contextBudget?.synthesisCache?.enabled === true,
+  );
   const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
   const taskLedgerExperimentStore = taskLedgerExperimentPolicy
     ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
@@ -733,6 +751,7 @@ export function buildAiSdkCellBackendRegistration(input: {
           : {}),
         lookupPricing,
         ...contextBudgetBackendOptions,
+        ...synthesisCacheCallbacks,
         ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
         newId: input.newId,
         now: input.now,
@@ -816,7 +835,12 @@ export function buildHarborCellContextBudgetBackendOptions(
     env.MAKA_HARBOR_CONTEXT_SEMANTIC_COMPACT,
     'MAKA_CONTEXT_SEMANTIC_COMPACT',
   ) ?? false;
-  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled) return {};
+  const synthesisCacheEnabled = booleanEnv(
+    env.MAKA_CONTEXT_SYNTHESIS_CACHE ??
+    env.MAKA_HARBOR_CONTEXT_SYNTHESIS_CACHE,
+    'MAKA_CONTEXT_SYNTHESIS_CACHE',
+  ) ?? false;
+  if (!pruneEnabled && !activePruneEnabled && !archiveRetrievalEnabled && !activeFullCompactEnabled && !semanticCompactEnabled && !synthesisCacheEnabled) return {};
 
   const contextBudget: ContextBudgetPolicy = {
     name: env.MAKA_CONTEXT_BUDGET_NAME ?? 'harbor-cell-context-budget',
@@ -1001,6 +1025,18 @@ export function buildHarborCellContextBudgetBackendOptions(
     };
   }
 
+  if (synthesisCacheEnabled) {
+    contextBudget.synthesisCache = {
+      enabled: true,
+      mode: env.MAKA_CONTEXT_SYNTHESIS_CACHE_MODE === 'read_write' ? 'read_write' : 'lookup',
+      maxBlocks: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS') ?? 1,
+      maxEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS') ?? 2048,
+      maxBlockEstimatedTokens: positiveIntEnv(env.MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS, 'MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS') ?? 1024,
+      invalidateOnNewToolResult: true,
+      schemaVersion: 1,
+    };
+  }
+
   const archiveDir = harborCellToolResultArchiveDir(env);
   if (!archiveDir) return { contextBudget };
   return {
@@ -1062,6 +1098,20 @@ export function buildHarborCellTaskLedgerExperimentPolicy(
   return {
     enabled: true,
     replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
+  };
+}
+
+function buildHarborCellSynthesisCacheCallbacks(
+  env: RunHarborCellEnv,
+  enabled: boolean,
+): { loadSynthesisCache?: SynthesisCacheLoader; writeSynthesisCache?: SynthesisCacheWriter } {
+  if (!enabled) return {};
+  const outputDir = env.MAKA_OUTPUT_DIR ?? '/logs/agent';
+  const storageRoot = env.MAKA_STORAGE_ROOT ?? join(outputDir, 'maka-storage');
+  const artifactStore = createArtifactStore(storageRoot);
+  return {
+    loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
+    writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event),
   };
 }
 
@@ -1215,6 +1265,23 @@ export function buildHarborCellContextBudgetPolicySnapshot(
             maxEstimatedTokens: contextBudget.archiveRetrieval.maxEstimatedTokens ?? 8192,
             maxBytes: contextBudget.archiveRetrieval.maxBytes ?? 1024 * 1024,
             order: 'newest_first',
+          },
+        }
+      : {}),
+    ...(contextBudget.synthesisCache
+      ? {
+          synthesisCache: {
+            enabled: contextBudget.synthesisCache.enabled,
+            ...(contextBudget.synthesisCache.mode ? { mode: contextBudget.synthesisCache.mode } : {}),
+            maxBlocks: contextBudget.synthesisCache.maxBlocks ?? 1,
+            maxEstimatedTokens: contextBudget.synthesisCache.maxEstimatedTokens ?? 2048,
+            maxBlockEstimatedTokens: contextBudget.synthesisCache.maxBlockEstimatedTokens ?? 1024,
+            ...(contextBudget.synthesisCache.invalidateOnNewToolResult !== undefined
+              ? { invalidateOnNewToolResult: contextBudget.synthesisCache.invalidateOnNewToolResult }
+              : {}),
+            ...(contextBudget.synthesisCache.schemaVersion !== undefined
+              ? { schemaVersion: contextBudget.synthesisCache.schemaVersion }
+              : {}),
           },
         }
       : {}),

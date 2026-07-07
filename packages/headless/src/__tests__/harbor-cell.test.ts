@@ -1819,6 +1819,44 @@ describe('runHarborCell', () => {
     assert.equal(snapshot.semanticCompact?.minSavingsTokens, 64);
   });
 
+  test('Harbor parses a synthesis-cache-only arm and reflects it in the snapshot', () => {
+    // A benchmark arm may enable only the synthesis cache; the backend options
+    // must still build a policy (regression guard for the early-return that
+    // previously required one of the other context-budget mechanisms).
+    const options = buildHarborCellContextBudgetBackendOptions({
+      MAKA_CONTEXT_SYNTHESIS_CACHE: 'on',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MODE: 'read_write',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS: '2',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_TOKENS: '4096',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCK_TOKENS: '2048',
+    });
+    assert.equal(options.contextBudget?.synthesisCache?.enabled, true);
+    assert.equal(options.contextBudget?.synthesisCache?.mode, 'read_write');
+    assert.equal(options.contextBudget?.synthesisCache?.maxBlocks, 2);
+    assert.equal(options.contextBudget?.synthesisCache?.maxEstimatedTokens, 4096);
+    assert.equal(options.contextBudget?.synthesisCache?.maxBlockEstimatedTokens, 2048);
+    assert.equal(options.contextBudget?.synthesisCache?.invalidateOnNewToolResult, true);
+    assert.equal(options.contextBudget?.synthesisCache?.schemaVersion, 1);
+
+    // Defaults: mode falls back to lookup and the bounds match the runtime policy.
+    const defaults = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_SYNTHESIS_CACHE: 'on' });
+    assert.equal(defaults.contextBudget?.synthesisCache?.mode, 'lookup');
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxBlocks, 1);
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxEstimatedTokens, 2048);
+    assert.equal(defaults.contextBudget?.synthesisCache?.maxBlockEstimatedTokens, 1024);
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({
+      MAKA_CONTEXT_SYNTHESIS_CACHE: 'on',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MODE: 'read_write',
+      MAKA_CONTEXT_SYNTHESIS_CACHE_MAX_BLOCKS: '2',
+    });
+    assert.equal(snapshot?.enabled, true);
+    if (!snapshot?.enabled) throw new Error('expected context budget snapshot to be enabled');
+    assert.equal(snapshot.synthesisCache?.mode, 'read_write');
+    assert.equal(snapshot.synthesisCache?.maxBlocks, 2);
+    assert.equal(snapshot.synthesisCache?.schemaVersion, 1);
+  });
+
   test('Harbor tool builder keeps the six container-native tools non-interactive', () => {
     const tools = buildHarborCellAiSdkTools(fakeToolExecutor());
     const names = tools.map((tool) => tool.name);

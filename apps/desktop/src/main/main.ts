@@ -167,11 +167,9 @@ import {
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
   loadHistoryCompactBlocksFromArtifacts,
-} from '@maka/runtime';
-import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
-} from './synthesis-cache-artifacts.js';
+} from '@maka/runtime';
 import { buildBrowserTools } from './browser/browser-tools.js';
 import {
   computerUseServiceHealth,
