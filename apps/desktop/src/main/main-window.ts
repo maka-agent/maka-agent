@@ -9,7 +9,7 @@ import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
 import type { VisualSmokeFixture } from './visual-smoke-fixture.js';
 import { isThemePreference, toNativeThemeSource } from './theme-source.js';
-import { showWindowOnceReady } from './window-reveal.js';
+import { createWindowRevealGate } from './window-reveal.js';
 
 type SettingsReader = {
   get(): Promise<AppSettings>;
@@ -93,10 +93,15 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
   // visual-smoke capture and E2E — see main.ts) must never be revealed;
   // visual-smoke captures run on the hidden window and E2E drives it headless.
   // `!app.isPackaged` mirrors the original creation-time gate so a packaged
-  // build ignores a stray startHidden flag. Both the fallback timer and the
-  // renderer-ready IPC route their show() through this predicate via
-  // showWindowOnceReady.
+  // build ignores a stray startHidden flag. The fallback timer, the
+  // renderer-ready IPC, and focus() all route their show() through this
+  // predicate via the reveal gate below.
   const keepHiddenForVisualSmoke = !app.isPackaged && startHidden;
+  // ChatGPT Pro review P2: focus() (second-instance / activate) used to call
+  // mainWindow.show() directly, bypassing the reveal gate — re-launching or
+  // clicking the dock icon during the pre-commit window would flash the
+  // skeleton anyway. The gate defers those focus requests until markReady.
+  const revealGate = createWindowRevealGate(keepHiddenForVisualSmoke);
   let showFallbackTimer: NodeJS.Timeout | undefined;
   const clearShowFallbackTimer = (): void => {
     if (showFallbackTimer) {
@@ -160,6 +165,10 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     // disagrees with the persisted in-app preference.
     nativeTheme.themeSource = toNativeThemeSource(themePref);
 
+    // Re-arm the reveal gate for this window's lifecycle (macOS keeps the app
+    // alive after close-all; the next createWindow starts hidden again and a
+    // stale ready/pending-focus state must not reveal it early).
+    revealGate.reset();
     mainWindow = new BrowserWindow({
       width: bounds.width,
       height: bounds.height,
@@ -338,7 +347,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     if (!keepHiddenForVisualSmoke) {
       showFallbackTimer = setTimeout(() => {
         showFallbackTimer = undefined;
-        showWindowOnceReady(mainWindow, keepHiddenForVisualSmoke);
+        revealGate.markReady(mainWindow);
       }, SHOW_FALLBACK_TIMEOUT_MS);
     }
 
@@ -361,9 +370,10 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // commit. Cancel the fallback timer and reveal the window through the
       // shared gate — idempotent, so an HMR reload re-firing this signal (or a
       // timer racing it) never re-shows or steals focus, and suppressed for
-      // visual-smoke windows.
+      // visual-smoke windows. markReady also flushes a focus request that
+      // arrived while the window was still hidden (second-instance/activate).
       clearShowFallbackTimer();
-      showWindowOnceReady(mainWindow, keepHiddenForVisualSmoke);
+      revealGate.markReady(mainWindow);
     },
     setTitlebarControlsVisible(sender, visible) {
       const target = BrowserWindow.fromWebContents(sender);
@@ -406,10 +416,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       return BrowserWindow.getAllWindows().length > 0;
     },
     focus() {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
+      // ChatGPT Pro review P2: second-instance / activate must not show() the
+      // still-hidden window ahead of the renderer's first commit — that would
+      // flash the `.maka-preload` skeleton past the reveal gate. The gate
+      // defers the request and flushes it (restore+show+focus) on markReady;
+      // after that, focus behaves exactly as before.
+      revealGate.requestFocus(mainWindow);
     },
   };
 }

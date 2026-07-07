@@ -18,7 +18,12 @@ import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { showWindowOnceReady, type RevealableWindow } from '../window-reveal.js';
+import {
+  createWindowRevealGate,
+  showWindowOnceReady,
+  type FocusableRevealableWindow,
+  type RevealableWindow,
+} from '../window-reveal.js';
 import { readMainProcessCombinedSource } from './main-process-contract-source-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
@@ -45,6 +50,92 @@ function makeFakeWindow(): RevealableWindow & { showCount: number; destroy(): vo
     },
   };
 }
+
+/** Fake window with the focus surface the reveal gate's deferred focus touches. */
+function makeFakeFocusableWindow(): FocusableRevealableWindow & {
+  showCount: number;
+  focusCount: number;
+  destroy(): void;
+} {
+  let visible = false;
+  let destroyed = false;
+  let showCount = 0;
+  let focusCount = 0;
+  return {
+    isVisible: () => visible,
+    isDestroyed: () => destroyed,
+    isMinimized: () => false,
+    restore() {},
+    show() {
+      showCount += 1;
+      visible = true;
+    },
+    focus() {
+      focusCount += 1;
+    },
+    destroy() {
+      destroyed = true;
+    },
+    get showCount() {
+      return showCount;
+    },
+    get focusCount() {
+      return focusCount;
+    },
+  };
+}
+
+// ChatGPT Pro review P2: second-instance / 'activate' land in controller
+// focus() while the window may still be pre-first-commit. The gate must defer
+// (not show) those requests, then flush them when the renderer signals ready.
+describe('window reveal gate defers early focus (ChatGPT Pro review P2)', () => {
+  it('focus before renderer-ready does not show; markReady flushes show+focus', () => {
+    const gate = createWindowRevealGate(false);
+    const win = makeFakeFocusableWindow();
+    // User re-launches / clicks the dock icon while the window is hidden.
+    gate.requestFocus(win);
+    assert.equal(win.showCount, 0, 'pre-ready focus must not reveal the skeleton');
+    assert.equal(win.isVisible(), false);
+    // First commit arrives: reveal once and honor the deferred foreground intent.
+    gate.markReady(win);
+    assert.equal(win.isVisible(), true);
+    assert.equal(win.focusCount, 1);
+  });
+
+  it('focus after renderer-ready shows and focuses immediately (old behavior)', () => {
+    const gate = createWindowRevealGate(false);
+    const win = makeFakeFocusableWindow();
+    gate.markReady(win);
+    gate.requestFocus(win);
+    assert.equal(win.isVisible(), true);
+    assert.equal(win.focusCount, 1);
+  });
+
+  it('keepHidden (visual-smoke / E2E) never shows or focuses from any path', () => {
+    const gate = createWindowRevealGate(true);
+    const win = makeFakeFocusableWindow();
+    gate.requestFocus(win);
+    gate.markReady(win);
+    gate.requestFocus(win);
+    assert.equal(win.showCount, 0);
+    assert.equal(win.focusCount, 0);
+  });
+
+  it('reset() re-arms the gate for a recreated window (macOS close-all)', () => {
+    const gate = createWindowRevealGate(false);
+    const first = makeFakeFocusableWindow();
+    gate.markReady(first);
+    gate.reset();
+    const second = makeFakeFocusableWindow();
+    // Stale readiness from the first window must not leak: a focus request on
+    // the fresh hidden window defers again until its own first commit.
+    gate.requestFocus(second);
+    assert.equal(second.showCount, 0);
+    gate.markReady(second);
+    assert.equal(second.isVisible(), true);
+    assert.equal(second.focusCount, 1);
+  });
+});
 
 describe('window reveal gate (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
   it('renderer-ready reveals the hidden window exactly once (idempotent)', () => {
@@ -106,8 +197,8 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
     assert.match(src, /SHOW_FALLBACK_TIMEOUT_MS\s*=\s*4000/);
     assert.match(
       src,
-      /setTimeout\([\s\S]*?showWindowOnceReady\(mainWindow, keepHiddenForVisualSmoke\)[\s\S]*?SHOW_FALLBACK_TIMEOUT_MS\)/,
-      'the fallback timer must reveal through showWindowOnceReady',
+      /setTimeout\([\s\S]*?revealGate\.markReady\(mainWindow\)[\s\S]*?SHOW_FALLBACK_TIMEOUT_MS\)/,
+      'the fallback timer must reveal through the reveal gate',
     );
     // Timer must not run for visual-smoke windows, and must clear on close.
     assert.match(src, /if \(!keepHiddenForVisualSmoke\) \{\s*showFallbackTimer = setTimeout/);
@@ -119,8 +210,22 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
     // Renderer-ready controller method cancels the timer then reveals.
     assert.match(
       src,
-      /notifyRendererReady\(\) \{[\s\S]*?clearShowFallbackTimer\(\);[\s\S]*?showWindowOnceReady\(mainWindow, keepHiddenForVisualSmoke\);/,
+      /notifyRendererReady\(\) \{[\s\S]*?clearShowFallbackTimer\(\);[\s\S]*?revealGate\.markReady\(mainWindow\);/,
       'notifyRendererReady must clear the timer and reveal through the gate',
+    );
+    // ChatGPT Pro review P2: focus() (second-instance / activate) must route
+    // through the gate instead of calling mainWindow.show() directly, so a
+    // pre-first-commit focus request can never flash the skeleton.
+    assert.match(
+      src,
+      /focus\(\) \{[\s\S]*?revealGate\.requestFocus\(mainWindow\);\s*\},/,
+      'controller focus() must defer through revealGate.requestFocus',
+    );
+    // A fresh window re-arms the gate before creation.
+    assert.match(
+      src,
+      /revealGate\.reset\(\);\s*mainWindow = new BrowserWindow\(/,
+      'createWindow must reset the reveal gate for each window lifecycle',
     );
   });
 

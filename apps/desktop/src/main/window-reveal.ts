@@ -32,3 +32,65 @@ export function showWindowOnceReady(win: RevealableWindow | null, keepHidden: bo
   if (win.isVisible()) return;
   win.show();
 }
+
+/** Focus surface for deferred focus requests (see createWindowRevealGate). */
+export interface FocusableRevealableWindow extends RevealableWindow {
+  isMinimized(): boolean;
+  restore(): void;
+  focus(): void;
+}
+
+export interface WindowRevealGate {
+  /** Re-arm for a freshly created window (macOS recreate after close-all). */
+  reset(): void;
+  /** Renderer first commit or fallback timeout: reveal + flush deferred focus. */
+  markReady(win: FocusableRevealableWindow | null): void;
+  /** Focus request (second-instance / activate): deferred until markReady. */
+  requestFocus(win: FocusableRevealableWindow | null): void;
+}
+
+/**
+ * Readiness-aware wrapper around showWindowOnceReady. Focus requests that
+ * arrive before the renderer's first commit (user re-launches or clicks the
+ * dock icon while the window is still hidden) must NOT show() the window —
+ * that would flash the `.maka-preload` skeleton the hidden creation exists to
+ * suppress. They are remembered and flushed as show()+focus() when markReady
+ * fires, so the user's foreground intent is honored, just not early.
+ *
+ * `keepHidden` windows (visual-smoke capture / E2E) never show or take
+ * focus from any path — captures run while the developer works elsewhere.
+ */
+export function createWindowRevealGate(keepHidden: boolean): WindowRevealGate {
+  let ready = false;
+  let pendingFocus = false;
+
+  const focusNow = (win: FocusableRevealableWindow | null): void => {
+    if (keepHidden) return;
+    if (!win || win.isDestroyed()) return;
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  };
+
+  return {
+    reset() {
+      ready = false;
+      pendingFocus = false;
+    },
+    markReady(win) {
+      ready = true;
+      showWindowOnceReady(win, keepHidden);
+      if (pendingFocus) {
+        pendingFocus = false;
+        focusNow(win);
+      }
+    },
+    requestFocus(win) {
+      if (!ready) {
+        pendingFocus = true;
+        return;
+      }
+      focusNow(win);
+    },
+  };
+}
