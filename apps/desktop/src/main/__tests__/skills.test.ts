@@ -638,6 +638,51 @@ Local edit.`, 'utf8');
     });
   });
 
+  it('rejects symlinked managed skill files before updating', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'maka-managed-source-cache-'));
+      const outside = await mkdtemp(join(tmpdir(), 'maka-managed-update-outside-'));
+      try {
+        const incomingDir = join(workspaceRoot, 'incoming', 'deck-helper');
+        await mkdir(incomingDir, { recursive: true });
+        const incomingFile = join(incomingDir, 'SKILL.md');
+        const versionOne = `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version one.`;
+        await writeFile(incomingFile, versionOne, 'utf8');
+        const imported = await importManagedSkillSource({ root: sourceRoot, sourceFile: incomingFile });
+        assert.equal(imported.ok, true);
+        if (!imported.ok) return;
+        const installed = await installManagedSkill(workspaceRoot, imported.source.id, sourceRoot);
+        assert.equal(installed.ok, true);
+
+        await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version two.`, 'utf8');
+
+        const outsideTarget = join(outside, 'target.md');
+        await writeFile(outsideTarget, versionOne, 'utf8');
+        await rm(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'));
+        await symlink(outsideTarget, join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'));
+
+        assert.deepEqual(await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot), {
+          ok: false,
+          reason: 'blocked_path',
+        });
+        assert.equal(await readFile(outsideTarget, 'utf8'), versionOne);
+      } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('rejects a symlinked skills directory instead of writing through it', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const outside = await mkdtemp(join(tmpdir(), 'maka-skills-outside-'));

@@ -1,12 +1,7 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path';
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
-
-export interface ManagedSkillSourceRegistry {
-  schemaVersion: 1;
-  sources: ManagedSkillSourceRecord[];
-}
+import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 
 export interface ManagedSkillSourceRecord {
   id: string;
@@ -17,6 +12,13 @@ export interface ManagedSkillSourceRecord {
   contentSha256: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ManagedSkillSourceEntry {
+  id: string;
+  name: string;
+  description: string;
+  sourceType: 'local';
 }
 
 export type ImportManagedSkillSourceResult =
@@ -32,8 +34,17 @@ export function resolveManagedSkillSourcesRoot(homeDir = homedir()): string {
 }
 
 export async function listManagedSkillSources(root = resolveManagedSkillSourcesRoot()): Promise<ManagedSkillSourceRecord[]> {
-  const registry = await readRegistry(root);
-  return registry.sources.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const sourceRoot = await resolveExistingSourceRoot(root);
+  if (!sourceRoot.ok) return [];
+
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  const sources: ManagedSkillSourceRecord[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.isSymbolicLink() || !isSafeSkillId(entry.name)) continue;
+    const source = await readManagedSkillSource(root, entry.name);
+    if (source.ok) sources.push(source.source);
+  }
+  return sources.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function importManagedSkillSource(input: {
@@ -70,11 +81,15 @@ export async function importManagedSkillSource(input: {
 
   try {
     await mkdir(root, { recursive: true, mode: 0o700 });
-    const registry = await readRegistry(root);
-    if (registry.sources.some((source) => source.id === id)) return { ok: false, reason: 'already_exists' };
+    const sourceRoot = await resolveExistingSourceRoot(root);
+    if (!sourceRoot.ok) return { ok: false, reason: 'blocked_path' };
 
     await mkdir(sourceDir, { mode: 0o700 });
-    await writeFile(managedSkillPath, bytes, { flag: 'wx', mode: 0o600 });
+    const sourceDirReal = await resolveContainedDirectory(sourceRoot.rootReal, sourceDir);
+    if (!sourceDirReal.ok) return { ok: false, reason: 'blocked_path' };
+    if (!await writeContainedBufferFile(sourceDirReal.path, managedSkillPath, bytes, { failIfExists: true })) {
+      return { ok: false, reason: 'write_failed' };
+    }
 
     const source: ManagedSkillSourceRecord = {
       id,
@@ -86,11 +101,6 @@ export async function importManagedSkillSource(input: {
       createdAt: now,
       updatedAt: now,
     };
-    await writeFile(join(sourceDir, 'source.json'), `${JSON.stringify(source, null, 2)}\n`, { mode: 0o600 });
-    await writeRegistry(root, {
-      schemaVersion: 1,
-      sources: [...registry.sources, source],
-    });
     return { ok: true, source };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { ok: false, reason: 'already_exists' };
@@ -104,54 +114,112 @@ export async function readManagedSkillSource(
 ): Promise<ReadManagedSkillSourceResult> {
   if (!isSafeSkillId(sourceId)) return { ok: false, reason: 'not_found' };
 
+  const sourceRoot = await resolveExistingSourceRoot(root);
+  if (!sourceRoot.ok) return { ok: false, reason: sourceRoot.reason };
+
+  const sourceDir = join(root, sourceId);
   const sourcePath = join(root, sourceId, 'SKILL.md');
-  try {
-    const [rootReal, sourceReal] = await Promise.all([realpath(root), realpath(sourcePath)]);
-    if (!isContainedPath(rootReal, sourceReal)) return { ok: false, reason: 'blocked_path' };
-  } catch {
-    return { ok: false, reason: 'not_found' };
-  }
+  const sourceDirReal = await resolveContainedDirectory(sourceRoot.rootReal, sourceDir);
+  if (!sourceDirReal.ok) return { ok: false, reason: sourceDirReal.reason };
 
   try {
     const sourceStat = await lstat(sourcePath);
     if (!sourceStat.isFile() || sourceStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const sourceReal = await realpath(sourcePath);
+    if (!isContainedPath(sourceDirReal.path, sourceReal)) return { ok: false, reason: 'blocked_path' };
     const bytes = await readFile(sourcePath);
-    const registry = await readRegistry(root);
-    const registryRecord = registry.sources.find((source) => source.id === sourceId);
     const contentSha256 = `sha256:${sha256(bytes)}`;
     const content = bytes.toString('utf8');
     const parsed = parseSkillFrontMatterForSource(content);
-    const source: ManagedSkillSourceRecord = registryRecord ?? {
+    const source: ManagedSkillSourceRecord = {
       id: sourceId,
       name: parsed.name ?? sourceId,
       description: parsed.description ?? '',
       sourceType: 'local',
       sourcePath,
       contentSha256,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
+      createdAt: sourceStat.birthtime.toISOString(),
+      updatedAt: sourceStat.mtime.toISOString(),
     };
-    return { ok: true, source: { ...source, contentSha256, sourcePath }, content, contentSha256 };
+    return { ok: true, source, content, contentSha256 };
   } catch {
     return { ok: false, reason: 'read_failed' };
   }
 }
 
-async function readRegistry(root: string): Promise<ManagedSkillSourceRegistry> {
+export function toManagedSkillSourceEntry(source: ManagedSkillSourceRecord): ManagedSkillSourceEntry {
+  return {
+    id: source.id,
+    name: source.name,
+    description: source.description,
+    sourceType: source.sourceType,
+  };
+}
+
+async function resolveExistingSourceRoot(root: string): Promise<
+  | { ok: true; rootReal: string }
+  | { ok: false; reason: 'not_found' | 'blocked_path' }
+> {
   try {
-    const parsed = JSON.parse(await readFile(join(root, 'registry.json'), 'utf8')) as Partial<ManagedSkillSourceRegistry>;
-    if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.sources)) return { schemaVersion: 1, sources: [] };
-    return {
-      schemaVersion: 1,
-      sources: parsed.sources.filter(isManagedSkillSourceRecord),
-    };
+    const rootStat = await lstat(root);
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    return { ok: true, rootReal: await realpath(root) };
   } catch {
-    return { schemaVersion: 1, sources: [] };
+    return { ok: false, reason: 'not_found' };
   }
 }
 
-async function writeRegistry(root: string, registry: ManagedSkillSourceRegistry): Promise<void> {
-  await writeFile(join(root, 'registry.json'), `${JSON.stringify(registry, null, 2)}\n`, { mode: 0o600 });
+async function resolveContainedDirectory(rootReal: string, directory: string): Promise<
+  | { ok: true; path: string }
+  | { ok: false; reason: 'not_found' | 'blocked_path' }
+> {
+  try {
+    const directoryStat = await lstat(directory);
+    if (!directoryStat.isDirectory() || directoryStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const directoryReal = await realpath(directory);
+    if (!isContainedPath(rootReal, directoryReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true, path: directoryReal };
+  } catch {
+    return { ok: false, reason: 'not_found' };
+  }
+}
+
+async function writeContainedBufferFile(
+  rootDir: string,
+  filePath: string,
+  bytes: Buffer,
+  options: { failIfExists?: boolean } = {},
+): Promise<boolean> {
+  const tempPath = join(rootDir, `.maka-source-write.${process.pid}.${Date.now()}.tmp`);
+  try {
+    const rootReal = await realpath(rootDir);
+    const existing = await lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (existing !== null) {
+      if (options.failIfExists) return false;
+      if (!existing.isFile() || existing.isSymbolicLink()) return false;
+      const fileReal = await realpath(filePath);
+      if (!isContainedPath(rootReal, fileReal)) return false;
+    }
+    await writeFile(tempPath, bytes, { flag: 'wx', mode: 0o600 });
+    const tempStat = await lstat(tempPath);
+    if (!tempStat.isFile() || tempStat.isSymbolicLink()) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    const tempReal = await realpath(tempPath);
+    if (!isContainedPath(rootReal, tempReal)) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    await rename(tempPath, filePath);
+    return true;
+  } catch {
+    await unlink(tempPath).catch(() => {});
+    return false;
+  }
 }
 
 function sourceIdFromPath(filePath: string): string | undefined {
@@ -180,19 +248,6 @@ function parseSkillFrontMatterForSource(text: string): { name?: string; descript
     if (value) result[match[1] as 'name' | 'description'] = value;
   }
   return result;
-}
-
-function isManagedSkillSourceRecord(value: unknown): value is ManagedSkillSourceRecord {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const record = value as Partial<ManagedSkillSourceRecord>;
-  return typeof record.id === 'string' &&
-    typeof record.name === 'string' &&
-    typeof record.description === 'string' &&
-    record.sourceType === 'local' &&
-    typeof record.sourcePath === 'string' &&
-    typeof record.contentSha256 === 'string' &&
-    typeof record.createdAt === 'string' &&
-    typeof record.updatedAt === 'string';
 }
 
 function sha256(bytes: Buffer): string {

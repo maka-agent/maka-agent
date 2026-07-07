@@ -151,7 +151,7 @@ function managedInstallFailureCopy(reason: 'not_found' | 'already_exists' | 'blo
 function managedUpdateFailureCopy(reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed'): string {
   if (reason === 'not_managed') return '这个 Skill 不是受管理来源。';
   if (reason === 'source_missing') return '来源库中找不到对应来源。';
-  if (reason === 'local_modified') return '工作区副本已经被修改，需要先进入人工合并流程。';
+  if (reason === 'local_modified') return '工作区副本已经被修改。请打开本地文件和来源文件手动比较后再更新。';
   if (reason === 'metadata_error') return 'Skill 元数据异常，不能安全更新。';
   if (reason === 'blocked_path') return '目标路径不允许写入。';
   return '写入工作区失败，请检查文件权限。';

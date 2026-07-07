@@ -32,10 +32,6 @@ export interface ManagedSkillSourceEntry {
   name: string;
   description: string;
   sourceType: 'local';
-  sourcePath: string;
-  contentSha256: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 export type PlanReminderDraftInput = {

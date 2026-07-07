@@ -15,6 +15,7 @@ import {
 import {
   importManagedSkillSource,
   listManagedSkillSources,
+  toManagedSkillSourceEntry,
 } from './managed-skill-sources.js';
 
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
@@ -113,7 +114,10 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     await deps.bundledSkillsReady?.catch(() => {});
     return listSkillEntries(deps.workspaceRoot);
   });
-  ipcMain.handle('skills:sources:list', async () => listManagedSkillSources());
+  ipcMain.handle('skills:sources:list', async () => {
+    const sources = await listManagedSkillSources();
+    return sources.map(toManagedSkillSourceEntry);
+  });
   ipcMain.handle('skills:sources:importLocalFile', async () => {
     const result = await deps.mainWindowController.showOpenDialog({
       title: '导入 Skill 来源',
@@ -124,7 +128,9 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
       ],
     });
     if (result.canceled || result.filePaths.length === 0) return { ok: false as const, reason: 'cancelled' as const };
-    return importManagedSkillSource({ sourceFile: result.filePaths[0] });
+    const imported = await importManagedSkillSource({ sourceFile: result.filePaths[0] });
+    if (!imported.ok) return imported;
+    return { ok: true as const, source: toManagedSkillSourceEntry(imported.source) };
   });
   ipcMain.handle('skills:installManaged', async (_event, sourceId: string) => {
     const result = await installManagedSkill(deps.workspaceRoot, sourceId);

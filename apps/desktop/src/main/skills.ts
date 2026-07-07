@@ -304,6 +304,50 @@ async function readExistingRegularFile(path: string): Promise<{ kind: 'missing' 
   }
 }
 
+async function readContainedRegularFile(rootDir: string, filePath: string): Promise<{ ok: true; bytes: Buffer } | { ok: false }> {
+  try {
+    const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false };
+    const fileReal = await realpath(filePath);
+    if (!isContainedPath(rootReal, fileReal)) return { ok: false };
+    return { ok: true, bytes: await readFile(filePath) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function writeContainedRegularTextFile(rootDir: string, filePath: string, content: string): Promise<boolean> {
+  const tempPath = join(rootDir, `.maka-write.${process.pid}.${Date.now()}.tmp`);
+  try {
+    const rootReal = await realpath(rootDir);
+    const existing = await lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (existing !== null && (!existing.isFile() || existing.isSymbolicLink())) return false;
+    if (existing !== null) {
+      const fileReal = await realpath(filePath);
+      if (!isContainedPath(rootReal, fileReal)) return false;
+    }
+    await writeFile(tempPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    const tempStat = await lstat(tempPath);
+    if (!tempStat.isFile() || tempStat.isSymbolicLink()) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    const tempReal = await realpath(tempPath);
+    if (!isContainedPath(rootReal, tempReal)) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    await rename(tempPath, filePath);
+    return true;
+  } catch {
+    await unlink(tempPath).catch(() => {});
+    return false;
+  }
+}
+
 function isMatchingBundledSkillLock(value: unknown, id: string, contentSha256: string): boolean {
   if (!isRecord(value)) return false;
   return value.schemaVersion === 1 &&
@@ -435,6 +479,8 @@ export async function updateManagedSkill(
   | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
 > {
   if (!isSafeSkillId(skillId)) return { ok: false, reason: 'not_managed' };
+  const updateTarget = await resolveSkillFileUpdateTarget(root, skillId);
+  if (!updateTarget.ok && updateTarget.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
   const installed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
   const skill = installed.find((candidate) => candidate.id === skillId);
   if (!skill) return { ok: false, reason: 'not_managed' };
@@ -459,7 +505,9 @@ export async function updateManagedSkill(
       realpath(skillDir),
     ]);
     if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
-    await writeFile(skillFile, source.content, { encoding: 'utf8', mode: 0o600 });
+    if (!await writeContainedRegularTextFile(skillDir, skillFile, source.content)) {
+      return { ok: false, reason: 'write_failed' };
+    }
     if (!await writeSkillLock(skillDir, managedSkillLock(skillId, source.contentSha256, source.contentSha256, skill.managedSourceId))) {
       return { ok: false, reason: 'write_failed' };
     }
@@ -469,6 +517,34 @@ export async function updateManagedSkill(
     return { ok: true, skill: updated };
   } catch {
     return { ok: false, reason: 'write_failed' };
+  }
+}
+
+async function resolveSkillFileUpdateTarget(root: string, skillId: string): Promise<
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'blocked_path' }
+> {
+  const skillsDir = join(root, 'skills');
+  const skillDir = join(skillsDir, skillId);
+  const skillFile = join(skillDir, 'SKILL.md');
+  try {
+    const [rootReal, skillsStat] = await Promise.all([realpath(root), lstat(skillsDir)]);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const skillsReal = await realpath(skillsDir);
+    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+
+    const skillStat = await lstat(skillDir);
+    if (!skillStat.isDirectory() || skillStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const skillReal = await realpath(skillDir);
+    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+
+    const fileStat = await lstat(skillFile);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const fileReal = await realpath(skillFile);
+    if (!isContainedPath(skillReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'missing' };
   }
 }
 
@@ -632,7 +708,9 @@ async function readInstalledSkillDefinitions(root: string, options: SkillReadOpt
     const skillPath = join(dir, entry.name);
     const skillFile = join(skillPath, 'SKILL.md');
     try {
-      const bytes = await readFile(skillFile);
+      const read = await readContainedRegularFile(skillPath, skillFile);
+      if (!read.ok) continue;
+      const bytes = read.bytes;
       const text = bytes.toString('utf8');
       const { name, description, allowedTools } = parseSkillFrontMatter(text);
       const status = await readSkillLockStatus(skillPath, entry.name, `sha256:${sha256Buffer(bytes)}`, options);
