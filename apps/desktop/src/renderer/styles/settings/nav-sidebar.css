@@ -592,6 +592,18 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
+/* Detail audit round 3: vertical variant for full-width controls (the
+   personalization tone textarea) living inside the shared card rows. */
+.settingsFormRow[data-orient="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.settingsFormRow[data-orient="vertical"] .settingsActionRow {
+  margin: 0;
+}
+
 .settingsFormRow:last-child {
   border-bottom: 0;
 }

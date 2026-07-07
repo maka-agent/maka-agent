@@ -943,7 +943,7 @@ export function BotChatSettingsPage(props: {
             />
             <div className="settingsBotInfoNotice">
               <span className="settingsBotInfoNoticeIcon" aria-hidden="true">ⓘ</span>
-              <span>提示：请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置</span>
+              <span>请打开网络的 TUN 模式后重启应用，以便完成 Telegram Bot 设置</span>
             </div>
           </>
         )}

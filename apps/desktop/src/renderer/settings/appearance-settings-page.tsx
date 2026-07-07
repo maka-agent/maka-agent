@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { SettingsRows } from './settings-rows';
 import type {
   AppSettings,
   PersonalizationSettingsWarning,
@@ -125,84 +126,89 @@ export function PersonalizationSettingsPage(props: {
 
   return (
     <div className="settingsStructuredPage">
-      {/* PR-S2 (2026-06-23): single-control rows use the
-          reference-style horizontal layout — label + description on
-          the left, control aligned right, 1 px hairline between
-          rows. Vertical layout is reserved for full-width controls
-          like the Textarea below. */}
-      <label className="settingsField" data-orient="horizontal">
-        <span>显示名称</span>
-        <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
-        <Input
-          type="text"
-          value={displayName}
-          onChange={(event) => setDisplayName(event.currentTarget.value)}
-          placeholder="例如：JK"
-          maxLength={60}
-          autoComplete="off"
-          spellCheck={false}
-          disabled={saving}
-          aria-label="显示名称"
-        />
-      </label>
+      {/* Detail audit round 3: these rows used the borderless
+          .settingsField language while every other 通用 row is a bordered
+          SettingsRows card — two row systems on one page. Unified onto
+          the card language; the full-width tone textarea uses the
+          vertical row variant. */}
+      <SettingsRows>
+        <div className="settingsFormRow">
+          <div>
+            <strong>显示名称</strong>
+            <small>Maka 在聊天里会以这个名字称呼你。留空就用默认的「你」。</small>
+          </div>
+          <Input
+            type="text"
+            value={displayName}
+            onChange={(event) => setDisplayName(event.currentTarget.value)}
+            placeholder="例如：JK"
+            maxLength={60}
+            autoComplete="off"
+            spellCheck={false}
+            disabled={saving}
+            aria-label="显示名称"
+          />
+        </div>
 
-      {/*
-        PR-LANG-PREF-0 (WAWQAQ msg `edc9cb41` + kenji `7e532892`
-        acceptance criteria): 自动 / 中文 / English. User explicit
-        choice wins over navigator.language; visual-smoke override
-        wins over both (deterministic baselines).
-      */}
-      <div className="settingsField" data-orient="horizontal">
-        <span>界面语言</span>
-        <small>选择 Maka 界面的显示语言。保存后立即生效，重启后保持。</small>
-        <Segmented
-          value={uiLocale}
-          options={[
-            ['auto', '跟随系统'],
-            ['zh', '中文'],
-            ['en', 'English'],
-          ]}
-          onChange={(next) => setUiLocale(next as UiLocalePreference)}
-          ariaLabel="界面语言"
-          disabled={saving}
-        />
-      </div>
+        {/*
+          PR-LANG-PREF-0 (WAWQAQ msg `edc9cb41` + kenji `7e532892`
+          acceptance criteria): 自动 / 中文 / English. User explicit
+          choice wins over navigator.language; visual-smoke override
+          wins over both (deterministic baselines).
+        */}
+        <div className="settingsFormRow">
+          <div>
+            <strong>界面语言</strong>
+            <small>选择 Maka 界面的显示语言。保存后立即生效，重启后保持。</small>
+          </div>
+          <Segmented
+            value={uiLocale}
+            options={[
+              ['auto', '跟随系统'],
+              ['zh', '中文'],
+              ['en', 'English'],
+            ]}
+            onChange={(next) => setUiLocale(next as UiLocalePreference)}
+            ariaLabel="界面语言"
+            disabled={saving}
+          />
+        </div>
 
-      <label className="settingsField">
-        <span>助手语气偏好</span>
-        <Textarea
-          value={assistantTone}
-          onChange={(event) => setAssistantTone(event.currentTarget.value)}
-          placeholder="一句话告诉助手期望的语气，比如：技术严谨 / 偏简洁 / 不要 emoji / 多反问。"
-          rows={4}
-          maxLength={500}
-          spellCheck={false}
-          disabled={saving}
-          aria-label="助手语气偏好"
-          className="min-h-21"
-        />
-        {/* Designer audit P1-8: was engineering-speak ("以低优先级拼到
-            system prompt"、"Runtime 独立判定") — user copy shouldn't require
-            understanding the implementation. */}
-        <small>
-          最多 500 字，只影响回答的语气和风格。权限确认与安全规则不受它影响——
-          写"跳过确认"这类指令不会生效。
-        </small>
-      </label>
-
-      <div className="settingsActionRow">
-        <Button
-          type="button"
-          disabled={saving}
-          aria-busy={saving}
-          aria-describedby={personalizationSaveHelpId}
-          data-pending={saving ? 'true' : undefined}
-          onClick={() => void save()}
-        >
-          {saving ? '保存中…' : '保存'}
-        </Button>
-        <p id={personalizationSaveHelpId} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
-      </div>
+        <div className="settingsFormRow" data-orient="vertical">
+          <div>
+            <strong>助手语气偏好</strong>
+            <small>
+              最多 500 字，只影响回答的语气和风格。权限确认与安全规则不受它影响——
+              写"跳过确认"这类指令不会生效。
+            </small>
+          </div>
+          <Textarea
+            value={assistantTone}
+            onChange={(event) => setAssistantTone(event.currentTarget.value)}
+            placeholder="一句话告诉助手期望的语气，比如：技术严谨 / 偏简洁 / 不要 emoji / 多反问。"
+            rows={4}
+            maxLength={500}
+            spellCheck={false}
+            disabled={saving}
+            aria-label="助手语气偏好"
+            className="min-h-21 w-full"
+          />
+          <div className="settingsActionRow">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={saving}
+              aria-busy={saving}
+              aria-describedby={personalizationSaveHelpId}
+              data-pending={saving ? 'true' : undefined}
+              onClick={() => void save()}
+            >
+              {saving ? '保存中…' : '保存'}
+            </Button>
+            <p id={personalizationSaveHelpId} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
+          </div>
+        </div>
+      </SettingsRows>
     </div>
   );
 }
@@ -421,7 +427,7 @@ function ThemeSettingsPage(props: {
       ))}
 
       <p className="settingsHelpText">
-        切换会立即生效，并保存在本地外观设置里下次启动延续。通知统一显示在屏幕右下角。
+        切换会立即生效，并保存在本地外观设置里下次启动延续。
       </p>
     </div>
   );
