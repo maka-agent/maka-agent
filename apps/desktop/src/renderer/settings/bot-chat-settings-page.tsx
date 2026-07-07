@@ -404,11 +404,11 @@ function WeChatScanLoginModal(props: {
         </div>
         <div className="settingsBotScanLoginActions" role="group" aria-label="微信扫码登录操作">
           {(status === 'expired' || status === 'error') && (
-            <Button className="settingsBotAction" type="button" variant="secondary" onClick={() => void fetchQr()}>
+            <Button type="button" variant="secondary" onClick={() => void fetchQr()}>
               刷新二维码
             </Button>
           )}
-          <Button className="settingsBotAction" type="button" variant="secondary" onClick={props.onClose}>
+          <Button type="button" variant="secondary" onClick={props.onClose}>
             {status === 'confirmed' ? '关闭' : '取消'}
           </Button>
         </div>
@@ -1128,7 +1128,7 @@ export function BotChatSettingsPage(props: {
           {selected === 'wechat' ? (
             <>
               <Button
-                className="settingsBotAction"
+               
                 type="button"
                 variant="secondary"
                 disabled={botActionBusy}
@@ -1138,7 +1138,7 @@ export function BotChatSettingsPage(props: {
               </Button>
               {(channel.token || selectedStatus?.identity) && (
                 <Button
-                  className="settingsBotAction"
+                 
                   type="button"
                   variant="secondary"
                   disabled={botActionBusy}
@@ -1148,7 +1148,7 @@ export function BotChatSettingsPage(props: {
                 </Button>
               )}
               <Button
-                className="settingsBotAction"
+               
                 type="button"
                 variant="secondary"
                 disabled={botActionBusy}
@@ -1157,7 +1157,7 @@ export function BotChatSettingsPage(props: {
                 本机桥接二维码
               </Button>
               <Button
-                className="settingsBotAction"
+               
                 type="button"
                 variant="secondary"
                 disabled={botActionBusy}
@@ -1168,7 +1168,6 @@ export function BotChatSettingsPage(props: {
             </>
           ) : support === 'runtime' && !selectedStatus?.running ? (
             <Button
-              className="settingsBotAction"
               type="button"
               variant="secondary"
               disabled={botActionBusy}
@@ -1178,7 +1177,6 @@ export function BotChatSettingsPage(props: {
             </Button>
           ) : (
             <Button
-              className="settingsBotAction"
               type="button"
               variant="secondary"
               disabled={botActionBusy || support === 'planned'}
@@ -1196,7 +1194,6 @@ export function BotChatSettingsPage(props: {
               resolution feedback. */}
           {support === 'runtime' && (selectedStatus?.running || restarting) && selected !== 'wechat' && (
             <Button
-              className="settingsBotAction"
               type="button"
               variant="secondary"
               disabled={botActionBusy}

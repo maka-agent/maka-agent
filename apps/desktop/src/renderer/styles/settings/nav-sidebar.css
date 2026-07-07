@@ -257,7 +257,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-secondary);

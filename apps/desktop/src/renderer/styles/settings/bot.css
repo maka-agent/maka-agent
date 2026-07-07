@@ -216,7 +216,9 @@
   }
 .settingsBotStatusGrid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Detail audit: fixed 4 columns orphaned the 5th status card onto its
+       own row. Auto-fit keeps one balanced row and degrades gracefully. */
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: var(--space-2);
     margin: 0;
   }
@@ -410,6 +412,13 @@
   border-radius: 0;
   background: transparent;
   transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+/* Detail audit: bare Switch controls sat at the value column's START
+   (x≈mid-page) while inputs/selects hug the right rail — two alignments
+   in one list. Controls end-align like every other row control. */
+.settingsRow > button[role="switch"] {
+  justify-self: end;
 }
 
 /* #520 PR9: .settingsBadge retired onto the Chip primitive variant="neutral"
