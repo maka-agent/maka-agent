@@ -62,11 +62,27 @@ describe('buildShellSpawnPlan', () => {
       { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\Users\\u\\bin\\pwsh.exe' },
       'Get-ChildItem -Name',
     );
-    assert.deepEqual(spawnPlan, {
-      file: 'C:\\Users\\u\\bin\\pwsh.exe',
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', 'Get-ChildItem -Name'],
-      useShellOption: false,
-    });
+    assert.equal(spawnPlan.file, 'C:\\Users\\u\\bin\\pwsh.exe');
+    assert.equal(spawnPlan.useShellOption, false);
+    assert.deepEqual(spawnPlan.args.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+    assert.ok(spawnPlan.args[4]!.startsWith('Get-ChildItem -Name\n'), 'command comes first, verbatim');
+  });
+
+  test('appends an exit-code wrapper so native command exit codes survive -Command', () => {
+    // pwsh -Command maps the process exit code to 0/1 from $? — a native
+    // command exiting 42 comes back as 1. The wrapper re-raises $LASTEXITCODE,
+    // and only when the final statement actually failed, so a recovered
+    // failure (native exit 3, then a succeeding cmdlet) still exits 0.
+    const spawnPlan = buildShellSpawnPlan(
+      { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' },
+      'npm test',
+    );
+    assert.equal(
+      spawnPlan.args[4],
+      'npm test\n'
+      + '$__makaOk = $?\n'
+      + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }',
+    );
   });
 
   test('keeps shell:true for the system default shells (posix and cmd)', () => {

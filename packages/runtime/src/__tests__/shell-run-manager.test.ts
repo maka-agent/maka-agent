@@ -48,7 +48,11 @@ describe('ShellRunProcessManager', () => {
 
     assert.equal(result.kind, 'terminal');
     assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout, '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n');
+    assert.ok(
+      result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `flags then verbatim command, got: ${result.stdout}`,
+    );
+    assert.ok(result.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
   });
 
   test('does not leak live slots when a process exits before durable create resolves', async () => {

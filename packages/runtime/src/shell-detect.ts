@@ -67,11 +67,23 @@ export interface ShellSpawnPlan {
   useShellOption: boolean;
 }
 
+// PowerShell's -Command maps the process exit code to 0/1 from $? — a native
+// command exiting 42 comes back as 1 (about_Pwsh: "that exit code is converted
+// to 1"). Appended after the user command, this re-raises $LASTEXITCODE, but
+// only when the FINAL statement failed: a recovered failure (native exit 3,
+// then a succeeding cmdlet) still exits 0, matching sh -c semantics, and a
+// failing cmdlet with no native exit code still maps to 1. $? must be captured
+// before the if-statement evaluates (which would reset it). Verified against
+// real pwsh; works on Windows PowerShell 5.1 syntax too.
+const POWERSHELL_EXIT_CODE_TAIL =
+  '$__makaOk = $?\n'
+  + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }';
+
 export function buildShellSpawnPlan(shell: ShellPlan, command: string): ShellSpawnPlan {
   if ((shell.kind === 'pwsh' || shell.kind === 'powershell') && shell.exe) {
     return {
       file: shell.exe,
-      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
+      args: ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', `${command}\n${POWERSHELL_EXIT_CODE_TAIL}`],
       useShellOption: false,
     };
   }

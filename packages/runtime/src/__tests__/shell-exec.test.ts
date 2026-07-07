@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function findPwsh(): string | undefined {
+  const exeNames = process.platform === 'win32' ? ['pwsh.exe'] : ['pwsh', 'pwsh-preview'];
+  for (const dir of (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')) {
+    if (!dir) continue;
+    for (const name of exeNames) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
@@ -119,7 +131,23 @@ describe('runShellWithBoundedTail', () => {
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     }));
     assert.equal(r.exitCode, 0);
-    assert.equal(r.stdout, '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n');
+    assert.ok(
+      r.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `flags then verbatim command, got: ${r.stdout}`,
+    );
+    assert.ok(r.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
+  });
+
+  test('a native command exit code survives the PowerShell -Command path (requires pwsh)', async (t) => {
+    // Without the wrapper, pwsh -Command maps any non-zero native exit code to
+    // 1 (verified against real pwsh). node stands in for the native command.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
   });
 
   test('emits every chunk live via emitOutput', async () => {
