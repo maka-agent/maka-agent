@@ -180,15 +180,21 @@ export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
 // Shell command categorization
 // ============================================================================
 
-/** Safe shell prefixes: commands whose SAFE form auto-runs even in execute
- *  mode. Since execute is fail-closed (shell_unsafe prompts), every entry here
- *  is a security-relevant `allow`, so a prefix must be read-only in ALL its
- *  forms — or carry a SAFE_PREFIX_GUARD that rejects its write forms. Note:
- *  `env` excluded (can leak API keys / OAuth tokens to tool output). `cd`
- *  excluded (cwd changes persist; V0.1 manages cwd via session header / UI
- *  picker, not via agent-issued cd). `git branch` excluded: it writes a ref in
- *  its create/rename/delete forms, and its read/write argument grammar is too
- *  nuanced to allowlist reliably — read-only listing prompts instead. */
+/** Safe shell prefixes: commands whose EVERY form is read-only, so they
+ *  auto-run even in fail-closed execute mode. Since execute prompts on
+ *  shell_unsafe, each entry here is a security-relevant `allow`, so the bar is
+ *  strict: a prefix must have no write/execute form at all. A command that is
+ *  read-only for some arguments but writes/executes for others cannot qualify,
+ *  because shell quote removal defeats any argument guard (find . -de'lete'
+ *  reaches find as -delete), so we do NOT try to guard argument forms —
+ *  we exclude the whole command. Dropped for exactly this reason:
+ *    - `find`      — action primaries (-exec/-delete/-fprintf) execute/mutate
+ *    - `git diff/log/show` — --output=<file> writes; --ext-diff/--textconv run helpers
+ *    - `git branch` — create/rename/delete write a ref
+ *    - `env`       — can leak API keys / OAuth tokens to tool output
+ *    - `cd`        — cwd changes persist (managed via session header, not agent)
+ *  Their read-only forms prompt once instead of auto-running: the fail-closed
+ *  trade over a fragile, quote-bypassable allowlist of argument shapes. */
 export const SAFE_SHELL_PREFIXES: readonly string[] = [
   'ls',
   'pwd',
@@ -198,14 +204,10 @@ export const SAFE_SHELL_PREFIXES: readonly string[] = [
   'tail',
   'wc',
   'grep',
-  'find',
   'which',
   'whoami',
   'date',
   'git status',
-  'git log',
-  'git diff',
-  'git show',
   // External reference borrow: OfficeCLI read-only inspection commands are safe in
   // explore mode. Mutating verbs such as open/add/set/remove/close/batch stay
   // outside this allowlist and therefore prompt or block through Bash policy.
@@ -215,18 +217,6 @@ export const SAFE_SHELL_PREFIXES: readonly string[] = [
   'officecli get',
   'officecli query',
   'officecli validate',
-];
-
-/** A safe prefix whose broad form hides a write path is allowed ONLY when the
- *  rest of the command does not match its guard. `find` is read-only for
- *  traversal/filtering/printing, but its ACTION primaries execute commands or
- *  mutate the tree. Unlike shell syntax, find's action set is a closed,
- *  documented list (it parses its own args — no aliases/escapes/nesting), so
- *  excluding them is a reliable judgment, not another open-ended blocklist.
- *  (-exec rm / -delete are already fs_destructive; this catches -exec chmod,
- *  -execdir, -fprintf, etc. that only mutate or write.) */
-export const SAFE_PREFIX_GUARDS: ReadonlyArray<{ prefix: string; unsafeRest: RegExp }> = [
-  { prefix: 'find', unsafeRest: /(^|\s)-(exec|execdir|ok|okdir|delete|fls|fprint|fprint0|fprintf)\b/i },
 ];
 
 export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
@@ -438,11 +428,7 @@ export function categorizeBash(cmd: string): ToolCategory {
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
   if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s)))) return 'git_destructive';
   if (SHELL_CONTROL_PATTERNS.some((re) => re.test(t))) return 'shell_unsafe';
-  const safePrefix = SAFE_SHELL_PREFIXES.find((p) => t === p || t.startsWith(p + ' '));
-  if (safePrefix) {
-    const guard = SAFE_PREFIX_GUARDS.find((g) => g.prefix === safePrefix);
-    if (!guard || !guard.unsafeRest.test(t.slice(safePrefix.length))) return 'shell_safe';
-  }
+  if (SAFE_SHELL_PREFIXES.some((p) => t === p || t.startsWith(p + ' '))) return 'shell_safe';
   return 'shell_unsafe';
 }
 

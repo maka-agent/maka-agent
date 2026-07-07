@@ -44,7 +44,6 @@ describe('categorizeBash', () => {
   test('safe commands → shell_safe', () => {
     expect(categorizeBash('ls -la')).toBe('shell_safe');
     expect(categorizeBash('git status')).toBe('shell_safe');
-    expect(categorizeBash('git log --oneline -n 5')).toBe('shell_safe');
     expect(categorizeBash('grep -r foo .')).toBe('shell_safe');
     expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_safe');
     expect(categorizeBash('officecli get deck.pptx "/slide[1]"')).toBe('shell_safe');
@@ -264,22 +263,36 @@ describe('categorizeBash', () => {
     expect(categorizeBash('sudo rm -rf /')).toBe('privileged');
   });
 
-  test('find is safe only for read-only traversal; action primaries → shell_unsafe', () => {
-    expect(categorizeBash('find . -name "*.ts"')).toBe('shell_safe');
-    expect(categorizeBash('find src -type f')).toBe('shell_safe');
-    expect(categorizeBash('find . -exec chmod 777 {} +')).toBe('shell_unsafe');
-    expect(categorizeBash('find . -exec mv {} ../backup/ +')).toBe('shell_unsafe');
-    expect(categorizeBash('find . -execdir rm {} +')).toBe('shell_unsafe');
-    expect(categorizeBash('find . -okdir chmod 777 {} +')).toBe('shell_unsafe');
-    expect(categorizeBash('find . -fprintf out.txt "%p"')).toBe('shell_unsafe');
+  test('find is not a safe prefix: its action primaries execute/mutate, even quoted', () => {
+    // A safe prefix must be read-only in ALL forms. find is not: its action
+    // primaries run commands, delete, or write. Detecting them in the raw
+    // string is defeated by shell quote removal (find . -de'lete' runs
+    // -delete), so find is dropped from the allowlist entirely rather than
+    // guarded — read-only traversal prompts too.
+    expect(categorizeBash('find . -name "*.ts"')).toBe('shell_unsafe');
+    expect(categorizeBash('find src -type f')).toBe('shell_unsafe');
+    expect(categorizeBash('find . "-delete"')).toBe('shell_unsafe');
+    expect(categorizeBash("find . -de'lete'")).toBe('shell_unsafe');
+    expect(categorizeBash("find . -ex'ec' rm {} +")).toBe('shell_unsafe');
+    expect(categorizeBash('find . -ex\\ec chmod 777 {} +')).toBe('shell_unsafe');
   });
 
-  test('git branch is no longer a blanket safe prefix (it can write a ref)', () => {
+  test('git diff/log/show are not safe prefixes: --output writes a file', () => {
+    // --output=<file> (and --ext-diff/--textconv running external helpers)
+    // make these write/execute-capable, and quote removal defeats an --output
+    // guard the same way. Only git status stays a safe prefix.
+    expect(categorizeBash('git diff --output=src/foo.ts')).toBe('shell_unsafe');
+    expect(categorizeBash('git log --output=notes.txt')).toBe('shell_unsafe');
+    expect(categorizeBash('git show --output=patch.diff')).toBe('shell_unsafe');
+    // Read-only forms prompt too now — the fail-closed trade.
+    expect(categorizeBash('git diff')).toBe('shell_unsafe');
+    expect(categorizeBash('git log --oneline -n 5')).toBe('shell_unsafe');
+    expect(categorizeBash('git status')).toBe('shell_safe');
+  });
+
+  test('git branch is not a safe prefix (it can write a ref)', () => {
     expect(categorizeBash('git branch temp-review')).toBe('shell_unsafe');
     expect(categorizeBash('git branch -m old new')).toBe('shell_unsafe');
-    // Read-only forms prompt too now — deliberate: precisely modeling git
-    // branch's read/write argument grammar is an easy-to-miss enumeration, so
-    // a one-off extra prompt is the fail-closed trade over another allow hole.
     expect(categorizeBash('git branch --list')).toBe('shell_unsafe');
   });
 });
@@ -398,23 +411,20 @@ describe('preToolUse — execute mode', () => {
     expect(r.category).toBe('fs_destructive');
   });
 
-  test('CRITICAL: find action primaries and git branch writes prompt in execute mode', () => {
+  test('CRITICAL: find (incl. quoted actions) and git --output prompt in execute mode', () => {
     for (const command of [
       'find . -exec chmod 777 {} +',
-      'find . -exec mv {} ../backup/ +',
-      'find . -execdir rm {} +',
+      "find . -de'lete'",
+      'find . -ex\\ec chmod 777 {} +',
+      'find . -name "*.ts"',
+      'git diff --output=src/foo.ts',
+      'git log --output=notes.txt',
       'git branch temp-review',
     ]) {
       const r = evaluate('Bash', { command }, 'execute');
       expect(r.proceed).toBe(false);
       expect(r.needsPrompt).toBe(true);
     }
-  });
-
-  test('read-only find still auto-runs in execute', () => {
-    const r = evaluate('Bash', { command: 'find . -name "*.ts"' }, 'execute');
-    expect(r.proceed).toBe(true);
-    expect(r.category).toBe('shell_safe');
   });
 
   test('CRITICAL: piped kill and RunAs elevation STILL prompt in execute mode', () => {
