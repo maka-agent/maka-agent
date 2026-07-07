@@ -225,11 +225,21 @@ describe('ToolActivity result preview contract', () => {
     };
     for (const encoded of [
       'sk\\-1234567890abcdefghi',
-      'sk*-*1234567890abcdefghi',
+      // Emphasis that actually parses under CommonMark's flanking rules
+      // (an opener after `-` works; `sk*-*…` does NOT — the `*` after `k`
+      // isn't left-flanking, so it renders literally and stays prose).
+      'sk-*1234567890abcdefghi*',
       '[sk-](https://x)1234567890abcdefghi',
       // Reference-style link: the `[.]` label content vanishes from the
       // rendered text just like an inline destination (codex review round 4).
       '[sk-][.]1234567890abcdefghi\n\n[.]: https://x',
+      // Destination with balanced parentheses plus a quoted title — valid
+      // CommonMark that any hand-rolled destination regex mis-scans (codex
+      // review round 6): micromark still renders `sk-` flush against the
+      // digits.
+      '[sk-](https://x/y(z) "t")1234567890abcdefghi',
+      '[sk-](https://x/y(z))1234567890abcdefghi',
+      '[sk-](<https://x/y(z)>)1234567890abcdefghi',
     ]) {
       const plan = toolTextPreviewPlan(`key: ${encoded}`);
       assert.ok('plain' in plan, `${JSON.stringify(encoded)} must degrade to the literal plain path — markdown rendering would strip the punctuation and reassemble the secret`);

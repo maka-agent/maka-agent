@@ -1,73 +1,63 @@
+import { micromark } from 'micromark';
+import { gfm, gfmHtml } from 'micromark-extension-gfm';
 import { redactSecrets } from '../redact.js';
 
 export const TOOL_LINE_CAP = 500;
 
-/** Numeric character references — micromark decodes `&#45;`/`&#x2D;` into
- * the clear during parse (one pass; CommonMark caps decimal references at
- * 7 digits, hex at 6), so the projection decodes them the same way. */
-const NUMERIC_REFERENCE = /&#(?:(\d{1,7})|[xX]([0-9a-fA-F]{1,6}));/g;
-/** Named character reference candidates. `&hyphen;` renders a glyph
- * visually identical to `-` and `&lowbar;` IS `_` — both members of the
- * secret token charsets — so the projection substitutes `-` (a charset
- * member) instead of carrying the HTML5 entity table. Unknown names cost
- * a false positive only (the mono <pre> presentation). */
-const NAMED_REFERENCE = /&[a-zA-Z][a-zA-Z0-9]{1,31};/g;
-/** ASCII punctuation range of a CommonMark backslash escape. */
-const BACKSLASH_ESCAPE = /\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])/g;
-/** Link / image destinations — `](…)` — vanish wholesale from rendered text. */
-const LINK_DESTINATION = /\]\([^)]*\)/g;
-/** Reference-style link labels — `][…]` — vanish from rendered text exactly
- * like inline destinations (`[sk-][.]1234` renders `<a>sk-</a>1234`, codex
- * review round 4). Covers full (`[text][label]`) and collapsed (`[text][]`)
- * references; shortcut references (`[text]`) are bare brackets, handled by
- * the char strip below. */
-const REFERENCE_LABEL = /\]\[[^\]]*\]/g;
-/** Raw HTML tags. react-markdown v9 without rehype-raw renders raw HTML as
- * literal TEXT (so `<redacted>` markers survive and `sk<b>-</b>123` displays
- * with its tags visible); stripping tags here models the skipHtml-style drop
- * anyway, as a defensive fallback against future pipeline config — a false
- * positive only costs the mono <pre> presentation. */
-const RAW_HTML_TAG = /<[^>\n]*>/g;
-/** Characters markdown rendering can consume out of the visible text:
- * escape backslashes, emphasis/strike/code delimiters, link/image/autolink
- * brackets, table pipes. Removing them approximates what a reader of the
- * rendered output would see as contiguous text. */
-const MARKDOWN_CONSUMED_CHARS = /[\\*_~`[\]()<>!|]/g;
+/** Same syntax surface as MarkdownBody (remark-gfm over the CommonMark
+ * core — both stacks share micromark's tokenizer, so the parse is
+ * identical; only the serialization differs). */
+const MICROMARK_OPTIONS = { extensions: [gfm()], htmlExtensions: [gfmHtml()] };
 
-/** Mirror micromark's numeric-reference decode for the projection. NUL,
- * out-of-range, and surrogate code points decode to U+FFFD, as in HTML. */
-function decodeNumericReference(dec: string | undefined, hex: string | undefined): string {
-  const codePoint = dec !== undefined ? Number.parseInt(dec, 10) : Number.parseInt(hex ?? '', 16);
-  if (codePoint === 0 || codePoint > 0x10ffff || (codePoint >= 0xd800 && codePoint <= 0xdfff)) {
-    return '�';
-  }
-  return String.fromCodePoint(codePoint);
+/** micromark encodes `<`, `>`, `"`, and `&` everywhere it emits source
+ * text (element content and attribute values alike), so `>` inside a tag
+ * is always the tag's own closer and this strip is exact. */
+const HTML_TAG = /<[^>]*>/g;
+
+/** Invert micromark's text encoding — it emits exactly these five
+ * references. `&amp;` must decode last so `&amp;lt;` (source text `&lt;`)
+ * comes back as the glyphs `&lt;`, not `<`. */
+function decodeMicromarkText(html: string): string {
+  return html
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 }
+
+/** Glyphs visually indistinguishable from `-` / `_` — the two secret-token
+ * charset members that HTML named references can produce (`&hyphen;` and
+ * `&dash;` decode to U+2010, `&lowbar;` to a real `_`). The old <pre> path
+ * showed those references as literal bytes; only the markdown decode turns
+ * them into look-alike glyphs, so the projection folds the dash and
+ * low-line families back to ASCII before re-running the redactor. */
+const HYPHEN_GLYPHS = /[‐-―−﹘﹣－]/g;
+const UNDERSCORE_GLYPHS = /[‗﹍-﹏＿]/g;
 
 /**
  * Would markdown rendering reassemble redactable content the raw-text
- * redactor never matched? `sk&#45;…`, `sk\-…`, `sk*-*…`, `[sk-](x)…`,
- * `sk<b>-</b>…` all hide the secret from `redactSecrets` while the
- * RENDERED text shows it contiguous (or a visually identical glyph) —
- * markdown acts as a decode oracle (codex review P1, rounds 2–4). The
- * channels can't be neutralized one-by-one without an arms race, so this
- * projects the text onto "what rendering could expose" and lets the
- * caller degrade to the literal <pre> path when the projection would be
- * redacted. Heuristic by design: the raw text was already redacted
- * (primary defense); this catches reference- and punctuation-hidden
- * shapes, and a false positive merely costs the mono <pre> presentation.
+ * redactor never matched? `sk&#45;…`, `sk\-…`, `sk*-*…`, `[sk-](x "t")…`
+ * all hide the secret from `redactSecrets` while the RENDERED text shows
+ * it contiguous (or as a visually identical glyph) — markdown acts as a
+ * decode oracle (codex review P1, rounds 2–6). Hand-rolled projections of
+ * that grammar lost an arms race four rounds running, so this asks the
+ * grammar itself: render with micromark (the same tokenizer MarkdownBody
+ * uses), take the visible text back out, and let the caller degrade to
+ * the literal <pre> path when redaction would fire on it. The raw text
+ * was already redacted (primary defense); a false positive here merely
+ * costs the mono <pre> presentation.
  */
 function markdownWouldRevealRedactable(text: string): boolean {
-  const projection = text
-    .replace(NUMERIC_REFERENCE, (_, dec: string | undefined, hex: string | undefined) =>
-      decodeNumericReference(dec, hex),
-    )
-    .replace(NAMED_REFERENCE, '-')
-    .replace(BACKSLASH_ESCAPE, '$1')
-    .replace(LINK_DESTINATION, ']')
-    .replace(REFERENCE_LABEL, ']')
-    .replace(RAW_HTML_TAG, '')
-    .replace(MARKDOWN_CONSUMED_CHARS, '');
+  let html: string;
+  try {
+    html = micromark(text, MICROMARK_OPTIONS);
+  } catch {
+    return true; // cannot prove the render safe — degrade
+  }
+  const projection = decodeMicromarkText(html.replace(HTML_TAG, ''))
+    .replace(HYPHEN_GLYPHS, '-')
+    .replace(UNDERSCORE_GLYPHS, '_');
   return redactSecrets(projection) !== projection;
 }
 
