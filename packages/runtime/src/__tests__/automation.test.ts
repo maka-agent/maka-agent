@@ -134,7 +134,7 @@ describe('AutomationManager', () => {
       assert.ok(!result.durable);
     });
 
-    test('explicit durable overrides the per-kind default', () => {
+    test('explicit durable refines cron; heartbeat is always session-bound', () => {
       const mgr = createManager();
       const cron = mgr.create({
         kind: 'cron', name: 'ephemeral-cron', prompt: 'p',
@@ -143,13 +143,14 @@ describe('AutomationManager', () => {
       });
       assert.ok(!('error' in cron));
       assert.ok(!cron.durable);
+      // durable is a cron-only concept — a heartbeat cannot opt into it.
       const beat = mgr.create({
         kind: 'heartbeat', name: 'durable-beat', prompt: 'p',
         sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
         durable: true,
       });
       assert.ok(!('error' in beat));
-      assert.equal(beat.durable, true);
+      assert.ok(!beat.durable);
     });
   });
 
@@ -447,6 +448,64 @@ describe('AutomationManager', () => {
       assert.equal(removed, 1);
       assert.equal(mgr.listForSession('s1').length, 1);
       assert.equal(mgr.listForSession('s1')[0].kind, 'cron');
+    });
+  });
+
+  describe('registerAll — restart recovery', () => {
+    function load(mgr: ReturnType<typeof createManager>, over: Partial<Record<string, unknown>>) {
+      const base = {
+        id: 'loaded', kind: 'cron', name: 'c', status: 'active', prompt: 'p', sessionId: 's1',
+        schedule: { type: 'cron', expression: '0 9 * * *' }, createdAt: 0, updatedAt: 0,
+        nextFireAt: null, lastFireAt: null, lastRunId: null, fireCount: 0, maxFires: null,
+        expiresAt: null, lastError: null, consecutiveFailures: 0, durable: true,
+      };
+      mgr.registerAll([{ ...base, ...over }] as never);
+      return mgr.get('loaded');
+    }
+
+    test('heals an interrupted fire: active + nextFireAt=null gets re-armed', () => {
+      // App quit mid-run after attemptStarted nulled nextFireAt but before the
+      // outcome settled → persisted as active with nextFireAt=null.
+      const healed = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 1 });
+      assert.ok(healed?.nextFireAt, 'interrupted active automation should be re-armed on load');
+    });
+
+    test('does NOT re-arm a spent maxFires automation on load', () => {
+      const kept = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 3, maxFires: 3 });
+      assert.equal(kept?.nextFireAt, null);
+    });
+
+    test('does NOT re-arm a once automation that already fired', () => {
+      const kept = load(createManager(), {
+        status: 'active', nextFireAt: null, fireCount: 1,
+        schedule: { type: 'once', delaySeconds: 30 },
+      });
+      assert.equal(kept?.nextFireAt, null);
+    });
+
+    test('leaves a normally-scheduled automation untouched', () => {
+      const kept = load(createManager(), { status: 'active', nextFireAt: 999999 });
+      assert.equal(kept?.nextFireAt, 999999);
+    });
+  });
+
+  describe('resume — streak reset', () => {
+    test('resume clears consecutiveFailures so one later failure does not re-pause', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'cron', name: 'flaky', prompt: 'p',
+        sessionId: 's1', schedule: { type: 'cron', expression: '* * * * *' },
+      });
+      assert.ok(!('error' in auto));
+      const id = (auto as { id: string }).id;
+      // Accumulate failures short of the pause threshold, then pause + resume.
+      mgr.attemptStarted(id); mgr.attemptFailed(id, 'boom');
+      mgr.attemptStarted(id); mgr.attemptFailed(id, 'boom');
+      assert.equal(mgr.get(id)?.consecutiveFailures, 2);
+      mgr.pause(id, 's1');
+      const resumed = mgr.resume(id, 's1');
+      assert.equal(resumed?.consecutiveFailures, 0, 'resume must reset the failure streak');
+      assert.equal(resumed?.lastError, null);
     });
   });
 

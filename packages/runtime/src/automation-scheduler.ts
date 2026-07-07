@@ -24,7 +24,14 @@ export interface AutomationFireResult {
 
 export interface AutomationSchedulerDeps {
   automationManager: AutomationManager;
-  canFire: (sessionId: string) => Promise<boolean>;
+  /**
+   * Whether this automation may fire right now. Receives the whole automation
+   * so the host can gate kind-appropriately: a heartbeat injects into its own
+   * session (gate on that session's existence/idleness), while a cron spawns a
+   * FRESH session (its creator session is irrelevant — gate only on global
+   * concerns like privacy mode). Global gates (e.g. incognito) apply to both.
+   */
+  canFire: (automation: AutomationDefinition) => Promise<boolean>;
   /**
    * Inject a turn into the automation's own session (heartbeat kind).
    * Resolves with the run outcome AFTER the turn's stream finishes.
@@ -129,7 +136,7 @@ export class AutomationScheduler {
 
     let canFire: boolean;
     try {
-      canFire = await this.deps.canFire(automation.sessionId);
+      canFire = await this.deps.canFire(automation);
     } catch {
       // canFire failure: skip this automation this tick, don't crash the loop.
       return;

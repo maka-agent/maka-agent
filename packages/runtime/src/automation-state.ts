@@ -87,9 +87,11 @@ export class AutomationManager {
 
     // Cron is a standalone scheduled task (fresh session each run) — it is
     // meaningless if it dies on restart, so it defaults to durable. Heartbeat
-    // resumes into its creator session, whose lifetime bounds it, so it stays
-    // opt-in. An explicit `durable` value always wins.
-    const durable = input.durable ?? input.kind === 'cron';
+    // injects into its own session and has no coherent post-restart target, so
+    // it is ALWAYS session-bound (never durable) — a durable heartbeat would be
+    // a zombie after restart. `durable` is therefore a cron-only concept; an
+    // explicit value only refines cron.
+    const durable = input.kind === 'cron' ? (input.durable ?? true) : false;
 
     const automation: AutomationDefinition = {
       id,
@@ -153,6 +155,10 @@ export class AutomationManager {
     if (automation.schedule.type === 'once' && automation.fireCount > 0) return undefined;
     automation.status = 'active';
     automation.updatedAt = this.deps.now();
+    // Resume starts a clean streak — a fire that paused this automation must not
+    // count toward re-pausing it after a single fresh failure.
+    automation.consecutiveFailures = 0;
+    automation.lastError = null;
     automation.nextFireAt = this.computeNextFire(automation.schedule, this.deps.now());
     return automation;
   }
@@ -313,7 +319,21 @@ export class AutomationManager {
 
   /** Bulk-register pre-existing automations (e.g. loaded from durable store on startup). */
   registerAll(automations: AutomationDefinition[]): void {
+    const now = this.deps.now();
     for (const automation of automations) {
+      // Heal an interrupted fire: a fire that started (fireCount bumped,
+      // nextFireAt nulled) but whose run never settled — because the app quit
+      // mid-run — persists as active with nextFireAt=null. Left alone it is a
+      // silent zombie (never fires again until expiry). If its budget isn't
+      // spent, re-arm it so it fires again.
+      if (
+        automation.status === 'active' &&
+        automation.nextFireAt === null &&
+        !(automation.maxFires != null && automation.fireCount >= automation.maxFires) &&
+        !(automation.schedule.type === 'once' && automation.fireCount > 0)
+      ) {
+        automation.nextFireAt = this.computeNextFire(automation.schedule, now);
+      }
       this.automations.set(automation.id, automation);
     }
   }

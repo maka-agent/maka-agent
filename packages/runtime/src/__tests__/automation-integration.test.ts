@@ -109,23 +109,32 @@ describe('Automation integration: heartbeat fires on schedule', () => {
 });
 
 describe('Automation integration: durable flag', () => {
-  test('create durable automation, verify flag is set', async () => {
+  test('cron is durable; a durable heartbeat is coerced to session-bound', async () => {
     const t = createIntegrationSetup();
     const ctx = t.ctx();
 
-    const result = await t.tool.impl({
+    // Cron is durable by default (app-global, survives restart).
+    const cron = await t.tool.impl({
       mode: 'create',
-      kind: 'heartbeat',
+      kind: 'cron',
       name: 'persistent check',
       prompt: 'check it',
+      schedule: { type: 'cron', expression: '*/5 * * * *' },
+    }, ctx) as string;
+    assert.ok(cron.includes('durable'));
+    assert.equal(t.manager.listForSession(SESSION_ID).find(a => a.name === 'persistent check')?.durable, true);
+
+    // durable is a cron-only concept: a heartbeat stays session-bound even when
+    // durable:true is requested (a durable heartbeat would be a post-restart zombie).
+    await t.tool.impl({
+      mode: 'create',
+      kind: 'heartbeat',
+      name: 'session poll',
+      prompt: 'poll',
       schedule: { type: 'interval', seconds: 60 },
       durable: true,
     }, ctx) as string;
-
-    assert.ok(result.includes('durable'));
-
-    const automations = t.manager.listForSession(SESSION_ID);
-    assert.equal(automations[0].durable, true);
+    assert.ok(!t.manager.listForSession(SESSION_ID).find(a => a.name === 'session poll')?.durable);
   });
 
   test('onAutomationChange fires on create/delete', async () => {

@@ -127,9 +127,8 @@ describe('Mutation verification: tests catch broken behavior', () => {
     const manager = new AutomationManager({ generateId: () => `m-${++idCounter}`, now: () => Date.now() });
 
     const auto = manager.create({
-      kind: 'heartbeat', name: 'persist', prompt: 'p', sessionId: SESSION_ID,
-      schedule: { type: 'interval', seconds: 60 },
-      durable: true,
+      kind: 'cron', name: 'persist', prompt: 'p', sessionId: SESSION_ID,
+      schedule: { type: 'cron', expression: '0 9 * * *' },
     });
     assert.ok(!('error' in auto));
     assert.equal(auto.durable, true, 'Create must store durable flag — test catches missing field');

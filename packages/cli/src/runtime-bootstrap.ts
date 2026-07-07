@@ -100,7 +100,9 @@ export async function createMakaCliRuntimeContext(
   const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
   const syncAutomations = (): void => {
     const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
-    automationStore.sync(durable).catch(() => {});
+    automationStore.sync(durable).catch(err => {
+      console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
+    });
   };
   const automationTool = buildAutomationTool({
     automationManager,
@@ -188,8 +190,15 @@ export async function createMakaCliRuntimeContext(
 
   const automationScheduler = new AutomationScheduler({
     automationManager,
-    canFire: async (sessionId) => {
-      const header = await store.readHeader(sessionId);
+    canFire: async (automation) => {
+      // Global privacy gate (shared settings schema): don't fire under incognito.
+      const settings = await settingsStore.get();
+      if (settings.privacy?.incognitoActive === true) return false;
+      // The CLI enables heartbeat only (createFreshRun omitted); a cron short-
+      // circuits here so the scheduler reaches its "cron not configured" failure
+      // path instead of being gated on a session it never uses.
+      if (automation.kind === 'cron') return true;
+      const header = await store.readHeader(automation.sessionId);
       if (!header || header.archivedAt) return false;
       if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
       return true;

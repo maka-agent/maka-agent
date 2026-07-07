@@ -177,7 +177,7 @@ import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
 import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
-import { createMainAutomationWiring } from './automation-wiring.js';
+import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -338,23 +338,17 @@ const taskLedgerStore = taskLedgerWiring.store;
 
 // Unified Automation — single "Automation" tool for heartbeat + cron.
 // Deps are resolved lazily since runtime/store aren't ready at this point.
+const AUTOMATION_HEARTBEAT_IDLE_STATUSES: ReadonlySet<string> = new Set(['active', 'done']);
 const automationWiring = createMainAutomationWiring({
   workspaceRoot,
-  async canFire(sessionId: string): Promise<boolean> {
-    // Respect the workspace privacy mode. While incognito is active, automations
-    // must not fire — a heartbeat injects a turn and a cron spawns a fresh run,
-    // both of which send data to the model. This mirrors the plan-reminders
-    // privacy gate (plan-reminders-main.ts); the scheduler defers while blocked,
-    // then skips to the next occurrence if incognito outlasts the defer window.
-    const { incognitoActive } = await getWorkspacePrivacyContext();
-    if (incognitoActive) return false;
-    const header = await store.readHeader(sessionId);
-    if (!header || header.archivedAt) return false;
-    // Only fire into a genuinely idle session — not mid-turn, blocked, aborted,
-    // waiting on the user, or already settled/under review.
-    if (header.status !== 'active' && header.status !== 'waiting_for_user' && header.status !== 'done') return false;
-    if (header.status === 'waiting_for_user') return false;
-    return true;
+  async canFire(automation): Promise<boolean> {
+    // Kind-aware fire gate (see evaluateAutomationCanFire): incognito blocks all;
+    // cron is never gated on its creator session; heartbeat needs an idle session.
+    return evaluateAutomationCanFire(automation, {
+      isIncognitoActive: async () => (await getWorkspacePrivacyContext()).incognitoActive,
+      readSessionHeader: (sessionId) => store.readHeader(sessionId),
+      idleStatuses: AUTOMATION_HEARTBEAT_IDLE_STATUSES,
+    });
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
   async injectTurn(sessionId: string, prompt: string, automationId: string) {
