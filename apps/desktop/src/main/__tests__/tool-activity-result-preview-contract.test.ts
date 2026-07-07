@@ -202,9 +202,16 @@ describe('ToolActivity result preview contract', () => {
     const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
       toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
     };
-    for (const encoded of ['sk\\-1234567890abcdefghi', 'sk*-*1234567890abcdefghi', '[sk-](https://x)1234567890abcdefghi']) {
+    for (const encoded of [
+      'sk\\-1234567890abcdefghi',
+      'sk*-*1234567890abcdefghi',
+      '[sk-](https://x)1234567890abcdefghi',
+      // Reference-style link: the `[.]` label content vanishes from the
+      // rendered text just like an inline destination (codex review round 4).
+      '[sk-][.]1234567890abcdefghi\n\n[.]: https://x',
+    ]) {
       const plan = toolTextPreviewPlan(`key: ${encoded}`);
-      assert.ok('plain' in plan, `${encoded} must degrade to the literal plain path — markdown rendering would strip the punctuation and reassemble the secret`);
+      assert.ok('plain' in plan, `${JSON.stringify(encoded)} must degrade to the literal plain path — markdown rendering would strip the punctuation and reassemble the secret`);
     }
     // Plain prose keeps the markdown path.
     const prose = toolTextPreviewPlan('# heading\n\nnormal *emphasis* and a [link](https://example.com)');

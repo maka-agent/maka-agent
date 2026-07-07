@@ -6,6 +6,12 @@ export const TOOL_LINE_CAP = 500;
 const BACKSLASH_ESCAPE = /\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])/g;
 /** Link / image destinations — `](…)` — vanish wholesale from rendered text. */
 const LINK_DESTINATION = /\]\([^)]*\)/g;
+/** Reference-style link labels — `][…]` — vanish from rendered text exactly
+ * like inline destinations (`[sk-][.]1234` renders `<a>sk-</a>1234`, codex
+ * review round 4). Covers full (`[text][label]`) and collapsed (`[text][]`)
+ * references; shortcut references (`[text]`) are bare brackets, handled by
+ * the char strip below. */
+const REFERENCE_LABEL = /\]\[[^\]]*\]/g;
 /** Raw HTML tags. react-markdown v9 without rehype-raw renders raw HTML as
  * literal TEXT (so `<redacted>` markers survive and `sk<b>-</b>123` displays
  * with its tags visible); stripping tags here models the skipHtml-style drop
@@ -34,6 +40,7 @@ function markdownWouldRevealRedactable(text: string): boolean {
   const projection = text
     .replace(BACKSLASH_ESCAPE, '$1')
     .replace(LINK_DESTINATION, ']')
+    .replace(REFERENCE_LABEL, ']')
     .replace(RAW_HTML_TAG, '')
     .replace(MARKDOWN_CONSUMED_CHARS, '');
   return redactSecrets(projection) !== projection;
