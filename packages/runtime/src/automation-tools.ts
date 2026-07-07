@@ -21,79 +21,59 @@ export interface AutomationToolDeps {
   cronEnabled?: boolean;
 }
 
-function buildCreateSchema(cronEnabled: boolean) {
-  const kind = cronEnabled
-    ? z.enum(['heartbeat', 'cron']).describe('heartbeat = resume into current session (polling/monitoring). cron = create fresh session each run (standalone scheduled tasks).')
-    : z.literal('heartbeat').describe('heartbeat = resume into current session (polling/monitoring). This host supports heartbeat automations only.');
+const scheduleSchema = z.union([
+  z.object({
+    type: z.literal('cron'),
+    expression: z.string().min(9).max(100)
+      .describe('5-field cron expression: "minute hour day-of-month month day-of-week". Example: "*/5 * * * *" = every 5 min, "0 9 * * 1-5" = weekdays at 9am.'),
+  }),
+  z.object({
+    type: z.literal('interval'),
+    seconds: z.number().int().min(10).max(86400)
+      .describe('Repeat interval in seconds (10s to 24h).'),
+  }),
+  z.object({
+    type: z.literal('once'),
+    delay_seconds: z.number().int().min(5).max(86400)
+      .describe('One-shot delay in seconds (5s to 24h). Fires once then auto-completes.'),
+  }),
+]);
+
+// A SINGLE top-level object schema (Anthropic tool input_schema.type must be
+// "object" — a discriminated union serializes as anyOf with no top-level type
+// and the API rejects it). Per-mode fields are optional here and validated in
+// impl(). mode selects the operation.
+function makeAutomationSchema(kindSchema: z.ZodType) {
   return z.object({
-    mode: z.literal('create'),
-    kind,
-    name: z.string().trim().min(1).max(100)
-      .describe('Short human-readable name for this automation.'),
-    prompt: z.string().trim().min(1).max(2000)
-      .describe('The prompt to execute on each fire.'),
-    schedule: z.union([
-      z.object({
-        type: z.literal('cron'),
-        expression: z.string().min(9).max(100)
-          .describe('5-field cron expression: "minute hour day-of-month month day-of-week". Example: "*/5 * * * *" = every 5 min, "0 9 * * 1-5" = weekdays at 9am.'),
-      }),
-      z.object({
-        type: z.literal('interval'),
-        seconds: z.number().int().min(10).max(86400)
-          .describe('Repeat interval in seconds (10s to 24h).'),
-      }),
-      z.object({
-        type: z.literal('once'),
-        delay_seconds: z.number().int().min(5).max(86400)
-          .describe('One-shot delay in seconds (5s to 24h). Fires once then auto-completes.'),
-      }),
-    ]).describe('When to fire. Use "interval" for simple repeats, "cron" for complex schedules, "once" for one-shot delays.'),
+    mode: z.enum(['create', 'delete', 'list', 'pause', 'resume'])
+      .describe('Operation: create a new automation, delete/pause/resume one by id, or list this session\'s automations.'),
+    kind: kindSchema.optional(),
+    name: z.string().trim().min(1).max(100).optional()
+      .describe('[create] Short human-readable name.'),
+    prompt: z.string().trim().min(1).max(2000).optional()
+      .describe('[create] The prompt to execute on each fire.'),
+    schedule: scheduleSchema.optional()
+      .describe('[create] When to fire. Use "interval" for simple repeats, "cron" for complex schedules, "once" for one-shot.'),
     max_fires: z.number().int().min(1).max(10000).optional()
-      .describe('Maximum number of fires before auto-completing. Omit for unlimited (7-day expiry still applies).'),
+      .describe('[create] Maximum fires before auto-completing. Omit for unlimited (7-day expiry still applies).'),
     durable: z.boolean().optional()
-      .describe('When true, this automation persists across app restarts. Default: false (session-scoped only).'),
+      .describe('[create] When true, persists across app restarts. Default: false.'),
+    id: z.string().min(1).max(64).optional()
+      .describe('[delete/pause/resume] Automation id.'),
   });
 }
 
-const deleteSchema = z.object({
-  mode: z.literal('delete'),
-  id: z.string().min(1).max(64)
-    .describe('Automation ID to delete.'),
-});
+const AUTOMATION_SCHEMA_WITH_CRON = makeAutomationSchema(
+  z.enum(['heartbeat', 'cron'])
+    .describe('[create] heartbeat = resume into current session (polling/monitoring). cron = create fresh session each run (standalone scheduled tasks).'),
+);
+const AUTOMATION_SCHEMA_HEARTBEAT_ONLY = makeAutomationSchema(
+  z.enum(['heartbeat'])
+    .describe('[create] heartbeat = resume into current session. This host supports heartbeat only.'),
+);
 
-const listSchema = z.object({
-  mode: z.literal('list'),
-});
-
-const pauseSchema = z.object({
-  mode: z.literal('pause'),
-  id: z.string().min(1).max(64)
-    .describe('Automation ID to pause.'),
-});
-
-const resumeSchema = z.object({
-  mode: z.literal('resume'),
-  id: z.string().min(1).max(64)
-    .describe('Automation ID to resume.'),
-});
-
-function buildAutomationSchema(cronEnabled: boolean) {
-  return z.discriminatedUnion('mode', [
-    buildCreateSchema(cronEnabled),
-    deleteSchema,
-    listSchema,
-    pauseSchema,
-    resumeSchema,
-  ]);
-}
-
-// Broad input type (covers both cron-enabled and heartbeat-only schemas).
-type AutomationInput = z.infer<ReturnType<typeof buildAutomationSchema>>;
-type CreateInput = z.infer<ReturnType<typeof buildCreateSchema>>;
-type DeleteInput = z.infer<typeof deleteSchema>;
-type PauseInput = z.infer<typeof pauseSchema>;
-type ResumeInput = z.infer<typeof resumeSchema>;
+// Type from the broadest (cron-enabled) schema so kind can be 'heartbeat'|'cron'.
+type AutomationInput = z.infer<typeof AUTOMATION_SCHEMA_WITH_CRON>;
 
 export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<AutomationInput, string> {
   const cronEnabled = deps.cronEnabled === true;
@@ -105,25 +85,37 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
       + 'Use kind "heartbeat" for session-internal polling (resumes into this conversation). '
       + (cronEnabled ? 'Use kind "cron" for standalone scheduled tasks (creates a fresh session each run). ' : '')
       + 'Automations auto-expire after 7 days unless deleted earlier.',
-    parameters: buildAutomationSchema(cronEnabled),
+    parameters: cronEnabled ? AUTOMATION_SCHEMA_WITH_CRON : AUTOMATION_SCHEMA_HEARTBEAT_ONLY,
     permissionRequired: false,
     impl: (input, ctx) => {
       let result: string;
       switch (input.mode) {
         case 'create':
-          result = handleCreate(deps, input, ctx.sessionId);
+          result = handleCreate(deps, input, ctx.sessionId, cronEnabled);
           break;
         case 'delete':
-          result = handleDelete(deps, input, ctx.sessionId);
+          result = handleById(input, (id) => deps.automationManager.delete(id, ctx.sessionId)
+            ? `Automation "${id}" deleted.`
+            : `Automation "${id}" not found or not owned by this session.`);
           break;
         case 'list':
           return handleList(deps, ctx.sessionId);
-        case 'pause':
-          result = handlePause(deps, input, ctx.sessionId);
+        case 'pause': {
+          result = handleById(input, (id) => {
+            const r = deps.automationManager.pause(id, ctx.sessionId);
+            return r ? `Automation "${r.name}" paused. Use mode "resume" to reactivate.`
+              : `Cannot pause "${id}": not found, not owned, or not active.`;
+          });
           break;
-        case 'resume':
-          result = handleResume(deps, input, ctx.sessionId);
+        }
+        case 'resume': {
+          result = handleById(input, (id) => {
+            const r = deps.automationManager.resume(id, ctx.sessionId);
+            return r ? `Automation "${r.name}" resumed. Next fire: ${r.nextFireAt ? new Date(r.nextFireAt).toLocaleString() : 'N/A'}`
+              : `Cannot resume "${id}": not found, not owned, or not paused.`;
+          });
           break;
+        }
       }
       deps.onAutomationChange?.();
       return result;
@@ -131,17 +123,30 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
   };
 }
 
+function handleById(input: AutomationInput, run: (id: string) => string): string {
+  if (!input.id) return 'Error: "id" is required for delete/pause/resume.';
+  return run(input.id);
+}
+
 function handleCreate(
   deps: AutomationToolDeps,
-  input: CreateInput,
+  input: AutomationInput,
   sessionId: string,
+  cronEnabled: boolean,
 ): string {
+  if (!input.kind) return 'Error: "kind" is required for create.';
+  if (!input.name) return 'Error: "name" is required for create.';
+  if (!input.prompt) return 'Error: "prompt" is required for create.';
+  if (!input.schedule) return 'Error: "schedule" is required for create.';
+  if (input.kind === 'cron' && !cronEnabled) {
+    return 'Error: cron automations are not supported on this host. Use kind "heartbeat".';
+  }
   const schedule = input.schedule.type === 'once'
     ? { type: 'once' as const, delaySeconds: input.schedule.delay_seconds }
     : input.schedule;
 
   const result = deps.automationManager.create({
-    kind: input.kind,
+    kind: input.kind as 'heartbeat' | 'cron',
     name: input.name,
     prompt: input.prompt,
     sessionId,
@@ -166,41 +171,11 @@ function handleCreate(
   ].join('\n');
 }
 
-function handleDelete(
-  deps: AutomationToolDeps,
-  input: DeleteInput,
-  sessionId: string,
-): string {
-  const deleted = deps.automationManager.delete(input.id, sessionId);
-  if (!deleted) return `Automation "${input.id}" not found or not owned by this session.`;
-  return `Automation "${input.id}" deleted.`;
-}
-
 function handleList(deps: AutomationToolDeps, sessionId: string): string {
   const automations = deps.automationManager.listForSession(sessionId);
   if (automations.length === 0) return 'No automations for this session.';
 
   return automations.map(a => formatAutomation(a)).join('\n---\n');
-}
-
-function handlePause(
-  deps: AutomationToolDeps,
-  input: PauseInput,
-  sessionId: string,
-): string {
-  const result = deps.automationManager.pause(input.id, sessionId);
-  if (!result) return `Cannot pause "${input.id}": not found, not owned, or not active.`;
-  return `Automation "${result.name}" paused. Use mode "resume" to reactivate.`;
-}
-
-function handleResume(
-  deps: AutomationToolDeps,
-  input: ResumeInput,
-  sessionId: string,
-): string {
-  const result = deps.automationManager.resume(input.id, sessionId);
-  if (!result) return `Cannot resume "${input.id}": not found, not owned, or not paused.`;
-  return `Automation "${result.name}" resumed. Next fire: ${result.nextFireAt ? new Date(result.nextFireAt).toLocaleString() : 'N/A'}`;
 }
 
 function formatAutomation(a: AutomationDefinition): string {
