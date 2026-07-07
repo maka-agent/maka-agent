@@ -401,9 +401,12 @@
   border-bottom: var(--border-width-hairline) solid var(--border);
   text-align: left;
 }
-/* Without a frame the table must not end on a stray rule. */
-.maka-prose tr:last-child th,
-.maka-prose tr:last-child td {
+/* Without a frame the table must not end on a stray rule. Scoped to
+   tbody: the thead row is its parent's :last-child too, and an unscoped
+   `tr:last-child th` (0,2,2) out-specifies `.maka-prose th` (0,1,1) —
+   it would erase the reinforced header rule below. */
+.maka-prose tbody tr:last-child th,
+.maka-prose tbody tr:last-child td {
   border-bottom: 0;
 }
 .maka-prose th {

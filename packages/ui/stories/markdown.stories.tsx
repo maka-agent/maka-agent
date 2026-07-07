@@ -180,8 +180,8 @@ export const LinkRouting: Story = {
 };
 
 // Tables shrink-wrap to content and only scroll when wider than the prose
-// measure — this story pins the over-wide branch (horizontal scroller
-// inside the rounded border) next to the narrow tables in the stories above.
+// measure — this story pins the over-wide branch (frameless horizontal
+// scroller) next to the narrow tables in the stories above.
 export const WideTable: Story = {
   render: () => (
     <ProseFrame>

@@ -221,6 +221,20 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       && /border-bottom:\s*var\(--border-width-hairline\)\s+solid\s+oklch\(from var\(--foreground\)/.test(th!.decls),
       'th carries no fill and a foreground-alpha rule stronger than --border for the header split',
     );
+    // Cascade guard: the last-row border reset must be tbody-scoped. The
+    // GFM thead row is its parent's :last-child too, and an unscoped
+    // `.maka-prose tr:last-child th` (0,2,2) out-specifies `.maka-prose th`
+    // (0,1,1) — it silently erases the reinforced header rule asserted
+    // above while this declaration-level scan keeps passing.
+    assert.ok(
+      !/\.maka-prose\s+tr:last-child/.test(css),
+      'the last-row border reset must not use an unscoped `.maka-prose tr:last-child` — it matches the thead row and kills the header rule; scope it to tbody',
+    );
+    assert.match(
+      css,
+      /\.maka-prose\s+tbody\s+tr:last-child\s+th,\s*\.maka-prose\s+tbody\s+tr:last-child\s+td\s*\{[^}]*border-bottom:\s*0/,
+      'frameless tables must still drop the stray rule under the final body row',
+    );
   });
 
   it('blockquote inner block margins are neutralized at both ends', async () => {
