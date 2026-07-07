@@ -198,6 +198,40 @@ export {
   preToolUse,
 } from './permission.js';
 
+// permission-profile.ts
+export type {
+  PermissionProfile,
+  PermissionProfileDisabled,
+  PermissionProfileExternal,
+  PermissionProfileManaged,
+  PermissionProfileMatchContext,
+  PermissionProfileName,
+  FileSystemAccessMode,
+  FileSystemProtectedMetadataPolicy,
+  FileSystemSandboxEntry,
+  FileSystemSandboxKind,
+  FileSystemSandboxPolicy,
+  FileSystemSpecialPath,
+  NetworkSandboxKind,
+  NetworkSandboxPolicy,
+  ProtectedMetadataName,
+} from './permission-profile.js';
+export {
+  FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_SANDBOX_KINDS,
+  FILE_SYSTEM_SPECIAL_PATHS,
+  NETWORK_SANDBOX_KINDS,
+  PROTECTED_METADATA_NAMES,
+  canReadPath,
+  canWritePath,
+  createDangerFullAccessPermissionProfile,
+  createExternalPermissionProfile,
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+  isDeniedPath,
+  isProtectedMetadataPath,
+} from './permission-profile.js';
+
 // permission-request-health.ts
 export type {
   PermissionRequestHealth,

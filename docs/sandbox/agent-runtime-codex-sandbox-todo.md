@@ -110,18 +110,36 @@ NetworkSandboxPolicy
 
 任务：
 
-- [ ] 定义 `PermissionProfile.Managed`，包含 file system policy 和 network policy。
-- [ ] 定义 `PermissionProfile.Disabled`，表示不启用 Maka-managed sandbox。
-- [ ] 定义 `PermissionProfile.External`，表示文件系统隔离由外部环境负责，Maka 仍可表达 network policy。
-- [ ] 定义 `FileSystemSandboxKind`：`restricted`、`unrestricted`、`external_sandbox`。
-- [ ] 定义 `FileSystemAccessMode`：`read`、`write`、`deny`。
-- [ ] 定义 `FileSystemSandboxEntry`：path + access。
-- [ ] 定义 `NetworkSandboxPolicy`：`restricted`、`enabled`。
-- [ ] 定义 special paths：`:root`、`:workspace_roots`、`:tmpdir`、`:slash_tmp`、`:minimal`。
-- [ ] 定义 protected metadata 名称：`.git`、`.agents`、`.codex`。
-- [ ] 实现基础 matcher：判断某个 path 是否可读、可写、被 deny。
-- [ ] 实现 protected metadata 判断：workspace-write 下默认 deny-write。
-- [ ] 从 `@maka/core` 导出这些类型和 helper。
+- [x] 定义 `PermissionProfile.Managed`，包含 file system policy 和 network policy。
+- [x] 定义 `PermissionProfile.Disabled`，表示不启用 Maka-managed sandbox。
+- [x] 定义 `PermissionProfile.External`，表示文件系统隔离由外部环境负责，Maka 仍可表达 network policy。
+- [x] 定义 `FileSystemSandboxKind`：`restricted`、`unrestricted`、`external_sandbox`。
+- [x] 定义 `FileSystemAccessMode`：`read`、`write`、`deny`。
+- [x] 定义 `FileSystemSandboxEntry`：path/special + access。
+- [x] 定义 `NetworkSandboxPolicy`：`restricted`、`enabled`。
+- [x] 定义 special paths：`:root`、`:workspace_roots`、`:tmpdir`、`:slash_tmp`、`:minimal`。
+- [x] 定义 protected metadata 名称：`.git`、`.agents`、`.codex`。
+- [x] 实现基础 matcher：判断某个 path 是否可读、可写、被 deny。
+- [x] 实现 protected metadata 判断：workspace-write 下默认 deny-write。
+- [x] 从 `@maka/core` 导出这些类型和 helper。
+
+> 具体方案：Phase 1 只在 `@maka/core` 中定义平台无关的权限规则语言，不做 runtime enforcement，不启动 sandbox，不访问真实文件系统。
+>
+> `PermissionProfile` 使用 `managed` / `disabled` / `external` 三种顶层形态。`managed` 表示 Maka 管理权限语义，包含 file system policy 和 network policy；`disabled` 只表示 Maka 不启用自己的权限管理或 sandbox 管理；`external` 表示文件系统隔离由外部环境负责，Maka 仍可表达 network policy。
+>
+> `danger-full-access` 不表达成 `disabled`。它表达成一个明确的 `managed` profile：`fileSystem.kind = unrestricted`，`network.kind = enabled`。这样 diagnostics 和后续 runtime 都能区分“用户明确选择最高权限”和“Maka 权限管理关闭”。
+>
+> `FileSystemSandboxEntry` 使用 discriminated union：`kind: 'path'` 表示具体绝对路径，`kind: 'special'` 表示 `:workspace_roots`、`:tmpdir` 这类 symbolic path。后续 runtime 或 profile resolver 负责保证传入 matcher 的 path 和 special context 已经合法、规范化。
+>
+> Phase 1 matcher 只做纯字符串判断，假设传入 path 已经是规范化后的绝对路径。相对路径解析、`realpath`、symlink escape、路径是否存在、macOS/Linux 差异都放到后续 runtime enforcement 处理。
+>
+> matcher 规则固定为：`deny` 优先级最高；`write` 隐含 `read`；目录匹配必须按 path segment 边界进行，避免 `/repo` 错误匹配 `/repo2`。
+>
+> network policy 第一版只包含 `restricted` 和 `enabled`。`restricted` 表示默认不允许直接网络访问，`enabled` 表示允许网络访问。managed proxy、domain allowlist 等能力留到后续扩展。
+>
+> protected metadata 第一版固定为 `.git`、`.agents`、`.codex`。`workspace-write` 下默认对 workspace root 下面任意层级的这些目录执行 deny-write，但仍允许 read。
+>
+> Phase 1 同时提供 `createReadOnlyPermissionProfile()`、`createWorkspaceWritePermissionProfile()`、`createDangerFullAccessPermissionProfile()` 三个 factory。Phase 2 的 `permissionMode -> PermissionProfile` compiler 后续直接复用这些 factory。
 
 验收标准：
 
@@ -545,4 +563,3 @@ M9: Linux backend 接入。
 - 不在第一版做 unsandboxed retry。
 - 不引入 worktree/write-back 相关实现。
 - 每个阶段都必须有 focused tests。
-
