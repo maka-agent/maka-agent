@@ -188,6 +188,14 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       /\.maka-bubble-streaming\s*>\s*p:last-child\s*\{[^}]*display:\s*inline/,
       'the caret-inline rule must be scoped to .maka-bubble-streaming so committed messages and .maka-prose reusers (tool results, #546 PR6) keep block paragraphs',
     );
+    // Negative side of the same contract: an unscoped variant on the
+    // committed-message classes would inline the final paragraph of every
+    // settled message — the exact regression this pass removed.
+    assert.ok(
+      !/\.maka-prose\s*>\s*p:last-child/.test(css)
+      && !/\.maka-bubble-assistant\s*>\s*p:last-child/.test(css),
+      'no p:last-child inlining on .maka-prose / .maka-bubble-assistant — committed messages must keep block paragraphs',
+    );
   });
 
   it('the code-block pre code reset clears the inline-code border', async () => {
@@ -245,6 +253,12 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
     assert.ok(
       last,
       'blockquote > :last-child must zero margin-bottom — a trailing p margin stacks on the quote padding (8px top vs 20px bottom) and tilts the quote',
+    );
+    const first = blocks.find(({ selectors, decls }) =>
+      /\.maka-prose\s+blockquote\s*>\s*:first-child/.test(selectors) && /margin-top:\s*0/.test(decls));
+    assert.ok(
+      first,
+      'blockquote > :first-child must zero margin-top — the other end of the same stacking asymmetry',
     );
   });
 });

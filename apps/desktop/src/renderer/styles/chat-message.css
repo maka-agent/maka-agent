@@ -379,8 +379,10 @@
      between columns. `display: block` makes the element a scroll
      container, `max-content` lets narrow tables hug their cells, and the
      100% cap + overflow-x turns over-wide tables into a horizontal
-     scroller inside the prose measure. border-collapse/spacing are
-     inherited properties, so the anonymous inner table keeps them. */
+     scroller inside the prose measure. The rows re-wrap in an anonymous
+     inner table box: `border-collapse` is inherited so `separate`
+     reaches it; `border-spacing` is NOT inherited — its initial value
+     is already 0, the declaration below just documents the intent. */
   display: block;
   width: max-content;
   max-width: 100%;
