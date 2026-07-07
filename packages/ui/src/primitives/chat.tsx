@@ -518,6 +518,11 @@ const previewVariants = cva("", {
       // the structured-card kind parts override them by tailwind-merge (note 1).
       overlay:
         "mt-1 mx-0 mb-0 max-h-[180px] overflow-auto [font-family:var(--font-mono)] text-xs [white-space:pre-wrap] [word-break:break-word]",
+      // `.maka-tool-prose` — the text-kind result body (#546 PR6): same
+      // height-bounded scroll box as the overlay, but no font/white-space
+      // utilities — the call site composes `.maka-prose`, and the prose layer
+      // owns the typography (utilities here would beat it in the cascade).
+      "prose-body": "mt-1 mx-0 mb-0 max-h-[180px] overflow-auto",
       // `.maka-overlay-close` — the dismiss action (layered over `.maka-button`).
       close:
         "justify-self-end inline-flex items-center gap-1 min-h-6 px-1.5",

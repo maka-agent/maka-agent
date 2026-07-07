@@ -1,6 +1,7 @@
 import { normalizeSearchUrl, type ToolResultContent } from '@maka/core';
 import { Check, Copy } from '../icons.js';
 import { useClipboardCopyFeedback } from '../clipboard-feedback.js';
+import { Markdown } from '../markdown.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { Button as UiButton, cn } from '../ui.js';
@@ -75,12 +76,17 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
   }
 
   if (content.kind === 'text') {
+    // #546 PR6: the generic text body renders as markdown prose. The
+    // whitespace-critical kinds (terminal / file_diff / json) keep their own
+    // mono cards above, so what lands here is prose-shaped text (agent
+    // messages, permission notes, page extracts). Redaction + line cap run
+    // on the source before the markdown pipeline sees it.
     const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(content.text)));
+    const text = capped > 0 ? `${body}\n\n… 已隐藏 ${capped} 行` : body;
     return (
-      <pre className={previewVariants({ part: 'overlay' })} data-kind="text">
-        {body}
-        {capped > 0 && `\n\n… 已隐藏 ${capped} 行`}
-      </pre>
+      <div className={cn(previewVariants({ part: 'prose-body' }), 'maka-prose')} data-kind="text">
+        <Markdown text={text} />
+      </div>
     );
   }
 

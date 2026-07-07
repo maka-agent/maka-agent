@@ -148,6 +148,14 @@ describe('ToolActivity result preview contract', () => {
     const text = renderPreview({ kind: 'text', text: numberedLines('line', 501) });
     assert.match(text, /data-kind="text"/);
     assert.match(text, /已隐藏 1 行/);
+    // #546 PR6: the text-kind body reuses the prose layer instead of the mono
+    // <pre> overlay — the container carries .maka-prose so the prose element
+    // rules (typography, links, code pills, break-word, edge trims) apply.
+    // (renderToStaticMarkup can't await the lazy markdown pipeline, so the
+    // markup here is the Suspense plain-text fallback; the wiring contract —
+    // prose-classed container, no raw <pre> — is what this locks.)
+    assert.match(text, /class="[^"]*maka-prose[^"]*"[^>]*data-kind="text"|data-kind="text"[^>]*class="[^"]*maka-prose[^"]*"/, 'text-kind tool results must render inside a .maka-prose container (#546 PR6)');
+    assert.doesNotMatch(text, /<pre/, 'text-kind tool results are markdown prose now, not a mono <pre> dump');
 
     const json = renderPreview({ kind: 'json', value: { token: SECRET, ok: true } });
     assert.match(json, /data-kind="json"/);
