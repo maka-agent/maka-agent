@@ -651,14 +651,15 @@ describe('chat markdown copy feedback contract', () => {
   });
 
   it('keeps message and code copy pending/failure states visible', async () => {
-    // .maka-message-copy / .maka-code-block-copy moved to chat-message.css
-    // (#546 PR4 relocated the message-body surface out of maka-tokens.css).
-    const stylesPath = join(process.cwd(), 'src', 'renderer', 'styles', 'chat-message.css');
-    const src = await readFile(stylesPath, 'utf8');
+    // .maka-message-copy lives in chat-message.css (#546 PR4 relocated the
+    // message-body surface out of maka-tokens.css); .maka-code-block-copy
+    // rides with the prose/code-block chrome in prose.css (#618 item 3).
+    const chatSrc = await readFile(join(process.cwd(), 'src', 'renderer', 'styles', 'chat-message.css'), 'utf8');
+    const proseSrc = await readFile(join(process.cwd(), 'src', 'renderer', 'styles', 'prose.css'), 'utf8');
 
-    assert.match(src, /\.maka-message-copy\[data-pending="true"\]/, 'Message copy needs a visible pending selector.');
-    assert.match(src, /\.maka-message-copy\[data-copy-feedback="failed"\]/, 'Message copy needs a visible failed selector.');
-    assert.match(src, /\.maka-code-block-copy\[data-pending="true"\]/, 'Code copy needs a visible pending selector.');
-    assert.match(src, /\.maka-code-block-copy\[data-copy-feedback="failed"\]/, 'Code copy needs a visible failed selector.');
+    assert.match(chatSrc, /\.maka-message-copy\[data-pending="true"\]/, 'Message copy needs a visible pending selector.');
+    assert.match(chatSrc, /\.maka-message-copy\[data-copy-feedback="failed"\]/, 'Message copy needs a visible failed selector.');
+    assert.match(proseSrc, /\.maka-code-block-copy\[data-pending="true"\]/, 'Code copy needs a visible pending selector.');
+    assert.match(proseSrc, /\.maka-code-block-copy\[data-copy-feedback="failed"\]/, 'Code copy needs a visible failed selector.');
   });
 });

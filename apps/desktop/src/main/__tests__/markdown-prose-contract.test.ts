@@ -20,8 +20,9 @@
  *    `maka-bubble-assistant`, so an assistant message actually renders the
  *    prose layer (the class is what activates the descendant rules).
  *
- * 3. .maka-prose is authored in chat-message.css (the message-body surface
- *    file) — one home, not scattered back into maka-tokens.css.
+ * 3. .maka-prose is authored in prose.css (the reusable markdown surface
+ *    file, split out of chat-message.css at the PR6 boundary — #618 item 3)
+ *    — one home, not scattered back into chat-message.css or maka-tokens.css.
  *
  * Scope note: this contract locks prose-element *ownership* (which selector
  * scope owns p/h/ul/... rules). The *values* those rules use (font-size,
@@ -36,6 +37,7 @@ import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
 import { REPO_ROOT, stripCssComments } from './css-test-helpers.js';
 
+const PROSE_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles', 'prose.css');
 const CHAT_MESSAGE_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles', 'chat-message.css');
 const TOKENS_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css');
 const CHAT_PRIMITIVE = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'chat.tsx');
@@ -68,7 +70,7 @@ function leafSelectors(css: string): string[] {
 
 describe('MARKDOWN-PROSE-CONVERGE-0 contract (#546 PR4)', () => {
   it('every Markdown prose element has a rule scoped under .maka-prose', async () => {
-    const css = await readFile(CHAT_MESSAGE_CSS, 'utf8');
+    const css = await readFile(PROSE_CSS, 'utf8');
     const selectors = leafSelectors(css);
     const missing: string[] = [];
     for (const el of PROSE_ELEMENTS) {
@@ -78,12 +80,15 @@ describe('MARKDOWN-PROSE-CONVERGE-0 contract (#546 PR4)', () => {
     assert.deepEqual(
       missing,
       [],
-      `chat-message.css must scope these prose elements under .maka-prose (found none): ${missing.join(', ')}`,
+      `prose.css must scope these prose elements under .maka-prose (found none): ${missing.join(', ')}`,
     );
   });
 
   it('no prose element rule lingers scoped under .maka-bubble-assistant', async () => {
-    const css = await readFile(CHAT_MESSAGE_CSS, 'utf8');
+    const css = [
+      await readFile(CHAT_MESSAGE_CSS, 'utf8'),
+      await readFile(PROSE_CSS, 'utf8'),
+    ].join('\n');
     const lingering: string[] = [];
     for (const el of PROSE_ELEMENTS) {
       // `.maka-bubble-assistant <el>` as a descendant — the old prose form.
@@ -110,11 +115,16 @@ describe('MARKDOWN-PROSE-CONVERGE-0 contract (#546 PR4)', () => {
     );
   });
 
-  it('.maka-prose is authored in chat-message.css, not repooled into maka-tokens.css', async () => {
+  it('.maka-prose is authored in prose.css, not repooled into chat-message.css or maka-tokens.css', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_CSS, 'utf8'));
     assert.ok(
       !/\.maka-prose\b/.test(tokens),
-      '.maka-prose must live in chat-message.css (the message-body surface), not maka-tokens.css',
+      '.maka-prose must live in prose.css (the reusable markdown surface), not maka-tokens.css',
+    );
+    const chat = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    assert.ok(
+      !/\.maka-prose\b/.test(chat),
+      '.maka-prose must live in prose.css — chat-message.css keeps only message-surface chrome (#618 item 3)',
     );
   });
 });
@@ -136,15 +146,17 @@ describe('CODE-BLOCK-PRE-FONT-TIER-0 contract (#546 PR5)', () => {
   // The assistant code block <pre> must render at the UI/chrome tier
   // (--font-size-ui), NOT inherit the prose body size. A pre-existing reset
   //   [data-slot="message"] pre { margin: 0; font: inherit }   (specificity 0,1,1)
-  // authored LATER in chat-message.css clobbers a bare `.maka-prose pre` rule
-  // (same specificity 0,1,1, earlier source → loses). The code-block pre rule
+  // in chat-message.css sits in the same layer(components) as prose.css, so a
+  // bare `.maka-prose pre` rule (also 0,1,1) would win or lose on nothing but
+  // styles.css import order — a footgun either way. The code-block pre rule
   // must therefore carry an extra class — `.maka-prose .maka-code-block pre`
-  // (specificity 0,2,1) — so it outweighs the reset and the token tier holds.
-  // The reset itself stays, so non-code-block raw <pre> (user / system) still
-  // inherits the message font instead of falling back to the UA monospace.
+  // (specificity 0,2,1) — so it outweighs the reset regardless of file order
+  // and the token tier holds. The reset itself stays, so non-code-block raw
+  // <pre> (user / system) still inherits the message font instead of falling
+  // back to the UA monospace.
 
   it('the code-block pre is scoped to outweigh the [data-slot=message] reset and uses --font-size-ui', async () => {
-    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const cb = blocks.find(({ selectors, decls }) =>
       /\.maka-code-block\s+pre\b/.test(selectors)
@@ -172,7 +184,10 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   // fix is pinned here.
 
   it('no structural :nth-last-child hacks on prose containers (PR #212 timestamp leftovers)', async () => {
-    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const css = stripCssComments([
+      await readFile(CHAT_MESSAGE_CSS, 'utf8'),
+      await readFile(PROSE_CSS, 'utf8'),
+    ].join('\n'));
     // The bubble stopped ending with an inline timestamp child long ago;
     // these selectors instead zeroed/inlined the second-to-last *markdown*
     // block (paragraph glued to a heading/table/code block above it).
@@ -199,7 +214,7 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   });
 
   it('the code-block pre code reset clears the inline-code border', async () => {
-    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const reset = blocks.find(({ selectors, decls }) =>
       /\.maka-code-block\s+pre\s+code\b/.test(selectors) && /border:\s*0/.test(decls));
@@ -210,7 +225,7 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   });
 
   it('prose tables are frameless with a reinforced header rule', async () => {
-    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const table = blocks.find(({ selectors }) => /^\.maka-prose\s+table$/.test(selectors));
     assert.ok(table, 'expected a .maka-prose table rule');
@@ -251,7 +266,7 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   });
 
   it('blockquote inner block margins are neutralized at both ends', async () => {
-    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const last = blocks.find(({ selectors, decls }) =>
       /\.maka-prose\s+blockquote\s*>\s*:last-child/.test(selectors) && /margin-bottom:\s*0/.test(decls));

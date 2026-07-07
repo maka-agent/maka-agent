@@ -30,6 +30,7 @@
 @import "./styles/palette.css";
 @import "./styles/hero.css";
 @import "./styles/chat-message.css" layer(components);
+@import "./styles/prose.css" layer(components);
 @import "./styles/composer.css";
 @import "./styles/chat-detail.css";
 @import "./styles/settings.css";

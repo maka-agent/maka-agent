@@ -1,18 +1,18 @@
 /* ============================================================================
    Chat message body
    ----------------------------------------------------------------------------
-   The MessageBody surface: message row shell, assistant bubble + Markdown
-   prose (p / h* / ul / code / pre / blockquote / table / hr), task-list
-   checkboxes, the hover copy button, the streaming caret, and the user-turn
-   meta row.
+   The MessageBody surface: message row shell, assistant bubble shell, the
+   hover copy button, the streaming caret, and the user-turn meta row. The
+   Markdown prose element layer (.maka-prose + code-block chrome + hljs
+   palette) lives in prose.css (#618 item 3).
 
    Relocated from maka-tokens.css. Authored unlayered (the renderer styles/
    contract requires it) but pulled into @layer components by
    `@import ... layer(components)` in styles.css, so the rules keep the exact
    cascade precedence they had in tokens — Tailwind utilities still win, which
    several selectors here depend on: .maka-message-row's margin loses to the
-   Message variant's ml-0/mr-auto, .maka-message-copy / .maka-code-block-copy
-   lose to the UiButton size utilities. Zero visual change — issue #546 PR4.
+   Message variant's ml-0/mr-auto, .maka-message-copy loses to the UiButton
+   size utilities. Zero visual change — issue #546 PR4.
    ============================================================================ */
 
 /* --- Message row (Message primitive base: cva("maka-message-row")) -------- */
@@ -23,78 +23,14 @@
   opacity: 1;
 }
 
-/* --- Task list checkboxes (remark-gfm <input type="checkbox" disabled>) --- */
-/* Task list checkboxes inside assistant markdown — remark-gfm gives us
- * standard <input type="checkbox" disabled> nodes; this styles them to
- * match the rest of the chat surface instead of the browser default. */
-.maka-prose ul.contains-task-list,
-.maka-prose ol.contains-task-list,
-.maka-prose ul li.task-list-item,
-.maka-prose ol li.task-list-item {
-  list-style: none;
-}
-
-.maka-prose ul.contains-task-list,
-.maka-prose ol.contains-task-list {
-  padding-left: var(--space-1);
-}
-
-.maka-prose li.task-list-item {
-  padding-left: var(--space-0-5);
-}
-
-.maka-prose li.task-list-item > input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  margin: 0 var(--space-2) 0 0;
-  border: var(--border-width-hairline) solid var(--muted-foreground);
-  border-radius: var(--radius-control);
-  background: transparent;
-  vertical-align: text-bottom;
-  cursor: not-allowed; /* read-only — editing markdown isn't supported here */
-  position: relative;
-}
-
-.maka-prose li.task-list-item > input[type="checkbox"]:checked {
-  background: var(--control);
-  border-color: var(--control);
-}
-
-.maka-prose li.task-list-item > input[type="checkbox"]:checked::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: -1px;
-  width: 4px;
-  height: 8px;
-  border: solid var(--control-foreground);
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-
-/* --- Assistant bubble shell + Markdown prose ------------------------------ */
+/* --- Assistant bubble shell ----------------------------------------------- */
 /* User message: a tinted, width-capped block anchored to the right — now
    the `Bubble variant="user"` chat primitive (issue #332 PR1). It keeps the
    neutral `--chat-user-bg` token path; the shell utilities live in
    packages/ui/src/primitives/chat.tsx. */
-/* Assistant: no bubble — just text on background, like an editor.
-   The bubble itself flows naturally; child markdown elements (h*, p, ul,
-   code blocks, tables, blockquotes) all need their own spacing/typography
-   so the content reads like a polished doc. */
-/* PR-MESSAGE-BODY-READING-RHYTHM-0 (WAWQAQ msg `cdfd68eb`, skills
-   round task #116): apply prose-typography polish from pbakaus
-   impeccable + emilkowal.ski/agents-with-taste:
-     - `text-wrap: pretty` on body paragraphs (modern Chromium —
-       reduces orphans/widows, no JS, falls back to normal).
-     - tighten display-heading letter-spacing on h1/h2 (≥ 19px)
-       to -0.012em — at display sizes the default tracking reads
-       loose; impeccable mandates ≥ -0.04em on display headings,
-       we stay conservative since Maka mixes CJK + Latin.
-     - `tabular-nums` on inline <code> so digit columns in
-       technical replies align (price tables, version numbers,
-       build outputs). */
+/* Assistant: no bubble — just text on background, like an editor. The
+   markdown element typography lives in prose.css (.maka-prose); the shell
+   keeps only container geometry. */
 .maka-bubble-assistant {
   color: var(--foreground);
   line-height: var(--leading-normal);
@@ -110,12 +46,6 @@
      max-width: 100% downstream so wide payloads still expand. */
   max-width: 72ch;
 }
-.maka-prose pre,
-.maka-prose table,
-.maka-prose .maka-code-block {
-  /* Wide payloads bypass the prose cap. */
-  max-width: 100%;
-}
 .maka-bubble-assistant > :first-child { margin-top: 0; }
 .maka-bubble-assistant > :last-child { margin-bottom: 0; }
 /* Streaming caret rides the last text line: the caret is
@@ -127,308 +57,6 @@
    stale hacks instead zeroed/inlined the second-to-last *markdown* block —
    issue #546 Phase B.) */
 .maka-bubble-streaming > p:last-child { display: inline; }
-.maka-prose p {
-  margin: 0 0 var(--space-3);
-  text-wrap: pretty;
-}
-.maka-prose h1,
-.maka-prose h2,
-.maka-prose h3,
-.maka-prose h4 {
-  /* Section rhythm keyed to the 12px paragraph gap: 20px above (clearly
-     more than a paragraph break, so sections separate) and 12px below
-     (exactly the paragraph rhythm, so the heading holds its section).
-     The old 16/8 sat too close to the paragraph gap on both sides —
-     headings neither separated sections nor matched the body rhythm. */
-  margin: var(--space-5) 0 var(--space-3);
-  line-height: var(--leading-tight);
-  font-weight: var(--font-weight-semibold);
-  text-wrap: balance;
-}
-.maka-prose h1,
-.maka-prose h2 {
-  letter-spacing: var(--tracking-normal);
-}
-.maka-prose code {
-  font-variant-numeric: tabular-nums;
-}
-/* Heading ladder re-pinned for the 13px body base (#546 Phase B): the old
-   em values were derived for 15px (22/19/16/14) and landed on fractional
-   pixels at 13 (19.07/16.47/13.87/12.13), with h3 only 0.87px above body
-   and h4 *below* body. Integer targets now: 19 / 16 / 14 / 13. h4 sits at
-   1em and reads as a heading via weight + secondary color (same convention
-   as GitHub's 1em h4). */
-.maka-prose h1 { font-size: 1.4615em; }
-.maka-prose h2 { font-size: 1.2308em; }
-.maka-prose h3 { font-size: 1.0769em; }
-.maka-prose h4 { font-size: 1em; color: var(--foreground-secondary); }
-.maka-prose ul,
-.maka-prose ol {
-  margin: 0 0 var(--space-3);
-  padding-left: var(--space-6);
-}
-/* Tailwind v4 preflight strips list markers globally (`ul, ol
-   { list-style: none }` in @layer base); restore them for rendered
-   markdown or bulleted answers read as flat indented lines. Same
-   root cause as the permission-center fix (permission-center.css). */
-.maka-prose ul { list-style: disc; }
-.maka-prose ol { list-style: decimal; }
-.maka-prose li > ul { list-style: circle; }
-.maka-prose li { margin: var(--space-0-5) 0; }
-.maka-prose li > ul,
-.maka-prose li > ol { margin-bottom: 0; }
-.maka-prose a {
-  color: var(--link);
-  text-decoration: none;
-  border-bottom: var(--border-width-hairline) solid oklch(from var(--link) l c h / 0.4);
-  /* PR-UI-LAYOUT-34: explicit transition so focus state animates
-   * smoothly. Also: explicit padding-inline + negative margin so
-   * the focus halo has hit area without pushing inline content
-   * around. */
-  padding: 0 var(--space-0-5);
-  margin: 0 calc(var(--space-0-5) * -1);
-  border-radius: var(--radius-control);
-  transition: border-bottom-color var(--duration-quick) var(--ease-out-strong), background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-}
-.maka-prose a:hover {
-  border-bottom-color: var(--link);
-}
-.maka-prose a:focus-visible {
-  outline: none;
-  background: oklch(from var(--link) l c h / 0.06);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20);
-}
-.maka-prose code {
-  font-family: var(--font-mono);
-  /* 0.92em of the 13px body ≈ 12px; at 0.86em it would fall to caption
-     size (11.2px) and stop reading as body-level code. */
-  font-size: 0.92em;
-  /* No vertical padding and no border: the Geist Mono font box is already
-     15.5px at this size, and with 1px padding + 1px border the pill's ink
-     box hit 19.5px — the full line box — so hard-break lines carrying
-     pills touched (measured 1.5px to the next line's glyphs, 0 between
-     two pills). Bg-only pills leave ~5.5px of inter-line air, matching
-     plain text; the dropped border was 3% alpha and read as invisible. */
-  padding: 0 var(--space-1-5);
-  /* PR-UI-LAYOUT-28: inline code radius 4 → 5. Tiny bump but
-   * pulls it slightly out of the "tight tag" feel into a calmer
-   * pill rhythm that matches the rest of the warm-canvas chrome. */
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-}
-/* Block code goes inside a maka-code-block wrapper that adds a language
-   pill + copy button on top of the pre. Pre keeps its monospace styling
-   but the border + radius now live on the wrapper so the header reads
-   as part of the same surface. */
-.maka-prose .maka-code-block {
-  margin: 0 0 var(--space-3);
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  overflow: hidden;
-  background: var(--foreground-3);
-}
-.maka-code-block-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
-  border-bottom: var(--border-width-hairline) solid var(--border);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  letter-spacing: var(--tracking-wide);
-}
-.maka-code-block-lang {
-  text-transform: lowercase;
-}
-.maka-code-block-copy {
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  /* PR-UI-LAYOUT-28: code-block copy button — radius 5 → 7 to
-   * match the small-button family + add focus-visible ring + a
-   * smoother transition. Width/height stay 22 because the copy
-   * icon sits inside the code-block header strip and growing it
-   * would change the header height. */
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
-}
-.maka-code-block-copy:hover {
-  color: var(--foreground);
-  background: var(--state-hover-bg);
-}
-.maka-code-block-copy:focus-visible {
-  outline: none;
-  color: var(--foreground);
-  background: var(--foreground-10);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
-}
-.maka-code-block-copy[data-copied="true"] {
-  color: var(--success-text);
-}
-.maka-code-block-copy[data-pending="true"] {
-  cursor: progress;
-  opacity: var(--opacity-pending);
-}
-.maka-code-block-copy[data-copy-feedback="failed"] {
-  color: var(--destructive);
-}
-/* Scoped to `.maka-prose .maka-code-block pre` (specificity 0,2,1), NOT a bare
-   `.maka-prose pre` (0,1,1): the `[data-slot="message"] pre { font: inherit }`
-   reset later in this file is also 0,1,1 and would clobber a bare
-   `.maka-prose pre` by source order, re-inheriting the prose body size +
-   family and killing the --font-size-ui tier. The extra `.maka-code-block`
-   class outweighs the reset so the token tier holds.
-   CODE-BLOCK-PRE-FONT-TIER-0 contract locks this. */
-.maka-prose .maka-code-block pre {
-  margin: 0;
-  padding: var(--space-3) var(--space-3);
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  overflow-x: auto;
-  font-family: var(--font-mono);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-  white-space: pre;
-}
-.maka-prose .maka-code-block pre code {
-  padding: 0;
-  background: transparent;
-  font-size: inherit;
-  /* The inline-code pill border must not leak in here: <code> is an inline
-     box, so a leftover border paints a rounded outline around every wrapped
-     line box inside the pre (clearly visible in dark). */
-  border: 0;
-}
-
-/* Syntax highlight palette for highlight.js / lowlight class names.
-   All colors derive from oklch token shifts so light + dark stay
-   in sync without per-theme overrides. */
-.hljs            { color: var(--foreground); }
-.hljs-comment,
-.hljs-quote      { color: var(--muted-foreground); font-style: italic; }
-.hljs-keyword,
-.hljs-selector-tag,
-.hljs-literal,
-.hljs-tag        { color: oklch(from var(--link) calc(l - 0.05) calc(c + 0.04) h); }
-/* Strings are the largest ink mass in highlighted code; keying them to the
-   semantic --success green made whole answers read as leftover brand-green
-   under the blue theme (user report 2026-07-07). Deep navy from the --link
-   family instead — distinct from keywords (brighter blue) and built-ins
-   (violet-shifted); green stays reserved for hljs-addition (real diffs). */
-.hljs-string,
-.hljs-doctag,
-.hljs-regexp     { color: oklch(from var(--link) calc(l - 0.15) c calc(h + 15)); }
-.hljs-number,
-.hljs-symbol,
-.hljs-bullet,
-.hljs-meta       { color: oklch(from var(--info) calc(l - 0.05) c h); }
-.hljs-built_in,
-.hljs-type,
-.hljs-class .hljs-title,
-.hljs-title.class_,
-.hljs-title.function_ { color: oklch(from var(--link) calc(l - 0.1) c calc(h - 30)); }
-.hljs-variable,
-.hljs-attr,
-.hljs-attribute,
-.hljs-name       { color: oklch(from var(--info) calc(l - 0.1) calc(c + 0.04) h); }
-.hljs-deletion   { color: var(--destructive-text); background: oklch(from var(--destructive) l c h / 0.08); }
-.hljs-addition   { color: var(--success-text); background: oklch(from var(--success) l c h / 0.08); }
-.hljs-emphasis   { font-style: italic; }
-.hljs-strong     { font-weight: var(--font-weight-bold); }
-.maka-prose blockquote {
-  margin: 0 0 var(--space-3);
-  /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
-   * Bump padding so the quote actually has air around it, switch
-   * left rule to accent at 28% so it visually anchors the quote
-   * without overpowering.
-   *
-   * PR-UI-LAYOUT-31 (@kenji contract review): drop the accent
-   * fill (`oklch from --accent / 0.04`) — accent tint, even at
-   * very low alpha, can blur the line between markdown content
-   * quote and system alert/callout. Switch to neutral
-   * `--foreground-3` so the block reads as "highlighted content
-   * passage" while system alerts continue to own the
-   * icon + border + saturated tone pattern. The left rule keeps
-   * the accent tie so quotes still feel branded, not generic. */
-  padding: var(--space-2) var(--space-4);
-  border-left: var(--border-width-accent) solid oklch(from var(--focus-ring) l c h / 0.28);
-  background: var(--foreground-3);
-  border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
-  color: var(--foreground-secondary);
-}
-/* Inner block margins would stack on the quote's own padding (8px top vs
-   8px + trailing p margin = 20px bottom) and tilt the quote visually. */
-.maka-prose blockquote > :first-child { margin-top: 0; }
-.maka-prose blockquote > :last-child { margin-bottom: 0; }
-/* Borderless minimal table (#546 Phase B, picked from a four-way style
-   comparison): no outer frame or header fill — the header reads via
-   semibold + a reinforced rule, rows via hairline separators. Replaces
-   the PR-UI-LAYOUT-28 card chrome (radius + outer hairline + th tint):
-   the 3% th tint was invisible in practice and the frame boxed the
-   table in for no informational gain. */
-.maka-prose table {
-  /* Shrink-wrap to content (GitHub's markdown-table shape): a short
-     three-column table stretched to the full measure reads as voids
-     between columns. `display: block` makes the element a scroll
-     container, `max-content` lets narrow tables hug their cells, and the
-     100% cap + overflow-x turns over-wide tables into a horizontal
-     scroller inside the prose measure. The rows re-wrap in an anonymous
-     inner table box: `border-collapse` is inherited so `separate`
-     reaches it; `border-spacing` is NOT inherited — its initial value
-     is already 0, the declaration below just documents the intent. */
-  display: block;
-  width: max-content;
-  max-width: 100%;
-  overflow-x: auto;
-  margin: 0 0 var(--space-3);
-  /* `separate` + zero spacing: cells only paint bottom borders, so the
-     row separators stay seamless single hairlines. */
-  border-collapse: separate;
-  border-spacing: 0;
-  font-size: var(--font-size-ui);
-}
-.maka-prose th,
-.maka-prose td {
-  /* Frameless tables read denser: 8px vertical padding made rows 36.5px —
-     the inter-row whitespace was 2.5× the paragraph line gap and rows
-     floated apart. 6px lands rows at ~32px. */
-  padding: var(--space-1-5) var(--space-3);
-  border-bottom: var(--border-width-hairline) solid var(--border);
-  text-align: left;
-}
-/* Without a frame the table must not end on a stray rule. Scoped to
-   tbody: the thead row is its parent's :last-child too, and an unscoped
-   `tr:last-child th` (0,2,2) out-specifies `.maka-prose th` (0,1,1) —
-   it would erase the reinforced header rule below. */
-.maka-prose tbody tr:last-child th,
-.maka-prose tbody tr:last-child td {
-  border-bottom: 0;
-}
-.maka-prose th {
-  color: var(--foreground-secondary);
-  font-weight: var(--font-weight-semibold);
-  /* Frameless header: no fill — semibold plus a rule visibly stronger
-     than the hairline row separators carries the header/body split. */
-  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.25);
-  /* Headers are short labels; letting them wrap means a column-squeezed
-     table pulverizes 2-char CJK headers into vertical stacks. Locking
-     them to one line raises the table's min-content width so degenerate
-     tables hit the overflow-x scroller instead. Body cells still wrap. */
-  white-space: nowrap;
-  letter-spacing: var(--tracking-normal);
-}
-.maka-prose hr {
-  margin: var(--space-4) 0;
-  border: 0;
-  border-top: var(--border-width-hairline) solid var(--border);
-}
 
 /* --- Hover-revealed copy button on assistant messages -------------------- */
 /* The wrapper is position: relative so the button can anchor to the top-right
