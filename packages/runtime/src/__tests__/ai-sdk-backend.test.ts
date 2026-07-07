@@ -12,7 +12,7 @@ import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../a
 import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
 import type { InvocationContext } from '../invocation-context.js';
-import type { ToolResultMessage } from '@maka/core/session';
+import type { AssistantMessage, ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
@@ -5636,6 +5636,100 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.doesNotMatch(prompt, /"type":"reasoning"/);
     assert.doesNotMatch(prompt, /sig-tool/);
     assert.doesNotMatch(prompt, /reasoning about the tool result/);
+  });
+
+  test('signature-only (omitted) thinking is persisted and replays with its signature', async () => {
+    // Anthropic omitted/redacted thinking: a signed reasoning block whose text
+    // is empty (only a standalone signature-carrier delta, no reasoning-delta
+    // with text). The block must still persist + replay so the signature
+    // round-trips; gating on thinking text alone would silently drop it.
+    const firstChunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      // No text delta — only the signature carrier.
+      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-omitted' } } },
+      { type: 'reasoning-end', id: 'r1' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'omitted-answer' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 2, text: 1, reasoning: 1 },
+        },
+      },
+    ];
+    const firstModel = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const persisted: AssistantMessage[] = [];
+    const firstBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (m) => { if (m.type === 'assistant') persisted.push(m); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => firstModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const firstEvents: SessionEvent[] = [];
+    for await (const event of firstBackend.send({ turnId: 'turn-prev', text: 'q', context: [] })) {
+      firstEvents.push(event);
+    }
+
+    // thinking_complete is emitted with empty text but the signature intact.
+    const thinkingComplete = firstEvents.find(
+      (event): event is Extract<SessionEvent, { type: 'thinking_complete' }> =>
+        event.type === 'thinking_complete',
+    );
+    assert.ok(thinkingComplete, 'signature-only turn must still emit thinking_complete');
+    assert.equal(thinkingComplete.text, '');
+    assert.equal(thinkingComplete.signature, 'sig-omitted');
+    // The persisted AssistantMessage carries the signed (empty-text) thinking.
+    assert.equal(persisted.at(-1)?.thinking?.text, '');
+    assert.equal(persisted.at(-1)?.thinking?.signature, 'sig-omitted');
+
+    // Replay: pure-reasoning turn → the signed block reaches the next request.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeContext = firstEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = JSON.stringify(compactPrompt(secondModel));
+    assert.match(prompt, /"type":"reasoning"/);
+    assert.match(prompt, /sig-omitted/);
   });
 });
 

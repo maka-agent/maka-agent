@@ -982,7 +982,15 @@ export class AiSdkBackend implements AgentBackend {
         // (empty) so the RuntimeEvent read-model has a same-turn assistant row
         // to attach the thinking to — otherwise projectThinking has nothing to
         // hang the reasoning on and discards it.
-        if (assistantText.length > 0 || thinkingText.length > 0) {
+        //
+        // A signature is thinking even with no text: Anthropic's omitted /
+        // redacted thinking returns a signed reasoning block whose text is
+        // empty. Dropping it would lose the signed block for provider-native
+        // replay (reasoning continuity). Persist `text: ''` + signature so the
+        // block round-trips faithfully; the render layer is responsible for not
+        // surfacing an empty thinking entry.
+        const hasThinking = thinkingText.length > 0 || thinkingSignature !== undefined;
+        if (assistantText.length > 0 || hasThinking) {
           const msg: AssistantMessage = {
             type: 'assistant',
             id: assistantMessageId,
@@ -990,7 +998,7 @@ export class AiSdkBackend implements AgentBackend {
             ts: this.now(),
             text: assistantText,
             modelId: this.input.modelId,
-            ...(thinkingText.length > 0
+            ...(hasThinking
               ? {
                   thinking: {
                     text: thinkingText,
@@ -1006,7 +1014,7 @@ export class AiSdkBackend implements AgentBackend {
           // this the read-model projection (and materialized session) drops all
           // reasoning. The read-model attaches this to the same-turn assistant
           // text row emitted just below.
-          if (thinkingText.length > 0) {
+          if (hasThinking) {
             queue.push({
               type: 'thinking_complete',
               id: this.newId(),
