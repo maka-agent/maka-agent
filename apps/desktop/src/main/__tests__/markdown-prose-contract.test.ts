@@ -221,6 +221,11 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       !/(^|;)\s*border\s*:/.test(table!.decls) && !/border-radius/.test(table!.decls),
       'prose tables are frameless — no outer border/radius on .maka-prose table',
     );
+    // `border-collapse` is the declaration that actually reaches the
+    // anonymous inner table box (inherited); `border-spacing: 0` is intent
+    // documentation — the property is not inherited and its initial value
+    // is already 0.
+    assert.match(table!.decls, /border-collapse:\s*separate/, 'separate border model — collapse would void radius/outer borders if chrome ever returns');
     assert.match(table!.decls, /border-spacing:\s*0/, 'zero border-spacing keeps the row separators seamless single hairlines');
     const th = blocks.find(({ selectors }) => /^\.maka-prose\s+th$/.test(selectors));
     assert.ok(th, 'expected a .maka-prose th rule');
