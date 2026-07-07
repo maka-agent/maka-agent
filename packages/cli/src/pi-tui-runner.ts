@@ -737,16 +737,20 @@ class MakaPiLayoutComponent extends Container {
       // tail rather than land the viewport on an arbitrary mid-message row.
       this.followTail = true;
       this.scrollOffset = 0;
-    } else if (!this.followTail && transcriptLines.length > this.lastTotalLines) {
-      // The transcript grew. Preserve the reader's position by holding the top of
-      // the visible slice fixed — but only when the growth is entirely below the
-      // fold, so the visible slice itself is untouched. Streaming appends and
-      // even in-place edits to the tail block (a `text_delta` re-wrapping the last
-      // line) qualify; an edit above the fold (a late `thinking_complete` growing
-      // an expanded block the reader has scrolled past) does not — there the tail
-      // is unchanged, so the below-the-fold offset must stay put or the window
-      // drifts. `firstDivergentLine` locates the change; a first difference at or
-      // below the old viewport bottom means the visible slice is a stable prefix.
+    } else if (!this.followTail && transcriptLines.length !== this.lastTotalLines) {
+      // The transcript's line count changed. Preserve the reader's position by
+      // holding the top of the visible slice fixed — but only when the change is
+      // entirely below the fold, so the visible slice itself is untouched. A
+      // streamed append or in-place edit to the tail block (a `text_delta`
+      // re-wrapping the last line, a `thinking_complete` growing or shrinking an
+      // expanded block below the fold, a resolved permission prompt collapsing to
+      // a notice) qualifies; an edit above the fold (a block the reader has
+      // scrolled past) does not — there the tail is unchanged, so the
+      // below-the-fold offset must stay put or the window drifts.
+      // `firstDivergentLine` locates the change; a first difference at or below
+      // the old viewport bottom means the visible slice is a stable prefix, so
+      // shift the offset by the (signed) delta to track the tail. Growth and
+      // shrink are symmetric; windowTranscriptLines clamps the result.
       const viewportBottom = this.lastTotalLines - this.scrollOffset;
       if (firstDivergentLine(this.lastLines, transcriptLines) >= viewportBottom) {
         this.scrollOffset += transcriptLines.length - this.lastTotalLines;
@@ -804,10 +808,12 @@ class MakaPiLayoutComponent extends Container {
   /**
    * True when the transcript overflows the viewport, i.e. paging keys should
    * scroll it. When false the transcript fits and PageUp/PageDown page the
-   * editor's own multi-line input buffer instead.
+   * editor's own multi-line input buffer instead. A zero-row viewport (the
+   * editor and status filled a very short terminal) renders no transcript at
+   * all, so paging must fall through to the editor even with content buffered.
    */
   isScrollable(): boolean {
-    return this.lastTotalLines > this.lastViewportRows;
+    return this.lastViewportRows > 0 && this.lastTotalLines > this.lastViewportRows;
   }
 
   /**

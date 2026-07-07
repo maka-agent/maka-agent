@@ -15,6 +15,22 @@ import {
   waitFor,
 } from './tui-terminal-mock.js';
 
+// Page up until `marker` scrolls below the fold, letting each render settle
+// before the next press. Pressing inside a waitFor predicate re-checks a stale
+// async screen and over-scrolls (the offset advances a page past what the screen
+// shows), which would decouple a captured slice from the real scroll state.
+async function pageUpBelowFold(terminal: FakeTerminal, marker: string): Promise<void> {
+  for (let i = 0; i < 8 && plainTerminalOutput(terminal.screenOutput()).includes(marker); i += 1) {
+    terminal.input('\x1b[5~');
+    await delay(20);
+  }
+  assert.equal(
+    plainTerminalOutput(terminal.screenOutput()).includes(marker),
+    false,
+    `expected "${marker}" to scroll below the fold`,
+  );
+}
+
 describe('Maka Pi TUI runner', () => {
   test('restores the terminal when driver stop rejects during close', async () => {
     const terminal = new FakeTerminal();
@@ -301,13 +317,11 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
 
-    // Expand thinking, then page up once so the (still short) thinking block sits
-    // above the fold and the viewport shows a stable middle slice of the reply.
+    // Expand thinking, then page up so the (still short) thinking block sits above
+    // the fold and the viewport shows a stable middle slice of the reply.
     terminal.input('\x14');
-    await waitFor(() => {
-      terminal.input('\x1b[5~');
-      return !plainTerminalOutput(terminal.screenOutput()).includes('para-39');
-    });
+    await delay(20);
+    await pageUpBelowFold(terminal, 'para-39');
     const before = visibleParas();
     assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
 
@@ -316,6 +330,9 @@ describe('Maka Pi TUI runner', () => {
     // append, or the window drifts and the reader loses their place.
     driver.releaseReply();
     await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
     assert.equal(visibleParas(), before, 'viewport drifted when a block above the fold grew');
 
     terminal.input('\x03');
@@ -348,21 +365,80 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('typing-tail'));
 
     // Page up so the streaming tail (the partial last line about to grow) is off
-    // the bottom of the viewport and a stable middle slice of the reply shows.
-    await waitFor(() => {
-      terminal.input('\x1b[5~');
-      const screen = plainTerminalOutput(terminal.screenOutput());
-      return screen.includes('s-para-00') && !screen.includes('typing-tail');
-    });
+    // the bottom and a stable middle slice of the reply shows.
+    await pageUpBelowFold(terminal, 'typing-tail');
     const before = visibleParas();
     assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('s-para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
 
     // Streaming continues: the next delta re-wraps the partial tail line (an
     // in-place edit, not a pure append) and adds paragraphs — all below the fold.
     // The reader's slice must not move even though the tail block mutated.
     driver.releaseStream();
     await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
     assert.equal(visibleParas(), before, 'viewport drifted when the tail grew below the fold');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('holds the reader position when a tail block below the fold shrinks', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ShrinkingTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    // Expand thinking so the tall draft (at the tail, after the reply) is on screen.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('draftline-7'));
+
+    // Page up so the tall thinking draft drops below the fold and a stable middle
+    // slice of the reply shows. Stop mid-transcript, not at the very top: at the
+    // top `start` is pinned to 0 and an upward drift would be clamped away,
+    // masking the bug this test guards.
+    await pageUpBelowFold(terminal, 'draftline-7');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
+
+    // thinking_complete replaces the tall draft with a one-line result below the
+    // fold. A shrink is the symmetric case of a tail append; the reader's slice
+    // must not move even though the tail block lost rows.
+    driver.releaseThinking();
+    await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted when the tail shrank below the fold');
 
     terminal.input('\x03');
     await Promise.race([
@@ -2311,6 +2387,51 @@ class StreamingTailDriver implements MakaSessionDriver {
 
   releaseStream(): void {
     this.continueStream?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ShrinkingTailDriver implements MakaSessionDriver {
+  completed = false;
+  private continueThinking: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // A long reply, then a tall thinking draft appended after it (its own
+    // messageId, so it lands as a separate block at the tail).
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'tx', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    const draft = Array.from({ length: 8 }, (_, i) => `draftline-${i}`).join('\n');
+    yield { type: 'thinking_delta', id: 'th', turnId: 't', ts: 2, messageId: 'm2', text: draft };
+    await new Promise<void>((resolve) => {
+      this.continueThinking = resolve;
+    });
+    // thinking_complete collapses the tall draft to a single line — a below-the-
+    // fold shrink once the reader has scrolled past it.
+    yield { type: 'thinking_complete', id: 'thc', turnId: 't', ts: 3, messageId: 'm2', text: 'brief' };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 4, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseThinking(): void {
+    this.continueThinking?.();
   }
 
   async stop(): Promise<void> {}
