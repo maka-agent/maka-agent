@@ -590,21 +590,23 @@ export function windowTranscriptLines(
   if (allLines.length <= rows) {
     return { lines: [...allLines], scrollOffset: 0, hiddenAbove: 0, hiddenBelow: 0, scrollable: false };
   }
-  const contentRows = Math.max(1, rows - 1); // reserve one row for the scroll indicator
+  // Reserve one row for the scroll indicator — but only when the viewport is at
+  // least two rows tall. A one-row viewport (very short terminal, or a tall
+  // editor/autocomplete area) can hold either a content line or the indicator,
+  // not both; showing the content keeps the total within the layout budget.
+  const showIndicator = rows >= 2;
+  const contentRows = showIndicator ? rows - 1 : rows;
   const maxOffset = allLines.length - contentRows;
   const offset = Math.min(Math.max(0, Math.trunc(scrollOffset)), maxOffset);
   const end = allLines.length - offset;
   const start = Math.max(0, end - contentRows);
   const hiddenAbove = start;
   const hiddenBelow = allLines.length - end;
-  const indicator = fitLine(transcriptScrollIndicator(hiddenAbove, hiddenBelow), Math.max(1, width));
-  return {
-    lines: [...allLines.slice(start, end), indicator],
-    scrollOffset: offset,
-    hiddenAbove,
-    hiddenBelow,
-    scrollable: true,
-  };
+  const windowLines = allLines.slice(start, end);
+  const lines = showIndicator
+    ? [...windowLines, fitLine(transcriptScrollIndicator(hiddenAbove, hiddenBelow), Math.max(1, width))]
+    : [...windowLines];
+  return { lines, scrollOffset: offset, hiddenAbove, hiddenBelow, scrollable: true };
 }
 
 function transcriptScrollIndicator(hiddenAbove: number, hiddenBelow: number): string {

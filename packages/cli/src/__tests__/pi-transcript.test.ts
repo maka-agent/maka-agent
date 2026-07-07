@@ -938,6 +938,15 @@ describe('transcript viewport windowing', () => {
     const win = windowTranscriptLines(lines, 10, 5, 12);
     assert.ok(win.lines.every((line) => visibleWidth(line) <= 12));
   });
+
+  test('never exceeds a one-row viewport (drops the indicator)', () => {
+    const win = windowTranscriptLines(lines, 1, 0, 80);
+    // A one-row viewport holds a content line OR the indicator, not both; the
+    // content wins so the layout budget of exactly one row is kept.
+    assert.equal(win.lines.length, 1);
+    assert.equal(stripAnsi(win.lines[0]!), 'line-49');
+    assert.equal(win.scrollable, true);
+  });
 });
 
 describe('transcript entry render memoization', () => {
