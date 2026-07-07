@@ -902,7 +902,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     ]);
   });
 
-  test('runtime replay plan diagnoses unsigned thinking without flattening it into text', () => {
+  test('runtime replay plan skips unsigned thinking instead of flattening or blocking it', () => {
     const events: RuntimeEvent[] = [
       ev({
         role: 'model',
@@ -914,8 +914,63 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
 
     const plan = buildRuntimeEventModelReplayPlan(events);
 
-    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsigned_thinking');
+    // Unsigned thinking is skipped from native items and never claims the
+    // 'thinking' semantic kind, but is recorded non-blockingly for observability.
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsigned_thinking_skipped');
+    expect(plan.items.map((item) => item.kind)).toEqual(['text']);
+    expect(plan.semanticKinds).not.toContain('thinking');
     expect(plan.textMessages).toEqual([{ role: 'assistant', content: 'answer' }]);
+  });
+
+  test('unsigned thinking does not downgrade native tool replay for the rest of the history', () => {
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'do it' } }),
+      // Non-Anthropic reasoning: thinking persisted with no signature.
+      ev({ role: 'model', author: 'agent', content: { kind: 'thinking', text: 'reason without a signature' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'contents', isError: false },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    // The tool call/result remain native; the unsigned thinking is simply omitted.
+    expect(plan.hasProviderNativeSemantics).toBe(true);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
+    expect(plan.semanticKinds).not.toContain('thinking');
+    // No blocking diagnostic classes present (only the non-blocking skip note).
+    const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(codes).toContain('unsigned_thinking_skipped');
+    expect(codes).not.toContain('unsupported_role');
+    expect(codes).not.toContain('unsupported_content');
+    expect(codes).not.toContain('unmatched_tool_result');
+    expect(codes).not.toContain('tool_id_mismatch');
+  });
+
+  test('signed thinking still enters native replay items with its signature', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'signed reasoning', signature: 'sig-9' },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items.map((item) => item.kind)).toEqual(['thinking', 'text']);
+    const thinking = plan.items.find((item) => item.kind === 'thinking');
+    expect(thinking && thinking.kind === 'thinking' ? thinking.signature : undefined).toBe('sig-9');
+    expect(plan.semanticKinds).toContain('thinking');
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).not.toContain('unsigned_thinking_skipped');
   });
 
   test('terminal RuntimeEvents are diagnostic-only for replay semantics', () => {

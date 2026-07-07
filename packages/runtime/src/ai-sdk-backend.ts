@@ -975,8 +975,14 @@ export class AiSdkBackend implements AgentBackend {
             + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
         }
 
-        // Persist assistant message if we got one.
-        if (assistantText.length > 0) {
+        // Persist the assistant turn if it produced text OR reasoning. A turn
+        // that ends with only thinking (no final text) must still persist its
+        // reasoning; gating solely on text would drop it. The AssistantMessage
+        // carries an empty `text` in that case, and we still emit text_complete
+        // (empty) so the RuntimeEvent read-model has a same-turn assistant row
+        // to attach the thinking to — otherwise projectThinking has nothing to
+        // hang the reasoning on and discards it.
+        if (assistantText.length > 0 || thinkingText.length > 0) {
           const msg: AssistantMessage = {
             type: 'assistant',
             id: assistantMessageId,
@@ -998,9 +1004,8 @@ export class AiSdkBackend implements AgentBackend {
           // RuntimeEvent stream carries a non-partial `thinking` message. Only
           // partial `thinking_delta`s were emitted during streaming, so without
           // this the read-model projection (and materialized session) drops all
-          // reasoning. Gated on accumulated thinking text so a turn without
-          // reasoning emits nothing; the read-model attaches this to the
-          // same-turn assistant text row.
+          // reasoning. The read-model attaches this to the same-turn assistant
+          // text row emitted just below.
           if (thinkingText.length > 0) {
             queue.push({
               type: 'thinking_complete',
@@ -2377,7 +2382,6 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
   return plan.diagnostics.some((diagnostic) =>
     diagnostic.code === 'unsupported_role' ||
     diagnostic.code === 'unsupported_content' ||
-    diagnostic.code === 'unsigned_thinking' ||
     diagnostic.code === 'unmatched_tool_result' ||
     diagnostic.code === 'tool_id_mismatch'
   );

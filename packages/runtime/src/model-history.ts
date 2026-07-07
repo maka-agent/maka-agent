@@ -76,7 +76,7 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
-  | 'unsigned_thinking'
+  | 'unsigned_thinking_skipped'
   | 'unmatched_tool_result'
   | 'tool_id_mismatch';
 
@@ -313,13 +313,25 @@ export function buildRuntimeEventModelReplayPlan(
           continue;
         }
         if (!event.content.signature) {
-          diagnostics.push(diagnostic(event, 'unsigned_thinking', 'thinking RuntimeEvent has no replay signature'));
+          // Unsigned thinking cannot be replayed provider-native: Anthropic
+          // rejects a thinking block without its signature, and other providers
+          // accept no native thinking at all. Skip it from replay items (and its
+          // semantic kind) rather than block — a non-Anthropic (e.g. GLM) turn
+          // persists thinking for the UI, but must not drag the whole history
+          // down to stored-message projection. The thinking stays in the
+          // read-model; it just never re-enters the model request.
+          diagnostics.push(diagnostic(
+            event,
+            'unsigned_thinking_skipped',
+            'unsigned thinking RuntimeEvent skipped for model replay',
+          ));
+          continue;
         }
         semanticKinds.add('thinking');
         items.push({
           kind: 'thinking',
           text: event.content.text,
-          ...(event.content.signature ? { signature: event.content.signature } : {}),
+          signature: event.content.signature,
           eventId: event.id,
           ts: event.ts,
         });
