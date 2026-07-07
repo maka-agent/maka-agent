@@ -347,21 +347,26 @@
    the PR-UI-LAYOUT-28 card chrome (radius + outer hairline + th tint):
    the 3% th tint was invisible in practice and the frame boxed the
    table in for no informational gain. */
-.maka-prose table {
-  /* Shrink-wrap to content (GitHub's markdown-table shape): a short
-     three-column table stretched to the full measure reads as voids
-     between columns. `display: block` makes the element a scroll
-     container, `max-content` lets narrow tables hug their cells, and the
-     100% cap + overflow-x turns over-wide tables into a horizontal
-     scroller inside the prose measure. The rows re-wrap in an anonymous
-     inner table box: `border-collapse` is inherited so `separate`
-     reaches it; `border-spacing` is NOT inherited — its initial value
-     is already 0, the declaration below just documents the intent. */
-  display: block;
-  width: max-content;
+/* Shrink-wrap to content (GitHub's markdown-table shape): a short
+   three-column table stretched to the full measure reads as voids between
+   columns. Unlike GitHub, the scroll container is a wrapper div from the
+   markdown component layer (markdown-body.tsx), NOT `display: block` on the
+   table — a block-displayed table stops generating a table box, Chromium
+   drops the implicit table/row/cell ARIA roles, and screen readers lose
+   table navigation (#618 item 5, TABLE-A11Y-SEMANTICS-0). `max-content`
+   lets narrow tables hug their cells; the 100% cap re-wraps over-wide body
+   cells; when nowrap headers push min-content past the cap the table
+   overflows into the wrapper's horizontal scroller. */
+.maka-prose .maka-table-scroll {
   max-width: 100%;
   overflow-x: auto;
   margin: 0 0 var(--space-3);
+}
+.maka-prose table {
+  display: table;
+  width: max-content;
+  max-width: 100%;
+  margin: 0;
   /* `separate` + zero spacing: cells only paint bottom borders, so the
      row separators stay seamless single hairlines. */
   border-collapse: separate;

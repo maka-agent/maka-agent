@@ -69,6 +69,16 @@ export function MarkdownBody(props: { text: string }) {
         // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
         // detected language so users can verify hljs got it right.
         pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
+        // #618 item 5: the horizontal scroller for over-wide tables lives on
+        // a wrapper div. Scrolling on the table itself requires
+        // `display: block`, which stops the element generating a table box —
+        // Chromium then drops the implicit table/row/cell ARIA roles and
+        // screen readers lose table navigation. TABLE-A11Y-SEMANTICS-0.
+        table: ({ children, ...rest }) => (
+          <div className="maka-table-scroll">
+            <table {...rest}>{children}</table>
+          </div>
+        ),
       }}
     >
       {props.text}

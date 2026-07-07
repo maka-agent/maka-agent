@@ -39,6 +39,7 @@ import { describe, it } from 'node:test';
 import { REPO_ROOT, stripCssComments } from './css-test-helpers.js';
 
 const PROSE_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles', 'prose.css');
+const MARKDOWN_BODY = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'markdown-body.tsx');
 const CHAT_MESSAGE_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles', 'chat-message.css');
 const TOKENS_CSS = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'maka-tokens.css');
 const CHAT_PRIMITIVE = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'chat.tsx');
@@ -324,5 +325,37 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       first,
       'blockquote > :first-child must zero margin-top — the other end of the same stacking asymmetry',
     );
+  });
+});
+
+describe('TABLE-A11Y-SEMANTICS-0 contract (#618 item 5)', () => {
+  // The Phase B shrink-wrap shape put `display: block` on the table itself
+  // (GitHub's markdown CSS trade-off): the element stops generating a table
+  // box, Chromium drops the implicit table/row/cell ARIA roles, and screen
+  // readers lose table navigation. Proper fix: the markdown component layer
+  // wraps <table> in a scroll <div> and the table keeps `display: table` —
+  // semantics come back, the shrink-wrap (width: max-content) + 100% cap +
+  // overflow-x scroller behavior moves to the wrapper.
+
+  it('markdown-body wraps tables in a scroll div so the table keeps its ARIA semantics', async () => {
+    const src = await readFile(MARKDOWN_BODY, 'utf8');
+    assert.match(
+      src,
+      /table:[\s\S]{0,200}maka-table-scroll/,
+      'markdown-body.tsx must override `table` with a .maka-table-scroll wrapper div — scrolling on the table itself requires display: block, which strips the ARIA table roles',
+    );
+  });
+
+  it('prose tables keep display: table; the scroll behavior lives on the wrapper', async () => {
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const table = blocks.find(({ selectors }) => /^\.maka-prose\s+table$/.test(selectors));
+    assert.ok(table, 'expected a .maka-prose table rule');
+    assert.match(table!.decls, /display:\s*table/, '.maka-prose table must generate a real table box (display: table) so Chromium keeps the implicit table/row/cell ARIA roles');
+    assert.ok(!/overflow-x/.test(table!.decls), 'the overflow-x scroller belongs on .maka-table-scroll, not the table (scrolling tables need display: block, which kills the semantics)');
+    const wrapper = blocks.find(({ selectors }) => /\.maka-prose\s+\.maka-table-scroll$/.test(selectors));
+    assert.ok(wrapper, 'expected a .maka-prose .maka-table-scroll wrapper rule');
+    assert.match(wrapper!.decls, /overflow-x:\s*auto/, 'the wrapper carries the horizontal scroller for over-wide tables');
+    assert.match(wrapper!.decls, /max-width:\s*100%/, 'the wrapper caps at the prose measure so wide tables scroll instead of stretching the bubble');
   });
 });
