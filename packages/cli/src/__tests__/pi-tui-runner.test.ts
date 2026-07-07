@@ -118,7 +118,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('toggles the latest tool detail with Ctrl-O', async () => {
+  test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
     const run = runMakaPiTui({

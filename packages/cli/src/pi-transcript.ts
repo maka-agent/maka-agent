@@ -24,12 +24,13 @@ export interface MakaPiTranscriptState {
   sawTextDeltaMessageIds: Set<string>;
   pendingPermission?: PermissionRequestEvent;
   /**
-   * Per-tool expansion state, keyed by toolUseId. Ctrl+O toggles the latest
-   * tool, but earlier tools stay expanded across later turns within a session.
-   * In-memory only; never persisted to storage. Resume starts empty.
+   * Global expansion toggles: one Ctrl+O press expands every tool card in the
+   * transcript, one Ctrl+T press expands every thinking entry; pressing again
+   * collapses all. In-memory only; never persisted to storage. Resume resets
+   * both to collapsed.
    */
-  expandedToolUseIds: Set<string>;
-  expandedThinkingMessageId?: string;
+  expandAllTools: boolean;
+  expandAllThinking: boolean;
 }
 
 /** A single live output chunk from a `tool_output_delta` event. */
@@ -77,7 +78,8 @@ export function createMakaPiTranscriptState(): MakaPiTranscriptState {
   return {
     entries: [],
     sawTextDeltaMessageIds: new Set(),
-    expandedToolUseIds: new Set(),
+    expandAllTools: false,
+    expandAllThinking: false,
   };
 }
 
@@ -97,34 +99,25 @@ export function replaceTranscriptWithStoredMessages(
       .map((entry) => entry.messageId),
   );
   state.pendingPermission = undefined;
-  state.expandedToolUseIds = new Set();
-  state.expandedThinkingMessageId = undefined;
+  state.expandAllTools = false;
+  state.expandAllThinking = false;
 }
 
-export function toggleLatestToolExpansion(state: MakaPiTranscriptState): boolean {
-  const latestTool = [...state.entries]
-    .reverse()
-    .find((entry): entry is MakaPiToolEntry => entry.kind === 'tool');
-  if (!latestTool) return false;
-  if (state.expandedToolUseIds.has(latestTool.toolUseId)) {
-    state.expandedToolUseIds.delete(latestTool.toolUseId);
-  } else {
-    state.expandedToolUseIds.add(latestTool.toolUseId);
-  }
+/** Toggle expansion of every tool card at once; false when there is none. */
+export function toggleAllToolExpansion(state: MakaPiTranscriptState): boolean {
+  const hasTool = state.entries.some((entry) => entry.kind === 'tool');
+  if (!hasTool) return false;
+  state.expandAllTools = !state.expandAllTools;
   return true;
 }
 
-export function toggleLatestThinkingExpansion(state: MakaPiTranscriptState): boolean {
-  const latestThinking = [...state.entries]
-    .reverse()
-    .find(
-      (entry): entry is MakaPiThinkingEntry =>
-        entry.kind === 'thinking' && Boolean(entry.text.trim()),
-    );
-  if (!latestThinking) return false;
-  state.expandedThinkingMessageId = state.expandedThinkingMessageId === latestThinking.messageId
-    ? undefined
-    : latestThinking.messageId;
+/** Toggle expansion of every thinking entry at once; false when there is none. */
+export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolean {
+  const hasThinking = state.entries.some(
+    (entry) => entry.kind === 'thinking' && Boolean(entry.text.trim()),
+  );
+  if (!hasThinking) return false;
+  state.expandAllThinking = !state.expandAllThinking;
   return true;
 }
 
@@ -475,10 +468,10 @@ export function renderMakaPiTranscript(
         lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
         break;
       case 'thinking':
-        lines.push(...renderThinkingBlock(entry, safeWidth, state.expandedThinkingMessageId === entry.messageId));
+        lines.push(...renderThinkingBlock(entry, safeWidth, state.expandAllThinking));
         break;
       case 'tool':
-        lines.push(...renderToolBlock(entry, safeWidth, state.expandedToolUseIds.has(entry.toolUseId)));
+        lines.push(...renderToolBlock(entry, safeWidth, state.expandAllTools));
         break;
       case 'notice':
         lines.push(...renderNotice(entry, safeWidth));
@@ -535,7 +528,7 @@ function setThinking(state: MakaPiTranscriptState, messageId: string, text: stri
 }
 
 // Thinking stays collapsed to a one-line marker by default so reasoning
-// never floods the scrollback; Ctrl+T expands the latest block on demand.
+// never floods the scrollback; Ctrl+T expands every thinking entry on demand.
 function renderThinkingBlock(entry: MakaPiThinkingEntry, width: number, expanded: boolean): string[] {
   if (!entry.text.trim()) return [];
   if (!expanded) return [fitLine(ansi.dim('思考（Ctrl+T 展开）'), width)];

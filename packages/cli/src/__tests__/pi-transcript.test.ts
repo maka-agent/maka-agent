@@ -11,8 +11,8 @@ import {
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
-  toggleLatestThinkingExpansion,
-  toggleLatestToolExpansion,
+  toggleAllThinkingExpansion,
+  toggleAllToolExpansion,
 } from '../pi-transcript.js';
 
 describe('Maka Pi TUI transcript', () => {
@@ -388,7 +388,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(toolIndex < answerIndex);
     assert.equal(collapsed.some((line) => line.includes('plan first')), false);
 
-    assert.equal(toggleLatestThinkingExpansion(state), true);
+    assert.equal(toggleAllThinkingExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
     const bodyIndex = expanded.findIndex((line) => line.includes('plan first'));
     assert.ok(bodyIndex >= 0);
@@ -451,7 +451,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /\(31 lines\) row-29 \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /head-line/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
 
     assert.match(expanded, /head-line/);
@@ -556,7 +556,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /4 lines, 59 bytes \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /content-line-0/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(expanded, /content-line-0/);
   });
@@ -585,7 +585,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /12 matches \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /match-0/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(expanded, /match-0/);
     assert.match(expanded, /match-11/);
@@ -615,7 +615,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /3 files \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /src\/a\.ts/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(expanded, /src\/a\.ts/);
     assert.match(expanded, /src\/c\.ts/);
@@ -670,7 +670,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compactRaw, /\x1b\[31m-1\x1b\[39m/);
     assert.doesNotMatch(compactLines.map(stripAnsi).join('\n'), /added line/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const raw = renderMakaPiTranscript(state, meta(), 100).join('\n');
     // Green (32) around the added line, red (31) around the removed line.
     assert.match(raw, /\x1b\[32m\+added line\x1b\[39m/);
@@ -698,7 +698,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(lines.join('\n'), /\(Ctrl\+O\)/);
   });
 
-  test('keeps earlier tools expanded when a later tool starts and finishes', () => {
+  test('expands and collapses every tool card with one global toggle', () => {
     const state = createMakaPiTranscriptState();
 
     applyMakaSessionEventToTranscript(state, event({
@@ -710,12 +710,6 @@ describe('Maka Pi TUI transcript', () => {
       isError: false,
       content: { kind: 'json', value: { content: 'alpha-body-line' } },
     }));
-
-    // Expand tool A (the latest tool).
-    assert.equal(toggleLatestToolExpansion(state), true);
-    assert.ok(state.expandedToolUseIds.has('tool-a'));
-
-    // A later tool starts and finishes in a subsequent turn.
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'tool-b', toolName: 'Read', args: { path: 'b.ts' },
     }));
@@ -726,12 +720,63 @@ describe('Maka Pi TUI transcript', () => {
       content: { kind: 'json', value: { content: 'beta-body-line' } },
     }));
 
-    // Tool A stays expanded; tool B is still compact.
-    assert.ok(state.expandedToolUseIds.has('tool-a'));
-    assert.equal(state.expandedToolUseIds.has('tool-b'), false);
-    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(rendered, /alpha-body-line/);
-    assert.doesNotMatch(rendered, /beta-body-line/);
+    const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(compact, /alpha-body-line/);
+    assert.doesNotMatch(compact, /beta-body-line/);
+
+    // One press expands every tool card.
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /alpha-body-line/);
+    assert.match(expanded, /beta-body-line/);
+
+    // A second press collapses every tool card again.
+    assert.equal(toggleAllToolExpansion(state), true);
+    const collapsed = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(collapsed, /alpha-body-line/);
+    assert.doesNotMatch(collapsed, /beta-body-line/);
+  });
+
+  test('expands and collapses every thinking entry with one global toggle', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-1', text: 'first thought body',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'text_delta', messageId: 'message-1', text: 'first reply',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'thinking_delta', messageId: 'message-2', text: 'second thought body',
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'text_delta', messageId: 'message-2', text: 'second reply',
+    }));
+
+    const collapsed = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    assert.equal(collapsed.filter((line) => line.includes('思考（Ctrl+T 展开）')).length, 2);
+    assert.equal(collapsed.some((line) => line.includes('thought body')), false);
+
+    // One press expands every thinking entry.
+    assert.equal(toggleAllThinkingExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /first thought body/);
+    assert.match(expanded, /second thought body/);
+
+    // A second press collapses every thinking entry again.
+    assert.equal(toggleAllThinkingExpansion(state), true);
+    const recollapsed = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi);
+    assert.equal(recollapsed.filter((line) => line.includes('思考（Ctrl+T 展开）')).length, 2);
+    assert.equal(recollapsed.some((line) => line.includes('thought body')), false);
+  });
+
+  test('global toggles report false when the transcript has no matching entries', () => {
+    const state = createMakaPiTranscriptState();
+    appendUserPrompt(state, 'hello');
+    assert.equal(toggleAllToolExpansion(state), false);
+    assert.equal(toggleAllThinkingExpansion(state), false);
+    assert.equal(state.expandAllTools, false);
+    assert.equal(state.expandAllThinking, false);
   });
 
   test('orders and de-dupes tool_output_delta by seq and marks redacted chunks', () => {
@@ -758,7 +803,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /\[redacted\]/);
     assert.doesNotMatch(compact, /secret/);
 
-    assert.equal(toggleLatestToolExpansion(state), true);
+    assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.ok(rendered.indexOf('FIRST') < rendered.indexOf('SECOND'));
     assert.doesNotMatch(rendered, /DUPLICATE/);

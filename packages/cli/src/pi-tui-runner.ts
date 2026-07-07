@@ -30,8 +30,8 @@ import {
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
-  toggleLatestThinkingExpansion,
-  toggleLatestToolExpansion,
+  toggleAllThinkingExpansion,
+  toggleAllToolExpansion,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
 } from './pi-transcript.js';
@@ -567,13 +567,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
     if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
-      if (toggleLatestToolExpansion(state)) {
+      if (toggleAllToolExpansion(state)) {
         requestRender();
         return { consume: true };
       }
     }
     if (matchesKey(data, Key.ctrl('t')) && !isKeyRepeat(data)) {
-      if (toggleLatestThinkingExpansion(state)) {
+      if (toggleAllThinkingExpansion(state)) {
         requestRender();
         return { consume: true };
       }
