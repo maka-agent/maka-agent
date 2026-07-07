@@ -118,8 +118,15 @@
 }
 .maka-bubble-assistant > :first-child { margin-top: 0; }
 .maka-bubble-assistant > :last-child { margin-bottom: 0; }
-.maka-bubble-assistant > :nth-last-child(2) { margin-bottom: 0; }
-.maka-prose > p:nth-last-child(2) { display: inline; }
+/* Streaming caret rides the last text line: the caret is
+   `.maka-bubble-streaming::after`, and after a block-level trailing <p> it
+   would wrap onto its own anonymous line. Inline the trailing paragraph
+   only while streaming. (PR #212 used `:nth-last-child(2)` variants of
+   this + the margin reset above because the bubble then ended with an
+   inline timestamp child; the timestamp moved to the turn footer and the
+   stale hacks instead zeroed/inlined the second-to-last *markdown* block —
+   issue #546 Phase B.) */
+.maka-bubble-streaming > p:last-child { display: inline; }
 .maka-prose p {
   margin: 0 0 var(--space-3);
   text-wrap: pretty;
@@ -278,6 +285,10 @@
   padding: 0;
   background: transparent;
   font-size: inherit;
+  /* The inline-code pill border must not leak in here: <code> is an inline
+     box, so a leftover border paints a rounded outline around every wrapped
+     line box inside the pre (clearly visible in dark). */
+  border: 0;
 }
 
 /* Syntax highlight palette for highlight.js / lowlight class names.
@@ -336,10 +347,19 @@
   border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
   color: var(--foreground-secondary);
 }
+/* Inner block margins would stack on the quote's own padding (8px top vs
+   8px + trailing p margin = 20px bottom) and tilt the quote visually. */
+.maka-prose blockquote > :first-child { margin-top: 0; }
+.maka-prose blockquote > :last-child { margin-bottom: 0; }
 .maka-prose table {
   width: 100%;
   margin: 0 0 var(--space-3);
-  border-collapse: collapse;
+  /* `separate` (not `collapse`): collapsed borders void border-radius and
+     swallow the outer hairline, leaving the table with no visible edge.
+     Cells only paint bottom borders, so zero spacing keeps the grid
+     seamless while the outer border + rounded corners actually render. */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: var(--font-size-ui);
   overflow: hidden;
   /* PR-UI-LAYOUT-28: table radius 8 → 10 joins the card family,
