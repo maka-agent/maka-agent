@@ -63,12 +63,11 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
   });
 
   it('does not reintroduce decorative preview-card mount animation', async () => {
-    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    assert.ok(!tokens.includes('@keyframes maka-tool-card-enter'));
-    const toolOutput = stripCssComments(
-      await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'),
-    );
-    assert.ok(!toolOutput.includes('@keyframes maka-tool-card-enter'));
+    // tool-output.css was deleted (#546 PR4 — its message-row residue moved
+    // to chat-message.css), so scan the whole renderer tree for the retired
+    // keyframe instead of a file that no longer exists.
+    const css = stripCssComments(await readAllRendererCss());
+    assert.ok(!css.includes('@keyframes maka-tool-card-enter'), 'preview-card mount animation must stay retired (#406 gap 3)');
   });
 
   it('pins the preview escape literals + guards against scale drift in chat.tsx', async () => {
