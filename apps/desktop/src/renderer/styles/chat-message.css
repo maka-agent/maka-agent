@@ -29,25 +29,13 @@
    neutral `--chat-user-bg` token path; the shell utilities live in
    packages/ui/src/primitives/chat.tsx. */
 /* Assistant: no bubble — just text on background, like an editor. The
-   markdown element typography lives in prose.css (.maka-prose); the shell
-   keeps only container geometry. */
+   markdown typography (color, line-height, break-word, the 72ch measure cap,
+   edge-margin trims) lives on .maka-prose in prose.css — the assistant Bubble
+   variant carries both classes, so the shell keeps only container geometry
+   (#618 item 2). */
 .maka-bubble-assistant {
-  color: var(--foreground);
-  line-height: var(--leading-normal);
   padding: var(--space-0-5) 0 0;
-  word-wrap: break-word;
-  /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills
-     round task #116): cap body prose at ~72ch per pbakaus
-     impeccable (65–75ch) and design-taste-frontend (max-w-[65ch]).
-     On wide windows the assistant text used to stretch the full
-     chat-pane width and wrap into very long lines, hurting
-     eye-tracking. Cap applies to inline text only — code blocks,
-     tables, and other block-level children override with
-     max-width: 100% downstream so wide payloads still expand. */
-  max-width: 72ch;
 }
-.maka-bubble-assistant > :first-child { margin-top: 0; }
-.maka-bubble-assistant > :last-child { margin-bottom: 0; }
 /* Streaming caret rides the last text line: the caret is
    `.maka-bubble-streaming::after`, and after a block-level trailing <p> it
    would wrap onto its own anonymous line. Inline the trailing paragraph

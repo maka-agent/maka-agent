@@ -75,6 +75,26 @@
    `tabular-nums` on inline <code> so digit columns in technical replies
    align. Heading tracking stays var(--tracking-normal) — CJK-first, roadmap
    §1.6 bans tightening CJK. */
+/* The base rule is self-contained (#618 item 2): a bare .maka-prose consumer
+   (tool-result bodies) must not depend on the assistant bubble shell for
+   line-height (the WCAG 1.4.12 floor — --leading-normal = 1.5), break-word
+   (no global overflow-wrap fallback exists), color, or the measure cap. */
+.maka-prose {
+  color: var(--foreground);
+  line-height: var(--leading-normal);
+  word-wrap: break-word;
+  /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills round task
+     #116): cap prose at ~72ch per pbakaus impeccable (65–75ch) and
+     design-taste-frontend (max-w-[65ch]). On wide windows the text used to
+     stretch the full pane width and wrap into very long lines, hurting
+     eye-tracking. Applies to inline text only — pre / table / code blocks
+     re-expand to 100% of the capped box below. */
+  max-width: 72ch;
+}
+/* Edge-margin trims: without these a prose body opening with a heading
+   carries its 20px top margin, and a trailing paragraph its bottom margin. */
+.maka-prose > :first-child { margin-top: 0; }
+.maka-prose > :last-child { margin-bottom: 0; }
 .maka-prose pre,
 .maka-prose table,
 .maka-prose .maka-code-block {

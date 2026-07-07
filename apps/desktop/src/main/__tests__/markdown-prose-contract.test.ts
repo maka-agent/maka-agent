@@ -4,17 +4,18 @@
  * typography — p / h* / ul / ol / li / a / code / pre / blockquote / table
  * / th / td / hr. It is split off the .maka-bubble-assistant shell so the
  * same prose rules can be reused by other Markdown consumers (tool-result
- * bodies in #546 PR5) without inheriting bubble geometry (max-width: 72ch,
- * padding, generic first/last-child margin reset) that belongs to the
- * assistant surface specifically.
+ * bodies, #546 PR6) without inheriting bubble geometry (padding) that
+ * belongs to the assistant surface specifically.
  *
  * Three invariants:
  *
  * 1. Prose element rules live under .maka-prose, not .maka-bubble-assistant.
- *    The shell keeps only container geometry + the generic first/last-child
- *    margin reset; element-specific typography (margins, font-size, list
- *    style, link/border, code padding, blockquote/table chrome) moves to
- *    .maka-prose.
+ *    The shell keeps only container geometry (padding); element typography
+ *    (margins, font-size, list style, link/border, code padding,
+ *    blockquote/table chrome) and the load-bearing base typography
+ *    (color / line-height / break-word / 72ch cap / edge trims — #618
+ *    item 2, locked by PROSE-SELF-CONTAINED in the polish contract below)
+ *    live on .maka-prose.
  *
  * 2. The assistant Bubble variant carries `maka-prose` alongside
  *    `maka-bubble-assistant`, so an assistant message actually renders the
@@ -262,6 +263,49 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       css,
       /\.maka-prose\s+tbody\s+tr:last-child\s+th,\s*\.maka-prose\s+tbody\s+tr:last-child\s+td\s*\{[^}]*border-bottom:\s*0/,
       'frameless tables must still drop the stray rule under the final body row',
+    );
+  });
+
+  it('the .maka-prose base rule is self-contained: load-bearing typography lives on the prose layer, not the shell', async () => {
+    // #618 item 2 (PR6 prerequisite): a bare `.maka-prose` consumer (tool-result
+    // bodies) must not depend on `.maka-bubble-assistant` for line-height (the
+    // WCAG 1.4.12 floor — var(--leading-normal) = 1.5), word-wrap (no global
+    // overflow-wrap fallback exists — long URLs/tokens overflow horizontally),
+    // color, the 72ch measure cap, or the first/last-child edge-margin trims.
+    // Moving them is behavior-neutral in chat: the assistant div carries both
+    // classes, same specificity, same layer.
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const prose = blocks.find(({ selectors }) => selectors === '.maka-prose');
+    assert.ok(prose, 'expected a bare .maka-prose base rule in prose.css');
+    assert.match(prose!.decls, /color:\s*var\(--foreground\)/, '.maka-prose must set its own text color — a bare consumer would inherit whatever UI chrome surrounds it');
+    assert.match(prose!.decls, /line-height:\s*var\(--leading-normal\)/, '.maka-prose must pin line-height to var(--leading-normal): it is the WCAG 1.4.12 floor (1.5) — inherited UI line-heights can dip below it at 13px');
+    assert.match(prose!.decls, /(?:word-wrap|overflow-wrap):\s*break-word/, '.maka-prose must carry break-word — no global overflow-wrap fallback exists, so a bare consumer gets horizontally overflowing URLs/tokens');
+    assert.match(prose!.decls, /max-width:\s*72ch/, '.maka-prose must cap the measure at 72ch — the readability cap is prose typography, not bubble geometry');
+    assert.match(
+      css,
+      /\.maka-prose\s*>\s*:first-child\s*\{[^}]*margin-top:\s*0/,
+      '.maka-prose > :first-child must trim the leading margin — a bare consumer opening with a heading would carry its 20px top margin',
+    );
+    assert.match(
+      css,
+      /\.maka-prose\s*>\s*:last-child\s*\{[^}]*margin-bottom:\s*0/,
+      '.maka-prose > :last-child must trim the trailing margin',
+    );
+    // One home: the shell keeps only container geometry (padding). Duplicated
+    // typography on the shell would silently drift from the prose layer.
+    const chat = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const shell = cssBlocks(chat).find(({ selectors }) => selectors === '.maka-bubble-assistant');
+    assert.ok(shell, 'expected a .maka-bubble-assistant shell rule in chat-message.css');
+    for (const prop of ['color', 'line-height', 'word-wrap', 'overflow-wrap', 'max-width']) {
+      assert.ok(
+        !new RegExp(`(?:^|;)\\s*${prop}:`).test(shell!.decls),
+        `.maka-bubble-assistant must not duplicate ${prop} — it moved to .maka-prose (#618 item 2); the shell keeps only container geometry`,
+      );
+    }
+    assert.ok(
+      !/\.maka-bubble-assistant\s*>\s*:(first|last)-child/.test(chat),
+      'the edge-margin trims moved to .maka-prose > :first/:last-child — the shell must not keep a duplicate pair',
     );
   });
 
