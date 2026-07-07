@@ -61,24 +61,28 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         workspaceRoot: resolveMakaWorkspaceRoot(),
         cwd: process.cwd(),
       });
-      const driver = createMakaSessionDriver({
-        runtime: context.runtime,
-        cwd: context.cwd,
-        llmConnectionSlug: context.target.connection.slug,
-        model: context.target.model,
-        permissionMode: 'ask',
-      });
-      await runMakaPiTui({
-        driver,
-        title: 'Maka',
-        cwd: context.cwd,
-        model: context.target.model,
-        models: selectableModelIdsForTarget(context.target),
-        connectionSlug: context.target.connection.slug,
-        providerType: context.target.connection.providerType,
-        permissionMode: 'ask',
-      });
-      return 0;
+      try {
+        const driver = createMakaSessionDriver({
+          runtime: context.runtime,
+          cwd: context.cwd,
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'ask',
+        });
+        await runMakaPiTui({
+          driver,
+          title: 'Maka',
+          cwd: context.cwd,
+          model: context.target.model,
+          models: selectableModelIdsForTarget(context.target),
+          connectionSlug: context.target.connection.slug,
+          providerType: context.target.connection.providerType,
+          permissionMode: 'ask',
+        });
+        return 0;
+      } finally {
+        await context.close();
+      }
     }
   }
 }

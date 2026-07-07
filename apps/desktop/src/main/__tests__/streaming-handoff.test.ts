@@ -173,8 +173,6 @@ describe('assistant streaming handoff', () => {
         showModelSetupToast: () => {},
         toastApi: { error: () => {} },
         upsertSessionSummary: () => {},
-        pendingNewChatPermissionMode: null,
-        setPendingNewChatPermissionMode: () => {},
         validPendingNewChatModel: null,
         pendingNewChatThinkingLevel: null,
       });

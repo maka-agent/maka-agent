@@ -303,7 +303,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     if (process.env.VITE_DEV_SERVER_URL) {
       await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     } else {
-      await mainWindow.loadFile(join(import.meta.dirname, '..', 'renderer', 'index.html'));
+      await mainWindow.loadFile(join(import.meta.dirname, '..', '..', 'dist-renderer', 'index.html'));
     }
     if (process.env.MAKA_REAL_WINDOW_SMOKE === '1') {
       emitRealWindowSmokeDiagnostic('after-load');

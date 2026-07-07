@@ -243,9 +243,12 @@ const toolConversation: StoredMessage[] = [
       kind: 'terminal',
       cwd: '/workspace/maka-agent',
       cmd: 'npm run -w @maka/desktop build-storybook',
+      status: 'completed',
       exitCode: 0,
       stdout: 'storybook v10.4.6\ninfo => Output directory: apps/desktop/storybook-static\n',
       stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     },
   },
   assistant(

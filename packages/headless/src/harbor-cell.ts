@@ -1188,6 +1188,8 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
             exitCode: result.timedOut ? 124 : result.exitCode,
             stdout: result.stdout,
             stderr: result.stderr,
+            stdoutTruncated: result.stdoutTruncated,
+            stderrTruncated: result.stderrTruncated,
           };
         } catch (error) {
           // runShellWithBoundedTail only rejects when the process cannot be

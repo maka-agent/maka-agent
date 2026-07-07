@@ -208,6 +208,10 @@ describe('parseMakaUri — unsupported namespaces (action runners)', () => {
     assert.equal(parseMakaUri('maka://session/abc-123'), null);
   });
 
+  it('rejects maka://runtime/... (tool resource refs, not UI navigation)', () => {
+    assert.equal(parseMakaUri('maka://runtime/background-tasks/shell-run-1'), null);
+  });
+
   it('rejects empty host', () => {
     assert.equal(parseMakaUri('maka:///account'), null);
   });

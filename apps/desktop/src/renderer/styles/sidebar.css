@@ -345,14 +345,39 @@
    * reserved area left only ~74px for the title — kenji's math
    * showed long Chinese names like "Artifact Pane 验收" would
    * truncate too early. Absolute overlay gives the title the
-   * row's full content width by default; on hover/focus the
-   * actions paint over the right portion with the gradient bg
-   * masking the (visually-hidden) time/title text behind them.
+   * row's full content width in every state, so a narrow row never
+   * loses more title characters than the icons actually cover.
+   *
+   * Bug fix: the gradient below is what's supposed to visually hide
+   * the tail of the title/meta text this cluster paints over. It used
+   * to fade into `var(--state-hover-bg)` / `var(--state-selected-bg)`
+   * directly — those are a 4%/6.5%-alpha tint of `--foreground`, i.e.
+   * partially SEE-THROUGH. A translucent layer can't occlude the
+   * full-opacity text underneath it, so the icons rendered visibly on
+   * top of fully-legible title text (session-row title/actions overlap
+   * bug). Reserving layout space instead (shrinking the title column on
+   * hover) was tried and reverted — on the app's actual narrow sidebar
+   * width it truncated titles far more aggressively than the original
+   * bug's readable-but-smudged tail, which read as a worse regression.
+   * The fix that keeps maximum title length AND fully hides the
+   * covered portion: flatten the translucent tint into an opaque
+   * color via `color-mix()` against the real surface it sits on
+   * (`--background`) — same visual tint, zero transparency, so
+   * whatever text is under the buttons is actually gone, not just
+   * dimmed.
    *
    * Layout shift invariant still holds: actions don't participate
    * in row flex layout in either state, so showing/hiding them
    * never resizes the title column.
-   */
+   *
+   * A short leading fade (16px) softens the cut-off where the title
+   * text disappears under the action cluster. This works because the
+   * opaque stop is genuinely opaque (color-mix flattened) — the
+   * previous version's fade used a 4%-alpha tint as the "opaque" end
+   * and couldn't actually hide anything. With a real solid color,
+   * the fade zone shows the title tail dissolving smoothly instead of
+   * a hard vertical edge, and anything past the 16px mark is fully
+   * occluded. */
   position: absolute;
   top: 0;
   right: 0;
@@ -361,15 +386,16 @@
   align-items: center;
   gap: var(--space-0-5);
   padding: 0 var(--space-2);
-  /* Gradient bg fades from transparent on the left so the title
-   * underneath blurs smoothly into the action chip cluster on the
-   * right; opaque from ~24% onwards so the buttons themselves sit
-   * on a solid hover-tinted background. */
+  /* Opaque re-derivation of --state-hover-bg's tint (4% of --foreground
+   * over --background) — NOT `color-mix(..., var(--state-hover-bg) ..., ...)`,
+   * which would just mix an already-4%-alpha color at some percentage of
+   * itself and stay translucent. Recreating the tint from the opaque
+   * --foreground/--background pair is what actually removes the alpha. */
   background: linear-gradient(
     to right,
-    transparent 0%,
-    var(--state-hover-bg) 24%,
-    var(--state-hover-bg) 100%
+    transparent 0,
+    color-mix(in oklch, var(--foreground) 4%, var(--background)) 16px,
+    color-mix(in oklch, var(--foreground) 4%, var(--background)) 100%
   );
   opacity: 0;
   transform: translateX(8px);
@@ -404,11 +430,15 @@
 }
 
 .maka-list-row[data-active="true"] .maka-list-row-actions {
+  /* Opaque re-derivation of --state-selected-bg's tint (6.5% of
+   * --foreground over --background) — see the hover variant above for
+   * why this can't just be color-mix(..., var(--state-selected-bg), ...),
+   * and why there's no leading fade. */
   background: linear-gradient(
     to right,
-    transparent 0%,
-    var(--state-selected-bg) 24%,
-    var(--state-selected-bg) 100%
+    transparent 0,
+    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 16px,
+    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 100%
   );
 }
 

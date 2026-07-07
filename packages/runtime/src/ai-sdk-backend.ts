@@ -266,6 +266,14 @@ function projectAcceptedActiveFullCompactMessages(
   ];
 }
 
+function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
+  const joined = fragments
+    .map((fragment) => fragment?.trim())
+    .filter((fragment): fragment is string => Boolean(fragment))
+    .join('\n\n');
+  return joined.length > 0 ? joined : undefined;
+}
+
 // ============================================================================
 // Constructor input — single object matches @kabi's BackendRegistry call site
 // ============================================================================
@@ -425,6 +433,8 @@ export interface AiSdkBackendInput {
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
   turnTailPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  /** Optional volatile ShellRun summary. Not persisted; appended to the current user turn tail only. */
+  shellRunContextSummary?: () => string | undefined | Promise<string | undefined>;
   /** Provider-native options passed through to ai-sdk. */
   providerOptions?: Record<string, unknown>;
   /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
@@ -772,7 +782,10 @@ export class AiSdkBackend implements AgentBackend {
         watchdog.start();
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
-        const turnTailPrompt = await this.resolveTurnTailPrompt();
+        const turnTailPrompt = joinPromptFragments([
+          await this.resolveTurnTailPrompt(),
+          await this.resolveShellRunContextSummary(),
+        ]);
         const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
         const messages = [
           ...priorReplay.messages,
@@ -2310,6 +2323,10 @@ export class AiSdkBackend implements AgentBackend {
       });
     }
     return this.input.turnTailPrompt;
+  }
+
+  private async resolveShellRunContextSummary(): Promise<string | undefined> {
+    return await this.input.shellRunContextSummary?.();
   }
 
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {

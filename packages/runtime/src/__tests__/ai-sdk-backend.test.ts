@@ -2634,9 +2634,12 @@ describe('AiSdkBackend error surfaces', () => {
       kind: 'terminal',
       cwd: '/tmp/maka',
       cmd: 'printf out; printf err >&2; exit 2',
+      status: 'failed',
       exitCode: 2,
       stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
       stderr: 'stderr before failure',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     });
   });
 
@@ -4914,7 +4917,17 @@ describe('AiSdkBackend tool permission category hints', () => {
       parameters: {},
       permissionRequired: false,
       impl: async () => new Promise((resolve) => {
-        release = () => resolve({ kind: 'terminal', cwd: '/app', cmd: 'sleep 300', exitCode: 0, stdout: '', stderr: '' });
+        release = () => resolve({
+          kind: 'terminal',
+          cwd: '/app',
+          cmd: 'sleep 300',
+          status: 'completed',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        });
       }),
     };
     const execute = (backend as unknown as {

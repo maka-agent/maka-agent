@@ -31,11 +31,15 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      # runtime's Grep tool shells out to ripgrep; ubuntu runners don't ship it.
-      - name: Install ripgrep
-        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # runtime's Grep tool shells out to ripgrep. Install only if the runner
+      # image doesn't already provide it (24.04 hasn't in practice).
+      - name: Ensure ripgrep
+        run: command -v rg >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y ripgrep; }
       - run: npm ci
-      - run: npm run build
+      # build:test skips the renderer bundle (vite); test:dist only consumes
+      # tsc outputs (dist/main + dist/renderer side-files), never the vite
+      # bundle. e2e builds its own renderer in a separate job.
+      - run: npm run build:test
       # test:dist runs the suites against the dist just built above. The
       # workspace `test` scripts each do `clean && build` first, which would
       # throw away this dist and rebuild every package a second time.
@@ -53,7 +57,7 @@ jobs:
       # Electron is a GUI app; on a headless Linux runner it needs a virtual
       # display. The suite already runs with show:false, but the process still
       # requires an X server to start.
-      - name: Install xvfb
-        run: sudo apt-get update && sudo apt-get install -y xvfb
+      - name: Ensure xvfb
+        run: command -v xvfb-run >/dev/null 2>&1 || { sudo apt-get update && sudo apt-get install -y xvfb; }
       - name: E2E
         run: xvfb-run -a npm --workspace @maka/desktop run e2e

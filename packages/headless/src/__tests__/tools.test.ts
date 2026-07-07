@@ -53,9 +53,12 @@ describe('isolated headless tools', () => {
       kind: 'terminal',
       cwd: '/workspace',
       cmd: 'npm test',
+      status: 'failed',
       exitCode: 7,
       stdout: 'out\n',
       stderr: 'err\n',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     });
   });
 
@@ -105,6 +108,22 @@ describe('isolated headless tools', () => {
     assert.ok(result.stdout.includes('truncated'));
     assert.ok(!result.stdout.includes('line1\n'));
     assert.ok(result.stdout.length < big.length);
+  });
+
+  test('Bash preserves retained-tail truncation flags from the isolated executor', async () => {
+    const bash = buildIsolatedBashTool({
+      async exec() {
+        return { exitCode: 0, stdout: 'tail', stderr: '', stdoutTruncated: true, stderrTruncated: false };
+      },
+    });
+
+    const result = await bash.impl(
+      { command: 'noisy' },
+      toolCtx('/workspace'),
+    ) as { stdoutTruncated: boolean; stderrTruncated: boolean };
+
+    assert.equal(result.stdoutTruncated, true);
+    assert.equal(result.stderrTruncated, false);
   });
 
   test('Bash delegates cleanup commands to the isolated executor', async () => {

@@ -118,7 +118,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('toggles the latest tool detail with Ctrl-O', async () => {
+  test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
     const run = runMakaPiTui({
@@ -136,11 +136,87 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('n');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Ctrl+O expand'));
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
     await waitFor(() => terminal.output().includes('expanded-tail'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ToolOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
+
+    // Kitty keyboard protocol terminals (Ghostty/Kitty) send one event for the
+    // key press and another for the release. The release must not undo the
+    // toggle, or expansion only lasts while the key is physically held.
+    terminal.input('\x1b[111;5u');
+    terminal.input('\x1b[111;5:3u');
+
+    // The compact-only (Ctrl+O) hint leaving the screen proves the card is
+    // still expanded after the release event.
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'));
+    await delay(20);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not treat a kitty Escape press+release as a double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // One physical Esc keypress arrives as a press + release pair under the
+    // kitty protocol; it must count as a single Escape, not an interrupt.
+    terminal.input('\x1b[27u');
+    terminal.input('\x1b[27;1:3u');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    // A real second press still interrupts the running turn.
+    terminal.input('\x1b[27u');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
 
     terminal.input('\x03');
     await Promise.race([
@@ -1751,9 +1827,14 @@ class ToolOutputDriver implements MakaSessionDriver {
         kind: 'terminal',
         cwd: '/repo',
         cmd: 'npm test',
+        status: 'completed',
         exitCode: 0,
-        stdout: `${'x'.repeat(900)}\nexpanded-tail`,
+        // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
+        // hides it; expanding reveals the full output including this head line.
+        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     };
     yield {
@@ -2128,4 +2209,3 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     modelId: 'claude-sonnet-4-5',
   };
 }
-

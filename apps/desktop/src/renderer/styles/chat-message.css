@@ -1,0 +1,510 @@
+/* ============================================================================
+   Chat message body
+   ----------------------------------------------------------------------------
+   The MessageBody surface: message row shell, assistant bubble + Markdown
+   prose (p / h* / ul / code / pre / blockquote / table / hr), task-list
+   checkboxes, the hover copy button, the streaming caret, and the user-turn
+   meta row.
+
+   Relocated from maka-tokens.css. Authored unlayered (the renderer styles/
+   contract requires it) but pulled into @layer components by
+   `@import ... layer(components)` in styles.css, so the rules keep the exact
+   cascade precedence they had in tokens — Tailwind utilities still win, which
+   several selectors here depend on: .maka-message-row's margin loses to the
+   Message variant's ml-0/mr-auto, .maka-message-copy / .maka-code-block-copy
+   lose to the UiButton size utilities. Zero visual change — issue #546 PR4.
+   ============================================================================ */
+
+/* --- Message row (Message primitive base: cva("maka-message-row")) -------- */
+.maka-message-row {
+  max-width: var(--maka-chat-measure);
+  margin: 0 auto;
+  width: 100%;
+  opacity: 1;
+}
+
+/* --- Task list checkboxes (remark-gfm <input type="checkbox" disabled>) --- */
+/* Task list checkboxes inside assistant markdown — remark-gfm gives us
+ * standard <input type="checkbox" disabled> nodes; this styles them to
+ * match the rest of the chat surface instead of the browser default. */
+.maka-prose ul.contains-task-list,
+.maka-prose ol.contains-task-list,
+.maka-prose ul li.task-list-item,
+.maka-prose ol li.task-list-item {
+  list-style: none;
+}
+
+.maka-prose ul.contains-task-list,
+.maka-prose ol.contains-task-list {
+  padding-left: var(--space-1);
+}
+
+.maka-prose li.task-list-item {
+  padding-left: var(--space-0-5);
+}
+
+.maka-prose li.task-list-item > input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 var(--space-2) 0 0;
+  border: var(--border-width-hairline) solid var(--muted-foreground);
+  border-radius: var(--radius-control);
+  background: transparent;
+  vertical-align: text-bottom;
+  cursor: not-allowed; /* read-only — editing markdown isn't supported here */
+  position: relative;
+}
+
+.maka-prose li.task-list-item > input[type="checkbox"]:checked {
+  background: var(--control);
+  border-color: var(--control);
+}
+
+.maka-prose li.task-list-item > input[type="checkbox"]:checked::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: -1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--control-foreground);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* --- Assistant bubble shell + Markdown prose ------------------------------ */
+/* User message: a tinted, width-capped block anchored to the right — now
+   the `Bubble variant="user"` chat primitive (issue #332 PR1). It keeps the
+   neutral `--chat-user-bg` token path; the shell utilities live in
+   packages/ui/src/primitives/chat.tsx. */
+/* Assistant: no bubble — just text on background, like an editor.
+   The bubble itself flows naturally; child markdown elements (h*, p, ul,
+   code blocks, tables, blockquotes) all need their own spacing/typography
+   so the content reads like a polished doc. */
+/* PR-MESSAGE-BODY-READING-RHYTHM-0 (WAWQAQ msg `cdfd68eb`, skills
+   round task #116): apply prose-typography polish from pbakaus
+   impeccable + emilkowal.ski/agents-with-taste:
+     - `text-wrap: pretty` on body paragraphs (modern Chromium —
+       reduces orphans/widows, no JS, falls back to normal).
+     - tighten display-heading letter-spacing on h1/h2 (≥ 19px)
+       to -0.012em — at display sizes the default tracking reads
+       loose; impeccable mandates ≥ -0.04em on display headings,
+       we stay conservative since Maka mixes CJK + Latin.
+     - `tabular-nums` on inline <code> so digit columns in
+       technical replies align (price tables, version numbers,
+       build outputs). */
+.maka-bubble-assistant {
+  color: var(--foreground);
+  line-height: var(--leading-normal);
+  padding: var(--space-0-5) 0 0;
+  word-wrap: break-word;
+  /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills
+     round task #116): cap body prose at ~72ch per pbakaus
+     impeccable (65–75ch) and design-taste-frontend (max-w-[65ch]).
+     On wide windows the assistant text used to stretch the full
+     chat-pane width and wrap into very long lines, hurting
+     eye-tracking. Cap applies to inline text only — code blocks,
+     tables, and other block-level children override with
+     max-width: 100% downstream so wide payloads still expand. */
+  max-width: 72ch;
+}
+.maka-prose pre,
+.maka-prose table,
+.maka-prose .maka-code-block {
+  /* Wide payloads bypass the prose cap. */
+  max-width: 100%;
+}
+.maka-bubble-assistant > :first-child { margin-top: 0; }
+.maka-bubble-assistant > :last-child { margin-bottom: 0; }
+.maka-bubble-assistant > :nth-last-child(2) { margin-bottom: 0; }
+.maka-prose > p:nth-last-child(2) { display: inline; }
+.maka-prose p {
+  margin: 0 0 var(--space-3);
+  text-wrap: pretty;
+}
+.maka-prose h1,
+.maka-prose h2,
+.maka-prose h3,
+.maka-prose h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  line-height: var(--leading-tight);
+  font-weight: var(--font-weight-semibold);
+  text-wrap: balance;
+}
+.maka-prose h1,
+.maka-prose h2 {
+  letter-spacing: var(--tracking-normal);
+}
+.maka-prose code {
+  font-variant-numeric: tabular-nums;
+}
+.maka-prose h1 { font-size: 1.4667em; }
+.maka-prose h2 { font-size: 1.2667em; }
+.maka-prose h3 { font-size: 1.0667em; }
+.maka-prose h4 { font-size: 0.9333em; color: var(--foreground-secondary); }
+.maka-prose ul,
+.maka-prose ol {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-6);
+}
+/* Tailwind v4 preflight strips list markers globally (`ul, ol
+   { list-style: none }` in @layer base); restore them for rendered
+   markdown or bulleted answers read as flat indented lines. Same
+   root cause as the permission-center fix (permission-center.css). */
+.maka-prose ul { list-style: disc; }
+.maka-prose ol { list-style: decimal; }
+.maka-prose li > ul { list-style: circle; }
+.maka-prose li { margin: var(--space-0-5) 0; }
+.maka-prose li > ul,
+.maka-prose li > ol { margin-bottom: 0; }
+.maka-prose a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--link) l c h / 0.4);
+  /* PR-UI-LAYOUT-34: explicit transition so focus state animates
+   * smoothly. Also: explicit padding-inline + negative margin so
+   * the focus halo has hit area without pushing inline content
+   * around. */
+  padding: 0 var(--space-0-5);
+  margin: 0 calc(var(--space-0-5) * -1);
+  border-radius: var(--radius-control);
+  transition: border-bottom-color var(--duration-quick) var(--ease-out-strong), background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+.maka-prose a:hover {
+  border-bottom-color: var(--link);
+}
+.maka-prose a:focus-visible {
+  outline: none;
+  background: oklch(from var(--link) l c h / 0.06);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20);
+}
+.maka-prose code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  padding: 1px var(--space-1-5);
+  /* PR-UI-LAYOUT-28: inline code radius 4 → 5. Tiny bump but
+   * pulls it slightly out of the "tight tag" feel into a calmer
+   * pill rhythm that matches the rest of the warm-canvas chrome. */
+  border-radius: var(--radius-control);
+  background: var(--foreground-5);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
+}
+/* Block code goes inside a maka-code-block wrapper that adds a language
+   pill + copy button on top of the pre. Pre keeps its monospace styling
+   but the border + radius now live on the wrapper so the header reads
+   as part of the same surface. */
+.maka-prose .maka-code-block {
+  margin: 0 0 var(--space-3);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  overflow: hidden;
+  background: var(--foreground-3);
+}
+.maka-code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-2-5) var(--space-1) var(--space-3);
+  border-bottom: var(--border-width-hairline) solid var(--border);
+  background: var(--foreground-5);
+  color: var(--foreground-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  letter-spacing: var(--tracking-wide);
+}
+.maka-code-block-lang {
+  text-transform: lowercase;
+}
+.maka-code-block-copy {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  /* PR-UI-LAYOUT-28: code-block copy button — radius 5 → 7 to
+   * match the small-button family + add focus-visible ring + a
+   * smoother transition. Width/height stay 22 because the copy
+   * icon sits inside the code-block header strip and growing it
+   * would change the header height. */
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  transition: background var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+.maka-code-block-copy:hover {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
+}
+.maka-code-block-copy:focus-visible {
+  outline: none;
+  color: var(--foreground);
+  background: var(--foreground-10);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
+}
+.maka-code-block-copy[data-copied="true"] {
+  color: var(--success-text);
+}
+.maka-code-block-copy[data-pending="true"] {
+  cursor: progress;
+  opacity: var(--opacity-pending);
+}
+.maka-code-block-copy[data-copy-feedback="failed"] {
+  color: var(--destructive);
+}
+.maka-prose pre {
+  margin: 0;
+  padding: var(--space-3) var(--space-3);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  white-space: pre;
+}
+.maka-prose pre code {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+/* Syntax highlight palette for highlight.js / lowlight class names.
+   All colors derive from oklch token shifts so light + dark stay
+   in sync without per-theme overrides. */
+.hljs            { color: var(--foreground); }
+.hljs-comment,
+.hljs-quote      { color: var(--muted-foreground); font-style: italic; }
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-tag        { color: oklch(from var(--link) calc(l - 0.05) calc(c + 0.04) h); }
+.hljs-string,
+.hljs-doctag,
+.hljs-regexp     { color: oklch(from var(--success) calc(l + 0.02) c h); }
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-meta       { color: oklch(from var(--info) calc(l - 0.05) c h); }
+.hljs-built_in,
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-title.class_,
+.hljs-title.function_ { color: oklch(from var(--link) calc(l - 0.1) c calc(h - 30)); }
+.hljs-variable,
+.hljs-attr,
+.hljs-attribute,
+.hljs-name       { color: oklch(from var(--info) calc(l - 0.1) calc(c + 0.04) h); }
+.hljs-deletion   { color: var(--destructive-text); background: oklch(from var(--destructive) l c h / 0.08); }
+.hljs-addition   { color: var(--success-text); background: oklch(from var(--success) l c h / 0.08); }
+.hljs-emphasis   { font-style: italic; }
+.hljs-strong     { font-weight: var(--font-weight-bold); }
+.maka-prose blockquote {
+  margin: 0 0 var(--space-3);
+  /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
+   * Bump padding so the quote actually has air around it, switch
+   * left rule to accent at 28% so it visually anchors the quote
+   * without overpowering.
+   *
+   * PR-UI-LAYOUT-31 (@kenji contract review): drop the accent
+   * fill (`oklch from --accent / 0.04`) — accent tint, even at
+   * very low alpha, can blur the line between markdown content
+   * quote and system alert/callout. Switch to neutral
+   * `--foreground-3` so the block reads as "highlighted content
+   * passage" while system alerts continue to own the
+   * icon + border + saturated tone pattern. The left rule keeps
+   * the accent tie so quotes still feel branded, not generic. */
+  padding: var(--space-2) var(--space-4);
+  border-left: var(--border-width-accent) solid oklch(from var(--focus-ring) l c h / 0.28);
+  background: var(--foreground-3);
+  border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
+  color: var(--foreground-secondary);
+}
+.maka-prose table {
+  width: 100%;
+  margin: 0 0 var(--space-3);
+  border-collapse: collapse;
+  font-size: var(--font-size-ui);
+  overflow: hidden;
+  /* PR-UI-LAYOUT-28: table radius 8 → 10 joins the card family,
+   * and a hairline outer border gives the table chrome a clean
+   * edge against the warm panel. Without the border the rounded
+   * corners would clip nothing visible. */
+  border-radius: var(--radius-surface);
+  border: var(--border-width-hairline) solid var(--border);
+}
+.maka-prose th,
+.maka-prose td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width-hairline) solid var(--border);
+  text-align: left;
+}
+/* PR-UI-LAYOUT-28: drop the trailing border on the last row so the
+ * rounded corner reads cleanly. */
+.maka-prose tr:last-child th,
+.maka-prose tr:last-child td {
+  border-bottom: 0;
+}
+.maka-prose th {
+  color: var(--foreground-secondary);
+  font-weight: var(--font-weight-semibold);
+  background: var(--foreground-3);
+  /* PR-UI-LAYOUT-28: header tone slightly darker than body cell
+   * to make the header row read at first glance — was the same
+   * `--foreground-3` as nothing else, now sits between cell and
+   * code-block tints. */
+  letter-spacing: var(--tracking-normal);
+}
+.maka-prose hr {
+  margin: var(--space-4) 0;
+  border: 0;
+  border-top: var(--border-width-hairline) solid var(--border);
+}
+
+/* --- Hover-revealed copy button on assistant messages -------------------- */
+/* The wrapper is position: relative so the button can anchor to the top-right
+   corner. The hover/focus-within guard keeps it out of the way until the user
+   deliberately mouses over the bubble or tabs into it. */
+.maka-bubble-with-actions {
+  position: relative;
+}
+.maka-message-copy {
+  position: absolute;
+  top: 2px;
+  right: -2px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--background) l c h / 0.88);
+  color: var(--muted-foreground);
+  opacity: 0;
+  /* PR-CHAT-COPY-BUTTON-POLISH-0 (WAWQAQ 10min loop): the copy
+     button used to fade in on hover but never moved — felt like
+     a label flickering on. Add a tiny entrance translate (4px
+     down → 0) + scale (0.94 → 1) on the rest state so the reveal
+     on hover reads as "this just slid in from above" rather than
+     a fade-only flash. transform stays GPU-accelerated; transition
+     list keeps both axes coherent. */
+  transform: translateY(-3px) scale(var(--scale-press));
+  transition:
+    opacity var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    color var(--duration-quick) var(--ease-out-strong),
+    background var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+
+/* Labelled variant (e.g. "复制思考过程") — flows inline, doesn't absolute-
+   position, and always visible since it's already inside a collapsible
+   region the user has expanded. */
+.maka-message-copy[data-labelled="true"] {
+  position: static;
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-0-5) var(--space-2);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  opacity: 1;
+  background: transparent;
+}
+/* (The user-turn meta-row copy renders via MessageCopyButton's
+   `footerStyle`, so it reuses the Marker `footer-action` shell
+   (`markerVariants('footer-action')`) directly and needs no bespoke
+   override here.) */
+.maka-bubble-with-actions:hover .maka-message-copy,
+.maka-bubble-with-actions:focus-within .maka-message-copy,
+.maka-message-copy:focus-visible {
+  opacity: 1;
+  /* Settle into the resting position when the parent bubble is
+     hovered or anything inside it gains focus. The entrance
+     translate / scale defined on .maka-message-copy resolves
+     here. */
+  transform: translateY(0) scale(1);
+}
+.maka-message-copy:hover {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
+  box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.08);
+}
+.maka-message-copy[data-copied="true"] {
+  color: var(--success-text);
+  background: oklch(from var(--success) l c h / 0.08);
+  opacity: 1;
+}
+.maka-message-copy[data-pending="true"] {
+  cursor: progress;
+  opacity: 1;
+}
+.maka-message-copy[data-copy-feedback="failed"] {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  opacity: 1;
+}
+
+/* --- Streaming caret ------------------------------------------------------ */
+/* External design reference uses the half-block glyph ▎ tinted with --accent.
+   Subtler than a full ▋ and gives the impression of motion via the glyph shape
+   itself; we still gently pulse opacity. */
+.maka-bubble-streaming::after {
+  content: "▎";
+  display: inline-block;
+  margin-left: var(--space-0-5);
+  color: var(--status-running);
+  animation: maka-cursor 1.1s var(--ease-in-out-strong) infinite;
+  vertical-align: -2px;
+}
+@keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) {
+  .maka-bubble-streaming::after { animation: none; opacity: 1; }
+}
+
+/* --- User-turn meta row (relocated from tool-output.css) ----------------- */
+/* PR-CHAT-CHROME-FOLLOWUP-0: the relative time is always visible now
+   (it was `opacity: 0` until hover, which hid it on touch + from
+   assistive tech). It stays quiet — 12px at the shared chrome size,
+   muted — and rides in the user turn's meta row beneath the block. */
+.maka-message-time-inline {
+  display: inline-block;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--leading-none);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* User turn meta row: quiet time + a copy affordance, right-aligned
+   beneath the message block (the parent `Message role="user"` aligns its
+   items to flex-end, so this row shrink-wraps and hugs the right edge). */
+.maka-message-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+/* Turn summary / lineage rows / footer measure column folded into the
+   `@maka/ui` Marker chat primitive's own variants (issue #332 PR2 —
+   packages/ui/src/primitives/chat.tsx); the layout is now location-
+   independent instead of keyed on a `[data-role="assistant"]` descendant. */
+
+[data-slot="message"] pre {
+  margin: 0;
+  font: inherit;
+}
+
+[data-slot="message"][data-role="system"] pre {
+  display: inline-flex;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--info) l c h / 0.08);
+  color: var(--info-text);
+  padding: var(--space-0-5) var(--space-1-5);
+  font-size: var(--font-size-caption);
+}

@@ -13,6 +13,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isDeepResearchSession,
   isThinkingLevel,
   thinkingVariantsForModel,
   resolveModelVisionSupport,
@@ -84,6 +85,7 @@ import {
   getWechatBridgeQrCode,
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
+  ShellRunProcessManager,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -98,7 +100,17 @@ import type {
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import {
+  createAgentRunStore,
+  createArtifactStore,
+  createConnectionStore,
+  createPlanReminderStore,
+  createRuntimeEventStore,
+  createSessionStore,
+  createSettingsStore,
+  createShellRunStore,
+  createTelemetryRepo,
+} from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -242,6 +254,7 @@ let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
@@ -387,6 +400,11 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+const shellRuns = new ShellRunProcessManager({
+  store: shellRunStore,
+  newId: randomUUID,
+  now: Date.now,
+});
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -411,8 +429,12 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
+const webSearchTool = buildWebSearchAgentTool({
+  settingsStore,
+  getPrivacyContext: getWorkspacePrivacyContext,
+});
 const builtinTools: MakaTool[] = [
-  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -425,10 +447,7 @@ const builtinTools: MakaTool[] = [
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
   // prompts the user in explore / ask modes.
-  buildWebSearchAgentTool({
-    settingsStore,
-    getPrivacyContext: getWorkspacePrivacyContext,
-  }),
+  webSearchTool,
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
@@ -436,7 +455,12 @@ const builtinTools: MakaTool[] = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
-const childAgentTools = buildChildAgentTools(builtinTools);
+// Child agents stay file-only for local reads; parent runtime refs such as
+// maka://runtime/background-tasks/<id> are not part of their tool surface.
+const childAgentTools = buildChildAgentTools([
+  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  webSearchTool,
+]);
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -628,6 +652,7 @@ backends.register('ai-sdk', async (ctx) => {
       childInstruction: ctx.systemPrompt,
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
+    shellRunContextSummary: ctx.shellRunContextSummary,
     lookupPricing,
     recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event: ToolInvocationRecord) =>
@@ -714,6 +739,7 @@ const runtime = new SessionManager({
   store,
   runStore,
   runtimeEventStore,
+  shellRuns,
   backends,
   childTools: childAgentTools,
   listArtifactsForTurn: async (sessionId, turnId) =>
@@ -1533,6 +1559,25 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
     const status = await openGateway.sync(settings.openGateway);
     safeSendToRenderer('gateway:statusChanged', status);
   }
+  if (patch.chatDefaults?.permissionMode) {
+    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
+  }
+}
+
+async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
+  const sessions = await runtime.listSessions();
+  await Promise.all(sessions.map(async (session) => {
+    if (session.permissionMode === mode) return;
+    if (isDeepResearchSession(session.labels)) return;
+    if (session.status === 'running' || session.status === 'waiting_for_user') return;
+    try {
+      await runtime.setPermissionMode(session.id, mode);
+      emitSessionsChanged('mode-change', session.id);
+    } catch {
+      // Best effort: the persisted global default is still the authority for
+      // new sessions; busy sessions can be reconciled on a later change.
+    }
+  }));
 }
 
 async function handleExternalSettingsChange(): Promise<void> {
@@ -1916,13 +1961,33 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let beforeQuitCleanupComplete = false;
+let beforeQuitCleanupStarted = false;
+
+app.on('before-quit', (event) => {
+  if (beforeQuitCleanupComplete) return;
+  event.preventDefault();
+  if (beforeQuitCleanupStarted) return;
+  beforeQuitCleanupStarted = true;
+  void runBeforeQuitCleanup().finally(() => {
+    beforeQuitCleanupComplete = true;
+    app.quit();
+  });
+});
+
+async function runBeforeQuitCleanup(): Promise<void> {
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
-  void botRegistry.stopAll();
-  void openGateway.stop();
-  void mainWindowController.disposeBrowserViews();
-});
+  const results = await Promise.allSettled([
+    botRegistry.stopAll(),
+    openGateway.stop(),
+    Promise.resolve(mainWindowController.disposeBrowserViews()),
+    shellRuns.terminateAll(),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
+  }
+}
 
 app.on('activate', focusOrCreateMainWindow);

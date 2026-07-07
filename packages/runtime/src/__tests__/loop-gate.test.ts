@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { z } from 'zod';
-import type { SessionEvent } from '@maka/core/events';
+import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { SessionHeader, StoredMessage } from '@maka/core/session';
+import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 
 import {
   ToolRuntime,
@@ -12,6 +13,15 @@ import {
   type MakaTool,
 } from '../tool-runtime.js';
 import { PermissionEngine } from '../permission-engine.js';
+
+type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
+type ObservedShellRunStatus = Extract<ShellRunToolResult['status'], 'failed' | 'timed_out' | 'cancelled' | 'orphaned'>;
+const observedShellRunStatuses = [
+  'failed',
+  'timed_out',
+  'cancelled',
+  'orphaned',
+] as const satisfies readonly ObservedShellRunStatus[];
 
 // The loop-gate blocks a back-to-back run of byte-identical tool calls (same
 // tool + same args) only after they have FAILED N-1 times in a row (#92). A
@@ -46,12 +56,14 @@ interface Harness {
   runtime: ToolRuntime;
   pushed: SessionEvent[];
   impl: string[];
+  invocations: Array<Pick<ToolInvocationRecord, 'toolName' | 'status'>>;
 }
 
 function makeHarness(): Harness {
   const appended: StoredMessage[] = [];
   const pushed: SessionEvent[] = [];
   const impl: string[] = [];
+  const invocations: Array<Pick<ToolInvocationRecord, 'toolName' | 'status'>> = [];
   const engine = new PermissionEngine({ newId: () => 'perm', now: () => 1 });
   let n = 0;
   const runtime = new ToolRuntime({
@@ -64,8 +76,11 @@ function makeHarness(): Harness {
     newId: () => `id-${++n}`,
     now: () => 1,
     getPermissionPauseTarget: () => null,
+    recordToolInvocation: (record) => {
+      invocations.push({ toolName: record.toolName, status: record.status });
+    },
   });
-  return { runtime, pushed, impl };
+  return { runtime, pushed, impl, invocations };
 }
 
 // A tool that succeeds (returns {ok:true}). Used for the polling / no-gate cases.
@@ -106,9 +121,9 @@ function makeFlakyTool(name: string, impl: string[], box: { fail: boolean }, mes
   };
 }
 
-// A tool that RETURNS a terminal result (the headless Bash shape) instead of
-// throwing. A non-zero exitCode must be classified as a failure by
-// deriveToolResultStatus() for the loop-gate to see it.
+// A tool that RETURNS a terminal result instead of throwing. Terminal status
+// must be classified by deriveToolResultStatus() for the loop-gate to see
+// failures.
 function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaTool {
   return {
     name,
@@ -121,10 +136,50 @@ function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaT
         kind: 'terminal',
         cwd: '/tmp/maka',
         cmd: 'cmd',
+        status: exitCode === 0 ? 'completed' : 'failed',
         exitCode,
         stdout: '',
         stderr: exitCode === 0 ? '' : 'boom\n',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       };
+    },
+  };
+}
+
+function makeShellRunTool(name: string, impl: string[], status: ObservedShellRunStatus): MakaTool {
+  return {
+    name,
+    description: name,
+    parameters: z.object({}).passthrough(),
+    permissionRequired: false,
+    impl: (args) => {
+      impl.push(`${name}:${JSON.stringify(args)}`);
+      return {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/shell-run-1',
+        status,
+        cwd: '/tmp/maka',
+        cmd: 'cmd',
+        startedAt: 1,
+        updatedAt: 2,
+        completedAt: 2,
+        ...(status === 'orphaned'
+          ? { orphanedReason: 'missing live shell process handle' }
+          : {
+              exitCode: status === 'timed_out' ? 124 : status === 'cancelled' ? 130 : 1,
+              failureMessage: status === 'timed_out'
+                ? 'Command timed out after 10000ms'
+                : status === 'cancelled'
+                  ? 'Command cancelled'
+                  : 'Command failed',
+            }),
+        stdout: '',
+        stderr: status === 'failed' ? 'boom\n' : '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        observedAt: 2,
+      } satisfies ShellRunToolResult;
     },
   };
 }
@@ -307,5 +362,35 @@ describe('loop-gate for repeated identical FAILING tool calls', () => {
     for (let i = 0; i < runs; i++) await call(h, t, args);
 
     assert.equal(h.impl.length, runs, 'every exit-0 poll ran — none was gated');
+  });
+
+  test('returned shell_run terminal states are observations, not tool failures', async () => {
+    for (const status of observedShellRunStatuses) {
+      const h = makeHarness();
+      const t = makeShellRunTool('StopBackgroundTask', h.impl, status);
+      const args = { ref: 'maka://runtime/background-tasks/shell-run-1' };
+
+      const result = await call(h, t, args);
+      assert.equal((result as { kind?: string }).kind, 'shell_run', status);
+      const event = h.pushed.find((candidate) => candidate.type === 'tool_result');
+      assert.equal(event?.type === 'tool_result' ? event.isError : true, false, status);
+      assert.equal(h.invocations[0]?.status, 'success', status);
+    }
+  });
+
+  test('repeated shell_run observations are not loop-gated by process status', async () => {
+    const h = makeHarness();
+    const t = makeShellRunTool('StopBackgroundTask', h.impl, 'timed_out');
+    const args = { ref: 'maka://runtime/background-tasks/shell-run-1' };
+
+    const runs = LOOP_GATE_IDENTICAL_THRESHOLD + 2;
+    for (let i = 0; i < runs; i++) await call(h, t, args);
+
+    assert.equal(h.impl.length, runs, 'every background-task observation ran');
+    assert.equal(
+      h.pushed.every((event) => event.type !== 'tool_result' || event.isError === false),
+      true,
+      'ShellRun observations do not surface as tool errors',
+    );
   });
 });

@@ -26,6 +26,7 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(r.stdout.includes('TAILMARK'), 'tail retained');
     assert.ok(!r.stdout.includes('HEADMARK'), 'head dropped — it is a tail');
     assert.ok(r.stdout.length <= 12, `tail bounded to cap, got ${r.stdout.length}`);
+    assert.equal(r.stdoutTruncated, true);
   });
 
   test('captures stderr and a non-zero exit code as data (does not reject)', async () => {
@@ -78,8 +79,10 @@ describe('runShellWithBoundedTail', () => {
     // 'close' fire and the grandchild is actually gone.
     const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-tree-'));
     const pidFile = join(dir, 'child.pid');
+    const runtime = JSON.stringify(process.execPath);
+    const script = JSON.stringify(`require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`);
     const cmd =
-      `node -e 'require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)'`;
+      `${runtime} -e ${script}`;
     try {
       const r = await runShellWithBoundedTail(cmd, base({ timeoutMs: 200, killGraceMs: 150 }));
       assert.equal(r.timedOut, true);
@@ -101,6 +104,7 @@ describe('runShellWithBoundedTail', () => {
     assert.equal(r.exitCode, 0);
     assert.ok(!r.stdout.includes('xxxx'), 'dropped content is not leaked');
     assert.ok(r.stdout.includes('omitted for safety'), 'a recoverable safety marker is present');
+    assert.equal(r.stdoutTruncated, true);
     // Shares the recovery hint with truncateToolOutput: re-run only when safe.
     assert.ok(r.stdout.includes('safe to re-run'), 'recovery guidance is conditioned on safety');
     assert.ok(r.stdout.includes('side effects'), 'warns about repeating side effects');

@@ -64,6 +64,7 @@ import {
 
 import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
+import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import type { AgentRunLineage } from './agent-run.js';
@@ -206,6 +207,7 @@ export interface BackendFactoryContext {
   recordRunTrace?: RunTraceRecorder;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
+  shellRunContextSummary?: () => Promise<string | undefined>;
 }
 
 export type BackendFactory = (ctx: BackendFactoryContext) => AgentBackend | Promise<AgentBackend>;
@@ -244,6 +246,7 @@ export interface SessionManagerDeps {
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
+  shellRuns?: ShellRunProcessManager;
 }
 
 export class SessionManager {
@@ -295,9 +298,13 @@ export class SessionManager {
   async recoverInterruptedSessions(): Promise<string[]> {
     const interrupted = (await this.deps.store.list())
       .filter((session) => session.status !== 'archived');
-    const recovered: string[] = [];
+    const recovered = new Set<string>();
     for (const session of interrupted) {
       if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
+      if (this.deps.shellRuns) {
+        const recoveredShellRuns = await this.deps.shellRuns.recoverOrphanedSession(session.id).catch(() => 0);
+        if (recoveredShellRuns > 0) recovered.add(session.id);
+      }
       let messages: StoredMessage[] = [];
       let messagesReadable = true;
       try {
@@ -311,10 +318,10 @@ export class SessionManager {
         if (runRecovery?.hasLedger) {
           if (runRecovery.recovered) {
             await this.updateStatus(session.id, 'active').catch(() => {});
-            recovered.push(session.id);
+            recovered.add(session.id);
           } else if (!messagesReadable && (session.status === 'running' || session.status === 'waiting_for_user')) {
             await this.updateStatus(session.id, 'active').catch(() => {});
-            recovered.push(session.id);
+            recovered.add(session.id);
           }
           continue;
         }
@@ -327,7 +334,7 @@ export class SessionManager {
           // flight, so we never stomp a live run's status.
           if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
           await this.updateStatus(session.id, 'active').catch(() => {});
-          recovered.push(session.id);
+          recovered.add(session.id);
         }
         continue;
       }
@@ -343,14 +350,14 @@ export class SessionManager {
         // Same double-check as above: a message sent mid-recovery owns
         // the session status now (its own transitions will settle it).
         if (this.runtimeKernel.hasActiveRuns(session.id)) {
-          recovered.push(session.id);
+          recovered.add(session.id);
           continue;
         }
         await this.updateStatus(session.id, 'active').catch(() => {});
       }
-      recovered.push(session.id);
+      recovered.add(session.id);
     }
-    return recovered;
+    return [...recovered];
   }
 
   async updateSession(
@@ -375,6 +382,7 @@ export class SessionManager {
   }
 
   async archive(sessionId: string): Promise<void> {
+    await this.deps.shellRuns?.terminateSession(sessionId);
     await this.deps.store.archive(sessionId);
     await this.runtimeKernel.disposeBackend(sessionId);
   }
@@ -445,6 +453,7 @@ export class SessionManager {
   }
 
   async remove(sessionId: string): Promise<void> {
+    await this.deps.shellRuns?.terminateSession(sessionId);
     await this.runtimeKernel.disposeBackend(sessionId);
     await this.deps.store.remove(sessionId);
   }

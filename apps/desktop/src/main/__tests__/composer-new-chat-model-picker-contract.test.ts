@@ -142,45 +142,35 @@ describe('home composer new-chat model picker', () => {
     );
   });
 
-  it('wires the picked new-chat permission mode to one sessions.create call only', async () => {
+  it('wires composer permission mode picks to the global chat default', async () => {
     const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
     const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
 
-    assert.match(
-      renderer,
-      /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
-      'AppShell must keep the no-session permission pick renderer-only and start it from null',
-    );
     assert.doesNotMatch(
       renderer,
       /saveComposerDefaults\(\{\s*permissionMode:/,
       'permission mode must not be persisted into composer defaults',
     );
-    assert.match(
+    assert.doesNotMatch(
       renderer,
-      /setPendingNewChatPermissionMode: \(mode: PendingNewChatPermissionMode\) => void;/,
-      'createAppShellChatActions deps must include setPendingNewChatPermissionMode so send() can reset the one-shot pick',
+      /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
+      'composer permission picks are no longer one-shot renderer state',
     );
-    assert.match(
-      renderer,
-      /setPendingNewChatPermissionMode,[\s\S]*validPendingNewChatModel,/,
-      'createAppShellChatActions must destructure setPendingNewChatPermissionMode before send() calls it',
+    assert.doesNotMatch(
+      setPermissionModeBlock,
+      /setPendingNewChatPermissionMode\(mode\)/,
+      'composer permission picks must not be stored for only the next new chat',
     );
     assert.match(
       setPermissionModeBlock,
-      /if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}/,
-      'permission-mode picks without an active session must update pendingNewChatPermissionMode instead of calling IPC',
+      /window\.maka\.settings\.update\(\{ chatDefaults: \{ permissionMode: mode \} \}\)/,
+      'every composer permission-mode pick must persist the global chat default',
     );
-    assert.match(
+    assert.doesNotMatch(
       sendBlock,
       /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
-      'new-chat sessions.create must send the picked pending permission mode when one exists, and omit the field otherwise (main.ts resolves the configured default)',
-    );
-    assert.match(
-      sendBlock,
-      /setPendingNewChatPermissionMode\(null\);/,
-      'pending new-chat permission mode must be one-shot and reset after creating a session',
+      'new-chat sessions.create must never shadow the persisted global default with one-shot renderer state',
     );
   });
 

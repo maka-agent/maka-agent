@@ -129,6 +129,20 @@ export type {
 } from './agent-run.js';
 export { AGENT_RUN_STATUSES } from './agent-run.js';
 
+// shell-run.ts
+export type {
+  ShellRunRecord,
+  ShellRunStatus,
+  ShellRunStore,
+  ShellRunTerminalStatus,
+} from './shell-run.js';
+export {
+  SHELL_RUN_STATUSES,
+  SHELL_RUN_TERMINAL_STATUSES,
+  isShellRunStatus,
+  isTerminalShellRunStatus,
+} from './shell-run.js';
+
 // browser.ts
 export type {
   BrowserAddressInputFailureReason,

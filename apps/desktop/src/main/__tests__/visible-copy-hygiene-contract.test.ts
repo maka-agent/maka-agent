@@ -651,7 +651,9 @@ describe('chat markdown copy feedback contract', () => {
   });
 
   it('keeps message and code copy pending/failure states visible', async () => {
-    const stylesPath = join(process.cwd(), 'src', 'renderer', 'maka-tokens.css');
+    // .maka-message-copy / .maka-code-block-copy moved to chat-message.css
+    // (#546 PR4 relocated the message-body surface out of maka-tokens.css).
+    const stylesPath = join(process.cwd(), 'src', 'renderer', 'styles', 'chat-message.css');
     const src = await readFile(stylesPath, 'utf8');
 
     assert.match(src, /\.maka-message-copy\[data-pending="true"\]/, 'Message copy needs a visible pending selector.');
