@@ -461,24 +461,9 @@ export function renderMakaPiTranscript(
   const lines: string[] = [];
 
   for (const entry of state.entries) {
+    // A blank spacer above every entry, then its (memoized) rendered block.
     lines.push('');
-    switch (entry.kind) {
-      case 'user':
-        lines.push(...renderTextBlock('User', entry.text, safeWidth, { markdown: false, heading: ansi.accent }));
-        break;
-      case 'assistant':
-        lines.push(...renderTextBlock('maka', entry.text, safeWidth, { markdown: true, heading: ansi.accent }));
-        break;
-      case 'thinking':
-        lines.push(...renderThinkingBlock(entry, safeWidth, state.expandAllThinking));
-        break;
-      case 'tool':
-        lines.push(...renderToolBlock(entry, safeWidth, state.expandAllTools));
-        break;
-      case 'notice':
-        lines.push(...renderNotice(entry, safeWidth));
-        break;
-    }
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
   }
 
   if (state.pendingPermission) {
@@ -487,6 +472,148 @@ export function renderMakaPiTranscript(
   }
 
   return lines;
+}
+
+/**
+ * Per-entry render cache. The transcript re-renders on every keystroke and
+ * stream delta, but only the tail entry actually changes; caching the rendered
+ * lines of unchanged entries avoids rebuilding a `Markdown` instance per block
+ * on each pass. Keyed by entry identity (a fresh entry object is a cache miss);
+ * the signature busts the cache when anything that affects the entry's rendered
+ * lines changes (its growing text, tool status, width, or an expansion toggle).
+ */
+interface TranscriptEntryRender {
+  signature: string;
+  lines: string[];
+}
+
+const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, TranscriptEntryRender>();
+
+function renderTranscriptEntryMemoized(
+  entry: MakaPiTranscriptEntry,
+  width: number,
+  expandAllTools: boolean,
+  expandAllThinking: boolean,
+): string[] {
+  const signature = transcriptEntrySignature(entry, width, expandAllTools, expandAllThinking);
+  const cached = transcriptEntryRenderCache.get(entry);
+  if (cached && cached.signature === signature) return cached.lines;
+  const lines = renderTranscriptEntryBlock(entry, width, expandAllTools, expandAllThinking);
+  transcriptEntryRenderCache.set(entry, { signature, lines });
+  return lines;
+}
+
+function renderTranscriptEntryBlock(
+  entry: MakaPiTranscriptEntry,
+  width: number,
+  expandAllTools: boolean,
+  expandAllThinking: boolean,
+): string[] {
+  switch (entry.kind) {
+    case 'user':
+      return renderTextBlock('User', entry.text, width, { markdown: false, heading: ansi.accent });
+    case 'assistant':
+      return renderTextBlock('maka', entry.text, width, { markdown: true, heading: ansi.accent });
+    case 'thinking':
+      return renderThinkingBlock(entry, width, expandAllThinking);
+    case 'tool':
+      return renderToolBlock(entry, width, expandAllTools);
+    case 'notice':
+      return renderNotice(entry, width);
+  }
+}
+
+function transcriptEntrySignature(
+  entry: MakaPiTranscriptEntry,
+  width: number,
+  expandAllTools: boolean,
+  expandAllThinking: boolean,
+): string {
+  switch (entry.kind) {
+    case 'user':
+      return `user|${width}|${entry.text.length}`;
+    case 'assistant':
+      return `assistant|${width}|${entry.text.length}`;
+    case 'thinking':
+      return `thinking|${width}|${expandAllThinking ? 1 : 0}|${entry.text.length}`;
+    case 'notice':
+      return `notice|${width}|${entry.level}|${entry.text.length}`;
+    case 'tool':
+      // A tool entry mutates in place as it runs: status/duration flip on the
+      // result, and progress/output deltas append while running. Its result
+      // object is set once and never rewritten, so counting these fields is
+      // enough to detect every change to the rendered block.
+      return [
+        'tool',
+        width,
+        expandAllTools ? 1 : 0,
+        entry.status,
+        entry.durationMs ?? '',
+        entry.title ?? entry.toolName,
+        entry.progress.length,
+        entry.outputDeltas.length,
+        entry.output?.length ?? '',
+        entry.result ? entry.result.kind : '',
+      ].join('|');
+  }
+}
+
+export interface TranscriptWindow {
+  /** The viewport-sized slice of transcript lines, including a scroll indicator row when scrolled. */
+  lines: string[];
+  /** Clamped scroll offset actually applied — lines hidden below the viewport bottom (0 = following the tail). */
+  scrollOffset: number;
+  /** Lines hidden above the top of the viewport. */
+  hiddenAbove: number;
+  /** Lines hidden below the bottom of the viewport. */
+  hiddenBelow: number;
+  /** True when the transcript is taller than the viewport (a scroll indicator is shown). */
+  scrollable: boolean;
+}
+
+/**
+ * Window a fully rendered transcript to the viewport. When the transcript fits,
+ * every line is returned unchanged. When it overflows, one row is reserved for a
+ * dim scroll indicator so the remaining rows show a `scrollOffset`-anchored slice
+ * — offset 0 follows the live tail, larger offsets reveal older lines.
+ */
+export function windowTranscriptLines(
+  allLines: readonly string[],
+  viewportRows: number,
+  scrollOffset: number,
+  width: number,
+): TranscriptWindow {
+  const rows = Math.max(0, Math.trunc(viewportRows));
+  if (rows === 0) {
+    return { lines: [], scrollOffset: 0, hiddenAbove: 0, hiddenBelow: 0, scrollable: false };
+  }
+  if (allLines.length <= rows) {
+    return { lines: [...allLines], scrollOffset: 0, hiddenAbove: 0, hiddenBelow: 0, scrollable: false };
+  }
+  const contentRows = Math.max(1, rows - 1); // reserve one row for the scroll indicator
+  const maxOffset = allLines.length - contentRows;
+  const offset = Math.min(Math.max(0, Math.trunc(scrollOffset)), maxOffset);
+  const end = allLines.length - offset;
+  const start = Math.max(0, end - contentRows);
+  const hiddenAbove = start;
+  const hiddenBelow = allLines.length - end;
+  const indicator = fitLine(transcriptScrollIndicator(hiddenAbove, hiddenBelow), Math.max(1, width));
+  return {
+    lines: [...allLines.slice(start, end), indicator],
+    scrollOffset: offset,
+    hiddenAbove,
+    hiddenBelow,
+    scrollable: true,
+  };
+}
+
+function transcriptScrollIndicator(hiddenAbove: number, hiddenBelow: number): string {
+  const counts: string[] = [];
+  if (hiddenAbove > 0) counts.push(`↑ ${hiddenAbove} more`);
+  if (hiddenBelow > 0) counts.push(`↓ ${hiddenBelow} more`);
+  const status = counts.join('  ') || 'top';
+  const keys = hiddenBelow > 0 ? 'PgUp/PgDn scroll · PgDn to follow' : 'PgUp/PgDn scroll';
+  return ansi.dim(`── ${status} · ${keys} ──`);
 }
 
 export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {

@@ -32,6 +32,7 @@ import {
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
+  windowTranscriptLines,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
 } from './pi-transcript.js';
@@ -578,6 +579,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
+    // Page through transcript scrollback. Swallow the key whether or not the
+    // view moved so PageUp/PageDown never leak into the editor at a scroll edge.
+    if (matchesKey(data, Key.pageUp)) {
+      if (layout.scrollUp()) tui.requestRender();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      if (layout.scrollDown()) tui.requestRender();
+      return { consume: true };
+    }
     if (state.pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
         respondToPendingPermission('allow');
@@ -648,6 +659,16 @@ class MakaStatusLineComponent implements Component {
 }
 
 class MakaPiLayoutComponent extends Container {
+  // Scroll position as lines hidden below the viewport bottom; 0 = following the
+  // live tail. `followTail` re-pins to the bottom as new output streams in, so a
+  // user reading history is only ever moved by an explicit scroll, never by the
+  // agent's next line.
+  private scrollOffset = 0;
+  private followTail = true;
+  private lastTotalLines = 0;
+  private lastViewportRows = 0;
+  private lastWidth = 0;
+
   constructor(
     private readonly transcript: Component,
     private readonly editor: Component,
@@ -664,14 +685,64 @@ class MakaPiLayoutComponent extends Container {
     const transcriptLines = this.transcript.render(width);
     const editorLines = this.editor.render(width);
     const statusLines = this.statusLine.render(width);
-    const transcriptRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
-    const paddingRows = Math.max(0, transcriptRows - transcriptLines.length);
+    const viewportRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
+
+    if (width !== this.lastWidth) {
+      // Rewrapping at a new width invalidates every line offset, so re-pin to the
+      // tail rather than land the viewport on an arbitrary mid-message row.
+      this.followTail = true;
+      this.scrollOffset = 0;
+    } else if (!this.followTail && transcriptLines.length > this.lastTotalLines) {
+      // New lines land at the bottom; hold the reader's view fixed by counting
+      // them into the below-the-fold offset instead of letting the window drift.
+      this.scrollOffset += transcriptLines.length - this.lastTotalLines;
+    }
+
+    const windowed = windowTranscriptLines(
+      transcriptLines,
+      viewportRows,
+      this.followTail ? 0 : this.scrollOffset,
+      width,
+    );
+    this.scrollOffset = windowed.scrollOffset;
+    this.followTail = windowed.scrollOffset === 0;
+    this.lastTotalLines = transcriptLines.length;
+    this.lastViewportRows = viewportRows;
+    this.lastWidth = width;
+
+    const paddingRows = Math.max(0, viewportRows - windowed.lines.length);
     return [
-      ...transcriptLines,
+      ...windowed.lines,
       ...Array.from({ length: paddingRows }, () => ''),
       ...editorLines,
       ...statusLines,
     ];
+  }
+
+  /** One indicator row is reserved when scrolling, so a page is that many content rows. */
+  private pageSize(): number {
+    return Math.max(1, this.lastViewportRows - 1);
+  }
+
+  private scrollBy(offsetDelta: number): boolean {
+    if (this.lastTotalLines <= this.lastViewportRows) return false; // nothing hidden
+    const maxOffset = Math.max(0, this.lastTotalLines - this.pageSize());
+    const current = this.followTail ? 0 : this.scrollOffset;
+    const next = Math.min(Math.max(0, current + offsetDelta), maxOffset);
+    if (next === current) return false;
+    this.scrollOffset = next;
+    this.followTail = next === 0;
+    return true;
+  }
+
+  /** Scroll toward older output by one page. Returns false when already at the top. */
+  scrollUp(): boolean {
+    return this.scrollBy(this.pageSize());
+  }
+
+  /** Scroll toward newer output by one page. Returns false when already following the tail. */
+  scrollDown(): boolean {
+    return this.scrollBy(-this.pageSize());
   }
 }
 

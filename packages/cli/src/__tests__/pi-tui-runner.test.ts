@@ -140,7 +140,59 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
-    await waitFor(() => terminal.output().includes('expanded-tail'));
+    // Expanding the 31-line result makes it overflow the viewport; its head line
+    // `expanded-tail` scrolls off the top when following the tail, so page up to
+    // bring it into view. This exercises the global expand and scrollback together.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail');
+    });
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('pages transcript scrollback and re-follows the tail', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new LongReplyDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+
+    // A 40-paragraph reply overflows the 24-row viewport, so the tail is pinned
+    // to the bottom and a scroll indicator advertises the hidden lines above.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && /↑ \d+ more/.test(screen);
+    });
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('para-00'), false);
+
+    // Page up far enough to reach the head of the transcript.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('para-00');
+    });
+
+    // Page back down until the live tail follows again (no lines hidden below).
+    await waitFor(() => {
+      terminal.input('\x1b[6~');
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && !/↓ \d+ more/.test(screen);
+    });
 
     terminal.input('\x03');
     await Promise.race([
@@ -1794,6 +1846,48 @@ class ThinkingOutputDriver implements MakaSessionDriver {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class LongReplyDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // Blank lines separate paragraphs so markdown keeps them on their own rows,
+    // giving a reply that reliably overflows the 24-row viewport.
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield {
+      type: 'text_delta',
+      id: 'event-text',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: body,
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
   getSessionId(): string {
     return 'session-1';
   }
