@@ -1179,23 +1179,22 @@
     padding: var(--space-6) 0 var(--space-4) 0;
     display: flex;
     flex-direction: column;
-    /* PR-CHAT-CHROME-FOLLOWUP-0: looser separation BETWEEN turns so each
-       Q+A unit reads as its own block (the within-turn gap stays tight). */
-    gap: var(--space-6);
+    /* PR5 CHAT-TURN-SPACING-0: uniform 12px turn gap (between turns =
+       within turn) — the chat reads as a continuous coding-agent stream
+       instead of stacked Q+A blocks. */
+    gap: var(--space-3);
   }
 
   /* Turn grouping (per kenji UI-04): user msg + tools + assistant answer
-   * cluster into one visual unit. The section is just a flex container —
-   * the spacing between turns is established by the outer chat gap; spacing
-   * inside a turn is tighter so the unit reads as one work block. */
+   * cluster into one visual unit. The section is a flex container; both the
+   * between-turn and within-turn gaps are uniform (CHAT-TURN-SPACING-0), so
+   * a turn reads as one unit by grouping, not by tighter internal spacing. */
   .maka-turn {
     display: flex;
     flex-direction: column;
-    /* PR-CHAT-CHROME-FOLLOWUP-0: 4px → 8px. The parts of one turn (user
-       block, summary, tools, answer) were cramped; 8px gives a calmer
-       internal rhythm while still reading as one unit against the 24px
-       between-turn gap. */
-    gap: var(--space-2);
+    /* PR5 CHAT-TURN-SPACING-0: uniform 12px within-turn gap, matching the
+       between-turn gap (.maka-chat) — one density, no between/within split. */
+    gap: var(--space-3);
     max-width: var(--maka-chat-measure);
     margin: 0 auto;
     width: 100%;
