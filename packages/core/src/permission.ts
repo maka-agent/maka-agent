@@ -131,8 +131,12 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // produces) and shell_unsafe prompt, so the boundary is structural — it
     // does not ride on the destructive/privileged pattern list being complete;
     // a missed variant is at most an extra confirmation, never a silent action.
-    // (Auto-running arbitrary shell is still available per-agent in an ISOLATED
-    // worktree; see IMPLEMENTATION_AGENT_DEFINITION.categoryPolicy.)
+    // (Auto-running arbitrary shell inside an isolated worktree is a future
+    // capability, not a current escape hatch: it needs a worktree child
+    // executor with its OWN permission path. An agent's categoryPolicy only
+    // filters which tools the agent is GIVEN — it does not enter execution-time
+    // gating, which always flows through preToolUse → this policy table. Today
+    // the worktree implementation agent cannot even be spawned.)
     shell_safe: 'prompt',
     shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
