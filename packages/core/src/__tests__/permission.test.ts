@@ -129,6 +129,42 @@ describe('categorizeBash', () => {
     expect(categorizeBash('echo hi; sudo reboot')).toBe('privileged');
   });
 
+  test('quoted, escaped, or path-prefixed command names still categorize', () => {
+    expect(categorizeBash("& 'Remove-Item' .\\foo.txt")).toBe('fs_destructive');
+    expect(categorizeBash('& "ri" .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash("& 'git' clean -fd")).toBe('git_destructive');
+    expect(categorizeBash("& 'C:\\Program Files\\Git\\bin\\git.exe' clean -fd")).toBe('git_destructive');
+    expect(categorizeBash('/bin/rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('\\rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('C:\\Windows\\System32\\taskkill.exe /IM node.exe')).toBe('privileged');
+  });
+
+  test('PowerShell/cmd process, service, and power commands → privileged', () => {
+    expect(categorizeBash('Stop-Process -Name notepad')).toBe('privileged');
+    expect(categorizeBash('spps -Name notepad')).toBe('privileged');
+    expect(categorizeBash('taskkill /IM node.exe /F')).toBe('privileged');
+    expect(categorizeBash('Get-Process notepad | Stop-Process')).toBe('privileged');
+    expect(categorizeBash('Stop-Computer')).toBe('privileged');
+    expect(categorizeBash('Restart-Computer -Force')).toBe('privileged');
+    expect(categorizeBash('Stop-Service -Name w32time')).toBe('privileged');
+  });
+
+  test('wrapper commands do not hide the real command', () => {
+    expect(categorizeBash('nohup rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('timeout 30 rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('env FOO=bar rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('command rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('time make build')).toBe('shell_unsafe');
+  });
+
+  test('literal payloads of shell-in-shell commands are categorized recursively', () => {
+    expect(categorizeBash('cmd /c del foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash("bash -c 'rm -rf /tmp/x'")).toBe('fs_destructive');
+    expect(categorizeBash("bash -lc 'rm -rf /tmp/x'")).toBe('fs_destructive');
+    expect(categorizeBash('pwsh -NoProfile -Command "Remove-Item x"')).toBe('fs_destructive');
+    expect(categorizeBash("bash -c 'echo hi'")).toBe('shell_unsafe');
+  });
+
   test('destructive names as mere text do NOT upgrade the category', () => {
     expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
     expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
@@ -285,6 +321,20 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: quoted names and PowerShell process kills STILL prompt in execute mode', () => {
+    for (const command of [
+      "& 'Remove-Item' .\\foo.txt",
+      '& "ri" .\\foo.txt',
+      "& 'git' clean -fd",
+      'Stop-Process -Name notepad',
+      'Get-Process notepad | Stop-Process',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
   });
 
   test('CRITICAL: PowerShell deletes at any position STILL prompt in execute mode', () => {

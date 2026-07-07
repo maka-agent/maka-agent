@@ -221,6 +221,17 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
   'reboot',
 ];
 
+/** PowerShell/cmd equivalents of the privileged boundary above: process
+ *  termination (kill/killall), service control (systemctl), power
+ *  (shutdown/reboot), and ACL/ownership (chmod/chown). Case-insensitive
+ *  because PowerShell is. */
+export const PRIVILEGED_SHELL_PATTERNS: readonly RegExp[] = [
+  /^(stop-process|spps|taskkill)\b/i,
+  /^(stop-service|restart-service|set-service)\b/i,
+  /^(stop-computer|restart-computer)\b/i,
+  /^(icacls|takeown|set-acl|runas)\b/i,
+];
+
 /** Irreversible filesystem operations. `rm` in any form (incl. single-file
  *  `rm foo.txt`) lands here so auto/execute mode still prompts. Anchored to
  *  the start of every statement segment (see commandSegments), not just the
@@ -282,19 +293,94 @@ function commandSegments(cmd: string): string[] {
     .filter(Boolean);
 }
 
+/** Commands that defer to the real command later in the segment. */
+const WRAPPER_COMMANDS = new Set(['nohup', 'nice', 'time', 'timeout', 'env', 'command', 'exec', 'stdbuf']);
+
+/** Shell-in-shell heads whose literal payload can be categorized recursively.
+ *  Interpreters (python -c, node -e) are deliberately absent: we know these
+ *  shells' dialects, we do not parse arbitrary languages. */
+const NESTED_SHELL_HEADS: ReadonlyArray<{ head: RegExp; flag: RegExp }> = [
+  { head: /^(sh|bash|zsh)$/, flag: /(?:^|\s)-\w*c\s+([\s\S]+)$/ },
+  { head: /^(pwsh|powershell)$/i, flag: /\s-c(?:ommand)?\s+([\s\S]+)$/i },
+  { head: /^cmd$/i, flag: /\s\/[ck]\s+([\s\S]+)$/i },
+];
+
+/**
+ * Canonicalize the segment's first token to the command name it resolves to:
+ * unwrap quotes (`& 'Remove-Item' x`), drop a leading escape (`\rm`), a path
+ * prefix (`/bin/rm`, `C:\...\taskkill.exe`) and the .exe suffix, and skip
+ * wrapper commands plus their option-ish arguments (`nohup`, `timeout 30`,
+ * `env FOO=bar`). Only the UPGRADE checks (privileged/fs/git) see this
+ * normalization — the safe-prefix check keeps the raw command, so a local
+ * script named `./ls` can never be upgraded to shell_safe.
+ */
+function normalizeSegmentHead(segment: string): string {
+  let rest = segment;
+  for (let hops = 0; hops < 5; hops++) {
+    const quoted = /^(['"])(.+?)\1(\s+|$)/.exec(rest);
+    const bare = quoted ? null : /^(\S+)(\s*)([\s\S]*)$/.exec(rest);
+    if (!quoted && !bare) return rest;
+    let head = quoted ? quoted[2]! : bare![1]!;
+    const tail = quoted ? rest.slice(quoted[0].length) : bare![3]!;
+    head = head
+      .replace(/^\\/, '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.exe$/i, '');
+    if (WRAPPER_COMMANDS.has(head.toLowerCase())) {
+      rest = tail.replace(/^((-\S+|\S+=\S*|\d+[smhd]?)\s+)*/, '');
+      continue;
+    }
+    return tail ? `${head} ${tail}` : head;
+  }
+  return rest;
+}
+
+/** Head-normalized segments, plus (recursively) the segments of any literal
+ *  shell-in-shell payload: `cmd /c del foo.txt` also yields `del foo.txt`. */
+function scanSegments(cmd: string, depth: number): string[] {
+  const out: string[] = [];
+  for (const raw of commandSegments(cmd)) {
+    const segment = normalizeSegmentHead(raw);
+    out.push(segment);
+    if (depth === 0) continue;
+    const payload = nestedShellPayload(segment);
+    if (payload) out.push(...scanSegments(payload, depth - 1));
+  }
+  return out;
+}
+
+function nestedShellPayload(segment: string): string | undefined {
+  const head = /^\S*/.exec(segment)![0];
+  for (const shell of NESTED_SHELL_HEADS) {
+    if (!shell.head.test(head)) continue;
+    const match = shell.flag.exec(segment);
+    if (!match) return undefined;
+    const payload = match[1]!.trim();
+    const unquoted = /^(['"])([\s\S]*)\1$/.exec(payload);
+    return unquoted ? unquoted[2] : payload;
+  }
+  return undefined;
+}
+
+function isPrivilegedSegment(segment: string): boolean {
+  const lower = segment.toLowerCase();
+  return PRIVILEGED_SHELL_PREFIXES.some((p) => lower.startsWith(p))
+    || PRIVILEGED_SHELL_PATTERNS.some((re) => re.test(segment));
+}
+
 /**
  * Order: privileged > fs_destructive > git_destructive > safe > unsafe.
- * The destructive/privileged checks run against EVERY statement segment, not
- * just the start of the command: `cd /tmp; rm -rf stuff` and
- * `Get-ChildItem . | ForEach-Object { Remove-Item $_ }` are as irreversible
- * as a leading `rm`. Best-effort by design — interpreter one-liners
- * (`python -c "shutil.rmtree(...)"`) are out of reach of any pattern list and
- * stay shell_unsafe.
+ * The destructive/privileged checks run against EVERY statement segment (with
+ * a canonicalized first token), not just the start of the command:
+ * `cd /tmp; rm -rf stuff`, `Get-ChildItem . | ForEach-Object { Remove-Item $_ }`,
+ * and `& 'Remove-Item' x` are as irreversible as a leading `rm`. Best-effort
+ * by design — interpreter one-liners (`python -c "shutil.rmtree(...)"`) are
+ * out of reach of any pattern list and stay shell_unsafe.
  */
 export function categorizeBash(cmd: string): ToolCategory {
   const t = cmd.trim();
-  const segments = commandSegments(cmd);
-  if (segments.some((s) => PRIVILEGED_SHELL_PREFIXES.some((p) => s.startsWith(p)))) return 'privileged';
+  const segments = scanSegments(cmd, 2);
+  if (segments.some((s) => isPrivilegedSegment(s))) return 'privileged';
   if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s)))) return 'fs_destructive';
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
   if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s)))) return 'git_destructive';
