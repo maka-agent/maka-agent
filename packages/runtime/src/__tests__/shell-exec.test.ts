@@ -150,6 +150,24 @@ describe('runShellWithBoundedTail', () => {
     assert.equal(r.exitCode, 42);
   });
 
+  test('deliberate boundary: earlier native exit code wins over a final cmdlet failure (requires pwsh)', async (t) => {
+    // Plain pwsh -Command would exit 1 here (last statement is a cmdlet
+    // failure). The wrapper cannot tell WHICH statement tripped $? , and the
+    // only observable ($Error growth) would misreport the far more common
+    // "cmdlet noise, then native command fails last" shape back to 1. So when
+    // the final statement failed, the wrapper deliberately prefers the last
+    // native exit code over the generic 1 — both are non-zero, stderr still
+    // carries the cmdlet error. Pinned so a wrapper change surfaces here.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'\nGet-Item ./maka-definitely-missing-file`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
+    assert.match(r.stderr, /maka-definitely-missing-file/);
+  });
+
   test('emits every chunk live via emitOutput', async () => {
     const seen: Array<[string, string]> = [];
     await runShellWithBoundedTail(

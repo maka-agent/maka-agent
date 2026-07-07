@@ -75,6 +75,13 @@ export interface ShellSpawnPlan {
 // failing cmdlet with no native exit code still maps to 1. $? must be captured
 // before the if-statement evaluates (which would reset it). Verified against
 // real pwsh; works on Windows PowerShell 5.1 syntax too.
+//
+// Deliberate boundary: when the final statement failed, an earlier native exit
+// code wins over a final cmdlet failure (exit 42 where plain pwsh would say 1).
+// The tail cannot tell which statement tripped $?, and the only observable
+// ($Error growth) would misreport the common "cmdlet noise, then native
+// command fails last" shape back to 1. Both outcomes are non-zero either way;
+// stderr still carries the cmdlet error. Pinned in shell-exec.test.ts.
 const POWERSHELL_EXIT_CODE_TAIL =
   '$__makaOk = $?\n'
   + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }';
