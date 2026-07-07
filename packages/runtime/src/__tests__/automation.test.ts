@@ -413,6 +413,129 @@ describe('computeNextCronFire', () => {
     assert.equal(d.getSeconds(), 0);
     assert.equal(d.getMilliseconds(), 0);
   });
+
+  // --- Bug 1: sparse annual crons must resolve within a bounded window ---
+
+  test('sparse annual cron 0 0 29 2 * resolves to Feb 29 in a leap year (not null)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    const next = computeNextCronFire('0 0 29 2 *', base);
+    assert.ok(next, 'Feb 29 cron should resolve within the extended search window');
+    const d = new Date(next!);
+    assert.equal(d.getMonth(), 1, 'month should be February (0-indexed 1)');
+    assert.equal(d.getDate(), 29, 'day should be the 29th');
+    assert.equal(d.getHours(), 0);
+    assert.equal(d.getMinutes(), 0);
+    const y = d.getFullYear();
+    const isLeap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    assert.ok(isLeap, `${y} should be a leap year`);
+    assert.ok(next! > base);
+  });
+
+  test('impossible cron 0 0 30 2 * returns null (bounded, no infinite loop)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    const next = computeNextCronFire('0 0 30 2 *', base);
+    assert.equal(next, null, 'Feb 30 never occurs, must return null after bounded search');
+  });
+
+  // --- Bug 2: dom + dow are OR (not AND) when BOTH fields are restricted ---
+
+  test('dom+dow OR: 0 0 13 * 5 matches the 13th OR any Friday (not Friday-the-13th)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    const fires: Date[] = [];
+    let cursor = base;
+    for (let i = 0; i < 8; i++) {
+      const next = computeNextCronFire('0 0 13 * 5', cursor);
+      assert.ok(next);
+      fires.push(new Date(next!));
+      cursor = next!;
+    }
+    // Every fire is at midnight and is either the 13th OR a Friday (dow 5).
+    for (const d of fires) {
+      assert.equal(d.getHours(), 0);
+      assert.equal(d.getMinutes(), 0);
+      assert.ok(
+        d.getDate() === 13 || d.getDay() === 5,
+        `${d.toISOString()} should be the 13th or a Friday`,
+      );
+    }
+    // Proves OR (not AND): a Friday that is NOT the 13th must appear ...
+    assert.ok(
+      fires.some(d => d.getDay() === 5 && d.getDate() !== 13),
+      'expected at least one Friday that is not the 13th',
+    );
+    // ... and a 13th that is NOT a Friday must appear.
+    assert.ok(
+      fires.some(d => d.getDate() === 13 && d.getDay() !== 5),
+      'expected at least one 13th that is not a Friday',
+    );
+  });
+
+  test('dom-only 0 0 13 * * matches only the 13th (dow unrestricted → AND)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    let cursor = base;
+    for (let i = 0; i < 4; i++) {
+      const next = computeNextCronFire('0 0 13 * *', cursor);
+      assert.ok(next);
+      const d = new Date(next!);
+      assert.equal(d.getDate(), 13, `${d.toISOString()} should be the 13th`);
+      assert.equal(d.getHours(), 0);
+      assert.equal(d.getMinutes(), 0);
+      cursor = next!;
+    }
+  });
+
+  test('dow-only 0 0 * * 5 matches only Fridays (dom unrestricted → AND)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    let cursor = base;
+    for (let i = 0; i < 4; i++) {
+      const next = computeNextCronFire('0 0 * * 5', cursor);
+      assert.ok(next);
+      const d = new Date(next!);
+      assert.equal(d.getDay(), 5, `${d.toISOString()} should be a Friday`);
+      assert.equal(d.getHours(), 0);
+      assert.equal(d.getMinutes(), 0);
+      cursor = next!;
+    }
+  });
+
+  // --- Regression: common crons keep working after the OR/window changes ---
+
+  test('regression: */5 * * * * still fires every 5 minutes', () => {
+    const base = new Date('2026-07-06T10:02:00').getTime();
+    const next = computeNextCronFire('*/5 * * * *', base);
+    assert.ok(next);
+    const d = new Date(next!);
+    assert.equal(d.getMinutes() % 5, 0);
+    assert.equal(d.getMinutes(), 5);
+  });
+
+  test('regression: 0 9 * * 1-5 still fires 09:00 on weekdays only', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    let cursor = base;
+    for (let i = 0; i < 6; i++) {
+      const next = computeNextCronFire('0 9 * * 1-5', cursor);
+      assert.ok(next);
+      const d = new Date(next!);
+      assert.equal(d.getHours(), 9);
+      assert.equal(d.getMinutes(), 0);
+      const dow = d.getDay();
+      assert.ok(dow >= 1 && dow <= 5, `${d.toISOString()} should be Mon-Fri`);
+      cursor = next!;
+    }
+  });
+
+  test('regression: 10-30/5 * * * * only matches 10,15,20,25,30', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime();
+    let cursor = base;
+    for (let i = 0; i < 12; i++) {
+      const next = computeNextCronFire('10-30/5 * * * *', cursor);
+      assert.ok(next);
+      const min = new Date(next!).getMinutes();
+      assert.ok(min >= 10 && min <= 30, `minute ${min} should be in range 10-30`);
+      assert.equal((min - 10) % 5, 0, `minute ${min} should be step of 5 from 10`);
+      cursor = next!;
+    }
+  });
 });
 
 describe('AutomationManager edge cases', () => {

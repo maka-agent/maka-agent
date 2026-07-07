@@ -306,34 +306,75 @@ export class AutomationManager {
   }
 }
 
+const MINUTES_PER_DAY = 24 * 60;
+
+/**
+ * Upper bound on the minute-by-minute search window.
+ *
+ * A valid but sparse cron such as `0 0 29 2 *` (Feb 29, leap years only) can be
+ * several years out. The maximum gap between two consecutive Feb 29ths is
+ * 8 years: a century year that is not divisible by 400 (e.g. 2100, 2200) is NOT
+ * a leap year, so the sequence 2096 -> 2104 skips 2100 entirely. Searching a
+ * full ~8-year window guarantees every legally-satisfiable expression resolves,
+ * while the bound still lets genuinely-impossible expressions (e.g.
+ * `0 0 30 2 *`, Feb 30 never exists) terminate and return null instead of
+ * looping forever.
+ */
+const MAX_SEARCH_MINUTES = 8 * 366 * MINUTES_PER_DAY; // ~8 years, bounded
+
+/**
+ * Compute the next Unix-ms timestamp at which a 5-field cron expression fires,
+ * strictly after `fromTime`. Returns null for a malformed expression or one
+ * that cannot occur within the bounded search window.
+ *
+ * TIMEZONE CONTRACT: evaluation happens in the HOST's local timezone. Candidate
+ * instants are decomposed with `Date` local getters (`getMinutes`, `getHours`,
+ * `getDate`, `getMonth`, `getDay`), so `0 9 * * *` means "09:00 local wall-clock
+ * time" on the machine running this process. Across DST transitions the wall
+ * clock is respected (a skipped/repeated local hour shifts the fire instant
+ * accordingly). There is no per-automation IANA timezone; if the process moves
+ * timezones, schedules re-anchor to the new local time. Threading an explicit
+ * IANA zone would ripple through the schedule type and every caller, so it is
+ * intentionally out of scope for this parser.
+ */
 export function computeNextCronFire(expression: string, fromTime: number): number | null {
   const fields = expression.trim().split(/\s+/);
   if (fields.length !== 5) return null;
 
   const [minuteField, hourField, domField, monthField, dowField] = fields;
+
+  // Vixie-cron day semantics: when BOTH the day-of-month and day-of-week fields
+  // are restricted (neither is "*"), a day matches if it satisfies EITHER field
+  // (OR) — e.g. `0 0 13 * 5` fires on the 13th of any month OR on any Friday,
+  // NOT only on Friday the 13th. When at least one field is "*", that field
+  // matches every value, so the two are combined with AND (the "*" field is a
+  // no-op and only the other constrains).
+  const domIsStar = domField === '*';
+  const dowIsStar = dowField === '*';
+  const bothDayFieldsRestricted = !domIsStar && !dowIsStar;
+
   // Zero out seconds/ms for clean minute boundaries.
   const fromDate = new Date(fromTime);
   fromDate.setSeconds(0, 0);
   const baseTime = fromDate.getTime() + 60000; // start from next minute
 
-  for (let attempt = 0; attempt < 527040; attempt++) {
+  for (let attempt = 0; attempt < MAX_SEARCH_MINUTES; attempt++) {
     const candidateTime = baseTime + attempt * 60000;
     const candidate = new Date(candidateTime);
-    const minute = candidate.getMinutes();
-    const hour = candidate.getHours();
-    const dom = candidate.getDate();
-    const month = candidate.getMonth() + 1;
-    const dow = candidate.getDay();
 
-    if (
-      matchesCronField(minuteField, minute, 0, 59) &&
-      matchesCronField(hourField, hour, 0, 23) &&
-      matchesCronField(domField, dom, 1, 31) &&
-      matchesCronField(monthField, month, 1, 12) &&
-      matchesCronField(dowField, dow, 0, 6)
-    ) {
-      return candidateTime;
-    }
+    // Cheapest, most-selective checks first so most candidates are pruned before
+    // the day-field matching runs.
+    if (!matchesCronField(minuteField, candidate.getMinutes(), 0, 59)) continue;
+    if (!matchesCronField(hourField, candidate.getHours(), 0, 23)) continue;
+    if (!matchesCronField(monthField, candidate.getMonth() + 1, 1, 12)) continue;
+
+    const domMatch = matchesCronField(domField, candidate.getDate(), 1, 31);
+    const dowMatch = matchesCronField(dowField, candidate.getDay(), 0, 6);
+    const dayMatch = bothDayFieldsRestricted
+      ? domMatch || dowMatch // OR when both are constrained
+      : domMatch && dowMatch; // AND when one is "*"
+
+    if (dayMatch) return candidateTime;
   }
   return null;
 }
