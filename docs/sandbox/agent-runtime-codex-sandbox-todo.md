@@ -184,14 +184,14 @@ cwd
 
 任务：
 
-- [ ] 定义 compiler 输入类型，例如 `CompilePermissionProfileInput`。
-- [ ] 第一版将 `workspaceRoots` 默认设为 `[session.cwd]`。
-- [ ] 实现 `explore -> read-only`。
-- [ ] 实现 `ask -> workspace-write`。
-- [ ] 实现 `execute -> workspace-write`。
-- [ ] 实现 `bypass -> danger-full-access`。
-- [ ] 为 `ask` / `execute` 保留 approval policy 差异，不把所有语义塞进 profile。
-- [ ] 输出包含 profile、workspace roots、network policy、用于 diagnostics 的 profile name。
+- [x] 定义 compiler 输入类型，例如 `CompilePermissionProfileInput`。
+- [x] 第一版将 `workspaceRoots` 默认设为 `[session.cwd]`。
+- [x] 实现 `explore -> read-only`。
+- [x] 实现 `ask -> workspace-write`。
+- [x] 实现 `execute -> workspace-write`。
+- [x] 实现 `bypass -> danger-full-access`。
+- [x] 为 `ask` / `execute` 保留 approval policy 差异，不把所有语义塞进 profile。
+- [x] 输出包含 profile、workspace roots、network policy、用于 diagnostics 的 profile name。
 
 > 具体方案：Phase 2 在 `@maka/core` 中新增一个纯 compiler，用来把 Maka 现有的 `PermissionMode` 编译成 Codex-style active `PermissionProfile`。它是 Maka 现有业务层权限模式和后续 sandbox enforcement 之间的适配层。
 >

@@ -232,6 +232,15 @@ export {
   isProtectedMetadataPath,
 } from './permission-profile.js';
 
+// permission-profile-compiler.ts
+export type {
+  CompilePermissionProfileInput,
+  CompiledPermissionProfile,
+} from './permission-profile-compiler.js';
+export {
+  compilePermissionProfile,
+} from './permission-profile-compiler.js';
+
 // permission-request-health.ts
 export type {
   PermissionRequestHealth,
