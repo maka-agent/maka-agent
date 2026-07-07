@@ -109,6 +109,34 @@ describe('categorizeBash', () => {
     expect(categorizeBash('Get-ChildItem . | del')).toBe('fs_destructive');
   });
 
+  test('destructive command at ANY statement position → fs_destructive, both dialects', () => {
+    // PowerShell shapes a model actually writes
+    expect(categorizeBash('RM .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('RMDIR .\\build')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object { Remove-Item $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object -Process { Remove-Item $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('gci *.tmp | % { ri $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('& Remove-Item foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('cd C:\\tmp; Remove-Item -Recurse build')).toBe('fs_destructive');
+    // The same positional class on POSIX
+    expect(categorizeBash('cd /tmp; rm -rf stuff')).toBe('fs_destructive');
+    expect(categorizeBash('echo done && rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('echo $(rm foo.txt)')).toBe('fs_destructive');
+  });
+
+  test('git_destructive and privileged are also recognized at any statement position', () => {
+    expect(categorizeBash('echo done && git push --force origin main')).toBe('git_destructive');
+    expect(categorizeBash('echo hi; sudo reboot')).toBe('privileged');
+  });
+
+  test('destructive names as mere text do NOT upgrade the category', () => {
+    expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
+    expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
+    expect(categorizeBash("awk '{ print }' file.txt")).toBe('shell_unsafe');
+    expect(categorizeBash('echo "please do not rm this"')).toBe('shell_safe');
+    expect(categorizeBash('Get-Command Remove-Item')).toBe('shell_unsafe');
+  });
+
   test('safe-prefix commands with destructive pipe stages → fs_destructive', () => {
     expect(categorizeBash('find . -name "*.log" | xargs rm')).toBe('fs_destructive');
     expect(categorizeBash('find . -type f -print0 | xargs -0 rm -f')).toBe('fs_destructive');
@@ -257,6 +285,19 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: PowerShell deletes at any position STILL prompt in execute mode', () => {
+    for (const command of [
+      'RM .\\foo.txt',
+      'RMDIR .\\build',
+      'Get-ChildItem . | ForEach-Object { Remove-Item $_ }',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('fs_destructive');
+    }
   });
 
   test('CRITICAL: git reset --hard STILL prompts in execute mode', () => {

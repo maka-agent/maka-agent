@@ -222,10 +222,10 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
 ];
 
 /** Irreversible filesystem operations. `rm` in any form (incl. single-file
- *  `rm foo.txt`) lands here so auto/execute mode still prompts. */
+ *  `rm foo.txt`) lands here so auto/execute mode still prompts. Anchored to
+ *  the start of every statement segment (see commandSegments), not just the
+ *  whole command. */
 export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
-  /^rm\b/, //                                       all rm (single-file, -r, -rf, etc.)
-  /^rmdir\b/,
   /^dd\s+/,
   /^truncate\b/,
   /^shred\b/,
@@ -236,23 +236,21 @@ export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^find\s+.*\s-delete\b/,
   /^find\s+.*\s-exec\s+.*\b(rm|shred|truncate|dd)\b/,
   /^xargs\s+.*\b(rm|shred|truncate|dd)\b/,
-  // PowerShell / cmd.exe deletes. On Windows the Bash tool runs PowerShell and
-  // steers the model toward its syntax (shell-detect.ts), so these must land
-  // in fs_destructive — in execute mode shell_unsafe is allow, not prompt.
-  // Case-insensitive because PowerShell is; `rm`/`rmdir` aliases are already
-  // caught above. Applied on POSIX too: the only real collision is Ruby's
-  // docs tool `ri`, and the failure mode is an extra prompt, not a bypass.
+  // PowerShell / cmd.exe deletes plus the POSIX rm family. On Windows the
+  // Bash tool runs PowerShell and steers the model toward its syntax
+  // (shell-detect.ts), so these must land in fs_destructive — in execute mode
+  // shell_unsafe is allow, not prompt. Case-insensitive because PowerShell is
+  // (harmless for the POSIX names: an upper-cased rm is still rm-shaped).
+  // Applied on POSIX too: the only real collision is Ruby's docs tool `ri`,
+  // and the failure mode is an extra prompt, not a bypass.
   /^remove-item\b/i,
-  /^(ri|del|erase|rd)\b/i,
+  /^(rm|rmdir|ri|del|erase|rd)\b/i,
   /^(clear-content|clc)\b/i,
 ];
 
 export const PIPE_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /\|\s*xargs\b[^\n;&|]*\b(rm|shred|truncate|dd)\b/,
   /\|\s*(sh|bash|zsh)\b/,
-  // PowerShell's idiomatic mass delete pipes objects straight into Remove-Item
-  // (the xargs analogue): Get-ChildItem ... | Remove-Item
-  /\|\s*(remove-item|ri|rm|rmdir|del|erase|rd)\b/i,
 ];
 
 export const SHELL_CONTROL_PATTERNS: readonly RegExp[] = [
@@ -271,13 +269,35 @@ export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
   /^git\s+rebase\s+-i\b/,
 ];
 
-/** Order: privileged > fs_destructive > git_destructive > safe > unsafe. */
+/**
+ * Positions where a command name can start: the beginning, plus after every
+ * statement / pipeline / scriptblock / substitution boundary. Splitting is
+ * deliberately quote-naive — a boundary character inside a string yields a
+ * bogus extra segment, which can only cause an extra prompt, never a bypass.
+ */
+function commandSegments(cmd: string): string[] {
+  return cmd
+    .split(/[|;&\n(){}`]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Order: privileged > fs_destructive > git_destructive > safe > unsafe.
+ * The destructive/privileged checks run against EVERY statement segment, not
+ * just the start of the command: `cd /tmp; rm -rf stuff` and
+ * `Get-ChildItem . | ForEach-Object { Remove-Item $_ }` are as irreversible
+ * as a leading `rm`. Best-effort by design — interpreter one-liners
+ * (`python -c "shutil.rmtree(...)"`) are out of reach of any pattern list and
+ * stay shell_unsafe.
+ */
 export function categorizeBash(cmd: string): ToolCategory {
   const t = cmd.trim();
-  if (PRIVILEGED_SHELL_PREFIXES.some((p) => t.startsWith(p))) return 'privileged';
-  if (FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
+  const segments = commandSegments(cmd);
+  if (segments.some((s) => PRIVILEGED_SHELL_PREFIXES.some((p) => s.startsWith(p)))) return 'privileged';
+  if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s)))) return 'fs_destructive';
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
-  if (DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(t))) return 'git_destructive';
+  if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s)))) return 'git_destructive';
   if (SHELL_CONTROL_PATTERNS.some((re) => re.test(t))) return 'shell_unsafe';
   if (SAFE_SHELL_PREFIXES.some((p) => t === p || t.startsWith(p + ' '))) return 'shell_safe';
   return 'shell_unsafe';
