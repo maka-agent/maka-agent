@@ -253,7 +253,14 @@
 .maka-code-block-copy[data-copy-feedback="failed"] {
   color: var(--destructive);
 }
-.maka-prose pre {
+/* Scoped to `.maka-prose .maka-code-block pre` (specificity 0,2,1), NOT a bare
+   `.maka-prose pre` (0,1,1): the `[data-slot="message"] pre { font: inherit }`
+   reset later in this file is also 0,1,1 and would clobber a bare
+   `.maka-prose pre` by source order, re-inheriting the prose body size +
+   family and killing the --font-size-ui tier. The extra `.maka-code-block`
+   class outweighs the reset so the token tier holds.
+   CODE-BLOCK-PRE-FONT-TIER-0 contract locks this. */
+.maka-prose .maka-code-block pre {
   margin: 0;
   padding: var(--space-3) var(--space-3);
   border: 0;
@@ -265,7 +272,7 @@
   line-height: var(--leading-normal);
   white-space: pre;
 }
-.maka-prose pre code {
+.maka-prose .maka-code-block pre code {
   padding: 0;
   background: transparent;
   font-size: inherit;

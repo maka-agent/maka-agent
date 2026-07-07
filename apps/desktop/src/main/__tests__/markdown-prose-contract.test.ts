@@ -118,3 +118,49 @@ describe('MARKDOWN-PROSE-CONVERGE-0 contract (#546 PR4)', () => {
     );
   });
 });
+
+/**
+ * Split a comment-stripped CSS string into [selectorList, decls] block pairs.
+ * Flat parser (chat-message.css has no nesting beyond @media/@keyframes, whose
+ * inner rules still split cleanly).
+ */
+function cssBlocks(css: string): Array<{ selectors: string; decls: string }> {
+  return css
+    .split('}')
+    .map((chunk) => chunk.split('{'))
+    .filter((parts) => parts.length === 2)
+    .map(([selectors, decls]) => ({ selectors: selectors.trim(), decls: (decls ?? '').trim() }));
+}
+
+describe('CODE-BLOCK-PRE-FONT-TIER-0 contract (#546 PR5)', () => {
+  // The assistant code block <pre> must render at the UI/chrome tier
+  // (--font-size-ui), NOT inherit the prose body size. A pre-existing reset
+  //   [data-slot="message"] pre { margin: 0; font: inherit }   (specificity 0,1,1)
+  // authored LATER in chat-message.css clobbers a bare `.maka-prose pre` rule
+  // (same specificity 0,1,1, earlier source → loses). The code-block pre rule
+  // must therefore carry an extra class — `.maka-prose .maka-code-block pre`
+  // (specificity 0,2,1) — so it outweighs the reset and the token tier holds.
+  // The reset itself stays, so non-code-block raw <pre> (user / system) still
+  // inherits the message font instead of falling back to the UA monospace.
+
+  it('the code-block pre is scoped to outweigh the [data-slot=message] reset and uses --font-size-ui', async () => {
+    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const cb = blocks.find(({ selectors, decls }) =>
+      /\.maka-code-block\s+pre\b/.test(selectors)
+      && /font-size:\s*var\(--font-size-ui\)/.test(decls));
+    assert.ok(
+      cb,
+      'expected a rule scoped `.maka-prose .maka-code-block pre { font-size: var(--font-size-ui) }` (specificity 0,2,1) to outweigh the `[data-slot="message"] pre { font: inherit }` reset (0,1,1); a bare `.maka-prose pre` is clobbered by the later reset',
+    );
+  });
+
+  it('the [data-slot=message] pre reset still exists for non-code-block raw pre', async () => {
+    const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
+    assert.match(
+      css,
+      /\[data-slot="message"\]\s+pre\s*\{[^}]*font:\s*inherit/,
+      'the [data-slot="message"] pre { font: inherit } reset must remain so non-code-block raw <pre> (user / system) inherits the message font instead of UA monospace',
+    );
+  });
+});
