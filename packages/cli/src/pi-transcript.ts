@@ -936,6 +936,45 @@ function renderToolText(text: string, width: number): string[] {
   return renderIndented(limitText(text, 12_000), width, 2);
 }
 
+// Expanding a tool card should reveal enough to orient, not replay a whole
+// file or command dump into the transcript. Long output collapses to its first
+// and last few lines with a hidden-count marker; diffs are the deliberate
+// exception (rendered in full) because the whole change is the point.
+const EXPANDED_TOOL_HEAD_LINES = 3;
+const EXPANDED_TOOL_TAIL_LINES = 3;
+
+/**
+ * Render tool output for the expanded card, keeping at most the first
+ * `EXPANDED_TOOL_HEAD_LINES` and last `EXPANDED_TOOL_TAIL_LINES` source lines
+ * with a dim marker in between. `style` colors the content lines (e.g. dim for
+ * stderr); the marker is always dim.
+ */
+function renderCappedResultText(
+  text: string,
+  width: number,
+  style: (line: string) => string = (line) => line,
+): string[] {
+  const sourceLines = text.split('\n');
+  if (sourceLines.length <= EXPANDED_TOOL_HEAD_LINES + EXPANDED_TOOL_TAIL_LINES + 1) {
+    return renderToolText(text, width).map(style);
+  }
+  const hidden = sourceLines.length - EXPANDED_TOOL_HEAD_LINES - EXPANDED_TOOL_TAIL_LINES;
+  const head = sourceLines.slice(0, EXPANDED_TOOL_HEAD_LINES).join('\n');
+  const tail = sourceLines.slice(sourceLines.length - EXPANDED_TOOL_TAIL_LINES).join('\n');
+  return [
+    ...renderToolText(head, width).map(style),
+    ...renderIndented(ansi.dim(`⋯ ${hidden} lines hidden ⋯`), width, 2),
+    ...renderToolText(tail, width).map(style),
+  ];
+}
+
+function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
+  const text = plainResultText(entry);
+  const lineCount = text ? text.split('\n').length : 0;
+  const summary = `Read ${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
+  return renderIndented(ansi.dim(summary), width, 2);
+}
+
 /**
  * Render live `tool_output_delta` chunks. Chunks are de-duped and ordered by
  * `seq` (so a late or repeated seq cannot corrupt the display), consecutive
@@ -946,7 +985,7 @@ function renderToolStreams(deltas: readonly MakaPiToolOutputDelta[], width: numb
   const lines: string[] = [];
   for (const group of groupOutputDeltas(deltas)) {
     lines.push(fitLine(ansi.dim(`[${group.stream}]`), width));
-    lines.push(...renderToolText(group.text, width).map(ansi.dim));
+    lines.push(...renderCappedResultText(group.text, width, ansi.dim));
   }
   return lines;
 }
@@ -974,12 +1013,18 @@ function groupOutputDeltas(
 
 function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   const result = entry.result;
+  // A successful Read pulled the file into the model's context; the transcript
+  // only needs to note that it happened, so skip the content and keep a summary.
+  // A failed Read falls through so its error is still visible.
+  if (entry.toolName === 'Read' && entry.status !== 'error') return renderReadSummary(entry, width);
   if (result?.kind === 'terminal') return renderTerminalResult(result, width);
+  // Diffs are the deliberate exception to the head/tail cap: the whole change
+  // is what the user is expanding to see.
   if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
   if (result?.kind === 'file_write') {
     return renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2);
   }
-  return renderToolText(plainResultText(entry), width);
+  return renderCappedResultText(plainResultText(entry), width);
 }
 
 /** Best-effort extraction of the human-readable body from a tool result. */
@@ -1011,11 +1056,11 @@ function renderTerminalResult(
     lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
   }
   if (content.stdout) {
-    lines.push(...renderToolText(content.stdout, width));
+    lines.push(...renderCappedResultText(content.stdout, width));
   }
   if (content.stderr) {
     lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
-    lines.push(...renderToolText(content.stderr, width).map(ansi.dim));
+    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
   }
   return lines;
 }

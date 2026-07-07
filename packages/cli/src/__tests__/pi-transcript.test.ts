@@ -558,7 +558,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(compact, /step one/);
   });
 
-  test('summarizes Read results as a line/byte count when compact and shows text expanded', () => {
+  test('summarizes Read results as a line/byte count and never replays file content', () => {
     const state = createMakaPiTranscriptState();
     const fileText = Array.from({ length: 4 }, (_, i) => `content-line-${i}`).join('\n');
 
@@ -582,9 +582,12 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /4 lines, 59 bytes \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /content-line-0/);
 
+    // A successful Read pulled the file into the model's context; expanding the
+    // card confirms the read but must not dump the file into the transcript.
     assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(expanded, /content-line-0/);
+    assert.doesNotMatch(expanded, /content-line-0/);
+    assert.match(expanded, /Read 4 lines, 59 bytes/);
   });
 
   test('summarizes Grep results as a match count and shows matches expanded', () => {
@@ -754,6 +757,54 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(raw, /\x1b\[31m-removed line\x1b\[39m/);
   });
 
+  test('caps long terminal output to head and tail lines when expanded', () => {
+    const state = createMakaPiTranscriptState();
+    const stdout = Array.from({ length: 20 }, (_, i) => `out-${i}`).join('\n');
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-1', toolName: 'Bash', args: { command: 'seq 20' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-1', isError: false, content: terminalResult(stdout),
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    // First three and last three lines survive; the middle collapses to a marker.
+    assert.match(expanded, /out-0\n/);
+    assert.match(expanded, /out-2\n/);
+    assert.match(expanded, /out-17\n/);
+    assert.match(expanded, /out-19/);
+    assert.doesNotMatch(expanded, /out-10\b/);
+    assert.match(expanded, /⋯ 14 lines hidden ⋯/);
+  });
+
+  test('shows a long diff in full when expanded — diffs are the head/tail exception', () => {
+    const state = createMakaPiTranscriptState();
+    const diff = [
+      '--- a/file.ts',
+      '+++ b/file.ts',
+      '@@ -1 +20 @@',
+      ...Array.from({ length: 20 }, (_, i) => `+line-${i}`),
+    ].join('\n');
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'edit-2', toolName: 'Edit', args: { path: 'file.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'edit-2', isError: false,
+      content: { kind: 'file_diff', paths: ['file.ts'], diff },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    // Every added line is present and no lines are hidden.
+    assert.match(expanded, /\+line-0\b/);
+    assert.match(expanded, /\+line-10\b/);
+    assert.match(expanded, /\+line-19\b/);
+    assert.doesNotMatch(expanded, /lines hidden/);
+  });
+
   test('renders file_write results as a byte summary', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
@@ -779,22 +830,24 @@ describe('Maka Pi TUI transcript', () => {
     const state = createMakaPiTranscriptState();
 
     applyMakaSessionEventToTranscript(state, event({
-      type: 'tool_start', toolUseId: 'tool-a', toolName: 'Read', args: { path: 'a.ts' },
+      type: 'tool_start', toolUseId: 'tool-a', toolName: 'Bash', args: { command: 'echo a' },
     }));
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_result',
       toolUseId: 'tool-a',
       isError: false,
-      content: { kind: 'json', value: { content: 'alpha-body-line' } },
+      // The body is the first stdout line, so the compact tail summary hides it
+      // while expansion reveals it.
+      content: terminalResult('alpha-body-line\ntail-a'),
     }));
     applyMakaSessionEventToTranscript(state, event({
-      type: 'tool_start', toolUseId: 'tool-b', toolName: 'Read', args: { path: 'b.ts' },
+      type: 'tool_start', toolUseId: 'tool-b', toolName: 'Bash', args: { command: 'echo b' },
     }));
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_result',
       toolUseId: 'tool-b',
       isError: false,
-      content: { kind: 'json', value: { content: 'beta-body-line' } },
+      content: terminalResult('beta-body-line\ntail-b'),
     }));
 
     const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
@@ -1017,6 +1070,20 @@ function meta() {
     model: 'deepseek-v4-flash',
     connectionSlug: 'deepseek',
     permissionMode: 'ask',
+  } as const;
+}
+
+function terminalResult(stdout: string, stderr = '') {
+  return {
+    kind: 'terminal',
+    cwd: '/repo',
+    cmd: 'echo',
+    status: 'completed',
+    exitCode: 0,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
   } as const;
 }
 
