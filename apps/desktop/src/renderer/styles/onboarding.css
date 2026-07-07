@@ -212,10 +212,27 @@
 
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
+  position: relative;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   overflow: hidden;
   background: var(--background-elevated);
+}
+
+/* Designer audit P2-15: the height clamp cut the last visible provider row
+   in half with no cue that the list scrolls — it read as broken clipping.
+   A bottom fade signals "more below" (the provider count always exceeds the
+   clamp, so the cue never lies); pointer-events none keeps rows clickable. */
+.maka-firstrun-list::after {
+  content: "";
+  position: absolute;
+  left: var(--border-width-hairline);
+  right: var(--border-width-hairline);
+  bottom: var(--border-width-hairline);
+  height: 28px;
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+  background: linear-gradient(to bottom, oklch(from var(--background-elevated) l c h / 0), var(--background-elevated));
+  pointer-events: none;
 }
 .maka-firstrun-list ul {
   margin: 0;

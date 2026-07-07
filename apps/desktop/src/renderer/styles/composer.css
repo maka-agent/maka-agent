@@ -212,7 +212,11 @@
   border-radius: var(--radius-modal);
   padding: var(--space-2-5) var(--space-3) var(--space-2);
   background-color: var(--agents-content-area-bg);
-  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / 0.035);
+  /* Ring alpha is a token so dark mode can strengthen the edge without a
+     second rest rule (composer-container-single-source-contract). In dark
+     the composer and pane share the same bg, and 3.5% of the near-white
+     foreground vanished — the card lost its outline (designer audit P1-6). */
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
   transition:
     border-color var(--duration-emphasized) var(--ease-out-strong),
     box-shadow var(--duration-emphasized) var(--ease-out-strong);

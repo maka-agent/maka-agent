@@ -180,9 +180,12 @@ function PersonalizationSettingsPage(props: {
           aria-label="助手语气偏好"
           className="min-h-21"
         />
+        {/* Designer audit P1-8: was engineering-speak ("以低优先级拼到
+            system prompt"、"Runtime 独立判定") — user copy shouldn't require
+            understanding the implementation. */}
         <small>
-          以低优先级用户偏好拼到 system prompt，500 字符内。Runtime 仍按权限策略和工具规则
-          独立判定 —— 此处不能写成"忽略前面规则"或"不要再询问"这种指令，会被忽略。
+          最多 500 字，只影响回答的语气和风格。权限确认与安全规则不受它影响——
+          写"跳过确认"这类指令不会生效。
         </small>
       </label>
 

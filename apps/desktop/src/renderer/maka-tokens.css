@@ -558,6 +558,8 @@
 ============================================================================= */
 
 .dark {
+  /* Designer audit P1-6: composer edge ring — see styles/composer.css. */
+  --composer-ring-alpha: 0.12;
   /* PR-GRAY-CARD-LIFT-0: dark mode follows the same neutral gray
    * (hue 0, no chroma) hierarchy. Lightness anchors keep existing
    * contrast tuning. */
