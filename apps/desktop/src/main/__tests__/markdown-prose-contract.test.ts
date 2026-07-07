@@ -268,8 +268,10 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   });
 
   it('the .maka-prose base rule is self-contained: load-bearing typography lives on the prose layer, not the shell', async () => {
-    // #618 item 2 (PR6 prerequisite): a bare `.maka-prose` consumer (tool-result
-    // bodies) must not depend on `.maka-bubble-assistant` for line-height (the
+    // #618 item 2 (PR6 prerequisite): a bare `.maka-prose` consumer — none
+    // exists today beyond the assistant/system bubble (the tool-result-body
+    // consumer was reverted), but the layer must stay reusable — must not
+    // depend on `.maka-bubble-assistant` for line-height (the
     // WCAG 1.4.12 floor — var(--leading-normal) = 1.5), word-wrap (no global
     // overflow-wrap fallback exists — long URLs/tokens overflow horizontally),
     // color, the 72ch measure cap, or the first/last-child edge-margin trims.
@@ -332,8 +334,7 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
   it('prose images flow inline again despite the Tailwind preflight block', async () => {
     // #618 item 4: Tailwind v4 preflight sets `img { display: block;
     // max-width: 100% }` in @layer base. A markdown image mid-paragraph
-    // (badge, inline icon) then breaks the line. Rare in chat, likelier in
-    // tool-result bodies now that they render prose. layer(components)
+    // (badge, inline icon) then breaks the line. layer(components)
     // outranks base, so a .maka-prose img rule restores the inline flow;
     // preflight's max-width: 100% + height: auto stay in effect.
     const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));

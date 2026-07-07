@@ -6,9 +6,12 @@
    code-block chrome (language pill + copy button), and the hljs highlight
    palette.
 
-   Split out of chat-message.css at the PR6 boundary (#618 item 3) so Markdown
-   consumers beyond the assistant bubble (tool-result bodies) reuse one prose
-   layer without dragging in message-surface chrome. Authored unlayered (the
+   Split out of chat-message.css at the PR6 boundary (#618 item 3) so any
+   future Markdown consumer beyond the assistant bubble can reuse one prose
+   layer without dragging in message-surface chrome. (The tool-result-body
+   consumer that motivated the split was reverted — tool results stay literal
+   <pre>; the assistant/system bubble is currently the only consumer.)
+   Authored unlayered (the
    renderer styles contract requires it) but pulled into @layer components by
    `@import ... layer(components)` in styles.css — the same cascade position
    the rules had inside chat-message.css, so Tailwind utilities still win
@@ -76,13 +79,13 @@
    align. Heading tracking stays var(--tracking-normal) — CJK-first, roadmap
    §1.6 bans tightening CJK. */
 /* The base rule is self-contained (#618 item 2): a bare .maka-prose consumer
-   (tool-result bodies) must not depend on the assistant bubble shell — or on
-   whatever chrome surrounds it — for line-height (the WCAG 1.4.12 floor —
-   --leading-normal = 1.5), break-word (no global overflow-wrap fallback
-   exists), color, the measure cap, or the font. font-family/font-size are
-   pinned because the tool card item shell sets font-mono + text-xs (11px
-   caption), which would inherit into the prose body and scale the whole
-   em-based heading ladder off the caption tier (codex review P2). */
+   must not depend on the assistant bubble shell — or on whatever chrome
+   surrounds it — for line-height (the WCAG 1.4.12 floor — --leading-normal =
+   1.5), break-word (no global overflow-wrap fallback exists), color, the
+   measure cap, or the font. font-family/font-size are pinned defensively:
+   a host that sets font-mono or a caption-size font (as the tool card item
+   shell does) would otherwise inherit into the prose body and scale the
+   whole em-based heading ladder off the wrong tier (codex review P2). */
 .maka-prose {
   color: var(--foreground);
   font-family: var(--font-sans);
@@ -437,9 +440,8 @@
 }
 /* Tailwind preflight makes img a block (`display: block; max-width: 100%`
    in @layer base), which breaks inline images mid-paragraph — badges,
-   inline icons. Rare in chat, likelier in tool-result bodies (#618 item 4).
-   layer(components) outranks base: restore the inline flow; preflight's
-   max-width: 100% + height: auto stay in effect. */
+   inline icons (#618 item 4). layer(components) outranks base: restore the
+   inline flow; preflight's max-width: 100% + height: auto stay in effect. */
 .maka-prose img {
   display: inline-block;
 }

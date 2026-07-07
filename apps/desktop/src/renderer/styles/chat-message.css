@@ -190,6 +190,12 @@
   font: inherit;
 }
 
+/* System-note pill. Ties (0,2,1) with `.maka-prose .maka-code-block pre`,
+   which now sits later in the cascade (prose.css imports after this file) —
+   so a fenced code block inside a system note would render as a full code
+   block, not this pill. No system note carries a <pre> today (they're
+   plain-text labels from SYSTEM_NOTE_LABELS), so the pill only ever styles
+   bare <pre> without code-block chrome. */
 [data-slot="message"][data-role="system"] pre {
   display: inline-flex;
   border-radius: var(--radius-pill);
