@@ -203,11 +203,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     terminal.setProgress(true);
     requestRender();
 
+    let permissionSnapped = false;
     void submitPromptToTranscript({
       state,
       driver: input.driver,
       prompt,
-      onChange: requestRender,
+      onChange: () => {
+        // A newly raised permission prompt renders at the transcript tail. If the
+        // user has paged up, it would land below the fold and the session would
+        // look stuck waiting for a y/n they cannot see. Snap to the tail once when
+        // the prompt first appears — not on every render, so the user can still
+        // page up to read context before answering.
+        if (state.pendingPermission) {
+          if (!permissionSnapped) {
+            permissionSnapped = true;
+            layout.followTailNow();
+          }
+        } else {
+          permissionSnapped = false;
+        }
+        requestRender();
+      },
     }).finally(() => {
       busy = false;
       turnRunning = false;
@@ -673,6 +689,19 @@ class MakaStatusLineComponent implements Component {
   }
 }
 
+/**
+ * True when `next` is `prev` with zero or more lines appended at the end and
+ * nothing above changed — i.e. the growth is a pure tail append. Used to tell
+ * streamed output landing below the fold apart from an in-place edit above it.
+ */
+function isTailAppend(prev: readonly string[], next: readonly string[]): boolean {
+  if (next.length < prev.length) return false;
+  for (let i = 0; i < prev.length; i++) {
+    if (next[i] !== prev[i]) return false;
+  }
+  return true;
+}
+
 class MakaPiLayoutComponent extends Container {
   // Scroll position as lines hidden below the viewport bottom; 0 = following the
   // live tail. `followTail` re-pins to the bottom as new output streams in, so a
@@ -683,6 +712,7 @@ class MakaPiLayoutComponent extends Container {
   private lastTotalLines = 0;
   private lastViewportRows = 0;
   private lastWidth = 0;
+  private lastLines: string[] = [];
 
   constructor(
     private readonly transcript: Component,
@@ -707,9 +737,18 @@ class MakaPiLayoutComponent extends Container {
       // tail rather than land the viewport on an arbitrary mid-message row.
       this.followTail = true;
       this.scrollOffset = 0;
-    } else if (!this.followTail && transcriptLines.length > this.lastTotalLines) {
-      // New lines land at the bottom; hold the reader's view fixed by counting
-      // them into the below-the-fold offset instead of letting the window drift.
+    } else if (
+      !this.followTail &&
+      transcriptLines.length > this.lastTotalLines &&
+      isTailAppend(this.lastLines, transcriptLines)
+    ) {
+      // Streamed lines land at the bottom; hold the reader's view fixed by
+      // counting them into the below-the-fold offset instead of letting the
+      // window drift. Only do this for a pure tail append: an in-place edit
+      // above the fold (e.g. a late `thinking_complete` re-rendering an expanded
+      // thinking block to a different height) also grows the line count, but
+      // there the lines below the fold are unchanged, so the offset must stay
+      // put — adding the delta would drift the window up by that height.
       this.scrollOffset += transcriptLines.length - this.lastTotalLines;
     }
 
@@ -721,6 +760,7 @@ class MakaPiLayoutComponent extends Container {
     );
     this.scrollOffset = windowed.scrollOffset;
     this.followTail = windowed.scrollOffset === 0;
+    this.lastLines = transcriptLines;
     this.lastTotalLines = transcriptLines.length;
     this.lastViewportRows = viewportRows;
     this.lastWidth = width;
