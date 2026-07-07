@@ -176,6 +176,72 @@ describe('AutomationManager', () => {
     });
   });
 
+  describe('durable automations are app-global (queryable + manageable across sessions)', () => {
+    // A durable cron persisted from one session must remain visible and
+    // manageable from a *different* session after a restart re-homes it under
+    // its original sessionId. Non-durable heartbeats stay session-private.
+    function makeDurableCron(mgr: ReturnType<typeof createManager>, sessionId = 'creator-sess') {
+      const auto = mgr.create({
+        kind: 'cron', name: 'nightly backup', prompt: 'back up',
+        sessionId, schedule: { type: 'cron', expression: '0 3 * * *' },
+      });
+      assert.ok(!('error' in auto));
+      return auto as Extract<typeof auto, { id: string }>;
+    }
+
+    test('listVisibleForSession surfaces durable automations owned by another session', () => {
+      const mgr = createManager();
+      makeDurableCron(mgr, 'creator-sess');
+      // A brand-new session (as after a restart) sees the persisted cron.
+      const visible = mgr.listVisibleForSession('fresh-sess');
+      assert.equal(visible.length, 1);
+      assert.equal(visible[0].name, 'nightly backup');
+    });
+
+    test('a non-durable heartbeat stays private to its session', () => {
+      const mgr = createManager();
+      const beat = mgr.create({
+        kind: 'heartbeat', name: 'poll', prompt: 'p',
+        sessionId: 'creator-sess', schedule: { type: 'interval', seconds: 60 },
+      });
+      assert.ok(!('error' in beat));
+      assert.equal(mgr.listVisibleForSession('other-sess').length, 0);
+      // …and cannot be managed from another session.
+      assert.equal(mgr.pause((beat as { id: string }).id, 'other-sess'), undefined);
+    });
+
+    test('pause / resume / delete a durable cron from a different session', () => {
+      const mgr = createManager();
+      const cron = makeDurableCron(mgr, 'creator-sess');
+      // Pause from a fresh session.
+      assert.equal(mgr.pause(cron.id, 'fresh-sess')?.status, 'paused');
+      // Resume from yet another session.
+      assert.equal(mgr.resume(cron.id, 'another-sess')?.status, 'active');
+      // Delete from a fresh session.
+      assert.equal(mgr.delete(cron.id, 'fresh-sess'), true);
+      assert.equal(mgr.get(cron.id), undefined);
+    });
+
+    test('global durables do not count against a new session create limit', () => {
+      const mgr = createManager();
+      // Fill the store with durable crons owned by an old session.
+      for (let i = 0; i < 20; i++) {
+        const a = mgr.create({
+          kind: 'cron', name: `c${i}`, prompt: 'p',
+          sessionId: 'old-sess', schedule: { type: 'cron', expression: '0 3 * * *' },
+        });
+        assert.ok(!('error' in a));
+      }
+      // A fresh session can still create its own — the per-session cap counts
+      // only session-owned automations, not the global durable ones it can see.
+      const mine = mgr.create({
+        kind: 'heartbeat', name: 'mine', prompt: 'p',
+        sessionId: 'fresh-sess', schedule: { type: 'interval', seconds: 60 },
+      });
+      assert.ok(!('error' in mine));
+    });
+  });
+
   describe('pause and resume', () => {
     test('pause sets status to paused', () => {
       const mgr = createManager();

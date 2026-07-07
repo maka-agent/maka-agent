@@ -184,7 +184,10 @@ function handleCreate(
 }
 
 function handleList(deps: AutomationToolDeps, sessionId: string): string {
-  const automations = deps.automationManager.listForSession(sessionId);
+  // Includes this session's automations plus every durable (app-global) one,
+  // so persisted cron jobs stay queryable and manageable after a restart even
+  // from a fresh session.
+  const automations = deps.automationManager.listVisibleForSession(sessionId);
   if (automations.length === 0) return 'No automations for this session.';
 
   return automations.map(a => formatAutomation(a)).join('\n---\n');
@@ -192,7 +195,7 @@ function handleList(deps: AutomationToolDeps, sessionId: string): string {
 
 function formatAutomation(a: AutomationDefinition): string {
   const lines = [
-    `[${a.status.toUpperCase()}] ${a.name} (${a.kind})`,
+    `[${a.status.toUpperCase()}] ${a.name} (${a.kind}${a.durable ? ', durable' : ''})`,
     `  ID: ${a.id}`,
     `  Schedule: ${describeSchedule(a.schedule)}`,
     `  Fires: ${a.fireCount}${a.maxFires ? `/${a.maxFires}` : ''}`,

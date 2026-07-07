@@ -124,14 +124,14 @@ export class AutomationManager {
   delete(id: string, sessionId?: string): boolean {
     const automation = this.automations.get(id);
     if (!automation) return false;
-    if (sessionId && automation.sessionId !== sessionId) return false;
+    if (sessionId && !this.manageableBy(automation, sessionId)) return false;
     this.automations.delete(id);
     return true;
   }
 
   pause(id: string, sessionId: string): AutomationDefinition | undefined {
     const automation = this.automations.get(id);
-    if (!automation || automation.sessionId !== sessionId) return undefined;
+    if (!automation || !this.manageableBy(automation, sessionId)) return undefined;
     if (automation.status !== 'active') return undefined;
     automation.status = 'paused';
     automation.updatedAt = this.deps.now();
@@ -140,7 +140,7 @@ export class AutomationManager {
 
   resume(id: string, sessionId: string): AutomationDefinition | undefined {
     const automation = this.automations.get(id);
-    if (!automation || automation.sessionId !== sessionId) return undefined;
+    if (!automation || !this.manageableBy(automation, sessionId)) return undefined;
     if (automation.status !== 'paused') return undefined;
     // Refuse to resume an automation whose fire budget is already spent. A
     // maxFires-exhausted (or a one-shot that already fired) automation only
@@ -159,6 +159,22 @@ export class AutomationManager {
 
   listForSession(sessionId: string): AutomationDefinition[] {
     return [...this.automations.values()].filter(a => a.sessionId === sessionId);
+  }
+
+  /**
+   * Automations a session can see and manage: its own (any kind) plus every
+   * durable one. Durable automations (cron by default) are app-global — they
+   * outlive their creator session and reload from disk on restart with their
+   * original sessionId, so a fresh session must still be able to list and
+   * manage them. Non-durable heartbeats stay private to their session.
+   */
+  listVisibleForSession(sessionId: string): AutomationDefinition[] {
+    return [...this.automations.values()].filter(a => a.sessionId === sessionId || a.durable === true);
+  }
+
+  /** A session may manage its own automations plus any durable (app-global) one. */
+  private manageableBy(automation: AutomationDefinition, sessionId: string): boolean {
+    return automation.sessionId === sessionId || automation.durable === true;
   }
 
   listActive(): AutomationDefinition[] {
