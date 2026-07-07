@@ -306,6 +306,7 @@ export interface SystemNoteMessage {
     | 'session_resume'
     | 'mode_change'
     | 'model_change'
+    | 'context_compacted'
     | 'error'
     | 'abort';
   /** Shape depends on `kind`. */

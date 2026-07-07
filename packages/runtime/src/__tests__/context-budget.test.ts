@@ -1058,6 +1058,100 @@ describe('context-budget history compact', () => {
     assert.equal(result.diagnostic.highWaterReason, undefined);
   });
 
+  test('honors the history compact tail cap before the requested recent-turn count', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'old context '.repeat(30)),
+      textEvent('old-2', 'turn-2', 'older context '.repeat(30)),
+      textEvent('recent-1', 'turn-3', 'recent one '.repeat(40)),
+      textEvent('recent-2', 'turn-4', 'recent two '.repeat(40)),
+      textEvent('latest', 'turn-5', 'latest tail'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 500,
+      minRecentTurns: 3,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+        minRecentTurns: 3,
+        tailEstimatedTokens: 25,
+        maxSummaryEstimatedTokens: 120,
+      },
+    });
+
+    assert.ok(result);
+    assert.equal(result.events.some((event) => event.id === 'recent-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'recent-2'), false);
+    assert.equal(result.events.some((event) => event.id === 'latest'), true);
+    assert.equal(result.diagnostic.historyCompactedTurns, 4);
+  });
+
+  test('retains additional recent turns while they fit under the history compact tail cap', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'old context '.repeat(40)),
+      textEvent('tail-2', 'turn-2', 'tail two'),
+      textEvent('tail-3', 'turn-3', 'tail three'),
+      textEvent('tail-4', 'turn-4', 'tail four'),
+      textEvent('tail-5', 'turn-5', 'tail five'),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 500,
+      minRecentTurns: 2,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+        minRecentTurns: 2,
+        tailEstimatedTokens: 100,
+        maxSummaryEstimatedTokens: 120,
+      },
+    });
+
+    assert.ok(result);
+    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'tail-2'), true);
+    assert.equal(result.events.some((event) => event.id === 'tail-3'), true);
+    assert.equal(result.events.some((event) => event.id === 'tail-4'), true);
+    assert.equal(result.events.some((event) => event.id === 'tail-5'), true);
+    assert.equal(result.diagnostic.historyCompactedTurns, 1);
+  });
+
+  test('keeps the latest complete tool call/result pair when one turn exceeds the history compact tail cap', () => {
+    const events = [
+      textEvent('old-1', 'turn-1', 'old context '.repeat(30)),
+      toolCall('latest-call-1', 'turn-2', 'tool-1'),
+      toolResult('latest-result-1', 'turn-2', 'tool-1', { text: 'first huge result '.repeat(20) }),
+      toolCall('latest-call-2', 'turn-2', 'tool-2'),
+      toolResult('latest-result-2', 'turn-2', 'tool-2', { text: 'second huge result '.repeat(20) }),
+    ];
+
+    const result = applyRuntimeEventContextBudget(events, {
+      maxHistoryEstimatedTokens: 500,
+      minRecentTurns: 3,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        highWaterRatio: 0.5,
+        targetRatio: 0.2,
+        minRecentTurns: 3,
+        tailEstimatedTokens: 10,
+        maxSummaryEstimatedTokens: 120,
+      },
+    });
+
+    assert.ok(result);
+    assert.equal(result.events.some((event) => event.id === 'old-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'latest-call-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'latest-result-1'), false);
+    assert.equal(result.events.some((event) => event.id === 'latest-call-2'), true);
+    assert.equal(result.events.some((event) => event.id === 'latest-result-2'), true);
+    assert.equal(result.diagnostic.historyCompactedTurns, 2);
+  });
+
   test('skips compaction when archive-before-project is required but missing', () => {
     const events = [
       textEvent('old-1', 'turn-1', 'missing archive source '.repeat(20)),

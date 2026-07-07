@@ -8,7 +8,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { ToolResultMessage } from '@maka/core/session';
+import type { StoredMessage, ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
@@ -1983,6 +1983,7 @@ describe('AiSdkBackend model history', () => {
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const writeInputs: Array<{ draftSummary: string; foldedIds: string[] }> = [];
     const oldEvents = [
       runtimeTextEvent({
@@ -2003,7 +2004,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2080,11 +2083,16 @@ describe('AiSdkBackend model history', () => {
     );
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      true,
+    );
   });
 
   test('read_write history compact fail-open sends original history when durable write fails', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-fail-old-1',
@@ -2104,7 +2112,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2165,11 +2175,16 @@ describe('AiSdkBackend model history', () => {
       usage?.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
       ['failedOpen'],
     );
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('loads persisted history compact blocks before replay and does not rewrite them', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-load-old-1',
@@ -2199,7 +2214,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2264,6 +2281,10 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksSelected, 1);
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, undefined);
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('replays a persisted compact block whose provenance JSON outgrows the token budget', async () => {

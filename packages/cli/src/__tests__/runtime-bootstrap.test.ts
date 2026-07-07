@@ -172,13 +172,15 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.activeToolResultPrune?.enabled, true);
         assert.equal(backendInput.contextBudget?.semanticCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
-        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'lookup');
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
+        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
+        assert.equal(backendInput.contextBudget?.historyCompact?.minRecentTurns, 3);
       });
     });
   });
 
-  test('adds a bounded lookup budget for providers without a default token budget', async () => {
+  test('keeps ordinary send policy read-write for providers without a context-window budget', async () => {
     await withCleanContextBudgetEnv(async () => {
       process.env.MAKA_CONTEXT_HISTORY_COMPACT = 'on';
       await withWorkspace(async (workspaceRoot) => {
@@ -187,7 +189,7 @@ describe('Maka CLI runtime bootstrap', () => {
           slug: 'deepseek',
           name: 'DeepSeek',
           providerType: 'deepseek',
-          defaultModel: 'deepseek-chat',
+          defaultModel: 'custom-deepseek-model',
         });
         const credentialStore = createFileCredentialStore(workspaceRoot);
         await credentialStore.setSecret('deepseek', 'api_key', 'test-key');
@@ -214,10 +216,10 @@ describe('Maka CLI runtime bootstrap', () => {
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
-        assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, 32_000);
-        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'lookup');
-        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 0.000001);
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 1);
+        assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, undefined);
+        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
+        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
       });
     });
   });

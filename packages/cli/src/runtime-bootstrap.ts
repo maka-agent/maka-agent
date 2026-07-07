@@ -10,7 +10,6 @@ import {
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
   buildLlmHistorySummarizer,
-  buildManualCompactLookupPolicy,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   getAIModel,
@@ -110,10 +109,10 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
-      contextBudget: buildManualCompactLookupPolicy(
-        buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
-        { highWaterName: 'cli-manual-history-compact' },
-      ),
+      contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
+        name: 'cli-default-history-budget',
+        modelId: ready.model,
+      }),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
         summarize: buildLlmHistorySummarizer({

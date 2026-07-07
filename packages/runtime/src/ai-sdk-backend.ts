@@ -50,6 +50,7 @@ import type {
   ToolResultMessage,
   PermissionDecisionMessage,
   TokenUsageMessage,
+  SystemNoteMessage,
   BackendKind,
   SessionHeader,
 } from '@maka/core/session';
@@ -687,6 +688,7 @@ export class AiSdkBackend implements AgentBackend {
     let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
     let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
     let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
+    let contextCompactedNoteWritten = false;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -1070,6 +1072,17 @@ export class AiSdkBackend implements AgentBackend {
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
+            if (!contextCompactedNoteWritten && shouldAppendContextCompactedNote(contextBudgetForUsage)) {
+              contextCompactedNoteWritten = true;
+              const note: SystemNoteMessage = {
+                type: 'system_note',
+                id: this.newId(),
+                turnId,
+                ts: this.now(),
+                kind: 'context_compacted',
+              };
+              await this.input.appendMessage(note).catch(() => {});
+            }
             queue.push({
               type: 'token_usage',
               id: this.newId(),
@@ -2611,6 +2624,15 @@ function contextBudgetWithActivePrepareStepDiagnostics(
   return mergeContextBudgetDiagnostic(base ?? minimalContextBudgetDiagnostic(), mergedPatch);
 }
 
+function shouldAppendContextCompactedNote(contextBudget: ContextBudgetDiagnostic | undefined): boolean {
+  if ((contextBudget?.historyCompactBlocksWritten ?? 0) <= 0) return false;
+  return contextBudget?.compactionDecisions?.some((decision) =>
+    decision.stage === 'priorReplay'
+    && decision.boundaryKind === 'historyCompact'
+    && decision.decision === 'replaced'
+  ) === true;
+}
+
 function minimalContextBudgetDiagnostic(): ContextBudgetDiagnostic {
   return {
     enabled: true,
@@ -2676,5 +2698,3 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
     target[key] = (target[key] ?? 0) + value;
   }
 }
-
-

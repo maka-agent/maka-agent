@@ -638,14 +638,15 @@ export function applyRuntimeEventHistoryCompact(
   const tailBudget =
     finitePositive(compactPolicy.tailEstimatedTokens)
     ?? Math.max(1, Math.floor(maxTokens * targetRatio));
-  const tailTurnIds = selectHistoryCompactTailTurnIds(turnGroups, {
+  const tailSelection = selectHistoryCompactTailEvents(turnGroups, {
     minRecentTurns,
     tailBudget,
   });
-  const foldedTurnIds = turnGroups
-    .map((group) => group.turnId)
-    .filter((turnId) => !tailTurnIds.has(turnId));
-  if (foldedTurnIds.length === 0) {
+  const retainedEventIds = tailSelection.eventIds;
+  const tailTurnIds = tailSelection.turnIds;
+  const foldedEvents = compactableEvents.filter((event) => !retainedEventIds.has(event.id));
+  const retainedEvents = compactableEvents.filter((event) => retainedEventIds.has(event.id));
+  if (foldedEvents.length === 0) {
     increment(skippedReasonCounts, 'no_foldable_turns');
     return {
       events: [...events],
@@ -659,9 +660,6 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const foldedTurnIdSet = new Set(foldedTurnIds);
-  const foldedEvents = compactableEvents.filter((event) => foldedTurnIdSet.has(turnKey(event)));
-  const retainedEvents = compactableEvents.filter((event) => !foldedTurnIdSet.has(turnKey(event)));
   if (foldedEvents.length === 0) {
     increment(skippedReasonCounts, 'no_foldable_events');
     return {
@@ -1480,6 +1478,7 @@ export function estimateTokens(chars: number, charsPerToken = 4): number {
 function groupEventsByTurn(events: readonly RuntimeEvent[], charsPerToken: number): Array<{
   turnId: string;
   estimatedTokens: number;
+  events: RuntimeEvent[];
 }> {
   const order: string[] = [];
   const byTurn = new Map<string, RuntimeEvent[]>();
@@ -1494,26 +1493,50 @@ function groupEventsByTurn(events: readonly RuntimeEvent[], charsPerToken: numbe
   }
   return order.map((turnId) => ({
     turnId,
+    events: byTurn.get(turnId) ?? [],
     estimatedTokens: estimateRuntimeEventsTokens(byTurn.get(turnId) ?? [], charsPerToken),
   }));
 }
 
-function selectHistoryCompactTailTurnIds(
-  turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number }>,
+function selectHistoryCompactTailEvents(
+  turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number; events: readonly RuntimeEvent[] }>,
   options: { minRecentTurns: number; tailBudget: number },
-): Set<string> {
-  const selected = new Set<string>();
+): { eventIds: Set<string>; turnIds: Set<string> } {
+  const eventIds = new Set<string>();
+  const turnIds = new Set<string>();
   let selectedTokens = 0;
   for (let index = turnGroups.length - 1; index >= 0; index -= 1) {
     const group = turnGroups[index]!;
-    const nextCount = selected.size + 1;
-    const mustKeep = nextCount <= options.minRecentTurns;
-    const wouldExceedBudget = selectedTokens > 0 && selectedTokens + group.estimatedTokens > options.tailBudget;
-    if (!mustKeep && wouldExceedBudget) break;
-    selected.add(group.turnId);
+    const wouldExceedBudget = selectedTokens + group.estimatedTokens > options.tailBudget;
+    if (wouldExceedBudget) {
+      if (eventIds.size === 0) {
+        const fallbackIds = latestCompleteStepEventIds(group.events);
+        for (const id of fallbackIds) eventIds.add(id);
+        if (fallbackIds.length > 0) turnIds.add(group.turnId);
+      }
+      break;
+    }
+    turnIds.add(group.turnId);
+    for (const event of group.events) eventIds.add(event.id);
     selectedTokens += group.estimatedTokens;
   }
-  return selected;
+  return { eventIds, turnIds };
+}
+
+function latestCompleteStepEventIds(events: readonly RuntimeEvent[]): string[] {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (event.content?.kind !== 'function_response') continue;
+    const responseId = event.content.id;
+    for (let callIndex = index - 1; callIndex >= 0; callIndex -= 1) {
+      const call = events[callIndex]!;
+      if (call.content?.kind === 'function_call' && call.content.id === responseId) {
+        return [call.id, event.id];
+      }
+    }
+  }
+  const latest = events.at(-1);
+  return latest ? [latest.id] : [];
 }
 
 function selectLoadedHistoryCompactBlock(

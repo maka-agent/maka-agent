@@ -37,4 +37,14 @@ describe('materializeChat attachments', () => {
     assert.equal(items.length, 1);
     assert.equal(items[0].attachments, undefined);
   });
+
+  test('surfaces automatic context compaction system notes inline', () => {
+    const messages: StoredMessage[] = [
+      { type: 'system_note', id: 'note-1', turnId: 't1', ts: 1, kind: 'context_compacted' },
+    ];
+    const items = materializeChat(messages);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].role, 'system');
+    assert.equal(items[0].text, 'Context compacted to keep this session within the model window.');
+  });
 });
