@@ -263,6 +263,25 @@ describe('categorizeBash', () => {
     // sudo rm is privileged, not fs_destructive
     expect(categorizeBash('sudo rm -rf /')).toBe('privileged');
   });
+
+  test('find is safe only for read-only traversal; action primaries → shell_unsafe', () => {
+    expect(categorizeBash('find . -name "*.ts"')).toBe('shell_safe');
+    expect(categorizeBash('find src -type f')).toBe('shell_safe');
+    expect(categorizeBash('find . -exec chmod 777 {} +')).toBe('shell_unsafe');
+    expect(categorizeBash('find . -exec mv {} ../backup/ +')).toBe('shell_unsafe');
+    expect(categorizeBash('find . -execdir rm {} +')).toBe('shell_unsafe');
+    expect(categorizeBash('find . -okdir chmod 777 {} +')).toBe('shell_unsafe');
+    expect(categorizeBash('find . -fprintf out.txt "%p"')).toBe('shell_unsafe');
+  });
+
+  test('git branch is no longer a blanket safe prefix (it can write a ref)', () => {
+    expect(categorizeBash('git branch temp-review')).toBe('shell_unsafe');
+    expect(categorizeBash('git branch -m old new')).toBe('shell_unsafe');
+    // Read-only forms prompt too now — deliberate: precisely modeling git
+    // branch's read/write argument grammar is an easy-to-miss enumeration, so
+    // a one-off extra prompt is the fail-closed trade over another allow hole.
+    expect(categorizeBash('git branch --list')).toBe('shell_unsafe');
+  });
 });
 
 describe('preToolUse — explore mode', () => {
@@ -377,6 +396,25 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: find action primaries and git branch writes prompt in execute mode', () => {
+    for (const command of [
+      'find . -exec chmod 777 {} +',
+      'find . -exec mv {} ../backup/ +',
+      'find . -execdir rm {} +',
+      'git branch temp-review',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
+  });
+
+  test('read-only find still auto-runs in execute', () => {
+    const r = evaluate('Bash', { command: 'find . -name "*.ts"' }, 'execute');
+    expect(r.proceed).toBe(true);
+    expect(r.category).toBe('shell_safe');
   });
 
   test('CRITICAL: piped kill and RunAs elevation STILL prompt in execute mode', () => {
