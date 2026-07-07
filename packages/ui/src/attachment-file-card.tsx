@@ -22,11 +22,11 @@ export function AttachmentFileCard(props: {
   return (
     <div
       className={cn(
-        'flex items-center gap-2.5 rounded-lg bg-foreground/[0.06] ring-1 ring-inset ring-foreground/[0.12] p-2 w-[200px] max-w-full',
+        'flex items-center gap-2.5 rounded-lg bg-[var(--foreground-alpha-6)] ring-1 ring-inset ring-[color:var(--foreground-alpha-12)] p-2 w-[200px] max-w-full',
         props.className,
       )}
     >
-      <span className="h-9 w-9 shrink-0 rounded-md bg-foreground/[0.10] grid place-items-center text-foreground-secondary">
+      <span className="h-9 w-9 shrink-0 rounded-md bg-[var(--foreground-alpha-10)] grid place-items-center text-foreground-secondary">
         <AttachmentKindIcon kind={props.kind} className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
@@ -41,7 +41,7 @@ export function AttachmentFileCard(props: {
         <button
           type="button"
           onClick={props.onRemove}
-          className="ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-foreground/10 hover:text-foreground transition"
+          className="ml-1 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-[var(--foreground-alpha-10)] hover:text-foreground transition"
           aria-label={`移除 ${props.name}`}
         >
           <X className="h-3.5 w-3.5" />

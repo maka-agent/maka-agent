@@ -188,6 +188,16 @@
   --ring:          oklch(from var(--foreground) l c h / 0.25);
   --state-hover-bg:    oklch(from var(--foreground) l c h / 0.04);
   --state-selected-bg: oklch(from var(--foreground) l c h / 0.065);
+  /* PR5 FOREGROUND-ALPHA-TOKEN-0: raw foreground-alpha tiers for component
+     washes that need a semi-transparent foreground over their backdrop
+     (NOT the solid --foreground-N tints, which mix with --background and
+     would change rendering — the ring would thicken, the wash would stop
+     tracking the backdrop). The file-attachment card uses these for its bg
+     (0.06), icon-tile (0.10), and inset ring (0.12); other components at
+     the same density can reuse the tier instead of a fresh alpha. */
+  --foreground-alpha-6:  oklch(from var(--foreground) l c h / 0.06);
+  --foreground-alpha-10: oklch(from var(--foreground) l c h / 0.10);
+  --foreground-alpha-12: oklch(from var(--foreground) l c h / 0.12);
   /* User bubble color is intentionally distinct from `--accent` so users can
      re-tint the accent without ruining chat legibility.
      PR-GRAY-CARD-LIFT-0: bubble shifts to neutral gray (hue 0)
