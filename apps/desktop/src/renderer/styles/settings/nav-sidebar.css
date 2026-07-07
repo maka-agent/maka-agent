@@ -687,7 +687,7 @@
 .settingsFormGrid label span {
   display: block;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
@@ -697,8 +697,7 @@
   display: block;
   margin-top: var(--space-1-5);
   color: var(--muted-foreground);
-  /* Hint is the most-read body text on the page; use the base scale so
-     it clears the 14px legibility floor. */
+  /* Hint is the most-read body text on the page; body tier (13). */
   font-size: var(--font-size-base);
   line-height: var(--leading-normal);
 }

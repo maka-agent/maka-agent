@@ -288,15 +288,17 @@
   --font-default: var(--font-sans);
 
   /* === typography ===
-     PR-TYPOGRAPHY-CONVERGE-0 (issue #430 PR2, 2026-07-03):
-     three-tier scale. Body 15 is the root (html font-size); UI 13 is the
-     chrome/control tier (sidebar rows, labels, buttons, form fields);
-     caption 11 is dense meta (timestamps, badges, kbd, overlines).
-     9/10/10.5/11/11.5px and sub-0.8rem collapse to caption;
-     12/12.5/13/13.5/14px and 0.8-0.95rem collapse to ui.
-     Bubble h1-h4 scale in em off body 15 so they track the root automatically. */
-  --font-size-base: 15px;
-  --font-size-ui: 13px;
+     PR-TYPOGRAPHY-CONVERGE-0 (issue #430 PR2, 2026-07-03), re-tiered for
+     #546 density: heading 15 / body 13 / caption 11. Body 13 is the root
+     (html font-size) and also the chrome/control tier — ui aliases base
+     (macOS/VS Code shape: body == chrome == 13, hierarchy by weight/color).
+     Heading 15 is the old body value, demoted to section/card/modal
+     titles only — those sites keep their exact pixels, renamed honestly.
+     Caption 11 is dense meta (timestamps, badges, kbd, overlines).
+     Bubble h1-h4 scale in em off body 13 so they track the root automatically. */
+  --font-size-heading: 15px;
+  --font-size-base: 13px;
+  --font-size-ui: var(--font-size-base);
   --font-size-caption: 11px;
 
   /* === line-height ===
@@ -1462,7 +1464,7 @@
     border-bottom: var(--border-width-hairline) solid var(--border);
   }
   .maka-modal-title {
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-heading);
     font-weight: var(--font-weight-semibold);
     color: var(--foreground);
     letter-spacing: var(--tracking-normal);

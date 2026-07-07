@@ -293,7 +293,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 .maka-skill-market-card h3 {
   margin: 0;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }

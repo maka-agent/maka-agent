@@ -84,9 +84,9 @@
   /* fix(#546): pin the text-* paired line-heights to the 4-tier leading
      scale. Without these, bare `text-xs`/`text-sm` utilities carry
      Tailwind's stock ratios (1.333/1.4286) — off-tier values that PR1
-     (#526) removed everywhere else. 11/13px UI text is the snug zone;
-     15px body stays normal (same value as Tailwind's default, pinned so
-     the trio reads as one decision). */
+     (#526) removed everywhere else. 11px caption is the snug zone;
+     13px body (base == ui after the #546 re-tier) stays normal so prose
+     keeps a ≥1.5 ratio (WCAG 1.4.12 headroom at the denser body size). */
   --text-xs--line-height: var(--leading-snug);
   --text-sm--line-height: var(--leading-snug);
   --text-base--line-height: var(--leading-normal);
