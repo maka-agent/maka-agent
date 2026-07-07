@@ -229,7 +229,8 @@ export const PRIVILEGED_SHELL_PATTERNS: readonly RegExp[] = [
   /^(stop-process|spps|taskkill)\b/i,
   // Service control mirrors the blanket `systemctl ` prefix above: every
   // mutating verb prompts; read-only queries (sc query, Get-Service) do not.
-  /^(start|stop|restart|set|new|remove|suspend|resume)-service\b/i,
+  // sasv/spsv are the documented default aliases of Start-/Stop-Service.
+  /^((start|stop|restart|set|new|remove|suspend|resume)-service|sasv|spsv)\b/i,
   /^sc\s+(stop|start|pause|continue|delete|config|create|failure|sdset)\b/i,
   /^net\s+(stop|start|pause|continue)\b/i,
   /^(stop-computer|restart-computer)\b/i,
@@ -332,7 +333,12 @@ function normalizeSegmentHead(segment: string): string {
     let head = quoted ? quoted[2]! : bare![1]!;
     const tail = quoted ? rest.slice(quoted[0].length) : bare![3]!;
     head = head
-      .replace(/^['"]+/, '') // unclosed-quote remnant of a payload cut mid-string
+      // Quote chars anywhere in the name: unclosed remnants of a payload cut
+      // mid-string (`"del`) and PowerShell quote interruptions (Remove''-Item
+      // executes Remove-Item — verified on real pwsh). Caret is cmd.exe's
+      // escape char (de^l executes del). Fold them out of the NAME only; the
+      // safe-prefix check never sees this normalization.
+      .replace(/['"^]/g, '')
       .replace(/^\\/, '')
       .replace(/^.*[\\/]/, '')
       .replace(/\.exe$/i, '');
@@ -389,7 +395,13 @@ function isPrivilegedSegment(segment: string): boolean {
  */
 export function categorizeBash(cmd: string): ToolCategory {
   const t = cmd.trim();
+  // Backtick is BOTH a split boundary (bash command substitution — `rm x` runs
+  // even inside double quotes, so it must stay a boundary) AND PowerShell's
+  // in-name escape (R`M runs rm, Remove`-Item runs Remove-Item — verified on
+  // real pwsh). Splitting alone would leave the PS name as two innocent halves,
+  // so scan the split segments AND a backtick-collapsed variant of the command.
   const segments = scanSegments(cmd, 2);
+  if (cmd.includes('`')) segments.push(...scanSegments(cmd.replace(/`/g, ''), 2));
   if (segments.some((s) => isPrivilegedSegment(s))) return 'privileged';
   if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s)))) return 'fs_destructive';
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';

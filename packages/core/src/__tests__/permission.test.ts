@@ -182,6 +182,20 @@ describe('categorizeBash', () => {
     expect(categorizeBash('sc query foo')).toBe('shell_unsafe');
   });
 
+  test('quote/backtick/caret interruptions inside the command name still categorize', () => {
+    // All three PowerShell shapes verified to delete files on real pwsh.
+    expect(categorizeBash("Remove''-Item .\\foo.txt")).toBe('fs_destructive');
+    expect(categorizeBash('Remove`-Item .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('R`M .\\foo.txt')).toBe('fs_destructive');
+    // cmd.exe's escape-char analogue of the same trick
+    expect(categorizeBash('de^l foo.txt')).toBe('fs_destructive');
+  });
+
+  test('default aliases of privileged service cmdlets → privileged', () => {
+    expect(categorizeBash('spsv w32time')).toBe('privileged');
+    expect(categorizeBash('sasv SomeService')).toBe('privileged');
+  });
+
   test('destructive names as mere text do NOT upgrade the category', () => {
     expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
     expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
@@ -338,6 +352,20 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: interrupted names and service aliases STILL prompt in execute mode', () => {
+    for (const command of [
+      "Remove''-Item .\\foo.txt",
+      'Remove`-Item .\\foo.txt',
+      'R`M .\\foo.txt',
+      'spsv w32time',
+      'sasv SomeService',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
   });
 
   test('CRITICAL: quoted nested payloads and service control STILL prompt in execute mode', () => {
