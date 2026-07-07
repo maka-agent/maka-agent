@@ -408,3 +408,11 @@
   border: 0;
   border-top: var(--border-width-hairline) solid var(--border);
 }
+/* Tailwind preflight makes img a block (`display: block; max-width: 100%`
+   in @layer base), which breaks inline images mid-paragraph — badges,
+   inline icons. Rare in chat, likelier in tool-result bodies (#618 item 4).
+   layer(components) outranks base: restore the inline flow; preflight's
+   max-width: 100% + height: auto stay in effect. */
+.maka-prose img {
+  display: inline-block;
+}

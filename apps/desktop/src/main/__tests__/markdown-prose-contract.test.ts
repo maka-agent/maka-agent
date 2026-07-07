@@ -47,7 +47,7 @@ const CHAT_PRIMITIVE = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives',
 /** Markdown block + inline elements whose typography the prose layer owns. */
 const PROSE_ELEMENTS = [
   'p', 'h1', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a',
-  'code', 'pre', 'blockquote', 'table', 'th', 'td', 'hr',
+  'code', 'pre', 'blockquote', 'table', 'th', 'td', 'hr', 'img',
 ] as const;
 
 /**
@@ -308,6 +308,20 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       !/\.maka-bubble-assistant\s*>\s*:(first|last)-child/.test(chat),
       'the edge-margin trims moved to .maka-prose > :first/:last-child — the shell must not keep a duplicate pair',
     );
+  });
+
+  it('prose images flow inline again despite the Tailwind preflight block', async () => {
+    // #618 item 4: Tailwind v4 preflight sets `img { display: block;
+    // max-width: 100% }` in @layer base. A markdown image mid-paragraph
+    // (badge, inline icon) then breaks the line. Rare in chat, likelier in
+    // tool-result bodies now that they render prose. layer(components)
+    // outranks base, so a .maka-prose img rule restores the inline flow;
+    // preflight's max-width: 100% + height: auto stay in effect.
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const img = blocks.find(({ selectors }) => /^\.maka-prose\s+img$/.test(selectors));
+    assert.ok(img, 'expected a .maka-prose img rule');
+    assert.match(img!.decls, /display:\s*inline-block/, 'prose img must restore inline flow (inline-block) over the preflight display: block');
   });
 
   it('blockquote inner block margins are neutralized at both ends', async () => {
