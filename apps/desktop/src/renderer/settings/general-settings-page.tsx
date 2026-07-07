@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PersonalizationSettingsPage } from './appearance-settings-page';
 import type {
   AppSettings,
   ChatDefaultPermissionMode,
@@ -38,6 +39,10 @@ export function GeneralSettingsPage(props: {
   const toast = useToast();
   return (
     <div className="settingsStructuredPage">
+      {/* Designer audit P2-13: identity fields (显示名称/界面语言/语气偏好)
+          moved here from the 外观 page — they configure who you are to the
+          app, not how the app looks. The component keeps its save flow. */}
+      <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdate} />
       <SettingsRows>
         <div className="settingsFormRow">
           <div>
