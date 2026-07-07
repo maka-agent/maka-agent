@@ -498,6 +498,26 @@ describe('computeNextCronFire', () => {
     }
   });
 
+  test('dow=7 matches Sundays (cron allows 0 OR 7 for Sunday)', () => {
+    const base = new Date('2026-07-06T10:00:00').getTime(); // Monday
+    for (const field of ['0 0 * * 7', '0 0 * * 0', '0 0 * * 5-7', '0 0 * * 0,3']) {
+      const next = computeNextCronFire(field, base);
+      assert.ok(next, `${field} should resolve`);
+    }
+    // "* * * * 7" must actually land on a Sunday.
+    const sun = computeNextCronFire('0 0 * * 7', base);
+    assert.equal(new Date(sun!).getDay(), 0, 'dow=7 lands on Sunday (getDay()===0)');
+    // "5-7" (Fri/Sat/Sun) includes Sunday.
+    let cursor = base;
+    let sawSunday = false;
+    for (let i = 0; i < 6; i++) {
+      const n = computeNextCronFire('0 0 * * 5-7', cursor);
+      if (n && new Date(n).getDay() === 0) sawSunday = true;
+      cursor = n ?? cursor;
+    }
+    assert.ok(sawSunday, '5-7 range includes Sunday');
+  });
+
   // --- Regression: common crons keep working after the OR/window changes ---
 
   test('regression: */5 * * * * still fires every 5 minutes', () => {

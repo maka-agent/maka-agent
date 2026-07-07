@@ -196,6 +196,16 @@ export class AutomationManager {
       ? null
       : this.computeNextFire(automation.schedule, now);
 
+    // maxFires is a hard cap on the number of fire ATTEMPTS: once this attempt
+    // reaches the cap, no further fire is scheduled — regardless of whether this
+    // one ultimately succeeds or fails. (Terminal status is still committed by
+    // attemptSucceeded/attemptFailed based on this attempt's outcome.) Without
+    // this, a failing recurring automation would keep firing past maxFires until
+    // the consecutive-failure cap, and fireCount could exceed maxFires.
+    if (automation.maxFires && automation.fireCount >= automation.maxFires) {
+      automation.nextFireAt = null;
+    }
+
     return automation;
   }
 
@@ -369,7 +379,12 @@ export function computeNextCronFire(expression: string, fromTime: number): numbe
     if (!matchesCronField(monthField, candidate.getMonth() + 1, 1, 12)) continue;
 
     const domMatch = matchesCronField(domField, candidate.getDate(), 1, 31);
-    const dowMatch = matchesCronField(dowField, candidate.getDay(), 0, 6);
+    // Day-of-week: cron allows both 0 and 7 for Sunday, but Date.getDay() only
+    // returns 0-6 (0=Sunday). Match against the raw value, plus the 7-alias when
+    // the day is Sunday, so fields like "7", "5-7", "0,7" all fire on Sundays.
+    const dow = candidate.getDay();
+    const dowMatch = matchesCronField(dowField, dow, 0, 7)
+      || (dow === 0 && matchesCronField(dowField, 7, 0, 7));
     const dayMatch = bothDayFieldsRestricted
       ? domMatch || dowMatch // OR when both are constrained
       : domMatch && dowMatch; // AND when one is "*"

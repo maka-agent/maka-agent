@@ -352,12 +352,13 @@ const automationWiring = createMainAutomationWiring({
     return true;
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
-  injectTurn(sessionId: string, prompt: string, automationId: string) {
+  async injectTurn(sessionId: string, prompt: string, automationId: string) {
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    return streamEvents(sessionId, iterator, turnId);
+    const r = await streamEvents(sessionId, iterator, turnId);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
   // run the prompt there, so each fire is a first-class session + run.
@@ -379,7 +380,13 @@ const automationWiring = createMainAutomationWiring({
     const iterator = runtime.sendMessage(session.id, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
     });
-    return streamEvents(session.id, iterator, turnId);
+    const r = await streamEvents(session.id, iterator, turnId);
+    // Archive the fresh cron session after its run finalizes so recurring crons
+    // do not accumulate an unbounded pile of active sessions. The session (with
+    // its run/trace) is preserved under the archive, labelled automation/cron.
+    await runtime.archive(session.id).catch(() => {});
+    emitSessionsChanged('archived', session.id);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
 });
 

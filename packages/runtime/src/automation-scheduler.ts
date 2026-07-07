@@ -49,6 +49,8 @@ export class AutomationScheduler {
   private tickTimer: unknown = null;
   private disposed = false;
   private deferCounts = new Map<string, number>();
+  /** Automation ids whose fire is currently executing (prevents concurrent re-fire). */
+  private inFlight = new Set<string>();
   private readonly now: () => number;
 
   constructor(private readonly deps: AutomationSchedulerDeps) {
@@ -71,6 +73,7 @@ export class AutomationScheduler {
     this.disposed = true;
     this.stop();
     this.deferCounts.clear();
+    this.inFlight.clear();
   }
 
   private scheduleTick(): void {
@@ -115,6 +118,15 @@ export class AutomationScheduler {
   private async attemptFire(automation: AutomationDefinition): Promise<void> {
     if (this.disposed) return;
 
+    // In-flight guard: a fire whose run is still executing must not be started
+    // again. canFire protects heartbeat (its run occupies the automation's own
+    // session), but NOT cron (createFreshRun spawns a separate session, leaving
+    // the creator session idle), so a cron whose run outlasts its cadence would
+    // otherwise re-fire every tick — spawning duplicate sessions, blowing past
+    // maxFires, and committing outcomes out of order. This guard closes that
+    // window for every kind, independent of canFire.
+    if (this.inFlight.has(automation.id)) return;
+
     let canFire: boolean;
     try {
       canFire = await this.deps.canFire(automation.sessionId);
@@ -124,6 +136,8 @@ export class AutomationScheduler {
     }
 
     if (this.disposed) return;
+    // Re-check the guard after the async canFire (another tick may have started).
+    if (this.inFlight.has(automation.id)) return;
 
     if (!canFire) {
       const deferCount = (this.deferCounts.get(automation.id) ?? 0) + 1;
@@ -156,6 +170,7 @@ export class AutomationScheduler {
     this.deps.onStateChange?.();
 
     const id = automation.id;
+    this.inFlight.add(id);
     // Dispatch WITHOUT awaiting the tick — the run resolves its outcome later.
     // The outcome (success/failure) is committed only after the stream finishes,
     // so a failed or aborted fire is never recorded as a success.
@@ -164,6 +179,7 @@ export class AutomationScheduler {
       : this.deps.createFreshRun!(automation.prompt, id);
 
     void dispatch.then((result) => {
+      this.inFlight.delete(id);
       if (this.disposed) return;
       if (result.ok) {
         this.deps.automationManager.attemptSucceeded(id, result.runId);
@@ -172,6 +188,7 @@ export class AutomationScheduler {
       }
       this.deps.onStateChange?.();
     }).catch((err) => {
+      this.inFlight.delete(id);
       if (this.disposed) return;
       const message = err instanceof Error ? err.message : String(err);
       this.deps.automationManager.attemptFailed(id, message);

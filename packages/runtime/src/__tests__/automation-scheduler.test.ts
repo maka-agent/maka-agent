@@ -287,4 +287,54 @@ describe('AutomationScheduler', () => {
     const updated = t.manager.get(auto.id);
     assert.notEqual(updated?.status, 'completed');
   });
+
+  test('in-flight guard: a slow cron does not re-fire concurrently', async () => {
+    const t = createTestSetup();
+    let dispatches = 0;
+    let release!: (r: AutomationFireResult) => void;
+    // A createFreshRun that hangs until we release it — models a run slower than
+    // the cadence (the exact concurrency window).
+    t.setCreateFreshRun((_p, _id) => {
+      dispatches++;
+      return new Promise<AutomationFireResult>((res) => { release = (r) => res(r); });
+    });
+    const auto = t.manager.create({
+      kind: 'cron', name: 'slow', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 10 },
+    });
+    assert.ok(!('error' in auto));
+    t.scheduler.start();
+    // Fire is due; run it multiple times while the first dispatch is still pending.
+    t.advanceTime(11000);
+    await t.runTick();               // dispatch #1 (hangs)
+    t.advanceTime(11000);
+    await t.runTick();               // due again — must be skipped (in-flight)
+    t.advanceTime(11000);
+    await t.runTick();               // still in-flight — skipped
+    assert.equal(dispatches, 1, 'only one fire dispatched while the run is in flight');
+    // Release the run → next due tick may fire again.
+    release({ runId: 'r1', ok: true });
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    t.advanceTime(11000);
+    await t.runTick();
+    assert.equal(dispatches, 2, 're-fires only after the prior run resolves');
+  });
+
+  test('maxFires bounds fire ATTEMPTS even when every run fails', async () => {
+    const t = createTestSetup();
+    const auto = t.manager.create({
+      kind: 'heartbeat', name: 'flaky', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 10 },
+      maxFires: 2,
+    });
+    assert.ok(!('error' in auto));
+    t.setInjectRejects(true); // every fire fails
+    t.scheduler.start();
+    // Tick well past 2 fire windows.
+    for (let i = 0; i < 6; i++) { t.advanceTime(11000); await t.runTick(); }
+    const updated = t.manager.get(auto.id);
+    // Fired at most maxFires times (2), NOT up to the consecutive-failure cap (5).
+    assert.ok(updated!.fireCount <= 2, `fireCount=${updated!.fireCount} should be <= maxFires(2)`);
+    assert.equal(updated!.nextFireAt, null, 'no further fires scheduled past maxFires');
+  });
 });
