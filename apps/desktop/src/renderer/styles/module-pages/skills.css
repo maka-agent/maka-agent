@@ -83,22 +83,22 @@
   justify-content: space-between;
   gap: var(--space-6);
   overflow: hidden;
-  border: var(--border-width-hairline) solid oklch(88% 0.035 224 / 0.72);
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.88 min(c, 0.035) h / 0.72);
   border-radius: var(--radius-surface);
   background:
     radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
-    linear-gradient(100deg, oklch(92.5% 0.035 222) 0%, oklch(93.5% 0.045 205) 56%, oklch(88.8% 0.052 199) 100%);
+    linear-gradient(100deg, oklch(from var(--brand-deep) 0.925 min(c, 0.035) h) 0%, oklch(from var(--brand-deep) 0.935 min(c, 0.045) h) 56%, oklch(from var(--brand-deep) 0.888 min(c, 0.052) h) 100%);
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.65);
   padding: var(--space-6) var(--space-8);
 }
 
-/* The banner's light-blue gradient background is theme-independent, so
-   its copy must be too: with var(--foreground) the title rendered as
-   near-white on the pale gradient in dark mode (unreadable ghost text).
-   Pin the copy to fixed inks that match the 200-224 hue background. */
+/* Banner wash + inks derive their hue from --accent (owner decision:
+   the old fixed 199-224 teal read as residual brand-green after the
+   accent moved to logo blue). Lightness stays pinned on both sides so
+   dark mode keeps readable ink-on-pale-wash contrast. */
 .maka-skill-featured-banner h3 {
   margin: 0;
-  color: oklch(0.26 0.025 224);
+  color: oklch(from var(--brand-deep) 0.26 min(c, 0.025) h);
   font-size: 1.2em;
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
@@ -107,7 +107,7 @@
 .maka-skill-featured-banner p {
   max-width: 540px;
   margin: var(--space-2-5) 0 0;
-  color: oklch(0.42 0.02 220);
+  color: oklch(from var(--brand-deep) 0.42 min(c, 0.02) h);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
 }
@@ -139,24 +139,24 @@
   /* Fixed inks: these floating cards stay white in both themes (they
      sit on the theme-independent banner), so their border/copy must
      not follow --foreground or they wash out in dark mode. */
-  border: var(--border-width-hairline) solid oklch(0.2 0.01 224 / 0.09);
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.2 min(c, 0.01) h / 0.09);
   border-radius: var(--radius-control);
   background: linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96));
-  color: oklch(0.44 0.015 220);
+  color: oklch(from var(--brand-deep) 0.44 min(c, 0.015) h);
   box-shadow:
-    0 12px 24px -20px oklch(0.2 0.02 224 / 0.4),
-    0 1px 2px oklch(0.2 0.02 224 / 0.08);
+    0 12px 24px -20px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.4),
+    0 1px 2px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.08);
 }
 
 .maka-skill-featured-art strong {
-color: oklch(0.34 0.02 224);
+color: oklch(from var(--brand-deep) 0.34 min(c, 0.02) h);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-art small {
-color: oklch(0.55 0.015 220);
+color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
@@ -166,7 +166,7 @@ color: oklch(0.55 0.015 220);
   left: 14px;
   top: 12px;
   transform: rotate(-14deg);
-  color: oklch(64% 0.15 154);
+  color: oklch(from var(--brand-deep) 0.64 min(c, 0.15) h);
 }
 
 .maka-skill-featured-art span:nth-child(2) {
