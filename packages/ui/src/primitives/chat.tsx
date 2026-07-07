@@ -10,11 +10,13 @@ import type React from "react";
  * `Message` is the per-turn row container; `Bubble` is the message body
  * surface. They retire the bespoke `.message.{role}` / `.maka-bubble-user`
  * shell CSS, moving the row/bubble *shell* onto the Tailwind substrate while
- * leaving Markdown prose (`.maka-bubble-assistant *`, maka-tokens.css) and the
- * turn machinery (summary / lineage / footer / markers — PR2) untouched.
+ * leaving Markdown prose (now the `.maka-prose` layer in chat-message.css,
+ * split off the assistant bubble shell by #546 PR4) and the turn machinery
+ * (summary / lineage / footer / markers — PR2) untouched.
  *
  * The row keeps the authored `.maka-message-row` base (centered reading column).
- * That base lives in maka-tokens.css's `@layer components`, so the role utilities below
+ * That base lives in chat-message.css (#546 PR4 relocated it out of
+ * maka-tokens.css's @layer components), so the role utilities below
  * (utilities layer) win over its `margin: 0 auto` for the left-anchored
  * assistant/system rows. The neutral `--chat-user-bg` token path is preserved
  * verbatim — the user bubble is never switched to `primary`/`accent`.
@@ -69,10 +71,12 @@ const bubbleVariants = cva("", {
       // `--radius-surface` token (8px) per #406 gap 4 radius governance.
       // Keeps the neutral `--chat-user-bg` token path (never primary/accent).
       user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-normal text-[color:var(--chat-user-foreground,var(--foreground))]",
-      // Assistant / system: open prose, no bubble. Typography stays authored
-      // under `.maka-bubble-assistant` (Markdown prose, OUT of scope), so this
-      // variant re-emits that class as the styling hook.
-      assistant: "maka-bubble-assistant",
+      // Assistant / system: open prose, no bubble. The shell stays
+      // `.maka-bubble-assistant` (geometry: max-width 72ch, padding, generic
+      // first/last-child margin reset); the Markdown prose layer `.maka-prose`
+      // (p / h / ul / code / ... typography) rides alongside so the same prose
+      // rules can be reused by tool-result bodies (#546 PR5).
+      assistant: "maka-bubble-assistant maka-prose",
     },
   },
 });

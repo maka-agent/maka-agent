@@ -27,23 +27,23 @@
 /* Task list checkboxes inside assistant markdown — remark-gfm gives us
  * standard <input type="checkbox" disabled> nodes; this styles them to
  * match the rest of the chat surface instead of the browser default. */
-.maka-bubble-assistant ul.contains-task-list,
-.maka-bubble-assistant ol.contains-task-list,
-.maka-bubble-assistant ul li.task-list-item,
-.maka-bubble-assistant ol li.task-list-item {
+.maka-prose ul.contains-task-list,
+.maka-prose ol.contains-task-list,
+.maka-prose ul li.task-list-item,
+.maka-prose ol li.task-list-item {
   list-style: none;
 }
 
-.maka-bubble-assistant ul.contains-task-list,
-.maka-bubble-assistant ol.contains-task-list {
+.maka-prose ul.contains-task-list,
+.maka-prose ol.contains-task-list {
   padding-left: var(--space-1);
 }
 
-.maka-bubble-assistant li.task-list-item {
+.maka-prose li.task-list-item {
   padding-left: var(--space-0-5);
 }
 
-.maka-bubble-assistant li.task-list-item > input[type="checkbox"] {
+.maka-prose li.task-list-item > input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
   width: 14px;
@@ -57,12 +57,12 @@
   position: relative;
 }
 
-.maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked {
+.maka-prose li.task-list-item > input[type="checkbox"]:checked {
   background: var(--control);
   border-color: var(--control);
 }
 
-.maka-bubble-assistant li.task-list-item > input[type="checkbox"]:checked::after {
+.maka-prose li.task-list-item > input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
   left: 3px;
@@ -110,42 +110,42 @@
      max-width: 100% downstream so wide payloads still expand. */
   max-width: 72ch;
 }
-.maka-bubble-assistant pre,
-.maka-bubble-assistant table,
-.maka-bubble-assistant .maka-code-block {
+.maka-prose pre,
+.maka-prose table,
+.maka-prose .maka-code-block {
   /* Wide payloads bypass the prose cap. */
   max-width: 100%;
 }
 .maka-bubble-assistant > :first-child { margin-top: 0; }
 .maka-bubble-assistant > :last-child { margin-bottom: 0; }
 .maka-bubble-assistant > :nth-last-child(2) { margin-bottom: 0; }
-.maka-bubble-assistant > p:nth-last-child(2) { display: inline; }
-.maka-bubble-assistant p {
+.maka-prose > p:nth-last-child(2) { display: inline; }
+.maka-prose p {
   margin: 0 0 var(--space-3);
   text-wrap: pretty;
 }
-.maka-bubble-assistant h1,
-.maka-bubble-assistant h2,
-.maka-bubble-assistant h3,
-.maka-bubble-assistant h4 {
+.maka-prose h1,
+.maka-prose h2,
+.maka-prose h3,
+.maka-prose h4 {
   margin: var(--space-4) 0 var(--space-2);
   line-height: var(--leading-tight);
   font-weight: var(--font-weight-semibold);
   text-wrap: balance;
 }
-.maka-bubble-assistant h1,
-.maka-bubble-assistant h2 {
+.maka-prose h1,
+.maka-prose h2 {
   letter-spacing: var(--tracking-normal);
 }
-.maka-bubble-assistant code {
+.maka-prose code {
   font-variant-numeric: tabular-nums;
 }
-.maka-bubble-assistant h1 { font-size: 1.4667em; }
-.maka-bubble-assistant h2 { font-size: 1.2667em; }
-.maka-bubble-assistant h3 { font-size: 1.0667em; }
-.maka-bubble-assistant h4 { font-size: 0.9333em; color: var(--foreground-secondary); }
-.maka-bubble-assistant ul,
-.maka-bubble-assistant ol {
+.maka-prose h1 { font-size: 1.4667em; }
+.maka-prose h2 { font-size: 1.2667em; }
+.maka-prose h3 { font-size: 1.0667em; }
+.maka-prose h4 { font-size: 0.9333em; color: var(--foreground-secondary); }
+.maka-prose ul,
+.maka-prose ol {
   margin: 0 0 var(--space-3);
   padding-left: var(--space-6);
 }
@@ -153,13 +153,13 @@
    { list-style: none }` in @layer base); restore them for rendered
    markdown or bulleted answers read as flat indented lines. Same
    root cause as the permission-center fix (permission-center.css). */
-.maka-bubble-assistant ul { list-style: disc; }
-.maka-bubble-assistant ol { list-style: decimal; }
-.maka-bubble-assistant li > ul { list-style: circle; }
-.maka-bubble-assistant li { margin: var(--space-0-5) 0; }
-.maka-bubble-assistant li > ul,
-.maka-bubble-assistant li > ol { margin-bottom: 0; }
-.maka-bubble-assistant a {
+.maka-prose ul { list-style: disc; }
+.maka-prose ol { list-style: decimal; }
+.maka-prose li > ul { list-style: circle; }
+.maka-prose li { margin: var(--space-0-5) 0; }
+.maka-prose li > ul,
+.maka-prose li > ol { margin-bottom: 0; }
+.maka-prose a {
   color: var(--link);
   text-decoration: none;
   border-bottom: var(--border-width-hairline) solid oklch(from var(--link) l c h / 0.4);
@@ -172,15 +172,15 @@
   border-radius: var(--radius-control);
   transition: border-bottom-color var(--duration-quick) var(--ease-out-strong), background var(--duration-quick) var(--ease-out-strong), box-shadow var(--duration-quick) var(--ease-out-strong);
 }
-.maka-bubble-assistant a:hover {
+.maka-prose a:hover {
   border-bottom-color: var(--link);
 }
-.maka-bubble-assistant a:focus-visible {
+.maka-prose a:focus-visible {
   outline: none;
   background: oklch(from var(--link) l c h / 0.06);
   box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.20);
 }
-.maka-bubble-assistant code {
+.maka-prose code {
   font-family: var(--font-mono);
   font-size: 0.86em;
   padding: 1px var(--space-1-5);
@@ -195,7 +195,7 @@
    pill + copy button on top of the pre. Pre keeps its monospace styling
    but the border + radius now live on the wrapper so the header reads
    as part of the same surface. */
-.maka-bubble-assistant .maka-code-block {
+.maka-prose .maka-code-block {
   margin: 0 0 var(--space-3);
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
@@ -253,7 +253,7 @@
 .maka-code-block-copy[data-copy-feedback="failed"] {
   color: var(--destructive);
 }
-.maka-bubble-assistant pre {
+.maka-prose pre {
   margin: 0;
   padding: var(--space-3) var(--space-3);
   border: 0;
@@ -265,7 +265,7 @@
   line-height: var(--leading-normal);
   white-space: pre;
 }
-.maka-bubble-assistant pre code {
+.maka-prose pre code {
   padding: 0;
   background: transparent;
   font-size: inherit;
@@ -301,7 +301,7 @@
 .hljs-addition   { color: var(--success-text); background: oklch(from var(--success) l c h / 0.08); }
 .hljs-emphasis   { font-style: italic; }
 .hljs-strong     { font-weight: var(--font-weight-bold); }
-.maka-bubble-assistant blockquote {
+.maka-prose blockquote {
   margin: 0 0 var(--space-3);
   /* PR-UI-LAYOUT-29: blockquote feels slim on the new warm canvas.
    * Bump padding so the quote actually has air around it, switch
@@ -322,7 +322,7 @@
   border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
   color: var(--foreground-secondary);
 }
-.maka-bubble-assistant table {
+.maka-prose table {
   width: 100%;
   margin: 0 0 var(--space-3);
   border-collapse: collapse;
@@ -335,19 +335,19 @@
   border-radius: var(--radius-surface);
   border: var(--border-width-hairline) solid var(--border);
 }
-.maka-bubble-assistant th,
-.maka-bubble-assistant td {
+.maka-prose th,
+.maka-prose td {
   padding: var(--space-2) var(--space-3);
   border-bottom: var(--border-width-hairline) solid var(--border);
   text-align: left;
 }
 /* PR-UI-LAYOUT-28: drop the trailing border on the last row so the
  * rounded corner reads cleanly. */
-.maka-bubble-assistant tr:last-child th,
-.maka-bubble-assistant tr:last-child td {
+.maka-prose tr:last-child th,
+.maka-prose tr:last-child td {
   border-bottom: 0;
 }
-.maka-bubble-assistant th {
+.maka-prose th {
   color: var(--foreground-secondary);
   font-weight: var(--font-weight-semibold);
   background: var(--foreground-3);
@@ -357,7 +357,7 @@
    * code-block tints. */
   letter-spacing: var(--tracking-normal);
 }
-.maka-bubble-assistant hr {
+.maka-prose hr {
   margin: var(--space-4) 0;
   border: 0;
   border-top: var(--border-width-hairline) solid var(--border);

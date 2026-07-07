@@ -33,12 +33,15 @@ describe('chat primitive shell migration contract (#332 PR1)', () => {
 
   it('preserves the assistant Markdown prose (OUT of scope)', async () => {
     const css = await readAllRendererCss();
+    // #546 PR4 split the prose off the shell: .maka-bubble-assistant keeps
+    // only container geometry, the Markdown element typography moved to the
+    // reusable .maka-prose layer (same rules, new scope).
     for (const selector of [
       '.maka-bubble-assistant {',
-      '.maka-bubble-assistant p',
-      '.maka-bubble-assistant pre',
-      '.maka-bubble-assistant table',
-      '.maka-bubble-assistant li.task-list-item',
+      '.maka-prose p',
+      '.maka-prose pre',
+      '.maka-prose table',
+      '.maka-prose li.task-list-item',
     ]) {
       assert.ok(css.includes(selector), `prose rule "${selector}" must be preserved`);
     }
