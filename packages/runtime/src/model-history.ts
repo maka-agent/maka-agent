@@ -228,6 +228,37 @@ export interface RuntimeEventTextMessageOptions {
 
 export interface BuildRuntimeEventModelReplayPlanOptions {
   includeSystemEvents?: boolean;
+  /**
+   * Turn IDs known — from the FULL prior ledger — to contain tool activity.
+   *
+   * The signed-thinking-in-tool-turn skip (see `turnsWithToolActivity` in the
+   * planner) is a whole-history invariant, but `events` here may be a
+   * budget-pruned / history-search slice that dropped a turn's
+   * tool_call/tool_response while keeping its (query-matched) signed thinking.
+   * Scanning only the slice would then miss the tool activity and wrongly
+   * replay that thinking provider-native. Callers that slice MUST pass the
+   * full-ledger tool-turn ids (see `collectToolActivityTurnIds`); the planner
+   * unions them with tool activity found in `events`.
+   */
+  toolActivityTurnIds?: ReadonlySet<string>;
+}
+
+/**
+ * Collect the turn ids that contain tool activity (function_call /
+ * function_response) from a RuntimeEvent ledger. Pass the result as
+ * `toolActivityTurnIds` when the events handed to the replay planner are a
+ * slice of this ledger.
+ */
+export function collectToolActivityTurnIds(events: readonly RuntimeEvent[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (isPartialRuntimeEvent(event)) continue;
+    const kind = event.content?.kind;
+    if ((kind === 'function_call' || kind === 'function_response') && event.turnId) {
+      ids.add(event.turnId);
+    }
+  }
+  return ids;
 }
 
 export function buildRuntimeEventModelReplayPlan(
@@ -248,15 +279,12 @@ export function buildRuntimeEventModelReplayPlan(
   // the tool result it (a) drops the leading thinking block Anthropic requires
   // on the tool-use assistant message and (b) leaves an orphan thinking block —
   // Anthropic rejects both (400). Pure-reasoning turns (no tools) are safe and
-  // still replay. Pre-scan so the decision is independent of event order.
-  const turnsWithToolActivity = new Set<string>();
-  for (const event of events) {
-    if (isPartialRuntimeEvent(event)) continue;
-    const kind = event.content?.kind;
-    if ((kind === 'function_call' || kind === 'function_response') && event.turnId) {
-      turnsWithToolActivity.add(event.turnId);
-    }
-  }
+  // still replay. Pre-scan so the decision is independent of event order, and
+  // union any full-ledger tool-turn ids the caller supplies — `events` may be a
+  // budget/search slice that kept a tool turn's thinking but dropped its tool
+  // events (see BuildRuntimeEventModelReplayPlanOptions.toolActivityTurnIds).
+  const turnsWithToolActivity = new Set<string>(options.toolActivityTurnIds ?? []);
+  for (const id of collectToolActivityTurnIds(events)) turnsWithToolActivity.add(id);
 
   for (const event of events) {
     if (isPartialRuntimeEvent(event)) {

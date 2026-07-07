@@ -37,6 +37,7 @@ import {
   buildModelHistoryFromRuntimeEvents,
   buildRuntimeEventModelReplayPlan,
   buildTextModelMessagesFromRuntimeEvents,
+  collectToolActivityTurnIds,
   type ModelHistoryEntry,
 } from '../model-history.js';
 
@@ -1017,6 +1018,31 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     expect(codes).not.toContain('unsupported_content');
     expect(codes).not.toContain('unmatched_tool_result');
     expect(codes).not.toContain('tool_id_mismatch');
+  });
+
+  test('a budget/search slice still skips a tool-turn signed thinking via full-ledger tool ids', () => {
+    // Full prior ledger: a tool turn (tool_call, tool_result, signed thinking).
+    const fullLedger: RuntimeEvent[] = [
+      ev({ role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} } }),
+      ev({ role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'x', isError: false } }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'thinking', text: 'reasoning about the tool result', signature: 'sig-slice' } }),
+    ];
+    // history-search / budget pruning kept ONLY the query-matched signed
+    // thinking; the same turn's tool_call/tool_result were dropped from replay.
+    const slice = [fullLedger[2]!];
+
+    // Scanning only the slice looks like a pure-reasoning turn — the latent hole
+    // the full-ledger ids close: the thinking would otherwise replay native.
+    const naive = buildRuntimeEventModelReplayPlan(slice);
+    expect(naive.items.map((item) => item.kind)).toEqual(['thinking']);
+
+    // Seeding the tool-turn ids from the full ledger restores the skip.
+    const plan = buildRuntimeEventModelReplayPlan(slice, {
+      toolActivityTurnIds: collectToolActivityTurnIds(fullLedger),
+    });
+    expect(plan.items.map((item) => item.kind)).toEqual([]);
+    expect(plan.semanticKinds).not.toContain('thinking');
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('signed_thinking_in_tool_turn_skipped');
   });
 
   test('terminal RuntimeEvents are diagnostic-only for replay semantics', () => {

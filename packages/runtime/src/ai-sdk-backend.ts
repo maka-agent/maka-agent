@@ -121,6 +121,7 @@ import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
   buildRuntimeEventModelReplayPlan,
+  collectToolActivityTurnIds,
   formatTextWithAttachmentRefs,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -1478,6 +1479,10 @@ export class AiSdkBackend implements AgentBackend {
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
+      // `runtimeContext` may be a budget/history-search slice; the tool-turn
+      // thinking skip is a whole-history invariant, so seed it from the full
+      // prior ledger so a sliced-in tool-turn thinking still gets skipped.
+      { toolActivityTurnIds: collectToolActivityTurnIds(priorRuntimeContext) },
     );
     if (plan.items.length === 0) {
       return {
