@@ -107,7 +107,7 @@ function SkillLibraryPanel(props: {
     <section className="maka-skill-featured-banner" data-skills-banner aria-label="精选技能">
       <div>
         <h3>为你精选的职场技能</h3>
-        <p>涵盖写作、效率、设计、数据分析等多种场景，一键安装后在对话中继续使用。</p>
+        <p>涵盖写作、效率、设计、数据分析等场景，将陆续上线，敬请期待。</p>
       </div>
       <div className="maka-skill-featured-art" aria-hidden="true">
         <span>
