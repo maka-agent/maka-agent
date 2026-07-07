@@ -1430,7 +1430,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env treats explicit false-like booleans as disabled', () => {
-    // stale and archive default off; activeToolResultPrune defaults on, so disabling
+    // archive retrieval defaults off; stale and active prune default on, so disabling
     // stale/archive alone still leaves an enabled activeToolResultPrune policy.
     assert.deepEqual(
       buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'false' }).contextBudget?.activeToolResultPrune,
@@ -1471,14 +1471,35 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor active tool result prune can be disabled with explicit off', () => {
-    assert.equal(
-      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }).contextBudget,
-      undefined,
-    );
-    assert.equal(
-      buildHarborCellContextBudgetPolicySnapshot({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }),
-      undefined,
-    );
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true });
+  });
+
+  test('Harbor stale tool result prune is enabled by default without any env', () => {
+    const backend = buildHarborCellContextBudgetBackendOptions({});
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true });
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
+    assert.equal(snapshot?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+  });
+
+  test('Harbor stale tool result prune can be disabled with explicit off', () => {
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.staleToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
+  });
+
+  test('Harbor context budget is empty when both default-on prunes are explicitly off', () => {
+    const env = {
+      MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off',
+    };
+    assert.equal(buildHarborCellContextBudgetBackendOptions({ ...env }).contextBudget, undefined);
+    assert.equal(buildHarborCellContextBudgetPolicySnapshot({ ...env }), undefined);
   });
 
   test('Harbor parses semantic compact policy for headless runs', () => {
