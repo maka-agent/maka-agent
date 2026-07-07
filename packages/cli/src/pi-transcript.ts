@@ -980,17 +980,32 @@ function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
   return renderIndented(ansi.dim(summary), width, 2);
 }
 
-/**
- * A Read whose path is a real file, not a `maka://runtime/...` resource. The
- * runtime scheme surfaces things like background-task output that only lives in
- * the transcript, so it must render its content rather than a "read" summary.
- */
-function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
+function readInputPath(entry: MakaPiToolEntry): string | undefined {
   const input = entry.input;
   const path = input !== null && typeof input === 'object'
     ? (input as { path?: unknown }).path
     : undefined;
-  return typeof path === 'string' && path.length > 0 && !path.startsWith('maka://runtime/');
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
+}
+
+/** A Read whose path is a real file, not a `maka://runtime/...` resource. */
+function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
+  const path = readInputPath(entry);
+  return path !== undefined && !path.startsWith('maka://runtime/');
+}
+
+/** A Read of a `maka://runtime/...` resource (background-task output, etc.). */
+function isRuntimeResourceReadPath(entry: MakaPiToolEntry): boolean {
+  return readInputPath(entry)?.startsWith('maka://runtime/') ?? false;
+}
+
+/**
+ * True only for the result shapes a filesystem Read uses to carry actual file
+ * content. An `archived_tool_result` placeholder (or any other kind) is not a
+ * read body, so it renders its own status instead of a fabricated line count.
+ */
+function isReadBodyResult(result: ToolResultContent | undefined): boolean {
+  return result?.kind === 'text' || result?.kind === 'json';
 }
 
 /**
@@ -1031,12 +1046,23 @@ function groupOutputDeltas(
 
 function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   const result = entry.result;
-  // A successful filesystem Read pulled the file into the model's context; the
-  // transcript only needs to note that it happened, so skip the content and keep
-  // a summary. A failed Read falls through so its error is still visible, and a
-  // `maka://runtime/...` resource Read (e.g. background-task output) also falls
-  // through — that output only lives here, so it must not be summarized away.
-  if (entry.toolName === 'Read' && entry.status !== 'error' && isFilesystemReadPath(entry)) {
+  // A `maka://runtime/...` resource Read surfaces live state (background-task
+  // metadata + stdout/stderr) that only lives in the transcript. Its body opens
+  // with several metadata/separator lines, so a head/tail cap would hide the very
+  // output the user expanded to see — render it in full.
+  if (entry.toolName === 'Read' && isRuntimeResourceReadPath(entry)) {
+    return renderToolText(plainResultText(entry), width);
+  }
+  // A successful filesystem Read that returned real file content pulled it into
+  // the model's context; the transcript only needs to note that it happened, so
+  // skip the content and keep a summary. Everything else falls through to render
+  // its content: a failed Read (its error), and — critically — an
+  // `archived_tool_result` placeholder, so its not_loaded/missing status stays
+  // visible instead of being mistaken for a one-line file.
+  if (entry.toolName === 'Read'
+    && entry.status !== 'error'
+    && isFilesystemReadPath(entry)
+    && isReadBodyResult(result)) {
     return renderReadSummary(entry, width);
   }
   if (result?.kind === 'terminal') return renderTerminalResult(result, width);

@@ -590,23 +590,57 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /Read 4 lines, 59 bytes/);
   });
 
-  test('shows maka://runtime resource Read output instead of a read summary', () => {
+  test('shows maka://runtime resource Read output in full, never summarized or capped', () => {
     const state = createMakaPiTranscriptState();
-    // Reading a maka://runtime/... resource returns live state (e.g. background
-    // task output) that only lives in the transcript, so it must not be summarized.
+    // A runtime resource read returns live state (background-task metadata +
+    // output) that only lives in the transcript. Its body opens with several
+    // metadata lines, so it must be neither summarized nor head/tail-capped.
+    const body = [
+      'ref: maka://runtime/background-tasks/abc',
+      'status: running',
+      'cwd: /repo',
+      'command: npm test',
+      'started: 1',
+      'updated: 2',
+      '',
+      'stdout:',
+      'first-output-line',
+      'middle-output-line',
+      'last-output-line',
+    ].join('\n');
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'read-rt', toolName: 'Read',
       args: { path: 'maka://runtime/background-tasks/abc' },
     }));
     applyMakaSessionEventToTranscript(state, event({
-      type: 'tool_result', toolUseId: 'read-rt', isError: false,
-      content: { kind: 'text', text: 'task-status: running\nlast-line-output' },
+      type: 'tool_result', toolUseId: 'read-rt', isError: false, content: { kind: 'text', text: body },
     }));
 
     assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(expanded, /task-status: running/);
-    assert.match(expanded, /last-line-output/);
+    assert.match(expanded, /command: npm test/); // a mid-body line a cap would hide
+    assert.match(expanded, /stdout:/);
+    assert.match(expanded, /middle-output-line/);
+    assert.doesNotMatch(expanded, /lines hidden/);
+    assert.doesNotMatch(expanded, /Read \d+ lines,/);
+  });
+
+  test('keeps an archived Read placeholder status visible instead of a line count', () => {
+    const state = createMakaPiTranscriptState();
+    // Compaction can replace a completed filesystem Read's result with an archive
+    // placeholder; its not_loaded/missing status must stay visible, not be read as
+    // a one-line file body.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-arch', toolName: 'Read', args: { path: 'README.md' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-arch', isError: false,
+      content: { kind: 'archived_tool_result', status: 'not_loaded' },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /Archived tool result: not_loaded/);
     assert.doesNotMatch(expanded, /Read \d+ lines,/);
   });
 
