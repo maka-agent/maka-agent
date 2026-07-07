@@ -645,27 +645,3 @@ export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, MAX_DEFER_RETRIES } from '
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
 export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
 export type { AutomationToolDeps } from './automation-tools.js';
-
-// ───────────────────────────────────────────────────────────────────────────
-// Goal execution (Issue #15 Primitive 6).
-// ───────────────────────────────────────────────────────────────────────────
-export { GoalManager, TERMINAL_GOAL_STATUSES, DEFAULT_MAX_ITERATIONS, DEFAULT_BLOCK_CAP } from './goal-state.js';
-export type { GoalState, GoalStatus, GoalManagerDeps } from './goal-state.js';
-export {
-  evaluateGoal,
-  buildGoalEvaluationPrompt,
-  parseGoalEvaluation,
-  DEFAULT_EVALUATOR_TIMEOUT_MS,
-} from './goal-evaluator.js';
-export type { GoalEvaluation, GoalEvaluatorDeps } from './goal-evaluator.js';
-export {
-  buildGoalTools,
-  GOAL_SET_TOOL_NAME,
-  GOAL_CLEAR_TOOL_NAME,
-  GOAL_STATUS_TOOL_NAME,
-  GOAL_PAUSE_TOOL_NAME,
-  GOAL_RESUME_TOOL_NAME,
-} from './goal-tools.js';
-export type { GoalToolsDeps } from './goal-tools.js';
-export { handleGoalContinuation } from './goal-continuation.js';
-export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';

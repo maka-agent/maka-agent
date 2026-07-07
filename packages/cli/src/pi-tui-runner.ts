@@ -48,12 +48,6 @@ export interface MakaPiTuiInput {
   providerType?: ProviderType;
   permissionMode: PermissionMode;
   terminal?: Terminal;
-  /**
-   * Called after each agent turn settles. Receives an `injectTurn` that runs a
-   * new turn rendered in the transcript — used for goal auto-continuation so
-   * continuation turns are visible and chain correctly.
-   */
-  onTurnComplete?: (injectTurn: (text: string) => void) => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -195,8 +189,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     runAgentTurn(prompt);
   };
 
-  // Runs one agent turn rendered in the transcript, then lets the host decide
-  // whether to auto-continue (goal). Shared by user submits and goal injections.
+  // Runs one agent turn rendered in the transcript. Shared by user submits.
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
@@ -218,10 +211,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       editor.disableSubmit = false;
       terminal.setProgress(false);
       requestRender();
-      // Do not auto-continue (goal) if the session was closed/aborted mid-turn
-      // (Ctrl-C). The CLI's only abort affordance is close(), so `closed` is the
-      // abort signal — mirrors the desktop `turnAborted` guard.
-      if (!closed) input.onTurnComplete?.((text) => runAgentTurn(text));
     });
   }
 

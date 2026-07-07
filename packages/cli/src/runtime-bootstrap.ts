@@ -6,14 +6,12 @@ import {
   AutomationManager,
   AutomationScheduler,
   BackendRegistry,
-  GoalManager,
   PermissionEngine,
   SessionManager,
   ShellRunProcessManager,
   buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
-  buildGoalTools,
   buildLlmHistorySummarizer,
   buildProviderOptions,
   buildSubscriptionModelFetch,
@@ -21,7 +19,6 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
   type AutomationDefinition,
-  type GoalContinuationDeps,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -46,8 +43,6 @@ export interface MakaCliRuntimeContext {
   tools: ReturnType<typeof buildBuiltinTools>;
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
-  goalManager: GoalManager;
-  goalContinuationDeps: GoalContinuationDeps;
   close(): Promise<void>;
 }
 
@@ -113,13 +108,7 @@ export async function createMakaCliRuntimeContext(
     cronEnabled: input.automationCreateFreshRun !== undefined,
   });
 
-  const goalManager = new GoalManager({ generateId: () => randomUUID(), now: () => Date.now() });
-  const goalTokenCache = new Map<string, number>();
-  const goalTools = buildGoalTools({
-    goalManager,
-    getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
-  });
-  const allTools = [...tools, automationTool, ...goalTools];
+  const allTools = [...tools, automationTool];
 
   // Load durable automations from disk.
   try {
@@ -179,7 +168,7 @@ export async function createMakaCliRuntimeContext(
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
       },
-      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
+      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
@@ -228,63 +217,6 @@ export async function createMakaCliRuntimeContext(
 
   automationScheduler.start();
 
-  // Goal execution — external-evaluator continuation, sharing the runtime
-  // sendMessage pipeline (so each continuation turn is a real, traced AgentRun).
-  const goalContinuationDeps: GoalContinuationDeps = {
-    goalManager,
-    inFlight: new Set<string>(),
-    evaluator: {
-      async evaluate(prompt: string): Promise<string> {
-        const ai = await import('ai') as unknown as {
-          generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
-        };
-        const modelFetch = buildSubscriptionModelFetch({
-          connection: target.connection,
-          sessionId: 'goal-evaluator',
-          modelId: target.model,
-        });
-        const result = await ai.generateText({
-          model: getAIModel({ connection: target.connection, apiKey: target.apiKey ?? '', modelId: target.model, fetch: modelFetch }),
-          prompt,
-          providerOptions: buildProviderOptions(target.connection, target.model),
-          maxTokens: 250,
-        });
-        return result.text;
-      },
-    },
-    async getRecentContext(sessionId: string): Promise<string> {
-      const messages = await runtime.getMessages(sessionId);
-      // Refresh the token snapshot while the session is open.
-      let total = 0;
-      for (const m of messages) {
-        if (m.type === 'token_usage') total += (m.total ?? (m.input + m.output));
-      }
-      goalTokenCache.set(sessionId, total);
-      return messages
-        .slice(-10)
-        .filter((m) => m.type === 'user' || m.type === 'assistant')
-        .slice(-6)
-        .map((m) => `[${m.type}]: ${(m.type === 'user' || m.type === 'assistant' ? m.text : '').slice(0, 500)}`)
-        .join('\n');
-    },
-    getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
-    injectTurn: (sessionId, text) => {
-      const turnId = randomUUID();
-      const iterator = runtime.sendMessage(sessionId, { turnId, text });
-      void (async () => { for await (const _ of iterator) { /* drain */ } })().catch(() => {});
-    },
-    canContinue: async (sessionId) => {
-      const header = await store.readHeader(sessionId);
-      if (!header || header.archivedAt) return false;
-      if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
-      return true;
-    },
-    // The CLI automation scheduler injects turns via a silent drain that does
-    // not re-invoke handleGoalContinuation, so a heartbeat poll loop could not
-    // close. We therefore do NOT wire the waiting → heartbeat bridge in the CLI;
-    // a waiting goal falls through to normal per-turn continuation instead.
-  };
-
   return {
     workspaceRoot: input.workspaceRoot,
     cwd: input.cwd,
@@ -293,8 +225,6 @@ export async function createMakaCliRuntimeContext(
     tools,
     automationManager,
     automationScheduler,
-    goalManager,
-    goalContinuationDeps,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

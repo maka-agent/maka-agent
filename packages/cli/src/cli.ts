@@ -3,7 +3,6 @@
 import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { handleGoalContinuation } from '@maka/runtime';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -79,14 +78,6 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',
-          onTurnComplete: (injectTurn) => {
-            const sessionId = driver.getSessionId();
-            if (!sessionId) return;
-            void handleGoalContinuation(
-              { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
-              sessionId,
-            ).catch(() => {});
-          },
         });
         return 0;
       } finally {
