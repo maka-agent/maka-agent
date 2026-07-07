@@ -760,7 +760,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      ...(minRecentTurnsFull !== undefined ? { minRecentTurnsFull } : {}),
+      // Explicit so the runtime protection window matches the policy snapshot
+      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
+      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
     };
   }
 

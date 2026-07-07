@@ -1473,12 +1473,15 @@ describe('runHarborCell', () => {
   test('Harbor active tool result prune can be disabled with explicit off', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
-    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true });
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
   });
 
   test('Harbor stale tool result prune is enabled by default without any env', () => {
     const backend = buildHarborCellContextBudgetBackendOptions({});
-    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true });
+    // minRecentTurnsFull is set explicitly so the runtime protection window
+    // matches the policy snapshot and desktop default instead of the runtime's
+    // internal ?? 1 fallback.
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
 
     const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
     assert.equal(snapshot?.enabled, true);
@@ -1491,6 +1494,17 @@ describe('runHarborCell', () => {
     const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off' });
     assert.equal(options.contextBudget?.staleToolResultPrune, undefined);
     assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
+  });
+
+  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+    const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+
+    const explicit = buildHarborCellContextBudgetBackendOptions({
+      MAKA_CONTEXT_MIN_RECENT_TURNS: '3',
+      MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS: '5',
+    });
+    assert.equal(explicit.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 5);
   });
 
   test('Harbor context budget is empty when both default-on prunes are explicitly off', () => {
