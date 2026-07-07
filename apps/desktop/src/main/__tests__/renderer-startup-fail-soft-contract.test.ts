@@ -53,7 +53,7 @@ describe('renderer startup fail-soft contract', () => {
     );
     assert.match(
       refreshConnections,
-      /try \{[\s\S]*window\.maka\.connections\.list\(\)[\s\S]*window\.maka\.connections\.getDefault\(\)[\s\S]*setConnections\(next\)[\s\S]*setDefaultConnection\(nextDefault\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新模型连接失败', generalizedErrorMessageChinese\(error, '模型连接暂时无法刷新，请稍后重试。'\)\)/,
+      /try \{[\s\S]*window\.maka\.connections\.list\(\)[\s\S]*window\.maka\.connections\.getDefault\(\)[\s\S]*setConnections\((?:next|\(prev\) => connectionsEqual\(prev, next\) \? prev : next)\)[\s\S]*setDefaultConnection\(nextDefault\)[\s\S]*\} catch \(error\) \{[\s\S]*toastApi\.error\('刷新模型连接失败', generalizedErrorMessageChinese\(error, '模型连接暂时无法刷新，请稍后重试。'\)\)/,
       'startup / connections:event refreshConnections is fire-and-forget and must catch IPC failures without exposing raw provider/storage details',
     );
     assert.doesNotMatch(refreshConnections, /toastApi\.error\('刷新模型连接失败', cleanErrorMessage\(error\)\)/);

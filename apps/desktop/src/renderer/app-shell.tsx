@@ -247,12 +247,6 @@ export function AppShell({
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
     persistedComposerDefaults?.model ?? null,
   );
-  // Permission mode is renderer-only, scoped to one new-chat decision.
-  // It must NOT persist across reloads — persisted permission would
-  // silently inherit a previous session's mode (e.g. auto-edit) after
-  // restart with no visible signal, which is a safety regression.
-  // The single authority is main.ts's Settings → 通用 default. See
-  // session-status-presentation.test.ts for the contract.
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
     persistedComposerDefaults?.projectPath
       ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }
@@ -713,8 +707,7 @@ export function AppShell({
     model: 'fake-model',
     // Transient placeholder while the real SessionSummary loads --
     // matches the configured default so the composer doesn't flash a
-    // hardcoded value before the real session data (or its own
-    // pendingNewChatPermissionMode fallback) supersedes it.
+    // hardcoded value before the real session data settles.
     permissionMode: defaultPermissionMode,
   } : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
