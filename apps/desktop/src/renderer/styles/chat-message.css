@@ -358,7 +358,17 @@
 .maka-prose blockquote > :first-child { margin-top: 0; }
 .maka-prose blockquote > :last-child { margin-bottom: 0; }
 .maka-prose table {
-  width: 100%;
+  /* Shrink-wrap to content (GitHub's markdown-table shape): a short
+     three-column table stretched to the full measure reads as voids
+     between columns. `display: block` makes the element a scroll
+     container, `max-content` lets narrow tables hug their cells, and the
+     100% cap + overflow-x turns over-wide tables into a horizontal
+     scroller inside the prose measure. border-collapse/spacing are
+     inherited properties, so the anonymous inner table keeps them. */
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   margin: 0 0 var(--space-3);
   /* `separate` (not `collapse`): collapsed borders void border-radius and
      swallow the outer hairline, leaving the table with no visible edge.
@@ -367,7 +377,6 @@
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--font-size-ui);
-  overflow: hidden;
   /* PR-UI-LAYOUT-28: table radius 8 → 10 joins the card family,
    * and a hairline outer border gives the table chrome a clean
    * edge against the warm panel. Without the border the rounded
@@ -391,6 +400,11 @@
   color: var(--foreground-secondary);
   font-weight: var(--font-weight-semibold);
   background: var(--foreground-3);
+  /* Headers are short labels; letting them wrap means a column-squeezed
+     table pulverizes 2-char CJK headers into vertical stacks. Locking
+     them to one line raises the table's min-content width so degenerate
+     tables hit the overflow-x scroller instead. Body cells still wrap. */
+  white-space: nowrap;
   /* PR-UI-LAYOUT-28: header tone slightly darker than body cell
    * to make the header row read at first glance — was the same
    * `--foreground-3` as nothing else, now sits between cell and
