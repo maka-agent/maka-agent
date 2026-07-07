@@ -638,7 +638,7 @@ export class AiSdkBackend implements AgentBackend {
     const current = base.historyCompact;
     const currentWithoutBlocks = { ...current };
     delete currentWithoutBlocks.blocks;
-    const maxHistoryEstimatedTokens = estimatedTokens;
+    const maxHistoryEstimatedTokens = base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
     return {
       name: base.name ?? 'manual-history-compact',
       ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
@@ -648,7 +648,7 @@ export class AiSdkBackend implements AgentBackend {
         ...currentWithoutBlocks,
         enabled: true,
         mode: 'read_write',
-        highWaterRatio: 0.01,
+        highWaterRatio: 0.000001,
         targetRatio: current?.targetRatio ?? 0.2,
         tailEstimatedTokens: 1,
         minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,

@@ -237,7 +237,7 @@ export interface HistoryCompactPolicy {
   targetRatio?: number;
   /** Explicit retained-tail token budget. Overrides targetRatio when provided. */
   tailEstimatedTokens?: number;
-  /** Keep at least this many newest turns after compaction. Defaults to ContextBudgetPolicy.minRecentTurns, then 1. */
+  /** Requested recent turns after compaction; history compact tail selection is token-cap first and may keep fewer. */
   minRecentTurns?: number;
   /** Maximum deterministic summary estimate. Defaults to 768. */
   maxSummaryEstimatedTokens?: number;
@@ -630,16 +630,11 @@ export function applyRuntimeEventHistoryCompact(
     };
   }
 
-  const minRecentTurns = Math.max(
-    1,
-    Math.floor(compactPolicy.minRecentTurns ?? policy?.minRecentTurns ?? 1),
-  );
   const targetRatio = finiteRatio(compactPolicy.targetRatio, 0.5);
   const tailBudget =
     finitePositive(compactPolicy.tailEstimatedTokens)
     ?? Math.max(1, Math.floor(maxTokens * targetRatio));
   const tailSelection = selectHistoryCompactTailEvents(turnGroups, {
-    minRecentTurns,
     tailBudget,
   });
   const retainedEventIds = tailSelection.eventIds;
@@ -694,7 +689,7 @@ export function applyRuntimeEventHistoryCompact(
       validationStatus: 'valid',
     });
     const outputEvents = [historyCompactBlockToRuntimeEvent(loadedBlock), ...uncoveredFoldedEvents, ...retainedEvents];
-    if (maxTokens === undefined || estimateRuntimeEventsTokens(outputEvents, charsPerToken) <= maxTokens) {
+    if (fitsHistoryBudget(outputEvents, maxTokens, charsPerToken)) {
       return {
         events: outputEvents,
         blocks: [loadedBlock],
@@ -779,6 +774,19 @@ export function applyRuntimeEventHistoryCompact(
   });
   const synthetic = historyCompactBlockToRuntimeEvent(block);
   const outputEvents = [synthetic, ...retainedEvents];
+  if (!fitsHistoryBudget(outputEvents, maxTokens, charsPerToken)) {
+    increment(skippedReasonCounts, 'replay_over_budget');
+    return {
+      events: [...events],
+      blocks: [],
+      diagnosticPatch: {
+        ...basePatch,
+        historyCompactSkipped: 1,
+        historyCompactSkippedReasonCounts: skippedReasonCounts,
+        ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
+      },
+    };
+  }
   return {
     events: outputEvents,
     blocks: [block],
@@ -1470,6 +1478,14 @@ export function estimateRuntimeEventsTokens(
   return estimateTokens(chars, charsPerToken);
 }
 
+function fitsHistoryBudget(
+  events: readonly RuntimeEvent[],
+  maxTokens: number | undefined,
+  charsPerToken: number,
+): boolean {
+  return maxTokens === undefined || estimateRuntimeEventsTokens(events, charsPerToken) <= maxTokens;
+}
+
 export function estimateTokens(chars: number, charsPerToken = 4): number {
   if (chars <= 0) return 0;
   return Math.ceil(chars / Math.max(1, charsPerToken));
@@ -1500,7 +1516,7 @@ function groupEventsByTurn(events: readonly RuntimeEvent[], charsPerToken: numbe
 
 function selectHistoryCompactTailEvents(
   turnGroups: ReadonlyArray<{ turnId: string; estimatedTokens: number; events: readonly RuntimeEvent[] }>,
-  options: { minRecentTurns: number; tailBudget: number },
+  options: { tailBudget: number },
 ): { eventIds: Set<string>; turnIds: Set<string> } {
   const eventIds = new Set<string>();
   const turnIds = new Set<string>();
