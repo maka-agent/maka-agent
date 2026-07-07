@@ -1,6 +1,11 @@
 import { PROTECTED_METADATA_NAMES, type PermissionProfile } from '@maka/core/permission-profile';
 
-import type { SandboxPathContext } from './types.js';
+import type {
+  SandboxBackend,
+  SandboxPathContext,
+  SandboxTransformRequest,
+  SandboxTransformResult,
+} from './types.js';
 
 export const MACOS_SEATBELT_EXECUTABLE = '/usr/bin/sandbox-exec';
 
@@ -19,6 +24,162 @@ export const MACOS_SEATBELT_BASE_POLICY = `(version 1)
   (subpath "/Library/Apple")
   (literal "/dev/null")
   (literal "/dev/zero"))`;
+
+export const MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY = `; macOS platform defaults for launching standard system tools.
+(allow file-read* file-test-existence
+  (subpath "/Library/Apple")
+  (subpath "/Library/Filesystems/NetFSPlugins")
+  (subpath "/Library/Preferences")
+  (subpath "/Library/Preferences/Logging")
+  (subpath "/private/var/db")
+  (subpath "/private/var/db/DarwinDirectory/local/recordStore.data")
+  (subpath "/private/var/db/timezone")
+  (subpath "/usr/lib")
+  (subpath "/usr/share")
+  (subpath "/var/db"))
+
+(allow file-map-executable
+  (subpath "/Library/Apple/System/Library/Frameworks")
+  (subpath "/Library/Apple/System/Library/PrivateFrameworks")
+  (subpath "/Library/Apple/usr/lib")
+  (subpath "/System/Library/Extensions")
+  (subpath "/System/Library/Frameworks")
+  (subpath "/System/Library/PrivateFrameworks")
+  (subpath "/System/Library/SubFrameworks")
+  (subpath "/System/iOSSupport/System/Library/Frameworks")
+  (subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
+  (subpath "/System/iOSSupport/System/Library/SubFrameworks")
+  (subpath "/usr/lib"))
+
+(allow file-read* file-test-existence
+  (subpath "/Library/Apple/System/Library/Frameworks")
+  (subpath "/Library/Apple/System/Library/PrivateFrameworks")
+  (subpath "/Library/Apple/usr/lib")
+  (subpath "/System/Library/Frameworks")
+  (subpath "/System/Library/PrivateFrameworks")
+  (subpath "/System/Library/SubFrameworks")
+  (subpath "/System/iOSSupport/System/Library/Frameworks")
+  (subpath "/System/iOSSupport/System/Library/PrivateFrameworks")
+  (subpath "/System/iOSSupport/System/Library/SubFrameworks")
+  (subpath "/usr/lib"))
+
+(allow system-mac-syscall (mac-policy-name "vnguard"))
+(allow system-mac-syscall
+  (require-all
+    (mac-policy-name "Sandbox")
+    (mac-syscall-number 67)))
+
+(allow file-read-metadata file-test-existence
+  (literal "/etc")
+  (literal "/tmp")
+  (literal "/var")
+  (literal "/private/etc/localtime"))
+
+(allow file-read-metadata file-test-existence
+  (path-ancestors "/System/Volumes/Data/private"))
+
+(allow file-read* file-test-existence
+  (literal "/"))
+
+(allow system-fsctl (fsctl-command FSIOC_CAS_BSDFLAGS))
+
+(allow file-read* file-test-existence
+  (literal "/dev/autofs_nowait")
+  (literal "/dev/random")
+  (literal "/dev/urandom")
+  (literal "/private/etc/master.passwd")
+  (literal "/private/etc/passwd")
+  (literal "/private/etc/protocols")
+  (literal "/private/etc/services"))
+
+(allow file-read* file-test-existence file-write-data
+  (literal "/dev/null")
+  (literal "/dev/zero"))
+
+(allow file-read-data file-test-existence file-write-data
+  (subpath "/dev/fd"))
+
+(allow file-read* file-test-existence file-write-data file-ioctl
+  (literal "/dev/dtracehelper"))
+
+(allow file-read* (subpath "/etc"))
+(allow file-read* (subpath "/private/etc"))
+
+(allow file-read* file-test-existence
+  (literal "/System/Library/CoreServices")
+  (literal "/System/Library/CoreServices/.SystemVersionPlatform.plist")
+  (literal "/System/Library/CoreServices/SystemVersion.plist"))
+
+(allow file-read-metadata (subpath "/var"))
+(allow file-read-metadata (subpath "/private/var"))
+
+(allow mach-lookup
+  (global-name "com.apple.analyticsd")
+  (global-name "com.apple.analyticsd.messagetracer")
+  (global-name "com.apple.appsleep")
+  (global-name "com.apple.bsd.dirhelper")
+  (global-name "com.apple.cfprefsd.agent")
+  (global-name "com.apple.cfprefsd.daemon")
+  (global-name "com.apple.diagnosticd")
+  (global-name "com.apple.dt.automationmode.reader")
+  (global-name "com.apple.espd")
+  (global-name "com.apple.logd")
+  (global-name "com.apple.logd.events")
+  (global-name "com.apple.runningboard")
+  (global-name "com.apple.secinitd")
+  (global-name "com.apple.system.DirectoryService.libinfo_v1")
+  (global-name "com.apple.system.logger")
+  (global-name "com.apple.system.notification_center")
+  (global-name "com.apple.system.opendirectoryd.membership")
+  (global-name "com.apple.trustd")
+  (global-name "com.apple.trustd.agent")
+  (global-name "com.apple.xpc.activity.unmanaged")
+  (local-name "com.apple.cfprefsd.agent"))
+
+(allow ipc-posix-shm-read*
+  (ipc-posix-name "apple.shm.notification_center"))
+
+(allow file-read*
+  (literal "/private/var/db/eligibilityd/eligibility.plist"))
+
+(allow mach-lookup (global-name "com.apple.audio.audiohald"))
+(allow mach-lookup (global-name "com.apple.audio.AudioComponentRegistrar"))
+
+(allow file-read-data (subpath "/bin"))
+(allow file-read-metadata (subpath "/bin"))
+(allow file-read-data (subpath "/sbin"))
+(allow file-read-metadata (subpath "/sbin"))
+(allow file-read-data (subpath "/usr/bin"))
+(allow file-read-metadata (subpath "/usr/bin"))
+(allow file-read-data (subpath "/usr/sbin"))
+(allow file-read-metadata (subpath "/usr/sbin"))
+(allow file-read-data (subpath "/usr/libexec"))
+(allow file-read-metadata (subpath "/usr/libexec"))
+
+(allow file-read* (subpath "/opt/homebrew/lib"))
+(allow file-read* (subpath "/usr/local/lib"))
+
+(allow file-read* (regex "^/dev/fd/(0|1|2)$"))
+(allow file-write* (regex "^/dev/fd/(1|2)$"))
+(allow file-read* file-write* (literal "/dev/null"))
+(allow file-read* file-write* (literal "/dev/tty"))
+(allow file-read-metadata (literal "/dev"))
+(allow file-read-metadata (regex "^/dev/.*$"))
+(allow file-read-metadata (literal "/dev/stdin"))
+(allow file-read-metadata (literal "/dev/stdout"))
+(allow file-read-metadata (literal "/dev/stderr"))
+(allow file-read-metadata (regex "^/dev/tty[^/]*$"))
+(allow file-read-metadata (regex "^/dev/pty[^/]*$"))
+(allow file-read* file-write* (regex "^/dev/ttys[0-9]+$"))
+(allow file-read* file-write* (literal "/dev/ptmx"))
+(allow file-ioctl (regex "^/dev/ttys[0-9]+$"))
+
+(allow file-read-metadata (literal "/System/Volumes") (vnode-type DIRECTORY))
+(allow file-read-metadata (literal "/System/Volumes/Data") (vnode-type DIRECTORY))
+(allow file-read-metadata (literal "/System/Volumes/Data/Users") (vnode-type DIRECTORY))
+
+(allow file-read* (extension "com.apple.app-sandbox.read"))
+(allow file-read* file-write* (extension "com.apple.app-sandbox.read-write"))`;
 
 export interface BuildSeatbeltPolicyInput {
   profile: PermissionProfile;
@@ -53,6 +214,7 @@ export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatb
 
   const sections = [
     MACOS_SEATBELT_BASE_POLICY,
+    MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
     buildReadableRootsPolicy(roots.readableRoots),
     buildWritableRootsPolicy(roots),
     buildNetworkPolicy(input.profile),
@@ -67,6 +229,48 @@ export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatb
 export function createSeatbeltExecArgs(input: CreateSeatbeltExecArgsInput): readonly string[] {
   const { policy, definitionArgs } = buildSeatbeltPolicy(input);
   return ['-p', policy, ...definitionArgs, '--', ...input.innerArgv];
+}
+
+export class MacosSeatbeltBackend implements SandboxBackend {
+  readonly type = 'macos-seatbelt' as const;
+
+  transform(request: SandboxTransformRequest): SandboxTransformResult {
+    const { command } = request;
+    const preference = request.preference ?? 'auto';
+    const platform = request.platform ?? process.platform;
+
+    if (command.profile.type !== 'managed' || command.profile.fileSystem.kind !== 'restricted') {
+      return {
+        ok: false,
+        reason: 'invalid_request',
+        sandboxType: 'macos-seatbelt',
+        requiresSandbox: true,
+        platform,
+        preference,
+        message: 'macOS Seatbelt backend only accepts managed restricted profiles.',
+      };
+    }
+
+    const sandboxArgs = createSeatbeltExecArgs({
+      profile: command.profile,
+      pathContext: command.pathContext,
+      innerArgv: [command.program, ...command.args],
+    });
+
+    return {
+      ok: true,
+      exec: {
+        argv: [MACOS_SEATBELT_EXECUTABLE, ...sandboxArgs],
+        cwd: command.cwd,
+        env: command.env,
+        sandboxType: 'macos-seatbelt',
+        effectiveProfile: command.profile,
+      },
+      sandboxType: 'macos-seatbelt',
+      requiresSandbox: true,
+      preference,
+    };
+  }
 }
 
 function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContext): ResolvedRoots {

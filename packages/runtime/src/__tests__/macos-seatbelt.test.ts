@@ -2,16 +2,37 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  createDangerFullAccessPermissionProfile,
   createReadOnlyPermissionProfile,
   createWorkspaceWritePermissionProfile,
   type PermissionProfile,
 } from '@maka/core/permission-profile';
 
 import {
+  MACOS_SEATBELT_EXECUTABLE,
+  MacosSeatbeltBackend,
   buildSeatbeltPolicy,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
 } from '../sandbox/macos-seatbelt.js';
+import type { SandboxTransformRequest } from '../sandbox/types.js';
+
+function workspaceCommand(profile: PermissionProfile): SandboxTransformRequest {
+  return {
+    platform: 'darwin',
+    command: {
+      program: '/bin/zsh',
+      args: ['-lc', 'echo ok'],
+      cwd: '/repo',
+      profile,
+      pathContext: {
+        workspaceRoots: ['/repo'],
+        tmpdir: '/private/tmp/maka-test',
+        slashTmp: '/tmp',
+      },
+    },
+  };
+}
 
 function restrictedProfileWithEnabledNetwork(): PermissionProfile {
   return {
@@ -129,5 +150,31 @@ describe('createSeatbeltExecArgs', () => {
     const separator = args.indexOf('--');
     assert.notEqual(separator, -1);
     assert.deepEqual(args.slice(separator + 1), ['/bin/zsh', '-lc', 'echo ok']);
+  });
+});
+
+describe('MacosSeatbeltBackend', () => {
+  it('wraps inner argv with /usr/bin/sandbox-exec', () => {
+    const backend = new MacosSeatbeltBackend();
+    const result = backend.transform(workspaceCommand(createWorkspaceWritePermissionProfile()));
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.exec.argv[0], MACOS_SEATBELT_EXECUTABLE);
+      assert.equal(result.exec.argv[1], '-p');
+      assert.equal(result.exec.sandboxType, 'macos-seatbelt');
+      assert.deepEqual(result.exec.argv.slice(-3), ['/bin/zsh', '-lc', 'echo ok']);
+    }
+  });
+
+  it('returns invalid_request for profiles that should have selected none before reaching backend', () => {
+    const backend = new MacosSeatbeltBackend();
+    const result = backend.transform(workspaceCommand(createDangerFullAccessPermissionProfile()));
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'invalid_request');
+      assert.equal(result.sandboxType, 'macos-seatbelt');
+    }
   });
 });

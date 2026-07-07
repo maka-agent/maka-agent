@@ -156,7 +156,22 @@ export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
 export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
-export { SandboxManager } from './sandbox/index.js';
+export {
+  MACOS_SEATBELT_BASE_POLICY,
+  MACOS_SEATBELT_EXECUTABLE,
+  MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
+  MacosSeatbeltBackend,
+  SandboxManager,
+  buildSeatbeltPolicy,
+  createDefaultSandboxManager,
+  createSeatbeltExecArgs,
+  escapeSeatbeltRegex,
+} from './sandbox/index.js';
+export type {
+  BuildSeatbeltPolicyInput,
+  BuildSeatbeltPolicyResult,
+  CreateSeatbeltExecArgsInput,
+} from './sandbox/index.js';
 export type {
   SandboxBackend,
   SandboxCommand,
