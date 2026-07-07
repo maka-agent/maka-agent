@@ -191,6 +191,20 @@ describe('desktop staleToolResultPrune policy', () => {
     assert.equal(policy?.staleToolResultPrune, undefined);
   });
 
+  test('accepts standard truthy values as enabled', () => {
+    process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE = 'true';
+    const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
+    assert.equal(policy?.staleToolResultPrune?.enabled, true);
+  });
+
+  test('rejects malformed boolean values instead of silently disabling', () => {
+    process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE = 'maybe';
+    assert.throws(
+      () => buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' }),
+      /MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE must be a boolean/,
+    );
+  });
+
   test('respects max result estimated tokens env', () => {
     process.env.MAKA_CONTEXT_STALE_TOOL_RESULT_MAX_TOKENS = '4096';
     const policy = buildDefaultContextBudgetPolicy(openaiConnection(), { name: 'desktop-default-history-budget' });
