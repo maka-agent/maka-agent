@@ -12,7 +12,7 @@ import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../a
 import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-model.js';
 import { materializeSession } from '../materializer.js';
 import type { InvocationContext } from '../invocation-context.js';
-import type { AssistantMessage, ToolResultMessage } from '@maka/core/session';
+import type { AssistantMessage, StoredMessage, ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
@@ -44,6 +44,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '../history-compact-artifacts.js';
+import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
@@ -1515,6 +1516,74 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
   });
 
+  test('manual compactHistory still folds small histories with the default automatic compact policy', async () => {
+    const writeInputs: string[][] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: buildDefaultContextBudgetPolicy(connection(), {
+        name: 'cli-default-history-budget',
+        modelId: 'claude-sonnet-4-5-20250929',
+      }),
+      writeHistoryCompact: async (input) => {
+        writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'DEFAULT_POLICY_MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual old alpha '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'default policy manual old beta '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual recent retained context',
+        }),
+      ],
+    });
+
+    assert.deepEqual(writeInputs, [[
+      'default-policy-manual-old-1',
+      'default-policy-manual-old-2',
+    ]]);
+    assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({
@@ -1987,6 +2056,7 @@ describe('AiSdkBackend model history', () => {
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const writeInputs: Array<{ draftSummary: string; foldedIds: string[] }> = [];
     const oldEvents = [
       runtimeTextEvent({
@@ -2007,7 +2077,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2018,14 +2090,14 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
       contextBudget: {
         name: 'history-compact-write-test',
-        maxHistoryEstimatedTokens: 220,
+        maxHistoryEstimatedTokens: 1500,
         minRecentTurns: 1,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'read_write',
-          highWaterRatio: 0.5,
-          targetRatio: 0.2,
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 44,
           minRecentTurns: 1,
           maxSummaryEstimatedTokens: 120,
         },
@@ -2084,11 +2156,16 @@ describe('AiSdkBackend model history', () => {
     );
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      true,
+    );
   });
 
   test('read_write history compact fail-open sends original history when durable write fails', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-fail-old-1',
@@ -2108,7 +2185,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2119,14 +2198,14 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
       contextBudget: {
         name: 'history-compact-write-failure-test',
-        maxHistoryEstimatedTokens: 220,
+        maxHistoryEstimatedTokens: 1500,
         minRecentTurns: 1,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'read_write',
-          highWaterRatio: 0.5,
-          targetRatio: 0.2,
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 44,
           minRecentTurns: 1,
           maxSummaryEstimatedTokens: 120,
         },
@@ -2169,11 +2248,16 @@ describe('AiSdkBackend model history', () => {
       usage?.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
       ['failedOpen'],
     );
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('loads persisted history compact blocks before replay and does not rewrite them', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-load-old-1',
@@ -2203,7 +2287,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2268,6 +2354,10 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksSelected, 1);
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, undefined);
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('replays a persisted compact block whose provenance JSON outgrows the token budget', async () => {

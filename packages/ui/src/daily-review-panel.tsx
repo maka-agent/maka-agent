@@ -267,7 +267,21 @@ export function DailyReviewPanel(props: {
           day/week/month tabs and the date stepper — now lives in ONE
           header bar instead of the tabs floating mid-page above the
           stats they control. */}
+      {/* Designer audit P2-10: the range tabs sat at the far right while
+          the stepper sat at the far left — two time controls that read as
+          unrelated widgets. They now form ONE cluster: pick the range,
+          then step through it; the stepper steps by the selected span. */}
       <header className="maka-daily-review-header">
+        <SettingsSegmented
+          value={String(range)}
+          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
+          onChange={(v) => {
+            setRange(Number(v) as DailyReviewRange);
+            setOffsetDays(0);
+          }}
+          ariaLabel="时间范围切换"
+          className="maka-daily-review-range-tabs"
+        />
         <div className="maka-daily-review-header-time">
           <UiButton
             type="button"
@@ -292,16 +306,6 @@ export function DailyReviewPanel(props: {
             ›
           </UiButton>
         </div>
-        <SettingsSegmented
-          value={String(range)}
-          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
-          onChange={(v) => {
-            setRange(Number(v) as DailyReviewRange);
-            setOffsetDays(0);
-          }}
-          ariaLabel="时间范围切换"
-          className="maka-daily-review-range-tabs"
-        />
       </header>
       {canManualRun && (
         <div className="maka-daily-review-quick-runs" aria-label="手动触发回顾">
@@ -393,8 +397,13 @@ export function DailyReviewPanel(props: {
                       <span className="maka-daily-review-archive-row-title">
                         {formatDailyReviewArchiveTitle(archive)}
                       </span>
+                      {/* Designer audit P2-11: the row used to repeat the
+                          detail card's entire header (status + timestamp).
+                          The list only needs to identify the report; status
+                          and generation time live in the detail. */}
                       <span className="maka-daily-review-archive-row-meta">
-                        {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]} · {archive.totals.sessionCount} 对话 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
+                        {archive.totals.sessionCount} 对话
+                        {archive.status !== 'ok' ? ` · ${DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}` : ''}
                       </span>
                     </UiButton>
                   </li>

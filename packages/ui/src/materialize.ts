@@ -66,10 +66,11 @@ export interface ToolActivityItem {
 // stays in the JSONL audit trail but is hidden from the chat surface so
 // the conversation reads like a conversation, not a debug log.
 const VISIBLE_SYSTEM_NOTES = new Set<string>([
-  // Reserved for future user-relevant notices, e.g. 'turn_aborted'.
+  'context_compacted',
 ]);
 
 const SYSTEM_NOTE_LABELS: Record<string, string> = {
+  context_compacted: 'Context compacted to keep this session within the model window.',
   mode_change: 'Permission mode changed',
   turn_aborted: 'Turn aborted',
 };

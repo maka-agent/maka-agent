@@ -565,19 +565,6 @@
    (cards carry their own L padding internally), and bump the heading
    to 12/2px tracking so it reads as a real sub-section break rather
    than a hairline. */
-.settingsSectionHeading {
-  margin: var(--space-6) var(--space-0-5) var(--space-2-5);
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-widest);
-  text-transform: uppercase;
-}
-.settingsStructuredPage > .settingsSectionHeading:first-child {
-  margin-top: 0;
-}
-
-
 .settingsEmptyState {
   min-height: 240px;
   display: grid;

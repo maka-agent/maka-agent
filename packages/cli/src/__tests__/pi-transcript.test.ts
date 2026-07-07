@@ -222,6 +222,28 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(state.entries[3]?.kind === 'tool' ? state.entries[3].output : '', 'README contents');
   });
 
+  test('rebuilds automatic context compaction notes from stored session messages', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [
+      {
+        type: 'system_note',
+        id: 'note-1',
+        turnId: 'turn-1',
+        ts: 1,
+        kind: 'context_compacted',
+      },
+    ] satisfies StoredMessage[]);
+
+    assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice'), [
+      {
+        kind: 'notice',
+        level: 'info',
+        text: 'Context compacted to keep this session within the model window.',
+      },
+    ]);
+  });
+
   test('renders every transcript line within the terminal width', () => {
     const state = createMakaPiTranscriptState();
     appendUserPrompt(state, 'please inspect a very long path under packages/runtime/src');
