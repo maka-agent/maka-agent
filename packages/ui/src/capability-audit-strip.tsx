@@ -10,7 +10,7 @@ import { Alert, AlertDescription } from './primitives/alert.js';
  * waiting for auth / erroring, automations that failed or were skipped
  * last run), and render nothing at all when everything is fine.
  */
-export function CapabilityAuditStrip(props: { report: CapabilityAuditReport }) {
+export function CapabilityAuditStrip(props: { report: CapabilityAuditReport; focus?: 'skills' | 'automations' }) {
   const issues = capabilityAuditIssues(props.report);
   if (issues.length === 0) return null;
   return (
