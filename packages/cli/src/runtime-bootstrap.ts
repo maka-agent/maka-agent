@@ -55,6 +55,13 @@ export interface CreateMakaCliRuntimeContextInput {
   workspaceRoot: string;
   cwd: string;
   requestedModel?: string;
+  /**
+   * Optional cron executor. When provided, the Automation tool advertises the
+   * cron kind and cron fires spawn a fresh session + run via this callback
+   * (reviewer G1: a host derives cron support from the executor it passes in).
+   * Omitted by the default CLI (no multi-session surface) — heartbeat only.
+   */
+  automationCreateFreshRun?: (prompt: string, automationId: string) => Promise<import('@maka/runtime').AutomationFireResult>;
 }
 
 export interface GetOrCreateCliClaudeDeviceIdDeps {
@@ -100,7 +107,11 @@ export async function createMakaCliRuntimeContext(
     const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
     automationStore.sync(durable).catch(() => {});
   };
-  const automationTool = buildAutomationTool({ automationManager, onAutomationChange: syncAutomations });
+  const automationTool = buildAutomationTool({
+    automationManager,
+    onAutomationChange: syncAutomations,
+    cronEnabled: input.automationCreateFreshRun !== undefined,
+  });
 
   const goalManager = new GoalManager({ generateId: () => randomUUID(), now: () => Date.now() });
   const goalTokenCache = new Map<string, number>();
@@ -209,6 +220,7 @@ export async function createMakaCliRuntimeContext(
         return { runId: turnId, ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
+    createFreshRun: input.automationCreateFreshRun,
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
     onStateChange: syncAutomations,
