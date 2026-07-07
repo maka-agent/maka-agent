@@ -38,15 +38,19 @@ export interface FocusableRevealableWindow extends RevealableWindow {
   isMinimized(): boolean;
   restore(): void;
   focus(): void;
+  maximize(): void;
 }
 
 export interface WindowRevealGate {
   /** Re-arm for a freshly created window (macOS recreate after close-all). */
   reset(): void;
-  /** Renderer first commit or fallback timeout: reveal + flush deferred focus. */
+  /** Renderer first commit or fallback timeout: reveal + flush deferred work. */
   markReady(win: FocusableRevealableWindow | null): void;
   /** Focus request (second-instance / activate): deferred until markReady. */
   requestFocus(win: FocusableRevealableWindow | null): void;
+  /** Saved-bounds maximize restore: deferred until markReady — Electron's
+   * maximize() shows a hidden window, which would bypass the gate. */
+  requestMaximize(win: FocusableRevealableWindow | null): void;
 }
 
 /**
@@ -57,12 +61,19 @@ export interface WindowRevealGate {
  * suppress. They are remembered and flushed as show()+focus() when markReady
  * fires, so the user's foreground intent is honored, just not early.
  *
- * `keepHidden` windows (visual-smoke capture / E2E) never show or take
- * focus from any path — captures run while the developer works elsewhere.
+ * The same deferral applies to restoring a saved maximized state: Electron's
+ * BrowserWindow.maximize() reveals a still-hidden window (verified on macOS),
+ * so createWindow must not call it directly — requestMaximize holds the
+ * intent and markReady applies it right before the reveal, so the window's
+ * first on-screen frame is already maximized.
+ *
+ * `keepHidden` windows (visual-smoke capture / E2E) never show, maximize, or
+ * take focus from any path — captures run while the developer works elsewhere.
  */
 export function createWindowRevealGate(keepHidden: boolean): WindowRevealGate {
   let ready = false;
   let pendingFocus = false;
+  let pendingMaximize = false;
 
   const focusNow = (win: FocusableRevealableWindow | null): void => {
     if (keepHidden) return;
@@ -72,13 +83,26 @@ export function createWindowRevealGate(keepHidden: boolean): WindowRevealGate {
     win.focus();
   };
 
+  const maximizeNow = (win: FocusableRevealableWindow | null): void => {
+    if (keepHidden) return;
+    if (!win || win.isDestroyed()) return;
+    win.maximize();
+  };
+
   return {
     reset() {
       ready = false;
       pendingFocus = false;
+      pendingMaximize = false;
     },
     markReady(win) {
       ready = true;
+      // Maximize first: it implicitly shows the window, so the reveal below
+      // becomes a no-op and the first visible frame is already maximized.
+      if (pendingMaximize) {
+        pendingMaximize = false;
+        maximizeNow(win);
+      }
       showWindowOnceReady(win, keepHidden);
       if (pendingFocus) {
         pendingFocus = false;
@@ -91,6 +115,13 @@ export function createWindowRevealGate(keepHidden: boolean): WindowRevealGate {
         return;
       }
       focusNow(win);
+    },
+    requestMaximize(win) {
+      if (!ready) {
+        pendingMaximize = true;
+        return;
+      }
+      maximizeNow(win);
     },
   };
 }

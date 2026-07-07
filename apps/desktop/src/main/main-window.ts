@@ -302,10 +302,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     });
 
     // Restore maximized state after construction (BrowserWindow constructor
-    // doesn't accept it directly; calling here keeps the unmaximized bounds
-    // accurate for the next save).
+    // doesn't accept it directly). ChatGPT Pro review P2 (round 2): a direct
+    // maximize() here reveals the still-hidden window (verified on macOS),
+    // bypassing the reveal gate — defer it so markReady applies it right
+    // before the reveal and the first visible frame is already maximized.
     if (bounds.isMaximized) {
-      mainWindow.maximize();
+      revealGate.requestMaximize(mainWindow);
     }
 
     // Persist bounds across launches. Debounce so a continuous resize drag

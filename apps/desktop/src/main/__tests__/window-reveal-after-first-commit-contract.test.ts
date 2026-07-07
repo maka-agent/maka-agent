@@ -55,12 +55,14 @@ function makeFakeWindow(): RevealableWindow & { showCount: number; destroy(): vo
 function makeFakeFocusableWindow(): FocusableRevealableWindow & {
   showCount: number;
   focusCount: number;
+  maximizeCount: number;
   destroy(): void;
 } {
   let visible = false;
   let destroyed = false;
   let showCount = 0;
   let focusCount = 0;
+  let maximizeCount = 0;
   return {
     isVisible: () => visible,
     isDestroyed: () => destroyed,
@@ -73,6 +75,12 @@ function makeFakeFocusableWindow(): FocusableRevealableWindow & {
     focus() {
       focusCount += 1;
     },
+    maximize() {
+      // Mirror the real Electron behavior this gate exists to contain:
+      // maximize() on a hidden window reveals it (verified on macOS).
+      maximizeCount += 1;
+      visible = true;
+    },
     destroy() {
       destroyed = true;
     },
@@ -81,6 +89,9 @@ function makeFakeFocusableWindow(): FocusableRevealableWindow & {
     },
     get focusCount() {
       return focusCount;
+    },
+    get maximizeCount() {
+      return maximizeCount;
     },
   };
 }
@@ -121,19 +132,57 @@ describe('window reveal gate defers early focus (ChatGPT Pro review P2)', () => 
     assert.equal(win.focusCount, 0);
   });
 
+  // ChatGPT Pro review P2 (round 2): Electron's maximize() reveals a hidden
+  // window, so restoring a saved maximized state in createWindow() bypassed
+  // the gate — a user who closed the app maximized saw the skeleton again on
+  // every launch. The gate must defer the maximize alongside focus.
+  it('saved-maximized restore before renderer-ready stays hidden; markReady applies it', () => {
+    const gate = createWindowRevealGate(false);
+    const win = makeFakeFocusableWindow();
+    // createWindow() restores the persisted maximized state on a hidden window.
+    gate.requestMaximize(win);
+    assert.equal(win.maximizeCount, 0, 'pre-ready maximize must not reveal the skeleton');
+    assert.equal(win.isVisible(), false);
+    // First commit: maximize lands first, so the first visible frame is
+    // already maximized and the reveal itself becomes a no-op.
+    gate.markReady(win);
+    assert.equal(win.maximizeCount, 1);
+    assert.equal(win.isVisible(), true);
+    assert.equal(win.showCount, 0, 'maximize() already revealed; show() must not fire again');
+  });
+
+  it('maximize after renderer-ready applies immediately; keepHidden never maximizes', () => {
+    const readyGate = createWindowRevealGate(false);
+    const readyWin = makeFakeFocusableWindow();
+    readyGate.markReady(readyWin);
+    readyGate.requestMaximize(readyWin);
+    assert.equal(readyWin.maximizeCount, 1);
+
+    const smokeGate = createWindowRevealGate(true);
+    const smokeWin = makeFakeFocusableWindow();
+    smokeGate.requestMaximize(smokeWin);
+    smokeGate.markReady(smokeWin);
+    smokeGate.requestMaximize(smokeWin);
+    assert.equal(smokeWin.maximizeCount, 0);
+    assert.equal(smokeWin.isVisible(), false);
+  });
+
   it('reset() re-arms the gate for a recreated window (macOS close-all)', () => {
     const gate = createWindowRevealGate(false);
     const first = makeFakeFocusableWindow();
     gate.markReady(first);
     gate.reset();
     const second = makeFakeFocusableWindow();
-    // Stale readiness from the first window must not leak: a focus request on
-    // the fresh hidden window defers again until its own first commit.
+    // Stale readiness from the first window must not leak: focus and maximize
+    // requests on the fresh hidden window defer again until its own first commit.
     gate.requestFocus(second);
+    gate.requestMaximize(second);
     assert.equal(second.showCount, 0);
+    assert.equal(second.maximizeCount, 0);
     gate.markReady(second);
     assert.equal(second.isVisible(), true);
     assert.equal(second.focusCount, 1);
+    assert.equal(second.maximizeCount, 1);
   });
 });
 
@@ -226,6 +275,19 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
       src,
       /revealGate\.reset\(\);\s*mainWindow = new BrowserWindow\(/,
       'createWindow must reset the reveal gate for each window lifecycle',
+    );
+    // ChatGPT Pro review P2 (round 2): the saved-maximized restore must defer
+    // through the gate — a direct mainWindow.maximize() reveals the hidden
+    // window before the renderer's first commit.
+    assert.match(
+      src,
+      /if \(bounds\.isMaximized\) \{\s*revealGate\.requestMaximize\(mainWindow\);/,
+      'saved-maximized restore must route through revealGate.requestMaximize',
+    );
+    assert.doesNotMatch(
+      src,
+      /mainWindow\.maximize\(\)/,
+      'createWindow must never call mainWindow.maximize() directly',
     );
   });
 
