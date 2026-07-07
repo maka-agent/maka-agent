@@ -650,6 +650,7 @@ export class AiSdkBackend implements AgentBackend {
         mode: 'read_write',
         highWaterRatio: 0.01,
         targetRatio: current?.targetRatio ?? 0.2,
+        tailEstimatedTokens: 1,
         minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,

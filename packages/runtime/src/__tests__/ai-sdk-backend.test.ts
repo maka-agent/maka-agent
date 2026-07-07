@@ -40,6 +40,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '../history-compact-artifacts.js';
+import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
@@ -1509,6 +1510,74 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
+  });
+
+  test('manual compactHistory still folds small histories with the default automatic compact policy', async () => {
+    const writeInputs: string[][] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: buildDefaultContextBudgetPolicy(connection(), {
+        name: 'cli-default-history-budget',
+        modelId: 'claude-sonnet-4-5-20250929',
+      }),
+      writeHistoryCompact: async (input) => {
+        writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'DEFAULT_POLICY_MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual old alpha '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'default policy manual old beta '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual recent retained context',
+        }),
+      ],
+    });
+
+    assert.deepEqual(writeInputs, [[
+      'default-policy-manual-old-1',
+      'default-policy-manual-old-2',
+    ]]);
+    assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
   });
 
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
