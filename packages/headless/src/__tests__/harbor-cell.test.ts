@@ -1232,6 +1232,51 @@ describe('runHarborCell', () => {
     });
   });
 
+  // Eager retrieval only hydrates stale-kind placeholders, so a retrieval arm
+  // is structurally inert unless a placeholder producer (stale prune) and the
+  // archive reader are wired alongside it. The #340-era arms enabled retrieval
+  // without stale prune and it never fired; this contract pins the live shape.
+  test('Harbor eager archive-retrieval arm gets a placeholder producer and archive reader by default', async () => {
+    await withDirs(async ({ workspaceDir, outputDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
+      }).input;
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
+      assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
+      assert.ok(backendInput.readToolResultArchive, 'expected archive reader for eager hydration');
+    });
+  });
+
   test('Harbor ai-sdk backend leaves context budget policy off when explicitly disabled', async () => {
     await withDirs(async ({ workspaceDir }) => {
       const registry = new BackendRegistry();
