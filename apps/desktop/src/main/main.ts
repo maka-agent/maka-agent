@@ -341,6 +341,13 @@ const taskLedgerStore = taskLedgerWiring.store;
 const automationWiring = createMainAutomationWiring({
   workspaceRoot,
   async canFire(sessionId: string): Promise<boolean> {
+    // Respect the workspace privacy mode. While incognito is active, automations
+    // must not fire — a heartbeat injects a turn and a cron spawns a fresh run,
+    // both of which send data to the model. This mirrors the plan-reminders
+    // privacy gate (plan-reminders-main.ts); the scheduler defers while blocked,
+    // then skips to the next occurrence if incognito outlasts the defer window.
+    const { incognitoActive } = await getWorkspacePrivacyContext();
+    if (incognitoActive) return false;
     const header = await store.readHeader(sessionId);
     if (!header || header.archivedAt) return false;
     // Only fire into a genuinely idle session — not mid-turn, blocked, aborted,
