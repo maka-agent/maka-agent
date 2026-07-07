@@ -41,14 +41,22 @@ function evaluate(
 }
 
 describe('categorizeBash', () => {
-  test('safe commands → shell_safe', () => {
-    expect(categorizeBash('ls -la')).toBe('shell_safe');
-    expect(categorizeBash('git status')).toBe('shell_safe');
-    expect(categorizeBash('grep -r foo .')).toBe('shell_safe');
-    expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_safe');
-    expect(categorizeBash('officecli get deck.pptx "/slide[1]"')).toBe('shell_safe');
-    expect(categorizeBash('officecli validate model.xlsx')).toBe('shell_safe');
-    expect(categorizeBash('officecli help pptx chart')).toBe('shell_safe');
+  test('no shell command is auto-classified safe — categorizeBash never returns shell_safe', () => {
+    // A shell command cannot be proven safe from its string: args can embed
+    // execution (PowerShell `echo (Set-Content x)` runs Set-Content first;
+    // $(...), backtick, iex do the same), and even "read-only" commands like
+    // git status can trigger fsmonitor helpers. Read-only needs go through
+    // typed tools (Read/Glob/Grep — fixed argv, no shell). So every shell
+    // command is at least shell_unsafe → prompt, never auto-allowed.
+    expect(categorizeBash('ls -la')).toBe('shell_unsafe');
+    expect(categorizeBash('pwd')).toBe('shell_unsafe');
+    expect(categorizeBash('grep -r foo .')).toBe('shell_unsafe');
+    expect(categorizeBash('git status')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_unsafe');
+    // The review's two P1 bypasses collapse into the same rule:
+    expect(categorizeBash('echo (Set-Content .\\foo.txt hi)')).toBe('shell_unsafe');
+    expect(categorizeBash('echo (New-Item .\\foo.txt)')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli view deck.pptx html -o out.html')).toBe('shell_unsafe');
   });
 
   test('cd is NOT safe (excluded by design)', () => {
@@ -213,7 +221,7 @@ describe('categorizeBash', () => {
     expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
     expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
     expect(categorizeBash("awk '{ print }' file.txt")).toBe('shell_unsafe');
-    expect(categorizeBash('echo "please do not rm this"')).toBe('shell_safe');
+    expect(categorizeBash('echo "please do not rm this"')).toBe('shell_unsafe');
     expect(categorizeBash('Get-Command Remove-Item')).toBe('shell_unsafe');
   });
 
@@ -277,17 +285,16 @@ describe('categorizeBash', () => {
     expect(categorizeBash('find . -ex\\ec chmod 777 {} +')).toBe('shell_unsafe');
   });
 
-  test('git diff/log/show are not safe prefixes: --output writes a file', () => {
-    // --output=<file> (and --ext-diff/--textconv running external helpers)
-    // make these write/execute-capable, and quote removal defeats an --output
-    // guard the same way. Only git status stays a safe prefix.
+  test('git diff/log/show/status are all shell_unsafe (no shell auto-safe)', () => {
+    // --output=<file> writes and --ext-diff/--textconv run helpers; git status
+    // can trigger fsmonitor. None can be proven safe from the string, and none
+    // needs to be — read-only git goes through typed tools.
     expect(categorizeBash('git diff --output=src/foo.ts')).toBe('shell_unsafe');
     expect(categorizeBash('git log --output=notes.txt')).toBe('shell_unsafe');
     expect(categorizeBash('git show --output=patch.diff')).toBe('shell_unsafe');
-    // Read-only forms prompt too now — the fail-closed trade.
     expect(categorizeBash('git diff')).toBe('shell_unsafe');
     expect(categorizeBash('git log --oneline -n 5')).toBe('shell_unsafe');
-    expect(categorizeBash('git status')).toBe('shell_safe');
+    expect(categorizeBash('git status')).toBe('shell_unsafe');
   });
 
   test('git branch is not a safe prefix (it can write a ref)', () => {
@@ -313,10 +320,10 @@ describe('preToolUse — explore mode', () => {
     expect(r.blockReason).toContain('blocked');
   });
 
-  test('safe bash → allow', () => {
+  test('read-only shell → block (no shell is auto-safe; use typed tools)', () => {
     const r = evaluate('Bash', { command: 'ls' }, 'explore');
-    expect(r.proceed).toBe(true);
-    expect(r.category).toBe('shell_safe');
+    expect(r.proceed).toBe(false);
+    expect(r.category).toBe('shell_unsafe');
   });
 
   test('unsafe bash → block', () => {
@@ -360,9 +367,10 @@ describe('preToolUse — ask mode', () => {
     expect(r.partialRequest?.reason).toBe('file_write');
   });
 
-  test('safe bash → allow', () => {
+  test('read-only shell → prompt (no shell is auto-safe)', () => {
     const r = evaluate('Bash', { command: 'pwd' }, 'ask');
-    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(true);
+    expect(r.category).toBe('shell_unsafe');
   });
 
   test('rm → prompt', () => {
@@ -391,10 +399,15 @@ describe('preToolUse — execute mode', () => {
     expect(r.category).toBe('shell_unsafe');
   });
 
-  test('proven-safe read-only shell still auto-runs in execute', () => {
-    const r = evaluate('Bash', { command: 'git status' }, 'execute');
-    expect(r.proceed).toBe(true);
-    expect(r.category).toBe('shell_safe');
+  test('read-only shell prompts in execute too (no shell auto-runs; typed tools do)', () => {
+    // git status is not provably safe (fsmonitor), so it prompts like any
+    // other shell command. Read tool / Glob / Grep remain the auto-run path.
+    for (const command of ['git status', 'ls -la', 'officecli view deck.pptx html -o out.html', 'echo (New-Item .\\foo.txt)']) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('shell_unsafe');
+    }
   });
 
   test('CRITICAL: rm STILL prompts in execute mode', () => {
@@ -655,11 +668,12 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.execute.privileged).toBe('prompt');
   });
 
-  test('execute mode is fail-closed for shell_unsafe: prompt, not allow', () => {
-    // The root fix: unrecognized shell syntax defaults to a confirmation
-    // instead of running. Only proven-safe shell auto-runs.
+  test('execute mode is fail-closed for shell: shell_unsafe AND shell_safe prompt', () => {
+    // The root fix: no shell command is auto-allowed. shell_unsafe prompts,
+    // and shell_safe (which categorizeBash no longer produces) is also fail-
+    // closed so there is no auto-allow path left for shell at all.
     expect(PERMISSION_POLICY.execute.shell_unsafe).toBe('prompt');
-    expect(PERMISSION_POLICY.execute.shell_safe).toBe('allow');
+    expect(PERMISSION_POLICY.execute.shell_safe).toBe('prompt');
   });
 
   test('browser is prompt-on-effect: blocked in explore, prompts in ask AND execute (never auto-allowed)', () => {
@@ -670,9 +684,10 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.bypass.browser).toBe('allow');
   });
 
-  test('explore mode allows local reads + safe shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
+  test('explore mode allows local reads but no shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
     expect(PERMISSION_POLICY.explore.read).toBe('allow');
-    expect(PERMISSION_POLICY.explore.shell_safe).toBe('allow');
+    // shell_safe is fail-closed like shell_unsafe: explore uses typed tools.
+    expect(PERMISSION_POLICY.explore.shell_safe).toBe('block');
   });
 
   test('explore mode blocks all write/network/privileged', () => {
