@@ -169,26 +169,47 @@ describe('ToolActivity result preview contract', () => {
   });
 
   it('entity-encoded secrets cannot ride the markdown decode past redaction (codex review P1)', async () => {
-    // `sk&#45;…` never matches the redactor (it sees no `sk-`), and the
-    // markdown pipeline decodes character references before rendering — the
-    // old <pre> path displayed the encoded text literally, so the prose
-    // conversion must not become a decode oracle. toolTextPreviewPlan
-    // escapes `&` after redaction on the markdown path, so micromark's one
-    // decode pass exactly restores the original bytes as text and nothing
-    // else.
-    const encoded = 'sk&#45;1234567890abcdefghi';
+    // `sk&#45;…` never matches the redactor (it sees no `sk-`), but micromark
+    // decodes character references during parse, so prose rendering would
+    // show the live secret. The projection decodes numeric references the
+    // same way (and approximates named ones — `&hyphen;` renders a glyph
+    // visually identical to `-`), then re-runs the redactor; a hit degrades
+    // to the literal <pre> path, display parity with the old preview. A
+    // blanket `&`→`&amp;` escape is NOT an acceptable defense: CommonMark
+    // keeps character references literal inside code spans/blocks, so it
+    // corrupts `a && b` into `a &amp;&amp; b` (codex review round 5 P2 —
+    // covered by the ampersand-fidelity test below).
     const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
     const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
       toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
     };
-    const { MarkdownBody } = await import(uiDist('markdown-body.js')) as {
-      MarkdownBody(props: { text: string }): ReturnType<typeof createElement>;
+    for (const encoded of [
+      'sk&#45;1234567890abcdefghi',
+      'sk&#x2D;1234567890abcdefghi',
+      'sk&hyphen;1234567890abcdefghi',
+    ]) {
+      const plan = toolTextPreviewPlan(`key: ${encoded}`);
+      assert.ok('plain' in plan, `${JSON.stringify(encoded)} must degrade to the literal plain path — markdown would decode the reference into the clear`);
+      assert.match((plan as { plain: string }).plain, /sk&/, 'the degraded text shows the encoded form literally, matching the old <pre> behavior');
+    }
+  });
+
+  it('ampersands reach markdown byte-identical — code spans keep && (codex review round 5 P2)', async () => {
+    // CommonMark treats character references as literal text inside code
+    // spans and code blocks, so a blanket `&`→`&amp;` escape (the round-2
+    // defense this replaced) displayed `cmd && next` as `cmd &amp;&amp;
+    // next` and corrupted the code-copy payload. Entity-decode safety now
+    // lives in the projection degrade instead, so benign ampersands must
+    // pass through untouched.
+    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
+    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
+      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
     };
-    const plan = toolTextPreviewPlan(`key: ${encoded}`);
-    assert.ok('markdown' in plan, 'entity-encoded text carries no markdown-consumed punctuation, so it keeps the prose path — the & escape is what defuses it');
-    const html = renderToStaticMarkup(createElement(MarkdownBody, { text: (plan as { markdown: string }).markdown }));
-    assert.doesNotMatch(html, new RegExp(SECRET), 'markdown rendering must not decode an entity-encoded secret into the clear');
-    assert.match(html, /sk&amp;#45;|sk&#x26;#45;/, 'the encoded form must display literally, matching the old <pre> behavior');
+    const plan = toolTextPreviewPlan('run `make lint && make test` before pushing — AT&T style');
+    assert.ok('markdown' in plan, 'benign text with ampersands keeps the prose path');
+    const markdown = (plan as { markdown: string }).markdown;
+    assert.ok(markdown.includes('`make lint && make test`'), 'code-span ampersands must survive byte-identical');
+    assert.ok(!markdown.includes('&amp;'), 'the markdown path must not blanket-escape ampersands');
   });
 
   it('markdown-consumed punctuation cannot reassemble a secret in the clear (codex review P1 round 2)', async () => {
