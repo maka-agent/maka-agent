@@ -86,15 +86,18 @@ describe('Office document capability contract', () => {
     assert.match(styles, /\.settingsCapabilityGuidanceActions/);
   });
 
-  it('allows only read-only officecli commands as safe shell prefixes', async () => {
-    const permission = await readFile(PERMISSION, 'utf8');
-    assert.match(permission, /'officecli view'/);
-    assert.match(permission, /'officecli get'/);
-    assert.match(permission, /'officecli query'/);
-    assert.match(permission, /'officecli validate'/);
-    assert.doesNotMatch(permission, /'officecli set'/);
-    assert.doesNotMatch(permission, /'officecli add'/);
-    assert.doesNotMatch(permission, /'officecli close'/);
+  it('officecli commands are never auto-safe shell — read and write alike prompt', async () => {
+    // The safe-shell-prefix allowlist was removed: no shell command is provably
+    // safe (args can embed execution), so officecli — read-only inspection AND
+    // mutating verbs — all categorize as shell_unsafe and prompt. The Office
+    // capability still works; it just confirms before running the CLI.
+    const { categorizeBash } = await import('@maka/core');
+    for (const cmd of ['officecli view deck.pptx outline', 'officecli get deck.pptx "/slide[1]"', 'officecli validate model.xlsx']) {
+      assert.equal(categorizeBash(cmd), 'shell_unsafe', `${cmd} should prompt, not auto-run`);
+    }
+    for (const cmd of ['officecli set deck.pptx --prop x=1', 'officecli close deck.pptx']) {
+      assert.equal(categorizeBash(cmd), 'shell_unsafe', `${cmd} should prompt`);
+    }
   });
 
   it('resolves bundled OfficeCLI tools before falling back to PATH', async () => {
