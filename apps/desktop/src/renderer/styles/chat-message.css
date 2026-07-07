@@ -281,9 +281,14 @@
 .hljs-selector-tag,
 .hljs-literal,
 .hljs-tag        { color: oklch(from var(--link) calc(l - 0.05) calc(c + 0.04) h); }
+/* Strings are the largest ink mass in highlighted code; keying them to the
+   semantic --success green made whole answers read as leftover brand-green
+   under the blue theme (user report 2026-07-07). Deep navy from the --link
+   family instead — distinct from keywords (brighter blue) and built-ins
+   (violet-shifted); green stays reserved for hljs-addition (real diffs). */
 .hljs-string,
 .hljs-doctag,
-.hljs-regexp     { color: oklch(from var(--success) calc(l + 0.02) c h); }
+.hljs-regexp     { color: oklch(from var(--link) calc(l - 0.15) c calc(h + 15)); }
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet,

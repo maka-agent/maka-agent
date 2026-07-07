@@ -280,7 +280,7 @@ const PALETTE_LABEL: Record<ThemePalette, string> = {
 };
 
 const PALETTE_HELP: Record<ThemePalette, string> = {
-  'default': 'Maka 原本的紫色强调色',
+  'default': 'Maka 品牌蓝强调色',
   'onedark': '编辑器经典深色',
   'catppuccin-mocha': '紫调柔和深色',
   'tokyo-night': '深蓝主题',
