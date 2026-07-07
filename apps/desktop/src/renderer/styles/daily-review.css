@@ -19,9 +19,11 @@
 .maka-daily-review-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    /* P2-10: range picker + stepper are one time-control cluster on the
+       left (was space-between, which split them to opposite corners). */
+    justify-content: flex-start;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-3);
     padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
     border-bottom: var(--border-width-hairline) solid var(--foreground-10);
   }
