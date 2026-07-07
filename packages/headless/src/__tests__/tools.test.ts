@@ -62,6 +62,29 @@ describe('isolated headless tools', () => {
     });
   });
 
+  test('Bash declares the executor shell dialect to the model, and stays silent on POSIX', () => {
+    // Selection without declaration is the original Windows bug (shell-detect.ts):
+    // createHarborCellLocalToolExecutor runs PowerShell on Windows, so the
+    // isolated Bash description must tell the model that dialect.
+    const pwshBash = buildIsolatedBashTool({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:/pwsh.exe' },
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    assert.match(pwshBash.description, /PowerShell 7 \(pwsh\)/);
+    assert.match(pwshBash.description, /write PowerShell syntax, not cmd or bash syntax/);
+
+    // No shell (POSIX / remote container): the historical description is the
+    // contract; no dialect sentence is added.
+    const posixBash = buildIsolatedBashTool({
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    assert.doesNotMatch(posixBash.description, /PowerShell|cmd syntax/);
+  });
+
   test('Bash leaves the default timeout to the isolated executor', async () => {
     const calls: unknown[] = [];
     const bash = buildIsolatedBashTool({

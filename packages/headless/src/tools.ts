@@ -1,5 +1,6 @@
 import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
+  bashToolShellGuidance,
   buildForegroundBashTool,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
@@ -82,10 +83,12 @@ export function buildIsolatedBashTool(
   executor: IsolatedToolExecutor,
   options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence'> = {},
 ): MakaTool {
+  const guidance = executor.shell ? bashToolShellGuidance(executor.shell) : '';
   return buildForegroundBashTool({
     description:
       'Run a shell command in the isolated headless task workspace. '
-      + 'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.',
+      + 'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.'
+      + (guidance ? ` ${guidance}` : ''),
     defaultTimeoutMs: cleanupCommandTimeoutMs,
     emitReturnedOutput: true,
     execute: async ({ command, cwd, timeoutMs }) => {
