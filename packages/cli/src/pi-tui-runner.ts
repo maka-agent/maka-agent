@@ -582,13 +582,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
-    // Page through transcript scrollback. Swallow the key whether or not the
-    // view moved so PageUp/PageDown never leak into the editor at a scroll edge.
+    // Page through transcript scrollback — but only when there is scrollback to
+    // page. PageUp/PageDown are also the editor's prompt-paging keys, so when the
+    // transcript fits the viewport we let the key fall through to the editor
+    // instead of swallowing it.
     if (matchesKey(data, Key.pageUp)) {
+      if (!layout.isScrollable()) return undefined;
       if (layout.scrollUp()) tui.requestRender();
       return { consume: true };
     }
     if (matchesKey(data, Key.pageDown)) {
+      if (!layout.isScrollable()) return undefined;
       if (layout.scrollDown()) tui.requestRender();
       return { consume: true };
     }
@@ -746,6 +750,15 @@ class MakaPiLayoutComponent extends Container {
   /** Scroll toward newer output by one page. Returns false when already following the tail. */
   scrollDown(): boolean {
     return this.scrollBy(-this.pageSize());
+  }
+
+  /**
+   * True when the transcript overflows the viewport, i.e. paging keys should
+   * scroll it. When false the transcript fits and PageUp/PageDown belong to the
+   * editor's prompt paging instead.
+   */
+  isScrollable(): boolean {
+    return this.lastTotalLines > this.lastViewportRows;
   }
 
   /**
