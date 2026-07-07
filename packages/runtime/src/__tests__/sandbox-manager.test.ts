@@ -1,0 +1,213 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+
+import {
+  createDangerFullAccessPermissionProfile,
+  createExternalPermissionProfile,
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+  type PermissionProfile,
+} from '@maka/core/permission-profile';
+
+import { SandboxManager } from '../sandbox/sandbox-manager.js';
+import type {
+  SandboxBackend,
+  SandboxTransformRequest,
+  SandboxTransformResult,
+} from '../sandbox/types.js';
+
+class FakeMacosBackend implements SandboxBackend {
+  readonly type = 'macos-seatbelt' as const;
+  calls: SandboxTransformRequest[] = [];
+
+  transform(request: SandboxTransformRequest): SandboxTransformResult {
+    this.calls.push(request);
+    const { command } = request;
+    return {
+      ok: true,
+      exec: {
+        argv: ['/usr/bin/sandbox-exec', '--', command.program, ...command.args],
+        cwd: command.cwd,
+        env: command.env,
+        sandboxType: 'macos-seatbelt',
+        effectiveProfile: command.profile,
+      },
+      sandboxType: 'macos-seatbelt',
+      requiresSandbox: true,
+      preference: request.preference ?? 'auto',
+    };
+  }
+}
+
+function command(profile: PermissionProfile) {
+  return {
+    program: '/bin/zsh',
+    args: ['-lc', 'echo ok'],
+    cwd: '/repo',
+    profile,
+    pathContext: {
+      workspaceRoots: ['/repo'],
+      slashTmp: '/tmp',
+    },
+  };
+}
+
+describe('SandboxManager.shouldSandbox', () => {
+  it('uses PermissionProfile under auto preference', () => {
+    const manager = new SandboxManager();
+
+    assert.equal(manager.shouldSandbox(createReadOnlyPermissionProfile(), 'auto'), true);
+    assert.equal(manager.shouldSandbox(createWorkspaceWritePermissionProfile(), 'auto'), true);
+    assert.equal(manager.shouldSandbox(createDangerFullAccessPermissionProfile(), 'auto'), false);
+    assert.equal(manager.shouldSandbox(createExternalPermissionProfile(), 'auto'), false);
+    assert.equal(manager.shouldSandbox({ type: 'disabled', name: 'disabled' }, 'auto'), false);
+  });
+
+  it('honors require and forbid preference overrides', () => {
+    const manager = new SandboxManager();
+
+    assert.equal(manager.shouldSandbox(createDangerFullAccessPermissionProfile(), 'require'), true);
+    assert.equal(manager.shouldSandbox(createWorkspaceWritePermissionProfile(), 'forbid'), false);
+  });
+});
+
+describe('SandboxManager.selectInitial', () => {
+  it('selects macos-seatbelt on darwin when restricted profile needs sandbox and backend exists', () => {
+    const manager = new SandboxManager([new FakeMacosBackend()]);
+
+    const result = manager.selectInitial({
+      profile: createWorkspaceWritePermissionProfile(),
+      platform: 'darwin',
+    });
+
+    assert.deepEqual(result, {
+      ok: true,
+      sandboxType: 'macos-seatbelt',
+      requiresSandbox: true,
+      reason: 'platform_sandbox_selected',
+      platform: 'darwin',
+      preference: 'auto',
+    });
+  });
+
+  it('fails closed on darwin when sandbox is required but macOS backend is unavailable', () => {
+    const manager = new SandboxManager();
+
+    const result = manager.selectInitial({
+      profile: createWorkspaceWritePermissionProfile(),
+      platform: 'darwin',
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'backend_not_available');
+      assert.equal(result.sandboxType, 'macos-seatbelt');
+      assert.equal(result.platform, 'darwin');
+    }
+  });
+
+  it('returns backend_not_implemented for linux restricted profiles in Phase 3', () => {
+    const manager = new SandboxManager();
+
+    const result = manager.selectInitial({
+      profile: createWorkspaceWritePermissionProfile(),
+      platform: 'linux',
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'backend_not_implemented');
+      assert.equal(result.sandboxType, 'linux');
+    }
+  });
+
+  it('returns unsupported_platform for win32 restricted profiles', () => {
+    const manager = new SandboxManager();
+
+    const result = manager.selectInitial({
+      profile: createWorkspaceWritePermissionProfile(),
+      platform: 'win32',
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, 'unsupported_platform');
+  });
+
+  it('selects none for danger-full-access, external, disabled, and forbid', () => {
+    const manager = new SandboxManager();
+
+    const danger = manager.selectInitial({
+      profile: createDangerFullAccessPermissionProfile(),
+      platform: 'darwin',
+    });
+    const external = manager.selectInitial({
+      profile: createExternalPermissionProfile(),
+      platform: 'darwin',
+    });
+    const disabled = manager.selectInitial({
+      profile: { type: 'disabled', name: 'disabled' },
+      platform: 'darwin',
+    });
+    const forbid = manager.selectInitial({
+      profile: createWorkspaceWritePermissionProfile(),
+      preference: 'forbid',
+      platform: 'darwin',
+    });
+
+    assert.equal(danger.ok && danger.sandboxType, 'none');
+    assert.equal(external.ok && external.sandboxType, 'none');
+    assert.equal(disabled.ok && disabled.sandboxType, 'none');
+    assert.equal(forbid.ok && forbid.sandboxType, 'none');
+  });
+});
+
+describe('SandboxManager.transform', () => {
+  it('returns raw argv when selected sandbox is none', () => {
+    const manager = new SandboxManager();
+    const profile = createDangerFullAccessPermissionProfile();
+
+    const result = manager.transform({
+      command: command(profile),
+      platform: 'darwin',
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.deepEqual(result.exec.argv, ['/bin/zsh', '-lc', 'echo ok']);
+      assert.equal(result.exec.cwd, '/repo');
+      assert.equal(result.exec.sandboxType, 'none');
+      assert.equal(result.exec.effectiveProfile, profile);
+      assert.equal(result.requiresSandbox, false);
+    }
+  });
+
+  it('delegates macos-seatbelt transform to the registered backend', () => {
+    const backend = new FakeMacosBackend();
+    const manager = new SandboxManager([backend]);
+    const profile = createWorkspaceWritePermissionProfile();
+
+    const result = manager.transform({
+      command: command(profile),
+      platform: 'darwin',
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(backend.calls.length, 1);
+    if (result.ok) {
+      assert.deepEqual(result.exec.argv, ['/usr/bin/sandbox-exec', '--', '/bin/zsh', '-lc', 'echo ok']);
+      assert.equal(result.exec.sandboxType, 'macos-seatbelt');
+    }
+  });
+
+  it('returns selection failure from transform without throwing', () => {
+    const manager = new SandboxManager();
+
+    const result = manager.transform({
+      command: command(createWorkspaceWritePermissionProfile()),
+      platform: 'darwin',
+    });
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, 'backend_not_available');
+  });
+});
