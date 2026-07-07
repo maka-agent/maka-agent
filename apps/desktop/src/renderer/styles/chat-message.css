@@ -527,6 +527,13 @@
   vertical-align: -2px;
 }
 @keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+/* The truncation badge (`role="status"`, chat-view.tsx) means rendered
+   output stopped growing — a caret blinking under it promises text that
+   will never come. It also breaks the `> p:last-child` inlining above, so
+   the caret would sit alone on its own line. Drop it. */
+.maka-bubble-streaming:has(> [role="status"])::after {
+  content: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .maka-bubble-streaming::after { animation: none; opacity: 1; }
 }
