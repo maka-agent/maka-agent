@@ -13,6 +13,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isDeepResearchSession,
   isThinkingLevel,
   thinkingVariantsForModel,
   resolveModelVisionSupport,
@@ -1558,6 +1559,25 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
     const status = await openGateway.sync(settings.openGateway);
     safeSendToRenderer('gateway:statusChanged', status);
   }
+  if (patch.chatDefaults?.permissionMode) {
+    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
+  }
+}
+
+async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
+  const sessions = await runtime.listSessions();
+  await Promise.all(sessions.map(async (session) => {
+    if (session.permissionMode === mode) return;
+    if (isDeepResearchSession(session.labels)) return;
+    if (session.status === 'running' || session.status === 'waiting_for_user') return;
+    try {
+      await runtime.setPermissionMode(session.id, mode);
+      emitSessionsChanged('mode-change', session.id);
+    } catch {
+      // Best effort: the persisted global default is still the authority for
+      // new sessions; busy sessions can be reconciled on a later change.
+    }
+  }));
 }
 
 async function handleExternalSettingsChange(): Promise<void> {
