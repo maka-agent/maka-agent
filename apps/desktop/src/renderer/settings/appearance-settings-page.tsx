@@ -26,9 +26,10 @@ export function AppearanceSettingsPage(props: {
 }) {
   return (
     <div className="settingsStructuredPage">
-      <h2 className="settingsSectionHeading">个性化</h2>
-      <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdate} />
-      <h2 className="settingsSectionHeading">主题</h2>
+      {/* Designer audit P2-13: 显示名称/界面语言/语气偏好 are identity, not
+          appearance — PersonalizationSettingsPage now renders on the 通用
+          page. The duplicated 主题 section heading is gone too: the page IS
+          the theme page now. */}
       <ThemeSettingsPage
         themePref={props.themePref}
         themePalette={props.themePalette}
@@ -41,7 +42,7 @@ export function AppearanceSettingsPage(props: {
   );
 }
 
-function PersonalizationSettingsPage(props: {
+export function PersonalizationSettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
