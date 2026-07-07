@@ -259,11 +259,13 @@ export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^xargs\s+.*\b(rm|shred|truncate|dd)\b/,
   // PowerShell / cmd.exe deletes plus the POSIX rm family. On Windows the
   // Bash tool runs PowerShell and steers the model toward its syntax
-  // (shell-detect.ts), so these must land in fs_destructive — in execute mode
-  // shell_unsafe is allow, not prompt. Case-insensitive because PowerShell is
-  // (harmless for the POSIX names: an upper-cased rm is still rm-shaped).
-  // Applied on POSIX too: the only real collision is Ruby's docs tool `ri`,
-  // and the failure mode is an extra prompt, not a bypass.
+  // (shell-detect.ts), so these land in fs_destructive to make the confirmation
+  // REASON accurate (delete, not generic) — not to gate allow-vs-prompt, which
+  // is already closed: shell_unsafe prompts too, so a miss only mislabels the
+  // reason. Case-insensitive because PowerShell is (harmless for the POSIX
+  // names: an upper-cased rm is still rm-shaped). Applied on POSIX too: the only
+  // real collision is Ruby's docs tool `ri`, and the failure mode is an extra
+  // prompt, not a bypass.
   /^remove-item\b/i,
   /^(rm|rmdir|ri|del|erase|rd)\b/i,
   /^(clear-content|clc)\b/i,
