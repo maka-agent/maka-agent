@@ -136,6 +136,15 @@ export class AutomationManager {
     const automation = this.automations.get(id);
     if (!automation || automation.sessionId !== sessionId) return undefined;
     if (automation.status !== 'paused') return undefined;
+    // Refuse to resume an automation whose fire budget is already spent. A
+    // maxFires-exhausted (or a one-shot that already fired) automation only
+    // reaches 'paused' via the attemptFailed path, which leaves nextFireAt=null.
+    // Re-arming it here would grant a fire beyond the declared hard cap — the
+    // next tick would bump fireCount past maxFires (or re-fire a 'once'),
+    // spawning a real extra run. maxFires is a cap on ATTEMPTS, so a spent
+    // budget cannot be revived by resume.
+    if (automation.maxFires && automation.fireCount >= automation.maxFires) return undefined;
+    if (automation.schedule.type === 'once' && automation.fireCount > 0) return undefined;
     automation.status = 'active';
     automation.updatedAt = this.deps.now();
     automation.nextFireAt = this.computeNextFire(automation.schedule, this.deps.now());

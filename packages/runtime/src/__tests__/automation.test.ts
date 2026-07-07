@@ -173,6 +173,42 @@ describe('AutomationManager', () => {
       mgr.pause(auto.id, 'sess-1');
       assert.equal(mgr.pause(auto.id, 'sess-1'), undefined);
     });
+
+    test('resume refuses to re-arm a maxFires-exhausted automation (no fire beyond the hard cap)', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'cron', name: 'capped', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'cron', expression: '* * * * *' },
+        maxFires: 1,
+      });
+      assert.ok(!('error' in auto));
+      // The single allowed fire starts (fireCount=1, cap nulls nextFireAt)…
+      const started = mgr.attemptStarted(auto.id);
+      assert.equal(started?.fireCount, 1);
+      assert.equal(started?.nextFireAt, null);
+      // …then FAILS, settling to paused (the resumable-but-spent trap).
+      mgr.attemptFailed(auto.id, 'boom');
+      assert.equal(mgr.get(auto.id)?.status, 'paused');
+      // resume must NOT revive the spent budget.
+      const resumed = mgr.resume(auto.id, 'sess-1');
+      assert.equal(resumed, undefined);
+      assert.equal(mgr.get(auto.id)?.status, 'paused');
+      assert.equal(mgr.get(auto.id)?.nextFireAt, null);
+    });
+
+    test('resume refuses to re-fire a one-shot that already fired', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'cron', name: 'once', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 30 },
+      });
+      assert.ok(!('error' in auto));
+      mgr.attemptStarted(auto.id);
+      mgr.attemptFailed(auto.id, 'boom');
+      assert.equal(mgr.get(auto.id)?.status, 'paused');
+      assert.equal(mgr.resume(auto.id, 'sess-1'), undefined);
+      assert.equal(mgr.get(auto.id)?.nextFireAt, null);
+    });
   });
 
   describe('markFired', () => {

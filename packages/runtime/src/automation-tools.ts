@@ -111,8 +111,20 @@ export function buildAutomationTool(deps: AutomationToolDeps): MakaTool<Automati
         case 'resume': {
           result = handleById(input, (id) => {
             const r = deps.automationManager.resume(id, ctx.sessionId);
-            return r ? `Automation "${r.name}" resumed. Next fire: ${r.nextFireAt ? new Date(r.nextFireAt).toLocaleString() : 'N/A'}`
-              : `Cannot resume "${id}": not found, not owned, or not paused.`;
+            if (r) {
+              return `Automation "${r.name}" resumed. Next fire: ${r.nextFireAt ? new Date(r.nextFireAt).toLocaleString() : 'N/A'}`;
+            }
+            // Distinguish a spent fire budget from other resume failures so the
+            // agent doesn't keep retrying a cap that can never be revived.
+            const existing = deps.automationManager.get(id);
+            if (existing && existing.status === 'paused') {
+              const spent = (existing.maxFires != null && existing.fireCount >= existing.maxFires)
+                || (existing.schedule.type === 'once' && existing.fireCount > 0);
+              if (spent) {
+                return `Cannot resume "${id}": its fire budget is exhausted (fired ${existing.fireCount}${existing.maxFires != null ? `/${existing.maxFires}` : ''} time(s)). Create a new automation instead.`;
+              }
+            }
+            return `Cannot resume "${id}": not found, not owned, or not paused.`;
           });
           break;
         }
