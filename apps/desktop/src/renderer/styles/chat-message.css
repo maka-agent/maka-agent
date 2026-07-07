@@ -357,6 +357,12 @@
    8px + trailing p margin = 20px bottom) and tilt the quote visually. */
 .maka-prose blockquote > :first-child { margin-top: 0; }
 .maka-prose blockquote > :last-child { margin-bottom: 0; }
+/* Borderless minimal table (#546 Phase B, picked from a four-way style
+   comparison): no outer frame or header fill — the header reads via
+   semibold + a reinforced rule, rows via hairline separators. Replaces
+   the PR-UI-LAYOUT-28 card chrome (radius + outer hairline + th tint):
+   the 3% th tint was invisible in practice and the frame boxed the
+   table in for no informational gain. */
 .maka-prose table {
   /* Shrink-wrap to content (GitHub's markdown-table shape): a short
      three-column table stretched to the full measure reads as voids
@@ -370,19 +376,11 @@
   max-width: 100%;
   overflow-x: auto;
   margin: 0 0 var(--space-3);
-  /* `separate` (not `collapse`): collapsed borders void border-radius and
-     swallow the outer hairline, leaving the table with no visible edge.
-     Cells only paint bottom borders, so zero spacing keeps the grid
-     seamless while the outer border + rounded corners actually render. */
+  /* `separate` + zero spacing: cells only paint bottom borders, so the
+     row separators stay seamless single hairlines. */
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--font-size-ui);
-  /* PR-UI-LAYOUT-28: table radius 8 → 10 joins the card family,
-   * and a hairline outer border gives the table chrome a clean
-   * edge against the warm panel. Without the border the rounded
-   * corners would clip nothing visible. */
-  border-radius: var(--radius-surface);
-  border: var(--border-width-hairline) solid var(--border);
 }
 .maka-prose th,
 .maka-prose td {
@@ -390,8 +388,7 @@
   border-bottom: var(--border-width-hairline) solid var(--border);
   text-align: left;
 }
-/* PR-UI-LAYOUT-28: drop the trailing border on the last row so the
- * rounded corner reads cleanly. */
+/* Without a frame the table must not end on a stray rule. */
 .maka-prose tr:last-child th,
 .maka-prose tr:last-child td {
   border-bottom: 0;
@@ -399,16 +396,14 @@
 .maka-prose th {
   color: var(--foreground-secondary);
   font-weight: var(--font-weight-semibold);
-  background: var(--foreground-3);
+  /* Frameless header: no fill — semibold plus a rule visibly stronger
+     than the hairline row separators carries the header/body split. */
+  border-bottom: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.25);
   /* Headers are short labels; letting them wrap means a column-squeezed
      table pulverizes 2-char CJK headers into vertical stacks. Locking
      them to one line raises the table's min-content width so degenerate
      tables hit the overflow-x scroller instead. Body cells still wrap. */
   white-space: nowrap;
-  /* PR-UI-LAYOUT-28: header tone slightly darker than body cell
-   * to make the header row read at first glance — was the same
-   * `--foreground-3` as nothing else, now sits between cell and
-   * code-block tints. */
   letter-spacing: var(--tracking-normal);
 }
 .maka-prose hr {

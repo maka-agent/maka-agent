@@ -201,17 +201,26 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
     );
   });
 
-  it('prose tables use border-collapse: separate so radius + outer border render', async () => {
+  it('prose tables are frameless with a reinforced header rule', async () => {
     const css = stripCssComments(await readFile(CHAT_MESSAGE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const table = blocks.find(({ selectors }) => /^\.maka-prose\s+table$/.test(selectors));
     assert.ok(table, 'expected a .maka-prose table rule');
-    assert.match(
-      table!.decls,
-      /border-collapse:\s*separate/,
-      'collapsed borders void border-radius and swallow the outer hairline — the table edge disappears',
+    // Style picked from a four-way comparison (#546 Phase B): no outer
+    // frame, no radius, no header fill — the header/body split is carried
+    // by semibold + a rule stronger than the hairline row separators.
+    assert.ok(
+      !/(^|;)\s*border\s*:/.test(table!.decls) && !/border-radius/.test(table!.decls),
+      'prose tables are frameless — no outer border/radius on .maka-prose table',
     );
-    assert.match(table!.decls, /border-spacing:\s*0/, 'separate borders need border-spacing: 0 to keep the row grid seamless');
+    assert.match(table!.decls, /border-spacing:\s*0/, 'zero border-spacing keeps the row separators seamless single hairlines');
+    const th = blocks.find(({ selectors }) => /^\.maka-prose\s+th$/.test(selectors));
+    assert.ok(th, 'expected a .maka-prose th rule');
+    assert.ok(
+      !/background/.test(th!.decls)
+      && /border-bottom:\s*var\(--border-width-hairline\)\s+solid\s+oklch\(from var\(--foreground\)/.test(th!.decls),
+      'th carries no fill and a foreground-alpha rule stronger than --border for the header split',
+    );
   });
 
   it('blockquote inner block margins are neutralized at both ends', async () => {
