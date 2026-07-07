@@ -194,6 +194,18 @@ declare global {
           };
         };
       };
+      notifications: {
+        /** Fire-and-forget: report that an agent turn reached a terminal
+         * state. `title` is the session name, `body` the start of the
+         * reply (or error message); main sanitizes + falls back to
+         * generic copy. Main gates on the product toggle + window focus
+         * before raising a native OS notification. */
+        runEnded(payload: {
+          kind: 'completed' | 'errored';
+          title?: string;
+          body?: string;
+        }): Promise<void>;
+      };
       onboarding: {
         getSnapshot(): Promise<OnboardingSnapshot>;
         setMilestone(

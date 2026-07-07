@@ -27,6 +27,10 @@ export interface MainWindowController {
   disposeBrowserViews(): Promise<void>;
   hasOpenWindows(): boolean;
   focus(): void;
+  /** Whether the main window currently holds OS focus. False when the
+   * window is gone, minimized to the point of losing focus, or another
+   * app is in front — used to gate "notify only while unfocused". */
+  isFocused(): boolean;
 }
 
 interface MainWindowControllerDeps {
@@ -359,6 +363,9 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
       mainWindow.focus();
+    },
+    isFocused() {
+      return !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused();
     },
   };
 }

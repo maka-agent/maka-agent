@@ -750,6 +750,7 @@ export type {
   ChatDefaultsSettings,
   NetworkProxySettings,
   NetworkSettings,
+  NotificationSettings,
   OpenGatewaySettings,
   OpenGatewayRuntimeStatus,
   PrivacySettings,

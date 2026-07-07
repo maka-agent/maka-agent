@@ -970,6 +970,10 @@ export function AppShell({
     showModelSetupToast,
     streamingBySessionRef,
     toastApi,
+    notifyRunEnded: ({ kind, sessionId, body }) => {
+      const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
+      void window.maka.notifications.runEnded({ kind, title, body });
+    },
   });
 
   useEffect(() => {

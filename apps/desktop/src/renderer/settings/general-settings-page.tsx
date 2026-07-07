@@ -59,6 +59,21 @@ export function GeneralSettingsPage(props: {
             }}
           />
         </div>
+        <div className="settingsFormRow">
+          <div>
+            <strong>完成时发送系统通知</strong>
+            <small>当窗口不在前台时，一轮回答生成完成或出错后发送桌面通知；窗口聚焦时不打扰。需系统已授予通知权限。</small>
+          </div>
+          <Switch
+            ariaLabel="完成时发送系统通知"
+            checked={props.settings.notifications.runComplete}
+            onChange={(runComplete) => {
+              props.onUpdate({ notifications: { runComplete } }).catch((error: unknown) => {
+                toast.error('通知设置切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
+              });
+            }}
+          />
+        </div>
       </SettingsRows>
       <GeneralDefaultsCard
         connections={props.connections}

@@ -49,6 +49,12 @@ export function createAppShellSessionEventHandlers(options: {
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   toastApi: ToastApi;
+  /** Report a terminal turn to the main process, which decides whether
+   * to raise an OS notification (gated on a product toggle + window
+   * focus). `body` is the start of the reply (completed) or the error
+   * message (errored); the session name is resolved by the caller from
+   * `sessionId`. Optional so headless/test callers can omit it. */
+  notifyRunEnded?: (payload: { kind: 'completed' | 'errored'; sessionId: string; body?: string }) => void;
 }): AppShellSessionEventHandlers {
   const {
     activeIdRef,
@@ -62,6 +68,7 @@ export function createAppShellSessionEventHandlers(options: {
     showModelSetupToast,
     streamingBySessionRef,
     toastApi,
+    notifyRunEnded,
   } = options;
 
   function clearThinking(sessionId: string) {
@@ -438,6 +445,7 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         markInFlightToolsInterrupted(sessionId);
+        notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
         void refreshSessions();
         void refreshMessages(sessionId);
         break;
@@ -468,6 +476,11 @@ export function createAppShellSessionEventHandlers(options: {
           // permission overlay was mounted would leave the overlay
           // stuck on screen until the user manually switches away.
           setPermissionBySession((current) => clearPermissions(current, sessionId));
+          // Only a real turn end is worth a notification. A
+          // `permission_handoff` complete is a *pause* waiting on the
+          // user — notifying there would fire mid-conversation. `slot.text`
+          // holds the streamed reply, which main trims into the body.
+          notifyRunEnded?.({ kind: 'completed', sessionId, body: slot?.text });
         }
         void refreshSessions();
         void refreshMessages(sessionId, refreshMessagesOptions);
