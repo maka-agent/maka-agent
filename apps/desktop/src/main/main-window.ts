@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, Menu, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, Menu, nativeTheme, screen, shell } from 'electron';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { AppSettings } from '@maka/core';
@@ -33,6 +33,9 @@ interface MainWindowControllerDeps {
   workspaceRoot: string;
   visualSmokeFixture: VisualSmokeFixture | null;
   settingsStore: SettingsReader;
+  // main.ts computes this from the same isE2e gate that also guards userData
+  // and the fake backend, so main-window.ts owns no env policy of its own.
+  startHidden: boolean;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -74,7 +77,7 @@ const titleBarOverlayOptions = (isDark: boolean): { color: string; symbolColor: 
 });
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
-  const { workspaceRoot, visualSmokeFixture, settingsStore } = deps;
+  const { workspaceRoot, visualSmokeFixture, settingsStore, startHidden } = deps;
 
   function getBrowserViews(): BrowserViewManager<BrowserViewController> {
     if (!browserViews) {
@@ -178,7 +181,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // still returns a painted frame on a hidden window because
       // `paintWhenInitiallyHidden` defaults to true. Real runs keep the
       // default `show: true`.
-      ...(process.env.MAKA_VISUAL_SMOKE_FIXTURE ? { show: false } : {}),
+      ...(!app.isPackaged && startHidden ? { show: false } : {}),
       // Glass material — reference-atlas §1 + §12.1 documents the upstream
       // reference layout's `light-glass` / `dark-glass` themes that paint
       // the sidebar against native macOS vibrancy material. Enabling
@@ -300,7 +303,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     if (process.env.VITE_DEV_SERVER_URL) {
       await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     } else {
-      await mainWindow.loadFile(join(import.meta.dirname, '..', 'renderer', 'index.html'));
+      await mainWindow.loadFile(join(import.meta.dirname, '..', '..', 'dist-renderer', 'index.html'));
     }
     if (process.env.MAKA_REAL_WINDOW_SMOKE === '1') {
       emitRealWindowSmokeDiagnostic('after-load');

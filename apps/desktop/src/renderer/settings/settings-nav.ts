@@ -84,7 +84,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true, group: '通用',
     description: '隐身、启动、对话默认与网络代理等系统偏好。' },
   { id: 'appearance', label: '外观', Icon: Palette, enabled: true, group: '通用',
-    description: '主题、配色、字体面板与个性化身份。' },
+    description: '主题与配色。' },
   // Group 2: AI 与集成 — models, usage, memory, daily-review, voice+gateway, bots, search
   { id: 'models', label: '模型', Icon: Cpu, enabled: true, group: 'AI 与集成',
     description: '模型连接、API key 与 OAuth 订阅管理。' },

@@ -1,6 +1,7 @@
 import type { StoredMessage } from '@maka/core';
 import {
   deriveTurnLineageMap,
+  formatTurnDuration,
   materializeTurns,
   type ToolActivityItem,
   type TurnFooterActionMeta,
@@ -8,6 +9,7 @@ import {
 } from '@maka/ui';
 import { deriveFailedTurnRecovery, describeTurnErrorClass } from './session-status-presentation';
 import { deriveTurnFooterActions } from './turn-footer-actions';
+import { deriveTurnLineageBadges } from './derive-turn-lineage-badges';
 
 export interface AppShellTurnViewModel {
   turnFooterActionsByTurn: Record<string, ReadonlyArray<TurnFooterActionMeta>>;
@@ -26,10 +28,6 @@ export function deriveAppShellTurnViewModel(input: {
   const turnsForLineage = materializeTurns(input.messages, input.liveTools);
   const lineage = deriveTurnLineageMap(turnsForLineage);
   const turnsById = new Map(turnsForLineage.map((turn) => [turn.turnId, turn]));
-  // Strip the `turn-` id prefix before truncating — labels interpolate as
-  // `turn ${shortId(...)}`, so a raw slice rendered「已重新生成 → turn
-  // turn-r」: doubled word, one useful character of id left.
-  const shortId = (turnId: string) => turnId.replace(/^turn-/, '').slice(0, 6);
   const footer: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};
   const failedLabels: Record<string, string> = {};
   const failedRecoveryLabels: Record<string, string> = {};
@@ -38,17 +36,26 @@ export function deriveAppShellTurnViewModel(input: {
   for (const turn of turnsForLineage) {
     const lineageEntry = lineage.get(turn.turnId);
     const pendingForTurn = new Set<TurnFooterActionMeta['id']>();
-    for (const id of ['retry', 'regenerate', 'branch', 'copy'] as const) {
+    for (const id of ['regenerate', 'branch', 'copy'] as const) {
       if (input.activeId && input.pendingTurnActions.has(input.pendingKeyOf(input.activeId, turn.turnId, id))) {
         pendingForTurn.add(id);
       }
     }
+    const metaParts: string[] = [];
+    if (turn.modelId) metaParts.push(turn.modelId);
+    if (turn.durationMs && turn.durationMs > 0) metaParts.push(formatTurnDuration(turn.durationMs));
+    if (turn.tokens?.costUsd && turn.tokens.costUsd > 0) metaParts.push(`$${turn.tokens.costUsd.toFixed(4)}`);
+    const metaSummary = metaParts.length > 0 ? metaParts.join(' · ') : undefined;
     footer[turn.turnId] = deriveTurnFooterActions({
       status: turn.status,
       hasContent: Boolean(turn.assistant?.text && turn.assistant.text.trim().length > 0),
-      ...(lineageEntry?.retriedToTurnId ? { alreadyRetried: true } : {}),
-      ...(lineageEntry?.regeneratedToTurnId ? { alreadyRegenerated: true } : {}),
+      // Match the badge lineage rule (regenerate ?? legacy retry) so a turn
+      // that already has a parallel answer hints at it in the tooltip too.
+      ...((lineageEntry?.regeneratedToTurnId ?? lineageEntry?.retriedToTurnId)
+        ? { alreadyRegenerated: true }
+        : {}),
       ...(pendingForTurn.size > 0 ? { pendingActions: pendingForTurn } : {}),
+      ...(metaSummary ? { metaSummary } : {}),
     });
 
     if (turn.status === 'failed') {
@@ -61,43 +68,14 @@ export function deriveAppShellTurnViewModel(input: {
       }).label;
     }
 
-    const turnBadges: TurnLineageBadge[] = [];
-    if (turn.retriedFromTurnId && turnsById.has(turn.retriedFromTurnId)) {
-      turnBadges.push({
-        id: `forward-retry-${turn.turnId}`,
-        label: `重试自 turn ${shortId(turn.retriedFromTurnId)}`,
-        tooltip: `这是对上一轮回答的重试`,
-        targetTurnId: turn.retriedFromTurnId,
-        direction: 'forward',
-      });
-    }
-    if (turn.regeneratedFromTurnId && turnsById.has(turn.regeneratedFromTurnId)) {
-      turnBadges.push({
-        id: `forward-regen-${turn.turnId}`,
-        label: `重新生成自 turn ${shortId(turn.regeneratedFromTurnId)}`,
-        tooltip: `保留旧回答，重新生成的并行回答`,
-        targetTurnId: turn.regeneratedFromTurnId,
-        direction: 'forward',
-      });
-    }
-    if (lineageEntry?.retriedToTurnId && turnsById.has(lineageEntry.retriedToTurnId)) {
-      turnBadges.push({
-        id: `reverse-retry-${turn.turnId}`,
-        label: `已重试 → turn ${shortId(lineageEntry.retriedToTurnId)}`,
-        tooltip: `跳转到对此回答的重试`,
-        targetTurnId: lineageEntry.retriedToTurnId,
-        direction: 'reverse',
-      });
-    }
-    if (lineageEntry?.regeneratedToTurnId && turnsById.has(lineageEntry.regeneratedToTurnId)) {
-      turnBadges.push({
-        id: `reverse-regen-${turn.turnId}`,
-        label: `已重新生成 → turn ${shortId(lineageEntry.regeneratedToTurnId)}`,
-        tooltip: `跳转到对此回答的重新生成`,
-        targetTurnId: lineageEntry.regeneratedToTurnId,
-        direction: 'reverse',
-      });
-    }
+    const turnBadges = deriveTurnLineageBadges({
+      turnId: turn.turnId,
+      retriedFromTurnId: turn.retriedFromTurnId,
+      regeneratedFromTurnId: turn.regeneratedFromTurnId,
+      retriedToTurnId: lineageEntry?.retriedToTurnId,
+      regeneratedToTurnId: lineageEntry?.regeneratedToTurnId,
+      existsTurn: (id) => turnsById.has(id),
+    });
     if (turnBadges.length > 0) badges[turn.turnId] = turnBadges;
   }
 

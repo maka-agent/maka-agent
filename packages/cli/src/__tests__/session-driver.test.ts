@@ -125,6 +125,37 @@ describe('Maka session driver', () => {
     }]);
   });
 
+  test('renames the active session through runtime updateSession', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.renameSession('watcher 根目录事件风暴修复');
+
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { name: 'watcher 根目录事件风暴修复' },
+    }]);
+  });
+
+  test('rejects rename before a session starts', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await assert.rejects(driver.renameSession('too early'), /before a session starts/);
+    assert.deepEqual(runtime.sessionUpdates, []);
+  });
+
   test('switches to an existing session for the next prompt', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-switch-cwd-'));
     try {
@@ -360,7 +391,7 @@ class RecordingRuntime {
   readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
-  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined } }> = [];
+  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -434,7 +465,7 @@ class RecordingRuntime {
     };
   }
 
-  async updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined }): Promise<SessionSummary> {
+  async updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string }): Promise<SessionSummary> {
     this.sessionUpdates.push({ sessionId, patch });
     return {
       id: sessionId,

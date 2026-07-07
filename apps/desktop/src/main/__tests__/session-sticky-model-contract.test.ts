@@ -102,7 +102,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\}[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
     );
     assert.doesNotMatch(
@@ -185,15 +185,10 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(styles, /\.modelPickerPopup\s*\{[\s\S]*display:\s*flex;[\s\S]*overflow:\s*hidden;[\s\S]*\}/);
     assert.match(styles, /\.modelPickerList\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*\}/);
     assert.match(styles, /\.maka-thinking-section\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*\}/);
-    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
-  });
-
-  it('flags per-turn model departures against the session sticky model', async () => {
-    const ui = await readModelSwitcherUiSource();
-
-    assert.match(ui, /props\.activeSession\?\.model && props\.activeSession\.model\.length > 0/);
-    assert.match(ui, /previousModelId=\{expectedModelId\}/);
-    assert.match(ui, /本轮使用 \$\{turn\.modelId\}，session 期望 \$\{props\.previousModelId\}/);
-    assert.match(ui, /本轮切换了模型/);
+    // [^}]* anchors inside this one rule block so the match can't drift when
+    // cross-file @import order changes (#546 PR1 relocated this rule into
+    // settings/select.css). Value is the control-lg token (= 32px), not a
+    // literal - readRendererContractCss does not inline var().
+    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[^}]*min-height:\s*var\(--h-control-lg\)[^}]*\}/);
   });
 });

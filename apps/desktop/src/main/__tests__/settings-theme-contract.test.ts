@@ -162,7 +162,9 @@ describe('Settings theme page contract', () => {
     ].join('\n');
 
     assert.match(themeCopy, /匹配 macOS 当前浅色或深色偏好。/);
-    assert.match(themeCopy, /Maka 原本的紫色强调色/);
+    // Brand accent is logo blue now (owner decision 2026-07-03); the old
+    // pinned copy still claimed a purple accent.
+    assert.match(themeCopy, /Maka 品牌蓝强调色/);
     assert.match(themeCopy, /湖蓝强调色，干净冷静/);
     assert.match(themeCopy, /保存在本地外观设置里下次启动延续/);
     assert.doesNotMatch(

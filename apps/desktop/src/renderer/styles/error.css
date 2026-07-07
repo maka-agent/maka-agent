@@ -1,0 +1,130 @@
+/* ============================================================================
+   Error surface — full-screen error boundary + fake-backend banner
+   ----------------------------------------------------------------------------
+   Split out of chat-header.css (#546 PR2, relocate — zero visual change).
+   Holds the renderer error boundary (`.maka-error-*`) and the inert
+   `fake` backend notice (`.maka-fake-backend-banner`), which previously
+   shared chat-header.css with five unrelated surfaces.            */
+
+.maka-error-surface {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-overlay);
+    display: grid;
+    place-items: center;
+    padding: var(--space-8);
+    background: var(--background);
+  }
+
+.maka-error-card {
+    display: grid;
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-3);
+    max-width: 520px;
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.3);
+    background: var(--background-elevated);
+    box-shadow: var(--shadow-modal);
+  }
+
+.maka-error-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-surface);
+    background: oklch(from var(--destructive) l c h / 0.10);
+    color: var(--destructive-text);
+  }
+
+.maka-error-copy {
+    display: grid;
+    gap: var(--space-1-5);
+  }
+
+.maka-error-copy h2 {
+    margin: 0;
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+    font-weight: var(--font-weight-semibold);
+  }
+
+.maka-error-copy p {
+    margin: 0;
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+    max-width: 56ch;
+  }
+
+.maka-error-stack {
+    margin: var(--space-1) 0 0;
+    max-height: 220px;
+    padding: var(--space-2-5) var(--space-3);
+    border: var(--border-width-hairline) solid var(--border);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+    color: var(--foreground-secondary);
+    overflow: auto;
+    font-family: var(--font-mono);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+.maka-error-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-1-5);
+  }
+
+.maka-error-copy-action[data-copy-state="pending"] {
+    cursor: progress;
+  }
+
+.maka-error-copy-action[data-copy-state="failed"] {
+    color: var(--destructive);
+    border-color: oklch(from var(--destructive) l c h / 0.35);
+  }
+
+.maka-error-copy-status {
+    color: var(--destructive-text);
+  }
+
+.maka-fake-backend-banner {
+  display: flex;
+  /* flex-start (not center): with multi-line copy a centered icon lands
+     on the middle line; the 1lh svg box from the Alert primitive aligns
+     it to the first line instead. */
+  align-items: flex-start;
+  /* The Alert primitive ships `w-full`; combined with the horizontal
+     margins that made the banner 28px wider than the pane, so its right
+     edge rendered clipped against the card. */
+  width: auto;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-3) 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.3);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+}
+
+.maka-fake-backend-banner svg {
+  flex: 0 0 auto;
+}
+
+/* AlertDescription is flex-col, which blockifies the inline copy around
+   the <strong> and broke one sentence into three stacked lines. */
+.maka-fake-backend-banner [data-slot="alert-description"] {
+  display: block;
+}
+
+.maka-fake-backend-banner strong {
+  font-weight: var(--font-weight-semibold);
+}

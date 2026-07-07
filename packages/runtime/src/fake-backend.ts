@@ -24,7 +24,9 @@ export class FakeBackend implements AgentBackend {
     this.stopped = false;
     const turnId = input.turnId;
     const messageId = randomUUID();
-    const text = `Fake backend received: ${input.text}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
+    const attNames = (input.attachments ?? []).map((a) => a.name);
+    const attLine = attNames.length > 0 ? `\nAttachments received: ${attNames.join(', ')}` : '';
+    const text = `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
     const chunks = text.match(/.{1,9}/g) ?? [text];
 
     for (const chunk of chunks) {

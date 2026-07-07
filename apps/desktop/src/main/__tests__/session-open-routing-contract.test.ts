@@ -40,11 +40,6 @@ describe('session open routing contract', () => {
     assert.match(handlerBlock, /const sessionId = activeIdRef\.current;/);
     assert.match(
       handlerBlock,
-      /await window\.maka\.sessions\.retryTurn\(sessionId, \{ sourceTurnId: turnId \}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重试'/,
-      'retry feedback must stay owned by the source session',
-    );
-    assert.match(
-      handlerBlock,
       /await window\.maka\.sessions\.regenerateTurn\(sessionId, \{ sourceTurnId: turnId \}\);[\s\S]*?if \(activeIdRef\.current === sessionId\) toastApi\.info\('已发起重新生成'/,
       'regenerate feedback must stay owned by the source session',
     );

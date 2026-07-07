@@ -239,6 +239,10 @@
   gap: var(--space-3);
 }
 
+.modelTableHeader > button {
+  flex: 0 0 auto;
+}
+
 .modelTableHeaderText {
   display: grid;
   gap: var(--space-0-5);
@@ -256,6 +260,7 @@
   font-size: var(--font-size-caption);
   line-height: var(--leading-normal);
   color: var(--foreground-secondary);
+  overflow-wrap: anywhere;
 }
 
 .modelTable[data-source="fetched"] .modelTableHeaderText small {
@@ -339,7 +344,7 @@
 .modelTableRow {
   width: 100%;
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(0, auto) auto;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-2-5);
@@ -437,6 +442,7 @@
   flex-wrap: wrap;
   gap: var(--space-1);
   justify-self: end;
+  min-width: 0;
 }
 
 .modelTableChip {

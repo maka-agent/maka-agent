@@ -12,7 +12,6 @@ import {
   normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
-  normalizeRetryTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from '../permission-response-guard.js';
@@ -60,11 +59,7 @@ describe('permission response IPC boundary', () => {
     assert.doesNotMatch(handler, /runtime\.respondToPermission\(sessionId,\s*response\)/);
   });
 
-  it('normalizes turn action inputs before retry / regenerate / branch runtime calls', () => {
-    assert.deepEqual(
-      normalizeRetryTurnInput({ sourceTurnId: 'turn-1', turnId: 'retry-1', extra: true }),
-      { sourceTurnId: 'turn-1', turnId: 'retry-1' },
-    );
+  it('normalizes turn action inputs before regenerate / branch runtime calls', () => {
     assert.deepEqual(
       normalizeRegenerateTurnInput({ sourceTurnId: 'turn-2' }),
       { sourceTurnId: 'turn-2' },
@@ -76,8 +71,6 @@ describe('permission response IPC boundary', () => {
   });
 
   it('rejects malformed turn action inputs at the IPC boundary', () => {
-    assert.throws(() => normalizeRetryTurnInput(null), /retry turn input/);
-    assert.throws(() => normalizeRetryTurnInput({ sourceTurnId: '' }), /sourceTurnId/);
     assert.throws(() => normalizeRegenerateTurnInput({ sourceTurnId: 'turn-1', turnId: 1 }), /turnId/);
     assert.throws(() => normalizeBranchFromTurnInput({ sourceTurnId: 'turn-1', name: 1 }), /branch name/);
   });
@@ -85,12 +78,9 @@ describe('permission response IPC boundary', () => {
   it('routes turn actions through main-process normalizers', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readFile(mainPath, 'utf8');
-    const retryHandler = main.match(/ipcMain\.handle\('sessions:retryTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const regenerateHandler = main.match(/ipcMain\.handle\('sessions:regenerateTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const branchHandler = main.match(/ipcMain\.handle\('sessions:branchFromTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
 
-    assert.match(retryHandler, /normalizeRetryTurnInput\(input\)/);
-    assert.doesNotMatch(retryHandler, /runtime\.retryTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(regenerateHandler, /normalizeRegenerateTurnInput\(input\)/);
     assert.doesNotMatch(regenerateHandler, /runtime\.regenerateTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(branchHandler, /normalizeBranchFromTurnInput\(input\)/);

@@ -315,13 +315,11 @@ function NeedsConnectionHero(props: {
         </ul>
       </div>
 
+      {/* Designer audit P2-15: the footer's primary 打开设置·模型 button
+          duplicated what clicking any provider row above already does (the
+          list header even says 点一个进入设置). One affordance per action —
+          the footer keeps only the two genuinely distinct paths. */}
       <footer className="maka-onboarding-footer">
-        <Button
-          type="button"
-          onClick={() => props.onOpenSettings('models')}
-        >
-          打开设置 · 模型
-        </Button>
         {props.onRefreshConnections && (
           <Button
             type="button"

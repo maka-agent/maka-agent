@@ -38,6 +38,7 @@ import type {
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
+  ThinkingCompleteEvent,
   TokenUsageEvent,
   StorageRef,
   AttachmentRef,
@@ -50,6 +51,7 @@ import type {
   ToolResultMessage,
   PermissionDecisionMessage,
   TokenUsageMessage,
+  SystemNoteMessage,
   BackendKind,
   SessionHeader,
 } from '@maka/core/session';
@@ -100,6 +102,7 @@ import {
   rewriteActiveToolResultsInMessages,
   type ActiveToolResultPruneDiagnosticPatch,
 } from './active-tool-result-prune.js';
+import { toolResultOutput } from './ai-sdk-tool-output.js';
 import {
   rewriteActiveFullCompactInMessages,
   type ActiveFullCompactBlock,
@@ -119,6 +122,7 @@ import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
   buildRuntimeEventModelReplayPlan,
+  collectToolActivityTurnIds,
   formatTextWithAttachmentRefs,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -169,12 +173,6 @@ export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
-
-type AiSdkToolResultOutput =
-  | { type: 'text'; value: string }
-  | { type: 'json'; value: JSONValue }
-  | { type: 'error-text'; value: string }
-  | { type: 'error-json'; value: JSONValue };
 
 // ============================================================================
 // AgentBackend interface
@@ -268,6 +266,14 @@ function projectAcceptedActiveFullCompactMessages(
     ...acceptedProjection.projectedMessages,
     ...incomingMessages.slice(acceptedProjection.sourceSignatures.length),
   ];
+}
+
+function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
+  const joined = fragments
+    .map((fragment) => fragment?.trim())
+    .filter((fragment): fragment is string => Boolean(fragment))
+    .join('\n\n');
+  return joined.length > 0 ? joined : undefined;
 }
 
 // ============================================================================
@@ -429,6 +435,8 @@ export interface AiSdkBackendInput {
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
   turnTailPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
+  /** Optional volatile ShellRun summary. Not persisted; appended to the current user turn tail only. */
+  shellRunContextSummary?: () => string | undefined | Promise<string | undefined>;
   /** Provider-native options passed through to ai-sdk. */
   providerOptions?: Record<string, unknown>;
   /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
@@ -632,7 +640,7 @@ export class AiSdkBackend implements AgentBackend {
     const current = base.historyCompact;
     const currentWithoutBlocks = { ...current };
     delete currentWithoutBlocks.blocks;
-    const maxHistoryEstimatedTokens = estimatedTokens;
+    const maxHistoryEstimatedTokens = base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
     return {
       name: base.name ?? 'manual-history-compact',
       ...(base.charsPerToken !== undefined ? { charsPerToken: base.charsPerToken } : {}),
@@ -642,8 +650,9 @@ export class AiSdkBackend implements AgentBackend {
         ...currentWithoutBlocks,
         enabled: true,
         mode: 'read_write',
-        highWaterRatio: 0.01,
+        highWaterRatio: 0.000001,
         targetRatio: current?.targetRatio ?? 0.2,
+        tailEstimatedTokens: 1,
         minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
@@ -682,6 +691,7 @@ export class AiSdkBackend implements AgentBackend {
     let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
     let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
     let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
+    let contextCompactedNoteWritten = false;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -776,7 +786,10 @@ export class AiSdkBackend implements AgentBackend {
         watchdog.start();
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
-        const turnTailPrompt = await this.resolveTurnTailPrompt();
+        const turnTailPrompt = joinPromptFragments([
+          await this.resolveTurnTailPrompt(),
+          await this.resolveShellRunContextSummary(),
+        ]);
         const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
         const messages = [
           ...priorReplay.messages,
@@ -933,7 +946,7 @@ export class AiSdkBackend implements AgentBackend {
             onText: (t) => { assistantText += t; },
             onTextComplete: (t) => { assistantText = t; },
             onThinking: (t) => { thinkingText += t; },
-            onThinkingComplete: (t, sig) => { thinkingText = t; thinkingSignature = sig; },
+            onThinkingSignature: (sig) => { thinkingSignature = sig; },
           });
         }
 
@@ -979,8 +992,22 @@ export class AiSdkBackend implements AgentBackend {
             + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
         }
 
-        // Persist assistant message if we got one.
-        if (assistantText.length > 0) {
+        // Persist the assistant turn if it produced text OR reasoning. A turn
+        // that ends with only thinking (no final text) must still persist its
+        // reasoning; gating solely on text would drop it. The AssistantMessage
+        // carries an empty `text` in that case, and we still emit text_complete
+        // (empty) so the RuntimeEvent read-model has a same-turn assistant row
+        // to attach the thinking to — otherwise projectThinking has nothing to
+        // hang the reasoning on and discards it.
+        //
+        // A signature is thinking even with no text: Anthropic's omitted /
+        // redacted thinking returns a signed reasoning block whose text is
+        // empty. Dropping it would lose the signed block for provider-native
+        // replay (reasoning continuity). Persist `text: ''` + signature so the
+        // block round-trips faithfully; the render layer is responsible for not
+        // surfacing an empty thinking entry.
+        const hasThinking = thinkingText.length > 0 || thinkingSignature !== undefined;
+        if (assistantText.length > 0 || hasThinking) {
           const msg: AssistantMessage = {
             type: 'assistant',
             id: assistantMessageId,
@@ -988,7 +1015,7 @@ export class AiSdkBackend implements AgentBackend {
             ts: this.now(),
             text: assistantText,
             modelId: this.input.modelId,
-            ...(thinkingText.length > 0
+            ...(hasThinking
               ? {
                   thinking: {
                     text: thinkingText,
@@ -998,6 +1025,23 @@ export class AiSdkBackend implements AgentBackend {
               : {}),
           };
           await this.input.appendMessage(msg);
+          // Emit the terminal thinking event before text_complete so the
+          // RuntimeEvent stream carries a non-partial `thinking` message. Only
+          // partial `thinking_delta`s were emitted during streaming, so without
+          // this the read-model projection (and materialized session) drops all
+          // reasoning. The read-model attaches this to the same-turn assistant
+          // text row emitted just below.
+          if (hasThinking) {
+            queue.push({
+              type: 'thinking_complete',
+              id: this.newId(),
+              turnId,
+              ts: this.now(),
+              messageId: assistantMessageId,
+              text: thinkingText,
+              ...(thinkingSignature !== undefined ? { signature: thinkingSignature } : {}),
+            } satisfies ThinkingCompleteEvent);
+          }
           queue.push({
             type: 'text_complete',
             id: this.newId(),
@@ -1062,6 +1106,17 @@ export class AiSdkBackend implements AgentBackend {
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
+            if (!contextCompactedNoteWritten && shouldAppendContextCompactedNote(contextBudgetForUsage)) {
+              contextCompactedNoteWritten = true;
+              const note: SystemNoteMessage = {
+                type: 'system_note',
+                id: this.newId(),
+                turnId,
+                ts: this.now(),
+                kind: 'context_compacted',
+              };
+              await this.input.appendMessage(note).catch(() => {});
+            }
             queue.push({
               type: 'token_usage',
               id: this.newId(),
@@ -1438,6 +1493,10 @@ export class AiSdkBackend implements AgentBackend {
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
+      // `runtimeContext` may be a budget/history-search slice; the tool-turn
+      // thinking skip is a whole-history invariant, so seed it from the full
+      // prior ledger so a sliced-in tool-turn thinking still gets skipped.
+      { toolActivityTurnIds: collectToolActivityTurnIds(priorRuntimeContext) },
     );
     if (plan.items.length === 0) {
       return {
@@ -2285,6 +2344,10 @@ export class AiSdkBackend implements AgentBackend {
     return this.input.turnTailPrompt;
   }
 
+  private async resolveShellRunContextSummary(): Promise<string | undefined> {
+    return await this.input.shellRunContextSummary?.();
+  }
+
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {
     for await (const ev of queue) yield ev;
   }
@@ -2341,17 +2404,6 @@ function buildInvalidMakaTool(): MakaTool<{ tool?: string; error?: string }, nev
   };
 }
 
-function toolResultOutput(value: unknown, isError: boolean): AiSdkToolResultOutput {
-  if (isError) {
-    return typeof value === 'string'
-      ? { type: 'error-text', value }
-      : { type: 'error-json', value: jsonValue(value) };
-  }
-  return typeof value === 'string'
-    ? { type: 'text', value }
-    : { type: 'json', value: jsonValue(value) };
-}
-
 function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
@@ -2374,7 +2426,6 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
   return plan.diagnostics.some((diagnostic) =>
     diagnostic.code === 'unsupported_role' ||
     diagnostic.code === 'unsupported_content' ||
-    diagnostic.code === 'unsigned_thinking' ||
     diagnostic.code === 'unmatched_tool_result' ||
     diagnostic.code === 'tool_id_mismatch'
   );
@@ -2610,6 +2661,15 @@ function contextBudgetWithActivePrepareStepDiagnostics(
   return mergeContextBudgetDiagnostic(base ?? minimalContextBudgetDiagnostic(), mergedPatch);
 }
 
+function shouldAppendContextCompactedNote(contextBudget: ContextBudgetDiagnostic | undefined): boolean {
+  if ((contextBudget?.historyCompactBlocksWritten ?? 0) <= 0) return false;
+  return contextBudget?.compactionDecisions?.some((decision) =>
+    decision.stage === 'priorReplay'
+    && decision.boundaryKind === 'historyCompact'
+    && decision.decision === 'replaced'
+  ) === true;
+}
+
 function minimalContextBudgetDiagnostic(): ContextBudgetDiagnostic {
   return {
     enabled: true,
@@ -2674,18 +2734,4 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
   for (const [key, value] of Object.entries(source ?? {})) {
     target[key] = (target[key] ?? 0) + value;
   }
-}
-
-function jsonValue(value: unknown): JSONValue {
-  if (
-    value === null
-    || typeof value === 'string'
-    || typeof value === 'number'
-    || typeof value === 'boolean'
-    || Array.isArray(value)
-    || typeof value === 'object'
-  ) {
-    return value as JSONValue;
-  }
-  return String(value);
 }

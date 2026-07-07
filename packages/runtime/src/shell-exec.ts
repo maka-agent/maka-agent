@@ -13,12 +13,11 @@
 // BashTailBuffer (keeping only the last `maxRetainedChars` per stream) and lets
 // the command run to completion regardless of output size.
 //
-// It is the dumb core: it always RESOLVES with { exitCode, stdout, stderr,
-// timedOut, aborted }, rejecting only when the process cannot be spawned at all.
-// Each caller maps that to its own contract — the builtin throws on
-// timeout/abort/non-zero; the Harbor executor returns the result verbatim.
+// It is the dumb core: it always RESOLVES with shell facts, rejecting only when
+// the process cannot be spawned at all. Each caller maps those facts to its own
+// contract.
 
-import { spawn } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import { BashTailBuffer } from './bash-tail-buffer.js';
 import { OUTPUT_RECOVERY_HINT } from './tool-output.js';
 
@@ -43,7 +42,7 @@ export const SIGKILL_GRACE_MS = 2000;
 
 // Emitted once per stream when live forwarding is suppressed. The full output is
 // not lost — it still feeds the retained tail and the returned result.
-const LIVE_OUTPUT_SUPPRESSED_MARKER =
+export const LIVE_OUTPUT_SUPPRESSED_MARKER =
   '[live output suppressed: too much output to stream live; the command keeps ' +
   'running and its result still contains the most recent output]';
 
@@ -55,7 +54,7 @@ const UNSAFE_DROP_MARKER =
   '[a single line larger than the output limit was omitted for safety. '
   + OUTPUT_RECOVERY_HINT + ']';
 
-function withUnsafeDropMarker(buf: BashTailBuffer): string {
+export function shellTailValueWithUnsafeDropMarker(buf: BashTailBuffer): string {
   const text = buf.value(); // value() trims first, so the drop flag is current after it
   if (!buf.hasDroppedUnsafe()) return text;
   // Append (not prepend) so a later tail-keeping truncateToolOutput retains it.
@@ -86,6 +85,10 @@ export interface BoundedShellResult {
   stdout: string;
   /** Last `maxRetainedChars` of stderr. */
   stderr: string;
+  /** True when stdout was reduced by the retained-tail buffer. */
+  stdoutTruncated: boolean;
+  /** True when stderr was reduced by the retained-tail buffer. */
+  stderrTruncated: boolean;
   /** The command exceeded timeoutMs and was killed. */
   timedOut: boolean;
   /** The abortSignal fired and the command was killed. */
@@ -124,6 +127,8 @@ export function runShellWithBoundedTail(
     });
     const stdoutBuf = new BashTailBuffer(cap);
     const stderrBuf = new BashTailBuffer(cap);
+    let stdoutChars = 0;
+    let stderrChars = 0;
     let settled = false;
     // Per-stream live-forwarding budget (see BASH_MAX_LIVE_EMIT_CHARS). Once a
     // stream passes liveCap we emit one marker and stop forwarding it live.
@@ -161,8 +166,13 @@ export function runShellWithBoundedTail(
     function append(stream: 'stdout' | 'stderr', chunk: string): void {
       if (settled) return; // never capture or emit after we have resolved
       // Always retain (the result keeps the bounded tail regardless of live cap).
-      if (stream === 'stdout') stdoutBuf.push(chunk);
-      else stderrBuf.push(chunk);
+      if (stream === 'stdout') {
+        stdoutBuf.push(chunk);
+        stdoutChars += chunk.length;
+      } else {
+        stderrBuf.push(chunk);
+        stderrChars += chunk.length;
+      }
       emitLive(stream, chunk);
     }
 
@@ -200,19 +210,7 @@ export function runShellWithBoundedTail(
     // group. Windows: no groups/SIGTERM — taskkill /T /F force-kills the tree in
     // one shot (the later SIGKILL call is then a harmless no-op on a dead PID).
     function terminateTree(signal: 'SIGTERM' | 'SIGKILL'): void {
-      const pid = child.pid;
-      if (!pid) return;
-      if (process.platform === 'win32') {
-        killWindowsTree(pid);
-        return;
-      }
-      try {
-        process.kill(-pid, signal); // negative PID → the child's process group
-      } catch {
-        // Group already gone, or it never became a group leader — fall back to
-        // the single PID so we at least signal the shell itself.
-        try { child.kill(signal); } catch { /* already exited */ }
-      }
+      terminateChildProcessTree(child, signal);
     }
 
     // Settle once, on 'close'. exitCode reflects how we terminated: 124 timeout,
@@ -221,10 +219,14 @@ export function runShellWithBoundedTail(
       if (settled) return;
       settled = true;
       cleanup();
+      const stdout = shellTailValueWithUnsafeDropMarker(stdoutBuf);
+      const stderr = shellTailValueWithUnsafeDropMarker(stderrBuf);
       resolvePromise({
         exitCode: termination ? (termination.timedOut ? 124 : 130) : (code ?? (signal ? 128 : 1)),
-        stdout: withUnsafeDropMarker(stdoutBuf),
-        stderr: withUnsafeDropMarker(stderrBuf),
+        stdout,
+        stderr,
+        stdoutTruncated: stdoutChars > stdout.length || stdoutBuf.hasDroppedUnsafe(),
+        stderrTruncated: stderrChars > stderr.length || stderrBuf.hasDroppedUnsafe(),
         timedOut: !!termination?.timedOut,
         aborted: !!termination?.aborted,
       });
@@ -236,6 +238,20 @@ export function runShellWithBoundedTail(
       if (options.abortSignal) options.abortSignal.removeEventListener('abort', abort);
     }
   });
+}
+
+export function terminateChildProcessTree(child: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+  const pid = child.pid;
+  if (!pid) return;
+  if (process.platform === 'win32') {
+    killWindowsTree(pid);
+    return;
+  }
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    try { child.kill(signal); } catch { /* already exited */ }
+  }
 }
 
 /**

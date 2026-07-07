@@ -24,6 +24,8 @@
  *
  *   - `maka://session/<id>` — defer until a real session navigation
  *     API exists; URI router must not invent navigation contracts.
+ *   - `maka://runtime/*` — runtime resource refs for tools such as
+ *     Read / StopBackgroundTask. They are not UI navigation links.
  *   - `maka://tool/*`, `maka://auth/*`, `maka://exec/*` — these are
  *     actions, not navigation. Routing markdown into them would let
  *     a prompt-injected assistant turn run tools / log in / execute

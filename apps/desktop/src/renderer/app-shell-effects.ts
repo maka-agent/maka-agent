@@ -175,6 +175,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshPlanReminders: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
+  refreshManagedSkillSources: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
   rendererMountedRef: RefBox<boolean>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -187,6 +188,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshAppInfo();
     void options.refreshMemoryActive('载入本地记忆状态失败');
     void options.refreshSkills();
+    void options.refreshManagedSkillSources();
     void options.refreshPlanReminders();
     void options.applyVisualSmokeFixture();
   });

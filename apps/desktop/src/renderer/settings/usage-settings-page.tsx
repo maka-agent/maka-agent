@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
 import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -119,14 +120,22 @@ export function UsageSettingsPage(props: {
           ]}
           onChange={(value) => void setRange(value as UsageRange)}
         />
+        {/* Detail audit: 刷新 was a primary --action chip glued to the
+            segmented — two control styles fighting in one row for a
+            low-frequency utility. Same quiet icon form as the automations
+            page refresh (one action, one shape everywhere). */}
         <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           disabled={refreshing}
           aria-busy={refreshing}
           data-pending={refreshing ? 'true' : undefined}
+          aria-label={refreshing ? '正在刷新使用统计' : '刷新使用统计'}
+          title={refreshing ? '正在刷新使用统计' : '刷新使用统计'}
           onClick={() => void refresh()}
         >
-          {refreshing ? '刷新中…' : '刷新'}
+          <RefreshCcw size={15} strokeWidth={1.75} aria-hidden="true" />
         </Button>
       </div>
 

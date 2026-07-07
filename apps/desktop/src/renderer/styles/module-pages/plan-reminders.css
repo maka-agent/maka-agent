@@ -82,16 +82,6 @@
   flex-wrap: wrap;
 }
 
-.maka-plan-create-through {
-  gap: var(--space-1);
-  background: var(--foreground-3);
-  color: var(--foreground);
-  border-color: transparent;
-  border-radius: var(--radius-pill);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-}
-
 /* PR-UI-PIXEL-3: signature off-black CTA, matching the reference's restrained
    primary command treatment without using the app accent. Pure #000 is banned
    per design-taste rules — use oklch off-black (charcoal) for premium feel. */
@@ -323,19 +313,18 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  border-color: oklch(0.90 0.04 240);
+  border-color: oklch(from var(--system-alert-accent) 0.90 min(c, 0.04) h);
   border-radius: var(--radius-surface);
-  background: oklch(0.965 0.035 235);
-  color: oklch(0.50 0.13 245);
+  background: oklch(from var(--system-alert-accent) 0.965 min(c, 0.035) h);
+  color: oklch(from var(--system-alert-accent) 0.50 min(c, 0.13) h);
   padding: var(--space-3) var(--space-4);
 }
 
 .maka-plan-system-alert [class*="lucide"] {
-  color: oklch(0.42 0.095 245);
+  color: oklch(from var(--system-alert-accent) 0.42 min(c, 0.095) h);
 }
 
-.maka-plan-system-alert-main,
-.maka-plan-system-alert-switch {
+.maka-plan-system-alert-main {
   display: inline-flex;
   min-width: 0;
   align-items: center;
@@ -348,44 +337,18 @@
   gap: var(--space-1-5);
 }
 
-.maka-plan-system-alert-main [data-slot="alert-description"] {
-  display: none;
-}
-
 .maka-plan-system-alert-main > [class*="lucide"] {
   flex: 0 0 auto;
 }
 
-.maka-plan-system-alert-switch {
-  flex: 0 0 auto;
-  color: oklch(0.38 0.075 245);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  white-space: nowrap;
-}
-
-/* Static 「即将支持」 tag (was a permanently-disabled Switch). Tinted
-   to the info-alert family so it reads as part of the banner. */
-.maka-plan-system-alert-soon {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 var(--space-2);
-  border: var(--border-width-hairline) solid oklch(0.56 0.08 245 / 0.4);
-  border-radius: var(--radius-pill);
-  background: oklch(0.56 0.08 245 / 0.10);
-  font-weight: var(--font-weight-semibold);
-}
-
 .dark .maka-plan-system-alert {
-  border-color: oklch(0.56 0.08 245 / 0.44);
-  background: oklch(0.25 0.04 245 / 0.52);
-  color: oklch(0.84 0.07 245);
+  border-color: oklch(from var(--system-alert-accent) 0.56 min(c, 0.08) h / 0.44);
+  background: oklch(from var(--system-alert-accent) 0.25 min(c, 0.04) h / 0.52);
+  color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 
-.dark .maka-plan-system-alert [class*="lucide"],
-.dark .maka-plan-system-alert-switch {
-  color: oklch(0.84 0.07 245);
+.dark .maka-plan-system-alert [class*="lucide"] {
+  color: oklch(from var(--system-alert-accent) 0.84 min(c, 0.07) h);
 }
 
 .maka-plan-tabs {

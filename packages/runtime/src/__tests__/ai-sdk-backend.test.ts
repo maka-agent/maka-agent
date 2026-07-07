@@ -5,10 +5,14 @@ import { describe, test } from 'node:test';
 import type { ModelMessage } from 'ai';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
-import type { LlmConnection, SessionHeader } from '@maka/core';
+import type { AgentRunHeader, LlmConnection, SessionHeader } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { ToolResultMessage } from '@maka/core/session';
+import { createSessionEventMapMemory, mapSessionEventToRuntimeEvent } from '../ai-sdk-flow.js';
+import { projectRuntimeEventsToStoredMessages } from '../runtime-event-read-model.js';
+import { materializeSession } from '../materializer.js';
+import type { InvocationContext } from '../invocation-context.js';
+import type { AssistantMessage, StoredMessage, ToolResultMessage } from '@maka/core/session';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import { z } from 'zod';
 import {
@@ -40,6 +44,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '../history-compact-artifacts.js';
+import { buildDefaultContextBudgetPolicy } from '../context-budget-policy.js';
 import { memoryArtifactStore } from './memory-artifact-store.js';
 import { buildRuntimeEventModelReplayPlan } from '../model-history.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
@@ -1511,6 +1516,74 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
   });
 
+  test('manual compactHistory still folds small histories with the default automatic compact policy', async () => {
+    const writeInputs: string[][] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'claude-sonnet-4-5-20250929',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: buildDefaultContextBudgetPolicy(connection(), {
+        name: 'cli-default-history-budget',
+        modelId: 'claude-sonnet-4-5-20250929',
+      }),
+      writeHistoryCompact: async (input) => {
+        writeInputs.push(input.source.foldedRuntimeEvents.map((event) => event.id));
+        return {
+          blocks: [buildHistoryCompactBlockFromSummary({
+            sessionId: input.sessionId,
+            foldedRuntimeEvents: input.source.foldedRuntimeEvents,
+            summary: 'DEFAULT_POLICY_MANUAL_HISTORY_COMPACT_SENTINEL',
+            highWaterName: input.source.draftBlock.highWaterName,
+            highWaterSeq: input.source.draftBlock.highWaterSeq,
+            charsPerToken: input.limits.charsPerToken,
+          })],
+        };
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual old alpha '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'default policy manual old beta '.repeat(10),
+        }),
+        runtimeTextEvent({
+          id: 'default-policy-manual-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'default policy manual recent retained context',
+        }),
+      ],
+    });
+
+    assert.deepEqual(writeInputs, [[
+      'default-policy-manual-old-1',
+      'default-policy-manual-old-2',
+    ]]);
+    assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({
@@ -1983,6 +2056,7 @@ describe('AiSdkBackend model history', () => {
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const writeInputs: Array<{ draftSummary: string; foldedIds: string[] }> = [];
     const oldEvents = [
       runtimeTextEvent({
@@ -2003,7 +2077,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2014,14 +2090,14 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
       contextBudget: {
         name: 'history-compact-write-test',
-        maxHistoryEstimatedTokens: 220,
+        maxHistoryEstimatedTokens: 1500,
         minRecentTurns: 1,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'read_write',
-          highWaterRatio: 0.5,
-          targetRatio: 0.2,
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 44,
           minRecentTurns: 1,
           maxSummaryEstimatedTokens: 120,
         },
@@ -2080,11 +2156,16 @@ describe('AiSdkBackend model history', () => {
     );
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
     assert.equal(usage?.contextBudget?.compactionDecisions?.[0]?.boundaryKind, 'historyCompact');
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      true,
+    );
   });
 
   test('read_write history compact fail-open sends original history when durable write fails', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-fail-old-1',
@@ -2104,7 +2185,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2115,14 +2198,14 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
       contextBudget: {
         name: 'history-compact-write-failure-test',
-        maxHistoryEstimatedTokens: 220,
+        maxHistoryEstimatedTokens: 1500,
         minRecentTurns: 1,
         charsPerToken: 1,
         historyCompact: {
           enabled: true,
           mode: 'read_write',
-          highWaterRatio: 0.5,
-          targetRatio: 0.2,
+          highWaterRatio: 0.01,
+          tailEstimatedTokens: 44,
           minRecentTurns: 1,
           maxSummaryEstimatedTokens: 120,
         },
@@ -2165,11 +2248,16 @@ describe('AiSdkBackend model history', () => {
       usage?.contextBudget?.compactionDecisions?.map((decision) => decision.decision),
       ['failedOpen'],
     );
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('loads persisted history compact blocks before replay and does not rewrite them', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
+    const storedMessages: StoredMessage[] = [];
     const oldEvents = [
       runtimeTextEvent({
         id: 'compact-load-old-1',
@@ -2199,7 +2287,9 @@ describe('AiSdkBackend model history', () => {
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
       header: header(),
-      appendMessage: async () => {},
+      appendMessage: async (message) => {
+        storedMessages.push(message);
+      },
       connection: connection(),
       apiKey: 'sk-test',
       modelId: 'mock-model-id',
@@ -2264,6 +2354,10 @@ describe('AiSdkBackend model history', () => {
     assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
     assert.equal(usage?.contextBudget?.historyCompactBlocksSelected, 1);
     assert.equal(usage?.contextBudget?.historyCompactWritesAttempted, undefined);
+    assert.equal(
+      storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
+      false,
+    );
   });
 
   test('replays a persisted compact block whose provenance JSON outgrows the token budget', async () => {
@@ -2630,9 +2724,12 @@ describe('AiSdkBackend error surfaces', () => {
       kind: 'terminal',
       cwd: '/tmp/maka',
       cmd: 'printf out; printf err >&2; exit 2',
+      status: 'failed',
       exitCode: 2,
       stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
       stderr: 'stderr before failure',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     });
   });
 
@@ -4910,7 +5007,17 @@ describe('AiSdkBackend tool permission category hints', () => {
       parameters: {},
       permissionRequired: false,
       impl: async () => new Promise((resolve) => {
-        release = () => resolve({ kind: 'terminal', cwd: '/app', cmd: 'sleep 300', exitCode: 0, stdout: '', stderr: '' });
+        release = () => resolve({
+          kind: 'terminal',
+          cwd: '/app',
+          cmd: 'sleep 300',
+          status: 'completed',
+          exitCode: 0,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        });
       }),
     };
     const execute = (backend as unknown as {
@@ -5303,6 +5410,429 @@ describe('AiSdkBackend loop-gate turn wiring', () => {
     // and fails — which is what proves the wiring the ToolRuntime unit test alone
     // cannot.
     assert.equal(resets, 2, 'resetTurnState runs at turn start and at cleanup');
+  });
+});
+
+describe('AiSdkBackend thinking persistence', () => {
+  test('emits a non-partial thinking_complete that survives read-model projection and materialization', async () => {
+    const chunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'Let me ' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'reason.' },
+      // Anthropic delivers the signed signature on a standalone empty delta.
+      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-123' } } },
+      { type: 'reasoning-end', id: 'r1' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'Final answer.' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 2, text: 1, reasoning: 1 },
+        },
+      },
+    ];
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    const thinkingComplete = events.find(
+      (event): event is Extract<SessionEvent, { type: 'thinking_complete' }> =>
+        event.type === 'thinking_complete',
+    );
+    assert.ok(thinkingComplete, 'backend must emit a thinking_complete event');
+    assert.equal(thinkingComplete.text, 'Let me reason.');
+    assert.equal(thinkingComplete.signature, 'sig-123');
+
+    // Thinking must be finalized before the assistant text so the read-model
+    // has an assistant row to attach it to (order-independent, but assert the
+    // intended emission order for clarity).
+    const thinkingIndex = events.findIndex((event) => event.type === 'thinking_complete');
+    const textIndex = events.findIndex((event) => event.type === 'text_complete');
+    assert.ok(thinkingIndex >= 0 && textIndex >= 0 && thinkingIndex < textIndex);
+
+    // End-to-end: SessionEvent → RuntimeEvent → StoredMessage projection.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      now: () => 42,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeEvents = events.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runHeader: AgentRunHeader = {
+      runId: 'run-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      backendKind: 'ai-sdk',
+      llmConnectionSlug: 'anthropic-main',
+      modelId: 'mock-model-id',
+      cwd: '/tmp/maka',
+      permissionMode: 'ask',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, { runHeaders: [runHeader] });
+    const assistant = projection.messages.find((message) => message.type === 'assistant');
+    assert.ok(assistant && assistant.type === 'assistant');
+    assert.equal(assistant.text, 'Final answer.');
+    assert.equal(assistant.thinking?.text, 'Let me reason.');
+    assert.equal(assistant.thinking?.signature, 'sig-123');
+
+    // materializeSession (session reload) surfaces the reconstructed thinking.
+    const viewModel = materializeSession(projection.messages);
+    const assistantItem = viewModel.items.find((item) => item.kind === 'assistant');
+    assert.ok(assistantItem && assistantItem.kind === 'assistant');
+    assert.equal(assistantItem.message.thinking?.text, 'Let me reason.');
+    assert.equal(assistantItem.message.thinking?.signature, 'sig-123');
+  });
+
+  test('persists reasoning for a thinking-only turn that produces no final text', async () => {
+    const chunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'silent ' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'thought' },
+      { type: 'reasoning-end', id: 'r1' },
+      // No text-* parts: the turn ends with reasoning only.
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 1, text: 0, reasoning: 1 },
+        },
+      },
+    ];
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const appended: unknown[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => { appended.push(message); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    // thinking_complete must be emitted even though there is no assistant text.
+    const thinkingComplete = events.find(
+      (event): event is Extract<SessionEvent, { type: 'thinking_complete' }> =>
+        event.type === 'thinking_complete',
+    );
+    assert.ok(thinkingComplete, 'thinking-only turn must still emit thinking_complete');
+    assert.equal(thinkingComplete.text, 'silent thought');
+    // An AssistantMessage (empty text + thinking) is persisted for the turn.
+    const assistantMessage = appended.find(
+      (message): message is { type: string; text: string; thinking?: { text: string } } =>
+        (message as { type?: string }).type === 'assistant',
+    );
+    assert.ok(assistantMessage);
+    assert.equal(assistantMessage.text, '');
+    assert.equal(assistantMessage.thinking?.text, 'silent thought');
+
+    // Full chain: RuntimeEvent projection + materialize keep the reasoning on an
+    // empty-text assistant row without crashing.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      now: () => 42,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeEvents = events.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+    const runHeader: AgentRunHeader = {
+      runId: 'run-1',
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      backendKind: 'ai-sdk',
+      llmConnectionSlug: 'anthropic-main',
+      modelId: 'mock-model-id',
+      cwd: '/tmp/maka',
+      permissionMode: 'ask',
+      createdAt: 1,
+      updatedAt: 2,
+    };
+    const projection = projectRuntimeEventsToStoredMessages(runtimeEvents, { runHeaders: [runHeader] });
+    const assistant = projection.messages.find((message) => message.type === 'assistant');
+    assert.ok(assistant && assistant.type === 'assistant');
+    assert.equal(assistant.text, '');
+    assert.equal(assistant.thinking?.text, 'silent thought');
+
+    const viewModel = materializeSession(projection.messages);
+    const assistantItem = viewModel.items.find((item) => item.kind === 'assistant');
+    assert.ok(assistantItem && assistantItem.kind === 'assistant');
+    assert.equal(assistantItem.message.thinking?.text, 'silent thought');
+  });
+
+  test('signed thinking survives to the provider-native replay request on the next turn', async () => {
+    // Turn 1: produce a signed thinking + text turn through the real backend.
+    const firstChunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      { type: 'reasoning-delta', id: 'r1', delta: 'deep thought' },
+      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-replay' } } },
+      { type: 'reasoning-end', id: 'r1' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'the answer' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 2, text: 1, reasoning: 1 },
+        },
+      },
+    ];
+    const firstModel = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const firstBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => firstModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const firstEvents: SessionEvent[] = [];
+    for await (const event of firstBackend.send({ turnId: 'turn-prev', text: 'q', context: [] })) {
+      firstEvents.push(event);
+    }
+
+    // Translate the emitted SessionEvents into the durable RuntimeEvent ledger.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeContext = firstEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    // Turn 2: replay the prior ledger and capture the outgoing provider request.
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    // The reasoning block + text + Anthropic signature must reach the AI SDK
+    // request. This fails if signature forwarding regresses or replay degrades
+    // to text-only.
+    const prompt = JSON.stringify(compactPrompt(secondModel));
+    assert.match(prompt, /"type":"reasoning"/);
+    assert.match(prompt, /deep thought/);
+    assert.match(prompt, /sig-replay/);
+  });
+
+  test('signed thinking from a tool-calling turn is NOT replayed as a stray reasoning block', async () => {
+    // Reproduce the ledger a signed Anthropic tool turn produces. The backend
+    // accumulates the turn's reasoning and emits ONE thinking_complete AFTER the
+    // tool events, so the ledger order is tool_start → tool_result →
+    // thinking_complete → text_complete. If that thinking re-entered
+    // provider-native replay it would materialize as an assistant reasoning
+    // message positioned AFTER the tool result — Anthropic 400. The replay must
+    // send the tool call/result but drop the thinking.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const priorEvents: SessionEvent[] = [
+      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' } },
+      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
+      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'reasoning about the tool result', signature: 'sig-tool' },
+      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'the answer' },
+    ];
+    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = JSON.stringify(compactPrompt(secondModel));
+    // Tool call/result survive; the thinking block and its signature do not.
+    assert.match(prompt, /"toolName":"Read"|"toolCallId":"tool-1"/);
+    assert.doesNotMatch(prompt, /"type":"reasoning"/);
+    assert.doesNotMatch(prompt, /sig-tool/);
+    assert.doesNotMatch(prompt, /reasoning about the tool result/);
+  });
+
+  test('signature-only (omitted) thinking is persisted and replays with its signature', async () => {
+    // Anthropic omitted/redacted thinking: a signed reasoning block whose text
+    // is empty (only a standalone signature-carrier delta, no reasoning-delta
+    // with text). The block must still persist + replay so the signature
+    // round-trips; gating on thinking text alone would silently drop it.
+    const firstChunks: LanguageModelV3StreamPart[] = [
+      { type: 'stream-start', warnings: [] },
+      { type: 'reasoning-start', id: 'r1' },
+      // No text delta — only the signature carrier.
+      { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-omitted' } } },
+      { type: 'reasoning-end', id: 'r1' },
+      { type: 'text-start', id: 't1' },
+      { type: 'text-delta', id: 't1', delta: 'omitted-answer' },
+      { type: 'text-end', id: 't1' },
+      {
+        type: 'finish',
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 2, text: 1, reasoning: 1 },
+        },
+      },
+    ];
+    const firstModel = new MockLanguageModelV3({
+      doStream: {
+        stream: simulateReadableStream({ chunks: firstChunks, initialDelayInMs: null, chunkDelayInMs: null }),
+      },
+    });
+    const persisted: AssistantMessage[] = [];
+    const firstBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (m) => { if (m.type === 'assistant') persisted.push(m); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => firstModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const firstEvents: SessionEvent[] = [];
+    for await (const event of firstBackend.send({ turnId: 'turn-prev', text: 'q', context: [] })) {
+      firstEvents.push(event);
+    }
+
+    // thinking_complete is emitted with empty text but the signature intact.
+    const thinkingComplete = firstEvents.find(
+      (event): event is Extract<SessionEvent, { type: 'thinking_complete' }> =>
+        event.type === 'thinking_complete',
+    );
+    assert.ok(thinkingComplete, 'signature-only turn must still emit thinking_complete');
+    assert.equal(thinkingComplete.text, '');
+    assert.equal(thinkingComplete.signature, 'sig-omitted');
+    // The persisted AssistantMessage carries the signed (empty-text) thinking.
+    assert.equal(persisted.at(-1)?.thinking?.text, '');
+    assert.equal(persisted.at(-1)?.thinking?.signature, 'sig-omitted');
+
+    // Replay: pure-reasoning turn → the signed block reaches the next request.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const runtimeContext = firstEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = JSON.stringify(compactPrompt(secondModel));
+    assert.match(prompt, /"type":"reasoning"/);
+    assert.match(prompt, /sig-omitted/);
   });
 });
 

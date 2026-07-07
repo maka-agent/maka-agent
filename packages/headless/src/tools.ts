@@ -1,9 +1,9 @@
 import type { MakaTool, ToolAvailabilityConfig } from '@maka/runtime';
 import {
+  buildForegroundBashTool,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   computeEditedSource,
-  truncateToolOutput,
 } from '@maka/runtime';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
 import { posix as pathPosix } from 'node:path';
@@ -82,49 +82,27 @@ export function buildIsolatedBashTool(
   executor: IsolatedToolExecutor,
   options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence'> = {},
 ): MakaTool {
-  return {
-    name: 'Bash',
+  return buildForegroundBashTool({
     description:
       'Run a shell command in the isolated headless task workspace. '
       + 'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.',
-    parameters: z.object({
-      command: z.string().describe('The shell command to execute'),
-      timeout_ms: z.number().int().positive().max(600_000).optional(),
-    }),
-    permissionRequired: true,
-    impl: async ({ command, timeout_ms }, ctx) => {
-      const { cwd, emitOutput } = ctx;
-      const timeoutMs = timeout_ms ?? cleanupCommandTimeoutMs(command);
-      const input = {
-        command,
-        cwd,
-        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-      };
+    defaultTimeoutMs: cleanupCommandTimeoutMs,
+    emitReturnedOutput: true,
+    execute: async ({ command, cwd, timeoutMs }) => {
       // boundedTail: Bash is the one caller that wants a recoverable tail of a
       // huge, never-killed output. Read/Glob/Grep deliberately omit it so they
       // get full, head-first content from the executor.
-      const result = await executor.exec({
-        command: input.command,
-        cwd: input.cwd,
-        ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+      return await executor.exec({
+        command,
+        cwd,
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
         boundedTail: true,
       });
-      // The isolated executor returns a single (already tail-bounded) result —
-      // there is no live per-chunk channel across the executor boundary, so we
-      // surface that result to history here, then bound it further for the model.
-      if (result.stdout) emitOutput('stdout', result.stdout);
-      if (result.stderr) emitOutput('stderr', result.stderr);
-      await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Bash', input, result }, ctx);
-      return {
-        kind: 'terminal',
-        cwd,
-        cmd: command,
-        exitCode: result.exitCode,
-        stdout: truncateToolOutput(result.stdout, { direction: 'tail' }).content,
-        stderr: truncateToolOutput(result.stderr, { direction: 'tail' }).content,
-      };
     },
-  };
+    afterResult: async (input, result, ctx) => {
+      await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Bash', input, result }, ctx);
+    },
+  });
 }
 
 function cleanupCommandTimeoutMs(command: string): number | undefined {

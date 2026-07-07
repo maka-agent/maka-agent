@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ComponentProps, ReactNode } from 'react';
 import type { SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, Composer } from '../src/components.js';
+import type { TurnFooterActionMeta } from '../src/chat-view.js';
 import type { ChatModelChoice } from '../src/chat-model-helpers.js';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
@@ -104,10 +105,22 @@ const baseChatProps: ChatViewProps = {
   onPromptSuggestion: noop,
 };
 
+// #546: default footer actions shown on every turn in the story so the
+// redesigned icon-only footer (regenerate / branch / copy / info) is
+// visible without each story wiring it up by hand.
+const DEFAULT_FOOTER_ACTIONS: ReadonlyArray<TurnFooterActionMeta> = [
+  { id: 'regenerate', label: '重新生成', enabled: true, tooltip: '让模型重新生成本轮回答' },
+  { id: 'branch', label: '分支', enabled: true, tooltip: '基于此回答的上下文分支出新对话' },
+  { id: 'copy', label: '复制', enabled: true, tooltip: '复制回答到剪贴板' },
+  { id: 'info', label: '详情', enabled: true, tooltip: 'claude-sonnet-4-5 · 4.9s · $0.0123' },
+];
+
 const baseComposerProps: ComposerProps = {
   draftKey: 'storybook-chat-surface',
   onSend: noop,
   onStop: noop,
+  onPickAttachments: noop,
+  onAttachFilePaths: noop,
   modelLabel: 'Claude Sonnet 4.5',
   activeSession: session(),
   activeConnectionLabel: 'Anthropic',
@@ -150,6 +163,10 @@ function ChatSurface(props: {
   composer?: Partial<ComposerProps>;
   narrow?: boolean;
 }) {
+  const messages = props.chat?.messages ?? baseChatProps.messages;
+  const turnFooterActionsByTurn = Object.fromEntries(
+    [...new Set(messages.map((m) => m.turnId))].map((id) => [id, DEFAULT_FOOTER_ACTIONS]),
+  );
   return (
     <SurfaceFrame narrow={props.narrow}>
       <div
@@ -161,7 +178,7 @@ function ChatSurface(props: {
           background: 'var(--background)',
         }}
       >
-        <ChatView {...baseChatProps} {...props.chat} />
+        <ChatView {...baseChatProps} turnFooterActionsByTurn={turnFooterActionsByTurn} {...props.chat} />
         <div style={{ padding: '0 24px 24px' }}>
           <Composer {...baseComposerProps} {...props.composer} />
         </div>
@@ -226,9 +243,12 @@ const toolConversation: StoredMessage[] = [
       kind: 'terminal',
       cwd: '/workspace/maka-agent',
       cmd: 'npm run -w @maka/desktop build-storybook',
+      status: 'completed',
       exitCode: 0,
       stdout: 'storybook v10.4.6\ninfo => Output directory: apps/desktop/storybook-static\n',
       stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     },
   },
   assistant(

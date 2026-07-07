@@ -109,7 +109,15 @@ export interface ModelAdapterStreamCallbacks {
   onText: (text: string) => void;
   onTextComplete: (text: string) => void;
   onThinking: (text: string) => void;
-  onThinkingComplete: (text: string, signature?: string) => void;
+  /**
+   * Provider-signed reasoning signature (Anthropic). Delivered out-of-band from
+   * the thinking text: the provider emits it on a separate reasoning chunk
+   * (empty delta) or on `reasoning-end`, so the caller records it without
+   * disturbing the accumulated thinking text. The final `thinking_complete`
+   * SessionEvent is emitted by the backend's turn-finalization seam (mirroring
+   * `text_complete`), carrying the accumulated text plus this signature.
+   */
+  onThinkingSignature: (signature: string) => void;
 }
 
 export class ModelAdapter {
@@ -216,17 +224,31 @@ export class ModelAdapter {
       case 'reasoning':
       case 'reasoning-delta': {
         const text = chunk.text ?? chunk.textDelta ?? chunk.delta ?? '';
-        callbacks.onThinking(text);
-        queue.push({
-          type: 'thinking_delta',
-          id: this.input.newId(),
-          turnId,
-          ts,
-          messageId: assistantMessageId,
-          text,
-        } satisfies ThinkingDeltaEvent);
+        const signature = reasoningSignatureFromChunk(chunk);
+        if (signature) callbacks.onThinkingSignature(signature);
+        // The signed reasoning chunk arrives as a standalone delta with empty
+        // text; only stream a thinking_delta when there is actual text so the
+        // signature carrier does not surface as an empty reasoning fragment.
+        if (text) {
+          callbacks.onThinking(text);
+          queue.push({
+            type: 'thinking_delta',
+            id: this.input.newId(),
+            turnId,
+            ts,
+            messageId: assistantMessageId,
+            text,
+          } satisfies ThinkingDeltaEvent);
+        }
         break;
       }
+      case 'reasoning-end': {
+        const signature = reasoningSignatureFromChunk(chunk);
+        if (signature) callbacks.onThinkingSignature(signature);
+        break;
+      }
+      case 'reasoning-start':
+        break;
       case 'step-finish':
       case 'finish':
         break;
@@ -293,6 +315,22 @@ export interface AiSdkStreamChunk {
   usage?: AiSdkUsageLike;
   finishReason?: unknown;
   error?: unknown;
+  /** Provider-specific metadata; carries the Anthropic reasoning signature. */
+  providerMetadata?: unknown;
+}
+
+/**
+ * Extract the provider-signed reasoning signature from a stream chunk.
+ * Anthropic delivers it via `providerMetadata.anthropic.signature`; other
+ * providers omit it and this returns undefined.
+ */
+function reasoningSignatureFromChunk(chunk: AiSdkStreamChunk): string | undefined {
+  const meta = chunk.providerMetadata;
+  if (!meta || typeof meta !== 'object') return undefined;
+  const anthropic = (meta as { anthropic?: unknown }).anthropic;
+  if (!anthropic || typeof anthropic !== 'object') return undefined;
+  const signature = (anthropic as { signature?: unknown }).signature;
+  return typeof signature === 'string' && signature.length > 0 ? signature : undefined;
 }
 
 export interface StreamTextResult {

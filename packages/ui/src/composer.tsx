@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Mic, Plus } from './icons.js';
+import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
@@ -29,7 +29,7 @@ import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
-import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
+import { PermissionModeSelect } from './permission-mode-menu.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
@@ -590,54 +590,17 @@ export const Composer = forwardRef<
                 display because Deep Research sessions use it
                 internally but it's not a useful runtime toggle for
                 normal chat. */}
-            {props.onPermissionModeChange ? (() => {
-              const rawMode = props.permissionMode ?? 'ask';
-              const displayMode: PermissionMode = rawMode === 'explore' ? 'ask' : rawMode;
-              const meta = PERMISSION_MODE_META[displayMode];
-              const triggerDisabled = props.permissionModePending === true || Boolean(props.permissionModeDisabledReason);
-              return (
-                <Menu>
-                  {/* PR-COMPOSER-MODE-CHIP-PRIMITIVE-0 (round 15/30):
-                      LAST raw <button> in `components.tsx`. The
-                      permission mode chip (自动执行 ▾) is wrapped in
-                      a MenuTrigger render-prop. Kept the callback
-                      form (the menu library wants explicit
-                      triggerProps spread) but the button now flows
-                      through UiButton variant="quiet" size="nav" —
-                      the bespoke `.maka-composer-mode-chip` class
-                      still owns the chip's accent-tinted background,
-                      data-mode + data-tone state visuals, and tight
-                      composer-chrome density. */}
-                  <MenuTrigger
-                    render={(triggerProps) => (
-                      <UiButton
-                        {...triggerProps}
-                        variant="quiet"
-                        size="nav"
-                        type="button"
-                        className="maka-composer-mode-chip"
-                        data-mode={displayMode}
-                        data-tone={meta.tone}
-                        data-pending={props.permissionModePending ? 'true' : undefined}
-                        disabled={triggerDisabled}
-                        aria-label={`权限模式：${meta.label}`}
-                        title={props.permissionModeDisabledReason ?? meta.hint}
-                      >
-                        <span className="maka-composer-mode-chip-label">{meta.label}</span>
-                        <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
-                      </UiButton>
-                    )}
-                  />
-                  <PermissionModeMenuPopup
-                    activeMode={displayMode}
-                    onSelect={(mode) => {
-                      void props.onPermissionModeChange?.(mode);
-                    }}
-                    align="start"
-                  />
-                </Menu>
-              );
-            })() : null}
+            {props.onPermissionModeChange ? (
+              <PermissionModeSelect
+                activeMode={props.permissionMode ?? 'ask'}
+                onSelect={(mode) => {
+                  void props.onPermissionModeChange?.(mode);
+                }}
+                align="start"
+                disabled={props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
+                disabledReason={props.permissionModeDisabledReason}
+              />
+            ) : null}
           </div>
           <span className="maka-composer-status-slot">
             {props.disabled ? (
@@ -701,17 +664,6 @@ export const Composer = forwardRef<
                 ) : (
                   <ModelChipStatic label={modelChipLabel} onOpenSettings={props.onOpenModelSettings} />
                 )}
-                <UiButton
-                  variant="quiet"
-                  size="icon-sm"
-                  className="maka-composer-tool-button maka-composer-mic-button"
-                  type="button"
-                  disabled
-                  aria-label="语音输入暂未启用"
-                  title="语音输入暂未启用"
-                >
-                  <Mic size={14} strokeWidth={1.75} aria-hidden="true" />
-                </UiButton>
               </>
             )}
             {props.streaming ? (

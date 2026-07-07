@@ -21,7 +21,7 @@
  *      use it: an input inside a 12px modal shell with an 8px inset
  *      (12 − 8 = 4px, not a tier):
  *        .maka-search-modal-input-row  (sidebar.css)
- *        .maka-palette-input-wrap       (chat-header.css)
+ *        .maka-palette-input-wrap       (palette.css)
  *      This contract pins both so a later "cleanup" can't drop the calc
  *      and revert to a hardcoded --radius-control (6px) that would read
  *      as too round against the shell corners.
@@ -53,7 +53,7 @@ describe('PR-RADIUS-NESTING-0 contract', () => {
     const css = stripCssComments(await readAllRendererCss());
     const sites: Array<[string, string]> = [
       ['.maka-search-modal-input-row', 'sidebar.css'],
-      ['.maka-palette-input-wrap', 'chat-header.css'],
+      ['.maka-palette-input-wrap', 'palette.css'],
     ];
     for (const [selector, label] of sites) {
       const body = ruleBody(css, selector);

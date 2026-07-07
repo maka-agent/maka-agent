@@ -22,9 +22,10 @@ import {
   type MakaUriDest,
   MakaUriContext,
   type NavSelection,
-	  SessionListPanel,
-	  type SessionViewMode,
-	  type SkillEntry,
+  SessionListPanel,
+  type ManagedSkillSourceEntry,
+  type SessionViewMode,
+  type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
   activePermissionFor,
@@ -109,6 +110,14 @@ import {
   useSessionEventHealthPolling,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+
+function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].slug !== b[i].slug || a[i].updatedAt !== b[i].updatedAt) return false;
+  }
+  return true;
+}
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
@@ -231,6 +240,7 @@ export function AppShell({
   // which mode a session is created with.
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
@@ -239,13 +249,6 @@ export function AppShell({
   const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
     persistedComposerDefaults?.model ?? null,
   );
-  // Permission mode is renderer-only, scoped to one new-chat decision.
-  // It must NOT persist across reloads — persisted permission would
-  // silently inherit a previous session's mode (e.g. auto-edit) after
-  // restart with no visible signal, which is a safety regression.
-  // The single authority is main.ts's Settings → 通用 default. See
-  // session-status-presentation.test.ts for the contract.
-  const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(null);
   const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
     persistedComposerDefaults?.projectPath
       ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }
@@ -566,8 +569,8 @@ export function AppShell({
     pendingSessionModelChangesRef,
     refreshSessions,
     sessionsRef,
+    setDefaultPermissionMode,
     setPendingPermissionModeBySession,
-    setPendingNewChatPermissionMode,
     setPendingSessionModelBySession,
     setSessions,
     toastApi,
@@ -706,8 +709,7 @@ export function AppShell({
     model: 'fake-model',
     // Transient placeholder while the real SessionSummary loads --
     // matches the configured default so the composer doesn't flash a
-    // hardcoded value before the real session data (or its own
-    // pendingNewChatPermissionMode fallback) supersedes it.
+    // hardcoded value before the real session data settles.
     permissionMode: defaultPermissionMode,
   } : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
@@ -857,11 +859,16 @@ export function AppShell({
 
   const {
     refreshSkills,
+    refreshManagedSkillSources,
     createSkillTemplate,
+    importManagedSkillSource,
+    installManagedSkill,
+    updateManagedSkill,
     openSkill,
   } = createAppShellSkillActions({
     isSkillsSurfaceActive,
     setSkills,
+    setManagedSkillSources,
     toastApi,
   });
 
@@ -902,8 +909,6 @@ export function AppShell({
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
-    pendingNewChatPermissionMode,
-    setPendingNewChatPermissionMode,
     validPendingNewChatModel,
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
@@ -941,6 +946,10 @@ export function AppShell({
   }
 
   async function sendWithAttachments(text: string): Promise<boolean | void> {
+    if (text.trim() === '/compact') {
+      if (activeId) await window.maka.sessions.compact(activeId);
+      return true;
+    }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
     if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
@@ -1013,6 +1022,7 @@ export function AppShell({
     refreshPlanReminders,
     refreshShellSettings,
     refreshSkills,
+    refreshManagedSkillSources,
     refreshSessions,
     rendererMountedRef,
     setActiveId,
@@ -1134,7 +1144,7 @@ export function AppShell({
         window.maka.connections.list(),
         window.maka.connections.getDefault(),
       ]);
-      setConnections(next);
+      setConnections((prev) => connectionsEqual(prev, next) ? prev : next);
       setDefaultConnection(nextDefault);
     } catch (error) {
       toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));
@@ -1431,10 +1441,15 @@ export function AppShell({
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
                 skills={skills}
+                managedSkillSources={managedSkillSources}
                 onRefreshSkills={() => refreshSkills()}
+                onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
                 onOpenSkillsFolder={() => openSkillsFolder()}
+                onImportManagedSkillSource={() => importManagedSkillSource()}
+                onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                onUpdateManagedSkill={(skillId) => updateManagedSkill(skillId)}
                 planReminders={planReminders}
                 onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
                 onCreatePlanReminder={(input) => createPlanReminder(input)}
@@ -1570,7 +1585,7 @@ export function AppShell({
                       }
                     : undefined
                 }
-                permissionMode={activeSessionForView?.permissionMode ?? pendingNewChatPermissionMode ?? defaultPermissionMode}
+                permissionMode={defaultPermissionMode}
                 permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
                 permissionModeDisabledReason={
                   activeId && pendingPermissionModeBySession[activeId] === true

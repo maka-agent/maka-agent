@@ -169,10 +169,28 @@ export function PermissionDialog(props: {
           )}
         </div>
         <div className="maka-modal-footer permissionActions">
-          <UiButton className="maka-button" variant="ghost" type="button" disabled={responsePending} onClick={() => submit('deny')}>拒绝</UiButton>
+          {/* Designer audit P2-16: for destructive requests the confirm used
+              to be the dialog's ONLY solid colored button — muscle memory
+              clicks the brightest control, which is exactly wrong for an
+              irreversible action. Danger side drops to a red OUTLINE (still
+              unmistakably destructive, no longer the visual magnet) and the
+              safe side (拒绝) rises from ghost to secondary so both options
+              read as equally pressable. Non-destructive requests keep the
+              plain primary confirm. */}
           <UiButton
             className="maka-button"
-            variant={isDestructive ? 'destructive' : 'default'}
+            variant={isDestructive ? 'secondary' : 'ghost'}
+            type="button"
+            disabled={responsePending}
+            onClick={() => submit('deny')}
+          >
+            拒绝
+          </UiButton>
+          <UiButton
+            className={isDestructive
+              ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
+              : 'maka-button'}
+            variant={isDestructive ? 'outline' : 'default'}
             type="button"
             disabled={responsePending}
             onClick={() => submit('allow')}

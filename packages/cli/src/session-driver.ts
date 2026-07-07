@@ -15,7 +15,7 @@ export interface MakaSessionRuntime {
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: ThinkingLevel | undefined }): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
 }
 
 export interface MakaSessionDriverInput {
@@ -40,6 +40,7 @@ export interface MakaSessionDriver {
   setModel(model: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
+  renameSession(name: string): Promise<void>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
   stop(): Promise<void>;
   getSessionId(): string | null;
@@ -123,6 +124,11 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       return;
     }
     this.permissionMode = mode;
+  }
+
+  async renameSession(name: string): Promise<void> {
+    if (!this.sessionId) throw new Error('Cannot rename before a session starts.');
+    await this.input.runtime.updateSession(this.sessionId, { name });
   }
 
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {

@@ -118,7 +118,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('toggles the latest tool detail with Ctrl-O', async () => {
+  test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
     const run = runMakaPiTui({
@@ -136,11 +136,121 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('n');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Ctrl+O expand'));
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
     await waitFor(() => terminal.output().includes('expanded-tail'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ToolOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
+
+    // Kitty keyboard protocol terminals (Ghostty/Kitty) send one event for the
+    // key press and another for the release. The release must not undo the
+    // toggle, or expansion only lasts while the key is physically held.
+    terminal.input('\x1b[111;5u');
+    terminal.input('\x1b[111;5:3u');
+
+    // The compact-only (Ctrl+O) hint leaving the screen proves the card is
+    // still expanded after the release event.
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'));
+    await delay(20);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not treat a kitty Escape press+release as a double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // One physical Esc keypress arrives as a press + release pair under the
+    // kitty protocol; it must count as a single Escape, not an interrupt.
+    terminal.input('\x1b[27u');
+    terminal.input('\x1b[27;1:3u');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    // A real second press still interrupts the running turn.
+    terminal.input('\x1b[27u');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('toggles thinking visibility with Ctrl-T', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ThinkingOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('思考（Ctrl+T 展开）'));
+    assert.equal(plainTerminalOutput(terminal.output()).includes('secret reasoning tail'), false);
+
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('secret reasoning tail'));
+
+    terminal.input('\x14');
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('secret reasoning tail'));
 
     terminal.input('\x03');
     await Promise.race([
@@ -850,6 +960,66 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('handles /rename without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename PR 946 修复');
+    terminal.input('\r');
+
+    await waitFor(() => driver.renames.length === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Session renamed to "PR 946 修复"'));
+
+    assert.deepEqual(driver.renames, ['PR 946 修复']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects /rename without a new name', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Usage: /rename <new name>'));
+    assert.deepEqual(driver.renames, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
@@ -1105,6 +1275,196 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('interrupts the running turn on double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Stopped: user_stop'));
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    // Idle double Escape must not stop anything: the session is between turns.
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('interrupts at most once while the stop is still settling', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The turn has not ended yet (runtime stop is still settling). Further
+    // double-Escapes must be swallowed, not fire a second stopSession that
+    // would append a duplicate abort note to the session log.
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(30);
+    assert.equal(driver.stopCalls, 1);
+
+    driver.endTurn();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not stop again when Ctrl-C exits mid-interrupt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The interrupt is issued but the runtime stop has not settled and the turn
+    // is still parked. Quitting with Ctrl-C must reuse that in-flight stop, not
+    // fire a second stopSession through close() that appends a duplicate abort.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+
+    assert.equal(driver.stopCalls, 1);
+  });
+
+  test('does not stop again when Esc arrives after Ctrl-C started closing', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // Quit first: close() flips `closed`, then parks awaiting a slow runtime stop.
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The TUI is half-closed but its input listener is still live. A double
+    // Escape in this window must not slip a second stopSession past close().
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(30);
+    assert.equal(driver.stopCalls, 1);
+
+    // Releasing the parked stop lets close() finish shutting the TUI down.
+    driver.releaseStop();
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps Escape as permission deny while a permission prompt is pending', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.permissionResponses.length >= 1);
+
+    // Both Escapes route to the permission prompt, never to turn interruption.
+    assert.equal(driver.permissionResponses[0]?.decision, 'deny');
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('clears the permission prompt when the turn errors', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionThenErrorDriver();
@@ -1159,6 +1519,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1174,6 +1535,7 @@ class RejectingStopDriver implements MakaSessionDriver {
 class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
+  stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -1218,12 +1580,213 @@ class PermissionPromptDriver implements MakaSessionDriver {
     };
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
     this.continueAfterPermission?.();
   }
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class InterruptibleTurnDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // The turn parks like a real long-running provider call until stop() aborts it.
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class SlowStopDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  // stop() records the request but leaves the turn parked, mimicking a runtime
+  // stopSession that has not finished aborting yet.
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+
+  endTurn(): void {
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class HangingStopDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+  private releaseStopFns: Array<() => void> = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  // stop() parks until releaseStop(), mimicking a runtime whose stopSession has
+  // not finished aborting. close() awaits this while the input listener is still
+  // live, which is the window the Ctrl-C-then-Escape regression exercises.
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.releaseStopFns.push(resolve);
+    });
+  }
+
+  releaseStop(): void {
+    for (const resolve of this.releaseStopFns) resolve();
+    this.releaseStopFns = [];
+  }
+
+  endTurn(): void {
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ThinkingOutputDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta',
+      id: 'event-thinking',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: 'secret reasoning tail',
+    };
+    yield {
+      type: 'text_complete',
+      id: 'event-text',
+      turnId: 'turn-1',
+      ts: 2,
+      messageId: 'message-1',
+      text: 'visible answer',
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1264,9 +1827,14 @@ class ToolOutputDriver implements MakaSessionDriver {
         kind: 'terminal',
         cwd: '/repo',
         cmd: 'npm test',
+        status: 'completed',
         exitCode: 0,
-        stdout: `${'x'.repeat(900)}\nexpanded-tail`,
+        // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
+        // hides it; expanding reveals the full output including this head line.
+        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     };
     yield {
@@ -1280,6 +1848,7 @@ class ToolOutputDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1297,6 +1866,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly permissionModes: PermissionMode[] = [];
   readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
+  readonly renames: string[] = [];
   private sessionId = 'session-1';
 
   constructor(
@@ -1333,6 +1903,9 @@ class SlashCommandDriver implements MakaSessionDriver {
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async setModel(model: string): Promise<void> {
     this.models.push(model);
+  }
+  async renameSession(name: string): Promise<void> {
+    this.renames.push(name);
   }
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
@@ -1459,6 +2032,7 @@ class DeferredControlDriver implements MakaSessionDriver {
     this.resolveSetModel = null;
   }
 
+  async renameSession(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
@@ -1503,6 +2077,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
     throw new Error('permission response rejected');
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1580,6 +2155,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
     this.respondCalls += 1;
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
   async setThinkingLevel(): Promise<void> {}
@@ -1633,4 +2209,3 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     modelId: 'claude-sonnet-4-5',
   };
 }
-

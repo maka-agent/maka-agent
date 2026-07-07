@@ -12,11 +12,14 @@ import {
   buildSkillsPromptFragment,
   createStarterSkill,
   ensureBundledOfficeSkills,
+  installManagedSkill,
   loadSkillInstructions,
   listInstalledSkills,
   parseSkillFrontMatter,
   resolveSkillOpenPath,
+  updateManagedSkill,
 } from '../skills.js';
+import { importManagedSkillSource } from '../managed-skill-sources.js';
 import { readRendererShellCombinedSource } from './renderer-shell-source-helpers.js';
 import { extractFunctionBlock } from './function-block-helpers.js';
 
@@ -466,10 +469,229 @@ name: Managed Forgery
     });
   });
 
+  it('does not trust forged managed locks that do not match the source snapshot', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'maka-managed-source-cache-'));
+      try {
+        const incomingDir = join(workspaceRoot, 'incoming', 'research-brief');
+        await mkdir(incomingDir, { recursive: true });
+        const incomingFile = join(incomingDir, 'SKILL.md');
+        await writeFile(incomingFile, `---
+name: Research Brief
+description: Summarize research.
+---
+# Research Brief
+Source snapshot.`, 'utf8');
+        const imported = await importManagedSkillSource({ root: sourceRoot, sourceFile: incomingFile });
+        assert.equal(imported.ok, true);
+        if (!imported.ok) return;
+
+        await writeSkill(workspaceRoot, 'research-brief', `---
+name: Research Brief
+description: Forged workspace copy.
+---
+# Research Brief
+Forged workspace content.`);
+        const forgedContent = await readFile(join(workspaceRoot, 'skills', 'research-brief', 'SKILL.md'), 'utf8');
+        const forgedContentSha256 = `sha256:${sha256Hex(forgedContent)}`;
+        assert.notEqual(forgedContentSha256, imported.source.contentSha256);
+        await writeFile(join(workspaceRoot, 'skills', 'research-brief', 'skill.lock.json'), JSON.stringify({
+          schemaVersion: 1,
+          id: 'research-brief',
+          sourceType: 'managed',
+          sourceName: 'local-library',
+          sourceVersion: '1',
+          contentSha256: forgedContentSha256,
+          installedAt: new Date(0).toISOString(),
+          sourceId: 'research-brief',
+          sourceContentSha256: imported.source.contentSha256,
+        }), 'utf8');
+
+        const skills = await listInstalledSkills(workspaceRoot, { managedSourceRoot: sourceRoot });
+        const forged = skills.find((skill) => skill.id === 'research-brief');
+        assert.ok(forged);
+        assert.equal(forged.sourceType, 'unknown');
+        assert.equal(forged.validationStatus, 'metadata_error');
+        assert.deepEqual(forged.validationCodes, ['unsupported_schema']);
+        assert.equal(forged.managedUpdateStatus, 'metadata_error');
+        assert.deepEqual(await updateManagedSkill(workspaceRoot, 'research-brief', sourceRoot), {
+          ok: false,
+          reason: 'metadata_error',
+        });
+      } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('installs managed sources into the workspace without using the source cache at runtime', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'maka-managed-source-cache-'));
+      try {
+        const incomingDir = join(workspaceRoot, 'incoming', 'research-brief');
+        await mkdir(incomingDir, { recursive: true });
+        const incomingFile = join(incomingDir, 'SKILL.md');
+        await writeFile(incomingFile, `---
+name: Research Brief
+description: Summarize research.
+allowed-tools: [Read]
+---
+# Research Brief
+Use source version one.`, 'utf8');
+
+        const imported = await importManagedSkillSource({ root: sourceRoot, sourceFile: incomingFile });
+        assert.equal(imported.ok, true);
+        if (!imported.ok) return;
+
+        const installed = await installManagedSkill(workspaceRoot, imported.source.id, sourceRoot);
+        assert.equal(installed.ok, true);
+        if (!installed.ok) return;
+        assert.equal(installed.skill.id, 'research-brief');
+        assert.equal(installed.skill.sourceType, 'managed');
+        assert.equal(installed.skill.sourceName, 'local-library');
+        assert.equal(installed.skill.managedSourceId, 'research-brief');
+        assert.equal(installed.skill.managedUpdateStatus, 'up_to_date');
+
+        const lock = JSON.parse(await readFile(join(workspaceRoot, 'skills', 'research-brief', 'skill.lock.json'), 'utf8')) as Record<string, unknown>;
+        assert.equal(lock.sourceType, 'managed');
+        assert.equal(lock.sourceId, 'research-brief');
+        assert.equal(lock.sourceContentSha256, imported.source.contentSha256);
+
+        await writeFile(join(sourceRoot, 'research-brief', 'SKILL.md'), `---
+name: Research Brief
+description: Summarize research.
+allowed-tools: [Read]
+---
+# Research Brief
+Use source version two.`, 'utf8');
+
+        const loaded = await loadSkillInstructions(workspaceRoot, 'research-brief');
+        assert.equal(loaded.ok, true);
+        if (!loaded.ok) return;
+        assert.match(loaded.skill.instructions, /Use source version one\./);
+        assert.doesNotMatch(loaded.skill.instructions, /Use source version two\./);
+
+        const skills = await listInstalledSkills(workspaceRoot, { managedSourceRoot: sourceRoot });
+        const managed = skills.find((skill) => skill.id === 'research-brief');
+        assert.ok(managed);
+        assert.equal(managed.managedUpdateStatus, 'update_available');
+      } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('updates managed skills only when the workspace copy is clean', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'maka-managed-source-cache-'));
+      try {
+        const incomingDir = join(workspaceRoot, 'incoming', 'deck-helper');
+        await mkdir(incomingDir, { recursive: true });
+        const incomingFile = join(incomingDir, 'SKILL.md');
+        await writeFile(incomingFile, `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version one.`, 'utf8');
+        const imported = await importManagedSkillSource({ root: sourceRoot, sourceFile: incomingFile });
+        assert.equal(imported.ok, true);
+        if (!imported.ok) return;
+        const installed = await installManagedSkill(workspaceRoot, imported.source.id, sourceRoot);
+        assert.equal(installed.ok, true);
+
+        await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version two.`, 'utf8');
+
+        const updated = await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot);
+        assert.equal(updated.ok, true);
+        if (!updated.ok) return;
+        assert.equal(updated.skill.managedUpdateStatus, 'up_to_date');
+        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), 'utf8'), /Version two\./);
+
+        await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version three.`, 'utf8');
+        await writeFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Local edit.`, 'utf8');
+
+        const blocked = await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot);
+        assert.deepEqual(blocked, { ok: false, reason: 'local_modified' });
+        const skills = await listInstalledSkills(workspaceRoot, { managedSourceRoot: sourceRoot });
+        const managed = skills.find((skill) => skill.id === 'deck-helper');
+        assert.ok(managed);
+        assert.equal(managed.managedUpdateStatus, 'local_modified');
+      } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('rejects symlinked managed skill files before updating', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'maka-managed-source-cache-'));
+      const outside = await mkdtemp(join(tmpdir(), 'maka-managed-update-outside-'));
+      try {
+        const incomingDir = join(workspaceRoot, 'incoming', 'deck-helper');
+        await mkdir(incomingDir, { recursive: true });
+        const incomingFile = join(incomingDir, 'SKILL.md');
+        const versionOne = `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version one.`;
+        await writeFile(incomingFile, versionOne, 'utf8');
+        const imported = await importManagedSkillSource({ root: sourceRoot, sourceFile: incomingFile });
+        assert.equal(imported.ok, true);
+        if (!imported.ok) return;
+        const installed = await installManagedSkill(workspaceRoot, imported.source.id, sourceRoot);
+        assert.equal(installed.ok, true);
+
+        await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version two.`, 'utf8');
+
+        const outsideTarget = join(outside, 'target.md');
+        await writeFile(outsideTarget, versionOne, 'utf8');
+        await rm(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'));
+        await symlink(outsideTarget, join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'));
+
+        assert.deepEqual(await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot), {
+          ok: false,
+          reason: 'blocked_path',
+        });
+        assert.equal(await readFile(outsideTarget, 'utf8'), versionOne);
+      } finally {
+        await rm(sourceRoot, { recursive: true, force: true });
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
   it('rejects a symlinked skills directory instead of writing through it', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const outside = await mkdtemp(join(tmpdir(), 'maka-skills-outside-'));
       try {
+        await mkdir(join(outside, 'external'), { recursive: true });
+        await writeFile(join(outside, 'external', 'SKILL.md'), `---
+name: External
+---
+# External`, 'utf8');
         await symlink(outside, join(workspaceRoot, 'skills'));
         assert.deepEqual(await createStarterSkill(workspaceRoot), { ok: false, reason: 'blocked_path' });
         assert.deepEqual(await ensureBundledOfficeSkills(workspaceRoot), {
@@ -597,6 +819,9 @@ name: Writer
     assert.match(skillPanel, /actionBusy\?: boolean/);
     assert.match(skillPanel, /createPending\?: boolean/);
     assert.match(skillPanel, /openingSkillId\?: string \| null/);
+    assert.match(skillPanel, /managedSkillSources\?: ManagedSkillSourceEntry\[]/);
+    assert.match(skillPanel, /installingSourceId\?: string \| null/);
+    assert.match(skillPanel, /updatingSkillId\?: string \| null/);
     assert.match(skillPanel, /const templates = \(/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-rail/);
     assert.doesNotMatch(skillPanel, /maka-skill-workbench-summary/);
@@ -614,20 +839,29 @@ name: Writer
     assert.match(ui, /metadata_error[\s\S]*元数据异常/);
     assert.match(ui, /userModified[\s\S]*已修改/);
     assert.match(ui, /sourceType === 'bundled'[\s\S]*内置/);
-    assert.doesNotMatch(ui, /sourceType === 'managed'[\s\S]*受管理/, 'Phase 1 must not present forged managed locks as trusted');
+    assert.match(ui, /sourceType === 'managed'[\s\S]*managedUpdateStatus[\s\S]*受管理/, 'Phase 2 can present verified managed state derived by main');
     assert.match(ui, /return '本地'/);
-    assert.match(skillEntryContract, /sourceType\?: 'workspace' \| 'bundled' \| 'unknown'/);
-    assert.doesNotMatch(skillEntryContract, /managed|sourceName|sourceVersion|contentSha256|installedAt|validationCodes|validationMessages|write_failed/, 'renderer SkillEntry must not expose Phase 1 lock internals');
+    assert.match(skillEntryContract, /sourceType\?: 'workspace' \| 'bundled' \| 'managed' \| 'unknown'/);
+    assert.match(skillEntryContract, /managedUpdateStatus\?:/);
+    assert.doesNotMatch(skillEntryContract, /sourceName|sourceVersion|contentSha256|installedAt|validationCodes|validationMessages|write_failed/, 'renderer SkillEntry must not expose lock internals');
     assert.match(workspaceResourcesIpc, /toSkillEntry/, 'Skills IPC must scrub main-internal lock fields before crossing to renderer');
     assert.doesNotMatch(workspaceResourcesIpc, /ipcMain\.handle\('skills:list'[\s\S]*listInstalledSkills\(deps\.workspaceRoot\)/, 'Skills list IPC must not return InstalledSkill objects directly');
-    assert.doesNotMatch(skillPanel, /更新|恢复|修复|合并/, 'Phase 1 Skills status UI must stay informational only');
-    assert.match(skillPanel, /<span className="maka-skill-library-action" aria-hidden="true">[\s\S]*打开[\s\S]*<\/span>/);
+    assert.match(skillPanel, /const managedSources = \(/, 'Phase 2 must surface the managed source cache without making it runtime');
+    assert.match(skillPanel, /<section className="maka-skill-installed" aria-label="来源库">/);
+    assert.match(skillPanel, /导入本地 Skill/);
+    assert.match(skillPanel, /onInstallManagedSkill\?\(sourceId: string\): void \| Promise<void>/);
+    assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string\): void \| Promise<void>/);
+    assert.match(skillPanel, /skill\.managedUpdateStatus === 'update_available'/);
+    assert.match(skillPanel, /updating \? '更新中…' : '更新'/);
+    assert.doesNotMatch(skillPanel, /恢复|修复|合并/, 'Phase 2 must not imply automatic merge or repair flows');
+    assert.match(skillPanel, /<span className="maka-skill-library-action" aria-hidden="true">[\s\S]*可更新[\s\S]*打开[\s\S]*<\/span>/);
     assert.match(skillPanel, /label: props\.createPending \? '创建中…' : '创建示例技能'/);
     assert.match(skillPanel, /label: props\.refreshPending \? '刷新中…' : '刷新技能'/);
     assert.match(skillPanel, /disabled: props\.actionBusy/);
     assert.match(skillPanel, /aria-busy=\{props\.actionBusy \? 'true' : undefined\}/);
     assert.match(skillPanel, /disabled=\{props\.actionBusy\}/, 'Skill row open buttons must be disabled while a Skills action is pending');
     assert.match(skillPanel, /opening && <span>打开中…<\/span>/);
+    assert.match(skillPanel, /updating && <span>更新中…<\/span>/);
     assert.match(emptyState, /disabled\?: boolean/);
     assert.match(emptyState, /disabled=\{props\.cta\.disabled\}/);
     assert.match(emptyState, /disabled=\{props\.secondaryCta\.disabled\}/);

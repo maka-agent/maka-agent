@@ -265,28 +265,3 @@
     min-height: 480px;
     grid-template-columns: minmax(190px, 0.7fr) minmax(250px, 1fr);
   }
-/* Memory page meta row: the absolute MEMORY.md path used to render
-     full-width mono text that shoved the sibling status words into a
-     cramped vertical stack. Give the path its own full row with
-     head-side ellipsis (RTL trick keeps the meaningful .../MEMORY.md
-     tail visible; title= carries the full path on hover). */
-.settingsMemoryMeta {
-    flex-wrap: wrap;
-    row-gap: var(--space-1);
-    /* Anchor the strip: it floated unboxed between two cards and read
-       as orphaned fragments. A hairline + breathing room marks it as
-       the editor's status footnote (divider over a nested card). */
-    padding: var(--space-1-5) var(--space-0-5) 0;
-    border-top: var(--border-width-hairline) solid var(--foreground-10);
-  }
-.settingsMemoryPath {
-    /* The component already shortens the path for display
-       (displayMemoryPath); this is just the safety net so an
-       unexpectedly long tail can never shove the status words into a
-       cramped stack again. */
-    flex: 1 1 100%;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-  }

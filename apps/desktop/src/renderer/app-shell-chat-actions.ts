@@ -1,4 +1,4 @@
-import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
+import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
@@ -35,8 +35,6 @@ type PendingNewChatModel = {
   llmConnectionSlug: string;
   model: string;
 } | null;
-
-type PendingNewChatPermissionMode = PermissionMode | null;
 
 type PendingNewChatThinkingLevel = ThinkingLevel | null;
 
@@ -112,8 +110,6 @@ export function createAppShellChatActions(deps: {
   isNewChatSendSurfaceActive: (owner: ComposerImportOwner) => boolean;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
   messageRetryPendingRef: RefBox<Set<string>>;
-  pendingNewChatPermissionMode: PendingNewChatPermissionMode;
-  setPendingNewChatPermissionMode: (mode: PendingNewChatPermissionMode) => void;
   refreshSessions: () => Promise<SessionSummary[]>;
   setActiveId: (sessionId: string | undefined) => void;
   setMessageLoadErrorBySession: MessageLoadErrorUpdater;
@@ -134,14 +130,12 @@ export function createAppShellChatActions(deps: {
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
     messageRetryPendingRef,
-    pendingNewChatPermissionMode,
     refreshSessions,
     setActiveId,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
-    setPendingNewChatPermissionMode,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -200,20 +194,14 @@ export function createAppShellChatActions(deps: {
       if (!initialSessionId) {
         if (pending && pending.length > 0) preflightAttachmentItems(pending);
         const session = await window.maka.sessions.create({
-          // Only send permissionMode when the user explicitly picked one in
-          // the composer. Omitting it lets main.ts's sessions:create resolve
-          // the configured chatDefaults.permissionMode as the single
-	          // authority — a renderer-side copy of the default can be stale
-          // (e.g. before the mount-time settings load resolves on a cold
-          // start), which would silently override the configured setting.
-          ...(pendingNewChatPermissionMode ? { permissionMode: pendingNewChatPermissionMode } : {}),
+          // Omit permissionMode so main.ts's sessions:create resolves the
+          // configured chatDefaults.permissionMode as the single authority.
           name: text.slice(0, 42) || '新建对话',
           ...(validPendingNewChatModel
             ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
             : {}),
           ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
         });
-        setPendingNewChatPermissionMode(null);
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;

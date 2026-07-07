@@ -34,6 +34,8 @@ export interface WorkspaceExecResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
   timedOut: boolean;
   aborted: boolean;
 }
@@ -195,6 +197,8 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.timedOut ? 124 : result.aborted ? 130 : result.exitCode,
+      stdoutTruncated: result.stdoutTruncated,
+      stderrTruncated: result.stderrTruncated,
       timedOut: result.timedOut,
       aborted: result.aborted,
     };

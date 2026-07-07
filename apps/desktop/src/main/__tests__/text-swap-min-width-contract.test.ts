@@ -41,7 +41,7 @@
  *    its onClick handler. The scan also requires every discovered button to
  *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
  *    can't bypass the value lock; the whitelist pins the exact value so a
- *    refactor can't shrink a real lock to the wrong value. Chat summary-chip / stream-count variant locks live in
+ *    refactor can't shrink a real lock to the wrong value. Chat stream-count variant locks live in
  *    the variant definition, so they're pinned by their literal declaration
  *    substrings.
  */
@@ -108,12 +108,10 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];
 
-// Chat summary-chip / stream-count variant locks: the min-w-[Nrem]
+// Chat stream-count variant lock: the min-w-[Nrem]
 // declaration lives in the variant definition (chat.tsx), not at the call
 // site, so we pin the literal declaration substrings.
 const CHAT_VARIANT_LOCKS: Array<{ file: string; substr: string; note: string }> = [
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=tools]:min-w-[5rem]', note: 'summary-chip tools count (N 个工具)' },
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=duration]:min-w-[4rem]', note: 'summary-chip duration (进行中 ↔ 时长)' },
   { file: 'packages/ui/src/primitives/chat.tsx', substr: 'min-w-[5rem] [font-variant-numeric:tabular-nums]', note: 'streamVariants count (stdout/stderr/已脱敏 N)' },
 ];
 
@@ -175,7 +173,7 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
     }
   });
 
-  it('chat summary-chip / stream-count variants keep their min-w declarations', async () => {
+  it('chat stream-count variants keep their min-w declarations', async () => {
     const byFile = new Map<string, typeof CHAT_VARIANT_LOCKS>();
     for (const l of CHAT_VARIANT_LOCKS) {
       const arr = byFile.get(l.file) ?? [];

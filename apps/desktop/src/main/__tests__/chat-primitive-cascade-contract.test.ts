@@ -33,12 +33,15 @@ describe('chat primitive shell migration contract (#332 PR1)', () => {
 
   it('preserves the assistant Markdown prose (OUT of scope)', async () => {
     const css = await readAllRendererCss();
+    // #546 PR4 split the prose off the shell: .maka-bubble-assistant keeps
+    // only container geometry, the Markdown element typography moved to the
+    // reusable .maka-prose layer (same rules, new scope).
     for (const selector of [
       '.maka-bubble-assistant {',
-      '.maka-bubble-assistant p',
-      '.maka-bubble-assistant pre',
-      '.maka-bubble-assistant table',
-      '.maka-bubble-assistant li.task-list-item',
+      '.maka-prose p',
+      '.maka-prose pre',
+      '.maka-prose table',
+      '.maka-prose li.task-list-item',
     ]) {
       assert.ok(css.includes(selector), `prose rule "${selector}" must be preserved`);
     }
@@ -73,16 +76,17 @@ describe('chat primitive shell migration contract (#332 PR1)', () => {
     // the WHOLE string (not just "contains each literal") also pins the set
     // closed: a stray extra `rounded-[12px]` / `px-4` / second `max-w-*` that
     // would silently override the shell makes this fail. Values mirror the
-    // retired `.maka-bubble-user` (padding 10px 14px; line-height 1.6;
-    // max-width min(100%,640px); --chat-user-bg) with radius now on the
+    // retired `.maka-bubble-user` (padding 10px 14px; line-height 1.5 via
+    // --leading-normal per #546 PR0; max-width min(100%,640px); --chat-user-bg)
+    // with radius now on the
     // `--radius-surface` token per #406 gap 4. Padding snapped 14→12 per
     // the --space-* scale (#430 PR3): px-3 (12px) py-2.5 (10px).
     const bubbleBlock = chatSrc.slice(chatSrc.indexOf('bubbleVariants'));
     const userClass = bubbleBlock.match(/user:\s*"([^"]*)"/)?.[1];
     assert.equal(
       userClass,
-      'max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-[1.6] text-[color:var(--chat-user-foreground,var(--foreground))]',
-      'user bubble variant must match the retired .maka-bubble-user geometry (radius now on --radius-surface token, padding on --space-* scale)',
+      'max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-normal text-[color:var(--chat-user-foreground,var(--foreground))]',
+      'user bubble variant must match the retired .maka-bubble-user geometry (radius on --radius-surface token, padding on --space-* scale, line-height on --leading-normal per #546 PR0)',
     );
   });
 });

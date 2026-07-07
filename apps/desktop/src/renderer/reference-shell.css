@@ -108,29 +108,24 @@
   box-shadow: none;
 }
 
-/* `.agents-parchment-paper-surface` is reused by the composer body —
-   composer keeps its border (overridden below). The bare class on the
-   content area drops its border so we don't double up with the
-   floating-panel rule above. */
+/* Designer audit P1-6: in dark mode the canvas (l≈0.14) and the content
+   card (l≈0.24) sit close enough that the floating-card edge disappears —
+   the light theme's whole surface hierarchy collapsed to one murk. A 1px
+   inner top-light hairline gives the eye a physical edge without pushing
+   the canvas darker. Light mode keeps box-shadow: none (the lightness gap
+   already reads there). */
+.dark .maka-panel-detail.maka-floating-panel.agents-content-area {
+  box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.07);
+}
+
+/* `.agents-parchment-paper-surface` is reused by the composer body. The bare
+   class drops its border so the content area doesn't double up with the
+   floating-panel rule above; the composer re-establishes its own card chrome
+   on top (see `.composer .maka-composer-inner` in styles/composer.css). */
 .agents-parchment-paper-surface {
   border: 0;
   background-color: var(--agents-content-area-bg);
   box-shadow: none;
-}
-
-.composer .maka-composer-inner.agents-parchment-paper-surface {
-  border: var(--border-width-hairline) solid var(--color-border-tertiary);
-  background-color: var(--agents-content-area-bg);
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.035),
-    0 1px 3px oklch(from var(--foreground) l c h / 0.025);
-}
-
-.composer .maka-composer-inner.agents-parchment-paper-surface:focus-within {
-  border-color: var(--color-border-tertiary);
-  box-shadow:
-    0 0 0 1px oklch(from var(--foreground) l c h / 0.07),
-    0 2px 8px -6px oklch(from var(--foreground) l c h / 0.16);
 }
 
 .agents-chat-panel {

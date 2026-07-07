@@ -17,7 +17,7 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'a11y hidden content utility',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/chat-header.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/palette.css',
     anchor: '.maka-palette-input-wrap input:focus',
     reason: 'a11y focus reset — palette input uses outline ring, suppress inherited box-shadow',
   },
@@ -62,9 +62,9 @@ const ALLOWLIST: ImportantAllowance[] = [
     reason: 'shared field ring shadow override',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/onboarding.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/empty-state.css',
     anchor: '.maka-session-list .maka-session-empty-state',
-    reason: 'shared empty-state card reset in sidebar surface',
+    reason: 'shared empty-state card reset (relocated from onboarding.css — issue #546 PR3)',
   },
   {
     fileSuffix: 'apps/desktop/src/renderer/styles/settings/nav-sidebar.css',
@@ -88,7 +88,7 @@ const RETIRED_RING_RESET_BLOCKS = [
     anchor: '.maka-onboarding-quickchat .maka-onboarding-quickchat-input',
   },
   {
-    fileSuffix: 'apps/desktop/src/renderer/styles/tool-output.css',
+    fileSuffix: 'apps/desktop/src/renderer/styles/composer.css',
     anchor: '.composer .maka-composer-textarea',
   },
 ];

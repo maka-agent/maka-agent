@@ -13,6 +13,7 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isDeepResearchSession,
   isThinkingLevel,
   thinkingVariantsForModel,
   resolveModelVisionSupport,
@@ -49,7 +50,6 @@ import {
   normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
-  normalizeRetryTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from './permission-response-guard.js';
@@ -85,6 +85,7 @@ import {
   getWechatBridgeQrCode,
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
+  ShellRunProcessManager,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -99,7 +100,17 @@ import type {
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
 import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import {
+  createAgentRunStore,
+  createArtifactStore,
+  createConnectionStore,
+  createPlanReminderStore,
+  createRuntimeEventStore,
+  createSessionStore,
+  createSettingsStore,
+  createShellRunStore,
+  createTelemetryRepo,
+} from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -148,6 +159,7 @@ import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
+  buildLlmHistorySummarizer,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
@@ -185,6 +197,25 @@ import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
+
+// E2E switches must never fire in a packaged build, and must never run against
+// the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
+// swap in the fake backend or hide the window. app.isPackaged is true for
+// asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
+// backend can't write test sessions into a real profile if someone sets only
+// MAKA_E2E.
+const isE2e =
+  !app.isPackaged &&
+  process.env.MAKA_E2E === '1' &&
+  !!process.env.MAKA_E2E_USER_DATA_DIR;
+
+// E2E isolation: redirect userData BEFORE the single-instance lock so the
+// lock judges the throwaway dir, not the real user data — otherwise a
+// developer with Maka open makes the E2E process exit as a "second instance".
+// Gated by isE2e (not just the dir env) so a packaged build ignores it.
+if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
+  app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
+}
 
 // Electron does not enforce single-instance by default. Must run before any
 // workspace/store setup below -- a losing second process exits immediately,
@@ -226,6 +257,7 @@ let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
@@ -409,10 +441,15 @@ const systemPromptService = createSystemPromptMainService({
   taskLedger: taskLedgerStore,
   goalManager: goalWiring.manager,
 });
+// Window is created hidden for E2E and visual-smoke runs so it never steals
+// focus. Derived from the same isE2e gate as userData/fake-backend so the
+// hidden-window switch stays in lockstep with the rest of the E2E isolation.
+const startHidden = Boolean(visualSmokeFixture) || isE2e;
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
+  startHidden,
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
 // create one if all windows were closed while the app (macOS: still in the
@@ -452,6 +489,11 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+const shellRuns = new ShellRunProcessManager({
+  store: shellRunStore,
+  newId: randomUUID,
+  now: Date.now,
+});
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -476,8 +518,12 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
+const webSearchTool = buildWebSearchAgentTool({
+  settingsStore,
+  getPrivacyContext: getWorkspacePrivacyContext,
+});
 const builtinTools: MakaTool[] = [
-  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -490,10 +536,7 @@ const builtinTools: MakaTool[] = [
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
   // prompts the user in explore / ask modes.
-  buildWebSearchAgentTool({
-    settingsStore,
-    getPrivacyContext: getWorkspacePrivacyContext,
-  }),
+  webSearchTool,
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
@@ -505,7 +548,12 @@ const builtinTools: MakaTool[] = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
-const childAgentTools = buildChildAgentTools(builtinTools);
+// Child agents stay file-only for local reads; parent runtime refs such as
+// maka://runtime/background-tasks/<id> are not part of their tool surface.
+const childAgentTools = buildChildAgentTools([
+  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  webSearchTool,
+]);
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -691,12 +739,16 @@ backends.register('ai-sdk', async (ctx) => {
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
     providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
-    contextBudget: buildDefaultContextBudgetPolicy(connection, { name: 'desktop-default-history-budget' }),
+    contextBudget: buildDefaultContextBudgetPolicy(connection, {
+      name: 'desktop-default-history-budget',
+      modelId: model,
+    }),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
+    shellRunContextSummary: ctx.shellRunContextSummary,
     lookupPricing,
     recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
     recordToolInvocation: (event: ToolInvocationRecord) =>
@@ -717,6 +769,13 @@ backends.register('ai-sdk', async (ctx) => {
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+      summarize: buildLlmHistorySummarizer({
+        // Reuse the same connection/model the session already drives, so the
+        // summary stays consistent with the model that will consume it.
+        resolveModel: () =>
+          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+        maxOutputTokens: 4096,
+      }),
       onArtifactCreated: (artifact) => {
         safeSendToRenderer('artifacts:changed', {
           reason: 'created',
@@ -761,10 +820,22 @@ backends.register('fake', (ctx) =>
   new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
 
+// E2E: also route 'ai-sdk' (requested by sessions:create and quickChat:start)
+// through the deterministic fake backend, so no session-creation path can
+// escape the E2E seam and hit a real provider. Registered after the real
+// ai-sdk factory to override it (BackendRegistry uses last-write-wins).
+// Production builds never set MAKA_E2E.
+if (isE2e) {
+  backends.register('ai-sdk', (ctx) =>
+    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  );
+}
+
 const runtime = new SessionManager({
   store,
   runStore,
   runtimeEventStore,
+  shellRuns,
   backends,
   childTools: childAgentTools,
   listArtifactsForTurn: async (sessionId, turnId) =>
@@ -1280,11 +1351,10 @@ function registerIpc(): void {
       return { ok: true, base64: result.base64, mimeType: result.mimeType };
     },
   );
-  ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
+  ipcMain.handle('sessions:compact', async (_event, sessionId: string) => {
     await ensureSessionCanSend(sessionId);
-    const normalized = normalizeRetryTurnInput(input);
-    const turnId = normalized.turnId ?? randomUUID();
-    void streamEvents(sessionId, runtime.retryTurn(sessionId, { ...normalized, turnId }), turnId);
+    const turnId = randomUUID();
+    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
   });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
@@ -1591,6 +1661,25 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
     const status = await openGateway.sync(settings.openGateway);
     safeSendToRenderer('gateway:statusChanged', status);
   }
+  if (patch.chatDefaults?.permissionMode) {
+    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
+  }
+}
+
+async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
+  const sessions = await runtime.listSessions();
+  await Promise.all(sessions.map(async (session) => {
+    if (session.permissionMode === mode) return;
+    if (isDeepResearchSession(session.labels)) return;
+    if (session.status === 'running' || session.status === 'waiting_for_user') return;
+    try {
+      await runtime.setPermissionMode(session.id, mode);
+      emitSessionsChanged('mode-change', session.id);
+    } catch {
+      // Best effort: the persisted global default is still the authority for
+      // new sessions; busy sessions can be reconciled on a later change.
+    }
+  }));
 }
 
 async function handleExternalSettingsChange(): Promise<void> {
@@ -1903,11 +1992,11 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
-      // active window during a capture run.
+      // active window during a capture run or an E2E run.
       app.dock.hide();
     } else {
       try {
@@ -1992,15 +2081,35 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let beforeQuitCleanupComplete = false;
+let beforeQuitCleanupStarted = false;
+
+app.on('before-quit', (event) => {
+  if (beforeQuitCleanupComplete) return;
+  event.preventDefault();
+  if (beforeQuitCleanupStarted) return;
+  beforeQuitCleanupStarted = true;
+  void runBeforeQuitCleanup().finally(() => {
+    beforeQuitCleanupComplete = true;
+    app.quit();
+  });
+});
+
+async function runBeforeQuitCleanup(): Promise<void> {
   automationWiring.scheduler.dispose();
   goalWiring.manager.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
-  void botRegistry.stopAll();
-  void openGateway.stop();
-  void mainWindowController.disposeBrowserViews();
-});
+  const results = await Promise.allSettled([
+    botRegistry.stopAll(),
+    openGateway.stop(),
+    Promise.resolve(mainWindowController.disposeBrowserViews()),
+    shellRuns.terminateAll(),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
+  }
+}
 
 app.on('activate', focusOrCreateMainWindow);

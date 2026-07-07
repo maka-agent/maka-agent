@@ -491,7 +491,8 @@ describe('turn footer copy feedback contract', () => {
     assert.match(footerBlock, /复制失败/, 'Turn footer copy should show failure feedback.');
     assert.match(footerBlock, /data-copy-feedback/, 'Turn footer copy should expose stable state data for CSS and review.');
     assert.match(footerBlock, /aria-busy=\{isActionPending/, 'Turn footer copy should expose busy state to assistive tech.');
-    assert.match(footerBlock, /disabled=\{!action\.enabled \|\| copyIsPending\}/, 'Turn footer copy should disable while pending.');
+    assert.match(footerBlock, /aria-disabled=\{!action\.enabled \|\| copyIsPending\}/, 'Turn footer copy should set aria-disabled while pending.');
+    assert.doesNotMatch(footerBlock, /[^-]disabled=\{/, 'Turn footer copy must not set a real disabled prop — it brings pointer-events-none and hides the tooltip.');
     assert.doesNotMatch(
       footerBlock,
       /silent — clipboard may be unavailable/,
@@ -524,13 +525,13 @@ describe('turn footer copy feedback contract', () => {
       /data-\[copy-feedback=failed\]:text-\[color:var\(--destructive\)\]/,
       'Turn footer failed copy state should have a stable styling hook.',
     );
-    // Copy-in-progress is disabled AND pending at once; the pending 0.78 dim
-    // must beat the disabled 0.45 dim by specificity (combined-modifier guard),
-    // not by Tailwind emit order — so it stays stable across rebuilds.
+    // Copy-in-progress is aria-disabled AND pending at once; the pending 0.78
+    // dim must beat the aria-disabled 0.45 dim by specificity (combined-modifier
+    // guard), not by Tailwind emit order — so it stays stable across rebuilds.
     assert.match(
       src,
-      /disabled:data-\[pending=true\]:opacity-\[0\.78\]/,
-      'Pending copy opacity must outrank the disabled dim by specificity, not source order.',
+      /aria-disabled:data-\[pending=true\]:opacity-\[0\.78\]/,
+      'Pending copy opacity must outrank the aria-disabled dim by specificity, not source order.',
     );
   });
 });
@@ -650,7 +651,9 @@ describe('chat markdown copy feedback contract', () => {
   });
 
   it('keeps message and code copy pending/failure states visible', async () => {
-    const stylesPath = join(process.cwd(), 'src', 'renderer', 'maka-tokens.css');
+    // .maka-message-copy / .maka-code-block-copy moved to chat-message.css
+    // (#546 PR4 relocated the message-body surface out of maka-tokens.css).
+    const stylesPath = join(process.cwd(), 'src', 'renderer', 'styles', 'chat-message.css');
     const src = await readFile(stylesPath, 'utf8');
 
     assert.match(src, /\.maka-message-copy\[data-pending="true"\]/, 'Message copy needs a visible pending selector.');

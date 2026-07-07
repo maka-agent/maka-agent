@@ -354,7 +354,7 @@ describe('deriveTurnLineageMap', () => {
 
   it('multi-retry uses last-wins semantics (most recent retry surfaced)', () => {
     // Two retries off the same origin: the most recent one in the
-    // input array wins. UI consumers can show "已重试 → turn ${id}"
+    // input array wins. UI consumers can show "已重新生成 → turn ${id}"
     // pointing at the latest attempt; older retries are still findable
     // by scanning the turn list for `retriedFromTurnId === origin`.
     const map = deriveTurnLineageMap([

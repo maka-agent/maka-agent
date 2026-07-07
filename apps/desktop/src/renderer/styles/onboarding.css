@@ -212,10 +212,27 @@
 
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
+  position: relative;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   overflow: hidden;
   background: var(--background-elevated);
+}
+
+/* Designer audit P2-15: the height clamp cut the last visible provider row
+   in half with no cue that the list scrolls — it read as broken clipping.
+   A bottom fade signals "more below" (the provider count always exceeds the
+   clamp, so the cue never lies); pointer-events none keeps rows clickable. */
+.maka-firstrun-list::after {
+  content: "";
+  position: absolute;
+  left: var(--border-width-hairline);
+  right: var(--border-width-hairline);
+  bottom: var(--border-width-hairline);
+  height: 28px;
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+  background: linear-gradient(to bottom, oklch(from var(--background-elevated) l c h / 0), var(--background-elevated));
+  pointer-events: none;
 }
 .maka-firstrun-list ul {
   margin: 0;
@@ -668,305 +685,230 @@
   opacity: var(--opacity-muted);
 }
 
-.maka-list-row-name {
+
+/* First-run checklist + onboarding ready/quickchat. Relocated from tool-stream.css — issue #546 PR1. */
+/* ────────────────────────────────────────────────────────────────
+   PR-FIRST-RUN-CHECKLIST-0: "接下来可以探索" card.
+   Rendered below OnboardingHero ready_empty hero. Each row is a
+   real jumpable affordance; done rows mute.
+   ──────────────────────────────────────────────────────────────── */
+.maka-onboarding-stack {
+    display: grid;
+    gap: var(--space-6);
+    align-content: start;
+    justify-items: center;
+    width: 100%;
+    min-height: calc(100dvh - 84px);
+    padding: clamp(var(--space-10), 7vh, 76px) var(--space-6) var(--space-12);
+  }
+.maka-onboarding-stack > .maka-onboarding-ready {
+    margin: 0;
+  }
+.maka-onboarding-ready {
+    width: min(760px, 100%);
+    padding: 0;
+    gap: 0;
+  }
+.maka-first-run-checklist {
+    width: min(760px, 100%);
+    border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+    border-radius: var(--radius-surface);
+    padding: var(--space-3);
+    background: oklch(from var(--background-elevated, var(--background)) l c h / 0.58);
+    display: grid;
+    gap: var(--space-3);
+    box-shadow: 0 10px 30px oklch(from var(--foreground) l c h / 0.04);
+  }
+.maka-first-run-checklist-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--foreground-secondary);
+    padding: 0 var(--space-1) var(--space-0-5);
+  }
+.maka-first-run-checklist-header strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+.maka-first-run-checklist-count {
+    margin-left: auto;
+    font-size: var(--font-size-caption);
+    letter-spacing: var(--tracking-wider);
+    color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+.maka-first-run-checklist-error {
   display: flex;
   align-items: center;
-  gap: var(--space-1-5);
-  overflow: hidden;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.28);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--warning, var(--info)) l c h / 0.08);
+  color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-  min-width: 0;
+  line-height: var(--leading-normal);
+  padding: var(--space-2) var(--space-2-5);
 }
 
-.maka-list-row-name > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-/* Small pulsing accent dot rendered when a session has live streaming
- * delta in flight. Replaces the unread halo for streaming sessions so the
- * indicator hierarchy is: streaming > unread > inactive. Respects
- * prefers-reduced-motion. */
-.maka-list-row-streaming-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--status-running);
-  box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
-  animation: maka-list-row-streaming-pulse 1.2s var(--ease-in-out-strong) infinite;
-}
-
-@keyframes maka-list-row-streaming-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.18);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow: 0 0 0 5px oklch(from var(--status-running) l c h / 0.05);
-    transform: scale(1.1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .maka-list-row-streaming-dot {
-    animation: none;
-  }
-}
-
-.maka-list-row[data-streaming="true"] .maka-list-row-name > span {
-  color: var(--foreground);
-}
-
-/* PR-SIDEBAR-IA-0 Phase 3: meta (relative time) now sits inline at
- * the row's inline-end instead of stacked below the name. Color +
- * size kept muted so it reads as secondary info, not a competing
- * label. `margin-top` from the old stacked layout is removed. */
-.maka-list-row-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-
-/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-text` collapses to a single
- * row (name on the inline-start). The previous stack-of-three
- * layout (name / preview / meta) is gone — preview drops out of the
- * default DOM, meta moves inline to the row's right column. */
-.maka-list-row-text {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  min-height: 24px;
-}
-
-/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
- * rendered in the default DOM — preview text is exposed via the row
- * button's native `title=` tooltip on hover so users can still peek
- * at the last message without paying the layout cost of a second
- * stacked line. This rule intentionally remains DELETED (no fallback
- * style). The `sidebar-row-density-contract.test.ts` gate asserts
- * the rule is gone so a future "let's bring snippet back" patch
- * lands as an explicit design discussion, not a silent regression.
- */
-
-/* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
- * rendered in the default DOM (see comment above). The
- * `[data-active]` variant of that rule is therefore dead and
- * removed. */
-
-.maka-list-row-unread {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--radius-pill);
-  background: var(--status-running);
-  box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
-}
-
-/* Stale session — `backend='fake'` or `llmConnectionSlug` no longer
- * resolves. Pairs with the chat-header banner (PR108e) so users can spot
- * dead sessions in the sidebar list before clicking in. Visual treatment:
- *
- * - Row body dimmed via opacity reduction (preserves all underlying tones
- *   but reads as "secondary"); active state remains fully opaque so the
- *   currently-selected row never disappears just because it's stale.
- * - A small amber pill labelled "已过期" sits next to the session name —
- *   muted-warning tone, not destructive, because @xuan's send-path silent
- *   rebind makes these sessions still functional.
- */
-.maka-list-row[data-stale="true"] {
-  opacity: var(--opacity-muted);
-}
-
-.maka-list-row[data-stale="true"][data-active="true"] {
-  opacity: 1;
-}
-
-/* PR109b: SessionStatusIcon — small inline icon next to session name
- * representing lifecycle status. Tone-based color from the
- * design-system token vocabulary; running spins via `animation`
- * (capped under reduced-motion + visual-smoke per PR-IR-04). */
-.maka-list-row-status-icon {
+.maka-first-run-checklist-error-action {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-right: var(--space-1);
-  width: 14px;
-  height: 14px;
-  color: var(--foreground-secondary);
-}
-.maka-list-row-status-icon[data-tone="accent"] {
-  color: var(--nav-active);
-}
-.maka-list-row-status-icon[data-tone="warning"] {
-  color: var(--info-text);
-}
-.maka-list-row-status-icon[data-tone="destructive"] {
-  color: var(--destructive);
-}
-.maka-list-row-status-icon[data-tone="info"] {
-  color: var(--info-text);
-}
-.maka-list-row-status-icon[data-tone="success"] {
-  /* Success uses the brand-deep tone introduced for Settings hero */
-  color: var(--brand-deep);
-}
-.maka-list-row-status-icon[data-tone="muted"] {
-  color: var(--muted-foreground);
-}
-.maka-list-row-status-icon[data-status="running"] svg {
-  animation: maka-status-spin 1.2s var(--ease-linear) infinite;
-}
-@keyframes maka-status-spin {
-  to { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .maka-list-row-status-icon[data-status="running"] svg {
-    animation: none;
-  }
-}
-[data-maka-visual-smoke="true"] .maka-list-row-status-icon[data-status="running"] svg {
-  animation: none;
-}
-
-/* Group label as a toggle button (archived group). Matches existing
- * maka-list-group-label tone so the toggle doesn't visually fight
- * non-collapsible groups. */
-.maka-list-group-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-1-5);
-  width: 100%;
-  background: transparent;
-  border: 0;
-  text-align: left;
-}
-.maka-list-group-toggle:focus-visible {
-  outline: var(--focus-ring-width) solid var(--focus-ring);
-  outline-offset: var(--focus-ring-offset);
+  flex: 0 0 auto;
+  gap: var(--space-1);
+  height: auto;
+  min-height: var(--h-control-sm);
+  padding: 0 var(--space-2);
+  border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.28);
   border-radius: var(--radius-control);
-}
-.maka-list-group-count {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-}
-
-.maka-list-row-stale-pill {
-  flex-shrink: 0;
-  /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing
-   * so all badges in .maka-list-row-name share the same rhythm. */
-  padding: 1px var(--space-1-5);
-  border-radius: var(--radius-pill);
-  /* Reuses the chat-header-alert warning tone tokens (--warning + --warning-text)
-   * for visual consistency with the banner that explains the same state.
-   * Switched from --info (blue) to --warning (amber) per UI audit §2.9 —
-   * "已过期" is a degraded-state signal, not informational. */
-  background: oklch(from var(--warning, var(--info)) l c h / 0.18);
+  background: var(--background);
   color: var(--warning-text, var(--info-text));
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--leading-snug);
+  font-size: var(--font-size-ui);
 }
 
-.maka-list-row:hover .maka-list-row-name {
+.maka-first-run-checklist-error-action:hover {
+  background: var(--state-hover-bg);
+}
+
+.maka-first-run-checklist-error-action:disabled {
+  cursor: default;
+  opacity: var(--opacity-disabled);
+}
+
+.maka-first-run-checklist-error-action:disabled:hover {
+  background: var(--background);
+}
+
+.maka-first-run-checklist-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
+  }
+
+.maka-first-run-checklist-row > button {
+  height: auto;
+  min-height: var(--h-control-xl);
+  background: var(--background);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+  border-radius: var(--radius-control);
+  padding: var(--space-1-5) var(--space-2-5) var(--space-1-5) var(--space-2);
+  display: inline-grid;
+  grid-template-columns: 20px max-content 0;
+  align-items: center;
+  gap: var(--space-1-5);
+  width: auto;
+  text-align: left;
+  color: var(--foreground-secondary);
+  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-first-run-checklist-row > button:hover {
+  background: var(--background-elevated, var(--background));
+  border-color: oklch(from var(--foreground) l c h / 0.14);
   color: var(--foreground);
 }
 
-.maka-empty-state {
-  position: absolute;
-  left: 50%;
-  top: 46%;
-  width: min(205px, calc(100% - 40px));
-  transform: translate(-50%, -50%);
-  display: grid;
-  justify-items: center;
-  gap: var(--space-1-5);
-  text-align: center;
-  color: var(--foreground-secondary);
-}
-
-.maka-empty-state-icon {
-  width: 32px;
-  height: 32px;
+.maka-first-run-checklist-row[data-done="true"] > button {
   color: var(--muted-foreground);
-  padding: 0;
+  cursor: default;
 }
 
-.maka-empty-state-media .maka-empty-state-icon {
+.maka-first-run-checklist-row[data-done="true"] > button:hover {
+  background: var(--background);
+  border-color: transparent;
+}
+
+.maka-first-run-checklist-status {
+  display: inline-grid;
+  place-items: center;
   width: 20px;
   height: 20px;
-}
-
-.maka-empty-state-title {
-  color: var(--foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-empty-state-body {
-  max-width: 30ch;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-snug);
-  text-wrap: pretty;
-}
-
-/* Justified: the shared EmptyState primitive is a card by default, but the
-   sidebar history fallback must collapse into lightweight inline copy instead
-   of painting a second card surface. */
-.maka-session-list .maka-session-empty-state {
-  width: calc(100% - 42px);
-  top: 34%;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-  color: var(--muted-foreground);
-}
-
-.maka-session-list .maka-session-empty-state .maka-empty-state-media {
-  display: none;
-}
-
-.maka-session-list .maka-session-empty-state .maka-empty-state-title {
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-session-list .maka-session-empty-state .maka-empty-state-body {
-  max-width: 22ch;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-}
-
-.maka-empty-state-code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-ui);
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-control);
+  border-radius: 50%;
   background: var(--foreground-5);
   color: var(--foreground-secondary);
 }
 
-.maka-empty-state-actions {
-  margin-top: var(--space-1);
-  display: grid;
-  gap: var(--space-1);
-  justify-items: center;
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-status {
+  background: oklch(from var(--success, var(--info)) l c h / 0.12);
+  color: var(--success-text, var(--info-text));
 }
 
-.maka-empty-state-cta {
-  min-width: 88px;
+.maka-first-run-checklist-copy {
+  display: block;
+  min-width: 0;
+}
+
+.maka-first-run-checklist-copy strong {
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.maka-first-run-checklist-copy small {
+  display: none;
+  font-size: var(--font-size-ui);
+  color: var(--muted-foreground);
+  line-height: var(--leading-normal);
+}
+
+.maka-first-run-checklist-arrow {
+  display: none;
+  color: var(--muted-foreground);
+}
+
+.maka-first-run-checklist-row[data-done="true"] .maka-first-run-checklist-arrow {
+  display: none;
+}
+
+@media (max-width: 760px) {
+    .maka-onboarding-stack {
+      gap: var(--space-6);
+      padding: var(--space-6) var(--space-4) var(--space-8);
+    }
+
+  .maka-onboarding-ready header h1 {
+    font-size: 1.6em;
+    line-height: var(--leading-tight);
+  }
+
+  .maka-onboarding-ready header p {
+    margin-top: var(--space-2);
+  }
+
+  .maka-onboarding-quickchat-input {
+    min-height: 88px;
+    padding: 0;
+  }
+
+  .maka-onboarding-quickchat-field {
+    padding: var(--space-4) var(--space-4) var(--space-16);
+  }
+
+  .maka-onboarding-quickchat-example {
+    padding-inline: 0;
+    margin-bottom: 0;
+  }
+
+  .maka-onboarding-quickchat-submit {
+    right: 16px;
+    bottom: 16px;
+    width: calc(100% - 32px);
+    justify-content: center;
+  }
+
+  .maka-first-run-task-suggestions-header {
+    justify-content: center;
+  }
+    .maka-first-run-checklist-list {
+      justify-content: center;
+    }
+
+    .maka-first-run-checklist {
+      padding: var(--space-3);
+    }
 }

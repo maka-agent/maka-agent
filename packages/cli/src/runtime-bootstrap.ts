@@ -9,11 +9,12 @@ import {
   GoalManager,
   PermissionEngine,
   SessionManager,
+  ShellRunProcessManager,
   buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
   buildGoalTools,
-  buildManualCompactLookupPolicy,
+  buildLlmHistorySummarizer,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   getAIModel,
@@ -31,6 +32,7 @@ import {
   createRuntimeEventStore,
   createSessionStore,
   createSettingsStore,
+  createShellRunStore,
 } from '@maka/storage';
 import type { ReadySessionTarget } from './connection-target.js';
 import { resolveDefaultSessionTarget } from './connection-target.js';
@@ -46,6 +48,7 @@ export interface MakaCliRuntimeContext {
   automationScheduler: AutomationScheduler;
   goalManager: GoalManager;
   goalContinuationDeps: GoalContinuationDeps;
+  close(): Promise<void>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -70,6 +73,7 @@ export async function createMakaCliRuntimeContext(
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
+  const shellRunStore = createShellRunStore(input.workspaceRoot);
   const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
@@ -81,7 +85,12 @@ export async function createMakaCliRuntimeContext(
   });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
-  const tools = buildBuiltinTools();
+  const shellRuns = new ShellRunProcessManager({
+    store: shellRunStore,
+    newId: randomUUID,
+    now: Date.now,
+  });
+  const tools = buildBuiltinTools({ shellRuns });
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
     now: () => Date.now(),
@@ -136,17 +145,31 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
-      contextBudget: buildManualCompactLookupPolicy(
-        buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
-        { highWaterName: 'cli-manual-history-compact' },
-      ),
+      contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
+        name: 'cli-default-history-budget',
+        modelId: ready.model,
+      }),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event),
+      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+        summarize: buildLlmHistorySummarizer({
+          // Reuse the same connection/model the session already drives, so the
+          // summary stays consistent with the model that will consume it.
+          resolveModel: () =>
+            getAIModel({
+              connection: ready.connection,
+              apiKey: ready.apiKey,
+              modelId: ready.model,
+              fetch: modelFetch,
+            }),
+          maxOutputTokens: 4096,
+        }),
+      }),
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
       },
       turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
+      shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
     });
@@ -156,10 +179,12 @@ export async function createMakaCliRuntimeContext(
     store,
     runStore,
     runtimeEventStore,
+    shellRuns,
     backends,
     newId: randomUUID,
     now: Date.now,
   });
+  await runtime.recoverInterruptedSessions();
 
   const automationScheduler = new AutomationScheduler({
     automationManager,
@@ -258,6 +283,12 @@ export async function createMakaCliRuntimeContext(
     automationScheduler,
     goalManager,
     goalContinuationDeps,
+    close: async () => {
+      // Stop the automation scheduler's timer (else it keeps the process alive
+      // and ticks into a stopped session), then terminate background shell runs.
+      automationScheduler.dispose();
+      await shellRuns.terminateAll();
+    },
   };
 }
 

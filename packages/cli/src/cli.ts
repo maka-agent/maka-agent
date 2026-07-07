@@ -62,14 +62,14 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         workspaceRoot: resolveMakaWorkspaceRoot(),
         cwd: process.cwd(),
       });
-      const driver = createMakaSessionDriver({
-        runtime: context.runtime,
-        cwd: context.cwd,
-        llmConnectionSlug: context.target.connection.slug,
-        model: context.target.model,
-        permissionMode: 'ask',
-      });
       try {
+        const driver = createMakaSessionDriver({
+          runtime: context.runtime,
+          cwd: context.cwd,
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'ask',
+        });
         await runMakaPiTui({
           driver,
           title: 'Maka',
@@ -88,12 +88,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
             ).catch(() => {});
           },
         });
+        return 0;
       } finally {
-        // Stop the automation scheduler so its 5s timer does not keep the
-        // process alive and tick into a stopped session after the TUI exits.
-        context.automationScheduler.dispose();
+        await context.close();
       }
-      return 0;
     }
   }
 }

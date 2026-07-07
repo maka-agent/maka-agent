@@ -14,17 +14,58 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('Command palette accessibility and visible copy', () => {
-  it('names the command results listbox controlled by the search input', async () => {
+  it('uses Base UI Autocomplete for the command results listbox (#520 PR8)', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     assert.match(
       src,
-      /aria-controls="maka-palette-list"/,
-      'palette input must keep its aria-controls link to the results list',
+      /import \{ Autocomplete \} from '@base-ui\/react\/autocomplete'/,
+      'CommandPalette must consume Base UI Autocomplete for the result list',
     );
     assert.match(
       src,
-      /<div className="maka-palette-list" id="maka-palette-list" role="listbox" aria-label="命令面板结果">/,
-      'palette results listbox must expose a name in the accessibility tree',
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?\bkeepHighlight\b[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` + keepHighlight: `inline open` so the list is treated as visible (Base UI docs); keepHighlight so pointer leave preserves the hovered highlight (hover item -> leave -> Enter runs that item, not the first — #562 P2); mode="none" (palette owns fuzzy + content-search filtering) + autoHighlight="always"',
+    );
+    assert.match(
+      src,
+      /<Autocomplete\.Root[\s\S]*?itemToStringValue=\{\(cmd\) => cmd\.label\}/,
+      'Autocomplete.Root must serialize object commands via itemToStringValue — without it, item-press can write [object Object] back into the query',
+    );
+    assert.match(
+      src,
+      /onValueChange=\{\(next, details\) => \{[\s\S]*?details\.reason === 'item-press'[\s\S]*?setQuery\(next\)/,
+      'Autocomplete value changes must skip item-press reasons (selection must not write the command object back into the query)',
+    );
+    assert.match(src, /<Autocomplete\.Input/, 'Palette input must be Autocomplete.Input');
+    assert.match(
+      src,
+      /<Autocomplete\.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">/,
+      'Palette results must render as Autocomplete.List (listbox) with an accessible name',
+    );
+    assert.match(
+      src,
+      /<Autocomplete\.Group[\s\S]*?<Autocomplete\.GroupLabel className="maka-palette-group-label">/,
+      'Palette groups must render as Autocomplete.Group + GroupLabel',
+    );
+    assert.match(
+      src,
+      /<Autocomplete\.Item[\s\S]*?onClick=\{\(\) => commit\(cmd\)\}/,
+      'Each command must be Autocomplete.Item with onClick firing commit (pointer click or Enter on highlighted)',
+    );
+    // P2-c: Home/End decision — accept Base UI ComboboxInput's input-cursor
+    // default. The old hand-rolled highlight jump (Home/End -> first/last) is
+    // gone and must not return.
+    assert.doesNotMatch(
+      src,
+      /\bjumpActive\w*\(|onInputKeyDown/,
+      'Home/End must NOT jump highlight and there must be no hand-rolled input keydown handler — Base UI input-cursor default is the decided behavior (#562 P2-c)',
+    );
+    // P2: empty state renders inside Autocomplete.List, not a standalone div,
+    // so the input always references a stable listbox container.
+    assert.doesNotMatch(
+      src,
+      /<div className="maka-palette-list"/,
+      'Empty state must render inside Autocomplete.List, not a standalone div — input must always reference a listbox container (#562 P2)',
     );
   });
 
@@ -35,7 +76,7 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(
       src,
-      /import \{[^}]*\bButton\b[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/,
+      /import \{[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/,
       'CommandPalette must consume shared primitive InputGroup + Dialog primitives from @maka/ui',
     );
     assert.match(
@@ -96,7 +137,7 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(styles, /\.maka-palette-item\[data-pending="true"\]\s*\{[\s\S]*cursor:\s*progress;/);
     assert.match(
       styles,
-      /\.maka-palette-item\[data-active="true"\]\s*\{[\s\S]*background:\s*var\(--state-selected-bg\)/,
+      /\.maka-palette-item\[data-highlighted\]\s*\{[\s\S]*background:\s*var\(--state-selected-bg\)/,
       'Palette active row uses the neutral state-selected token, not a brand rail',
     );
     assert.match(styles, /\.maka-palette-icon\s*\{[\s\S]*width:\s*18px;[\s\S]*height:\s*18px;/);
@@ -127,9 +168,11 @@ describe('Command palette accessibility and visible copy', () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
     const mainSrc = await readRendererShellCombinedSource();
     const commandTypes = await readRepo('apps/desktop/src/renderer/command-palette-types.ts');
-    const commandPaletteBlock = src.match(/export function CommandPalette[\s\S]*?function onInputKeyDown/)?.[0] ?? '';
+    // #520 PR8: onInputKeyDown is gone (Autocomplete owns ArrowUp/Down/Enter),
+    // so the block boundary is the commit() helper now.
+    const commandPaletteBlock = src.match(/export function CommandPalette[\s\S]*?function commit/)?.[0] ?? '';
     const commitBlock = src.match(/function commit\(cmd: Command \| undefined\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
-    const rowBlock = src.match(/const commandCommitPending = committedCommandId === cmd\.id;[\s\S]*?onClick=\{\(\) => commit\(cmd\)\}/)?.[0] ?? '';
+    const rowBlock = src.match(/const commandCommitPending = committedCommandId === cmd\.id;[\s\S]*?data-pending=\{commandCommitPending \? 'true' : undefined\}/)?.[0] ?? '';
 
     assert.match(commandTypes, /run\(\): void \| Promise<void>/, 'command actions may be async and must be awaited by commit()');
     assert.match(commandPaletteBlock, /const commitPendingRef = useRef\(false\)/);
@@ -153,19 +196,21 @@ describe('Command palette accessibility and visible copy', () => {
     assert.match(rowBlock, /data-pending=\{commandCommitPending \? 'true' : undefined\}/);
   });
 
-  it('resets active command to the first result when the result set changes', async () => {
+  it('resets active command to the first result when the result set changes (#520 PR8)', async () => {
     const src = await readRepo('apps/desktop/src/renderer/command-palette.tsx');
-    const highlightEffect = src.match(/useEffect\(\(\) => \{[\s\S]*?Reset highlight whenever the result set changes\.[\s\S]*?\}, \[combined\]\);/)?.[0] ?? '';
-
+    // #520 PR8: Autocomplete's autoHighlight="always" owns highlight reset —
+    // the first item is always highlighted, so Enter on a fresh result set
+    // always activates the top command. The old hand-rolled highlight state +
+    // useEffect reset is gone.
     assert.match(
-      highlightEffect,
-      /setHighlight\(0\);/,
-      'CommandPalette must reset highlight to the first new result after filtering/search results change',
+      src,
+      /autoHighlight="always"/,
+      'Autocomplete.Root must use autoHighlight="always" so the first command is always highlighted and Enter works without an extra ArrowDown',
     );
     assert.doesNotMatch(
-      highlightEffect,
-      /Math\.min\(current,\s*Math\.max\(0,\s*combined\.length - 1\)\)/,
-      'CommandPalette must not preserve a stale lower-row highlight across a new result set',
+      src,
+      /\[highlight, setHighlight\]/,
+      'CommandPalette must not keep a hand-rolled highlight state — Autocomplete owns it',
     );
   });
 

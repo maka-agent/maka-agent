@@ -15,26 +15,45 @@ import { Button as UiButton, TabsRoot, TabsList, TabsTrigger, TabsPanel } from '
 import { Input } from './primitives/input.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
-import type { SkillEntry } from './module-panel-types.js';
+import type { ManagedSkillSourceEntry, SkillEntry } from './module-panel-types.js';
 
 function SkillLibraryPanel(props: {
   skills?: SkillEntry[];
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  onImportManagedSkillSource?(): void | Promise<void>;
+  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
   actionBusy?: boolean;
   refreshPending?: boolean;
   createPending?: boolean;
   openingSkillId?: string | null;
+  installingSourceId?: string | null;
+  updatingSkillId?: string | null;
   searchQuery?: string;
+  managedSkillSources?: ManagedSkillSourceEntry[];
 }) {
   const skillCount = props.skills?.length ?? 0;
-  const [activeSkillTab, setActiveSkillTab] = useState<'market' | 'builtin' | 'installed'>('market');
+  // Designer audit P1-5: land on skills the user can actually run, not the
+  // marketplace — every market card is still 即将上线, and leading with
+  // things you can't install undermines trust in the whole page.
+  const [activeSkillTab, setActiveSkillTab] = useState<'market' | 'builtin' | 'installed'>(() => {
+    const skills = props.skills ?? [];
+    if (skills.some((skill) => skill.sourceType !== 'bundled')) return 'installed';
+    if (skills.length > 0) return 'builtin';
+    return 'market';
+  });
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
     if (!normalizedSkillQuery) return true;
     return `${skill.id} ${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(normalizedSkillQuery);
   });
+  // 内置 = bundled skills shipped with the app; 已安装 = everything the user
+  // added themselves (workspace / unknown source). The two tabs used to
+  // render the SAME list, which made them meaningless.
+  const bundledSkills = filteredSkills.filter((skill) => skill.sourceType === 'bundled');
+  const installedSkills = filteredSkills.filter((skill) => skill.sourceType !== 'bundled');
   const filteredMarketCards = SKILL_MARKETPLACE_CARDS.filter((card) => {
     if (!normalizedSkillQuery) return true;
     return `${card.title} ${card.body} ${card.meta}`.toLowerCase().includes(normalizedSkillQuery);
@@ -46,6 +65,10 @@ function SkillLibraryPanel(props: {
       {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
     </>
   );
+  const filteredManagedSources = (props.managedSkillSources ?? []).filter((source) => {
+    if (!normalizedSkillQuery) return true;
+    return `${source.id} ${source.name} ${source.description}`.toLowerCase().includes(normalizedSkillQuery);
+  });
   const templates = (
     <section className="maka-skill-examples" aria-label="技能示例">
       <ul className="maka-skill-example-grid" aria-label="技能模板示例">
@@ -70,8 +93,8 @@ function SkillLibraryPanel(props: {
       <TabsList variant="underline" className="maka-skill-tabs" aria-label="技能视图">
         {([
           ['market', '市场', filteredMarketCards.length],
-          ['builtin', '内置', filteredSkills.length],
-          ['installed', '已安装', skillCount],
+          ['builtin', '内置', bundledSkills.length],
+          ['installed', '已安装', installedSkills.length],
         ] as const).map(([tab, label, count]) => (
           <TabsTrigger
             key={tab}
@@ -79,19 +102,14 @@ function SkillLibraryPanel(props: {
             value={tab}
           >
             {label}
-            {tab === 'installed' && <span>{count}</span>}
+            <span>{count}</span>
           </TabsTrigger>
         ))}
       </TabsList>
-      {activeSkillTab === 'market' && (
-        <div className="maka-skill-filter-actions" aria-label="技能筛选排序">
-          {/* Static labels, not disabled buttons: filter/sort are not
-              wired yet, and a styled-but-dead button visually promises
-              interactivity it can't deliver. */}
-          <span className="maka-skill-filter-pill" data-static="true">全部</span>
-          <span className="maka-skill-filter-pill" data-static="true">排序：热门</span>
-        </div>
-      )}
+      {/* Designer audit P1-9: the static 全部 / 排序：热门 pills were removed
+          entirely — they were styled like buttons but dead, which reads as a
+          broken control. Bring back real filter/sort controls with the
+          marketplace launch. */}
     </div>
   );
 
@@ -99,7 +117,7 @@ function SkillLibraryPanel(props: {
     <section className="maka-skill-featured-banner" data-skills-banner aria-label="精选技能">
       <div>
         <h3>为你精选的职场技能</h3>
-        <p>涵盖写作、效率、设计、数据分析等多种场景，一键安装后在对话中继续使用。</p>
+        <p>涵盖写作、效率、设计、数据分析等场景，将陆续上线，敬请期待。</p>
       </div>
       <div className="maka-skill-featured-art" aria-hidden="true">
         <span>
@@ -195,6 +213,7 @@ function SkillLibraryPanel(props: {
               const description = formatSkillLibraryDescription(skill);
               const statusLabel = formatSkillStatusLabel(skill);
               const opening = props.openingSkillId === skill.id;
+              const updating = props.updatingSkillId === skill.id;
               const hoverText = tools.length > 0
                 ? `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
                 : `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}`;
@@ -221,17 +240,92 @@ function SkillLibraryPanel(props: {
                       <span>{skill.id}</span>
                       <span>{statusLabel}</span>
                       {opening && <span>打开中…</span>}
+                      {updating && <span>更新中…</span>}
                     </span>
                     <span className="maka-skill-library-action" aria-hidden="true">
-                      打开
+                      {skill.managedUpdateStatus === 'update_available' ? '可更新' : '打开'}
                     </span>
                     <span className="maka-skill-library-switch" aria-hidden="true" data-state="on" />
                   </UiButton>
+                  {skill.managedUpdateStatus === 'update_available' && props.onUpdateManagedSkill && (
+                    <UiButton
+                      type="button"
+                      variant="ghost"
+                      className="maka-skill-market-install"
+                      onClick={() => props.onUpdateManagedSkill?.(skill.id)}
+                      disabled={props.actionBusy}
+                    >
+                      {updating ? '更新中…' : '更新'}
+                    </UiButton>
+                  )}
                 </li>
               );
             })}
           </ul>
         </>
+      )}
+    </section>
+  );
+
+  const managedSources = (
+    <section className="maka-skill-installed" aria-label="来源库">
+      <div className="maka-skill-section-row">
+        <span className="maka-skill-section-label">来源库</span>
+        <small>{filteredManagedSources.length} 个</small>
+      </div>
+      <div className="maka-skill-filter-actions" aria-label="来源库操作">
+        <UiButton
+          type="button"
+          variant="secondary"
+          className="maka-skill-filter-pill"
+          onClick={props.onImportManagedSkillSource}
+          disabled={!props.onImportManagedSkillSource || props.actionBusy}
+        >
+          导入本地 Skill
+        </UiButton>
+      </div>
+      {filteredManagedSources.length === 0 ? (
+        normalizedSkillQuery ? (
+          <EmptyState
+            Icon={BookOpen}
+            title="没有匹配的来源"
+            body="换一个关键词，或清空搜索查看全部来源。"
+            extraClassName="maka-skill-installed-empty"
+          />
+        ) : null
+      ) : (
+        <ul className="maka-skill-library-list" aria-label="来源列表">
+          {filteredManagedSources.map((source) => {
+            const installed = (props.skills ?? []).some((skill) => skill.id === source.id);
+            const installing = props.installingSourceId === source.id;
+            return (
+              <li key={source.id} className="maka-skill-library-item">
+                <div className="maka-skill-library-row" title={`来源：${source.id}`}>
+                  <span className="maka-skill-library-status" aria-hidden="true">
+                    <BookOpen size={16} strokeWidth={1.8} />
+                  </span>
+                  <span className="maka-skill-library-copy">
+                    <span className="maka-skill-library-name">{source.name}</span>
+                    <span className="maka-skill-library-description">{source.description || '本地来源库 Skill。'}</span>
+                  </span>
+                  <span className="maka-skill-library-meta">
+                    <span>{source.id}</span>
+                    <span>{installed ? '已安装' : '未安装'}</span>
+                  </span>
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    className="maka-skill-market-install"
+                    onClick={() => props.onInstallManagedSkill?.(source.id)}
+                    disabled={installed || props.actionBusy || !props.onInstallManagedSkill}
+                  >
+                    {installing ? '安装中…' : installed ? '已安装' : '安装'}
+                  </UiButton>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </section>
   );
@@ -242,8 +336,12 @@ function SkillLibraryPanel(props: {
       <TabsRoot value={activeSkillTab} onValueChange={(v) => setActiveSkillTab(v as 'market' | 'builtin' | 'installed')}>
         {tabs}
         <TabsPanel value="market">{market}</TabsPanel>
-        <TabsPanel value="builtin">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '内置技能')}{templates}</TabsPanel>
-        <TabsPanel value="installed">{skillList(filteredSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}{templates}</TabsPanel>
+        <TabsPanel value="builtin">{skillList(bundledSkills, normalizedSkillQuery ? '没有匹配的内置技能' : '暂无内置技能', normalizedSkillQuery ? '换一个关键词试试。' : '应用自带的技能会出现在这里。', '内置技能')}</TabsPanel>
+        <TabsPanel value="installed">
+          {skillList(installedSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}
+          {managedSources}
+          {templates}
+        </TabsPanel>
       </TabsRoot>
       {props.skills && props.skills.length > 0 ? (
         <span className="maka-skill-tool-summary-hidden" aria-hidden="true">
@@ -340,6 +438,13 @@ function formatSkillLibraryDescription(skill: SkillEntry): string | undefined {
 
 function formatSkillStatusLabel(skill: SkillEntry): string {
   if (skill.validationStatus === 'metadata_error') return '元数据异常';
+  if (skill.sourceType === 'managed') {
+    if (skill.managedUpdateStatus === 'source_missing') return '来源缺失';
+    if (skill.managedUpdateStatus === 'update_available') return '可更新';
+    if (skill.managedUpdateStatus === 'local_modified') return '本地已修改';
+    if (skill.managedUpdateStatus === 'metadata_error') return '元数据异常';
+    return '受管理';
+  }
   if (skill.userModified) return '已修改';
   if (skill.sourceType === 'bundled') return '内置';
   return '本地';
@@ -349,11 +454,16 @@ function formatSkillStatusLabel(skill: SkillEntry): string {
 
 export function SkillsModuleMain(props: {
   skills?: SkillEntry[];
+  managedSkillSources?: ManagedSkillSourceEntry[];
   auditReport?: CapabilityAuditReport;
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
   onOpenSkillsFolder?(): void | Promise<void>;
+  onRefreshManagedSkillSources?(): void | Promise<void>;
+  onImportManagedSkillSource?(): void | Promise<void>;
+  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
@@ -437,16 +547,22 @@ export function SkillsModuleMain(props: {
           </UiButton>
         </div>
       </header>
-      <CapabilityAuditStrip report={auditReport} focus="skills" />
+      <CapabilityAuditStrip report={auditReport} />
       <SkillLibraryPanel
         skills={props.skills}
+        managedSkillSources={props.managedSkillSources}
         onRefreshSkills={props.onRefreshSkills ? () => runSkillAction('refresh', props.onRefreshSkills) : undefined}
         onCreateSkillTemplate={props.onCreateSkillTemplate ? () => runSkillAction('create', props.onCreateSkillTemplate) : undefined}
         onOpenSkill={props.onOpenSkill ? (skillId) => runSkillAction(`open:${skillId}`, () => props.onOpenSkill?.(skillId)) : undefined}
+        onImportManagedSkillSource={props.onImportManagedSkillSource ? () => runSkillAction('source:import', props.onImportManagedSkillSource) : undefined}
+        onInstallManagedSkill={props.onInstallManagedSkill ? (sourceId) => runSkillAction(`source:install:${sourceId}`, () => props.onInstallManagedSkill?.(sourceId)) : undefined}
+        onUpdateManagedSkill={props.onUpdateManagedSkill ? (skillId) => runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId)) : undefined}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}
         createPending={pendingSkillAction === 'create'}
         openingSkillId={pendingSkillAction?.startsWith('open:') ? pendingSkillAction.slice('open:'.length) : null}
+        installingSourceId={pendingSkillAction?.startsWith('source:install:') ? pendingSkillAction.slice('source:install:'.length) : null}
+        updatingSkillId={pendingSkillAction?.startsWith('managed:update:') ? pendingSkillAction.slice('managed:update:'.length) : null}
         searchQuery={skillSearchQuery}
       />
     </main>

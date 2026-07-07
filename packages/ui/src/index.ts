@@ -46,6 +46,7 @@ export * from './primitives/card.js';
 // cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the
 // promotion condition the off-barrel convention named, so the export is the rule.
 export { Bubble, Marker, Message, previewVariants } from './primitives/chat.js';
+export { formatTurnDuration } from './chat-display-helpers.js';
 export type {
   BubbleProps,
   MarkerProps,

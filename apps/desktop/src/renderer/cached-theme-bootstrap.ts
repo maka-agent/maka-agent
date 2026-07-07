@@ -18,4 +18,14 @@ export function applyCachedThemeBeforeMount(): void {
   } else {
     document.documentElement.style.colorScheme = 'light';
   }
+  // PALETTE-LEAK-0: restore the cached palette too (persisted by
+  // applyThemePalette), not just light/dark — otherwise non-default-palette
+  // users get a first paint in the default zinc palette that visibly snaps
+  // once app-shell applies settings. An unknown/stale value is harmless
+  // (no [data-maka-theme=…] block matches → default palette), but keep the
+  // attribute within the safe charset anyway.
+  const cachedPalette = safeLocalStorageGet('maka-theme-palette-v1');
+  if (cachedPalette && cachedPalette !== 'default' && /^[a-z0-9-]{1,32}$/.test(cachedPalette)) {
+    document.documentElement.setAttribute('data-maka-theme', cachedPalette);
+  }
 }

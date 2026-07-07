@@ -6,6 +6,8 @@ import {
   ProcessTerminal,
   SelectList,
   TUI,
+  isKeyRelease,
+  isKeyRepeat,
   matchesKey,
   truncateToWidth,
   visibleWidth,
@@ -28,7 +30,8 @@ import {
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
-  toggleLatestToolExpansion,
+  toggleAllThinkingExpansion,
+  toggleAllToolExpansion,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
 } from './pi-transcript.js';
@@ -68,6 +71,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let busy = false;
   let closed = false;
   let permissionInFlight = false;
+  let turnRunning = false;
+  let interruptRequested = false;
+  let lastTurnEscapeAt = 0;
   let resolveClosed: () => void;
   const closedPromise = new Promise<void>((resolve) => {
     resolveClosed = resolve;
@@ -132,7 +138,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (closed) return;
     closed = true;
     try {
-      await input.driver.stop();
+      // A double-Escape interrupt may already have a stop in flight for this
+      // turn; reuse it instead of firing a second stopSession that would append
+      // a duplicate abort note. Otherwise stop the runtime as part of closing.
+      if (!interruptRequested) {
+        await input.driver.stop();
+      }
     } catch {
       // Closing the terminal must win even if the runtime stop path
       // has already failed or the session never fully started.
@@ -188,6 +199,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // whether to auto-continue (goal). Shared by user submits and goal injections.
   function runAgentTurn(prompt: string): void {
     busy = true;
+    turnRunning = true;
+    interruptRequested = false;
+    lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
     requestRender();
@@ -199,6 +213,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       onChange: requestRender,
     }).finally(() => {
       busy = false;
+      turnRunning = false;
+      interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       requestRender();
@@ -496,6 +512,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
     },
     {
+      name: 'rename',
+      description: 'Rename current session',
+      run: (parts: string[]) => {
+        const name = parts.slice(1).join(' ').trim();
+        if (!name) {
+          state.entries.push({
+            kind: 'notice',
+            level: 'error',
+            text: 'Usage: /rename <new name>',
+          });
+          requestRender();
+          return;
+        }
+        void runControl(async () => {
+          await input.driver.renameSession(name);
+          state.entries.push({
+            kind: 'notice',
+            level: 'info',
+            text: `Session renamed to "${name}"`,
+          });
+          requestRender();
+        });
+      },
+    },
+    {
       name: 'session',
       description: 'Resume session',
       run: (parts: string[]) => {
@@ -529,9 +570,26 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
 
   tui.addInputListener((data) => {
+    // Once closing has begun, swallow every key. A half-closed TUI still has a
+    // live listener while close() awaits the runtime stop; letting Escape or any
+    // other key through here would mutate state or fire a second stop.
+    if (closed) return { consume: true };
+    // Kitty keyboard protocol terminals (Ghostty/Kitty) emit separate press and
+    // release events. pi-tui only filters releases on the focused-component
+    // path, but this raw listener runs before that, so a release would
+    // immediately undo a Ctrl+O/Ctrl+T toggle and a single Escape's
+    // press+release pair could count as a double Escape. We never act on
+    // releases here; returning undefined lets the TUI apply its own filtering.
+    if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
-    if (matchesKey(data, Key.ctrl('o'))) {
-      if (toggleLatestToolExpansion(state)) {
+    if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
+      if (toggleAllToolExpansion(state)) {
+        requestRender();
+        return { consume: true };
+      }
+    }
+    if (matchesKey(data, Key.ctrl('t')) && !isKeyRepeat(data)) {
+      if (toggleAllThinkingExpansion(state)) {
         requestRender();
         return { consume: true };
       }
@@ -545,6 +603,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         respondToPendingPermission('deny');
         return { consume: true };
       }
+    }
+    // Double Escape interrupts the running turn. This must sit below the
+    // permission branch so Escape keeps meaning "deny" while a prompt is
+    // pending, and it only arms while a prompt turn is actually running.
+    if (turnRunning && matchesKey(data, Key.escape)) {
+      // Once an interrupt is issued, swallow further Escapes until the turn
+      // ends so a still-settling stop is not requested twice. A rejected stop
+      // re-arms interruption so the user can retry within the same turn.
+      if (interruptRequested) return { consume: true };
+      const now = Date.now();
+      if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
+        lastTurnEscapeAt = 0;
+        interruptRequested = true;
+        void input.driver.stop().catch((error) => {
+          interruptRequested = false;
+          reportError(error);
+        });
+      } else {
+        lastTurnEscapeAt = now;
+      }
+      return { consume: true };
     }
     if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       void close();
@@ -769,3 +848,6 @@ function padLine(text: string, width: number): string {
 }
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
+
+// Two Escapes this close together read as one deliberate "stop the turn".
+const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;

@@ -76,7 +76,8 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
-  | 'unsigned_thinking'
+  | 'unsigned_thinking_skipped'
+  | 'signed_thinking_in_tool_turn_skipped'
   | 'unmatched_tool_result'
   | 'tool_id_mismatch';
 
@@ -227,6 +228,37 @@ export interface RuntimeEventTextMessageOptions {
 
 export interface BuildRuntimeEventModelReplayPlanOptions {
   includeSystemEvents?: boolean;
+  /**
+   * Turn IDs known — from the FULL prior ledger — to contain tool activity.
+   *
+   * The signed-thinking-in-tool-turn skip (see `turnsWithToolActivity` in the
+   * planner) is a whole-history invariant, but `events` here may be a
+   * budget-pruned / history-search slice that dropped a turn's
+   * tool_call/tool_response while keeping its (query-matched) signed thinking.
+   * Scanning only the slice would then miss the tool activity and wrongly
+   * replay that thinking provider-native. Callers that slice MUST pass the
+   * full-ledger tool-turn ids (see `collectToolActivityTurnIds`); the planner
+   * unions them with tool activity found in `events`.
+   */
+  toolActivityTurnIds?: ReadonlySet<string>;
+}
+
+/**
+ * Collect the turn ids that contain tool activity (function_call /
+ * function_response) from a RuntimeEvent ledger. Pass the result as
+ * `toolActivityTurnIds` when the events handed to the replay planner are a
+ * slice of this ledger.
+ */
+export function collectToolActivityTurnIds(events: readonly RuntimeEvent[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (isPartialRuntimeEvent(event)) continue;
+    const kind = event.content?.kind;
+    if ((kind === 'function_call' || kind === 'function_response') && event.turnId) {
+      ids.add(event.turnId);
+    }
+  }
+  return ids;
 }
 
 export function buildRuntimeEventModelReplayPlan(
@@ -238,6 +270,21 @@ export function buildRuntimeEventModelReplayPlan(
   const diagnostics: RuntimeEventReplayDiagnostic[] = [];
   const callsById = new Map<string, { name: string; eventId: string }>();
   const semanticKinds = new Set<RuntimeEventReplaySemanticKind>();
+
+  // Turns that call tools cannot also replay their thinking provider-native.
+  // The backend accumulates a turn's reasoning into a single end-of-turn
+  // `thinking_complete`, emitted AFTER the turn's tool_call/tool_result events,
+  // so the thinking lands last in ledger order. Materialization can only render
+  // a thinking item as a standalone assistant reasoning message; placed after
+  // the tool result it (a) drops the leading thinking block Anthropic requires
+  // on the tool-use assistant message and (b) leaves an orphan thinking block —
+  // Anthropic rejects both (400). Pure-reasoning turns (no tools) are safe and
+  // still replay. Pre-scan so the decision is independent of event order, and
+  // union any full-ledger tool-turn ids the caller supplies — `events` may be a
+  // budget/search slice that kept a tool turn's thinking but dropped its tool
+  // events (see BuildRuntimeEventModelReplayPlanOptions.toolActivityTurnIds).
+  const turnsWithToolActivity = new Set<string>(options.toolActivityTurnIds ?? []);
+  for (const id of collectToolActivityTurnIds(events)) turnsWithToolActivity.add(id);
 
   for (const event of events) {
     if (isPartialRuntimeEvent(event)) {
@@ -313,13 +360,36 @@ export function buildRuntimeEventModelReplayPlan(
           continue;
         }
         if (!event.content.signature) {
-          diagnostics.push(diagnostic(event, 'unsigned_thinking', 'thinking RuntimeEvent has no replay signature'));
+          // Unsigned thinking cannot be replayed provider-native: Anthropic
+          // rejects a thinking block without its signature, and other providers
+          // accept no native thinking at all. Skip it from replay items (and its
+          // semantic kind) rather than block — a non-Anthropic (e.g. GLM) turn
+          // persists thinking for the UI, but must not drag the whole history
+          // down to stored-message projection. The thinking stays in the
+          // read-model; it just never re-enters the model request.
+          diagnostics.push(diagnostic(
+            event,
+            'unsigned_thinking_skipped',
+            'unsigned thinking RuntimeEvent skipped for model replay',
+          ));
+          continue;
+        }
+        if (event.turnId && turnsWithToolActivity.has(event.turnId)) {
+          // Signed, but its turn also calls tools — unreplayable in position
+          // (see turnsWithToolActivity above). Keep it in the read-model for the
+          // UI; skip it from replay items without downgrading the whole history.
+          diagnostics.push(diagnostic(
+            event,
+            'signed_thinking_in_tool_turn_skipped',
+            'signed thinking RuntimeEvent skipped for model replay: its turn also calls tools, and end-of-turn thinking cannot be reattached to the tool-use assistant message',
+          ));
+          continue;
         }
         semanticKinds.add('thinking');
         items.push({
           kind: 'thinking',
           text: event.content.text,
-          ...(event.content.signature ? { signature: event.content.signature } : {}),
+          signature: event.content.signature,
           eventId: event.id,
           ts: event.ts,
         });

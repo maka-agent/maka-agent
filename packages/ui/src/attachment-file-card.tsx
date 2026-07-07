@@ -30,9 +30,9 @@ export function AttachmentFileCard(props: {
         <AttachmentKindIcon kind={props.kind} className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1 leading-tight">
-        <span className="block truncate text-[13px] font-medium text-foreground">{props.name}</span>
+        <span className="block truncate text-sm font-medium text-foreground">{props.name}</span>
         {props.size !== undefined && (
-          <span className="block truncate text-[11px] font-mono tabular-nums text-muted-foreground mt-0.5">
+          <span className="block truncate text-xs font-mono tabular-nums text-muted-foreground mt-0.5">
             {formatBytes(props.size)}
           </span>
         )}

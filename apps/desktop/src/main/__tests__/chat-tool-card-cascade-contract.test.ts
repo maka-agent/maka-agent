@@ -210,13 +210,16 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
     // forms they would be swapped for. Radius uses the `--radius-surface`
     // token per #406 gap 4. Spacing now uses the Tailwind scale (gap-2.5)
     // per #430 PR3 spacing converge — arbitrary px literals are banned.
-    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[12.5px]', 'gap-2.5', 'min-w-[22px]']) {
+    // Typography (text-*) converged onto the token scale by #546 PR0, so it
+    // is no longer pinned as a literal and text-xs/sm are allowed; only radius /
+    // spacing literals stay pinned and radius scale drift stays banned.
+    for (const literal of ['rounded-[var(--radius-surface)]', 'gap-2.5', 'min-w-[22px]']) {
       assert.ok(block.includes(literal), `toolVariants must keep the literal "${literal}"`);
     }
-    for (const scale of ['rounded-lg', 'rounded-xl', 'text-sm', 'text-xs']) {
+    for (const scale of ['rounded-lg', 'rounded-xl']) {
       assert.ok(
         !block.includes(scale),
-        `toolVariants must stay literal, not adopt the semantic-scale "${scale}"`,
+        `toolVariants must stay literal on radius, not adopt the semantic-scale "${scale}"`,
       );
     }
 

@@ -2203,36 +2203,6 @@ describe('SessionManager permission mode updates', () => {
     ]);
   });
 
-  test('retry finds aborted source turns and user messages through the RuntimeEvent-primary view', async () => {
-    const store = new MemorySessionStore();
-    const runStore = new MemoryAgentRunStore();
-    const backends = new BackendRegistry();
-    backends.register('fake', (ctx) => new EventBackend(ctx, [
-      { type: 'complete', stopReason: 'end_turn' },
-    ]));
-    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_760) });
-    const session = await manager.createSession(makeInput());
-    await seedRuntimeRun(runStore, makeRunHeader({
-      sessionId: session.id,
-      runId: 'source-run',
-      turnId: 'source',
-      status: 'cancelled',
-      createdAt: 100,
-      updatedAt: 102,
-      completedAt: 102,
-    }), [
-      runtimeEvent({ id: 'source-user', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'runtime retry text' } }),
-      runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
-    ]);
-    store.failNextReadMessagesFor.set(session.id, 1);
-
-    await drain(manager.retryTurn(session.id, { sourceTurnId: 'source', turnId: 'retry-1' }));
-
-    const retryUser = (await store.readMessages(session.id))
-      .find((message) => message.type === 'user' && message.turnId === 'retry-1');
-    expect(retryUser?.type === 'user' ? retryUser.text : undefined).toBe('runtime retry text');
-  });
-
   test('regenerate finds completed source turns through the RuntimeEvent-primary view', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -2261,6 +2231,36 @@ describe('SessionManager permission mode updates', () => {
     expect(regenUser?.type === 'user' ? regenUser.text : undefined).toBe('runtime regenerate text');
     const regenState = deriveTurnRecords(messages).find((turn) => turn.turnId === 'regen-1');
     expect(regenState?.regeneratedFromTurnId).toBe('source');
+  });
+
+  test('regenerate accepts an aborted source turn (retry semantics merged into regenerate)', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(6_780) });
+    const session = await manager.createSession(makeInput());
+    await seedRuntimeRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'source-run',
+      turnId: 'source',
+      status: 'cancelled',
+      createdAt: 100,
+      updatedAt: 102,
+      completedAt: 102,
+    }), [
+      runtimeEvent({ id: 'source-user', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 101, role: 'user', author: 'user', content: { kind: 'text', text: 'aborted turn text' } }),
+      runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
+    ]);
+    store.failNextReadMessagesFor.set(session.id, 1);
+
+    await drain(manager.regenerateTurn(session.id, { sourceTurnId: 'source', turnId: 'regen-aborted' }));
+
+    const regenUser = (await store.readMessages(session.id))
+      .find((message) => message.type === 'user' && message.turnId === 'regen-aborted');
+    expect(regenUser?.type === 'user' ? regenUser.text : undefined).toBe('aborted turn text');
   });
 
   test('branchFromTurn copies through the RuntimeEvent-primary message boundary', async () => {
@@ -4456,7 +4456,7 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(active.id)).status).toBe('active');
   });
 
-  test('retry creates a new sibling turn and does not rewrite the aborted source turn', async () => {
+  test('regenerate creates a new sibling turn from an aborted source turn (retry merged)', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -4477,16 +4477,16 @@ describe('SessionManager permission mode updates', () => {
       runtimeEvent({ id: 'source-abort', sessionId: session.id, runId: 'source-run', turnId: 'source', ts: 102, role: 'system', author: 'system', status: 'aborted', actions: { endInvocation: true, stateDelta: { abortSource: 'renderer.stop_button' } } }),
     ]);
 
-    await drain(manager.retryTurn(session.id, { sourceTurnId: 'source', turnId: 'retry-1' }));
+    await drain(manager.regenerateTurn(session.id, { sourceTurnId: 'source', turnId: 'regen-1' }));
 
     const turns = await manager.listTurns(session.id);
     expect(turns.find((turn) => turn.turnId === 'source')?.status).toBe('aborted');
-    const retry = turns.find((turn) => turn.turnId === 'retry-1');
-    expect(retry?.status).toBe('completed');
-    expect(retry?.retriedFromTurnId).toBe('source');
-    const retryUser = (await store.readMessages(session.id))
-      .find((message) => message.type === 'user' && message.turnId === 'retry-1');
-    expect(retryUser?.type === 'user' ? retryUser.text : undefined).toBe('try this');
+    const regen = turns.find((turn) => turn.turnId === 'regen-1');
+    expect(regen?.status).toBe('completed');
+    expect(regen?.regeneratedFromTurnId).toBe('source');
+    const regenUser = (await store.readMessages(session.id))
+      .find((message) => message.type === 'user' && message.turnId === 'regen-1');
+    expect(regenUser?.type === 'user' ? regenUser.text : undefined).toBe('try this');
   });
 
   test('regenerate creates a new sibling turn from a completed source turn', async () => {

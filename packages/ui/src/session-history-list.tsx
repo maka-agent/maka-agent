@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CircleCheckBig,
   Eye,
+  FolderOpen,
   Hourglass,
   Loader2,
   MessageSquare,
@@ -51,6 +52,8 @@ const rowActionVariants = cva(
 );
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
+type SessionHistoryGroupVariant = 'status' | 'project';
+const PROJECT_GROUP_PREVIEW_LIMIT = 4;
 
 export interface SessionRowActions {
   /** Flag (pin) state toggle. */
@@ -100,6 +103,7 @@ export function SessionHistoryList(props: {
    * doesn't have to know about Archived being closed by default.
    */
   statusGroups?: ReadonlyArray<SessionHistoryStatusGroup>;
+  groupVariant?: SessionHistoryGroupVariant;
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
 }) {
@@ -206,6 +210,7 @@ export function SessionHistoryList(props: {
                     defaultExpanded: true,
                   }))
             }
+            groupVariant={props.groupVariant ?? 'status'}
             activeId={props.activeId}
             streamingSessionIds={props.streamingSessionIds}
             staleSessionIds={props.staleSessionIds}
@@ -237,6 +242,7 @@ function SessionListGroups(props: {
     collapsible: boolean;
     defaultExpanded: boolean;
   }>;
+  groupVariant: SessionHistoryGroupVariant;
   activeId?: string;
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
@@ -269,8 +275,23 @@ function SessionListGroups(props: {
         const expanded = expandedByKey[group.key] ?? group.defaultExpanded;
         const toggle = () =>
           setExpandedByKey((current) => ({ ...current, [group.key]: !expanded }));
+        if (props.groupVariant === 'project') {
+          return (
+            <ProjectSessionGroup
+              key={group.key}
+              groupKey={group.key}
+              label={group.label}
+              sessions={group.sessions}
+              activeId={props.activeId}
+              streamingSessionIds={props.streamingSessionIds}
+              staleSessionIds={props.staleSessionIds}
+              onSelectSession={props.onSelectSession}
+              rowActions={props.rowActions}
+            />
+          );
+        }
         return (
-          <div key={group.key} className="maka-list-group" data-collapsible={group.collapsible || undefined}>
+          <div key={group.key} className="maka-list-group" data-variant="status" data-collapsible={group.collapsible || undefined}>
             {group.collapsible ? (
               /* PR-LIST-GROUP-TOGGLE-PRIMITIVE-0 (round 10/30):
                  disclosure-pattern toggle (aria-expanded +
@@ -326,6 +347,74 @@ function SessionListGroups(props: {
         );
       })}
     </>
+  );
+}
+
+function ProjectSessionGroup(props: {
+  groupKey: string;
+  label: string;
+  sessions: SessionSummary[];
+  activeId?: string;
+  streamingSessionIds?: Set<string>;
+  staleSessionIds?: Set<string>;
+  onSelectSession(sessionId: string): void;
+  rowActions?: SessionRowActions;
+}) {
+  const [revealed, setRevealed] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const activeIsHidden = props.activeId
+    ? props.sessions.findIndex((session) => session.id === props.activeId) >= PROJECT_GROUP_PREVIEW_LIMIT
+    : false;
+  const showAll = revealed || activeIsHidden;
+  const visibleSessions = showAll
+    ? props.sessions
+    : props.sessions.slice(0, PROJECT_GROUP_PREVIEW_LIMIT);
+  const hiddenCount = props.sessions.length - visibleSessions.length;
+
+  return (
+    <div className="maka-list-group" data-variant="project">
+      <UiButton
+        type="button"
+        variant="quiet"
+        size="nav"
+        className="maka-list-project-heading"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        aria-controls={`maka-list-group-body-${props.groupKey}`}
+      >
+        <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
+        <span>{props.label}</span>
+      </UiButton>
+      {expanded && (
+        <>
+          <div id={`maka-list-group-body-${props.groupKey}`}>
+            {visibleSessions.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                active={session.id === props.activeId}
+                streaming={props.streamingSessionIds?.has(session.id) ?? false}
+                stale={props.staleSessionIds?.has(session.id) ?? false}
+                onSelect={props.onSelectSession}
+                actions={props.rowActions}
+              />
+            ))}
+          </div>
+          {hiddenCount > 0 && (
+            <UiButton
+              type="button"
+              variant="quiet"
+              size="nav"
+              className="maka-list-project-more"
+              onClick={() => setRevealed(true)}
+              aria-label={`显示 ${hiddenCount} 条更多对话`}
+            >
+              显示更多
+            </UiButton>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

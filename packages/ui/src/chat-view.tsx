@@ -9,15 +9,15 @@ import {
   Check,
   Copy,
   GitBranch,
+  Info,
   Loader2,
   RefreshCcw,
-  Repeat,
   Sparkles,
 } from './icons.js';
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
-import { formatAbsoluteTimestamp, formatTurnDuration, turnAbortMarkerLabel } from './chat-display-helpers.js';
+import { formatAbsoluteTimestamp, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
@@ -31,11 +31,13 @@ import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
+import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
 import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
 import type {
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
+  ManagedSkillSourceEntry,
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
   SkillEntry,
@@ -238,6 +240,11 @@ export function ChatView(props: {
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
   onOpenSkillsFolder?(): void | Promise<void>;
+  managedSkillSources?: ManagedSkillSourceEntry[];
+  onRefreshManagedSkillSources?(): void | Promise<void>;
+  onImportManagedSkillSource?(): void | Promise<void>;
+  onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
   planReminders?: PlanReminder[];
   onRefreshPlanReminders?: () => void | Promise<void>;
   onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
@@ -410,6 +417,11 @@ export function ChatView(props: {
           onCreateSkillTemplate={props.onCreateSkillTemplate}
           onOpenSkill={props.onOpenSkill}
           onOpenSkillsFolder={props.onOpenSkillsFolder}
+          managedSkillSources={props.managedSkillSources}
+          onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
+          onImportManagedSkillSource={props.onImportManagedSkillSource}
+          onInstallManagedSkill={props.onInstallManagedSkill}
+          onUpdateManagedSkill={props.onUpdateManagedSkill}
         />
       </Suspense>
     );
@@ -446,7 +458,7 @@ export function ChatView(props: {
         <header className="maka-module-main-header">
           <div>
             <h2>每日回顾</h2>
-            <p>查看本机对话、请求、Token、费用和工具调用汇总。</p>
+            <p>自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。</p>
           </div>
         </header>
         {props.dailyReviewBridge ? (
@@ -601,24 +613,6 @@ export function ChatView(props: {
             )
           )}
           {turns.map((turn, idx) => {
-            // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0 (kenji `af77f61`
-            // session-sticky merge): prefer comparing against the
-            // session's sticky model when available, falling back
-            // to the previous turn's modelId for older sessions
-            // that pre-date the sticky-model field. Either way,
-            // TurnSummary flags the chip when this turn departs
-            // from the expected baseline.
-            const expectedModelId =
-              (props.activeSession?.model && props.activeSession.model.length > 0
-                ? props.activeSession.model
-                : undefined)
-              ?? (() => {
-                for (let i = idx - 1; i >= 0; i--) {
-                  const earlier = turns[i];
-                  if (earlier && earlier.modelId) return earlier.modelId;
-                }
-                return undefined;
-              })();
             return (
               <TurnView
                 key={turn.turnId}
@@ -630,7 +624,6 @@ export function ChatView(props: {
                 failedRecoveryLabel={props.turnFailedRecoveryLabels?.[turn.turnId]}
                 lineageBadges={props.turnLineageBadgesByTurn?.[turn.turnId]}
                 onLineageBadgeClick={stableLineageBadgeClick}
-                previousModelId={expectedModelId}
                 searchHighlighted={highlightedTurnId === turn.turnId}
               />
             );
@@ -803,8 +796,9 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
       </>
     );
   }
-  // Assistant / system body: open prose, no bubble. Per-turn timing lives in
-  // the turn summary; copy + the other actions live in the turn footer.
+  // Assistant / system body: open prose, no bubble. Per-turn meta (model ·
+  // duration · cost) lives in the footer's info tooltip; copy + the other
+  // actions live in the turn footer.
   return (
     <Bubble variant="assistant" className="maka-bubble-with-actions">
       <Markdown text={props.text} />
@@ -829,7 +823,6 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
   // construction — same primitive, same class, same icon metrics — instead
   // of a look-alike bespoke treatment.
   const footer = props.footerStyle === true;
-  const visibleLabel = footer ? (props.label ?? '复制') : props.label;
   const iconSize = footer ? 12 : 14;
 
   const baseLabel = props.label ?? (footer ? '复制' : '复制消息');
@@ -840,15 +833,45 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       : copyPhase === 'failed'
         ? '复制失败'
         : baseLabel;
+  const icon = copied
+    ? <Check size={iconSize} strokeWidth={2} aria-hidden="true" />
+    : <Copy size={iconSize} strokeWidth={footer ? 2 : 1.75} aria-hidden="true" />;
+
+  if (footer) {
+    // icon-only + tooltip, matching the assistant footer copy action (#546)
+    // so the user-message copy and the assistant copy read as one button.
+    return (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <UiButton
+              type="button"
+              className={markerVariants({ variant: 'footer-action' })}
+              variant="quiet"
+              size="nav"
+              aria-label={baseLabel}
+              aria-busy={copyPending ? 'true' : undefined}
+              disabled={copyPending}
+              data-copied={copied}
+              data-copy-feedback={copyPhase ?? undefined}
+              data-pending={copyPending ? 'true' : undefined}
+              onClick={() => void copy()}
+            />
+          }
+        >
+          {icon}
+        </TooltipTrigger>
+        <TooltipContent>{actionLabel}</TooltipContent>
+      </Tooltip>
+    );
+  }
+
   return (
     <UiButton
       type="button"
-      className={footer ? markerVariants({ variant: 'footer-action' }) : 'maka-message-copy'}
+      className="maka-message-copy"
       variant="quiet"
-      // `nav` is the bare size: the footer-action marker shell owns its own
-      // height/padding/font (see `markerVariants`), so it doesn't inherit —
-      // and then have to merge out — `sm`'s `h-8`/`px-2.5`/`text-xs`.
-      size={footer ? 'nav' : 'icon-sm'}
+      size="icon-sm"
       onClick={() => void copy()}
       aria-label={copyPhase ? `${actionLabel} · ${baseLabel}` : baseLabel}
       aria-busy={copyPending ? 'true' : undefined}
@@ -856,10 +879,10 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
       data-copied={copied}
       data-copy-feedback={copyPhase ?? undefined}
       data-pending={copyPending ? 'true' : undefined}
-      data-labelled={(!footer && props.label) ? 'true' : undefined}
+      data-labelled={props.label ? 'true' : undefined}
     >
-      {copied ? <Check size={iconSize} strokeWidth={2} aria-hidden="true" /> : <Copy size={iconSize} strokeWidth={footer ? 2 : 1.75} aria-hidden="true" />}
-      {visibleLabel && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : visibleLabel}</span>}
+      {icon}
+      {props.label && <span>{copyPhase === 'pending' ? '复制中…' : copyPhase === 'failed' ? '复制失败' : copied ? '已复制' : props.label}</span>}
     </UiButton>
   );
 }
@@ -921,92 +944,9 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
 
 // PR-MOVE-PERMISSION-MODE: the chat-header `PermissionModeSwitcher`
 // radiogroup was deleted. Mode picking now lives inside the composer's
-// left-controls dropdown (see Composer + maka-composer-mode-chip / -menu)
-// so the picker sits where you actually start typing, matching the
-// reference product. The `radiogroup` keyboard contract was traded for
-// base-ui Menu's built-in arrow/Home/End handling.
-
-/**
- * Compact summary strip rendered between the user message and the tools/
- * answer for the current turn. Surfaces the @kenji UI-04 follow-up
- * questions: which model, how many tools, how long. Only renders when at
- * least one signal is present so an in-flight first-render doesn't show
- * an empty chip strip.
- */
-function TurnSummary(props: { turn: TurnViewModel; previousModelId?: string }) {
-  const { turn } = props;
-  const hasModel = Boolean(turn.modelId);
-  // PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: per-turn override is allowed
-  // but must be visible (kenji 3-way decision lock 7749c411).
-  // When the prior turn used a different model, mark this turn's
-  // model chip with a "切换" pill so the user notices.
-  const modelSwitched =
-    hasModel
-    && typeof props.previousModelId === 'string'
-    && props.previousModelId.length > 0
-    && props.previousModelId !== turn.modelId;
-  const hasTools = turn.tools.length > 0;
-  // Show duration only when the assistant has actually landed (durationMs
-  // is computed from assistant.ts). For in-progress turns we render an
-  // "进行中" pill instead of a number that would tick up forever — per
-  // @kenji's PR82 review.
-  const hasDuration = turn.durationMs !== undefined && turn.durationMs > 0;
-  const inProgress = turn.status === 'running' && turn.user !== undefined && turn.assistant === undefined;
-  const hasTokens = Boolean(turn.tokens && (turn.tokens.input > 0 || turn.tokens.output > 0));
-  // costUsd is only meaningful when present AND > 0 — never fabricate a
-  // "$0.00" hover, that reads as false precision (also @kenji PR82 review).
-  const hasCost = turn.tokens?.costUsd !== undefined && turn.tokens.costUsd > 0;
-  if (!hasModel && !hasTools && !hasDuration && !hasTokens && !inProgress) return null;
-  return (
-    <Marker variant="summary" aria-label="本轮对话摘要">
-      {hasModel && (
-        <Marker
-          as="span"
-          variant="summary-chip"
-          data-kind="model"
-          data-switched={modelSwitched ? 'true' : undefined}
-          title={
-            modelSwitched
-              ? `本轮使用 ${turn.modelId}，session 期望 ${props.previousModelId}`
-              : turn.modelId
-          }
-        >
-          <code>{turn.modelId}</code>
-          {modelSwitched && (
-            <Marker as="span" variant="summary-switched" aria-label="本轮切换了模型">
-              切换
-            </Marker>
-          )}
-        </Marker>
-      )}
-      {hasTools && (
-        <Marker as="span" variant="summary-chip" data-kind="tools">
-          {turn.tools.length} 个工具
-        </Marker>
-      )}
-      {hasDuration ? (
-        <Marker as="span" variant="summary-chip" data-kind="duration">
-          {formatTurnDuration(turn.durationMs!)}
-        </Marker>
-      ) : inProgress ? (
-        <Marker as="span" variant="summary-chip" data-kind="duration" data-state="in-progress">
-          进行中
-        </Marker>
-      ) : null}
-      {hasTokens && (
-        <Marker
-          as="span"
-          variant="summary-chip"
-          data-kind="tokens"
-          title={hasCost ? `$${turn.tokens!.costUsd!.toFixed(4)}` : undefined}
-        >
-          {turn.tokens!.input.toLocaleString()} → {turn.tokens!.output.toLocaleString()} tok
-        </Marker>
-      )}
-    </Marker>
-  );
-}
-
+// left-controls as a Base UI Select (PermissionModeSelect), so the picker
+// sits where you actually start typing, matching the reference product.
+// Keyboard arrow/Home/End handling is delegated to the Select primitive.
 
 /**
  * Renders one conversational turn: user message → tools used → assistant
@@ -1049,13 +989,6 @@ const TurnView = memo(function TurnView(props: {
   /** PR109e-e: invoked when the user clicks a lineage badge. The
    *  renderer scrolls the target turn into view. */
   onLineageBadgeClick?: (targetTurnId: string) => void;
-  /**
-   * PR-CHAT-NON-DEFAULT-MODEL-CHIP-0: the most-recent prior turn's
-   * assistant modelId, used by TurnSummary to flag a per-turn
-   * model switch (kenji `7749c411` lock decision: per-turn override
-   * is allowed but MUST be visible).
-   */
-  previousModelId?: string;
   /** True when a search result just navigated to this turn. */
   searchHighlighted?: boolean;
 }) {
@@ -1097,8 +1030,6 @@ const TurnView = memo(function TurnView(props: {
           <MessageBody role="user" text={turn.user.text} ts={turn.user.ts} attachments={turn.user.attachments} />
         </Message>
       )}
-      <TurnSummary turn={turn} previousModelId={props.previousModelId} />
-
       {turn.notes.map((note) => (
         <Message
           key={note.id}
@@ -1118,7 +1049,6 @@ const TurnView = memo(function TurnView(props: {
           variant="assistant"
           data-turn-status={turn.status}
           aria-label="Maka 的回答"
-          title={turn.assistant.ts ? formatAbsoluteTimestamp(turn.assistant.ts) : undefined}
         >
           <div className="flex flex-col">
             {turn.assistantThinking && (
@@ -1201,17 +1131,19 @@ const TurnView = memo(function TurnView(props: {
 });
 
 /**
- * Turn footer actions row (PR109d-b). Renders icon+text buttons for
- * `重试 / 重新生成 / 分支 / 复制` driven by the pure helper's enabled
- * matrix. Disabled buttons stay rendered so the user can see what
- * actions exist on the turn; click handlers no-op when disabled.
+ * Turn footer actions row. Renders icon-only buttons (regenerate /
+ * branch / copy, plus an optional info action whose tooltip carries
+ * the turn meta) driven by the pure helper's enabled matrix. Disabled
+ * buttons stay rendered so the user can see what actions exist on the
+ * turn; click handlers no-op when disabled (#546: retry merged into
+ * regenerate).
  *
  * Copy action is handled locally (write to clipboard) so the
  * consumer doesn't need a clipboard IPC for it. Other actions
- * (retry / regenerate / branch) bubble up via `onAction`.
+ * (regenerate / branch) bubble up via `onAction`.
  */
 export interface TurnFooterActionMeta {
-  id: 'retry' | 'regenerate' | 'branch' | 'copy';
+  id: 'regenerate' | 'branch' | 'copy' | 'info';
   label: string;
   enabled: boolean;
   tooltip?: string;
@@ -1255,7 +1187,7 @@ function SessionBranchBanner(props: {
 
 /**
  * Lineage badge rendered on a turn, either pointing to its origin
- * ("重试自 turn ${id}") or to a descendant ("已重试 → turn ${id}").
+ * ("重新生成自 turn ${id}") or to a descendant ("已重新生成 → turn ${id}").
  * Renderer (main.tsx) computes the labels and targets from the lineage
  * map; @maka/ui renders the badge UI. PR109e-e.
  */
@@ -1333,6 +1265,7 @@ function TurnFooterActions(props: {
       await copyAssistantText();
       return;
     }
+    if (action.id === 'info') return; // tooltip-only meta display, no action
     props.onAction?.(action.id);
   }
   return (
@@ -1355,25 +1288,38 @@ function TurnFooterActions(props: {
               ? '复制失败'
               : action.label;
         const isActionPending = isPending || copyIsPending;
+        // Copy's tooltip comes from the helper (enabled affordance vs disabled
+        // reason). Only while clipboard feedback is active do we surface that
+        // transient state; otherwise the helper's tooltip wins.
+        const tooltipText = isCopyAction
+          ? (copyPhase ? copyFeedbackLabel : (action.tooltip ?? action.label))
+          : (action.tooltip ?? action.label);
+        const icon = isCopyAction && copyPhase === 'copied'
+          ? <Check size={12} strokeWidth={2} aria-hidden="true" />
+          : STATUS_FOOTER_ICON[action.id];
         return (
-          <UiButton
-            key={action.id}
-            type="button"
-            className={markerVariants({ variant: 'footer-action' })}
-            variant="quiet"
-            size="nav"
-            data-action={action.id}
-            data-pending={isActionPending || undefined}
-            data-copy-feedback={isCopyAction && copyPhase ? copyPhase : undefined}
-            disabled={!action.enabled || copyIsPending}
-            aria-disabled={!action.enabled || copyIsPending}
-            aria-busy={isActionPending || undefined}
-            title={action.tooltip ?? action.label}
-            onClick={() => void handleClick(action)}
-          >
-            {isCopyAction && copyPhase === 'copied' ? <Check size={12} strokeWidth={2} aria-hidden="true" /> : STATUS_FOOTER_ICON[action.id]}
-            <span>{isCopyAction ? copyFeedbackLabel : action.label}</span>
-          </UiButton>
+          <Tooltip key={action.id}>
+            <TooltipTrigger
+              render={
+                <UiButton
+                  type="button"
+                  className={markerVariants({ variant: 'footer-action' })}
+                  variant="quiet"
+                  size="nav"
+                  aria-label={action.label}
+                  data-action={action.id}
+                  data-pending={isActionPending || undefined}
+                  data-copy-feedback={isCopyAction && copyPhase ? copyPhase : undefined}
+                  aria-disabled={!action.enabled || copyIsPending}
+                  aria-busy={isActionPending || undefined}
+                  onClick={() => void handleClick(action)}
+                />
+              }
+            >
+              {icon}
+            </TooltipTrigger>
+            <TooltipContent>{tooltipText}</TooltipContent>
+          </Tooltip>
         );
       })}
     </Marker>
@@ -1381,10 +1327,10 @@ function TurnFooterActions(props: {
 }
 
 const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
-  retry: <Repeat size={12} strokeWidth={2} aria-hidden="true" />,
   regenerate: <RefreshCcw size={12} strokeWidth={2} aria-hidden="true" />,
   branch: <GitBranch size={12} strokeWidth={2} aria-hidden="true" />,
   copy: <Copy size={12} strokeWidth={2} aria-hidden="true" />,
+  info: <Info size={12} strokeWidth={2} aria-hidden="true" />,
 };
 
 /**
@@ -1460,7 +1406,7 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
       <Markdown text={displayed} />
       {props.truncated && (
         <div
-          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-[10px] text-[color:var(--warning-text,var(--info-text))]"
+          className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"
           role="status"
           aria-live="polite"
           title="助手输出已超过单次回合上限，超出部分未渲染。如需完整内容请重新生成或查看持久化的会话日志。"

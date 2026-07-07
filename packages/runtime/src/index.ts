@@ -76,6 +76,38 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export {
+  buildBackgroundBashTool,
+  buildForegroundBashTool,
+  buildLocalForegroundBashTool,
+  buildStopBackgroundTaskTool,
+  shapeTerminalResult,
+} from './shell-tools.js';
+export type {
+  BuildForegroundBashToolOptions,
+  ForegroundBashExecuteInput,
+  ForegroundBashResult,
+  ShellRunToolController,
+} from './shell-tools.js';
+export {
+  DEFAULT_BASH_YIELD_TIME_MS,
+  DEFAULT_BASH_TIMEOUT_MS,
+  DEFAULT_MAX_LIVE_SHELL_RUNS,
+  DEFAULT_SHELL_RUN_FLUSH_BYTES,
+  DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
+  MAX_BASH_YIELD_TIME_MS,
+  MAX_SHELL_RUN_TIMEOUT_MS,
+  MIN_BASH_YIELD_TIME_MS,
+  SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
+  SHELL_RUN_RESOURCE_PREFIX,
+  ShellRunProcessManager,
+  isShellRunResourceRef,
+  shellRunResourceRef,
+} from './shell-run-manager.js';
+export type {
+  ShellRunBashInput,
+  ShellRunProcessManagerInput,
+} from './shell-run-manager.js';
+export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
   LocalWorkspaceExecutor,
   createLocalWorkspaceExecutor,
@@ -256,6 +288,10 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
+export type {
+  BuildLlmHistorySummarizerOptions,
+} from './history-compact-summarizer.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,

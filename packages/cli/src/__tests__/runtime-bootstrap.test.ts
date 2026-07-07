@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { createConnectionStore, createFileCredentialStore } from '@maka/storage';
+import { createConnectionStore, createFileCredentialStore, createShellRunStore } from '@maka/storage';
 import { BackendRegistry, type AiSdkBackendInput, type SessionStore } from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
@@ -68,6 +68,72 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('enables background ShellRuns for the TUI runtime and cleans them up on close', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: workspaceRoot,
+      });
+      try {
+        const names = context.tools.map((tool) => tool.name);
+        assert.ok(names.includes('StopBackgroundTask'));
+
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const read = context.tools.find((tool) => tool.name === 'Read');
+        assert.ok(read);
+        const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => {}, 5000)"`;
+        const result = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: 'session-1',
+            runId: 'run-1',
+            turnId: 'turn-1',
+            cwd: workspaceRoot,
+            toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+          },
+        ) as { kind: string; ref?: string; status?: string; stdout?: string };
+
+        assert.equal(result.kind, 'shell_run');
+        assert.equal(result.status, 'running');
+        assert.equal(result.stdout, '');
+        assert.ok(result.ref);
+        if (!result.ref) throw new Error('expected background task resource ref');
+
+        const detail = await read.impl(
+          { path: result.ref },
+          {
+            sessionId: 'session-1',
+            runId: 'run-1',
+            turnId: 'turn-1',
+            cwd: workspaceRoot,
+            toolCallId: 'tool-2',
+            abortSignal: new AbortController().signal,
+            emitOutput: () => {},
+          },
+        ) as { content?: string };
+        assert.match(detail.content ?? '', /stdout:\nstart/);
+
+        await context.close();
+        const record = await createShellRunStore(workspaceRoot).readShellRun('session-1', backgroundTaskId(result.ref));
+        assert.equal(record.status, 'cancelled');
+        assert.equal(record.exitCode, 130);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('passes the default context budget policy to ai-sdk backends', async () => {
     await withCleanContextBudgetEnv(async () => {
       await withWorkspace(async (workspaceRoot) => {
@@ -106,13 +172,15 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.activeToolResultPrune?.enabled, true);
         assert.equal(backendInput.contextBudget?.semanticCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
-        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'lookup');
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
+        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
+        assert.equal(backendInput.contextBudget?.historyCompact?.minRecentTurns, 3);
       });
     });
   });
 
-  test('adds a bounded lookup budget for providers without a default token budget', async () => {
+  test('keeps ordinary send policy read-write for providers without a context-window budget', async () => {
     await withCleanContextBudgetEnv(async () => {
       process.env.MAKA_CONTEXT_HISTORY_COMPACT = 'on';
       await withWorkspace(async (workspaceRoot) => {
@@ -121,7 +189,7 @@ describe('Maka CLI runtime bootstrap', () => {
           slug: 'deepseek',
           name: 'DeepSeek',
           providerType: 'deepseek',
-          defaultModel: 'deepseek-chat',
+          defaultModel: 'custom-deepseek-model',
         });
         const credentialStore = createFileCredentialStore(workspaceRoot);
         await credentialStore.setSecret('deepseek', 'api_key', 'test-key');
@@ -148,10 +216,10 @@ describe('Maka CLI runtime bootstrap', () => {
         });
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
-        assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, 32_000);
-        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'lookup');
-        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 0.000001);
-        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 1);
+        assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, undefined);
+        assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
+        assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);
+        assert.equal(backendInput.contextBudget?.historyCompact?.tailEstimatedTokens, 16_384);
       });
     });
   });
@@ -193,6 +261,12 @@ async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Prom
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
+}
+
+function backgroundTaskId(ref: string): string {
+  const id = new URL(ref).pathname.split('/').pop();
+  if (!id) throw new Error(`Invalid background task ref: ${ref}`);
+  return decodeURIComponent(id);
 }
 
 async function withCleanContextBudgetEnv(fn: () => Promise<void>): Promise<void> {

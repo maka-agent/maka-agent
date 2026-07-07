@@ -8,7 +8,13 @@
 import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
-import { truncateToolOutput } from './tool-output.js';
+import {
+  buildBackgroundBashTool,
+  buildStopBackgroundTaskTool,
+  shapeTerminalResult,
+} from './shell-tools.js';
+import type { ShellRunToolController } from './shell-tools.js';
+import { isShellRunResourceRef } from './shell-run-manager.js';
 import {
   createLocalWorkspaceExecutor,
   type WorkspaceExecResult,
@@ -28,49 +34,27 @@ import { withFileWriteLock } from './file-write-lock.js';
 const GREP_TIMEOUT_MS = 120_000;
 
 export interface BuildBuiltinToolsOptions {
+  shellRuns?: ShellRunToolController;
   executor?: WorkspaceExecutor;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
+  const readDescription = options.shellRuns
+    ? 'Read a file from disk by path relative to session cwd, or read a runtime background task ref.'
+    : 'Read a file from disk by path relative to session cwd.';
+  const bashTools = options.shellRuns
+    ? [
+      buildBackgroundBashTool(options.shellRuns, { executionFacts }),
+      buildStopBackgroundTaskTool(options.shellRuns),
+    ]
+    : [buildExecutorBashTool(executor)];
   return [
-    {
-      name: 'Bash',
-      description: 'Run a shell command in the session cwd. Subject to permission policy.',
-      parameters: z.object({
-        command: z.string().describe('The shell command to execute'),
-        timeout_ms: z.number().int().positive().max(600_000).optional(),
-      }),
-      permissionRequired: true,
-      executionFacts,
-      impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
-        const timeout = timeout_ms ?? 120_000;
-        const result = await executor.exec({
-          command,
-          cwd,
-          timeoutMs: timeout,
-          ...(abortSignal ? { abortSignal } : {}),
-          emitOutput,
-        });
-        if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
-        if (result.aborted) throw terminalError('Command aborted', result, 130);
-        if (result.exitCode !== 0) {
-          throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
-        }
-        return {
-          kind: 'terminal',
-          cwd,
-          cmd: command,
-          exitCode: result.exitCode,
-          stdout: truncateToolOutput(result.stdout, { direction: 'tail' }).content,
-          stderr: truncateToolOutput(result.stderr, { direction: 'tail' }).content,
-        };
-      },
-    },
+    ...bashTools,
     {
       name: 'Read',
-      description: 'Read a file from disk by path relative to session cwd.',
+      description: readDescription,
       parameters: z.object({
         path: z.string(),
         offset: z.number().int().nonnegative().optional(),
@@ -78,7 +62,12 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       }),
       permissionRequired: false,
       executionFacts,
-      impl: async ({ path, offset, limit }, { cwd }) => {
+      impl: async ({ path, offset, limit }, { cwd, sessionId }) => {
+        if (path.startsWith('maka://runtime/')) {
+          if (!isShellRunResourceRef(path)) throw new Error(`Unsupported runtime resource ref: ${path}`);
+          if (!options.shellRuns) throw new Error('Runtime background task resources are not available in this toolset');
+          return await options.shellRuns.readResource(sessionId, path);
+        }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
         return await executor.readFile({
           cwd,
@@ -190,13 +179,48 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   ];
 }
 
+function buildExecutorBashTool(executor: WorkspaceExecutor): MakaTool {
+  return {
+    name: 'Bash',
+    description: 'Run a shell command in the session cwd. Subject to permission policy.',
+    parameters: z.object({
+      command: z.string().describe('The shell command to execute'),
+      timeout_ms: z.number().int().positive().max(600_000).optional(),
+    }),
+    permissionRequired: true,
+    executionFacts: executor.facts,
+    impl: async ({ command, timeout_ms }, { cwd, abortSignal, emitOutput }) => {
+      const timeout = timeout_ms ?? 120_000;
+      const result = await executor.exec({
+        command,
+        cwd,
+        timeoutMs: timeout,
+        ...(abortSignal ? { abortSignal } : {}),
+        emitOutput,
+      });
+      if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
+      if (result.aborted) throw terminalError('Command aborted', result, 130);
+      if (result.exitCode !== 0) {
+        throw terminalError(`Command failed with exit code ${result.exitCode}`, result, result.exitCode);
+      }
+      return shapeTerminalResult({ cwd, command, result });
+    },
+  };
+}
+
 function terminalError(
   message: string,
-  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr'>,
+  result: Pick<WorkspaceExecResult, 'stdout' | 'stderr' | 'stdoutTruncated' | 'stderrTruncated'>,
   code: number,
 ): Error {
   const error = new Error(message);
-  Object.assign(error, { stdout: result.stdout, stderr: result.stderr, code });
+  Object.assign(error, {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    stdoutTruncated: result.stdoutTruncated,
+    stderrTruncated: result.stderrTruncated,
+    code,
+  });
   return error;
 }
 

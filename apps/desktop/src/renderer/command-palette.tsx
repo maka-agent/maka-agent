@@ -6,7 +6,7 @@
 // Arrow/Enter/Esc navigation is local to the input, focus trap + restore +
 // Esc-dismiss come from DialogRoot/DialogContent (#520 PR7).
 
-import { useDeferredValue, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CalendarDays,
   ChevronRight,
@@ -33,7 +33,6 @@ import {
 import type { LlmConnection, PermissionMode, SessionSummary, SettingsSection, ThemePreference } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import {
-  Button,
   DialogContent,
   DialogRoot,
   Empty,
@@ -47,6 +46,7 @@ import {
   Kbd,
   KbdGroup,
 } from '@maka/ui';
+import { Autocomplete } from '@base-ui/react/autocomplete';
 import { SETTINGS_NAV } from './settings/settings-nav';
 import { useThreadSearch } from './use-thread-search';
 import { buildContentSearchCommands } from './command-palette-content-search';
@@ -587,7 +587,6 @@ export function CommandPalette(props: {
   const inputRef = useRef<HTMLInputElement>(null);
   const commitPendingRef = useRef(false);
   const [query, setQuery] = useState('');
-  const [highlight, setHighlight] = useState(0);
   const [committedCommandId, setCommittedCommandId] = useState<string | null>(null);
 
   // Focus + select the search input as soon as the dialog mounts.
@@ -633,11 +632,6 @@ export function CommandPalette(props: {
   // memory for cmd-K + first-letter navigation.
   const combined = useMemo(() => [...filtered, ...contentCommands], [filtered, contentCommands]);
 
-  useEffect(() => {
-    // Reset highlight whenever the result set changes.
-    setHighlight(0);
-  }, [combined]);
-
   const grouped = useMemo(() => groupCommands(combined), [combined]);
 
   function commit(cmd: Command | undefined) {
@@ -659,34 +653,6 @@ export function CommandPalette(props: {
     })().catch(() => undefined);
   }
 
-  function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
-    if (event.nativeEvent.isComposing || event.key === 'Process') return;
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setHighlight((current) => (combined.length === 0 ? 0 : Math.min(combined.length - 1, current + 1)));
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setHighlight((current) => Math.max(0, current - 1));
-      return;
-    }
-    if (event.key === 'Home') {
-      event.preventDefault();
-      setHighlight(0);
-      return;
-    }
-    if (event.key === 'End') {
-      event.preventDefault();
-      setHighlight(combined.length === 0 ? 0 : combined.length - 1);
-      return;
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      commit(combined[highlight]);
-    }
-  }
-
   return (
     <DialogRoot
       open
@@ -699,98 +665,118 @@ export function CommandPalette(props: {
         aria-label="命令面板"
         initialFocus={inputRef}
       >
-        <InputGroup
-          className="maka-palette-input-wrap"
-          aria-label="命令面板搜索"
-          onMouseDown={(event) => {
-            const target = event.target as HTMLElement;
-            if (target.closest('input')) return;
-            event.preventDefault();
-            inputRef.current?.focus();
+        {/*
+          #520 PR8: Autocomplete owns the listbox/option ARIA + ArrowUp/Down/
+          Enter/Escape keyboard nav (activedescendant mode). `inline` keeps the
+          list in the modal body. `mode="none"` + `filter={null}` preserve the
+          palette's own fuzzy + content-search filtering — Autocomplete does not
+          re-filter the combined list locally. `autoHighlight="always"` so Enter
+          on the first command works without an extra ArrowDown.
+        */}
+        <Autocomplete.Root
+          inline
+          open
+          mode="none"
+          autoHighlight="always"
+          keepHighlight
+          filter={null}
+          value={query}
+          onValueChange={(next, details) => {
+            // item-press (click / Enter on highlighted) is a selection, not
+            // input — never write the command object back into the query.
+            if (details.reason === 'item-press') return;
+            setQuery(next);
           }}
+          itemToStringValue={(cmd) => cmd.label}
+          items={combined}
         >
-          <InputGroupInput
-            ref={inputRef}
-            className="maka-palette-input"
-            type="text"
-            value={query}
-            placeholder="搜索命令、设置项或会话…"
-            aria-label="搜索命令、设置项或会话"
-            onChange={(event) => setQuery(event.currentTarget.value)}
-            onKeyDown={onInputKeyDown}
-            autoComplete="off"
-            spellCheck={false}
-            aria-controls="maka-palette-list"
-            aria-activedescendant={combined[highlight] ? `cmd-${combined[highlight]!.id}` : undefined}
-          />
-          <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
-            <span className="maka-palette-input-hint" aria-hidden="true">
-              <Kbd className="maka-shortcut-kbd">↵</Kbd>
-              <span>执行</span>
-              <Kbd className="maka-shortcut-kbd">Esc</Kbd>
-              <span>关闭</span>
-            </span>
-          </InputGroupAddon>
-        </InputGroup>
-        <div className="maka-palette-list" id="maka-palette-list" role="listbox" aria-label="命令面板结果">
-          {grouped.length === 0 ? (
-            <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <Search aria-hidden="true" />
-                </EmptyMedia>
-                <EmptyTitle>没有匹配的命令</EmptyTitle>
-                <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            grouped.map((group) => (
-              <div key={group.label} className="maka-palette-group">
-                <div className="maka-palette-group-label">{group.label}</div>
-                {group.items.map((entry) => {
-                  const index = entry.index;
-                  const cmd = entry.command;
-                  const active = index === highlight;
-                  const commandCommitPending = committedCommandId === cmd.id;
-                  return (
-                    <Button
-                      key={cmd.id}
-                      id={`cmd-${cmd.id}`}
-                      type="button"
-                      variant="ghost"
-                      role="option"
-                      aria-selected={active}
-                      aria-disabled={cmd.disabled ? true : undefined}
-                      aria-busy={commandCommitPending ? 'true' : undefined}
-                      data-active={active}
-                      data-disabled={cmd.disabled ? true : undefined}
-                      data-pending={commandCommitPending ? 'true' : undefined}
-                      className="maka-palette-item"
-                      onMouseEnter={() => setHighlight(index)}
-                      onClick={() => commit(cmd)}
-                    >
-                      <span className="maka-palette-icon" aria-hidden="true">
-                        <cmd.Icon size={15} strokeWidth={1.5} />
-                      </span>
-                      <span className="maka-palette-label">{cmd.label}</span>
-                      {cmd.hint && (
-                        <span className="maka-palette-hint">
-                          {cmd.hint}
-                          <ChevronRight size={12} strokeWidth={1.75} aria-hidden="true" />
+          <InputGroup
+            className="maka-palette-input-wrap"
+            aria-label="命令面板搜索"
+            onMouseDown={(event) => {
+              const target = event.target as HTMLElement;
+              if (target.closest('input')) return;
+              event.preventDefault();
+              inputRef.current?.focus();
+            }}
+          >
+            <Autocomplete.Input
+              render={
+                <InputGroupInput
+                  ref={inputRef}
+                  className="maka-palette-input"
+                  type="text"
+                  placeholder="搜索命令、设置项或会话…"
+                  aria-label="搜索命令、设置项或会话"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              }
+            />
+            <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
+              <span className="maka-palette-input-hint" aria-hidden="true">
+                <Kbd className="maka-shortcut-kbd">↵</Kbd>
+                <span>执行</span>
+                <Kbd className="maka-shortcut-kbd">Esc</Kbd>
+                <span>关闭</span>
+              </span>
+            </InputGroupAddon>
+          </InputGroup>
+          <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
+            {grouped.length === 0 ? (
+              <Empty className="maka-palette-empty py-8 md:py-10 gap-3">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <Search aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>没有匹配的命令</EmptyTitle>
+                  <EmptyDescription>换个关键词，或按 Esc 关闭。</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              grouped.map((group) => (
+                <Autocomplete.Group key={group.label} className="maka-palette-group">
+                  <Autocomplete.GroupLabel className="maka-palette-group-label">
+                    {group.label}
+                  </Autocomplete.GroupLabel>
+                  {group.items.map((entry) => {
+                    const cmd = entry.command;
+                    const commandCommitPending = committedCommandId === cmd.id;
+                    return (
+                      <Autocomplete.Item
+                        key={cmd.id}
+                        value={cmd}
+                        index={entry.index}
+                        onClick={() => commit(cmd)}
+                        disabled={cmd.disabled}
+                        aria-busy={commandCommitPending ? 'true' : undefined}
+                        data-disabled={cmd.disabled ? 'true' : undefined}
+                        data-pending={commandCommitPending ? 'true' : undefined}
+                        className="maka-palette-item"
+                      >
+                        <span className="maka-palette-icon" aria-hidden="true">
+                          <cmd.Icon size={15} strokeWidth={1.5} />
                         </span>
-                      )}
-                      {!cmd.hint && active && (
-                        <span className="maka-palette-hint" aria-hidden="true">
-                          <CornerDownLeft size={12} strokeWidth={1.75} />
-                        </span>
-                      )}
-                    </Button>
-                  );
-                })}
-              </div>
-            ))
-          )}
-        </div>
+                        <span className="maka-palette-label">{cmd.label}</span>
+                        {cmd.hint && (
+                          <span className="maka-palette-hint">
+                            {cmd.hint}
+                            <ChevronRight size={12} strokeWidth={1.75} aria-hidden="true" />
+                          </span>
+                        )}
+                        {!cmd.hint && (
+                          <span className="maka-palette-hint maka-palette-cursor" aria-hidden="true">
+                            <CornerDownLeft size={12} strokeWidth={1.75} />
+                          </span>
+                        )}
+                      </Autocomplete.Item>
+                    );
+                  })}
+                </Autocomplete.Group>
+              ))
+            )}
+          </Autocomplete.List>
+        </Autocomplete.Root>
         <div className="maka-palette-footer">
           <span>
             <KbdGroup className="maka-shortcut-group">

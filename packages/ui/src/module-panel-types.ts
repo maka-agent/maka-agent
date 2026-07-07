@@ -21,9 +21,17 @@ export interface SkillEntry {
    * can see what a skill is asking for before they install / enable it.
    */
   declaredTools?: string[];
-  sourceType?: 'workspace' | 'bundled' | 'unknown';
+  sourceType?: 'workspace' | 'bundled' | 'managed' | 'unknown';
   userModified?: boolean;
   validationStatus?: 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
+  managedUpdateStatus?: 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
+}
+
+export interface ManagedSkillSourceEntry {
+  id: string;
+  name: string;
+  description: string;
+  sourceType: 'local';
 }
 
 export type PlanReminderDraftInput = {

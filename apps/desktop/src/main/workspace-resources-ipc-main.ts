@@ -6,10 +6,17 @@ import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 import {
   createStarterSkill,
+  installManagedSkill,
   listSkillEntries,
   resolveSkillOpenPath,
   toSkillEntry,
+  updateManagedSkill,
 } from './skills.js';
+import {
+  importManagedSkillSource,
+  listManagedSkillSources,
+  toManagedSkillSourceEntry,
+} from './managed-skill-sources.js';
 
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type MainWindowController = ReturnType<typeof createMainWindowController>;
@@ -106,6 +113,34 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
   ipcMain.handle('skills:list', async () => {
     await deps.bundledSkillsReady?.catch(() => {});
     return listSkillEntries(deps.workspaceRoot);
+  });
+  ipcMain.handle('skills:sources:list', async () => {
+    const sources = await listManagedSkillSources();
+    return sources.map(toManagedSkillSourceEntry);
+  });
+  ipcMain.handle('skills:sources:importLocalFile', async () => {
+    const result = await deps.mainWindowController.showOpenDialog({
+      title: '导入 Skill 来源',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Skill Markdown', extensions: ['md'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return { ok: false as const, reason: 'cancelled' as const };
+    const imported = await importManagedSkillSource({ sourceFile: result.filePaths[0] });
+    if (!imported.ok) return imported;
+    return { ok: true as const, source: toManagedSkillSourceEntry(imported.source) };
+  });
+  ipcMain.handle('skills:installManaged', async (_event, sourceId: string) => {
+    const result = await installManagedSkill(deps.workspaceRoot, sourceId);
+    if (!result.ok) return result;
+    return { ok: true as const, skill: toSkillEntry(result.skill) };
+  });
+  ipcMain.handle('skills:updateManaged', async (_event, skillId: string) => {
+    const result = await updateManagedSkill(deps.workspaceRoot, skillId);
+    if (!result.ok) return result;
+    return { ok: true as const, skill: toSkillEntry(result.skill) };
   });
   ipcMain.handle('skills:createStarter', async () => {
     const result = await createStarterSkill(deps.workspaceRoot);

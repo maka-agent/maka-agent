@@ -63,11 +63,6 @@ export interface ChildAgentTurnInput {
   prompt: string;
 }
 
-export interface RetryTurnInput {
-  sourceTurnId: string;
-  turnId?: string;
-}
-
 export interface RegenerateTurnInput {
   sourceTurnId: string;
   turnId?: string;
