@@ -479,15 +479,16 @@
 }
 
 /* --- User-turn meta row (relocated from tool-output.css) ----------------- */
-/* PR-CHAT-CHROME-FOLLOWUP-0: the relative time is always visible now
-   (it was `opacity: 0` until hover, which hid it on touch + from
-   assistive tech). It stays quiet — 12px at the shared chrome size,
-   muted — and rides in the user turn's meta row beneath the block. */
+/* PR-CHAT-CHROME-FOLLOWUP-0 / PR5 CHAT-MESSAGE-TIME-0: the relative time is
+   always visible now (it was `opacity: 0` until hover, which hid it on
+   touch + from assistive tech). It stays quiet — caption tier (11px) at
+   normal weight, muted — and rides in the user turn's meta row beneath
+   the block. Aligned to the same tier the footer-action cva uses (text-xs). */
 .maka-message-time-inline {
   display: inline-block;
   color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-normal);
   line-height: var(--leading-none);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

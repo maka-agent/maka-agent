@@ -53,6 +53,10 @@ test('markerVariants resolves a leaf shell string the UiButton call sites can ap
   const footerAction = markerVariants({ variant: 'footer-action' });
   assert.match(footerAction, /min-h-\[28px\]/);
   assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/);
+  // PR5 CHAT-MESSAGE-TIME-0: footer-action stays at the caption tier
+  // (text-xs aliases --font-size-caption, 11px), aligned with the inline
+  // message timestamp — both read as quiet meta, one step below the UI tier.
+  assert.match(footerAction, /text-xs/);
   const lineageBadge = markerVariants({ variant: 'lineage-badge' });
   assert.match(lineageBadge, /rounded-\[var\(--radius-pill\)\]/);
   assert.match(lineageBadge, /data-\[direction=forward\]:/);
