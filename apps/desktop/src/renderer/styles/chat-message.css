@@ -529,13 +529,12 @@
   vertical-align: -2px;
 }
 @keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-/* The truncation badge (`role="status"`, chat-view.tsx) means rendered
-   output stopped growing — a caret blinking under it promises text that
-   will never come. It also breaks the `> p:last-child` inlining above, so
-   the caret would sit alone on its own line. Drop it. */
-.maka-bubble-streaming:has(> [role="status"])::after {
-  content: none;
-}
+/* When the truncation badge (`role="status"`, chat-view.tsx) is the last
+   child, the caret sits after the badge instead of the text. Accepted: the
+   badge does NOT mean the stream froze — `applyAssistantDelta` also sets
+   `truncated` for a single over-large delta (per-delta cap) while later
+   deltas keep appending, so hiding the caret there would kill a live
+   indicator. CSS can't tell the two truncation kinds apart. */
 @media (prefers-reduced-motion: reduce) {
   .maka-bubble-streaming::after { animation: none; opacity: 1; }
 }
