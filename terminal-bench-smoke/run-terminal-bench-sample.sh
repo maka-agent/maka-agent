@@ -32,11 +32,18 @@ Profiles:
   maka-heavy-prune
                Maka heavy-task bridge with autonomous prior-attempt runtime replay
                and stale tool-result archive pruning enabled
+  maka-prune-default
+               Post-#621 default prune pipeline with continuation (stale A/B B arm,
+               retrieval A/B A arm)
+  maka-stale-off
+               maka-prune-default with stale prune explicitly off (stale A/B A arm)
+  maka-retrieval-on
+               maka-prune-default plus eager archive retrieval (retrieval A/B B arm)
   opencode     OpenCode Harbor wrapper
   oracle       Harbor oracle agent for cheap wrapper/dataset smoke tests
 
 Options:
-  --profile NAME              Run profile: maka-basic, maka-heavy, maka-heavy-prune, opencode, oracle
+  --profile NAME              Run profile: maka-basic, maka-heavy, maka-heavy-prune, maka-prune-default, maka-stale-off, maka-retrieval-on, opencode, oracle
   --compare                   Run comparison profiles sequentially (default: maka-basic,opencode)
   --compare-profiles LIST     Comma-separated profiles for --compare
   --task PATTERN              Harbor task pattern (default: *sqlite-with-gcov)
