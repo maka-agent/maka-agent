@@ -226,7 +226,14 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
  *  (shutdown/reboot), and ACL/ownership (chmod/chown). Case-insensitive
  *  because PowerShell is. */
 export const PRIVILEGED_SHELL_PATTERNS: readonly RegExp[] = [
-  /^(stop-process|spps|taskkill)\b/i,
+  // kill is PowerShell's default alias for Stop-Process; bare `kill` also
+  // shows up as the tail of `Get-Process x | kill`. (POSIX `kill ` prefix is
+  // handled separately for the pid-argument form.)
+  /^(kill|stop-process|spps|taskkill)\b/i,
+  // Elevation intent: -Verb RunAs is the PowerShell form of `runas`. Anchor on
+  // the flag itself, not the Start-Process alias, so plain Start-Process stays
+  // shell_unsafe while any elevated launch prompts.
+  /(^|\s)-verb\s+runas\b/i,
   // Service control mirrors the blanket `systemctl ` prefix above: every
   // mutating verb prompts; read-only queries (sc query, Get-Service) do not.
   // sasv/spsv are the documented default aliases of Start-/Stop-Service.

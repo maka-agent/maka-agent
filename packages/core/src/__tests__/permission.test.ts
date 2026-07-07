@@ -196,6 +196,20 @@ describe('categorizeBash', () => {
     expect(categorizeBash('sasv SomeService')).toBe('privileged');
   });
 
+  test('PowerShell kill alias (Stop-Process) → privileged, including piped', () => {
+    expect(categorizeBash('kill -Name notepad')).toBe('privileged');
+    expect(categorizeBash('Get-Process notepad | kill')).toBe('privileged');
+    expect(categorizeBash('gps notepad | kill')).toBe('privileged');
+  });
+
+  test('elevation via -Verb RunAs → privileged', () => {
+    expect(categorizeBash('Start-Process -FilePath powershell -Verb RunAs')).toBe('privileged');
+    expect(categorizeBash('saps powershell -Verb RunAs')).toBe('privileged');
+    expect(categorizeBash('start powershell -Verb runas')).toBe('privileged');
+    // Start-Process without elevation is not privileged
+    expect(categorizeBash('Start-Process notepad')).toBe('shell_unsafe');
+  });
+
   test('destructive names as mere text do NOT upgrade the category', () => {
     expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
     expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
@@ -352,6 +366,20 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: piped kill and RunAs elevation STILL prompt in execute mode', () => {
+    for (const command of [
+      'Get-Process notepad | kill',
+      'gps notepad | kill',
+      'Start-Process -FilePath powershell -Verb RunAs',
+      'saps powershell -Verb RunAs',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('privileged');
+    }
   });
 
   test('CRITICAL: interrupted names and service aliases STILL prompt in execute mode', () => {
