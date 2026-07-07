@@ -282,36 +282,61 @@
 }
 
 /* Syntax highlight palette for highlight.js / lowlight class names.
-   All colors derive from oklch token shifts so light + dark stay
-   in sync without per-theme overrides. */
+   Hue + chroma derive from the theme tokens; LIGHTNESS is pinned per theme.
+   The old relative shifts (`calc(l - 0.15)`) moved with the theme and
+   failed WCAG 1.4.3 (4.5:1 at the 12px code size) in BOTH themes — CDP
+   measurement on the real code-block background (#618 item 4): light
+   number 2.57 / keyword 3.03 / variable 3.11 / built_in 3.42 / comment
+   3.93; dark string 4.06 / comment 3.70. Pinned L keeps every class
+   ≥ 4.5:1 on the code background in both themes (probe-verified).
+   String stays the deep-navy --link family (h + 15), distinct from
+   keywords (brighter blue) and built-ins (violet-shifted); green remains
+   reserved for hljs-addition (real diffs). */
 .hljs            { color: var(--foreground); }
 .hljs-comment,
-.hljs-quote      { color: var(--muted-foreground); font-style: italic; }
+.hljs-quote      { color: oklch(from var(--muted-foreground) 0.48 c h); font-style: italic; }
 .hljs-keyword,
 .hljs-selector-tag,
 .hljs-literal,
-.hljs-tag        { color: oklch(from var(--link) calc(l - 0.05) calc(c + 0.04) h); }
-/* Strings are the largest ink mass in highlighted code; keying them to the
-   semantic --success green made whole answers read as leftover brand-green
-   under the blue theme (user report 2026-07-07). Deep navy from the --link
-   family instead — distinct from keywords (brighter blue) and built-ins
-   (violet-shifted); green stays reserved for hljs-addition (real diffs). */
+.hljs-tag        { color: oklch(from var(--link) 0.48 calc(c + 0.04) h); }
 .hljs-string,
 .hljs-doctag,
-.hljs-regexp     { color: oklch(from var(--link) calc(l - 0.15) c calc(h + 15)); }
+.hljs-regexp     { color: oklch(from var(--link) 0.45 c calc(h + 15)); }
 .hljs-number,
 .hljs-symbol,
 .hljs-bullet,
-.hljs-meta       { color: oklch(from var(--info) calc(l - 0.05) c h); }
+.hljs-meta       { color: oklch(from var(--info) 0.5 c h); }
 .hljs-built_in,
 .hljs-type,
 .hljs-class .hljs-title,
 .hljs-title.class_,
-.hljs-title.function_ { color: oklch(from var(--link) calc(l - 0.1) c calc(h - 30)); }
+.hljs-title.function_ { color: oklch(from var(--link) 0.48 c calc(h - 30)); }
 .hljs-variable,
 .hljs-attr,
 .hljs-attribute,
-.hljs-name       { color: oklch(from var(--info) calc(l - 0.1) calc(c + 0.04) h); }
+.hljs-name       { color: oklch(from var(--info) 0.48 calc(c + 0.04) h); }
+.dark .hljs-comment,
+.dark .hljs-quote      { color: oklch(from var(--muted-foreground) 0.72 c h); }
+.dark .hljs-keyword,
+.dark .hljs-selector-tag,
+.dark .hljs-literal,
+.dark .hljs-tag        { color: oklch(from var(--link) 0.74 calc(c + 0.04) h); }
+.dark .hljs-string,
+.dark .hljs-doctag,
+.dark .hljs-regexp     { color: oklch(from var(--link) 0.72 c calc(h + 15)); }
+.dark .hljs-number,
+.dark .hljs-symbol,
+.dark .hljs-bullet,
+.dark .hljs-meta       { color: oklch(from var(--info) 0.72 c h); }
+.dark .hljs-built_in,
+.dark .hljs-type,
+.dark .hljs-class .hljs-title,
+.dark .hljs-title.class_,
+.dark .hljs-title.function_ { color: oklch(from var(--link) 0.74 c calc(h - 30)); }
+.dark .hljs-variable,
+.dark .hljs-attr,
+.dark .hljs-attribute,
+.dark .hljs-name       { color: oklch(from var(--info) 0.72 calc(c + 0.04) h); }
 .hljs-deletion   { color: var(--destructive-text); background: oklch(from var(--destructive) l c h / 0.08); }
 .hljs-addition   { color: var(--success-text); background: oklch(from var(--success) l c h / 0.08); }
 .hljs-emphasis   { font-style: italic; }
