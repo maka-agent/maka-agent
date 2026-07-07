@@ -445,7 +445,7 @@ export function SkillsModuleMain(props: {
           </UiButton>
         </div>
       </header>
-      <CapabilityAuditStrip report={auditReport} focus="skills" />
+      <CapabilityAuditStrip report={auditReport} />
       <SkillLibraryPanel
         skills={props.skills}
         onRefreshSkills={props.onRefreshSkills ? () => runSkillAction('refresh', props.onRefreshSkills) : undefined}

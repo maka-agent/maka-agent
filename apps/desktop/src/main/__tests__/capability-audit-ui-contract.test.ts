@@ -43,15 +43,37 @@ describe('capability audit visible system contract', () => {
       ],
     });
 
-    const markup = renderToStaticMarkup(createElement(CapabilityAuditStrip, { report, focus: 'skills' }));
+    // Designer audit P1-7: the strip reports by exception. With a failed
+    // automation it renders ONE warning line; the retired metrics band
+    // (能力审计 kicker, 声明工具 jargon, 来源/技能/自动化 dl) must not
+    // come back — the page tabs already carry those counts.
+    const markup = renderToStaticMarkup(createElement(CapabilityAuditStrip, { report }));
 
-    assert.match(markup, /aria-label="能力审计摘要"/);
-    assert.match(markup, /能力审计/);
-    assert.match(markup, /3 类声明工具/);
-    assert.match(markup, /来源<\/dt><dd>1\/1 就绪/);
-    assert.match(markup, /技能<\/dt><dd>1\/1 启用/);
-    assert.match(markup, /自动化<\/dt><dd>1\/1 启用/);
+    assert.match(markup, /aria-label="能力风险提示"/);
     assert.match(markup, /1 个自动化上次失败/);
+    assert.doesNotMatch(markup, /能力审计/);
+    assert.doesNotMatch(markup, /声明工具/);
+    assert.doesNotMatch(markup, /<dl/);
+
+    // Healthy report → nothing at all (no empty band eating first-screen).
+    const healthyReport = deriveCapabilityAuditReport({
+      now: 1_700_000_000_000,
+      skills: [
+        {
+          id: 'writer',
+          name: 'Writer',
+          description: 'Drafts release notes.',
+          declaredTools: ['Read'],
+        },
+      ],
+      planReminders: [],
+    });
+    assert.equal(
+      renderToStaticMarkup(createElement(CapabilityAuditStrip, { report: healthyReport })),
+      '',
+      'healthy capability report must render nothing',
+    );
+
     assert.equal(report.skills[0].permissionMode, 'ask');
     assert.notEqual(report.skills[0].permissionMode, 'execute');
   });
@@ -76,12 +98,12 @@ describe('capability audit visible system contract', () => {
     );
   });
 
-  it('keeps the audit strip as a full-width band with responsive metrics', async () => {
+  it('keeps the exception-only strip free of the retired metrics band CSS', async () => {
     const styles = await readRendererContractCss();
 
-    assert.match(styles, /\.maka-capability-audit-strip\s*\{[\s\S]*display:\s*flex/);
-    assert.match(styles, /\.maka-capability-audit-metrics\s*\{[\s\S]*grid-template-columns:\s*repeat\(3, minmax\(92px, 1fr\)\)/);
-    assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.maka-capability-audit-strip\s*\{[\s\S]*display:\s*grid/);
-    assert.match(styles, /@media \(max-width: 1100px\)[\s\S]*\.maka-capability-audit-metrics\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\)/);
+    // The Alert primitive owns the warning chrome; the module CSS must not
+    // regrow the old full-width band (kicker / metrics dl / media grid).
+    assert.doesNotMatch(styles, /\.maka-capability-audit-metrics/);
+    assert.doesNotMatch(styles, /\.maka-capability-audit-kicker/);
   });
 });

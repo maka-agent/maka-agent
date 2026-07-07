@@ -64,7 +64,7 @@ import {
 import { Badge } from './primitives/badge.js';
 import { Input } from './primitives/input.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
-import { Alert, AlertDescription, AlertTitle } from './primitives/alert.js';
+import { Alert, AlertTitle } from './primitives/alert.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
@@ -371,15 +371,14 @@ export function PlanReminderPanel(props: {
           <div className="maka-plan-system-alert-main">
             <Info strokeWidth={1.75} aria-hidden="true" />
             <div>
-              <AlertTitle>计划提醒会在本机唤醒时运行</AlertTitle>
-              <AlertDescription>
-                Maka 会保留执行记录；重复提醒、机器人投递和手动触发都走同一套计划队列。
-              </AlertDescription>
+              {/* Designer audit P2-12: one sentence, the one that matters —
+                  the queue/run-history mechanics line was engineering trivia. */}
+              <AlertTitle>计划提醒只在本机唤醒时运行</AlertTitle>
             </div>
           </div>
         </Alert>
 
-        <CapabilityAuditStrip report={auditReport} focus="automations" />
+        <CapabilityAuditStrip report={auditReport} />
 
         <TabsRoot
           className="maka-plan-tabs"

@@ -337,10 +337,6 @@
   gap: var(--space-1-5);
 }
 
-.maka-plan-system-alert-main [data-slot="alert-description"] {
-  display: none;
-}
-
 .maka-plan-system-alert-main > [class*="lucide"] {
   flex: 0 0 auto;
 }
