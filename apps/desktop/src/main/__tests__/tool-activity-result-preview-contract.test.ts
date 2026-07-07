@@ -177,15 +177,42 @@ describe('ToolActivity result preview contract', () => {
     // pass exactly restores the original bytes as text and nothing else.
     const encoded = 'sk&#45;1234567890abcdefghi';
     const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
-    const { toolTextToProseSource } = await import(uiDist('tool-activity/preview-utils.js')) as {
-      toolTextToProseSource(text: string): string;
+    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
+      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
     };
     const { MarkdownBody } = await import(uiDist('markdown-body.js')) as {
       MarkdownBody(props: { text: string }): ReturnType<typeof createElement>;
     };
-    const html = renderToStaticMarkup(createElement(MarkdownBody, { text: toolTextToProseSource(`key: ${encoded}`) }));
+    const plan = toolTextPreviewPlan(`key: ${encoded}`);
+    assert.ok('markdown' in plan, 'entity-encoded text carries no markdown-consumed punctuation, so it keeps the prose path — the & escape is what defuses it');
+    const html = renderToStaticMarkup(createElement(MarkdownBody, { text: (plan as { markdown: string }).markdown }));
     assert.doesNotMatch(html, new RegExp(SECRET), 'markdown rendering must not decode an entity-encoded secret into the clear');
     assert.match(html, /sk&amp;#45;|sk&#x26;#45;/, 'the encoded form must display literally, matching the old <pre> behavior');
+  });
+
+  it('markdown-consumed punctuation cannot reassemble a secret in the clear (codex review P1 round 2)', async () => {
+    // Backslash escapes (`sk\-…`), emphasis delimiters (`sk*-*…`), and link
+    // syntax all make markdown REMOVE punctuation from the rendered text,
+    // reassembling a secret the raw-text redactor never matched. These
+    // can't be neutralized one-by-one without an arms race, so the preview
+    // degrades: if stripping markdown-consumed characters exposes redactable
+    // content, the result renders through the literal <pre> path instead.
+    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
+    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
+      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
+    };
+    for (const encoded of ['sk\\-1234567890abcdefghi', 'sk*-*1234567890abcdefghi', '[sk-](https://x)1234567890abcdefghi']) {
+      const plan = toolTextPreviewPlan(`key: ${encoded}`);
+      assert.ok('plain' in plan, `${encoded} must degrade to the literal plain path — markdown rendering would strip the punctuation and reassemble the secret`);
+    }
+    // Plain prose keeps the markdown path.
+    const prose = toolTextPreviewPlan('# heading\n\nnormal *emphasis* and a [link](https://example.com)');
+    assert.ok('markdown' in prose, 'benign markdown must keep the prose path');
+
+    // End-to-end: the degraded result must render literally, not through markdown.
+    const markup = renderPreview({ kind: 'text', text: 'key: sk\\-1234567890abcdefghi' });
+    assert.match(markup, /<pre[^>]*data-kind="text"/, 'secret-shaped text must fall back to the literal <pre> overlay');
+    assert.doesNotMatch(markup, new RegExp(SECRET), 'the live secret must never appear');
   });
 
   it('redacts ExploreAgent copy payloads before they reach the clipboard', async () => {

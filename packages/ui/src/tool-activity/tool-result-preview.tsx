@@ -6,7 +6,7 @@ import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { Button as UiButton, cn } from '../ui.js';
 import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
-import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText, toolTextToProseSource } from './preview-utils.js';
+import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText, toolTextPreviewPlan } from './preview-utils.js';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
 export function ToolResultPreview(props: { content: ToolResultContent }) {
@@ -79,12 +79,21 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
     // #546 PR6: the generic text body renders as markdown prose. The
     // whitespace-critical kinds (terminal / file_diff / json) keep their own
     // mono cards above, so what lands here is prose-shaped text (agent
-    // messages, permission notes, page extracts). toolTextToProseSource
-    // redacts, caps, and escapes `&` so the markdown decode can't resurrect
-    // entity-encoded secrets the redactor never saw (codex review P1).
+    // messages, permission notes, page extracts). toolTextPreviewPlan
+    // redacts + caps, then degrades to the literal <pre> overlay whenever
+    // markdown rendering would reassemble redactable content out of
+    // escaped/emphasized/linked punctuation (codex review P1).
+    const plan = toolTextPreviewPlan(content.text);
+    if ('plain' in plan) {
+      return (
+        <pre className={previewVariants({ part: 'overlay' })} data-kind="text">
+          {plan.plain}
+        </pre>
+      );
+    }
     return (
       <div className={cn(previewVariants({ part: 'prose-body' }), 'maka-prose')} data-kind="text">
-        <Markdown text={toolTextToProseSource(content.text)} />
+        <Markdown text={plan.markdown} />
       </div>
     );
   }
