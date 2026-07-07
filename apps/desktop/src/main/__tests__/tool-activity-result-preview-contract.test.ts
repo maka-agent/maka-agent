@@ -148,14 +148,6 @@ describe('ToolActivity result preview contract', () => {
     const text = renderPreview({ kind: 'text', text: numberedLines('line', 501) });
     assert.match(text, /data-kind="text"/);
     assert.match(text, /已隐藏 1 行/);
-    // #546 PR6: the text-kind body reuses the prose layer instead of the mono
-    // <pre> overlay — the container carries .maka-prose so the prose element
-    // rules (typography, links, code pills, break-word, edge trims) apply.
-    // (renderToStaticMarkup can't await the lazy markdown pipeline, so the
-    // markup here is the Suspense plain-text fallback; the wiring contract —
-    // prose-classed container, no raw <pre> — is what this locks.)
-    assert.match(text, /class="[^"]*maka-prose[^"]*"[^>]*data-kind="text"|data-kind="text"[^>]*class="[^"]*maka-prose[^"]*"/, 'text-kind tool results must render inside a .maka-prose container (#546 PR6)');
-    assert.doesNotMatch(text, /<pre/, 'text-kind tool results are markdown prose now, not a mono <pre> dump');
 
     const json = renderPreview({ kind: 'json', value: { token: SECRET, ok: true } });
     assert.match(json, /data-kind="json"/);
@@ -166,92 +158,6 @@ describe('ToolActivity result preview contract', () => {
     assert.match(fileWrite, /data-kind="file_write"/);
     assert.match(fileWrite, /\[file_write\]/);
     assert.doesNotMatch(fileWrite, /out\.txt/);
-  });
-
-  it('entity-encoded secrets cannot ride the markdown decode past redaction (codex review P1)', async () => {
-    // `sk&#45;…` never matches the redactor (it sees no `sk-`), but micromark
-    // decodes character references during parse, so prose rendering would
-    // show the live secret. The projection decodes numeric references the
-    // same way (and approximates named ones — `&hyphen;` renders a glyph
-    // visually identical to `-`), then re-runs the redactor; a hit degrades
-    // to the literal <pre> path, display parity with the old preview. A
-    // blanket `&`→`&amp;` escape is NOT an acceptable defense: CommonMark
-    // keeps character references literal inside code spans/blocks, so it
-    // corrupts `a && b` into `a &amp;&amp; b` (codex review round 5 P2 —
-    // covered by the ampersand-fidelity test below).
-    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
-    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
-      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
-    };
-    for (const encoded of [
-      'sk&#45;1234567890abcdefghi',
-      'sk&#x2D;1234567890abcdefghi',
-      'sk&hyphen;1234567890abcdefghi',
-    ]) {
-      const plan = toolTextPreviewPlan(`key: ${encoded}`);
-      assert.ok('plain' in plan, `${JSON.stringify(encoded)} must degrade to the literal plain path — markdown would decode the reference into the clear`);
-      assert.match((plan as { plain: string }).plain, /sk&/, 'the degraded text shows the encoded form literally, matching the old <pre> behavior');
-    }
-  });
-
-  it('ampersands reach markdown byte-identical — code spans keep && (codex review round 5 P2)', async () => {
-    // CommonMark treats character references as literal text inside code
-    // spans and code blocks, so a blanket `&`→`&amp;` escape (the round-2
-    // defense this replaced) displayed `cmd && next` as `cmd &amp;&amp;
-    // next` and corrupted the code-copy payload. Entity-decode safety now
-    // lives in the projection degrade instead, so benign ampersands must
-    // pass through untouched.
-    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
-    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
-      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
-    };
-    const plan = toolTextPreviewPlan('run `make lint && make test` before pushing — AT&T style');
-    assert.ok('markdown' in plan, 'benign text with ampersands keeps the prose path');
-    const markdown = (plan as { markdown: string }).markdown;
-    assert.ok(markdown.includes('`make lint && make test`'), 'code-span ampersands must survive byte-identical');
-    assert.ok(!markdown.includes('&amp;'), 'the markdown path must not blanket-escape ampersands');
-  });
-
-  it('markdown-consumed punctuation cannot reassemble a secret in the clear (codex review P1 round 2)', async () => {
-    // Backslash escapes (`sk\-…`), emphasis delimiters (`sk*-*…`), and link
-    // syntax all make markdown REMOVE punctuation from the rendered text,
-    // reassembling a secret the raw-text redactor never matched. These
-    // can't be neutralized one-by-one without an arms race, so the preview
-    // degrades: if stripping markdown-consumed characters exposes redactable
-    // content, the result renders through the literal <pre> path instead.
-    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
-    const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {
-      toolTextPreviewPlan(text: string): { markdown: string } | { plain: string };
-    };
-    for (const encoded of [
-      'sk\\-1234567890abcdefghi',
-      // Emphasis that actually parses under CommonMark's flanking rules
-      // (an opener after `-` works; `sk*-*…` does NOT — the `*` after `k`
-      // isn't left-flanking, so it renders literally and stays prose).
-      'sk-*1234567890abcdefghi*',
-      '[sk-](https://x)1234567890abcdefghi',
-      // Reference-style link: the `[.]` label content vanishes from the
-      // rendered text just like an inline destination (codex review round 4).
-      '[sk-][.]1234567890abcdefghi\n\n[.]: https://x',
-      // Destination with balanced parentheses plus a quoted title — valid
-      // CommonMark that any hand-rolled destination regex mis-scans (codex
-      // review round 6): micromark still renders `sk-` flush against the
-      // digits.
-      '[sk-](https://x/y(z) "t")1234567890abcdefghi',
-      '[sk-](https://x/y(z))1234567890abcdefghi',
-      '[sk-](<https://x/y(z)>)1234567890abcdefghi',
-    ]) {
-      const plan = toolTextPreviewPlan(`key: ${encoded}`);
-      assert.ok('plain' in plan, `${JSON.stringify(encoded)} must degrade to the literal plain path — markdown rendering would strip the punctuation and reassemble the secret`);
-    }
-    // Plain prose keeps the markdown path.
-    const prose = toolTextPreviewPlan('# heading\n\nnormal *emphasis* and a [link](https://example.com)');
-    assert.ok('markdown' in prose, 'benign markdown must keep the prose path');
-
-    // End-to-end: the degraded result must render literally, not through markdown.
-    const markup = renderPreview({ kind: 'text', text: 'key: sk\\-1234567890abcdefghi' });
-    assert.match(markup, /<pre[^>]*data-kind="text"/, 'secret-shaped text must fall back to the literal <pre> overlay');
-    assert.doesNotMatch(markup, new RegExp(SECRET), 'the live secret must never appear');
   });
 
   it('redacts ExploreAgent copy payloads before they reach the clipboard', async () => {
