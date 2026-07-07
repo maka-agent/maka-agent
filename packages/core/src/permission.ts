@@ -118,10 +118,17 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     web_read: 'allow',
     shell_safe: 'allow',
     file_write: 'allow',
-    shell_unsafe: 'allow',
     network_send: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
+    // Fail-closed for shell: only PROVEN-safe commands (SAFE_SHELL_PREFIXES →
+    // shell_safe) auto-run; anything the categorizer cannot prove safe prompts.
+    // The security boundary no longer rides on the destructive/privileged
+    // pattern list being exhaustive — a missed dialect/alias/escape variant now
+    // degrades to an extra confirmation, not a silent irreversible action.
+    // (Auto-running arbitrary shell is still available per-agent in an ISOLATED
+    // worktree; see IMPLEMENTATION_AGENT_DEFINITION.categoryPolicy.)
+    shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
     fs_destructive: 'prompt',
     git_destructive: 'prompt',

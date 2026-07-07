@@ -348,10 +348,21 @@ describe('preToolUse — execute mode', () => {
     expect(r.category).toBe('file_write');
   });
 
-  test('any bash → allow', () => {
+  test('unknown bash → prompt (execute is fail-closed for unrecognized shell)', () => {
+    // The security boundary no longer depends on the pattern list being
+    // exhaustive: a command we cannot prove safe lands in shell_unsafe and
+    // PROMPTS. Anything the blocklist misses (dialect/alias/escape variants)
+    // now degrades to an extra confirmation, never a silent execution.
     const r = evaluate('Bash', { command: 'npm install lodash' }, 'execute');
-    expect(r.proceed).toBe(true);
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('shell_unsafe');
+  });
+
+  test('proven-safe read-only shell still auto-runs in execute', () => {
+    const r = evaluate('Bash', { command: 'git status' }, 'execute');
+    expect(r.proceed).toBe(true);
+    expect(r.category).toBe('shell_safe');
   });
 
   test('CRITICAL: rm STILL prompts in execute mode', () => {
@@ -594,6 +605,13 @@ describe('PERMISSION_POLICY matrix invariants', () => {
 
   test('execute mode never blocks privileged — always prompts', () => {
     expect(PERMISSION_POLICY.execute.privileged).toBe('prompt');
+  });
+
+  test('execute mode is fail-closed for shell_unsafe: prompt, not allow', () => {
+    // The root fix: unrecognized shell syntax defaults to a confirmation
+    // instead of running. Only proven-safe shell auto-runs.
+    expect(PERMISSION_POLICY.execute.shell_unsafe).toBe('prompt');
+    expect(PERMISSION_POLICY.execute.shell_safe).toBe('allow');
   });
 
   test('browser is prompt-on-effect: blocked in explore, prompts in ask AND execute (never auto-allowed)', () => {
