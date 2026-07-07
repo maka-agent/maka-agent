@@ -183,25 +183,29 @@ describe('AutomationManager', () => {
         sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
       });
       assert.ok(!('error' in auto));
-      const fired = mgr.markFired(auto.id);
+      const fired = mgr.attemptStarted(auto.id);
       assert.equal(fired?.fireCount, 1);
       assert.ok(fired?.nextFireAt);
       assert.ok(fired?.lastFireAt);
     });
 
-    test('one-shot completes after fire', () => {
+    test('one-shot completes after a successful fire', () => {
       const mgr = createManager();
       const auto = mgr.create({
         kind: 'heartbeat', name: 'once', prompt: 'p',
         sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 30 },
       });
       assert.ok(!('error' in auto));
-      const fired = mgr.markFired(auto.id);
-      assert.equal(fired?.status, 'completed');
-      assert.equal(fired?.nextFireAt, null);
+      // Started nulls nextFireAt but stays active until the outcome is known.
+      const started = mgr.attemptStarted(auto.id);
+      assert.equal(started?.status, 'active');
+      assert.equal(started?.nextFireAt, null);
+      mgr.attemptSucceeded(auto.id, 'run-1');
+      assert.equal(mgr.get(auto.id)?.status, 'completed');
+      assert.equal(mgr.get(auto.id)?.lastRunId, 'run-1');
     });
 
-    test('maxFires completes automation', () => {
+    test('maxFires completes on the successful fire that reaches the cap', () => {
       const mgr = createManager();
       const auto = mgr.create({
         kind: 'heartbeat', name: 'limited', prompt: 'p',
@@ -209,9 +213,26 @@ describe('AutomationManager', () => {
         maxFires: 2,
       });
       assert.ok(!('error' in auto));
-      mgr.markFired(auto.id);
-      const second = mgr.markFired(auto.id);
-      assert.equal(second?.status, 'completed');
+      mgr.attemptStarted(auto.id);
+      mgr.attemptSucceeded(auto.id);
+      assert.equal(mgr.get(auto.id)?.status, 'active'); // 1/2
+      mgr.attemptStarted(auto.id);
+      mgr.attemptSucceeded(auto.id);
+      assert.equal(mgr.get(auto.id)?.status, 'completed'); // 2/2
+    });
+
+    test('a failed fire does NOT complete (even at maxFires)', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'heartbeat', name: 'limited', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+        maxFires: 1,
+      });
+      assert.ok(!('error' in auto));
+      mgr.attemptStarted(auto.id);
+      mgr.attemptFailed(auto.id, 'boom');
+      // Not 'completed' — a failure never masquerades as success.
+      assert.notEqual(mgr.get(auto.id)?.status, 'completed');
     });
 
     test('does not fire paused automation', () => {
@@ -222,11 +243,11 @@ describe('AutomationManager', () => {
       });
       assert.ok(!('error' in auto));
       mgr.pause(auto.id, 'sess-1');
-      assert.equal(mgr.markFired(auto.id), undefined);
+      assert.equal(mgr.attemptStarted(auto.id), undefined);
     });
   });
 
-  describe('markFailure', () => {
+  describe('attemptFailed', () => {
     test('increments consecutiveFailures', () => {
       const mgr = createManager();
       const auto = mgr.create({
@@ -234,7 +255,7 @@ describe('AutomationManager', () => {
         sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
       });
       assert.ok(!('error' in auto));
-      mgr.markFailure(auto.id, 'timeout');
+      mgr.attemptFailed(auto.id, 'timeout');
       assert.equal(mgr.get(auto.id)?.consecutiveFailures, 1);
       assert.equal(mgr.get(auto.id)?.lastError, 'timeout');
     });
@@ -246,20 +267,32 @@ describe('AutomationManager', () => {
         sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
       });
       assert.ok(!('error' in auto));
-      for (let i = 0; i < 5; i++) mgr.markFailure(auto.id, 'fail');
+      for (let i = 0; i < 5; i++) mgr.attemptFailed(auto.id, 'fail');
       assert.equal(mgr.get(auto.id)?.status, 'paused');
     });
 
-    test('markSuccess resets failure count', () => {
+    test('a one-shot failure pauses (visible, not a silent zombie)', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'heartbeat', name: 'once', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
+      });
+      assert.ok(!('error' in auto));
+      mgr.attemptStarted(auto.id); // nextFireAt → null
+      mgr.attemptFailed(auto.id, 'boom');
+      assert.equal(mgr.get(auto.id)?.status, 'paused');
+    });
+
+    test('attemptSucceeded resets failure count', () => {
       const mgr = createManager();
       const auto = mgr.create({
         kind: 'heartbeat', name: 'test', prompt: 'p',
         sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
       });
       assert.ok(!('error' in auto));
-      mgr.markFailure(auto.id, 'fail');
-      mgr.markFailure(auto.id, 'fail');
-      mgr.markSuccess(auto.id);
+      mgr.attemptFailed(auto.id, 'fail');
+      mgr.attemptFailed(auto.id, 'fail');
+      mgr.attemptSucceeded(auto.id);
       assert.equal(mgr.get(auto.id)?.consecutiveFailures, 0);
       assert.equal(mgr.get(auto.id)?.lastError, null);
     });
@@ -402,7 +435,8 @@ describe('AutomationManager edge cases', () => {
         sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
       });
       assert.ok(!('error' in auto));
-      mgr.markFired(auto.id);
+      mgr.attemptStarted(auto.id);
+      mgr.attemptSucceeded(auto.id);
     }
     // Pruning is triggered on next create
     mgr.create({
@@ -434,15 +468,16 @@ describe('AutomationManager edge cases', () => {
     assert.equal(updated.fireCount, 0);
   });
 
-  test('markFailure does not overwrite completed status', () => {
+  test('attemptFailed does not overwrite completed status', () => {
     const mgr = createManager();
     const auto = mgr.create({
       kind: 'heartbeat', name: 'terminal', prompt: 'p',
       sessionId: 'sess-1', schedule: { type: 'once', delaySeconds: 10 },
     });
     assert.ok(!('error' in auto));
-    mgr.markFired(auto.id); // completes (one-shot)
-    mgr.markFailure(auto.id, 'should not change status');
+    mgr.attemptStarted(auto.id);
+    mgr.attemptSucceeded(auto.id); // completes (one-shot)
+    mgr.attemptFailed(auto.id, 'should not change status');
     assert.equal(mgr.get(auto.id)?.status, 'completed');
   });
 
@@ -451,7 +486,8 @@ describe('AutomationManager edge cases', () => {
     mgr.create({ kind: 'heartbeat', name: 'active', prompt: 'p', sessionId: 's1', schedule: { type: 'interval', seconds: 60 } });
     const once = mgr.create({ kind: 'heartbeat', name: 'done', prompt: 'p', sessionId: 's1', schedule: { type: 'once', delaySeconds: 10 } });
     assert.ok(!('error' in once));
-    mgr.markFired(once.id);
+    mgr.attemptStarted(once.id);
+    mgr.attemptSucceeded(once.id);
 
     const all = mgr.listAll();
     assert.ok(all.length >= 2);

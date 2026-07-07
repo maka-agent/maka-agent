@@ -69,24 +69,30 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         model: context.target.model,
         permissionMode: 'ask',
       });
-      await runMakaPiTui({
-        driver,
-        title: 'Maka',
-        cwd: context.cwd,
-        model: context.target.model,
-        models: selectableModelIdsForTarget(context.target),
-        connectionSlug: context.target.connection.slug,
-        providerType: context.target.connection.providerType,
-        permissionMode: 'ask',
-        onTurnComplete: (injectTurn) => {
-          const sessionId = driver.getSessionId();
-          if (!sessionId) return;
-          void handleGoalContinuation(
-            { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
-            sessionId,
-          ).catch(() => {});
-        },
-      });
+      try {
+        await runMakaPiTui({
+          driver,
+          title: 'Maka',
+          cwd: context.cwd,
+          model: context.target.model,
+          models: selectableModelIdsForTarget(context.target),
+          connectionSlug: context.target.connection.slug,
+          providerType: context.target.connection.providerType,
+          permissionMode: 'ask',
+          onTurnComplete: (injectTurn) => {
+            const sessionId = driver.getSessionId();
+            if (!sessionId) return;
+            void handleGoalContinuation(
+              { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
+              sessionId,
+            ).catch(() => {});
+          },
+        });
+      } finally {
+        // Stop the automation scheduler so its 5s timer does not keep the
+        // process alive and tick into a stopped session after the TUI exits.
+        context.automationScheduler.dispose();
+      }
       return 0;
     }
   }

@@ -151,15 +151,32 @@ export class AutomationManager {
   }
 
   /**
-   * Called by the scheduler when it's time to fire.
-   * Checks expiry BEFORE firing. Returns the automation if it should fire.
+   * Mark an expired automation terminal. Returns true if it was expired.
+   * Used by the scheduler's eager expiry sweep.
    */
-  markFired(id: string): AutomationDefinition | undefined {
+  sweepExpired(id: string): boolean {
+    const automation = this.automations.get(id);
+    if (!automation || automation.status !== 'active') return false;
+    const now = this.deps.now();
+    if (automation.expiresAt && now >= automation.expiresAt) {
+      automation.status = 'expired';
+      automation.nextFireAt = null;
+      automation.updatedAt = now;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Begin a fire attempt: advance the schedule and counters, but do NOT commit
+   * terminal completion — that happens only on a real success (attemptSucceeded).
+   * Checks expiry first. Returns the automation if it should fire, else undefined.
+   */
+  attemptStarted(id: string): AutomationDefinition | undefined {
     const automation = this.automations.get(id);
     if (!automation || automation.status !== 'active') return undefined;
 
     const now = this.deps.now();
-
     // Check expiry BEFORE firing — don't execute expired automations.
     if (automation.expiresAt && now >= automation.expiresAt) {
       automation.status = 'expired';
@@ -172,17 +189,12 @@ export class AutomationManager {
     automation.fireCount++;
     automation.updatedAt = now;
 
-    if (automation.schedule.type === 'once') {
-      automation.status = 'completed';
-      automation.nextFireAt = null;
-    } else {
-      automation.nextFireAt = this.computeNextFire(automation.schedule, now);
-    }
-
-    if (automation.maxFires && automation.fireCount >= automation.maxFires) {
-      automation.status = 'completed';
-      automation.nextFireAt = null;
-    }
+    // A one-shot does not auto-retry: null its nextFireAt now. A recurring job
+    // advances to its next slot. Completion (once / maxFires) is committed only
+    // after a successful outcome in attemptSucceeded.
+    automation.nextFireAt = automation.schedule.type === 'once'
+      ? null
+      : this.computeNextFire(automation.schedule, now);
 
     return automation;
   }
@@ -199,24 +211,46 @@ export class AutomationManager {
     automation.updatedAt = now;
   }
 
-  markSuccess(id: string, runId?: string): void {
+  /**
+   * Commit a successful fire outcome: reset failure state, record the run id,
+   * and NOW apply completion (once / maxFires reached).
+   */
+  attemptSucceeded(id: string, runId?: string): void {
     const automation = this.automations.get(id);
     if (!automation) return;
+    if (automation.status !== 'active') return;
     automation.consecutiveFailures = 0;
     automation.lastError = null;
     if (runId) automation.lastRunId = runId;
     automation.updatedAt = this.deps.now();
+
+    if (automation.schedule.type === 'once') {
+      automation.status = 'completed';
+      automation.nextFireAt = null;
+    } else if (automation.maxFires && automation.fireCount >= automation.maxFires) {
+      automation.status = 'completed';
+      automation.nextFireAt = null;
+    }
   }
 
-  markFailure(id: string, error: string): void {
+  /**
+   * Record a failed fire outcome. Accumulates toward the consecutive-failure
+   * cap (→ paused). A one-shot that fails has no next fire, so it is paused so
+   * it is visible rather than a silent idle zombie.
+   */
+  attemptFailed(id: string, error: string): void {
     const automation = this.automations.get(id);
     if (!automation) return;
-    if (automation.status === 'completed' || automation.status === 'expired') return;
+    if (automation.status !== 'active') return;
     automation.consecutiveFailures++;
     automation.lastError = error;
     automation.updatedAt = this.deps.now();
 
     if (automation.consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+      automation.status = 'paused';
+    } else if (automation.nextFireAt === null) {
+      // Nothing will fire this again (one-shot failure) — pause so it is a
+      // visible terminal-ish state, not a silent zombie.
       automation.status = 'paused';
     }
   }

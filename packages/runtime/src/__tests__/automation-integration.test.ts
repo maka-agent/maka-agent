@@ -36,11 +36,13 @@ function createIntegrationSetup() {
   const scheduler = new AutomationScheduler({
     automationManager: manager,
     canFire: async () => canFireResult,
-    injectTurn: (sessionId, prompt, automationId) => {
+    injectTurn: async (sessionId, prompt, automationId) => {
       injectedTurns.push({ sessionId, prompt, automationId });
+      return { runId: `run-${automationId}`, ok: true };
     },
-    createFreshRun: (prompt, automationId) => {
+    createFreshRun: async (prompt, automationId) => {
       freshRuns.push({ prompt, automationId });
+      return { runId: `fresh-${automationId}`, ok: true };
     },
     setTimeout: (fn, ms) => {
       const id = ++timerId;
@@ -58,12 +60,14 @@ function createIntegrationSetup() {
   const tool = buildAutomationTool({
     automationManager: manager,
     onAutomationChange: () => { changes.push(time); },
+    cronEnabled: true,
   });
 
   function advanceTime(ms: number) { time += ms; }
   async function runTick() {
     const timer = timers.shift();
     if (timer) timer.fn();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     await new Promise(r => setTimeout(r, 0));
   }
 
@@ -271,10 +275,10 @@ describe('Automation integration: consecutive failure auto-pause', () => {
 
     const auto = t.manager.listForSession(SESSION_ID)[0];
 
-    // Simulate 5 failures via markFired + markFailure
+    // Simulate 5 failed fires (started then failed).
     for (let i = 0; i < 5; i++) {
-      t.manager.markFired(auto.id);
-      t.manager.markFailure(auto.id, `error ${i + 1}`);
+      t.manager.attemptStarted(auto.id);
+      t.manager.attemptFailed(auto.id, `error ${i + 1}`);
     }
 
     assert.equal(t.manager.get(auto.id)?.status, 'paused');
@@ -306,5 +310,56 @@ describe('Automation integration: cron kind fires via createFreshRun', () => {
     assert.equal(t.injectedTurns.length, 0);
     assert.equal(t.freshRuns.length, 1);
     assert.equal(t.freshRuns[0].prompt, 'review PRs');
+  });
+
+  test('cron fire records lastRunId and stays active for a recurring schedule', async () => {
+    const t = createIntegrationSetup();
+    const ctx = t.ctx();
+    await t.tool.impl({
+      mode: 'create', kind: 'cron', name: 'hourly', prompt: 'audit',
+      schedule: { type: 'interval', seconds: 30 },
+    }, ctx);
+    const auto = t.manager.listForSession(SESSION_ID)[0];
+
+    t.advanceTime(31000);
+    t.scheduler.start();
+    await t.runTick();
+
+    // createFreshRun mock returns { runId: `fresh-<id>`, ok: true }.
+    assert.equal(t.manager.get(auto.id)?.lastRunId, `fresh-${auto.id}`);
+    assert.equal(t.manager.get(auto.id)?.status, 'active'); // recurring, keeps going
+    assert.equal(t.manager.get(auto.id)?.consecutiveFailures, 0);
+  });
+});
+
+describe('Automation integration: cron gating by host capability', () => {
+  test('cronEnabled:false rejects the cron kind at the schema', () => {
+    const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
+    const heartbeatOnly = buildAutomationTool({ automationManager: mgr, cronEnabled: false });
+    const parsed = (heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
+      mode: 'create', kind: 'cron', name: 'x', prompt: 'p',
+      schedule: { type: 'interval', seconds: 30 },
+    });
+    assert.equal(parsed.success, false); // cron not offered on this host
+  });
+
+  test('cronEnabled:true accepts the cron kind', () => {
+    const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
+    const withCron = buildAutomationTool({ automationManager: mgr, cronEnabled: true });
+    const parsed = (withCron.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
+      mode: 'create', kind: 'cron', name: 'x', prompt: 'p',
+      schedule: { type: 'interval', seconds: 30 },
+    });
+    assert.equal(parsed.success, true);
+  });
+
+  test('heartbeat is accepted regardless of cronEnabled', () => {
+    const mgr = new AutomationManager({ generateId: () => 'g', now: () => 1 });
+    const heartbeatOnly = buildAutomationTool({ automationManager: mgr, cronEnabled: false });
+    const parsed = (heartbeatOnly.parameters as { safeParse: (v: unknown) => { success: boolean } }).safeParse({
+      mode: 'create', kind: 'heartbeat', name: 'x', prompt: 'p',
+      schedule: { type: 'interval', seconds: 30 },
+    });
+    assert.equal(parsed.success, true);
   });
 });

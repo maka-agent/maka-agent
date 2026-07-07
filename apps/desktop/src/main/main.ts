@@ -313,13 +313,41 @@ const automationWiring = createMainAutomationWiring({
   async canFire(sessionId: string): Promise<boolean> {
     const header = await store.readHeader(sessionId);
     if (!header || header.archivedAt) return false;
-    if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
+    // Only fire into a genuinely idle session — not mid-turn, blocked, aborted,
+    // waiting on the user, or already settled/under review.
+    if (header.status !== 'active' && header.status !== 'waiting_for_user' && header.status !== 'done') return false;
+    if (header.status === 'waiting_for_user') return false;
     return true;
   },
-  injectTurn(sessionId: string, prompt: string, _automationId: string) {
+  // Heartbeat: inject into the automation's own session; resolve after the stream.
+  injectTurn(sessionId: string, prompt: string, automationId: string) {
     const turnId = randomUUID();
-    const iterator = runtime.sendMessage(sessionId, { turnId, text: prompt });
-    void streamEvents(sessionId, iterator, turnId);
+    const iterator = runtime.sendMessage(sessionId, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    return streamEvents(sessionId, iterator, turnId);
+  },
+  // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
+  // run the prompt there, so each fire is a first-class session + run.
+  async createFreshRun(prompt: string, automationId: string) {
+    const slug = await connectionStore.getDefault();
+    const { connection, model } = await getReadyConnection(slug, undefined);
+    const cwd = await resolveCurrentProjectRoot();
+    const session = await runtime.createSession({
+      cwd,
+      backend: 'ai-sdk',
+      llmConnectionSlug: connection.slug,
+      model,
+      permissionMode: 'explore',
+      name: `Automation: ${prompt.slice(0, 32)}`,
+      labels: ['automation', 'cron'],
+    });
+    emitSessionsChanged('created', session.id);
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(session.id, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    return streamEvents(session.id, iterator, turnId);
   },
 });
 
@@ -1585,10 +1613,12 @@ async function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
   fallbackTurnId?: string,
-): Promise<void> {
+): Promise<{ turnId: string; ok: boolean; error?: string }> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
   let turnAborted = false;
+  let turnError: string | undefined;
+  const turnId = fallbackTurnId ?? randomUUID();
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
@@ -1597,6 +1627,9 @@ async function streamEvents(
       }
       if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
         turnAborted = true;
+      }
+      if (event.type === 'error') {
+        turnError = event.message ?? event.reason ?? 'turn error';
       }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
@@ -1617,6 +1650,7 @@ async function streamEvents(
     if (!turnAborted) {
       void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
     }
+    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
     const event = {
       type: 'error',
@@ -1636,6 +1670,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
+    return { turnId, ok: false, error: errorMessage(error) };
   }
 }
 

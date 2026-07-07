@@ -42,7 +42,13 @@ export interface UserMessageInput {
   regeneratedFromTurnId?: string;
   branchOfTurnId?: string;
   parentSessionId?: string;
+  /** What triggered this turn, when it is not a direct user message. Lets trace
+   *  distinguish an automation-triggered run from a hand-typed one. */
+  origin?: TurnOrigin;
 }
+
+/** Non-user trigger source for a turn (e.g. a scheduled automation fire). */
+export type TurnOrigin = { kind: 'automation'; automationId: string };
 
 export interface AgentSpec {
   id: string;

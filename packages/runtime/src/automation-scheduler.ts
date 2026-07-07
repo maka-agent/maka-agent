@@ -12,11 +12,30 @@
 
 import type { AutomationDefinition, AutomationManager } from './automation-state.js';
 
+/** Outcome of a dispatched fire, decided only after the run's stream finishes. */
+export interface AutomationFireResult {
+  /** The run/turn id the fire produced (for attribution / lastRunId). */
+  runId?: string;
+  /** Whether the run completed successfully (no error / abort). */
+  ok: boolean;
+  /** Failure reason when !ok. */
+  error?: string;
+}
+
 export interface AutomationSchedulerDeps {
   automationManager: AutomationManager;
   canFire: (sessionId: string) => Promise<boolean>;
-  injectTurn: (sessionId: string, prompt: string, automationId: string) => void;
-  createFreshRun?: (prompt: string, automationId: string) => void;
+  /**
+   * Inject a turn into the automation's own session (heartbeat kind).
+   * Resolves with the run outcome AFTER the turn's stream finishes.
+   */
+  injectTurn: (sessionId: string, prompt: string, automationId: string) => Promise<AutomationFireResult>;
+  /**
+   * Spawn a fresh session and run the prompt there (cron kind).
+   * Resolves with the run outcome AFTER the run's stream finishes.
+   * When absent, the host does not support cron and cron fires fail.
+   */
+  createFreshRun?: (prompt: string, automationId: string) => Promise<AutomationFireResult>;
   setTimeout: (fn: () => void, ms: number) => unknown;
   clearTimeout: (timer: unknown) => void;
   now?: () => number;
@@ -76,11 +95,13 @@ export class AutomationScheduler {
 
     // Eager expiry sweep: expire automations whose expiresAt has passed,
     // regardless of nextFireAt. Prevents zombie-active entries.
+    let sweptAny = false;
     for (const automation of active) {
       if (automation.expiresAt && now >= automation.expiresAt) {
-        this.deps.automationManager.markFired(automation.id);
+        if (this.deps.automationManager.sweepExpired(automation.id)) sweptAny = true;
       }
     }
+    if (sweptAny) this.deps.onStateChange?.();
 
     // Re-fetch active list after expiry sweep.
     const stillActive = this.deps.automationManager.listActive();
@@ -118,34 +139,46 @@ export class AutomationScheduler {
     }
 
     this.deferCounts.delete(automation.id);
-    const fired = this.deps.automationManager.markFired(automation.id);
-    if (!fired) {
+
+    // Cron without an executor cannot run — fail fast, do not advance the fire.
+    if (automation.kind === 'cron' && !this.deps.createFreshRun) {
+      this.deps.automationManager.attemptFailed(automation.id, 'Cron execution not configured (createFreshRun unavailable)');
       this.deps.onStateChange?.();
       return;
     }
 
-    try {
-      if (automation.kind === 'heartbeat') {
-        this.deps.injectTurn(
-          automation.sessionId,
-          `[Automation: ${automation.name}]\n\n${automation.prompt}`,
-          automation.id,
-        );
-      } else if (automation.kind === 'cron') {
-        if (!this.deps.createFreshRun) {
-          this.deps.automationManager.markFailure(automation.id, 'Cron execution not configured (createFreshRun unavailable)');
-          return;
-        }
-        this.deps.createFreshRun(automation.prompt, automation.id);
-      }
-      this.deps.automationManager.markSuccess(automation.id);
+    const started = this.deps.automationManager.attemptStarted(automation.id);
+    if (!started) {
       this.deps.onStateChange?.();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.deps.automationManager.markFailure(automation.id, message);
-      this.deps.onStateChange?.();
+      return;
     }
+    // Persist the started state (fireCount/nextFireAt advanced) immediately.
+    this.deps.onStateChange?.();
+
+    const id = automation.id;
+    // Dispatch WITHOUT awaiting the tick — the run resolves its outcome later.
+    // The outcome (success/failure) is committed only after the stream finishes,
+    // so a failed or aborted fire is never recorded as a success.
+    const dispatch = automation.kind === 'heartbeat'
+      ? this.deps.injectTurn(automation.sessionId, `[Automation: ${automation.name}]\n\n${automation.prompt}`, id)
+      : this.deps.createFreshRun!(automation.prompt, id);
+
+    void dispatch.then((result) => {
+      if (this.disposed) return;
+      if (result.ok) {
+        this.deps.automationManager.attemptSucceeded(id, result.runId);
+      } else {
+        this.deps.automationManager.attemptFailed(id, result.error ?? 'Automation run failed');
+      }
+      this.deps.onStateChange?.();
+    }).catch((err) => {
+      if (this.disposed) return;
+      const message = err instanceof Error ? err.message : String(err);
+      this.deps.automationManager.attemptFailed(id, message);
+      this.deps.onStateChange?.();
+    });
   }
 }
 
 export { FIRE_CHECK_INTERVAL_MS, MAX_DEFER_RETRIES };
+

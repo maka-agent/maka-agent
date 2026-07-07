@@ -34,7 +34,7 @@ describe('Mutation verification: tests catch broken behavior', () => {
     const brokenScheduler = new AutomationScheduler({
       automationManager: manager,
       canFire: async () => true,
-      injectTurn: () => { /* INTENTIONALLY BROKEN: no-op */ },
+      injectTurn: async () => { /* INTENTIONALLY BROKEN: no-op */ return { ok: true }; },
       setTimeout: (fn) => { timers.push({ fn }); return timers.length; },
       clearTimeout: () => {},
       now: () => time,
@@ -61,12 +61,11 @@ describe('Mutation verification: tests catch broken behavior', () => {
     });
     assert.ok(!('error' in auto));
 
-    // Fire 3 times (exceeds maxFires=2)
-    manager.markFired(auto.id);
-    manager.markFired(auto.id);
-    const third = manager.markFired(auto.id);
-
-    // After maxFires reached, markFired returns undefined (won't fire)
+    // Fire twice successfully → completed at maxFires=2.
+    manager.attemptStarted(auto.id); manager.attemptSucceeded(auto.id);
+    manager.attemptStarted(auto.id); manager.attemptSucceeded(auto.id);
+    // A 3rd start is refused (no longer active) — the cap is enforced.
+    const third = manager.attemptStarted(auto.id);
     assert.equal(third, undefined, 'Manager correctly refuses fire #3 — test catches unlimited firing');
   });
 
@@ -84,9 +83,9 @@ describe('Mutation verification: tests catch broken behavior', () => {
 
     // Advance past expiry
     time += 6000;
-    const fired = manager.markFired(auto.id);
+    const fired = manager.attemptStarted(auto.id);
 
-    // markFired checks expiry FIRST — returns undefined for expired
+    // attemptStarted checks expiry FIRST — returns undefined for expired
     assert.equal(fired, undefined, 'Manager correctly refuses to fire expired automation');
     assert.equal(manager.get(auto.id)?.status, 'expired');
   });
@@ -105,7 +104,7 @@ describe('Mutation verification: tests catch broken behavior', () => {
     assert.equal(manager.get(auto.id)?.status, 'paused', 'Pause must change status — test catches no-op pause');
 
     // Paused automation refuses to fire
-    const fired = manager.markFired(auto.id);
+    const fired = manager.attemptStarted(auto.id);
     assert.equal(fired, undefined, 'Paused automation must not fire — test catches this');
   });
 
@@ -119,7 +118,7 @@ describe('Mutation verification: tests catch broken behavior', () => {
     });
     assert.ok(!('error' in auto));
 
-    for (let i = 0; i < 5; i++) manager.markFailure(auto.id, 'err');
+    for (let i = 0; i < 5; i++) manager.attemptFailed(auto.id, 'err');
     assert.equal(manager.get(auto.id)?.status, 'paused', 'Manager must auto-pause after 5 failures — test catches missing guard');
   });
 

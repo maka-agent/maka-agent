@@ -169,10 +169,20 @@ export async function createMakaCliRuntimeContext(
       if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
       return true;
     },
-    injectTurn: (sessionId, prompt) => {
+    // Heartbeat: inject into the automation's session; resolve after the drain.
+    // The CLI has no multi-session UI, so cron (fresh-session) is disabled —
+    // createFreshRun is omitted, so the tool advertises heartbeat only.
+    injectTurn: async (sessionId, prompt, automationId) => {
       const turnId = randomUUID();
-      const iterator = runtime.sendMessage(sessionId, { turnId, text: prompt });
-      void (async () => { for await (const _ of iterator) { /* drain */ } })().catch(() => {});
+      const iterator = runtime.sendMessage(sessionId, {
+        turnId, text: prompt, origin: { kind: 'automation', automationId },
+      });
+      try {
+        for await (const _ of iterator) { /* drain */ }
+        return { runId: turnId, ok: true };
+      } catch (err) {
+        return { runId: turnId, ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
     },
     setTimeout: (fn, ms) => setTimeout(fn, ms),
     clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),

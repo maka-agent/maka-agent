@@ -1,7 +1,7 @@
-import { describe, test, beforeEach } from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AutomationManager } from '../automation-state.js';
-import { AutomationScheduler } from '../automation-scheduler.js';
+import { AutomationScheduler, type AutomationFireResult } from '../automation-scheduler.js';
 
 function createTestSetup() {
   let idCounter = 0;
@@ -9,11 +9,11 @@ function createTestSetup() {
   const timers: Array<{ fn: () => void; ms: number; id: number }> = [];
   let timerId = 0;
   const fired: Array<{ sessionId: string; prompt: string; automationId: string }> = [];
-  const freshRuns: Array<{ prompt: string; automationId: string }> = [];
   let canFireResult = true;
   let canFireThrows = false;
-  let injectTurnThrows = false;
-  let createFreshRunFn: ((prompt: string, automationId: string) => void) | undefined = undefined;
+  let injectResult: AutomationFireResult = { runId: 'run-x', ok: true };
+  let injectRejects = false;
+  let createFreshRunFn: ((prompt: string, automationId: string) => Promise<AutomationFireResult>) | undefined;
 
   const manager = new AutomationManager({
     generateId: () => `auto-${++idCounter}`,
@@ -26,9 +26,10 @@ function createTestSetup() {
       if (canFireThrows) throw new Error('canFire error');
       return canFireResult;
     },
-    injectTurn: (sessionId, prompt, automationId) => {
-      if (injectTurnThrows) throw new Error('injectTurn error');
+    injectTurn: async (sessionId, prompt, automationId) => {
       fired.push({ sessionId, prompt, automationId });
+      if (injectRejects) throw new Error('injectTurn error');
+      return injectResult;
     },
     get createFreshRun() { return createFreshRunFn; },
     setTimeout: (fn, ms) => {
@@ -48,18 +49,22 @@ function createTestSetup() {
     const timer = timers.shift();
     if (timer) timer.fn();
   }
+  // Fire the pending tick, then flush enough microtask cycles for the async
+  // fire dispatch (.then/.catch → attemptSucceeded/attemptFailed) to settle.
   async function runTick() {
     fireNextTimer();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     await new Promise(r => setTimeout(r, 0));
   }
 
   return {
-    manager, scheduler, fired, freshRuns, timers,
+    manager, scheduler, fired, timers,
     advanceTime, fireNextTimer, runTick,
     setCanFire: (v: boolean) => { canFireResult = v; },
     setCanFireThrows: (v: boolean) => { canFireThrows = v; },
-    setInjectTurnThrows: (v: boolean) => { injectTurnThrows = v; },
-    setCreateFreshRun: (fn: ((prompt: string, automationId: string) => void) | undefined) => {
+    setInjectRejects: (v: boolean) => { injectRejects = v; },
+    setInjectResult: (r: AutomationFireResult) => { injectResult = r; },
+    setCreateFreshRun: (fn: ((prompt: string, automationId: string) => Promise<AutomationFireResult>) | undefined) => {
       createFreshRunFn = fn;
     },
     getTime: () => time,
@@ -67,7 +72,7 @@ function createTestSetup() {
 }
 
 describe('AutomationScheduler', () => {
-  test('fires automation when time arrives and session is idle', async () => {
+  test('fires a heartbeat when time arrives and session is idle', async () => {
     const t = createTestSetup();
     t.manager.create({
       kind: 'heartbeat', name: 'test', prompt: 'check it',
@@ -101,19 +106,11 @@ describe('AutomationScheduler', () => {
     });
     assert.ok(!('error' in auto));
     const originalNextFire = auto.nextFireAt;
-
     t.advanceTime(61000);
     t.setCanFire(false);
     t.scheduler.start();
-
-    // Run 24 ticks (MAX_DEFER_RETRIES)
-    for (let i = 0; i < 24; i++) {
-      await t.runTick();
-    }
-
-    // Should have skipped — nextFireAt advanced
+    for (let i = 0; i < 24; i++) await t.runTick();
     const updated = t.manager.get(auto.id);
-    assert.ok(updated);
     assert.ok(updated!.nextFireAt! > originalNextFire!);
     assert.equal(t.fired.length, 0);
   });
@@ -128,13 +125,11 @@ describe('AutomationScheduler', () => {
     t.setCanFireThrows(true);
     t.scheduler.start();
     await t.runTick();
-    // Should not crash, just skip
     assert.equal(t.fired.length, 0);
-    // Scheduler still ticking (timer re-registered)
     assert.ok(t.timers.length > 0);
   });
 
-  test('injectTurn throwing marks automation as failed', async () => {
+  test('a rejected fire marks the automation failed (outcome after stream)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
       kind: 'heartbeat', name: 'test', prompt: 'p',
@@ -142,13 +137,42 @@ describe('AutomationScheduler', () => {
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
-    t.setInjectTurnThrows(true);
+    t.setInjectRejects(true);
     t.scheduler.start();
     await t.runTick();
-
     const updated = t.manager.get(auto.id);
     assert.equal(updated?.consecutiveFailures, 1);
     assert.equal(updated?.lastError, 'injectTurn error');
+  });
+
+  test('a fire that resolves ok:false marks failed, not success', async () => {
+    const t = createTestSetup();
+    const auto = t.manager.create({
+      kind: 'heartbeat', name: 'test', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+    });
+    assert.ok(!('error' in auto));
+    t.advanceTime(31000);
+    t.setInjectResult({ runId: 'run-1', ok: false, error: 'turn errored' });
+    t.scheduler.start();
+    await t.runTick();
+    const updated = t.manager.get(auto.id);
+    assert.equal(updated?.consecutiveFailures, 1);
+    assert.equal(updated?.lastError, 'turn errored');
+  });
+
+  test('a successful fire records the runId', async () => {
+    const t = createTestSetup();
+    const auto = t.manager.create({
+      kind: 'heartbeat', name: 'test', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+    });
+    assert.ok(!('error' in auto));
+    t.advanceTime(31000);
+    t.setInjectResult({ runId: 'run-42', ok: true });
+    t.scheduler.start();
+    await t.runTick();
+    assert.equal(t.manager.get(auto.id)?.lastRunId, 'run-42');
   });
 
   test('dispose stops the tick loop', async () => {
@@ -164,18 +188,17 @@ describe('AutomationScheduler', () => {
     const auto = t.manager.create({
       kind: 'heartbeat', name: 'expiring', prompt: 'p',
       sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
-      expiresAt: t.getTime() + 20000, // expires in 20s
+      expiresAt: t.getTime() + 20000,
     });
     assert.ok(!('error' in auto));
-    t.advanceTime(31000); // past expiry
+    t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
-
     assert.equal(t.fired.length, 0);
     assert.equal(t.manager.get(auto.id)?.status, 'expired');
   });
 
-  test('one-shot fires once then completes', async () => {
+  test('one-shot fires once then completes (on success)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
       kind: 'heartbeat', name: 'once', prompt: 'p',
@@ -185,21 +208,20 @@ describe('AutomationScheduler', () => {
     t.advanceTime(11000);
     t.scheduler.start();
     await t.runTick();
-
     assert.equal(t.fired.length, 1);
     assert.equal(t.manager.get(auto.id)?.status, 'completed');
-
     // Next tick should not fire again
     t.advanceTime(11000);
     await t.runTick();
     assert.equal(t.fired.length, 1);
   });
 
-  test('cron automation fires via createFreshRun when provided', async () => {
+  test('cron fires via createFreshRun, not injectTurn', async () => {
     const t = createTestSetup();
     const freshRuns: Array<{ prompt: string; id: string }> = [];
-    t.setCreateFreshRun((prompt, automationId) => {
+    t.setCreateFreshRun(async (prompt, automationId) => {
       freshRuns.push({ prompt, id: automationId });
+      return { runId: 'fresh-1', ok: true };
     });
     const auto = t.manager.create({
       kind: 'cron', name: 'daily', prompt: 'review PRs',
@@ -209,48 +231,48 @@ describe('AutomationScheduler', () => {
     t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
-
     assert.equal(freshRuns.length, 1);
     assert.equal(freshRuns[0].prompt, 'review PRs');
     assert.equal(freshRuns[0].id, auto.id);
-    assert.equal(t.fired.length, 0); // should NOT call injectTurn
+    assert.equal(t.fired.length, 0);
+    assert.equal(t.manager.get(auto.id)?.lastRunId, 'fresh-1');
   });
 
-  test('cron automation marks failure when createFreshRun is not provided', async () => {
+  test('cron marks failure when createFreshRun is not provided (does not advance)', async () => {
     const t = createTestSetup();
-    // createFreshRun is undefined by default
     const auto = t.manager.create({
       kind: 'cron', name: 'daily', prompt: 'review PRs',
       sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
     });
     assert.ok(!('error' in auto));
+    const originalFireCount = auto.fireCount;
     t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
-
     assert.equal(t.fired.length, 0);
     const updated = t.manager.get(auto.id);
     assert.equal(updated?.consecutiveFailures, 1);
     assert.ok(updated?.lastError?.includes('not configured'));
+    // The fire did not "start" (no fresh executor) — fireCount unchanged.
+    assert.equal(updated?.fireCount, originalFireCount);
   });
 
   test('expired automations are swept even before nextFireAt', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
       kind: 'heartbeat', name: 'expiring', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 }, // next fire in 1 hour
-      expiresAt: t.getTime() + 30000, // expires in 30s
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      expiresAt: t.getTime() + 30000,
     });
     assert.ok(!('error' in auto));
-    t.advanceTime(31000); // past expiry but before nextFireAt (1 hour)
+    t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
-
     assert.equal(t.fired.length, 0);
     assert.equal(t.manager.get(auto.id)?.status, 'expired');
   });
 
-  test('markFailure does not overwrite terminal status', async () => {
+  test('a failed maxFires=1 fire ends failed/paused, never completed', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
       kind: 'heartbeat', name: 'limited', prompt: 'p',
@@ -259,13 +281,10 @@ describe('AutomationScheduler', () => {
     });
     assert.ok(!('error' in auto));
     t.advanceTime(31000);
-    t.setInjectTurnThrows(true);
+    t.setInjectRejects(true);
     t.scheduler.start();
     await t.runTick();
-
-    // markFired sets completed (maxFires=1), then injectTurn throws,
-    // markFailure should NOT overwrite completed with paused.
     const updated = t.manager.get(auto.id);
-    assert.equal(updated?.status, 'completed');
+    assert.notEqual(updated?.status, 'completed');
   });
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { AutomationManager, AutomationScheduler, buildAutomationTool, type AutomationDefinition, type MakaTool } from '@maka/runtime';
+import { AutomationManager, AutomationScheduler, buildAutomationTool, type AutomationDefinition, type AutomationFireResult, type MakaTool } from '@maka/runtime';
 import { createAutomationStore } from '@maka/storage';
 
 /**
@@ -16,8 +16,10 @@ export interface MainAutomationWiring {
 export interface CreateMainAutomationWiringDeps {
   workspaceRoot: string;
   canFire: (sessionId: string) => Promise<boolean>;
-  injectTurn: (sessionId: string, prompt: string, automationId: string) => void;
-  createFreshRun?: (prompt: string, automationId: string) => void;
+  /** Inject a turn into the automation's session; resolves after the stream finishes. */
+  injectTurn: (sessionId: string, prompt: string, automationId: string) => Promise<AutomationFireResult>;
+  /** Spawn a fresh session + run (cron); resolves after the stream finishes. Omit to disable cron. */
+  createFreshRun?: (prompt: string, automationId: string) => Promise<AutomationFireResult>;
 }
 
 export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps): MainAutomationWiring {
@@ -48,6 +50,8 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
   const tools = [buildAutomationTool({
     automationManager: manager,
     onAutomationChange: syncDurableToStore,
+    // Only advertise the cron kind when the host can actually spawn fresh runs.
+    cronEnabled: deps.createFreshRun !== undefined,
   })];
 
   const loadDurableAutomations = async (): Promise<void> => {
@@ -57,3 +61,4 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
 
   return { manager, scheduler, tools, loadDurableAutomations };
 }
+
