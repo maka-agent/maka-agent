@@ -590,6 +590,21 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /Read 4 lines, 59 bytes/);
   });
 
+  test('counts a Read summary without the file trailing newline', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-nl', toolName: 'Read', args: { path: 'one.txt' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-nl', isError: false,
+      content: { kind: 'json', value: { content: 'only-line\n' } },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /Read 1 line, 10 bytes/);
+  });
+
   test('shows maka://runtime resource Read output in full, never summarized or capped', () => {
     const state = createMakaPiTranscriptState();
     // A runtime resource read returns live state (background-task metadata +

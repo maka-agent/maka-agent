@@ -975,7 +975,11 @@ function renderCappedResultText(
 
 function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
   const text = plainResultText(entry);
-  const lineCount = text ? text.split('\n').length : 0;
+  // Drop the file's normal trailing newline before counting, matching the cap
+  // convention, so `foo\n` reads as one line rather than two. Byte count keeps
+  // the full content, since that is the file's real size on disk.
+  const trimmed = text.replace(/\n+$/, '');
+  const lineCount = trimmed ? trimmed.split('\n').length : 0;
   const summary = `Read ${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
   return renderIndented(ansi.dim(summary), width, 2);
 }
