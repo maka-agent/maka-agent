@@ -76,11 +76,17 @@
    align. Heading tracking stays var(--tracking-normal) — CJK-first, roadmap
    §1.6 bans tightening CJK. */
 /* The base rule is self-contained (#618 item 2): a bare .maka-prose consumer
-   (tool-result bodies) must not depend on the assistant bubble shell for
-   line-height (the WCAG 1.4.12 floor — --leading-normal = 1.5), break-word
-   (no global overflow-wrap fallback exists), color, or the measure cap. */
+   (tool-result bodies) must not depend on the assistant bubble shell — or on
+   whatever chrome surrounds it — for line-height (the WCAG 1.4.12 floor —
+   --leading-normal = 1.5), break-word (no global overflow-wrap fallback
+   exists), color, the measure cap, or the font. font-family/font-size are
+   pinned because the tool card item shell sets font-mono + text-xs (11px
+   caption), which would inherit into the prose body and scale the whole
+   em-based heading ladder off the caption tier (codex review P2). */
 .maka-prose {
   color: var(--foreground);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
   line-height: var(--leading-normal);
   word-wrap: break-word;
   /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills round task
@@ -91,10 +97,6 @@
      re-expand to 100% of the capped box below. */
   max-width: 72ch;
 }
-/* Edge-margin trims: without these a prose body opening with a heading
-   carries its 20px top margin, and a trailing paragraph its bottom margin. */
-.maka-prose > :first-child { margin-top: 0; }
-.maka-prose > :last-child { margin-bottom: 0; }
 .maka-prose pre,
 .maka-prose table,
 .maka-prose .maka-code-block {
@@ -441,3 +443,14 @@
 .maka-prose img {
   display: inline-block;
 }
+
+/* Edge-margin trims: without these a prose body opening with a heading
+   carries its 20px top margin, and a trailing paragraph its bottom margin.
+   AUTHORED LAST on purpose (codex review P3): `.maka-prose > :last-child`
+   (0,2,0) ties with the class-carrying children above — `.maka-prose
+   .maka-table-scroll` / `.maka-prose .maka-code-block` are also (0,2,0) —
+   and equal specificity resolves by source order, so the trims must come
+   after every margin-declaring prose rule. The prose contract locks the
+   order. */
+.maka-prose > :first-child { margin-top: 0; }
+.maka-prose > :last-child { margin-bottom: 0; }

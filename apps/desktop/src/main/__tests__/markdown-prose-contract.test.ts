@@ -280,6 +280,8 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
     const prose = blocks.find(({ selectors }) => selectors === '.maka-prose');
     assert.ok(prose, 'expected a bare .maka-prose base rule in prose.css');
     assert.match(prose!.decls, /color:\s*var\(--foreground\)/, '.maka-prose must set its own text color — a bare consumer would inherit whatever UI chrome surrounds it');
+    assert.match(prose!.decls, /font-family:\s*var\(--font-sans\)/, '.maka-prose must pin font-family — the tool card item shell sets font-mono, which inherits into the text-kind prose body (codex review P2)');
+    assert.match(prose!.decls, /font-size:\s*var\(--font-size-base\)/, '.maka-prose must pin font-size to the body tier — the tool card item shell sets text-xs (11px caption), which inherits into the prose body and scales the whole em-based heading ladder down (codex review P2)');
     assert.match(prose!.decls, /line-height:\s*var\(--leading-normal\)/, '.maka-prose must pin line-height to var(--leading-normal): it is the WCAG 1.4.12 floor (1.5) — inherited UI line-heights can dip below it at 13px');
     assert.match(prose!.decls, /(?:word-wrap|overflow-wrap):\s*break-word/, '.maka-prose must carry break-word — no global overflow-wrap fallback exists, so a bare consumer gets horizontally overflowing URLs/tokens');
     assert.match(prose!.decls, /max-width:\s*72ch/, '.maka-prose must cap the measure at 72ch — the readability cap is prose typography, not bubble geometry');
@@ -308,6 +310,23 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       !/\.maka-bubble-assistant\s*>\s*:(first|last)-child/.test(chat),
       'the edge-margin trims moved to .maka-prose > :first/:last-child — the shell must not keep a duplicate pair',
     );
+    // Source-order guard (codex review P3): `.maka-prose > :last-child`
+    // (0,2,0) TIES with class-carrying children — `.maka-prose
+    // .maka-table-scroll` and `.maka-prose .maka-code-block` are also
+    // (0,2,0) — so whichever is declared later wins. The trims must be
+    // authored after every margin-declaring prose rule or a trailing
+    // table/code block keeps its 12px bottom margin and the edge trim
+    // silently dies.
+    const trimIdx = blocks.findIndex(({ selectors }) => /^\.maka-prose\s*>\s*:last-child$/.test(selectors));
+    assert.ok(trimIdx >= 0, 'expected a .maka-prose > :last-child trim rule');
+    for (const sel of [/^\.maka-prose\s+\.maka-table-scroll$/, /^\.maka-prose\s+\.maka-code-block$/]) {
+      const idx = blocks.findIndex(({ selectors }) => sel.test(selectors));
+      assert.ok(idx >= 0, `expected a rule matching ${sel}`);
+      assert.ok(
+        trimIdx > idx,
+        `the .maka-prose > :last-child trim must be authored AFTER ${sel} — equal specificity (0,2,0) means source order decides, and the margin rule would beat the trim`,
+      );
+    }
   });
 
   it('prose images flow inline again despite the Tailwind preflight block', async () => {
