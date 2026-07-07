@@ -197,7 +197,7 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       /\.maka-code-block\s+pre\s+code\b/.test(selectors) && /border:\s*0/.test(decls));
     assert.ok(
       reset,
-      '`.maka-prose .maka-code-block pre code` must reset `border: 0` — the inline-code pill border on an inline <code> paints a rounded outline around every wrapped line box inside the pre',
+      '`.maka-prose .maka-code-block pre code` must reset `border: 0` — the inline-code pill dropped its border in this pass, but if one ever returns it paints a rounded outline around every wrapped line box inside the pre (inline elements paint per line box)',
     );
   });
 
