@@ -227,7 +227,11 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
  *  because PowerShell is. */
 export const PRIVILEGED_SHELL_PATTERNS: readonly RegExp[] = [
   /^(stop-process|spps|taskkill)\b/i,
-  /^(stop-service|restart-service|set-service)\b/i,
+  // Service control mirrors the blanket `systemctl ` prefix above: every
+  // mutating verb prompts; read-only queries (sc query, Get-Service) do not.
+  /^(start|stop|restart|set|new|remove|suspend|resume)-service\b/i,
+  /^sc\s+(stop|start|pause|continue|delete|config|create|failure|sdset)\b/i,
+  /^net\s+(stop|start|pause|continue)\b/i,
   /^(stop-computer|restart-computer)\b/i,
   /^(icacls|takeown|set-acl|runas)\b/i,
 ];
@@ -283,8 +287,13 @@ export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
 /**
  * Positions where a command name can start: the beginning, plus after every
  * statement / pipeline / scriptblock / substitution boundary. Splitting is
- * deliberately quote-naive — a boundary character inside a string yields a
- * bogus extra segment, which can only cause an extra prompt, never a bypass.
+ * deliberately quote-naive; quote-AWARE splitting would be strictly worse,
+ * because `$( )` and backticks expand INSIDE double quotes in both dialects —
+ * not splitting there would hide `echo "$(rm x)"`. Naive splitting never
+ * drops content, it only cuts it up: every byte lands in some segment, and
+ * normalizeSegmentHead strips unclosed-quote remnants off segment heads
+ * (`"del` from a payload cut at an inner `&` still matches). So extra
+ * boundaries add scan candidates; they do not hide them.
  */
 function commandSegments(cmd: string): string[] {
   return cmd
@@ -323,6 +332,7 @@ function normalizeSegmentHead(segment: string): string {
     let head = quoted ? quoted[2]! : bare![1]!;
     const tail = quoted ? rest.slice(quoted[0].length) : bare![3]!;
     head = head
+      .replace(/^['"]+/, '') // unclosed-quote remnant of a payload cut mid-string
       .replace(/^\\/, '')
       .replace(/^.*[\\/]/, '')
       .replace(/\.exe$/i, '');

@@ -165,6 +165,23 @@ describe('categorizeBash', () => {
     expect(categorizeBash("bash -c 'echo hi'")).toBe('shell_unsafe');
   });
 
+  test('separators inside a quoted nested-shell payload do not hide the delete', () => {
+    expect(categorizeBash('cmd /c "del foo.txt & echo done"')).toBe('fs_destructive');
+    expect(categorizeBash("bash -lc 'rm -rf /tmp/x && echo done'")).toBe('fs_destructive');
+    expect(categorizeBash('pwsh -Command "Remove-Item x; Write-Host done"')).toBe('fs_destructive');
+  });
+
+  test('Windows service control commands → privileged', () => {
+    expect(categorizeBash('Remove-Service -Name foo')).toBe('privileged');
+    expect(categorizeBash('New-Service -Name foo -BinaryPathName C:\\svc.exe')).toBe('privileged');
+    expect(categorizeBash('Suspend-Service w32time')).toBe('privileged');
+    expect(categorizeBash('sc.exe delete foo')).toBe('privileged');
+    expect(categorizeBash('sc config foo start= disabled')).toBe('privileged');
+    expect(categorizeBash('net stop foo')).toBe('privileged');
+    // read-only service queries stay un-upgraded
+    expect(categorizeBash('sc query foo')).toBe('shell_unsafe');
+  });
+
   test('destructive names as mere text do NOT upgrade the category', () => {
     expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
     expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
@@ -321,6 +338,21 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: quoted nested payloads and service control STILL prompt in execute mode', () => {
+    for (const command of [
+      'cmd /c "del foo.txt & echo done"',
+      "bash -lc 'rm -rf /tmp/x && echo done'",
+      'pwsh -Command "Remove-Item x; Write-Host done"',
+      'Remove-Service -Name foo',
+      'sc.exe delete foo',
+      'net stop foo',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
   });
 
   test('CRITICAL: quoted names and PowerShell process kills STILL prompt in execute mode', () => {
