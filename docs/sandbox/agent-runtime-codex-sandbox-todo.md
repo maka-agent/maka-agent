@@ -193,6 +193,20 @@ cwd
 - [ ] 为 `ask` / `execute` 保留 approval policy 差异，不把所有语义塞进 profile。
 - [ ] 输出包含 profile、workspace roots、network policy、用于 diagnostics 的 profile name。
 
+> 具体方案：Phase 2 在 `@maka/core` 中新增一个纯 compiler，用来把 Maka 现有的 `PermissionMode` 编译成 Codex-style active `PermissionProfile`。它是 Maka 现有业务层权限模式和后续 sandbox enforcement 之间的适配层。
+>
+> 第一版输入采用 `mode + cwd`，同时预留可选 `workspaceRoots`。当调用方没有传入 `workspaceRoots` 时，compiler 使用 `[cwd]` 作为默认 workspace roots。`cwd` 和 `workspaceRoots` 都由 runtime/session 提供；compiler 不访问真实文件系统，不做 `realpath`，不处理 symlink，也不做平台相关路径规范化。
+>
+> 输出采用编译结果对象，而不是只返回 `PermissionProfile`。建议结构包含：`mode`、`profileName`、`profile`、`workspaceRoots`、`network`。其中 `mode` 保留给现有 `PermissionEngine` / policy matrix 继续做 `allow` / `prompt` / `block` 审批判断；`profileName`、`workspaceRoots`、`network` 供后续 diagnostics、model context 和 sandbox backend 使用。
+>
+> 映射关系固定为：`explore -> read-only`，`ask -> workspace-write`，`execute -> workspace-write`，`bypass -> danger-full-access`。`ask` 和 `execute` 不拆分 profile，二者共享同一个 `workspace-write` sandbox 能力边界。
+>
+> `ask` / `execute` 的差异不进入 `PermissionProfile`。它们的差异仍然由现有 `PermissionEngine` 和 `PERMISSION_POLICY` 表达：`ask` 对写文件和 shell 更偏向 `prompt`，`execute` 对普通写入和普通 shell 更偏向 `allow`，但危险操作仍可继续 `prompt`。
+>
+> `createReadOnlyPermissionProfile()`、`createWorkspaceWritePermissionProfile()`、`createDangerFullAccessPermissionProfile()` 继续保持无参数 factory。它们返回稳定的标准 profile 模板；真实 workspace 路径不塞进这些 factory，而是由 compiler 输出的 `workspaceRoots` 提供给 matcher 和后续 sandbox backend。
+>
+> Phase 2 不处理 approval policy 重构、不处理 platform capability、不处理 future settings、不启动 sandbox、不改变 runtime tool execution。`platform capability` 和用户配置覆盖留给后续 runtime/sandbox 阶段；Phase 2 只建立 core 层稳定、可测试的 mode-to-profile 编译边界。
+
 验收标准：
 
 - 现有 `PermissionMode` 仍是用户可理解的入口。
