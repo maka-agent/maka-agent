@@ -888,6 +888,12 @@ function registerIpc(): void {
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
   });
+  // PR-SHOW-AFTER-FIRST-COMMIT: the renderer signals its first React commit so
+  // the hidden window (main-window.ts show: false) is revealed only once real
+  // content can paint. Idempotent + visual-smoke-safe inside the controller.
+  ipcMain.handle('window:notifyRendererReady', (): void => {
+    mainWindowController.notifyRendererReady();
+  });
   ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
     mainWindowController.setThemeSource(event.sender, themePref);
   });

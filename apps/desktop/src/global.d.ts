@@ -407,6 +407,9 @@ declare global {
         // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
         // color/symbolColor to the current app theme. No-op on non-Windows.
         setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
+        // PR-SHOW-AFTER-FIRST-COMMIT: signal main after the first React commit
+        // so the hidden window is revealed (see main-window.ts).
+        notifyRendererReady(): Promise<void>;
       };
       config: {
         export(input: { categories: ConfigCategory[] }): Promise<

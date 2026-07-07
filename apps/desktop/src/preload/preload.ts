@@ -746,6 +746,11 @@ contextBridge.exposeInMainWorld('maka', {
     setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
     },
+    // PR-SHOW-AFTER-FIRST-COMMIT: tell main the renderer finished its first
+    // React commit so the hidden window can be revealed. Fire-and-forget.
+    notifyRendererReady(): Promise<void> {
+      return ipcRenderer.invoke('window:notifyRendererReady');
+    },
   },
   config: {
     export(input: { categories: ConfigCategory[] }): Promise<

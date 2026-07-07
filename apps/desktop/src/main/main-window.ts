@@ -9,6 +9,7 @@ import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
 import type { VisualSmokeFixture } from './visual-smoke-fixture.js';
 import { isThemePreference, toNativeThemeSource } from './theme-source.js';
+import { showWindowOnceReady } from './window-reveal.js';
 
 type SettingsReader = {
   get(): Promise<AppSettings>;
@@ -17,6 +18,9 @@ type SettingsReader = {
 export interface MainWindowController {
   createWindow(): Promise<void>;
   send(channel: string, ...args: unknown[]): void;
+  // PR-SHOW-AFTER-FIRST-COMMIT: reveal the hidden window after the renderer's
+  // first React commit. Idempotent + visual-smoke-safe (see notifyRendererReady).
+  notifyRendererReady(): void;
   setTitlebarControlsVisible(sender: Electron.WebContents, visible: unknown): void;
   setThemeSource(sender: Electron.WebContents, themePref: unknown): void;
   setTitleBarOverlayTheme(sender: Electron.WebContents, isDark: unknown): void;
@@ -63,6 +67,12 @@ export function safeSendToRenderer(channel: string, ...args: unknown[]): void {
 const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 
+// PR-SHOW-AFTER-FIRST-COMMIT: fallback reveal delay for a renderer that never
+// signals its first commit (window:notifyRendererReady). main.tsx's onboarding
+// prefetch bails at 2500ms; the remainder is headroom for load + first paint,
+// so a wedged renderer can never leave the window invisible forever.
+const SHOW_FALLBACK_TIMEOUT_MS = 4000;
+
 // PR-WINDOW-TITLEBAR-0: the Windows titleBarOverlay height matches the
 // renderer `--h-titlebar: 36px` token so the native control strip and the
 // in-app top chrome share a baseline. The overlay color/symbolColor are
@@ -78,6 +88,22 @@ const titleBarOverlayOptions = (isDark: boolean): { color: string; symbolColor: 
 
 export function createMainWindowController(deps: MainWindowControllerDeps): MainWindowController {
   const { workspaceRoot, visualSmokeFixture, settingsStore, startHidden } = deps;
+
+  // PR-SHOW-AFTER-FIRST-COMMIT: windows launched hidden (startHidden covers
+  // visual-smoke capture and E2E — see main.ts) must never be revealed;
+  // visual-smoke captures run on the hidden window and E2E drives it headless.
+  // `!app.isPackaged` mirrors the original creation-time gate so a packaged
+  // build ignores a stray startHidden flag. Both the fallback timer and the
+  // renderer-ready IPC route their show() through this predicate via
+  // showWindowOnceReady.
+  const keepHiddenForVisualSmoke = !app.isPackaged && startHidden;
+  let showFallbackTimer: NodeJS.Timeout | undefined;
+  const clearShowFallbackTimer = (): void => {
+    if (showFallbackTimer) {
+      clearTimeout(showFallbackTimer);
+      showFallbackTimer = undefined;
+    }
+  };
 
   function getBrowserViews(): BrowserViewManager<BrowserViewController> {
     if (!browserViews) {
@@ -175,13 +201,16 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // renderer side of the same gate.
       resizable: true,
       backgroundColor: initialBg,
-      // PR-VISUAL-SMOKE-HEADLESS: under visual-smoke capture, never show the
-      // window or let the app take foreground — captures run while the
-      // developer keeps working in another app. `webContents.capturePage()`
-      // still returns a painted frame on a hidden window because
-      // `paintWhenInitiallyHidden` defaults to true. Real runs keep the
-      // default `show: true`.
-      ...(!app.isPackaged && startHidden ? { show: false } : {}),
+      // PR-SHOW-AFTER-FIRST-COMMIT: create hidden on every run so the OS never
+      // flashes the index.html `.maka-preload` skeleton before React paints.
+      // The renderer signals `window:notifyRendererReady` after its first
+      // commit (app.tsx) and a fallback timer below reveals the window if that
+      // signal never arrives; the reveal gate (showWindowOnceReady) keeps the
+      // window hidden for its whole life under visual-smoke capture, where
+      // `webContents.capturePage()` still returns a painted frame because
+      // `paintWhenInitiallyHidden` defaults to true and the app must never take
+      // foreground while the developer keeps working in another app.
+      show: false,
       // Glass material — reference-atlas §1 + §12.1 documents the upstream
       // reference layout's `light-glass` / `dark-glass` themes that paint
       // the sidebar against native macOS vibrancy material. Enabling
@@ -289,6 +318,7 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
     mainWindow.on('maximize', scheduleSave);
     mainWindow.on('unmaximize', scheduleSave);
     mainWindow.on('close', () => {
+      clearShowFallbackTimer();
       if (saveTimer) clearTimeout(saveTimer);
       // The window owns the embedded-browser views (children of its contentView);
       // tear them down so their WebContents close with it instead of leaking.
@@ -299,6 +329,18 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
         : { ...mainWindow.getBounds(), isMaximized: false };
       void writeSavedBounds(workspaceRoot, final);
     });
+
+    // PR-SHOW-AFTER-FIRST-COMMIT: reveal fallback. The window stays hidden
+    // until the renderer signals its first commit; if the renderer wedges and
+    // never signals, reveal it anyway after SHOW_FALLBACK_TIMEOUT_MS. Skipped
+    // for visual-smoke windows, which must stay hidden; cleared on
+    // renderer-ready (notifyRendererReady) and on close.
+    if (!keepHiddenForVisualSmoke) {
+      showFallbackTimer = setTimeout(() => {
+        showFallbackTimer = undefined;
+        showWindowOnceReady(mainWindow, keepHiddenForVisualSmoke);
+      }, SHOW_FALLBACK_TIMEOUT_MS);
+    }
 
     if (process.env.VITE_DEV_SERVER_URL) {
       await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -314,6 +356,15 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
   return {
     createWindow,
     send: safeSendToRenderer,
+    notifyRendererReady() {
+      // PR-SHOW-AFTER-FIRST-COMMIT: the renderer finished its first React
+      // commit. Cancel the fallback timer and reveal the window through the
+      // shared gate — idempotent, so an HMR reload re-firing this signal (or a
+      // timer racing it) never re-shows or steals focus, and suppressed for
+      // visual-smoke windows.
+      clearShowFallbackTimer();
+      showWindowOnceReady(mainWindow, keepHiddenForVisualSmoke);
+    },
     setTitlebarControlsVisible(sender, visible) {
       const target = BrowserWindow.fromWebContents(sender);
       if (!target || target !== mainWindow || process.platform !== 'darwin') return;
