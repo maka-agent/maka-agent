@@ -147,10 +147,16 @@
 .maka-prose code {
   font-variant-numeric: tabular-nums;
 }
-.maka-prose h1 { font-size: 1.4667em; }
-.maka-prose h2 { font-size: 1.2667em; }
-.maka-prose h3 { font-size: 1.0667em; }
-.maka-prose h4 { font-size: 0.9333em; color: var(--foreground-secondary); }
+/* Heading ladder re-pinned for the 13px body base (#546 Phase B): the old
+   em values were derived for 15px (22/19/16/14) and landed on fractional
+   pixels at 13 (19.07/16.47/13.87/12.13), with h3 only 0.87px above body
+   and h4 *below* body. Integer targets now: 19 / 16 / 14 / 13. h4 sits at
+   1em and reads as a heading via weight + secondary color (same convention
+   as GitHub's 1em h4). */
+.maka-prose h1 { font-size: 1.4615em; }
+.maka-prose h2 { font-size: 1.2308em; }
+.maka-prose h3 { font-size: 1.0769em; }
+.maka-prose h4 { font-size: 1em; color: var(--foreground-secondary); }
 .maka-prose ul,
 .maka-prose ol {
   margin: 0 0 var(--space-3);

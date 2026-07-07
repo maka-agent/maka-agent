@@ -210,6 +210,20 @@ export const LongFormArticle: Story = {
             '## 验证',
             '',
             '写完后跑一次 `npm run build-storybook`，确认所有 story 编译通过；再视情况补回归截图。',
+            '',
+            '### 截图基线怎么补',
+            '',
+            '新 story 落地后跑一遍采集脚本，把首轮产物当作基线入库。',
+            '',
+            '#### 已知噪声',
+            '',
+            '字体渲染在不同 GPU 下有亚像素差异，比对时用容差阈值。',
+            '',
+            // hr; `***` instead of triple-dash so the storybook-baseline token
+            // scan doesn't read the quoted literal as a custom-property token.
+            '***',
+            '',
+            '以上是全部范围；有疑问先在 issue 里讨论再动手。',
           ].join('\n')}
         />
       </Bubble>
