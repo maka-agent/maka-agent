@@ -4,6 +4,7 @@ import type { ToolResultContent } from '@maka/core/events';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.js';
+import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
 import {
   MAX_SHELL_RUN_TIMEOUT_MS,
@@ -81,9 +82,13 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
   };
 }
 
-export function buildLocalForegroundBashTool(options: { executionFacts?: ToolExecutionFacts } = {}): MakaTool {
+export function buildLocalForegroundBashTool(
+  options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
+): MakaTool {
+  const shell = options.shell ?? defaultShellPlan();
   return buildForegroundBashTool({
-    description: 'Run a shell command in the session cwd. Subject to permission policy.',
+    description: withShellGuidance('Run a shell command in the session cwd.', shell)
+      + ' Subject to permission policy.',
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
     defaultTimeoutMs: () => 120_000,
     execute: async ({ command, cwd, timeoutMs, ctx }) => runShellWithBoundedTail(command, {
@@ -97,12 +102,14 @@ export function buildLocalForegroundBashTool(options: { executionFacts?: ToolExe
 
 export function buildBackgroundBashTool(
   shellRuns: ShellRunToolController,
-  options: { executionFacts?: ToolExecutionFacts } = {},
+  options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
 ): MakaTool {
+  const shell = options.shell ?? defaultShellPlan();
   return {
     name: 'Bash',
     description:
-      'Run a shell command in the session cwd. Commands that outlive yield_time_ms continue as runtime background tasks; use the returned ref with Read to inspect them. Subject to permission policy.',
+      withShellGuidance('Run a shell command in the session cwd.', shell)
+      + ' Commands that outlive yield_time_ms continue as runtime background tasks; use the returned ref with Read to inspect them. Subject to permission policy.',
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
@@ -123,6 +130,11 @@ export function buildBackgroundBashTool(
       emitOutput: ctx.emitOutput,
     }),
   };
+}
+
+export function withShellGuidance(lead: string, shell: ShellPlan): string {
+  const guidance = bashToolShellGuidance(shell);
+  return guidance ? `${lead} ${guidance}` : lead;
 }
 
 export function buildStopBackgroundTaskTool(shellRuns: ShellRunToolController): MakaTool {

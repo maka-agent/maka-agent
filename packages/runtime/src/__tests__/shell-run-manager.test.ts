@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { ShellRunRecord, ShellRunStore } from '@maka/core';
 import { ShellRunProcessManager } from '../shell-run-manager.js';
+import type { ShellPlan } from '../shell-detect.js';
 
 describe('ShellRunProcessManager', () => {
   test('persists every Bash run and returns observed terminal results for quick commands', async () => {
@@ -28,6 +29,26 @@ describe('ShellRunProcessManager', () => {
     assert.equal(record.stdoutTail, 'hello');
     assert.ok(record.observedAt !== undefined);
     assert.equal(manager.liveCount(), 0);
+  });
+
+  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
+    // /bin/echo stands in for pwsh.exe: honouring the spawn plan means the
+    // "shell" receives the flags plus the command as argv and echoes them back.
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const manager = createManager(store, {
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    });
+
+    const result = await manager.runBash(shellInput({
+      cwd,
+      command: 'echo wired-marker',
+      yieldTimeMs: 30_000,
+    }));
+
+    assert.equal(result.kind, 'terminal');
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout, '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n');
   });
 
   test('does not leak live slots when a process exits before durable create resolves', async () => {
@@ -297,7 +318,10 @@ class MemoryShellRunStore implements ShellRunStore {
   }
 }
 
-function createManager(store: ShellRunStore): ShellRunProcessManager {
+function createManager(
+  store: ShellRunStore,
+  over: { shell?: ShellPlan } = {},
+): ShellRunProcessManager {
   let id = 0;
   let now = 1_000;
   return new ShellRunProcessManager({
@@ -306,6 +330,7 @@ function createManager(store: ShellRunStore): ShellRunProcessManager {
     now: () => ++now,
     flushIntervalMs: 10,
     killGraceMs: 50,
+    ...over,
   });
 }
 

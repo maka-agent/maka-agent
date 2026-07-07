@@ -18,6 +18,7 @@
 // contract.
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import { buildShellSpawnPlan, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { BashTailBuffer } from './bash-tail-buffer.js';
 import { OUTPUT_RECOVERY_HINT } from './tool-output.js';
 
@@ -77,6 +78,8 @@ export interface BoundedShellOptions {
   killGraceMs?: number;
   /** Receives every raw chunk live, before tail-bounding. */
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /** Shell to run the command with. Defaults to the process-wide detected shell. */
+  shell?: ShellPlan;
 }
 
 export interface BoundedShellResult {
@@ -111,11 +114,12 @@ export function runShellWithBoundedTail(
   const cap = options.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
   const liveCap = options.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
   const graceMs = options.killGraceMs ?? SIGKILL_GRACE_MS;
+  const plan = buildShellSpawnPlan(options.shell ?? defaultShellPlan(), command);
   return new Promise<BoundedShellResult>((resolvePromise, reject) => {
-    const child = spawn(command, {
+    const child = spawn(plan.file, plan.args, {
       cwd: options.cwd,
       env: options.env,
-      shell: true,
+      shell: plan.useShellOption,
       stdio: ['ignore', 'pipe', 'pipe'],
       // POSIX: make the shell its own process-group leader (setsid) so we can
       // signal the WHOLE tree on timeout/abort. Killing only the shell PID would

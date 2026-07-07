@@ -156,6 +156,8 @@ export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
 export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
+export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
   AGENT_CONTEXT_ISOLATED,
   AGENT_INVOCATION_FOREGROUND,

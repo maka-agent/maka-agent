@@ -110,6 +110,18 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(r.stdout.includes('side effects'), 'warns about repeating side effects');
   });
 
+  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
+    // /bin/echo stands in for pwsh.exe: if the spawn plan is honoured, the
+    // "shell" receives the flags plus the command as argv and echoes them back.
+    // If the command were still run via shell:true, stdout would be plain
+    // 'wired-marker' with no flags.
+    const r = await runShellWithBoundedTail('echo wired-marker', base({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    }));
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.stdout, '-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n');
+  });
+
   test('emits every chunk live via emitOutput', async () => {
     const seen: Array<[string, string]> = [];
     await runShellWithBoundedTail(
