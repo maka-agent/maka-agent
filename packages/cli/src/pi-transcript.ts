@@ -711,16 +711,20 @@ function compactDiffSummary(
   };
 }
 
-/** Row count for list-shaped json results (Grep `matches`, Glob `files`). */
+/**
+ * Row count for list-shaped json results (Grep `matches`, Glob `files`).
+ * Returns a count only when the keyed field is genuinely an array; an
+ * error-shaped result (e.g. `{ error: "..." }`) returns undefined so the
+ * caller falls back to a generic first-line summary rather than reporting a
+ * fabricated "N matches" / "N files" from an unrelated line count.
+ */
 function jsonArrayCount(entry: MakaPiToolEntry, key: string): number | undefined {
   const result = entry.result;
   if (result?.kind === 'json' && result.value !== null && typeof result.value === 'object') {
     const rows = (result.value as Record<string, unknown>)[key];
     if (Array.isArray(rows)) return rows.length;
   }
-  const text = plainResultText(entry);
-  if (!text) return undefined;
-  return text.split('\n').filter((line) => line.trim()).length;
+  return undefined;
 }
 
 /** Latest non-empty output line from live deltas (redaction-aware), else progress. */

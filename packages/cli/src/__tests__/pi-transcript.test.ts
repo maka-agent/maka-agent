@@ -621,6 +621,57 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /src\/c\.ts/);
   });
 
+  test('does not fabricate a Grep match count from an error-shaped result', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'grep-1', toolName: 'Grep', args: { pattern: 'TODO' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'grep-1',
+      isError: false,
+      content: { kind: 'json', value: { error: 'boom\nsecond line\nthird' } },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    // A 3-line error object must not be reported as "3 matches"; fall back to
+    // the generic first-line summary instead.
+    assert.doesNotMatch(compact, /\d+ matches/);
+    assert.match(compact, /"error":"boom/);
+  });
+
+  test('does not fabricate a Grep match count when matches is not an array', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'grep-1', toolName: 'Grep', args: { pattern: 'TODO' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'grep-1',
+      isError: false,
+      content: { kind: 'json', value: { matches: 'not-an-array' } },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.doesNotMatch(compact, /\d+ matches/);
+  });
+
+  test('does not fabricate a Glob file count when files is null', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'glob-1', toolName: 'Glob', args: { pattern: '**/*.ts' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result',
+      toolUseId: 'glob-1',
+      isError: false,
+      content: { kind: 'json', value: { files: null } },
+    }));
+
+    const compact = renderMakaPiTranscript(state, meta(), 120).map(stripAnsi).join('\n');
+    assert.doesNotMatch(compact, /\d+ files/);
+  });
+
   test('keeps generic JSON input and result summaries on a single line', () => {
     const state = createMakaPiTranscriptState();
 
