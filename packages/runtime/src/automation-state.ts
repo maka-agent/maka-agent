@@ -85,6 +85,12 @@ export class AutomationManager {
 
     const defaultExpiry = now + DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
 
+    // Cron is a standalone scheduled task (fresh session each run) — it is
+    // meaningless if it dies on restart, so it defaults to durable. Heartbeat
+    // resumes into its creator session, whose lifetime bounds it, so it stays
+    // opt-in. An explicit `durable` value always wins.
+    const durable = input.durable ?? input.kind === 'cron';
+
     const automation: AutomationDefinition = {
       id,
       kind: input.kind,
@@ -103,7 +109,7 @@ export class AutomationManager {
       expiresAt: input.expiresAt ?? defaultExpiry,
       lastError: null,
       consecutiveFailures: 0,
-      ...(input.durable ? { durable: true } : {}),
+      ...(durable ? { durable: true } : {}),
     };
 
     this.automations.set(id, automation);

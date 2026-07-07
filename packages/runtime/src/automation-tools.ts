@@ -57,7 +57,7 @@ function makeAutomationSchema(kindSchema: z.ZodType) {
     max_fires: z.number().int().min(1).max(10000).optional()
       .describe('[create] Maximum fires before auto-completing. Omit for unlimited (7-day expiry still applies).'),
     durable: z.boolean().optional()
-      .describe('[create] When true, persists across app restarts. Default: false.'),
+      .describe('[create] When true, persists across app restarts. Cron defaults to true (standalone scheduled task); heartbeat defaults to false (bound to this session).'),
     id: z.string().min(1).max(64).optional()
       .describe('[delete/pause/resume] Automation id.'),
   });

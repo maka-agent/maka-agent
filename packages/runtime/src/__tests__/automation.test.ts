@@ -113,6 +113,44 @@ describe('AutomationManager', () => {
       assert.ok(!('error' in result));
       assert.equal(result.maxFires, 3);
     });
+
+    test('cron defaults to durable (survives restart without an explicit flag)', () => {
+      const mgr = createManager();
+      const result = mgr.create({
+        kind: 'cron', name: 'daily', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'cron', expression: '0 9 * * *' },
+      });
+      assert.ok(!('error' in result));
+      assert.equal(result.durable, true);
+    });
+
+    test('heartbeat defaults to non-durable (bound to its session)', () => {
+      const mgr = createManager();
+      const result = mgr.create({
+        kind: 'heartbeat', name: 'poll', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+      });
+      assert.ok(!('error' in result));
+      assert.ok(!result.durable);
+    });
+
+    test('explicit durable overrides the per-kind default', () => {
+      const mgr = createManager();
+      const cron = mgr.create({
+        kind: 'cron', name: 'ephemeral-cron', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'cron', expression: '0 9 * * *' },
+        durable: false,
+      });
+      assert.ok(!('error' in cron));
+      assert.ok(!cron.durable);
+      const beat = mgr.create({
+        kind: 'heartbeat', name: 'durable-beat', prompt: 'p',
+        sessionId: 'sess-1', schedule: { type: 'interval', seconds: 60 },
+        durable: true,
+      });
+      assert.ok(!('error' in beat));
+      assert.equal(beat.durable, true);
+    });
   });
 
   describe('delete', () => {
