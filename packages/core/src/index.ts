@@ -269,6 +269,34 @@ export {
   runtimeProbeFromBotReadiness,
 } from './capabilities.js';
 
+// computer-use.ts (PR-CORE-CU-0)
+export type {
+  ComputerUseErrorCode,
+  ComputerUseFrameSourceKind,
+  ComputerUseScreenFrame,
+  ComputerUseDispatchTier,
+  ComputerUseActionOutcome,
+  CuAction,
+  CuActionType,
+  CuPoint,
+  CuRegion,
+  CuScrollDirection,
+} from './computer-use.js';
+export {
+  COMPUTER_USE_ERROR_CODES,
+  COMPUTER_USE_TOOL_TYPE,
+  COMPUTER_USE_BETA_HEADER,
+  COMPUTER_USE_TOOL_TYPE_LEGACY,
+  COMPUTER_USE_BETA_HEADER_LEGACY,
+  COMPUTER_USE_FRAME_SOURCE_KINDS,
+  COMPUTER_USE_FRAME_MAX_BYTES,
+  COMPUTER_USE_DISPATCH_TIERS,
+  CU_ACTION_TYPES,
+  CU_SCROLL_DIRECTIONS,
+  isComputerUseErrorCode,
+  exceedsComputerUseFrameCap,
+} from './computer-use.js';
+
 // capability-audit.ts
 export type {
   AutomationLastRunStatus,
