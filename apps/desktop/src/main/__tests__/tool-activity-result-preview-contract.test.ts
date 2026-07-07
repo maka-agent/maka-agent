@@ -172,9 +172,10 @@ describe('ToolActivity result preview contract', () => {
     // `sk&#45;…` never matches the redactor (it sees no `sk-`), and the
     // markdown pipeline decodes character references before rendering — the
     // old <pre> path displayed the encoded text literally, so the prose
-    // conversion must not become a decode oracle. The preview escapes `&`
-    // after redaction (toolTextToProseSource), so micromark's one decode
-    // pass exactly restores the original bytes as text and nothing else.
+    // conversion must not become a decode oracle. toolTextPreviewPlan
+    // escapes `&` after redaction on the markdown path, so micromark's one
+    // decode pass exactly restores the original bytes as text and nothing
+    // else.
     const encoded = 'sk&#45;1234567890abcdefghi';
     const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
     const { toolTextPreviewPlan } = await import(uiDist('tool-activity/preview-utils.js')) as {

@@ -6,8 +6,11 @@ export const TOOL_LINE_CAP = 500;
 const BACKSLASH_ESCAPE = /\\([\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e])/g;
 /** Link / image destinations — `](…)` — vanish wholesale from rendered text. */
 const LINK_DESTINATION = /\]\([^)]*\)/g;
-/** Raw HTML tags are dropped by react-markdown (no rehype-raw), so
- * `sk<b>-</b>123` renders as contiguous `sk-123`. */
+/** Raw HTML tags. react-markdown v9 without rehype-raw renders raw HTML as
+ * literal TEXT (so `<redacted>` markers survive and `sk<b>-</b>123` displays
+ * with its tags visible); stripping tags here models the skipHtml-style drop
+ * anyway, as a defensive fallback against future pipeline config — a false
+ * positive only costs the mono <pre> presentation. */
 const RAW_HTML_TAG = /<[^>\n]*>/g;
 /** Characters markdown rendering can consume out of the visible text:
  * escape backslashes, emphasis/strike/code delimiters, link/image/autolink
