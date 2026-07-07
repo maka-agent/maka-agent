@@ -236,11 +236,23 @@ export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^find\s+.*\s-delete\b/,
   /^find\s+.*\s-exec\s+.*\b(rm|shred|truncate|dd)\b/,
   /^xargs\s+.*\b(rm|shred|truncate|dd)\b/,
+  // PowerShell / cmd.exe deletes. On Windows the Bash tool runs PowerShell and
+  // steers the model toward its syntax (shell-detect.ts), so these must land
+  // in fs_destructive — in execute mode shell_unsafe is allow, not prompt.
+  // Case-insensitive because PowerShell is; `rm`/`rmdir` aliases are already
+  // caught above. Applied on POSIX too: the only real collision is Ruby's
+  // docs tool `ri`, and the failure mode is an extra prompt, not a bypass.
+  /^remove-item\b/i,
+  /^(ri|del|erase|rd)\b/i,
+  /^(clear-content|clc)\b/i,
 ];
 
 export const PIPE_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /\|\s*xargs\b[^\n;&|]*\b(rm|shred|truncate|dd)\b/,
   /\|\s*(sh|bash|zsh)\b/,
+  // PowerShell's idiomatic mass delete pipes objects straight into Remove-Item
+  // (the xargs analogue): Get-ChildItem ... | Remove-Item
+  /\|\s*(remove-item|ri|rm|rmdir|del|erase|rd)\b/i,
 ];
 
 export const SHELL_CONTROL_PATTERNS: readonly RegExp[] = [

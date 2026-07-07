@@ -93,6 +93,22 @@ describe('categorizeBash', () => {
     expect(categorizeBash('xargs -I {} shred {}')).toBe('fs_destructive');
   });
 
+  test('PowerShell/cmd delete commands → fs_destructive (case-insensitive)', () => {
+    expect(categorizeBash('Remove-Item .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('remove-item -Recurse -Force .\\node_modules')).toBe('fs_destructive');
+    expect(categorizeBash('del foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('erase foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('rd /s /q build')).toBe('fs_destructive');
+    expect(categorizeBash('ri foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('Clear-Content log.txt')).toBe('fs_destructive');
+    expect(categorizeBash('clc log.txt')).toBe('fs_destructive');
+  });
+
+  test('PowerShell pipeline into Remove-Item → fs_destructive', () => {
+    expect(categorizeBash('Get-ChildItem -Recurse -Filter *.tmp | Remove-Item')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | del')).toBe('fs_destructive');
+  });
+
   test('safe-prefix commands with destructive pipe stages → fs_destructive', () => {
     expect(categorizeBash('find . -name "*.log" | xargs rm')).toBe('fs_destructive');
     expect(categorizeBash('find . -type f -print0 | xargs -0 rm -f')).toBe('fs_destructive');
@@ -231,6 +247,13 @@ describe('preToolUse — execute mode', () => {
 
   test('CRITICAL: rm STILL prompts in execute mode', () => {
     const r = evaluate('Bash', { command: 'rm important.txt' }, 'execute');
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(true);
+    expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: Remove-Item STILL prompts in execute mode', () => {
+    const r = evaluate('Bash', { command: 'Remove-Item .\\foo.txt' }, 'execute');
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
