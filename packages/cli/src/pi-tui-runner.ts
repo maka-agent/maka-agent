@@ -607,9 +607,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
     }
     // Page through transcript scrollback — but only when there is scrollback to
-    // page. PageUp/PageDown are also the editor's prompt-paging keys, so when the
-    // transcript fits the viewport we let the key fall through to the editor
-    // instead of swallowing it.
+    // page. PageUp/PageDown also page the editor's own multi-line input buffer,
+    // so when the transcript fits the viewport we let the key fall through to the
+    // editor instead of swallowing it.
     if (matchesKey(data, Key.pageUp)) {
       if (!layout.isScrollable()) return undefined;
       if (layout.scrollUp()) tui.requestRender();
@@ -690,16 +690,16 @@ class MakaStatusLineComponent implements Component {
 }
 
 /**
- * True when `next` is `prev` with zero or more lines appended at the end and
- * nothing above changed — i.e. the growth is a pure tail append. Used to tell
- * streamed output landing below the fold apart from an in-place edit above it.
+ * Index of the first line that differs between `prev` and `next`, or the length
+ * of the shorter array when one is a prefix of the other. Used to locate where a
+ * transcript re-render changed relative to the viewport.
  */
-function isTailAppend(prev: readonly string[], next: readonly string[]): boolean {
-  if (next.length < prev.length) return false;
-  for (let i = 0; i < prev.length; i++) {
-    if (next[i] !== prev[i]) return false;
+function firstDivergentLine(prev: readonly string[], next: readonly string[]): number {
+  const shared = Math.min(prev.length, next.length);
+  for (let i = 0; i < shared; i++) {
+    if (prev[i] !== next[i]) return i;
   }
-  return true;
+  return shared;
 }
 
 class MakaPiLayoutComponent extends Container {
@@ -737,19 +737,20 @@ class MakaPiLayoutComponent extends Container {
       // tail rather than land the viewport on an arbitrary mid-message row.
       this.followTail = true;
       this.scrollOffset = 0;
-    } else if (
-      !this.followTail &&
-      transcriptLines.length > this.lastTotalLines &&
-      isTailAppend(this.lastLines, transcriptLines)
-    ) {
-      // Streamed lines land at the bottom; hold the reader's view fixed by
-      // counting them into the below-the-fold offset instead of letting the
-      // window drift. Only do this for a pure tail append: an in-place edit
-      // above the fold (e.g. a late `thinking_complete` re-rendering an expanded
-      // thinking block to a different height) also grows the line count, but
-      // there the lines below the fold are unchanged, so the offset must stay
-      // put — adding the delta would drift the window up by that height.
-      this.scrollOffset += transcriptLines.length - this.lastTotalLines;
+    } else if (!this.followTail && transcriptLines.length > this.lastTotalLines) {
+      // The transcript grew. Preserve the reader's position by holding the top of
+      // the visible slice fixed — but only when the growth is entirely below the
+      // fold, so the visible slice itself is untouched. Streaming appends and
+      // even in-place edits to the tail block (a `text_delta` re-wrapping the last
+      // line) qualify; an edit above the fold (a late `thinking_complete` growing
+      // an expanded block the reader has scrolled past) does not — there the tail
+      // is unchanged, so the below-the-fold offset must stay put or the window
+      // drifts. `firstDivergentLine` locates the change; a first difference at or
+      // below the old viewport bottom means the visible slice is a stable prefix.
+      const viewportBottom = this.lastTotalLines - this.scrollOffset;
+      if (firstDivergentLine(this.lastLines, transcriptLines) >= viewportBottom) {
+        this.scrollOffset += transcriptLines.length - this.lastTotalLines;
+      }
     }
 
     const windowed = windowTranscriptLines(
@@ -802,8 +803,8 @@ class MakaPiLayoutComponent extends Container {
 
   /**
    * True when the transcript overflows the viewport, i.e. paging keys should
-   * scroll it. When false the transcript fits and PageUp/PageDown belong to the
-   * editor's prompt paging instead.
+   * scroll it. When false the transcript fits and PageUp/PageDown page the
+   * editor's own multi-line input buffer instead.
    */
   isScrollable(): boolean {
     return this.lastTotalLines > this.lastViewportRows;

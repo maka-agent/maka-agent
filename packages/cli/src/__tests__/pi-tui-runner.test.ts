@@ -327,6 +327,52 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('holds the reader position when streaming re-wraps the tail below the fold', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamingTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/s-para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('typing-tail'));
+
+    // Page up so the streaming tail (the partial last line about to grow) is off
+    // the bottom of the viewport and a stable middle slice of the reply shows.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('s-para-00') && !screen.includes('typing-tail');
+    });
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+
+    // Streaming continues: the next delta re-wraps the partial tail line (an
+    // in-place edit, not a pure append) and adds paragraphs — all below the fold.
+    // The reader's slice must not move even though the tail block mutated.
+    driver.releaseStream();
+    await waitFor(() => driver.completed);
+    assert.equal(visibleParas(), before, 'viewport drifted when the tail grew below the fold');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -2221,6 +2267,50 @@ class LateThinkingDriver implements MakaSessionDriver {
 
   releaseReply(): void {
     this.continuePastReply?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class StreamingTailDriver implements MakaSessionDriver {
+  completed = false;
+  private continueStream: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First chunk overflows the viewport and ends mid-line ("typing-tail" with no
+    // trailing newline) so the next delta mutates that last rendered line in
+    // place rather than only appending fresh lines.
+    const head = Array.from({ length: 30 }, (_, i) => `s-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e1', turnId: 't', ts: 1, messageId: 'm1', text: `${head}\n\ntyping-tail` };
+    await new Promise<void>((resolve) => {
+      this.continueStream = resolve;
+    });
+    // The continuation re-wraps the partial tail line and appends more paragraphs.
+    const more = Array.from({ length: 10 }, (_, i) => `s-para-${String(i + 30).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e2', turnId: 't', ts: 2, messageId: 'm1', text: ` continued\n\n${more}` };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 3, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseStream(): void {
+    this.continueStream?.();
   }
 
   async stop(): Promise<void> {}
