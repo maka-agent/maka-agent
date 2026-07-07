@@ -42,8 +42,6 @@ export interface ShellRunProcessManagerInput {
   maxRetainedChars?: number;
   maxLiveEmitChars?: number;
   killGraceMs?: number;
-  /** Shell to run commands with. Defaults to the process-wide detected shell. */
-  shell?: ShellPlan;
 }
 
 export interface ShellRunBashInput {
@@ -57,6 +55,12 @@ export interface ShellRunBashInput {
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /**
+   * Shell to run the command with, forwarded per call by the Bash tool so the
+   * shell DECLARED in the tool description is the one that executes. Defaults
+   * to the process-wide detected shell.
+   */
+  shell?: ShellPlan;
 }
 
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
@@ -225,7 +229,7 @@ export class ShellRunProcessManager {
     }
 
     const shellRunId = this.input.newId();
-    const plan = buildShellSpawnPlan(this.input.shell ?? defaultShellPlan(), input.command);
+    const plan = buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
     const child = spawn(plan.file, plan.args, {
       cwd: input.cwd,
       shell: plan.useShellOption,

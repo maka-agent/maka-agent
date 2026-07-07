@@ -96,6 +96,7 @@ export function buildLocalForegroundBashTool(
       timeoutMs: timeoutMs ?? 120_000,
       abortSignal: ctx.abortSignal,
       emitOutput: ctx.emitOutput,
+      shell,
     }),
   });
 }
@@ -124,6 +125,7 @@ export function buildBackgroundBashTool(
       sourceToolCallId: ctx.toolCallId,
       cwd: ctx.cwd,
       command,
+      shell,
       ...(yield_time_ms !== undefined ? { yieldTimeMs: yield_time_ms } : {}),
       ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
       abortSignal: ctx.abortSignal,

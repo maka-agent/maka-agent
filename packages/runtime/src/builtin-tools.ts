@@ -203,6 +203,7 @@ function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): M
         timeoutMs: timeout,
         ...(abortSignal ? { abortSignal } : {}),
         emitOutput,
+        shell,
       });
       if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
       if (result.aborted) throw terminalError('Command aborted', result, 130);

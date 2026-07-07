@@ -36,14 +36,13 @@ describe('ShellRunProcessManager', () => {
     // "shell" receives the flags plus the command as argv and echoes them back.
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
-    const manager = createManager(store, {
-      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
-    });
+    const manager = createManager(store);
 
     const result = await manager.runBash(shellInput({
       cwd,
       command: 'echo wired-marker',
       yieldTimeMs: 30_000,
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     }));
 
     assert.equal(result.kind, 'terminal');
@@ -322,10 +321,7 @@ class MemoryShellRunStore implements ShellRunStore {
   }
 }
 
-function createManager(
-  store: ShellRunStore,
-  over: { shell?: ShellPlan } = {},
-): ShellRunProcessManager {
+function createManager(store: ShellRunStore): ShellRunProcessManager {
   let id = 0;
   let now = 1_000;
   return new ShellRunProcessManager({
@@ -334,7 +330,6 @@ function createManager(
     now: () => ++now,
     flushIntervalMs: 10,
     killGraceMs: 50,
-    ...over,
   });
 }
 
@@ -344,6 +339,7 @@ function shellInput(input: {
   yieldTimeMs?: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  shell?: ShellPlan;
 }) {
   return {
     sessionId: 'session-1',
@@ -354,6 +350,7 @@ function shellInput(input: {
     command: input.command,
     ...(input.yieldTimeMs !== undefined ? { yieldTimeMs: input.yieldTimeMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+    ...(input.shell !== undefined ? { shell: input.shell } : {}),
     emitOutput: input.emitOutput ?? (() => {}),
   };
 }

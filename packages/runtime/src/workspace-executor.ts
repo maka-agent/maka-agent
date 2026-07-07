@@ -5,6 +5,7 @@ import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
 import { runShellWithBoundedTail } from './shell-exec.js';
+import type { ShellPlan } from './shell-detect.js';
 
 const execAsync = promisify(exec);
 
@@ -28,6 +29,8 @@ export interface WorkspaceExecInput {
   timeoutMs: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /** Shell to run the command with. The local executor defaults to the process-wide detected shell. */
+  shell?: ShellPlan;
 }
 
 export interface WorkspaceExecResult {
@@ -192,6 +195,7 @@ export class LocalWorkspaceExecutor implements WorkspaceExecutor {
       timeoutMs: input.timeoutMs,
       ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
       ...(input.emitOutput ? { emitOutput: input.emitOutput } : {}),
+      ...(input.shell ? { shell: input.shell } : {}),
     });
     return {
       stdout: result.stdout,
