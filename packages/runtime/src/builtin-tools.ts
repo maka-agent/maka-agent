@@ -205,15 +205,17 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   ];
 }
 
+// Object.fromEntries uses [[Set]], which creates own properties even for
+// special keys like "__proto__" that would otherwise trigger the
+// Object.prototype.__proto__ setter when assigned via bracket notation.
 function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeysDeep);
   if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
-    return Object.keys(value)
-      .sort()
-      .reduce((acc, key) => {
-        (acc as Record<string, unknown>)[key] = sortKeysDeep((value as Record<string, unknown>)[key]);
-        return acc;
-      }, {} as Record<string, unknown>);
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortKeysDeep((value as Record<string, unknown>)[key])]),
+    );
   }
   return value;
 }

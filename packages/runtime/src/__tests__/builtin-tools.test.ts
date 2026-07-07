@@ -537,9 +537,23 @@ describe('builtin FormatJson', () => {
     const result = await runTool(t, { content: input, sort_keys: true }, '/workspace') as { ok: boolean; content: string };
 
     expect(result.ok).toBe(true);
-    expect(result.content.indexOf('"a"')).toBe(result.content.indexOf('"a"'));
-    expect(result.content.indexOf('"a"') < result.content.indexOf('"m"')).toBe(true);
-    expect(result.content.indexOf('"m"') < result.content.indexOf('"z"')).toBe(true);
+    expect(result.content).toBe('{\n  "a": 2,\n  "m": 3,\n  "z": 1\n}');
+  });
+
+  test('sort_keys: true preserves __proto__ as data property', async () => {
+    const t = tool('FormatJson');
+    const result = await runTool(
+      t,
+      { content: '{"__proto__":{"polluted":true},"a":1}', sort_keys: true },
+      '/workspace',
+    ) as { ok: boolean; content: string };
+
+    expect(result.ok).toBe(true);
+    const parsed = JSON.parse(result.content);
+    // __proto__ must be an own data property, not lost or triggering the setter
+    expect(Object.prototype.hasOwnProperty.call(parsed, '__proto__')).toBe(true);
+    expect(parsed.__proto__).toEqual({ polluted: true });
+    expect(parsed.a).toBe(1);
   });
 
   test('indent: 0 produces compact single-line output', async () => {
