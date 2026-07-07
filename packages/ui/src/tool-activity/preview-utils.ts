@@ -1,4 +1,23 @@
+import { redactSecrets } from '../redact.js';
+
 export const TOOL_LINE_CAP = 500;
+
+/**
+ * Build the markdown source for a text-kind tool result (#546 PR6): redact,
+ * translate the user-visible boilerplate, cap the line count, then escape
+ * every `&` so the markdown pipeline cannot decode character references the
+ * redactor never saw. An entity-encoded key (`sk&#45;…`) matches no redaction
+ * pattern, and micromark would decode it into the clear — the old <pre> path
+ * displayed such text literally (codex review P1). Escaping `&` after
+ * redaction means micromark's single decode pass exactly restores the
+ * original bytes as text content: display parity with <pre>, zero decode
+ * gain for an attacker, markdown structure (headings/lists/links) intact.
+ */
+export function toolTextToProseSource(text: string): string {
+  const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(text)));
+  const suffixed = capped > 0 ? `${body}\n\n… 已隐藏 ${capped} 行` : body;
+  return suffixed.replace(/&/g, '&amp;');
+}
 
 export function capLines(text: string): { body: string; capped: number } {
   const lines = text.split('\n');

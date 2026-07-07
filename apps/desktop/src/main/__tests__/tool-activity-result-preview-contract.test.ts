@@ -168,6 +168,26 @@ describe('ToolActivity result preview contract', () => {
     assert.doesNotMatch(fileWrite, /out\.txt/);
   });
 
+  it('entity-encoded secrets cannot ride the markdown decode past redaction (codex review P1)', async () => {
+    // `sk&#45;…` never matches the redactor (it sees no `sk-`), and the
+    // markdown pipeline decodes character references before rendering — the
+    // old <pre> path displayed the encoded text literally, so the prose
+    // conversion must not become a decode oracle. The preview escapes `&`
+    // after redaction (toolTextToProseSource), so micromark's one decode
+    // pass exactly restores the original bytes as text and nothing else.
+    const encoded = 'sk&#45;1234567890abcdefghi';
+    const uiDist = (rel: string) => pathToFileURL(join(process.cwd(), '../../packages/ui/dist', rel)).href;
+    const { toolTextToProseSource } = await import(uiDist('tool-activity/preview-utils.js')) as {
+      toolTextToProseSource(text: string): string;
+    };
+    const { MarkdownBody } = await import(uiDist('markdown-body.js')) as {
+      MarkdownBody(props: { text: string }): ReturnType<typeof createElement>;
+    };
+    const html = renderToStaticMarkup(createElement(MarkdownBody, { text: toolTextToProseSource(`key: ${encoded}`) }));
+    assert.doesNotMatch(html, new RegExp(SECRET), 'markdown rendering must not decode an entity-encoded secret into the clear');
+    assert.match(html, /sk&amp;#45;|sk&#x26;#45;/, 'the encoded form must display literally, matching the old <pre> behavior');
+  });
+
   it('redacts ExploreAgent copy payloads before they reach the clipboard', async () => {
     const uiModuleUrl = pathToFileURL(join(process.cwd(), '../../packages/ui/dist/tool-activity/agent-preview.js')).href;
     const { buildExploreAgentCopyPayloads } = await import(uiModuleUrl) as {

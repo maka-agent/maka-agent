@@ -6,7 +6,7 @@ import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { Button as UiButton, cn } from '../ui.js';
 import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
-import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText } from './preview-utils.js';
+import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText, toolTextToProseSource } from './preview-utils.js';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
 export function ToolResultPreview(props: { content: ToolResultContent }) {
@@ -79,13 +79,12 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
     // #546 PR6: the generic text body renders as markdown prose. The
     // whitespace-critical kinds (terminal / file_diff / json) keep their own
     // mono cards above, so what lands here is prose-shaped text (agent
-    // messages, permission notes, page extracts). Redaction + line cap run
-    // on the source before the markdown pipeline sees it.
-    const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(content.text)));
-    const text = capped > 0 ? `${body}\n\n… 已隐藏 ${capped} 行` : body;
+    // messages, permission notes, page extracts). toolTextToProseSource
+    // redacts, caps, and escapes `&` so the markdown decode can't resurrect
+    // entity-encoded secrets the redactor never saw (codex review P1).
     return (
       <div className={cn(previewVariants({ part: 'prose-body' }), 'maka-prose')} data-kind="text">
-        <Markdown text={text} />
+        <Markdown text={toolTextToProseSource(content.text)} />
       </div>
     );
   }
