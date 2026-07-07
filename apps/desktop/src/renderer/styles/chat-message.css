@@ -135,7 +135,12 @@
 .maka-prose h2,
 .maka-prose h3,
 .maka-prose h4 {
-  margin: var(--space-4) 0 var(--space-2);
+  /* Section rhythm keyed to the 12px paragraph gap: 20px above (clearly
+     more than a paragraph break, so sections separate) and 12px below
+     (exactly the paragraph rhythm, so the heading holds its section).
+     The old 16/8 sat too close to the paragraph gap on both sides —
+     headings neither separated sections nor matched the body rhythm. */
+  margin: var(--space-5) 0 var(--space-3);
   line-height: var(--leading-tight);
   font-weight: var(--font-weight-semibold);
   text-wrap: balance;
@@ -384,7 +389,10 @@
 }
 .maka-prose th,
 .maka-prose td {
-  padding: var(--space-2) var(--space-3);
+  /* Frameless tables read denser: 8px vertical padding made rows 36.5px —
+     the inter-row whitespace was 2.5× the paragraph line gap and rows
+     floated apart. 6px lands rows at ~32px. */
+  padding: var(--space-1-5) var(--space-3);
   border-bottom: var(--border-width-hairline) solid var(--border);
   text-align: left;
 }
