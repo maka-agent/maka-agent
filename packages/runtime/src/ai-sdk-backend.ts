@@ -38,6 +38,7 @@ import type {
   AbortEvent,
   ErrorEvent,
   TextCompleteEvent,
+  ThinkingCompleteEvent,
   TokenUsageEvent,
   StorageRef,
   AttachmentRef,
@@ -121,6 +122,7 @@ import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
   buildRuntimeEventModelReplayPlan,
+  collectToolActivityTurnIds,
   formatTextWithAttachmentRefs,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -944,7 +946,7 @@ export class AiSdkBackend implements AgentBackend {
             onText: (t) => { assistantText += t; },
             onTextComplete: (t) => { assistantText = t; },
             onThinking: (t) => { thinkingText += t; },
-            onThinkingComplete: (t, sig) => { thinkingText = t; thinkingSignature = sig; },
+            onThinkingSignature: (sig) => { thinkingSignature = sig; },
           });
         }
 
@@ -990,8 +992,22 @@ export class AiSdkBackend implements AgentBackend {
             + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
         }
 
-        // Persist assistant message if we got one.
-        if (assistantText.length > 0) {
+        // Persist the assistant turn if it produced text OR reasoning. A turn
+        // that ends with only thinking (no final text) must still persist its
+        // reasoning; gating solely on text would drop it. The AssistantMessage
+        // carries an empty `text` in that case, and we still emit text_complete
+        // (empty) so the RuntimeEvent read-model has a same-turn assistant row
+        // to attach the thinking to — otherwise projectThinking has nothing to
+        // hang the reasoning on and discards it.
+        //
+        // A signature is thinking even with no text: Anthropic's omitted /
+        // redacted thinking returns a signed reasoning block whose text is
+        // empty. Dropping it would lose the signed block for provider-native
+        // replay (reasoning continuity). Persist `text: ''` + signature so the
+        // block round-trips faithfully; the render layer is responsible for not
+        // surfacing an empty thinking entry.
+        const hasThinking = thinkingText.length > 0 || thinkingSignature !== undefined;
+        if (assistantText.length > 0 || hasThinking) {
           const msg: AssistantMessage = {
             type: 'assistant',
             id: assistantMessageId,
@@ -999,7 +1015,7 @@ export class AiSdkBackend implements AgentBackend {
             ts: this.now(),
             text: assistantText,
             modelId: this.input.modelId,
-            ...(thinkingText.length > 0
+            ...(hasThinking
               ? {
                   thinking: {
                     text: thinkingText,
@@ -1009,6 +1025,23 @@ export class AiSdkBackend implements AgentBackend {
               : {}),
           };
           await this.input.appendMessage(msg);
+          // Emit the terminal thinking event before text_complete so the
+          // RuntimeEvent stream carries a non-partial `thinking` message. Only
+          // partial `thinking_delta`s were emitted during streaming, so without
+          // this the read-model projection (and materialized session) drops all
+          // reasoning. The read-model attaches this to the same-turn assistant
+          // text row emitted just below.
+          if (hasThinking) {
+            queue.push({
+              type: 'thinking_complete',
+              id: this.newId(),
+              turnId,
+              ts: this.now(),
+              messageId: assistantMessageId,
+              text: thinkingText,
+              ...(thinkingSignature !== undefined ? { signature: thinkingSignature } : {}),
+            } satisfies ThinkingCompleteEvent);
+          }
           queue.push({
             type: 'text_complete',
             id: this.newId(),
@@ -1460,6 +1493,10 @@ export class AiSdkBackend implements AgentBackend {
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
+      // `runtimeContext` may be a budget/history-search slice; the tool-turn
+      // thinking skip is a whole-history invariant, so seed it from the full
+      // prior ledger so a sliced-in tool-turn thinking still gets skipped.
+      { toolActivityTurnIds: collectToolActivityTurnIds(priorRuntimeContext) },
     );
     if (plan.items.length === 0) {
       return {
@@ -2389,7 +2426,6 @@ function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolea
   return plan.diagnostics.some((diagnostic) =>
     diagnostic.code === 'unsupported_role' ||
     diagnostic.code === 'unsupported_content' ||
-    diagnostic.code === 'unsigned_thinking' ||
     diagnostic.code === 'unmatched_tool_result' ||
     diagnostic.code === 'tool_id_mismatch'
   );

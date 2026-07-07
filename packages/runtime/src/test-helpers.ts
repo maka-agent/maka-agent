@@ -6,6 +6,12 @@ export function expect(actual: unknown) {
       toBeNull() {
         assert.notStrictEqual(actual, null);
       },
+      toContain(expected: string) {
+        assert.ok(
+          !String(actual).includes(expected),
+          `expected ${String(actual)} not to contain ${expected}`,
+        );
+      },
     },
     toBe(expected: unknown) {
       assert.strictEqual(actual, expected);
