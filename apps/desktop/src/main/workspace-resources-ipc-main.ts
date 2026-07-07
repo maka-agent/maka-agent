@@ -6,9 +6,12 @@ import { createArtifactStore, resolveArtifactPath } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 import {
   createStarterSkill,
+  getSkillGovernanceDetails,
   installManagedSkill,
   listSkillEntries,
+  previewManagedSkillUpdate,
   resolveSkillOpenPath,
+  setSkillEnabled,
   toSkillEntry,
   updateManagedSkill,
 } from './skills.js';
@@ -137,10 +140,23 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     if (!result.ok) return result;
     return { ok: true as const, skill: toSkillEntry(result.skill) };
   });
-  ipcMain.handle('skills:updateManaged', async (_event, skillId: string) => {
-    const result = await updateManagedSkill(deps.workspaceRoot, skillId);
+  ipcMain.handle('skills:details', async (_event, skillId: string) => {
+    return getSkillGovernanceDetails(deps.workspaceRoot, skillId);
+  });
+  ipcMain.handle('skills:previewUpdate', async (_event, skillId: string) => {
+    return previewManagedSkillUpdate(deps.workspaceRoot, skillId);
+  });
+  ipcMain.handle('skills:updateManaged', async (_event, skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }) => {
+    const result = await updateManagedSkill(deps.workspaceRoot, skillId, undefined, {
+      force: options?.force === true,
+      expectedCurrentSha256: options?.expectedCurrentSha256,
+      expectedSourceSha256: options?.expectedSourceSha256,
+    });
     if (!result.ok) return result;
     return { ok: true as const, skill: toSkillEntry(result.skill) };
+  });
+  ipcMain.handle('skills:setEnabled', async (_event, skillId: string, enabled: boolean) => {
+    return setSkillEnabled(deps.workspaceRoot, skillId, enabled === true);
   });
   ipcMain.handle('skills:createStarter', async () => {
     const result = await createStarterSkill(deps.workspaceRoot);

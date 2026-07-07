@@ -22,6 +22,8 @@ const skills: SkillEntry[] = [
     description: '封装分支创建、合并与发布打 tag 的常用 git 操作。',
     path: '~/.maka/skills/git-flow',
     declaredTools: ['Bash', 'Write'],
+    enabled: true,
+    runtimeStatus: 'enabled',
   },
   {
     id: 'skill-docs-screenshot',
@@ -29,6 +31,8 @@ const skills: SkillEntry[] = [
     description: '把组件截图同步进设计文档，按 token 分类命名。',
     path: '~/.maka/skills/docs-screenshot',
     declaredTools: ['Bash', 'Read'],
+    enabled: false,
+    runtimeStatus: 'disabled',
   },
   {
     id: 'skill-release-notes',
@@ -36,6 +40,8 @@ const skills: SkillEntry[] = [
     description: '从最近的 commit 历史生成发布说明草稿。',
     path: '~/.maka/skills/release-notes',
     declaredTools: ['Bash'],
+    enabled: true,
+    runtimeStatus: 'enabled',
   },
 ];
 
