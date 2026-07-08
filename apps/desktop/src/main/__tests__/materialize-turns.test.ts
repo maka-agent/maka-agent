@@ -171,6 +171,41 @@ describe('materializeTurns', () => {
     assert.equal(turns[0]?.assistantThinking, 'first I considered...');
   });
 
+  it('concatenates per-step assistant messages into one answer with the first step id and last ts', () => {
+    // A multi-step turn persists one AssistantMessage per model step; the turn
+    // view-model joins their text (and thinking) in order, anchors on the first
+    // step id, and measures durationMs to the final step.
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallMsg('t1', 101, 'c1'),
+      toolResultMsg('t1', 102, 'c1'),
+      {
+        type: 'assistant',
+        id: 'step-1',
+        turnId: 't1',
+        ts: 103,
+        text: 'first, I check the file',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'reasoning one' },
+      } as StoredMessage,
+      {
+        type: 'assistant',
+        id: 'step-2',
+        turnId: 't1',
+        ts: 205,
+        text: 'here is the answer',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'reasoning two' },
+      } as StoredMessage,
+    ]);
+    assert.equal(turns.length, 1);
+    assert.equal(turns[0]?.assistant?.id, 'step-1');
+    assert.equal(turns[0]?.assistant?.text, 'first, I check the file\n\nhere is the answer');
+    assert.equal(turns[0]?.assistant?.ts, 205);
+    assert.equal(turns[0]?.assistantThinking, 'reasoning one\n\nreasoning two');
+    assert.equal(turns[0]?.durationMs, 105);
+  });
+
   it('leaves durationMs undefined when assistant message is missing (in-progress turn)', () => {
     const turns = materializeTurns([userMsg('t1', 100, 'q')]);
     assert.equal(turns[0]?.durationMs, undefined);
