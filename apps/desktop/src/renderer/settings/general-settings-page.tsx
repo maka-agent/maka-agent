@@ -195,7 +195,7 @@ function GeneralDefaultsCard(props: {
       <div className="settingsRow" data-control-width="select">
         <div>
           <strong>默认模型</strong>
-          <small>新对话默认使用的具体模型；按连接分组，不显示 OAuth 账号邮箱。</small>
+          <small>新对话默认使用的模型。</small>
         </div>
         {/* Shared searchable picker with the composer's model switcher
             (ModelPicker in @maka/ui) so the grouped list, provider marks,

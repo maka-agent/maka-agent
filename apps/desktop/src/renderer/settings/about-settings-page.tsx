@@ -152,6 +152,7 @@ export function AboutSettingsPage() {
           title="工作区"
           detail="会话、设置和凭据全部留在本地这条路径下。"
           value={info.workspacePath}
+          mono
         />
         <SettingRow
           title="存储"

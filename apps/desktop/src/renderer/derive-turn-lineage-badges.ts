@@ -15,11 +15,6 @@
 
 import type { TurnLineageBadge } from '@maka/ui';
 
-/** Strip the `turn-` id prefix before truncating, matching the view-model. */
-function shortId(turnId: string): string {
-  return turnId.replace(/^turn-/, '').slice(0, 6);
-}
-
 export interface TurnLineageBadgeInput {
   turnId: string;
   /** Legacy retry lineage (old data). Falls back behind regenerated. */
@@ -39,8 +34,8 @@ export function deriveTurnLineageBadges(input: TurnLineageBadgeInput): TurnLinea
   if (forwardFrom && input.existsTurn(forwardFrom)) {
     badges.push({
       id: `forward-regen-${input.turnId}`,
-      label: `重新生成自 turn ${shortId(forwardFrom)}`,
-      tooltip: `保留旧回答，重新生成的并行回答`,
+      label: `重新生成自旧回答`,
+      tooltip: `这是重新生成的并行回答，点击查看被保留的旧回答`,
       targetTurnId: forwardFrom,
       direction: 'forward',
     });
@@ -50,8 +45,8 @@ export function deriveTurnLineageBadges(input: TurnLineageBadgeInput): TurnLinea
   if (reverseTo && input.existsTurn(reverseTo)) {
     badges.push({
       id: `reverse-regen-${input.turnId}`,
-      label: `已重新生成 → turn ${shortId(reverseTo)}`,
-      tooltip: `跳转到对此回答的重新生成`,
+      label: `已重新生成 → 新回答`,
+      tooltip: `点击跳转到重新生成的新回答`,
       targetTurnId: reverseTo,
       direction: 'reverse',
     });
