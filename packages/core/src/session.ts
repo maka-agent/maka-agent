@@ -205,6 +205,15 @@ export interface ToolCallMessage {
   displayName?: string;
   intent?: string;
   args: unknown;
+  /**
+   * Assistant step this call belongs to (equals the step's AssistantMessage
+   * id, stamped from the same source as ToolStartEvent.stepId). Optional for
+   * legacy rows written before per-step persistence. First consumer is the UI
+   * timeline (materializeTurns), which orders a step's thinking/text ahead of
+   * the tools whose stepId matches that step; the backfill path also reads it
+   * to re-pair tools with their step after a restart.
+   */
+  stepId?: string;
 }
 
 export interface ToolResultMessage {
