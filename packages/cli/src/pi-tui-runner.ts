@@ -106,7 +106,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const statusLine = new MakaStatusLineComponent(metadata);
   // Show the whole slash-command set at once — discoverability is the point of
   // the menu. Keep a little headroom above the current command count.
-  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: SLASH_COMMAND_MENU_MAX_VISIBLE });
+  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: EDITOR_AUTOCOMPLETE_MAX_VISIBLE });
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
@@ -1223,9 +1223,10 @@ function padLine(text: string, width: number): string {
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
 
-// Fits the current slash-command set (10) with headroom, so the full menu is
-// visible on a bare `/` rather than scrolling a subset.
-const SLASH_COMMAND_MENU_MAX_VISIBLE = 12;
+// The editor's autocomplete window height. Sized to fit the whole slash-command
+// menu (10 today) with headroom, so a bare `/` shows every command rather than
+// scrolling a subset.
+const EDITOR_AUTOCOMPLETE_MAX_VISIBLE = 12;
 
 // A short, stable slice of a session id — enough to tell two same-named
 // sessions apart in the picker without showing the full unreadable uuid.
