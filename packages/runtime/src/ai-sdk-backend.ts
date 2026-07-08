@@ -2249,6 +2249,12 @@ export class AiSdkBackend implements AgentBackend {
       text: item.text,
       providerOptions: { anthropic: { signature: item.signature } },
     });
+    // Tool results are emitted only when their tool_call claims them here. A
+    // result whose call never appears in the plan (sliced-away call, corrupt
+    // ledger) is INTENTIONALLY dropped at the end: a standalone tool message
+    // with no preceding tool_use in an assistant message is an Anthropic 400.
+    // The old item-by-item materializer emitted such orphans; do not "fix" this
+    // back — the plan already flags them as `unmatched_tool_result`.
     const pushToolResults = (calls: readonly ToolCallItem[]) => {
       for (const call of calls) {
         const result = results.get(call.toolCallId);
