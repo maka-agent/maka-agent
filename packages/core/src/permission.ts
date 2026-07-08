@@ -27,7 +27,7 @@ export type ToolCategory =
   | 'web_read' //          WebFetch, WebSearch (GET-class)
   | 'file_write' //        Write, Edit, patch (create / append / overwrite)
   | 'fs_destructive' //    rm, rmdir, dd, truncate, shred, mkfs, find -delete, ...
-  | 'shell_safe' //        resolved at runtime via SAFE_SHELL_PREFIXES
+  | 'shell_safe' //        reserved: categorizeBash no longer produces it (no shell is auto-safe); fail-closed in policy
   | 'shell_unsafe' //      default Bash bucket
   | 'git_destructive' //   git reset --hard, push --force, branch -D, ...
   | 'network_send' //      POST / PUT / DELETE
@@ -86,7 +86,10 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // requests are out-of-process side effects the user must confirm,
     // even in the otherwise read-only `explore` mode.
     web_read: 'prompt',
-    shell_safe: 'allow',
+    // shell_safe is fail-closed like shell_unsafe: categorizeBash no longer
+    // produces it (no shell command is provably safe from its string), so this
+    // is defence-in-depth — there is no auto-allow path for shell in explore.
+    shell_safe: 'block',
     file_write: 'block',
     fs_destructive: 'block',
     shell_unsafe: 'block',
@@ -102,7 +105,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
   ask: {
     read: 'allow',
     web_read: 'prompt',
-    shell_safe: 'allow',
+    shell_safe: 'prompt',
     file_write: 'prompt',
     fs_destructive: 'prompt',
     shell_unsafe: 'prompt',
@@ -116,12 +119,26 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
   execute: {
     read: 'allow',
     web_read: 'allow',
-    shell_safe: 'allow',
     file_write: 'allow',
-    shell_unsafe: 'allow',
     network_send: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
+    // Fail-closed for shell: NO shell command auto-runs. A shell command cannot
+    // be proven safe from its string — args can embed execution (PowerShell
+    // `echo (Set-Content x)`, $(...), backtick, iex), so there is no reliable
+    // "safe" bucket. Read-only needs go through typed tools (Read/Glob/Grep:
+    // fixed argv, no shell). Both shell_safe (which categorizeBash no longer
+    // produces) and shell_unsafe prompt, so the boundary is structural — it
+    // does not ride on the destructive/privileged pattern list being complete;
+    // a missed variant is at most an extra confirmation, never a silent action.
+    // (Auto-running arbitrary shell inside an isolated worktree is a future
+    // capability, not a current escape hatch: it needs a worktree child
+    // executor with its OWN permission path. An agent's categoryPolicy only
+    // filters which tools the agent is GIVEN — it does not enter execution-time
+    // gating, which always flows through preToolUse → this policy table. Today
+    // the worktree implementation agent cannot even be spawned.)
+    shell_safe: 'prompt',
+    shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
     fs_destructive: 'prompt',
     git_destructive: 'prompt',
@@ -173,37 +190,18 @@ export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
 // Shell command categorization
 // ============================================================================
 
-/** Safe shell prefixes. Note: `env` excluded (can leak API keys / OAuth tokens
- *  to tool output). `cd` excluded (cwd changes persist; V0.1 manages cwd via
- *  session header / UI picker, not via agent-issued cd). */
-export const SAFE_SHELL_PREFIXES: readonly string[] = [
-  'ls',
-  'pwd',
-  'echo',
-  'cat',
-  'head',
-  'tail',
-  'wc',
-  'grep',
-  'find',
-  'which',
-  'whoami',
-  'date',
-  'git status',
-  'git log',
-  'git diff',
-  'git branch',
-  'git show',
-  // External reference borrow: OfficeCLI read-only inspection commands are safe in
-  // explore mode. Mutating verbs such as open/add/set/remove/close/batch stay
-  // outside this allowlist and therefore prompt or block through Bash policy.
-  'officecli --version',
-  'officecli help',
-  'officecli view',
-  'officecli get',
-  'officecli query',
-  'officecli validate',
-];
+// There is no SAFE_SHELL_PREFIXES allowlist: a shell command cannot be proven
+// safe from its string. Any prefix that accepts arguments can hide execution
+// in them — PowerShell `echo (Set-Content x)` runs Set-Content first; `$(...)`,
+// backtick, and `iex` do the same in bash/PowerShell; even "read-only" commands
+// like `git status` can trigger fsmonitor helpers. Eight review rounds of
+// enumerating dangerous shapes proved the futility of the inverse (deciding a
+// Turing-complete shell's runtime effect from a static string is undecidable).
+// So categorizeBash never returns shell_safe; read-only needs go through typed
+// tools (Read/Glob/Grep — fixed argv, no shell), and every shell command is at
+// least shell_unsafe → prompt. The categories below only make the confirmation
+// REASON accurate (delete vs elevate vs generic); they are no longer the safety
+// boundary, so a missed pattern is a wording nit, not a bypass.
 
 export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
   'sudo ',
@@ -221,11 +219,34 @@ export const PRIVILEGED_SHELL_PREFIXES: readonly string[] = [
   'reboot',
 ];
 
+/** PowerShell/cmd equivalents of the privileged boundary above: process
+ *  termination (kill/killall), service control (systemctl), power
+ *  (shutdown/reboot), and ACL/ownership (chmod/chown). Case-insensitive
+ *  because PowerShell is. */
+export const PRIVILEGED_SHELL_PATTERNS: readonly RegExp[] = [
+  // kill is PowerShell's default alias for Stop-Process; bare `kill` also
+  // shows up as the tail of `Get-Process x | kill`. (POSIX `kill ` prefix is
+  // handled separately for the pid-argument form.)
+  /^(kill|stop-process|spps|taskkill)\b/i,
+  // Elevation intent: -Verb RunAs is the PowerShell form of `runas`. Anchor on
+  // the flag itself, not the Start-Process alias, so plain Start-Process stays
+  // shell_unsafe while any elevated launch prompts.
+  /(^|\s)-verb\s+runas\b/i,
+  // Service control mirrors the blanket `systemctl ` prefix above: every
+  // mutating verb prompts; read-only queries (sc query, Get-Service) do not.
+  // sasv/spsv are the documented default aliases of Start-/Stop-Service.
+  /^((start|stop|restart|set|new|remove|suspend|resume)-service|sasv|spsv)\b/i,
+  /^sc\s+(stop|start|pause|continue|delete|config|create|failure|sdset)\b/i,
+  /^net\s+(stop|start|pause|continue)\b/i,
+  /^(stop-computer|restart-computer)\b/i,
+  /^(icacls|takeown|set-acl|runas)\b/i,
+];
+
 /** Irreversible filesystem operations. `rm` in any form (incl. single-file
- *  `rm foo.txt`) lands here so auto/execute mode still prompts. */
+ *  `rm foo.txt`) lands here so auto/execute mode still prompts. Anchored to
+ *  the start of every statement segment (see commandSegments), not just the
+ *  whole command. */
 export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
-  /^rm\b/, //                                       all rm (single-file, -r, -rf, etc.)
-  /^rmdir\b/,
   /^dd\s+/,
   /^truncate\b/,
   /^shred\b/,
@@ -236,18 +257,23 @@ export const FS_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /^find\s+.*\s-delete\b/,
   /^find\s+.*\s-exec\s+.*\b(rm|shred|truncate|dd)\b/,
   /^xargs\s+.*\b(rm|shred|truncate|dd)\b/,
+  // PowerShell / cmd.exe deletes plus the POSIX rm family. On Windows the
+  // Bash tool runs PowerShell and steers the model toward its syntax
+  // (shell-detect.ts), so these land in fs_destructive to make the confirmation
+  // REASON accurate (delete, not generic) — not to gate allow-vs-prompt, which
+  // is already closed: shell_unsafe prompts too, so a miss only mislabels the
+  // reason. Case-insensitive because PowerShell is (harmless for the POSIX
+  // names: an upper-cased rm is still rm-shaped). Applied on POSIX too: the only
+  // real collision is Ruby's docs tool `ri`, and the failure mode is an extra
+  // prompt, not a bypass.
+  /^remove-item\b/i,
+  /^(rm|rmdir|ri|del|erase|rd)\b/i,
+  /^(clear-content|clc)\b/i,
 ];
 
 export const PIPE_DESTRUCTIVE_PATTERNS: readonly RegExp[] = [
   /\|\s*xargs\b[^\n;&|]*\b(rm|shred|truncate|dd)\b/,
   /\|\s*(sh|bash|zsh)\b/,
-];
-
-export const SHELL_CONTROL_PATTERNS: readonly RegExp[] = [
-  /(^|[^\\])(?:>>?|[12]>|&>)/,
-  /[;&|]/,
-  /`/,
-  /\$\(/,
 ];
 
 export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
@@ -259,15 +285,129 @@ export const DESTRUCTIVE_GIT_PATTERNS: readonly RegExp[] = [
   /^git\s+rebase\s+-i\b/,
 ];
 
-/** Order: privileged > fs_destructive > git_destructive > safe > unsafe. */
+/**
+ * Positions where a command name can start: the beginning, plus after every
+ * statement / pipeline / scriptblock / substitution boundary. Splitting is
+ * deliberately quote-naive; quote-AWARE splitting would be strictly worse,
+ * because `$( )` and backticks expand INSIDE double quotes in both dialects —
+ * not splitting there would hide `echo "$(rm x)"`. Naive splitting never
+ * drops content, it only cuts it up: every byte lands in some segment, and
+ * normalizeSegmentHead strips unclosed-quote remnants off segment heads
+ * (`"del` from a payload cut at an inner `&` still matches). So extra
+ * boundaries add scan candidates; they do not hide them.
+ */
+function commandSegments(cmd: string): string[] {
+  return cmd
+    .split(/[|;&\n(){}`]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Commands that defer to the real command later in the segment. */
+const WRAPPER_COMMANDS = new Set(['nohup', 'nice', 'time', 'timeout', 'env', 'command', 'exec', 'stdbuf']);
+
+/** Shell-in-shell heads whose literal payload can be categorized recursively.
+ *  Interpreters (python -c, node -e) are deliberately absent: we know these
+ *  shells' dialects, we do not parse arbitrary languages. */
+const NESTED_SHELL_HEADS: ReadonlyArray<{ head: RegExp; flag: RegExp }> = [
+  { head: /^(sh|bash|zsh)$/, flag: /(?:^|\s)-\w*c\s+([\s\S]+)$/ },
+  { head: /^(pwsh|powershell)$/i, flag: /\s-c(?:ommand)?\s+([\s\S]+)$/i },
+  { head: /^cmd$/i, flag: /\s\/[ck]\s+([\s\S]+)$/i },
+];
+
+/**
+ * Canonicalize the segment's first token to the command name it resolves to:
+ * unwrap quotes (`& 'Remove-Item' x`), drop a leading escape (`\rm`), a path
+ * prefix (`/bin/rm`, `C:\...\taskkill.exe`) and the .exe suffix, and skip
+ * wrapper commands plus their option-ish arguments (`nohup`, `timeout 30`,
+ * `env FOO=bar`). Only the UPGRADE checks (privileged/fs/git) see this
+ * normalization — the safe-prefix check keeps the raw command, so a local
+ * script named `./ls` can never be upgraded to shell_safe.
+ */
+function normalizeSegmentHead(segment: string): string {
+  let rest = segment;
+  for (let hops = 0; hops < 5; hops++) {
+    const quoted = /^(['"])(.+?)\1(\s+|$)/.exec(rest);
+    const bare = quoted ? null : /^(\S+)(\s*)([\s\S]*)$/.exec(rest);
+    if (!quoted && !bare) return rest;
+    let head = quoted ? quoted[2]! : bare![1]!;
+    const tail = quoted ? rest.slice(quoted[0].length) : bare![3]!;
+    head = head
+      // Quote chars anywhere in the name: unclosed remnants of a payload cut
+      // mid-string (`"del`) and PowerShell quote interruptions (Remove''-Item
+      // executes Remove-Item — verified on real pwsh). Caret is cmd.exe's
+      // escape char (de^l executes del). Fold them out of the NAME only; the
+      // safe-prefix check never sees this normalization.
+      .replace(/['"^]/g, '')
+      .replace(/^\\/, '')
+      .replace(/^.*[\\/]/, '')
+      .replace(/\.exe$/i, '');
+    if (WRAPPER_COMMANDS.has(head.toLowerCase())) {
+      rest = tail.replace(/^((-\S+|\S+=\S*|\d+[smhd]?)\s+)*/, '');
+      continue;
+    }
+    return tail ? `${head} ${tail}` : head;
+  }
+  return rest;
+}
+
+/** Head-normalized segments, plus (recursively) the segments of any literal
+ *  shell-in-shell payload: `cmd /c del foo.txt` also yields `del foo.txt`. */
+function scanSegments(cmd: string, depth: number): string[] {
+  const out: string[] = [];
+  for (const raw of commandSegments(cmd)) {
+    const segment = normalizeSegmentHead(raw);
+    out.push(segment);
+    if (depth === 0) continue;
+    const payload = nestedShellPayload(segment);
+    if (payload) out.push(...scanSegments(payload, depth - 1));
+  }
+  return out;
+}
+
+function nestedShellPayload(segment: string): string | undefined {
+  const head = /^\S*/.exec(segment)![0];
+  for (const shell of NESTED_SHELL_HEADS) {
+    if (!shell.head.test(head)) continue;
+    const match = shell.flag.exec(segment);
+    if (!match) return undefined;
+    const payload = match[1]!.trim();
+    const unquoted = /^(['"])([\s\S]*)\1$/.exec(payload);
+    return unquoted ? unquoted[2] : payload;
+  }
+  return undefined;
+}
+
+function isPrivilegedSegment(segment: string): boolean {
+  const lower = segment.toLowerCase();
+  return PRIVILEGED_SHELL_PREFIXES.some((p) => lower.startsWith(p))
+    || PRIVILEGED_SHELL_PATTERNS.some((re) => re.test(segment));
+}
+
+/**
+ * Categorize a shell command into a permission bucket. There is NO shell_safe
+ * outcome: no shell command is auto-allowed (see the note above the privileged
+ * prefixes). This function's job is only to pick the most accurate confirmation
+ * REASON — privileged > fs_destructive > git_destructive > shell_unsafe — by
+ * scanning EVERY statement segment (with a canonicalized first token), so
+ * `cd /tmp; rm -rf stuff`, `Get-ChildItem . | ForEach-Object { Remove-Item $_ }`,
+ * and `& 'Remove-Item' x` all read as destructive. Since the fallback
+ * shell_unsafe already prompts, a missed variant only mislabels the reason; it
+ * never changes allow-vs-prompt.
+ */
 export function categorizeBash(cmd: string): ToolCategory {
   const t = cmd.trim();
-  if (PRIVILEGED_SHELL_PREFIXES.some((p) => t.startsWith(p))) return 'privileged';
-  if (FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
+  // Backtick is BOTH a split boundary (bash command substitution — `rm x` runs
+  // even inside double quotes, so it must stay a boundary) AND PowerShell's
+  // in-name escape (R`M runs rm, Remove`-Item runs Remove-Item — verified on
+  // real pwsh). Splitting alone would leave the PS name as two innocent halves,
+  // so scan the split segments AND a backtick-collapsed variant of the command.
+  const segments = scanSegments(cmd, 2);
+  if (cmd.includes('`')) segments.push(...scanSegments(cmd.replace(/`/g, ''), 2));
+  if (segments.some((s) => isPrivilegedSegment(s))) return 'privileged';
+  if (segments.some((s) => FS_DESTRUCTIVE_PATTERNS.some((re) => re.test(s)))) return 'fs_destructive';
   if (PIPE_DESTRUCTIVE_PATTERNS.some((re) => re.test(t))) return 'fs_destructive';
-  if (DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(t))) return 'git_destructive';
-  if (SHELL_CONTROL_PATTERNS.some((re) => re.test(t))) return 'shell_unsafe';
-  if (SAFE_SHELL_PREFIXES.some((p) => t === p || t.startsWith(p + ' '))) return 'shell_safe';
+  if (segments.some((s) => DESTRUCTIVE_GIT_PATTERNS.some((re) => re.test(s)))) return 'git_destructive';
   return 'shell_unsafe';
 }
 

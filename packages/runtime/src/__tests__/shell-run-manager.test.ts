@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { ShellRunRecord, ShellRunStore } from '@maka/core';
 import { ShellRunProcessManager } from '../shell-run-manager.js';
+import type { ShellPlan } from '../shell-detect.js';
 
 describe('ShellRunProcessManager', () => {
   test('persists every Bash run and returns observed terminal results for quick commands', async () => {
@@ -28,6 +29,29 @@ describe('ShellRunProcessManager', () => {
     assert.equal(record.stdoutTail, 'hello');
     assert.ok(record.observedAt !== undefined);
     assert.equal(manager.liveCount(), 0);
+  });
+
+  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
+    // /bin/echo stands in for pwsh.exe: honouring the spawn plan means the
+    // "shell" receives the flags plus the command as argv and echoes them back.
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const manager = createManager(store);
+
+    const result = await manager.runBash(shellInput({
+      cwd,
+      command: 'echo wired-marker',
+      yieldTimeMs: 30_000,
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    }));
+
+    assert.equal(result.kind, 'terminal');
+    assert.equal(result.exitCode, 0);
+    assert.ok(
+      result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `flags then verbatim command, got: ${result.stdout}`,
+    );
+    assert.ok(result.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
   });
 
   test('does not leak live slots when a process exits before durable create resolves', async () => {
@@ -315,6 +339,7 @@ function shellInput(input: {
   yieldTimeMs?: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  shell?: ShellPlan;
 }) {
   return {
     sessionId: 'session-1',
@@ -325,6 +350,7 @@ function shellInput(input: {
     command: input.command,
     ...(input.yieldTimeMs !== undefined ? { yieldTimeMs: input.yieldTimeMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
+    ...(input.shell !== undefined ? { shell: input.shell } : {}),
     emitOutput: input.emitOutput ?? (() => {}),
   };
 }

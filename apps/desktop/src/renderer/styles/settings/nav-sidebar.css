@@ -257,7 +257,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-secondary);
@@ -592,6 +592,18 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
+/* Detail audit round 3: vertical variant for full-width controls (the
+   personalization tone textarea) living inside the shared card rows. */
+.settingsFormRow[data-orient="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.settingsFormRow[data-orient="vertical"] .settingsActionRow {
+  margin: 0;
+}
+
 .settingsFormRow:last-child {
   border-bottom: 0;
 }
@@ -687,7 +699,7 @@
 .settingsFormGrid label span {
   display: block;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
@@ -697,8 +709,7 @@
   display: block;
   margin-top: var(--space-1-5);
   color: var(--muted-foreground);
-  /* Hint is the most-read body text on the page; use the base scale so
-     it clears the 14px legibility floor. */
+  /* Hint is the most-read body text on the page; body tier (13). */
   font-size: var(--font-size-base);
   line-height: var(--leading-normal);
 }

@@ -492,11 +492,12 @@
 .settingsMemoryMeta {
     flex-wrap: wrap;
     row-gap: var(--space-1);
-    /* Anchor the strip: it floated unboxed between two cards and read
-       as orphaned fragments. A hairline + breathing room marks it as
-       the editor's status footnote (divider over a nested card). */
-    padding: var(--space-1-5) var(--space-0-5) 0;
-    border-top: var(--border-width-hairline) solid var(--foreground-10);
+    /* Detail audit round 2: the hairline alone still read as orphaned
+       fragments floating between two cards (user screenshot). A quiet
+       filled strip gives the path + status words a real container. */
+    padding: var(--space-1-5) var(--space-2-5);
+    border-radius: var(--radius-control);
+    background: var(--foreground-3);
   }
 .settingsMemoryPath {
     /* The component already shortens the path for display

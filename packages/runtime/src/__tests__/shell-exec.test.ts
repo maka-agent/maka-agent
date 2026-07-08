@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function findPwsh(): string | undefined {
+  const exeNames = process.platform === 'win32' ? ['pwsh.exe'] : ['pwsh', 'pwsh-preview'];
+  for (const dir of (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')) {
+    if (!dir) continue;
+    for (const name of exeNames) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
@@ -108,6 +120,52 @@ describe('runShellWithBoundedTail', () => {
     // Shares the recovery hint with truncateToolOutput: re-run only when safe.
     assert.ok(r.stdout.includes('safe to re-run'), 'recovery guidance is conditioned on safety');
     assert.ok(r.stdout.includes('side effects'), 'warns about repeating side effects');
+  });
+
+  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
+    // /bin/echo stands in for pwsh.exe: if the spawn plan is honoured, the
+    // "shell" receives the flags plus the command as argv and echoes them back.
+    // If the command were still run via shell:true, stdout would be plain
+    // 'wired-marker' with no flags.
+    const r = await runShellWithBoundedTail('echo wired-marker', base({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    }));
+    assert.equal(r.exitCode, 0);
+    assert.ok(
+      r.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `flags then verbatim command, got: ${r.stdout}`,
+    );
+    assert.ok(r.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
+  });
+
+  test('a native command exit code survives the PowerShell -Command path (requires pwsh)', async (t) => {
+    // Without the wrapper, pwsh -Command maps any non-zero native exit code to
+    // 1 (verified against real pwsh). node stands in for the native command.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
+  });
+
+  test('deliberate boundary: earlier native exit code wins over a final cmdlet failure (requires pwsh)', async (t) => {
+    // Plain pwsh -Command would exit 1 here (last statement is a cmdlet
+    // failure). The wrapper cannot tell WHICH statement tripped $? , and the
+    // only observable ($Error growth) would misreport the far more common
+    // "cmdlet noise, then native command fails last" shape back to 1. So when
+    // the final statement failed, the wrapper deliberately prefers the last
+    // native exit code over the generic 1 — both are non-zero, stderr still
+    // carries the cmdlet error. Pinned so a wrapper change surfaces here.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'\nGet-Item ./maka-definitely-missing-file`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
+    assert.match(r.stderr, /maka-definitely-missing-file/);
   });
 
   test('emits every chunk live via emitOutput', async () => {

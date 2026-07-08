@@ -20,6 +20,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
   runShellWithBoundedTail,
@@ -704,7 +705,7 @@ export function buildHarborCellContextBudgetBackendOptions(
     env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
     env.MAKA_TOOL_RESULT_PRUNE,
     'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  ) ?? false;
+  ) ?? true;
   const activePruneEnabled = booleanEnv(
     env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
     env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
@@ -760,7 +761,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      ...(minRecentTurnsFull !== undefined ? { minRecentTurnsFull } : {}),
+      // Explicit so the runtime protection window matches the policy snapshot
+      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
+      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
     };
   }
 
@@ -1171,7 +1174,13 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
   // Terminal-Bench tasks build or test for longer than the 2-minute default, so
   // the floor is operator-configurable instead of a hard-coded failure source.
   const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
+  // The shell this executor spawns in (PowerShell on Windows). Exposed as
+  // `shell` so buildIsolatedBashTool DECLARES the dialect to the model, and
+  // passed to runShellWithBoundedTail so the declaration matches execution —
+  // selection without declaration is the original Windows bug (shell-detect.ts).
+  const shell = defaultShellPlan();
   return {
+    shell,
     exec: async ({ command, cwd, timeoutMs, boundedTail }) => {
       if (boundedTail) {
         // Bash opted in: stream into a bounded tail (shared with the in-process
@@ -1183,6 +1192,7 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
             cwd,
             env: childEnv,
             timeoutMs: timeoutMs ?? defaultTimeoutMs,
+            shell,
           });
           return {
             exitCode: result.timedOut ? 124 : result.exitCode,

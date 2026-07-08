@@ -12,8 +12,10 @@ import {
   buildBackgroundBashTool,
   buildStopBackgroundTaskTool,
   shapeTerminalResult,
+  withShellGuidance,
 } from './shell-tools.js';
 import type { ShellRunToolController } from './shell-tools.js';
+import { defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { isShellRunResourceRef } from './shell-run-manager.js';
 import {
   createLocalWorkspaceExecutor,
@@ -36,6 +38,8 @@ const GREP_TIMEOUT_MS = 120_000;
 export interface BuildBuiltinToolsOptions {
   shellRuns?: ShellRunToolController;
   executor?: WorkspaceExecutor;
+  /** Shell that runs Bash commands. Defaults to the process-wide detected shell. */
+  shell?: ShellPlan;
 }
 
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
@@ -44,12 +48,13 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   const readDescription = options.shellRuns
     ? 'Read a file from disk by path relative to session cwd, or read a runtime background task ref.'
     : 'Read a file from disk by path relative to session cwd.';
+  const shell = options.shell ?? defaultShellPlan();
   const bashTools = options.shellRuns
     ? [
-      buildBackgroundBashTool(options.shellRuns, { executionFacts }),
+      buildBackgroundBashTool(options.shellRuns, { executionFacts, shell }),
       buildStopBackgroundTaskTool(options.shellRuns),
     ]
-    : [buildExecutorBashTool(executor)];
+    : [buildExecutorBashTool(executor, shell)];
   return [
     ...bashTools,
     {
@@ -179,10 +184,11 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   ];
 }
 
-function buildExecutorBashTool(executor: WorkspaceExecutor): MakaTool {
+function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): MakaTool {
   return {
     name: 'Bash',
-    description: 'Run a shell command in the session cwd. Subject to permission policy.',
+    description: withShellGuidance('Run a shell command in the session cwd.', shell)
+      + ' Subject to permission policy.',
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(600_000).optional(),
@@ -197,6 +203,7 @@ function buildExecutorBashTool(executor: WorkspaceExecutor): MakaTool {
         timeoutMs: timeout,
         ...(abortSignal ? { abortSignal } : {}),
         emitOutput,
+        shell,
       });
       if (result.timedOut) throw terminalError(`Command timed out after ${timeout}ms`, result, 124);
       if (result.aborted) throw terminalError('Command aborted', result, 130);

@@ -195,6 +195,7 @@ import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
+import { registerNotificationsIpc } from './notifications-ipc-main.js';
 
 // E2E switches must never fire in a packaged build, and must never run against
 // the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
@@ -948,6 +949,12 @@ function registerIpc(): void {
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
   });
+  // PR-SHOW-AFTER-FIRST-COMMIT: the renderer signals its first React commit so
+  // the hidden window (main-window.ts show: false) is revealed only once real
+  // content can paint. Idempotent + visual-smoke-safe inside the controller.
+  ipcMain.handle('window:notifyRendererReady', (): void => {
+    mainWindowController.notifyRendererReady();
+  });
   ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
     mainWindowController.setThemeSource(event.sender, themePref);
   });
@@ -1057,6 +1064,7 @@ function registerIpc(): void {
   );
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
+  registerNotificationsIpc({ settingsStore, mainWindowController });
   ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',

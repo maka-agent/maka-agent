@@ -95,7 +95,11 @@ export function buildManualCompactLookupPolicy(
 function buildStaleToolResultPrunePolicy(
   env: Record<string, string | undefined>,
 ): NonNullable<ContextBudgetPolicy['staleToolResultPrune']> | undefined {
-  if (env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE !== 'on') return undefined;
+  const enabled = parseOptionalBoolean(
+    env.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE,
+    'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
+  );
+  if (enabled === false) return undefined;
   return {
     enabled: true,
     maxResultEstimatedTokens: parsePositiveInt(

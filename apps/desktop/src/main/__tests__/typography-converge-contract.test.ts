@@ -6,13 +6,14 @@
  * Three invariants:
  *
  * 1. CSS `font-size` must reference a whitelisted `--font-size-*` token,
- *    use `em` (relative scaling off the 15px root), or be a literal
+ *    use `em` (relative scaling off the 13px root), or be a literal
  *    (`inherit` / `initial` / `0`). Bare `Npx` and `Nrem` drift visually
- *    and bypass the three-tier scale.
+ *    and bypass the tier scale.
  *
- * 2. `--font-size-{base,ui,caption}` tokens are defined in `maka-tokens.css`
- *    with pinned values (15 / 13 / 11). A rename or value change gets
- *    flagged at the test layer before any styles site drifts.
+ * 2. `--font-size-{heading,base,ui,caption}` tokens are defined in
+ *    `maka-tokens.css` with pinned values (#546 re-tier: heading 15 /
+ *    body 13 / caption 11; ui aliases base). A rename or value change
+ *    gets flagged at the test layer before any styles site drifts.
  *
  * 3. Tailwind `--text-{xs,sm,base}` aliases in `styles.css` `@theme inline`
  *    map to the token scale so TSX `text-*` utilities stay single-sourced
@@ -28,6 +29,7 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, readRendererTsxFiles, strip
 // --- token whitelist --------------------------------------------------------
 
 const FONT_SIZE_TOKEN_WHITELIST = new Set([
+  '--font-size-heading',
   '--font-size-base',
   '--font-size-ui',
   '--font-size-caption',
@@ -97,17 +99,23 @@ describe('PR-TYPOGRAPHY-CONVERGE-0 contract', () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
     // Strip the token declaration lines themselves (they legitimately spell px)
     const stripped = tokens
-      .replace(/^\s*--font-size-base:\s*15px\s*;?\s*$/gm, '')
-      .replace(/^\s*--font-size-ui:\s*13px\s*;?\s*$/gm, '')
+      .replace(/^\s*--font-size-heading:\s*15px\s*;?\s*$/gm, '')
+      .replace(/^\s*--font-size-base:\s*13px\s*;?\s*$/gm, '')
+      .replace(/^\s*--font-size-ui:\s*var\(--font-size-base\)\s*;?\s*$/gm, '')
       .replace(/^\s*--font-size-caption:\s*11px\s*;?\s*$/gm, '');
     const offenders = findCssOffenders(stripped, 'maka-tokens.css');
     assert.deepEqual(offenders, [], `Offenders:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('--font-size-{base,ui,caption} tokens are defined with pinned values', async () => {
+  it('--font-size-{heading,base,ui,caption} tokens are defined with pinned values', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    assert.match(tokens, /--font-size-base:\s*15px/, '--font-size-base must be 15px');
-    assert.match(tokens, /--font-size-ui:\s*13px/, '--font-size-ui must be 13px');
+    assert.match(tokens, /--font-size-heading:\s*15px/, '--font-size-heading must be 15px');
+    assert.match(tokens, /--font-size-base:\s*13px/, '--font-size-base must be 13px (#546 re-tier)');
+    assert.match(
+      tokens,
+      /--font-size-ui:\s*var\(--font-size-base\)/,
+      '--font-size-ui must alias --font-size-base (#546 re-tier: body == chrome)'
+    );
     assert.match(tokens, /--font-size-caption:\s*11px/, '--font-size-caption must be 11px');
   });
 

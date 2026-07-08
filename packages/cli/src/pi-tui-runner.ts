@@ -26,14 +26,17 @@ import type { MakaSessionDriver } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
   renderMakaPiStatusLine,
-  renderMakaPiTranscript,
+  renderMakaPiTranscriptSource,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
+  windowTranscriptLines,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
+  type RenderedTranscript,
+  type TranscriptLineOwner,
 } from './pi-transcript.js';
 import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
@@ -112,6 +115,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return;
+    // Control actions are user-initiated and append their result (a notice, a
+    // compaction summary); follow the tail so it is visible even if the user had
+    // scrolled up.
+    layout.followTailNow();
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -151,6 +158,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const request = state.pendingPermission;
     if (!request || permissionInFlight) return false;
     permissionInFlight = true;
+    // Answering is the user acting; the decision resumes the turn at the tail
+    // (tool output, the next reply, or an error). Snap back to the tail so that
+    // continuation is visible even if the user had paged up past the prompt to
+    // read context before deciding — otherwise the session looks stuck.
+    layout.followTailNow();
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck.
     void input.driver.respondToPermission({
@@ -184,6 +196,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
+    // A submission is the user acting; snap back to the tail so their prompt and
+    // its response are visible, rather than treating the appended rows as
+    // background stream output and preserving a scrolled-up position.
+    layout.followTailNow();
     if (handleSlashCommand(prompt)) return;
 
     runAgentTurn(prompt);
@@ -199,11 +215,27 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     terminal.setProgress(true);
     requestRender();
 
+    let permissionSnapped = false;
     void submitPromptToTranscript({
       state,
       driver: input.driver,
       prompt,
-      onChange: requestRender,
+      onChange: () => {
+        // A newly raised permission prompt renders at the transcript tail. If the
+        // user has paged up, it would land below the fold and the session would
+        // look stuck waiting for a y/n they cannot see. Snap to the tail once when
+        // the prompt first appears — not on every render, so the user can still
+        // page up to read context before answering.
+        if (state.pendingPermission) {
+          if (!permissionSnapped) {
+            permissionSnapped = true;
+            layout.followTailNow();
+          }
+        } else {
+          permissionSnapped = false;
+        }
+        requestRender();
+      },
     }).finally(() => {
       busy = false;
       turnRunning = false;
@@ -249,6 +281,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
+    // The transcript is a different document now; drop any scroll position so the
+    // resumed session opens following its latest messages, not mid-history.
+    layout.followTailNow();
     if (messages.length === 0) {
       state.entries.push({
         kind: 'notice',
@@ -583,6 +618,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
+    // Page through transcript scrollback — but only when there is scrollback to
+    // page. PageUp/PageDown also page the editor's own multi-line input buffer,
+    // so when the transcript fits the viewport we let the key fall through to the
+    // editor instead of swallowing it.
+    if (matchesKey(data, Key.pageUp)) {
+      if (!layout.isScrollable()) return undefined;
+      if (layout.scrollUp()) tui.requestRender();
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      if (!layout.isScrollable()) return undefined;
+      if (layout.scrollDown()) tui.requestRender();
+      return { consume: true };
+    }
     if (state.pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
         respondToPendingPermission('allow');
@@ -638,7 +687,11 @@ class MakaTranscriptComponent implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
-    return renderMakaPiTranscript(this.state, this.metadata(), width);
+    return this.renderSource(width).lines;
+  }
+
+  renderSource(width: number): RenderedTranscript {
+    return renderMakaPiTranscriptSource(this.state, this.metadata(), width);
   }
 }
 
@@ -652,9 +705,58 @@ class MakaStatusLineComponent implements Component {
   }
 }
 
+/**
+ * Row of the line the scroll anchor points at in a freshly rendered transcript,
+ * or -1 when the anchored entry is gone entirely (e.g. compaction replaced the
+ * transcript). If the entry survives but its block shrank past the anchored row,
+ * fall back to the entry's last remaining row so the viewport stays on that
+ * entry instead of jumping.
+ */
+function findAnchorRow(owners: readonly (TranscriptLineOwner | null)[], anchor: TranscriptLineOwner): number {
+  let lastRowOfEntry = -1;
+  for (let i = 0; i < owners.length; i++) {
+    const owner = owners[i];
+    if (!owner || owner.entry !== anchor.entry) continue;
+    if (owner.row === anchor.row) return i;
+    lastRowOfEntry = i; // rows are emitted in order, so this tracks the max seen
+  }
+  return lastRowOfEntry;
+}
+
+/** The owner of the first content line at or after `start` (skipping spacers). */
+function anchorOwnerAt(owners: readonly (TranscriptLineOwner | null)[], start: number): TranscriptLineOwner | null {
+  for (let i = Math.max(0, start); i < owners.length; i++) {
+    if (owners[i]) return owners[i];
+  }
+  for (let i = Math.min(start, owners.length) - 1; i >= 0; i--) {
+    if (owners[i]) return owners[i];
+  }
+  return null;
+}
+
 class MakaPiLayoutComponent extends Container {
+  // Scroll position as lines hidden below the viewport bottom; 0 = following the
+  // live tail. `followTail` re-pins to the bottom as new output streams in, so a
+  // user reading history is only ever moved by an explicit scroll, never by the
+  // agent's next line.
+  private scrollOffset = 0;
+  private followTail = true;
+  private lastTotalLines = 0;
+  private lastViewportRows = 0;
+  private lastWidth = 0;
+  // The content the top of the viewport is pinned to while scrolled. Anchoring to
+  // a piece of content (an entry + row) rather than a line offset keeps the
+  // reader on the same text no matter how blocks re-render between frames —
+  // growing or shrinking, above or below the fold, or several at once in one
+  // coalesced paint. Null while following the tail.
+  private anchor: TranscriptLineOwner | null = null;
+  // Owners of the last painted frame, so an explicit scroll can translate its
+  // target row into a content anchor rather than a bottom-relative offset (which
+  // a render coalesced with fresh stream deltas would misapply to a taller frame).
+  private lastOwners: readonly (TranscriptLineOwner | null)[] = [];
+
   constructor(
-    private readonly transcript: Component,
+    private readonly transcript: MakaTranscriptComponent,
     private readonly editor: Component,
     private readonly statusLine: Component,
     private readonly terminal: Terminal,
@@ -666,17 +768,119 @@ class MakaPiLayoutComponent extends Container {
   }
 
   render(width: number): string[] {
-    const transcriptLines = this.transcript.render(width);
+    const source = this.transcript.renderSource(width);
+    const transcriptLines = source.lines;
     const editorLines = this.editor.render(width);
     const statusLines = this.statusLine.render(width);
-    const transcriptRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
-    const paddingRows = Math.max(0, transcriptRows - transcriptLines.length);
+    const viewportRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
+
+    if (width !== this.lastWidth) {
+      // Rewrapping at a new width invalidates every line offset, so re-pin to the
+      // tail rather than land the viewport on an arbitrary mid-message row.
+      this.followTail = true;
+      this.scrollOffset = 0;
+      this.anchor = null;
+    } else if (!this.followTail && this.anchor) {
+      // A re-render (stream delta, expansion toggle, ...). Recompute the offset so
+      // the anchored content line is back at the top of the viewport. Deriving it
+      // from the anchor's live position — rather than nudging the old offset by a
+      // line delta — is correct for every kind of change at once: only the anchor's
+      // current row matters, not where or how the transcript grew or shrank.
+      const anchorRow = findAnchorRow(source.owners, this.anchor);
+      if (anchorRow < 0) {
+        // The anchored entry is gone (e.g. a session switch replaced the
+        // transcript); fall back to the tail rather than a stale position.
+        this.followTail = true;
+        this.scrollOffset = 0;
+        this.anchor = null;
+      } else {
+        const contentRows = viewportRows >= 2 ? viewportRows - 1 : viewportRows;
+        this.scrollOffset = Math.max(0, transcriptLines.length - anchorRow - contentRows);
+      }
+    }
+
+    const windowed = windowTranscriptLines(
+      transcriptLines,
+      viewportRows,
+      this.followTail ? 0 : this.scrollOffset,
+      width,
+    );
+    this.scrollOffset = windowed.scrollOffset;
+    this.followTail = windowed.scrollOffset === 0;
+    this.anchor = this.followTail ? null : anchorOwnerAt(source.owners, windowed.hiddenAbove);
+    this.lastOwners = source.owners;
+    this.lastTotalLines = transcriptLines.length;
+    this.lastViewportRows = viewportRows;
+    this.lastWidth = width;
+
+    const paddingRows = Math.max(0, viewportRows - windowed.lines.length);
     return [
-      ...transcriptLines,
+      ...windowed.lines,
       ...Array.from({ length: paddingRows }, () => ''),
       ...editorLines,
       ...statusLines,
     ];
+  }
+
+  /** One indicator row is reserved when scrolling, so a page is that many content rows. */
+  private pageSize(): number {
+    return Math.max(1, this.lastViewportRows - 1);
+  }
+
+  private scrollBy(offsetDelta: number): boolean {
+    if (this.lastTotalLines <= this.lastViewportRows) return false; // nothing hidden
+    const maxOffset = Math.max(0, this.lastTotalLines - this.pageSize());
+    const current = this.followTail ? 0 : this.scrollOffset;
+    const next = Math.min(Math.max(0, current + offsetDelta), maxOffset);
+    if (next === current) return false;
+    if (next === 0) {
+      this.followTail = true;
+      this.scrollOffset = 0;
+      this.anchor = null;
+      return true;
+    }
+    // Translate the target offset into a content anchor from the last painted
+    // frame. If the pending render coalesces with fresh stream deltas, deriving
+    // the offset from that anchor against the taller transcript lands the user on
+    // the page they asked for, instead of applying a stale bottom-relative offset.
+    const contentRows = this.lastViewportRows >= 2 ? this.lastViewportRows - 1 : this.lastViewportRows;
+    const targetStart = Math.max(0, this.lastTotalLines - next - contentRows);
+    this.followTail = false;
+    this.scrollOffset = next; // provisional; render recomputes from the anchor when set
+    this.anchor = anchorOwnerAt(this.lastOwners, targetStart);
+    return true;
+  }
+
+  /** Scroll toward older output by one page. Returns false when already at the top. */
+  scrollUp(): boolean {
+    return this.scrollBy(this.pageSize());
+  }
+
+  /** Scroll toward newer output by one page. Returns false when already following the tail. */
+  scrollDown(): boolean {
+    return this.scrollBy(-this.pageSize());
+  }
+
+  /**
+   * True when the transcript overflows the viewport, i.e. paging keys should
+   * scroll it. When false the transcript fits and PageUp/PageDown page the
+   * editor's own multi-line input buffer instead. A zero-row viewport (the
+   * editor and status filled a very short terminal) renders no transcript at
+   * all, so paging must fall through to the editor even with content buffered.
+   */
+  isScrollable(): boolean {
+    return this.lastViewportRows > 0 && this.lastTotalLines > this.lastViewportRows;
+  }
+
+  /**
+   * Re-pin to the live tail. Call when the transcript is replaced wholesale (a
+   * session switch) or the user submits, so the viewport follows the newest
+   * output instead of holding a now-irrelevant scroll position.
+   */
+  followTailNow(): void {
+    this.followTail = true;
+    this.scrollOffset = 0;
+    this.anchor = null;
   }
 }
 

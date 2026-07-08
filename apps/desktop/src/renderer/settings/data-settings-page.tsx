@@ -202,9 +202,15 @@ export function DataSettingsPage() {
           value="本机 localStorage"
         />
       </SettingsRows>
+      {/* Detail audit: was two wrapped rows with 打开文件夹 wearing primary
+          (a utility action) and destructive 清空输入历史 dressed neutral.
+          One row; utilities are secondary; the destructive action reads
+          destructive (red outline family, same recipe as the permission
+          dialog confirm). */}
       <div className="settingsActionRow" role="group" aria-label="工作区数据操作">
         <Button
           type="button"
+          variant="secondary"
           onClick={() => void openWorkspace()}
           disabled={!info || dataActionDisabled}
         >
@@ -218,11 +224,10 @@ export function DataSettingsPage() {
         >
           {isDataActionPending('workspace:path:copy') ? '复制中…' : '复制路径'}
         </Button>
-      </div>
-      <div className="settingsActionRow" role="group" aria-label="输入历史操作">
         <Button
           type="button"
-          variant="secondary"
+          variant="outline"
+          className="border-[oklch(from_var(--destructive)_l_c_h_/_0.45)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)]"
           onClick={() => void clearInputHistory()}
           disabled={dataActionDisabled}
         >

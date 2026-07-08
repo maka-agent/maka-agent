@@ -3,6 +3,7 @@ import { mkdtemp } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { defaultShellPlan } from '@maka/runtime';
 import { createHarborCellLocalToolExecutor } from '../harbor-cell.js';
 import { buildIsolatedBashTool } from '../tools.js';
 
@@ -49,5 +50,13 @@ describe('Harbor local executor Bash (real spawn, >10MB)', () => {
     assert.ok(result.stderr.includes('TAIL_SENTINEL'), 'true stderr tail retained');
     assert.ok(!result.stderr.includes('HEAD_SENTINEL'), 'stderr head dropped');
     assert.ok(result.stderr.includes('truncated'), 'stderr truncation marker present');
+  });
+
+  test('declares the same shell it spawns in — no selection-without-declaration gap', () => {
+    // The executor runs commands through defaultShellPlan() (PowerShell on
+    // Windows). It must expose that same plan so buildIsolatedBashTool declares
+    // the dialect to the model instead of leaving it to guess (shell-detect.ts).
+    const executor = createHarborCellLocalToolExecutor();
+    assert.deepEqual(executor.shell, defaultShellPlan());
   });
 });

@@ -14,6 +14,7 @@ export const MAIN_PROCESS_SOURCE_REPO_PATHS: readonly string[] = [
   'apps/desktop/src/main/daily-review-main.ts',
   'apps/desktop/src/main/main-window.ts',
   'apps/desktop/src/main/memory-ipc-main.ts',
+  'apps/desktop/src/main/notifications-ipc-main.ts',
   'apps/desktop/src/main/oauth-model-connections-main.ts',
   'apps/desktop/src/main/permission-mode-default.ts',
   'apps/desktop/src/main/plan-reminders-ipc-main.ts',

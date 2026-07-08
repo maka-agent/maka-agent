@@ -210,16 +210,6 @@
     align-items: center;
     gap: var(--space-1-5);
   }
-.settingsInlineTextButton {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: var(--link);
-    font: inherit;
-  }
-.settingsInlineTextButton:hover {
-    text-decoration: underline;
-  }
 .settingsConnectionActions {
     display: flex;
     flex-wrap: wrap;

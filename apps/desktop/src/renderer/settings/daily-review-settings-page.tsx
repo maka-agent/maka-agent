@@ -142,15 +142,15 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
   return (
     <section className="settingsFeatureStatusPage" aria-label="每日回顾">
-      <header className="settingsFeatureStatusBanner" role="status">
-        <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
-        <strong>每日回顾</strong>
-        <span>
-          {hasConfigIpc
-            ? '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。'
-            : '当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。'}
-        </span>
-      </header>
+      {/* Detail audit: the always-on feature banner repeated the page
+          subtitle — report by exception instead: only the not-wired
+          fallback state warrants a banner. */}
+      {!hasConfigIpc && (
+        <header className="settingsFeatureStatusBanner" role="status">
+          <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
+          <span>当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。</span>
+        </header>
+      )}
 
       {loadError ? (
         <Alert variant="error" className="settingsSurfaceAlert">

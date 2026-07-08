@@ -977,6 +977,12 @@ export function AppShell({
     showModelSetupToast,
     streamingBySessionRef,
     toastApi,
+    notifyRunEnded: ({ kind, sessionId, body }) => {
+      const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
+      // Best-effort: swallow any main-side failure so a missed banner
+      // never surfaces as an unhandled promise rejection.
+      void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
+    },
   });
 
   useEffect(() => {

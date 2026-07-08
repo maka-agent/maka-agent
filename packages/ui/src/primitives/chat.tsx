@@ -10,8 +10,8 @@ import type React from "react";
  * `Message` is the per-turn row container; `Bubble` is the message body
  * surface. They retire the bespoke `.message.{role}` / `.maka-bubble-user`
  * shell CSS, moving the row/bubble *shell* onto the Tailwind substrate while
- * leaving Markdown prose (now the `.maka-prose` layer in chat-message.css,
- * split off the assistant bubble shell by #546 PR4) and the turn machinery
+ * leaving Markdown prose (now the `.maka-prose` layer in prose.css, split
+ * off the assistant bubble shell by #546 PR4 / #618 item 3) and the turn machinery
  * (summary / lineage / footer / markers — PR2) untouched.
  *
  * The row keeps the authored `.maka-message-row` base (centered reading column).
@@ -72,10 +72,10 @@ const bubbleVariants = cva("", {
       // Keeps the neutral `--chat-user-bg` token path (never primary/accent).
       user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-normal text-[color:var(--chat-user-foreground,var(--foreground))]",
       // Assistant / system: open prose, no bubble. The shell stays
-      // `.maka-bubble-assistant` (geometry: max-width 72ch, padding, generic
-      // first/last-child margin reset); the Markdown prose layer `.maka-prose`
-      // (p / h / ul / code / ... typography) rides alongside so the same prose
-      // rules can be reused by tool-result bodies (#546 PR5).
+      // `.maka-bubble-assistant` (now just surface padding — typography,
+      // the 72ch measure cap, and edge-margin trims live on the prose layer,
+      // #618 item 2); the Markdown prose layer `.maka-prose` (p / h / ul /
+      // code / ... typography) rides alongside and stays reusable on its own.
       assistant: "maka-bubble-assistant maka-prose",
     },
   },

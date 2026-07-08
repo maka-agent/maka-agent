@@ -58,7 +58,8 @@
   border-radius: var(--radius-control);
   background: transparent;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  /* Glyph size for the 26px nav button, not body text — stays 15. */
+  font-size: var(--font-size-heading);
   line-height: var(--leading-none);
 }
 

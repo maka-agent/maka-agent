@@ -15,6 +15,22 @@ import {
   waitFor,
 } from './tui-terminal-mock.js';
 
+// Page up until `marker` scrolls below the fold, letting each render settle
+// before the next press. Pressing inside a waitFor predicate re-checks a stale
+// async screen and over-scrolls (the offset advances a page past what the screen
+// shows), which would decouple a captured slice from the real scroll state.
+async function pageUpBelowFold(terminal: FakeTerminal, marker: string): Promise<void> {
+  for (let i = 0; i < 8 && plainTerminalOutput(terminal.screenOutput()).includes(marker); i += 1) {
+    terminal.input('\x1b[5~');
+    await delay(20);
+  }
+  assert.equal(
+    plainTerminalOutput(terminal.screenOutput()).includes(marker),
+    false,
+    `expected "${marker}" to scroll below the fold`,
+  );
+}
+
 describe('Maka Pi TUI runner', () => {
   test('restores the terminal when driver stop rejects during close', async () => {
     const terminal = new FakeTerminal();
@@ -140,7 +156,432 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
-    await waitFor(() => terminal.output().includes('expanded-tail'));
+    // Expanding the 31-line result makes it overflow the viewport; its head line
+    // `expanded-tail` scrolls off the top when following the tail, so page up to
+    // bring it into view. This exercises the global expand and scrollback together.
+    // Press once per settled render rather than inside a waitFor predicate, which
+    // would re-check a stale async screen and over-scroll.
+    for (let i = 0; i < 8 && !plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail'); i += 1) {
+      terminal.input('\x1b[5~');
+      await delay(20);
+    }
+    assert.ok(
+      plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail'),
+      'expected the expanded head line in view after paging up',
+    );
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('pages transcript scrollback and re-follows the tail', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new LongReplyDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+
+    // A 40-paragraph reply overflows the 24-row viewport, so the tail is pinned
+    // to the bottom and a scroll indicator advertises the hidden lines above.
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && /↑ \d+ more/.test(screen);
+    });
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('para-00'), false);
+
+    // Page up far enough to reach the head of the transcript.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('para-00');
+    });
+
+    // Page back down until the live tail follows again (no lines hidden below).
+    await waitFor(() => {
+      terminal.input('\x1b[6~');
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && !/↓ \d+ more/.test(screen);
+    });
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('re-pins to the tail when the user submits after scrolling up', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new MultiTurnLongDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('t1-para-39'));
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('t1-para-00');
+    });
+
+    // Submitting a new prompt while scrolled up must snap back to the tail so the
+    // new turn is visible, not preserve the old scrolled-up position.
+    terminal.input('again');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('t2-para-39'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('snaps to the tail when a permission prompt appears while scrolled up', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionAfterLongDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+
+    // The long reply overflows the viewport; scroll up so the tail (where the
+    // permission prompt will land) is off-screen while the turn is still running.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('para-00');
+    });
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('Permission required'), false);
+
+    // The runtime now raises a permission request. It renders at the tail, below
+    // the scrolled-up viewport — the session must snap to the tail so the y/n
+    // prompt is visible instead of leaving the user staring at old output.
+    driver.releaseBody();
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Permission required'));
+
+    terminal.input('y');
+    driver.releasePermission();
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('re-pins to the tail after answering a permission prompt scrolled off-screen', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionThenTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+
+    // The prompt appears and snaps into view; then the user pages up past it to
+    // re-read context before deciding.
+    driver.releaseBody();
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Permission required'));
+    await pageUpBelowFold(terminal, 'Permission required');
+
+    // Answering resumes the turn at the tail. The continuation must be visible,
+    // not left below the scrolled-up viewport making the session look stuck.
+    terminal.input('y');
+    await waitFor(() => driver.completed);
+    await delay(50);
+    assert.ok(
+      plainTerminalOutput(terminal.screenOutput()).includes('after-permission-tail'),
+      'the post-decision continuation should be on screen',
+    );
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('holds the reader position when a late thinking completion grows a block above the fold', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new LateThinkingDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+
+    // Expand thinking, then page up so the (still short) thinking block sits above
+    // the fold and the viewport shows a stable middle slice of the reply.
+    terminal.input('\x14');
+    await delay(20);
+    await pageUpBelowFold(terminal, 'para-39');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+
+    // A late thinking_complete replaces the short draft in place with a much
+    // taller block above the fold. That growth must not be mistaken for a tail
+    // append, or the window drifts and the reader loses their place.
+    driver.releaseReply();
+    await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted when a block above the fold grew');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('holds the reader position when streaming re-wraps the tail below the fold', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamingTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/s-para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('typing-tail'));
+
+    // Page up so the streaming tail (the partial last line about to grow) is off
+    // the bottom and a stable middle slice of the reply shows.
+    await pageUpBelowFold(terminal, 'typing-tail');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('s-para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
+
+    // Streaming continues: the next delta re-wraps the partial tail line (an
+    // in-place edit, not a pure append) and adds paragraphs — all below the fold.
+    // The reader's slice must not move even though the tail block mutated.
+    driver.releaseStream();
+    await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted when the tail grew below the fold');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('holds the reader position when a tail block below the fold shrinks', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ShrinkingTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    // Expand thinking so the tall draft (at the tail, after the reply) is on screen.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('draftline-7'));
+
+    // Page up so the tall thinking draft drops below the fold and a stable middle
+    // slice of the reply shows. Stop mid-transcript, not at the very top: at the
+    // top `start` is pinned to 0 and an upward drift would be clamped away,
+    // masking the bug this test guards.
+    await pageUpBelowFold(terminal, 'draftline-7');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
+
+    // thinking_complete replaces the tall draft with a one-line result below the
+    // fold. A shrink is the symmetric case of a tail append; the reader's slice
+    // must not move even though the tail block lost rows.
+    driver.releaseThinking();
+    await waitFor(() => driver.completed);
+    // driver.completed flips inside the generator before the queued render paints;
+    // let the scheduled render flush before reading the screen.
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted when the tail shrank below the fold');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('holds the reader position when one frame mixes above-fold and below-fold growth', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new MixedFrameDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    // Expand thinking, then page up so the short thinking draft sits above the fold
+    // and a stable middle slice of the reply shows, with the reply tail below it.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+    terminal.input('\x14');
+    await delay(20);
+    await pageUpBelowFold(terminal, 'para-39');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
+
+    // One coalesced frame carries a thinking_complete (grows the block above the
+    // fold) and a text_delta (grows the reply tail below the fold) back-to-back.
+    // An offset-delta heuristic can only compensate for one side; anchoring to the
+    // visible content must hold the middle slice steady through both at once.
+    driver.releaseTail();
+    await waitFor(() => driver.completed);
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted on a mixed above/below-fold frame');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('lands PageUp on the previous page when the render coalesces with new output', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamRaceDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParaNums = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/r-para-(\d\d)/g) ?? []).map((s) => Number(s.slice(-2)));
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('r-para-29'));
+
+    // Press PageUp and let the next chunk stream in the same tick, so the paging
+    // render coalesces with the growth. The offset was computed against the shorter
+    // frame; applied verbatim to the taller one it would under-scroll toward the
+    // new tail. Anchoring to the target row instead lands the real previous page.
+    terminal.input('\x1b[5~');
+    driver.releaseTail();
+    await waitFor(() => driver.completed);
+    await delay(50);
+
+    const nums = visibleParaNums();
+    assert.ok(nums.length > 0, 'the scrolled-up view should still show reply paragraphs');
+    assert.ok(
+      Math.max(...nums) < 29,
+      `PageUp drifted toward the streamed tail: showed up to r-para-${Math.max(...nums)}`,
+    );
 
     terminal.input('\x03');
     await Promise.race([
@@ -1131,6 +1572,46 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('re-pins to the tail after switching sessions while scrolled up', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ScrollThenSwitchDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('go');
+    terminal.input('\r');
+    await waitFor(() => {
+      const screen = plainTerminalOutput(terminal.screenOutput());
+      return screen.includes('para-39') && /↑ \d+ more/.test(screen);
+    });
+    // Scroll up into history so the layout is no longer following the tail.
+    await waitFor(() => {
+      terminal.input('\x1b[5~');
+      return plainTerminalOutput(terminal.screenOutput()).includes('para-00');
+    });
+
+    // Switching replaces the transcript wholesale; the resumed session must open
+    // at its tail, not carry the old scroll offset into a different document.
+    terminal.input('/session session-2');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('switched-tail-marker'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('shows only current-cwd sessions in the session picker', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([
@@ -1794,6 +2275,474 @@ class ThinkingOutputDriver implements MakaSessionDriver {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ScrollThenSwitchDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [fakeSessionSummary('session-2', '/repo')];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 2, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    // A history long enough to overflow the viewport, ending in a marker line so
+    // the test can assert the tail is on screen after the switch.
+    const messages: StoredMessage[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      messages.push(storedUserMessage(`u${i}`, 't', `history-q-${i}`));
+      messages.push(storedAssistantMessage(`a${i}`, 't', `history-a-${i}`));
+    }
+    messages.push(storedAssistantMessage('a-last', 't', 'switched-tail-marker'));
+    return switchResult(fakeSessionSummary(sessionId, '/repo'), messages);
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class MultiTurnLongDriver implements MakaSessionDriver {
+  private turn = 0;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    this.turn += 1;
+    const n = this.turn;
+    const body = Array.from({ length: 40 }, (_, i) => `t${n}-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: `e${n}`, turnId: `t${n}`, ts: 1, messageId: `m${n}`, text: body };
+    yield { type: 'complete', id: `c${n}`, turnId: `t${n}`, ts: 2, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class LongReplyDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // Blank lines separate paragraphs so markdown keeps them on their own rows,
+    // giving a reply that reliably overflows the 24-row viewport.
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield {
+      type: 'text_delta',
+      id: 'event-text',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: body,
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class PermissionAfterLongDriver implements MakaSessionDriver {
+  permissionRequests = 0;
+  private continuePastBody: (() => void) | null = null;
+  private continuePastPermission: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    // Pause mid-turn so the test can scroll up before the permission request lands.
+    await new Promise<void>((resolve) => {
+      this.continuePastBody = resolve;
+    });
+    this.permissionRequests += 1;
+    yield {
+      type: 'permission_request',
+      id: 'event-permission',
+      turnId: 't',
+      ts: 2,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+    };
+    await new Promise<void>((resolve) => {
+      this.continuePastPermission = resolve;
+    });
+    yield {
+      type: 'permission_decision_ack',
+      id: 'event-decision',
+      turnId: 't',
+      ts: 3,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      decision: 'allow',
+      rememberForTurn: true,
+    };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 4, stopReason: 'end_turn' };
+  }
+
+  releaseBody(): void {
+    this.continuePastBody?.();
+  }
+
+  releasePermission(): void {
+    this.continuePastPermission?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class PermissionThenTailDriver implements MakaSessionDriver {
+  completed = false;
+  private responded = false;
+  private continuePastBody: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    await new Promise<void>((resolve) => {
+      this.continuePastBody = resolve;
+    });
+    yield {
+      type: 'permission_request',
+      id: 'event-permission',
+      turnId: 't',
+      ts: 2,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+    };
+    while (!this.responded) await delay(2);
+    yield {
+      type: 'permission_decision_ack',
+      id: 'event-decision',
+      turnId: 't',
+      ts: 3,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      decision: 'allow',
+      rememberForTurn: true,
+    };
+    // The turn resumes at the tail with output the user must see.
+    yield { type: 'text_delta', id: 'tail', turnId: 't', ts: 4, messageId: 'm1', text: '\n\nafter-permission-tail' };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 5, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseBody(): void {
+    this.continuePastBody?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {
+    this.responded = true;
+  }
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class LateThinkingDriver implements MakaSessionDriver {
+  completed = false;
+  private continuePastReply: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // A short thinking draft, then a reply long enough to push it above the fold.
+    yield { type: 'thinking_delta', id: 'th', turnId: 't', ts: 1, messageId: 'm1', text: 'draft' };
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'tx', turnId: 't', ts: 2, messageId: 'm1', text: body };
+    // Pause so the test can expand thinking and scroll up before the late completion.
+    await new Promise<void>((resolve) => {
+      this.continuePastReply = resolve;
+    });
+    // thinking_complete replaces the one-line draft in place with a much taller
+    // block — an in-place edit above the fold, not a tail append.
+    const thinking = Array.from({ length: 8 }, (_, i) => `reason-${i}`).join('\n');
+    yield { type: 'thinking_complete', id: 'thc', turnId: 't', ts: 3, messageId: 'm1', text: thinking };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 4, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseReply(): void {
+    this.continuePastReply?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class StreamingTailDriver implements MakaSessionDriver {
+  completed = false;
+  private continueStream: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First chunk overflows the viewport and ends mid-line ("typing-tail" with no
+    // trailing newline) so the next delta mutates that last rendered line in
+    // place rather than only appending fresh lines.
+    const head = Array.from({ length: 30 }, (_, i) => `s-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e1', turnId: 't', ts: 1, messageId: 'm1', text: `${head}\n\ntyping-tail` };
+    await new Promise<void>((resolve) => {
+      this.continueStream = resolve;
+    });
+    // The continuation re-wraps the partial tail line and appends more paragraphs.
+    const more = Array.from({ length: 10 }, (_, i) => `s-para-${String(i + 30).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e2', turnId: 't', ts: 2, messageId: 'm1', text: ` continued\n\n${more}` };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 3, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseStream(): void {
+    this.continueStream?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ShrinkingTailDriver implements MakaSessionDriver {
+  completed = false;
+  private continueThinking: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // A long reply, then a tall thinking draft appended after it (its own
+    // messageId, so it lands as a separate block at the tail).
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'tx', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    const draft = Array.from({ length: 8 }, (_, i) => `draftline-${i}`).join('\n');
+    yield { type: 'thinking_delta', id: 'th', turnId: 't', ts: 2, messageId: 'm2', text: draft };
+    await new Promise<void>((resolve) => {
+      this.continueThinking = resolve;
+    });
+    // thinking_complete collapses the tall draft to a single line — a below-the-
+    // fold shrink once the reader has scrolled past it.
+    yield { type: 'thinking_complete', id: 'thc', turnId: 't', ts: 3, messageId: 'm2', text: 'brief' };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 4, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseThinking(): void {
+    this.continueThinking?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class MixedFrameDriver implements MakaSessionDriver {
+  completed = false;
+  private continueTail: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // A short thinking draft (first entry), then a reply long enough to scroll
+    // through with the thinking above the fold and the reply tail below it.
+    yield { type: 'thinking_delta', id: 'th', turnId: 't', ts: 1, messageId: 'm1', text: 'draft' };
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'tx1', turnId: 't', ts: 2, messageId: 'm1', text: body };
+    await new Promise<void>((resolve) => {
+      this.continueTail = resolve;
+    });
+    // Back-to-back with no await between: the runner applies both before the
+    // scheduled render fires, so they land in one coalesced frame — thinking grows
+    // above the fold while the reply tail grows below it.
+    const tall = Array.from({ length: 8 }, (_, i) => `reason-${i}`).join('\n');
+    yield { type: 'thinking_complete', id: 'thc', turnId: 't', ts: 3, messageId: 'm1', text: tall };
+    const more = `\n\n${Array.from({ length: 10 }, (_, i) => `para-${String(i + 40).padStart(2, '0')}`).join('\n\n')}`;
+    yield { type: 'text_delta', id: 'tx2', turnId: 't', ts: 4, messageId: 'm1', text: more };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 5, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseTail(): void {
+    this.continueTail?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class StreamRaceDriver implements MakaSessionDriver {
+  completed = false;
+  private continueTail: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First chunk overflows the viewport; the reader pages up from its tail.
+    const head = Array.from({ length: 30 }, (_, i) => `r-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e1', turnId: 't', ts: 1, messageId: 'm1', text: head };
+    await new Promise<void>((resolve) => {
+      this.continueTail = resolve;
+    });
+    // More output appended below the fold, released in the same tick as the PageUp
+    // so its render coalesces with the paging one.
+    const more = `\n\n${Array.from({ length: 15 }, (_, i) => `r-para-${String(i + 30).padStart(2, '0')}`).join('\n\n')}`;
+    yield { type: 'text_delta', id: 'e2', turnId: 't', ts: 2, messageId: 'm1', text: more };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 3, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseTail(): void {
+    this.continueTail?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
   getSessionId(): string {
     return 'session-1';
   }

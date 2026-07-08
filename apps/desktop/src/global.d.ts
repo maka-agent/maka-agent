@@ -194,6 +194,18 @@ declare global {
           };
         };
       };
+      notifications: {
+        /** Fire-and-forget: report that an agent turn reached a terminal
+         * state. `title` is the session name, `body` the start of the
+         * reply (or error message); main sanitizes + falls back to
+         * generic copy. Main gates on the product toggle + window focus
+         * before raising a native OS notification. */
+        runEnded(payload: {
+          kind: 'completed' | 'errored';
+          title?: string;
+          body?: string;
+        }): Promise<void>;
+      };
       onboarding: {
         getSnapshot(): Promise<OnboardingSnapshot>;
         setMilestone(
@@ -407,6 +419,9 @@ declare global {
         // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
         // color/symbolColor to the current app theme. No-op on non-Windows.
         setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
+        // PR-SHOW-AFTER-FIRST-COMMIT: signal main after the first React commit
+        // so the hidden window is revealed (see main-window.ts).
+        notifyRendererReady(): Promise<void>;
       };
       config: {
         export(input: { categories: ConfigCategory[] }): Promise<

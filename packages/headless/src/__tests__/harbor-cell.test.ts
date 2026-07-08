@@ -1232,6 +1232,51 @@ describe('runHarborCell', () => {
     });
   });
 
+  // Eager retrieval only hydrates stale-kind placeholders, so a retrieval arm
+  // is structurally inert unless a placeholder producer (stale prune) and the
+  // archive reader are wired alongside it. The #340-era arms enabled retrieval
+  // without stale prune and it never fired; this contract pins the live shape.
+  test('Harbor eager archive-retrieval arm gets a placeholder producer and archive reader by default', async () => {
+    await withDirs(async ({ workspaceDir, outputDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
+      }).input;
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
+      assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
+      assert.ok(backendInput.readToolResultArchive, 'expected archive reader for eager hydration');
+    });
+  });
+
   test('Harbor ai-sdk backend leaves context budget policy off when explicitly disabled', async () => {
     await withDirs(async ({ workspaceDir }) => {
       const registry = new BackendRegistry();
@@ -1430,7 +1475,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env treats explicit false-like booleans as disabled', () => {
-    // stale and archive default off; activeToolResultPrune defaults on, so disabling
+    // archive retrieval defaults off; stale and active prune default on, so disabling
     // stale/archive alone still leaves an enabled activeToolResultPrune policy.
     assert.deepEqual(
       buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'false' }).contextBudget?.activeToolResultPrune,
@@ -1471,14 +1516,49 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor active tool result prune can be disabled with explicit off', () => {
-    assert.equal(
-      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }).contextBudget,
-      undefined,
-    );
-    assert.equal(
-      buildHarborCellContextBudgetPolicySnapshot({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }),
-      undefined,
-    );
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+  });
+
+  test('Harbor stale tool result prune is enabled by default without any env', () => {
+    const backend = buildHarborCellContextBudgetBackendOptions({});
+    // minRecentTurnsFull is set explicitly so the runtime protection window
+    // matches the policy snapshot and desktop default instead of the runtime's
+    // internal ?? 1 fallback.
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
+    assert.equal(snapshot?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+  });
+
+  test('Harbor stale tool result prune can be disabled with explicit off', () => {
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.staleToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
+  });
+
+  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+    const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+
+    const explicit = buildHarborCellContextBudgetBackendOptions({
+      MAKA_CONTEXT_MIN_RECENT_TURNS: '3',
+      MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS: '5',
+    });
+    assert.equal(explicit.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 5);
+  });
+
+  test('Harbor context budget is empty when both default-on prunes are explicitly off', () => {
+    const env = {
+      MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off',
+    };
+    assert.equal(buildHarborCellContextBudgetBackendOptions({ ...env }).contextBudget, undefined);
+    assert.equal(buildHarborCellContextBudgetPolicySnapshot({ ...env }), undefined);
   });
 
   test('Harbor parses semantic compact policy for headless runs', () => {

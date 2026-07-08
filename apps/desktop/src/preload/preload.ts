@@ -650,6 +650,20 @@ contextBridge.exposeInMainWorld('maka', {
       },
     },
   },
+  notifications: {
+    // Fire-and-forget signal that an agent turn reached a terminal
+    // state. `title` is the session name, `body` the start of the reply
+    // (or the error message); main sanitizes both and falls back to
+    // generic copy when blank. Main gates on the product toggle + window
+    // focus before raising a native OS notification.
+    runEnded(payload: {
+      kind: 'completed' | 'errored';
+      title?: string;
+      body?: string;
+    }): Promise<void> {
+      return ipcRenderer.invoke('notifications:runEnded', payload);
+    },
+  },
   usage: {
     summary(query: UsageQuery): Promise<Result<UsageSummaryV2>> {
       return ipcRenderer.invoke('usage:summary', query);
@@ -745,6 +759,11 @@ contextBridge.exposeInMainWorld('maka', {
     // color/symbolColor to the current app theme. No-op on non-Windows.
     setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
+    },
+    // PR-SHOW-AFTER-FIRST-COMMIT: tell main the renderer finished its first
+    // React commit so the hidden window can be revealed. Fire-and-forget.
+    notifyRendererReady(): Promise<void> {
+      return ipcRenderer.invoke('window:notifyRendererReady');
     },
   },
   config: {

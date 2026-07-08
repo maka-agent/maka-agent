@@ -18,6 +18,7 @@ import {
   shellTailValueWithUnsafeDropMarker,
   terminateChildProcessTree,
 } from './shell-exec.js';
+import { buildShellSpawnPlan, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
 
 export const DEFAULT_BASH_YIELD_TIME_MS = 10_000;
@@ -54,6 +55,12 @@ export interface ShellRunBashInput {
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
+  /**
+   * Shell to run the command with, forwarded per call by the Bash tool so the
+   * shell DECLARED in the tool description is the one that executes. Defaults
+   * to the process-wide detected shell.
+   */
+  shell?: ShellPlan;
 }
 
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
@@ -222,9 +229,10 @@ export class ShellRunProcessManager {
     }
 
     const shellRunId = this.input.newId();
-    const child = spawn(input.command, {
+    const plan = buildShellSpawnPlan(input.shell ?? defaultShellPlan(), input.command);
+    const child = spawn(plan.file, plan.args, {
       cwd: input.cwd,
-      shell: true,
+      shell: plan.useShellOption,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: process.platform !== 'win32',
     });

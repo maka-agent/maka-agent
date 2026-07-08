@@ -93,7 +93,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'memory', label: '记忆', Icon: Brain, enabled: true, group: 'AI 与集成',
     description: '本地 MEMORY.md、项目指令文件与上下文注入开关。' },
   { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI 与集成',
-    description: '当天对话、模型与工具用量汇总。' },
+    description: '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。' },
   { id: 'voice', label: '语音', Icon: Mic, enabled: true, group: 'AI 与集成',
     description: '语音转写、麦克风权限与本地音频管线设置。' },
   { id: 'open-gateway', label: '开放网关', Icon: Network, enabled: true, group: 'AI 与集成',

@@ -41,15 +41,22 @@ function evaluate(
 }
 
 describe('categorizeBash', () => {
-  test('safe commands → shell_safe', () => {
-    expect(categorizeBash('ls -la')).toBe('shell_safe');
-    expect(categorizeBash('git status')).toBe('shell_safe');
-    expect(categorizeBash('git log --oneline -n 5')).toBe('shell_safe');
-    expect(categorizeBash('grep -r foo .')).toBe('shell_safe');
-    expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_safe');
-    expect(categorizeBash('officecli get deck.pptx "/slide[1]"')).toBe('shell_safe');
-    expect(categorizeBash('officecli validate model.xlsx')).toBe('shell_safe');
-    expect(categorizeBash('officecli help pptx chart')).toBe('shell_safe');
+  test('no shell command is auto-classified safe — categorizeBash never returns shell_safe', () => {
+    // A shell command cannot be proven safe from its string: args can embed
+    // execution (PowerShell `echo (Set-Content x)` runs Set-Content first;
+    // $(...), backtick, iex do the same), and even "read-only" commands like
+    // git status can trigger fsmonitor helpers. Read-only needs go through
+    // typed tools (Read/Glob/Grep — fixed argv, no shell). So every shell
+    // command is at least shell_unsafe → prompt, never auto-allowed.
+    expect(categorizeBash('ls -la')).toBe('shell_unsafe');
+    expect(categorizeBash('pwd')).toBe('shell_unsafe');
+    expect(categorizeBash('grep -r foo .')).toBe('shell_unsafe');
+    expect(categorizeBash('git status')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli view deck.pptx outline')).toBe('shell_unsafe');
+    // The review's two P1 bypasses collapse into the same rule:
+    expect(categorizeBash('echo (Set-Content .\\foo.txt hi)')).toBe('shell_unsafe');
+    expect(categorizeBash('echo (New-Item .\\foo.txt)')).toBe('shell_unsafe');
+    expect(categorizeBash('officecli view deck.pptx html -o out.html')).toBe('shell_unsafe');
   });
 
   test('cd is NOT safe (excluded by design)', () => {
@@ -91,6 +98,131 @@ describe('categorizeBash', () => {
   test('xargs rm/shred → fs_destructive', () => {
     expect(categorizeBash('xargs rm < files.txt')).toBe('fs_destructive');
     expect(categorizeBash('xargs -I {} shred {}')).toBe('fs_destructive');
+  });
+
+  test('PowerShell/cmd delete commands → fs_destructive (case-insensitive)', () => {
+    expect(categorizeBash('Remove-Item .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('remove-item -Recurse -Force .\\node_modules')).toBe('fs_destructive');
+    expect(categorizeBash('del foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('erase foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('rd /s /q build')).toBe('fs_destructive');
+    expect(categorizeBash('ri foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('Clear-Content log.txt')).toBe('fs_destructive');
+    expect(categorizeBash('clc log.txt')).toBe('fs_destructive');
+  });
+
+  test('PowerShell pipeline into Remove-Item → fs_destructive', () => {
+    expect(categorizeBash('Get-ChildItem -Recurse -Filter *.tmp | Remove-Item')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | del')).toBe('fs_destructive');
+  });
+
+  test('destructive command at ANY statement position → fs_destructive, both dialects', () => {
+    // PowerShell shapes a model actually writes
+    expect(categorizeBash('RM .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('RMDIR .\\build')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object { Remove-Item $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('Get-ChildItem . | ForEach-Object -Process { Remove-Item $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('gci *.tmp | % { ri $_ }')).toBe('fs_destructive');
+    expect(categorizeBash('& Remove-Item foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('cd C:\\tmp; Remove-Item -Recurse build')).toBe('fs_destructive');
+    // The same positional class on POSIX
+    expect(categorizeBash('cd /tmp; rm -rf stuff')).toBe('fs_destructive');
+    expect(categorizeBash('echo done && rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('echo $(rm foo.txt)')).toBe('fs_destructive');
+  });
+
+  test('git_destructive and privileged are also recognized at any statement position', () => {
+    expect(categorizeBash('echo done && git push --force origin main')).toBe('git_destructive');
+    expect(categorizeBash('echo hi; sudo reboot')).toBe('privileged');
+  });
+
+  test('quoted, escaped, or path-prefixed command names still categorize', () => {
+    expect(categorizeBash("& 'Remove-Item' .\\foo.txt")).toBe('fs_destructive');
+    expect(categorizeBash('& "ri" .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash("& 'git' clean -fd")).toBe('git_destructive');
+    expect(categorizeBash("& 'C:\\Program Files\\Git\\bin\\git.exe' clean -fd")).toBe('git_destructive');
+    expect(categorizeBash('/bin/rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('\\rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('C:\\Windows\\System32\\taskkill.exe /IM node.exe')).toBe('privileged');
+  });
+
+  test('PowerShell/cmd process, service, and power commands → privileged', () => {
+    expect(categorizeBash('Stop-Process -Name notepad')).toBe('privileged');
+    expect(categorizeBash('spps -Name notepad')).toBe('privileged');
+    expect(categorizeBash('taskkill /IM node.exe /F')).toBe('privileged');
+    expect(categorizeBash('Get-Process notepad | Stop-Process')).toBe('privileged');
+    expect(categorizeBash('Stop-Computer')).toBe('privileged');
+    expect(categorizeBash('Restart-Computer -Force')).toBe('privileged');
+    expect(categorizeBash('Stop-Service -Name w32time')).toBe('privileged');
+  });
+
+  test('wrapper commands do not hide the real command', () => {
+    expect(categorizeBash('nohup rm -rf /tmp/x')).toBe('fs_destructive');
+    expect(categorizeBash('timeout 30 rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('env FOO=bar rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('command rm foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('time make build')).toBe('shell_unsafe');
+  });
+
+  test('literal payloads of shell-in-shell commands are categorized recursively', () => {
+    expect(categorizeBash('cmd /c del foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash("bash -c 'rm -rf /tmp/x'")).toBe('fs_destructive');
+    expect(categorizeBash("bash -lc 'rm -rf /tmp/x'")).toBe('fs_destructive');
+    expect(categorizeBash('pwsh -NoProfile -Command "Remove-Item x"')).toBe('fs_destructive');
+    expect(categorizeBash("bash -c 'echo hi'")).toBe('shell_unsafe');
+  });
+
+  test('separators inside a quoted nested-shell payload do not hide the delete', () => {
+    expect(categorizeBash('cmd /c "del foo.txt & echo done"')).toBe('fs_destructive');
+    expect(categorizeBash("bash -lc 'rm -rf /tmp/x && echo done'")).toBe('fs_destructive');
+    expect(categorizeBash('pwsh -Command "Remove-Item x; Write-Host done"')).toBe('fs_destructive');
+  });
+
+  test('Windows service control commands → privileged', () => {
+    expect(categorizeBash('Remove-Service -Name foo')).toBe('privileged');
+    expect(categorizeBash('New-Service -Name foo -BinaryPathName C:\\svc.exe')).toBe('privileged');
+    expect(categorizeBash('Suspend-Service w32time')).toBe('privileged');
+    expect(categorizeBash('sc.exe delete foo')).toBe('privileged');
+    expect(categorizeBash('sc config foo start= disabled')).toBe('privileged');
+    expect(categorizeBash('net stop foo')).toBe('privileged');
+    // read-only service queries stay un-upgraded
+    expect(categorizeBash('sc query foo')).toBe('shell_unsafe');
+  });
+
+  test('quote/backtick/caret interruptions inside the command name still categorize', () => {
+    // All three PowerShell shapes verified to delete files on real pwsh.
+    expect(categorizeBash("Remove''-Item .\\foo.txt")).toBe('fs_destructive');
+    expect(categorizeBash('Remove`-Item .\\foo.txt')).toBe('fs_destructive');
+    expect(categorizeBash('R`M .\\foo.txt')).toBe('fs_destructive');
+    // cmd.exe's escape-char analogue of the same trick
+    expect(categorizeBash('de^l foo.txt')).toBe('fs_destructive');
+  });
+
+  test('default aliases of privileged service cmdlets → privileged', () => {
+    expect(categorizeBash('spsv w32time')).toBe('privileged');
+    expect(categorizeBash('sasv SomeService')).toBe('privileged');
+  });
+
+  test('PowerShell kill alias (Stop-Process) → privileged, including piped', () => {
+    expect(categorizeBash('kill -Name notepad')).toBe('privileged');
+    expect(categorizeBash('Get-Process notepad | kill')).toBe('privileged');
+    expect(categorizeBash('gps notepad | kill')).toBe('privileged');
+  });
+
+  test('elevation via -Verb RunAs → privileged', () => {
+    expect(categorizeBash('Start-Process -FilePath powershell -Verb RunAs')).toBe('privileged');
+    expect(categorizeBash('saps powershell -Verb RunAs')).toBe('privileged');
+    expect(categorizeBash('start powershell -Verb runas')).toBe('privileged');
+    // Start-Process without elevation is not privileged
+    expect(categorizeBash('Start-Process notepad')).toBe('shell_unsafe');
+  });
+
+  test('destructive names as mere text do NOT upgrade the category', () => {
+    expect(categorizeBash("sed 's/rm/xx/' file.txt")).toBe('shell_unsafe');
+    expect(categorizeBash('git commit -m "rm: drop legacy"')).toBe('shell_unsafe');
+    expect(categorizeBash("awk '{ print }' file.txt")).toBe('shell_unsafe');
+    expect(categorizeBash('echo "please do not rm this"')).toBe('shell_unsafe');
+    expect(categorizeBash('Get-Command Remove-Item')).toBe('shell_unsafe');
   });
 
   test('safe-prefix commands with destructive pipe stages → fs_destructive', () => {
@@ -138,6 +270,38 @@ describe('categorizeBash', () => {
     // sudo rm is privileged, not fs_destructive
     expect(categorizeBash('sudo rm -rf /')).toBe('privileged');
   });
+
+  test('find is not a safe prefix: its action primaries execute/mutate, even quoted', () => {
+    // A safe prefix must be read-only in ALL forms. find is not: its action
+    // primaries run commands, delete, or write. Detecting them in the raw
+    // string is defeated by shell quote removal (find . -de'lete' runs
+    // -delete), so find is dropped from the allowlist entirely rather than
+    // guarded — read-only traversal prompts too.
+    expect(categorizeBash('find . -name "*.ts"')).toBe('shell_unsafe');
+    expect(categorizeBash('find src -type f')).toBe('shell_unsafe');
+    expect(categorizeBash('find . "-delete"')).toBe('shell_unsafe');
+    expect(categorizeBash("find . -de'lete'")).toBe('shell_unsafe');
+    expect(categorizeBash("find . -ex'ec' rm {} +")).toBe('shell_unsafe');
+    expect(categorizeBash('find . -ex\\ec chmod 777 {} +')).toBe('shell_unsafe');
+  });
+
+  test('git diff/log/show/status are all shell_unsafe (no shell auto-safe)', () => {
+    // --output=<file> writes and --ext-diff/--textconv run helpers; git status
+    // can trigger fsmonitor. None can be proven safe from the string, and none
+    // needs to be — read-only git goes through typed tools.
+    expect(categorizeBash('git diff --output=src/foo.ts')).toBe('shell_unsafe');
+    expect(categorizeBash('git log --output=notes.txt')).toBe('shell_unsafe');
+    expect(categorizeBash('git show --output=patch.diff')).toBe('shell_unsafe');
+    expect(categorizeBash('git diff')).toBe('shell_unsafe');
+    expect(categorizeBash('git log --oneline -n 5')).toBe('shell_unsafe');
+    expect(categorizeBash('git status')).toBe('shell_unsafe');
+  });
+
+  test('git branch is not a safe prefix (it can write a ref)', () => {
+    expect(categorizeBash('git branch temp-review')).toBe('shell_unsafe');
+    expect(categorizeBash('git branch -m old new')).toBe('shell_unsafe');
+    expect(categorizeBash('git branch --list')).toBe('shell_unsafe');
+  });
 });
 
 describe('preToolUse — explore mode', () => {
@@ -156,10 +320,10 @@ describe('preToolUse — explore mode', () => {
     expect(r.blockReason).toContain('blocked');
   });
 
-  test('safe bash → allow', () => {
+  test('read-only shell → block (no shell is auto-safe; use typed tools)', () => {
     const r = evaluate('Bash', { command: 'ls' }, 'explore');
-    expect(r.proceed).toBe(true);
-    expect(r.category).toBe('shell_safe');
+    expect(r.proceed).toBe(false);
+    expect(r.category).toBe('shell_unsafe');
   });
 
   test('unsafe bash → block', () => {
@@ -203,9 +367,10 @@ describe('preToolUse — ask mode', () => {
     expect(r.partialRequest?.reason).toBe('file_write');
   });
 
-  test('safe bash → allow', () => {
+  test('read-only shell → prompt (no shell is auto-safe)', () => {
     const r = evaluate('Bash', { command: 'pwd' }, 'ask');
-    expect(r.proceed).toBe(true);
+    expect(r.needsPrompt).toBe(true);
+    expect(r.category).toBe('shell_unsafe');
   });
 
   test('rm → prompt', () => {
@@ -223,10 +388,26 @@ describe('preToolUse — execute mode', () => {
     expect(r.category).toBe('file_write');
   });
 
-  test('any bash → allow', () => {
+  test('unknown bash → prompt (execute is fail-closed for unrecognized shell)', () => {
+    // The security boundary no longer depends on the pattern list being
+    // exhaustive: a command we cannot prove safe lands in shell_unsafe and
+    // PROMPTS. Anything the blocklist misses (dialect/alias/escape variants)
+    // now degrades to an extra confirmation, never a silent execution.
     const r = evaluate('Bash', { command: 'npm install lodash' }, 'execute');
-    expect(r.proceed).toBe(true);
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('shell_unsafe');
+  });
+
+  test('read-only shell prompts in execute too (no shell auto-runs; typed tools do)', () => {
+    // git status is not provably safe (fsmonitor), so it prompts like any
+    // other shell command. Read tool / Glob / Grep remain the auto-run path.
+    for (const command of ['git status', 'ls -la', 'officecli view deck.pptx html -o out.html', 'echo (New-Item .\\foo.txt)']) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('shell_unsafe');
+    }
   });
 
   test('CRITICAL: rm STILL prompts in execute mode', () => {
@@ -234,6 +415,99 @@ describe('preToolUse — execute mode', () => {
     expect(r.proceed).toBe(false);
     expect(r.needsPrompt).toBe(true);
     expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: Remove-Item STILL prompts in execute mode', () => {
+    const r = evaluate('Bash', { command: 'Remove-Item .\\foo.txt' }, 'execute');
+    expect(r.proceed).toBe(false);
+    expect(r.needsPrompt).toBe(true);
+    expect(r.category).toBe('fs_destructive');
+  });
+
+  test('CRITICAL: find (incl. quoted actions) and git --output prompt in execute mode', () => {
+    for (const command of [
+      'find . -exec chmod 777 {} +',
+      "find . -de'lete'",
+      'find . -ex\\ec chmod 777 {} +',
+      'find . -name "*.ts"',
+      'git diff --output=src/foo.ts',
+      'git log --output=notes.txt',
+      'git branch temp-review',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
+  });
+
+  test('CRITICAL: piped kill and RunAs elevation STILL prompt in execute mode', () => {
+    for (const command of [
+      'Get-Process notepad | kill',
+      'gps notepad | kill',
+      'Start-Process -FilePath powershell -Verb RunAs',
+      'saps powershell -Verb RunAs',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('privileged');
+    }
+  });
+
+  test('CRITICAL: interrupted names and service aliases STILL prompt in execute mode', () => {
+    for (const command of [
+      "Remove''-Item .\\foo.txt",
+      'Remove`-Item .\\foo.txt',
+      'R`M .\\foo.txt',
+      'spsv w32time',
+      'sasv SomeService',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
+  });
+
+  test('CRITICAL: quoted nested payloads and service control STILL prompt in execute mode', () => {
+    for (const command of [
+      'cmd /c "del foo.txt & echo done"',
+      "bash -lc 'rm -rf /tmp/x && echo done'",
+      'pwsh -Command "Remove-Item x; Write-Host done"',
+      'Remove-Service -Name foo',
+      'sc.exe delete foo',
+      'net stop foo',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
+  });
+
+  test('CRITICAL: quoted names and PowerShell process kills STILL prompt in execute mode', () => {
+    for (const command of [
+      "& 'Remove-Item' .\\foo.txt",
+      '& "ri" .\\foo.txt',
+      "& 'git' clean -fd",
+      'Stop-Process -Name notepad',
+      'Get-Process notepad | Stop-Process',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+    }
+  });
+
+  test('CRITICAL: PowerShell deletes at any position STILL prompt in execute mode', () => {
+    for (const command of [
+      'RM .\\foo.txt',
+      'RMDIR .\\build',
+      'Get-ChildItem . | ForEach-Object { Remove-Item $_ }',
+    ]) {
+      const r = evaluate('Bash', { command }, 'execute');
+      expect(r.proceed).toBe(false);
+      expect(r.needsPrompt).toBe(true);
+      expect(r.category).toBe('fs_destructive');
+    }
   });
 
   test('CRITICAL: git reset --hard STILL prompts in execute mode', () => {
@@ -394,6 +668,14 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.execute.privileged).toBe('prompt');
   });
 
+  test('execute mode is fail-closed for shell: shell_unsafe AND shell_safe prompt', () => {
+    // The root fix: no shell command is auto-allowed. shell_unsafe prompts,
+    // and shell_safe (which categorizeBash no longer produces) is also fail-
+    // closed so there is no auto-allow path left for shell at all.
+    expect(PERMISSION_POLICY.execute.shell_unsafe).toBe('prompt');
+    expect(PERMISSION_POLICY.execute.shell_safe).toBe('prompt');
+  });
+
   test('browser is prompt-on-effect: blocked in explore, prompts in ask AND execute (never auto-allowed)', () => {
     expect(PERMISSION_POLICY.explore.browser).toBe('block');
     expect(PERMISSION_POLICY.ask.browser).toBe('prompt');
@@ -402,9 +684,10 @@ describe('PERMISSION_POLICY matrix invariants', () => {
     expect(PERMISSION_POLICY.bypass.browser).toBe('allow');
   });
 
-  test('explore mode allows local reads + safe shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
+  test('explore mode allows local reads but no shell (web_read prompts post PR-AGENT-WEB-SEARCH-TOOL-0)', () => {
     expect(PERMISSION_POLICY.explore.read).toBe('allow');
-    expect(PERMISSION_POLICY.explore.shell_safe).toBe('allow');
+    // shell_safe is fail-closed like shell_unsafe: explore uses typed tools.
+    expect(PERMISSION_POLICY.explore.shell_safe).toBe('block');
   });
 
   test('explore mode blocks all write/network/privileged', () => {

@@ -49,6 +49,12 @@ export function createAppShellSessionEventHandlers(options: {
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   toastApi: ToastApi;
+  /** Report a terminal turn to the main process, which decides whether
+   * to raise an OS notification (gated on a product toggle + window
+   * focus). `body` is the start of the reply (completed) or the error
+   * message (errored); the session name is resolved by the caller from
+   * `sessionId`. Optional so headless/test callers can omit it. */
+  notifyRunEnded?: (payload: { kind: 'completed' | 'errored'; sessionId: string; body?: string }) => void;
 }): AppShellSessionEventHandlers {
   const {
     activeIdRef,
@@ -62,6 +68,7 @@ export function createAppShellSessionEventHandlers(options: {
     showModelSetupToast,
     streamingBySessionRef,
     toastApi,
+    notifyRunEnded,
   } = options;
 
   function clearThinking(sessionId: string) {
@@ -438,6 +445,7 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         markInFlightToolsInterrupted(sessionId);
+        notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
         void refreshSessions();
         void refreshMessages(sessionId);
         break;
@@ -468,6 +476,16 @@ export function createAppShellSessionEventHandlers(options: {
           // permission overlay was mounted would leave the overlay
           // stuck on screen until the user manually switches away.
           setPermissionBySession((current) => clearPermissions(current, sessionId));
+          // Notify "completed" ONLY for a genuine successful end. Use an
+          // allowlist, not `!== permission_handoff`: `error` is emitted as
+          // `error` then `complete(stopReason='error')`, so treating any
+          // non-handoff complete as success would double-fire a misleading
+          // “回答已生成” after the error banner. `user_stop` (user is present)
+          // and `plan_handoff` (a pause) are likewise not turn ends.
+          // `slot.text` holds the streamed reply, which main trims into the body.
+          if (event.stopReason === 'end_turn' || event.stopReason === 'max_tokens') {
+            notifyRunEnded?.({ kind: 'completed', sessionId, body: slot?.text });
+          }
         }
         void refreshSessions();
         void refreshMessages(sessionId, refreshMessagesOptions);

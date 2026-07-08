@@ -30,7 +30,7 @@ describe('deep research session profile', () => {
 
   it('explore policy remains read-only for writes and destructive actions', () => {
     assert.equal(PERMISSION_POLICY.explore.read, 'allow');
-    assert.equal(PERMISSION_POLICY.explore.shell_safe, 'allow');
+    assert.equal(PERMISSION_POLICY.explore.shell_safe, 'block');
     assert.equal(PERMISSION_POLICY.explore.file_write, 'block');
     assert.equal(PERMISSION_POLICY.explore.fs_destructive, 'block');
     assert.equal(PERMISSION_POLICY.explore.shell_unsafe, 'block');

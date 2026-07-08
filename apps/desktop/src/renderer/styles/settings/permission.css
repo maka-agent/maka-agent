@@ -451,7 +451,7 @@
   }
 
 .settingsOsPermissionHeading strong {
-    font-size: var(--font-size-base);
+    font-size: var(--font-size-heading);
     font-weight: var(--font-weight-semibold);
     color: var(--foreground);
   }

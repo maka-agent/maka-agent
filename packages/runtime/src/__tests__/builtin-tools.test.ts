@@ -29,6 +29,38 @@ describe('builtin tool executor facts', () => {
   });
 });
 
+describe('builtin Bash description declares the executing shell', () => {
+  test('executor Bash executes with the same shell it declares', async () => {
+    // /bin/echo stands in for pwsh.exe: if the shell reaches the local
+    // executor's spawn, stdout echoes the PowerShell flags back instead of a
+    // bare 'wired-marker' from the default POSIX shell.
+    const tools = buildBuiltinTools({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    });
+    const bash = tools.find((tool) => tool.name === 'Bash')!;
+    const result = await bash.impl({ command: 'echo wired-marker' }, {
+      sessionId: 'session-1',
+      turnId: 'turn-1',
+      toolCallId: 'tool-1',
+      cwd: process.cwd(),
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    }) as { stdout: string };
+    expect(result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n')).toBe(true);
+  });
+
+  test('executor Bash tells the model commands run under PowerShell 7', () => {
+    const tools = buildBuiltinTools({
+      executor: fakeExecutor({ facts: LOCAL_WORKSPACE_EXECUTOR_FACTS }),
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' },
+    });
+    const bash = tools.find((tool) => tool.name === 'Bash');
+    expect(bash !== undefined).toBe(true);
+    expect(/PowerShell 7 \(pwsh\)/.test(bash!.description)).toBe(true);
+    expect(/git ls-files/.test(bash!.description)).toBe(true);
+  });
+});
+
 describe('builtin Bash streaming output', () => {
   test('background-capable Bash returns runtime refs and forwards yield_time_ms', async () => {
     const calls: unknown[] = [];

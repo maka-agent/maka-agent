@@ -90,24 +90,6 @@ describe('PermissionEngine.evaluate — allow path', () => {
     expect(r3.kind).toBe('prompt');
   });
 
-  test('execution facts are accepted without changing current policy decisions', () => {
-    const { engine } = makeEngine();
-    engine.beginTurn('t1');
-    const r = engine.evaluate({
-      sessionId: 's1',
-      turnId: 't1',
-      toolUseId: 'tu1',
-      toolName: 'Bash',
-      args: { command: 'npm install lodash' },
-      mode: 'execute',
-      executionFacts: LOCAL_EXECUTION_FACTS,
-    });
-
-    expect(r.kind).toBe('allow');
-    if (r.kind === 'allow') {
-      expect(r.category).toBe('shell_unsafe');
-    }
-  });
 });
 
 describe('PermissionEngine.evaluate — block path', () => {
@@ -148,6 +130,28 @@ describe('PermissionEngine.evaluate — block path', () => {
 });
 
 describe('PermissionEngine.evaluate — prompt path', () => {
+  test('execution facts are accepted but do not (yet) downgrade host-local shell to allow', () => {
+    // executionFacts is plumbed for forward-compat: a future sandbox-aware
+    // policy may auto-allow unsafe shell inside an isolated worktree. On the
+    // HOST (isolation: 'none') execute mode is fail-closed, so an unrecognized
+    // command prompts regardless of the facts being present.
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute',
+      executionFacts: LOCAL_EXECUTION_FACTS,
+    });
+    expect(r.kind).toBe('prompt');
+    if (r.kind === 'prompt') {
+      expect(r.event.category).toBe('shell_unsafe');
+    }
+  });
+
   test('emits PermissionRequestEvent with stable requestId', () => {
     const { engine, deps: _deps } = makeEngine();
     engine.beginTurn('t1');
