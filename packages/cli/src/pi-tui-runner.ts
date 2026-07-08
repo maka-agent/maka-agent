@@ -740,9 +740,10 @@ class MakaPiLayoutComponent extends Container {
   // growing or shrinking, above or below the fold, or several at once in one
   // coalesced paint. Null while following the tail.
   private anchor: TranscriptLineOwner | null = null;
-  // Set by an explicit scroll so the next render honours the new offset verbatim
-  // instead of re-deriving it from the (now stale) anchor.
-  private pendingUserScroll = false;
+  // Owners of the last painted frame, so an explicit scroll can translate its
+  // target row into a content anchor rather than a bottom-relative offset (which
+  // a render coalesced with fresh stream deltas would misapply to a taller frame).
+  private lastOwners: readonly (TranscriptLineOwner | null)[] = [];
 
   constructor(
     private readonly transcript: MakaTranscriptComponent,
@@ -769,9 +770,6 @@ class MakaPiLayoutComponent extends Container {
       this.followTail = true;
       this.scrollOffset = 0;
       this.anchor = null;
-    } else if (this.pendingUserScroll) {
-      // An explicit scroll already set scrollOffset; honour it as-is, then re-derive
-      // the anchor from the resulting window below.
     } else if (!this.followTail && this.anchor) {
       // A re-render (stream delta, expansion toggle, ...). Recompute the offset so
       // the anchored content line is back at the top of the viewport. Deriving it
@@ -800,7 +798,7 @@ class MakaPiLayoutComponent extends Container {
     this.scrollOffset = windowed.scrollOffset;
     this.followTail = windowed.scrollOffset === 0;
     this.anchor = this.followTail ? null : anchorOwnerAt(source.owners, windowed.hiddenAbove);
-    this.pendingUserScroll = false;
+    this.lastOwners = source.owners;
     this.lastTotalLines = transcriptLines.length;
     this.lastViewportRows = viewportRows;
     this.lastWidth = width;
@@ -825,11 +823,21 @@ class MakaPiLayoutComponent extends Container {
     const current = this.followTail ? 0 : this.scrollOffset;
     const next = Math.min(Math.max(0, current + offsetDelta), maxOffset);
     if (next === current) return false;
-    this.scrollOffset = next;
-    this.followTail = next === 0;
-    // The user moved the viewport; the next render must apply this offset, not the
-    // old anchor. The render then re-anchors to whatever is now on top.
-    this.pendingUserScroll = true;
+    if (next === 0) {
+      this.followTail = true;
+      this.scrollOffset = 0;
+      this.anchor = null;
+      return true;
+    }
+    // Translate the target offset into a content anchor from the last painted
+    // frame. If the pending render coalesces with fresh stream deltas, deriving
+    // the offset from that anchor against the taller transcript lands the user on
+    // the page they asked for, instead of applying a stale bottom-relative offset.
+    const contentRows = this.lastViewportRows >= 2 ? this.lastViewportRows - 1 : this.lastViewportRows;
+    const targetStart = Math.max(0, this.lastTotalLines - next - contentRows);
+    this.followTail = false;
+    this.scrollOffset = next; // provisional; render recomputes from the anchor when set
+    this.anchor = anchorOwnerAt(this.lastOwners, targetStart);
     return true;
   }
 
@@ -863,7 +871,6 @@ class MakaPiLayoutComponent extends Container {
     this.followTail = true;
     this.scrollOffset = 0;
     this.anchor = null;
-    this.pendingUserScroll = false;
   }
 }
 

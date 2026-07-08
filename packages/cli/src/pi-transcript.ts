@@ -482,13 +482,16 @@ export function renderMakaPiTranscriptSource(
   const owners: (TranscriptLineOwner | null)[] = [];
 
   for (const entry of state.entries) {
-    // A blank spacer above every entry, then its (memoized) rendered block.
+    // A blank spacer above every entry, then its (memoized) rendered block. The
+    // spacer belongs to the entry (row 0) so the scroll anchor stays stable when
+    // the viewport top lands on it — otherwise anchoring to the block's first line
+    // would drop the spacer and drift the view up a row on the next re-render.
     lines.push('');
-    owners.push(null);
+    owners.push({ entry, row: 0 });
     const block = renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking);
     block.forEach((line, row) => {
       lines.push(line);
-      owners.push({ entry, row });
+      owners.push({ entry, row: row + 1 });
     });
   }
 
@@ -591,7 +594,9 @@ function transcriptEntrySignature(
       // A tool entry mutates in place as it runs: status/duration flip on the
       // result, and progress/output deltas append while running. Its result
       // object is set once and never rewritten, so counting these fields is
-      // enough to detect every change to the rendered block.
+      // enough to detect every change to the rendered block. `input` and
+      // `toolName` are omitted deliberately: both are set once at `tool_start`,
+      // before the first render, and never change, so they can't go stale.
       return [
         'tool',
         width,

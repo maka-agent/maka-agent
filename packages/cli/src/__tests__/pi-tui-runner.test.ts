@@ -499,6 +499,51 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('lands PageUp on the previous page when the render coalesces with new output', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StreamRaceDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParaNums = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/r-para-(\d\d)/g) ?? []).map((s) => Number(s.slice(-2)));
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('r-para-29'));
+
+    // Press PageUp and let the next chunk stream in the same tick, so the paging
+    // render coalesces with the growth. The offset was computed against the shorter
+    // frame; applied verbatim to the taller one it would under-scroll toward the
+    // new tail. Anchoring to the target row instead lands the real previous page.
+    terminal.input('\x1b[5~');
+    driver.releaseTail();
+    await waitFor(() => driver.completed);
+    await delay(50);
+
+    const nums = visibleParaNums();
+    assert.ok(nums.length > 0, 'the scrolled-up view should still show reply paragraphs');
+    assert.ok(
+      Math.max(...nums) < 29,
+      `PageUp drifted toward the streamed tail: showed up to r-para-${Math.max(...nums)}`,
+    );
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -2525,6 +2570,49 @@ class MixedFrameDriver implements MakaSessionDriver {
     const more = `\n\n${Array.from({ length: 10 }, (_, i) => `para-${String(i + 40).padStart(2, '0')}`).join('\n\n')}`;
     yield { type: 'text_delta', id: 'tx2', turnId: 't', ts: 4, messageId: 'm1', text: more };
     yield { type: 'complete', id: 'c', turnId: 't', ts: 5, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseTail(): void {
+    this.continueTail?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class StreamRaceDriver implements MakaSessionDriver {
+  completed = false;
+  private continueTail: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // First chunk overflows the viewport; the reader pages up from its tail.
+    const head = Array.from({ length: 30 }, (_, i) => `r-para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e1', turnId: 't', ts: 1, messageId: 'm1', text: head };
+    await new Promise<void>((resolve) => {
+      this.continueTail = resolve;
+    });
+    // More output appended below the fold, released in the same tick as the PageUp
+    // so its render coalesces with the paging one.
+    const more = `\n\n${Array.from({ length: 15 }, (_, i) => `r-para-${String(i + 30).padStart(2, '0')}`).join('\n\n')}`;
+    yield { type: 'text_delta', id: 'e2', turnId: 't', ts: 2, messageId: 'm1', text: more };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 3, stopReason: 'end_turn' };
     this.completed = true;
   }
 
