@@ -119,18 +119,23 @@ export class AttentionController {
   }
 
   /**
-   * Ring and mark the title only when the terminal is not focused: the marker
-   * means "this happened while you were away", and returning focus clears it.
-   * While focused the on-screen UI (the finished turn, the y/n prompt) is the
-   * signal, so no ring and no title decoration — just drop back to the plain
-   * title if the turn had made it busy.
+   * Ring and mark the title only when the terminal is not focused. The `★`
+   * marker means "an attention-worthy event fired while you were away", not a
+   * live needs-you state: it is set on the event and cleared when you return
+   * (focus) or a new turn starts. While focused the on-screen UI (the finished
+   * turn, the y/n prompt, the error notice) is the signal, so no ring and no
+   * decoration — just drop back to the plain title if the turn had made it busy.
+   *
+   * The bell rings once per away-episode: a second event while the marker is
+   * already up (e.g. a turn that errors and then ends long) does not re-ring, so
+   * a background tab is alerted once, not repeatedly, until the user engages.
    */
   private raiseAttention(): void {
     if (this.focused) {
       this.refreshTitle();
       return;
     }
-    this.terminal.write(BELL);
+    if (!this.attention) this.terminal.write(BELL);
     this.attention = true;
     this.refreshTitle();
   }

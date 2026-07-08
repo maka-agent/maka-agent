@@ -2140,6 +2140,38 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('rings when a short turn fails unfocused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new QuickErrorDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      // Default (large) threshold: the ring must come from the error path, not
+      // from turn duration — the turn fails immediately.
+      terminal,
+    });
+
+    terminal.input('\x1b[O');
+    terminal.input('go');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('turn failed'));
+    await waitFor(() => bellCount(terminal) === 1);
+    assert.ok(terminal.titles.includes('★ Maka'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
 });
 
 /** Count the standalone BEL bytes the attention layer wrote. */
@@ -3267,6 +3299,44 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
     this.respondCalls += 1;
   }
 
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class QuickErrorDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    // The turn fails immediately, so its duration never crosses the long-turn
+    // threshold — the attention ring must come from the error, not the timer.
+    yield {
+      type: 'error',
+      id: 'event-error',
+      turnId: 'turn-1',
+      ts: 1,
+      message: 'turn failed',
+      recoverable: false,
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}

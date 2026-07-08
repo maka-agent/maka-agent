@@ -126,6 +126,12 @@ export async function submitPromptToTranscript(input: {
   driver: Pick<MakaSessionDriver, 'sendPrompt'>;
   prompt: string;
   onChange?: () => void;
+  /**
+   * An error surfaced during the turn — either a stream `error` event or a
+   * thrown `sendPrompt` failure. Distinct from `onChange` so a caller can raise
+   * attention on failures without diffing transcript entries every render.
+   */
+  onError?: () => void;
 }): Promise<void> {
   appendUserPrompt(input.state, input.prompt);
   input.onChange?.();
@@ -133,6 +139,7 @@ export async function submitPromptToTranscript(input: {
   try {
     for await (const event of input.driver.sendPrompt(input.prompt)) {
       applyMakaSessionEventToTranscript(input.state, event);
+      if (event.type === 'error') input.onError?.();
       input.onChange?.();
     }
   } catch (error) {
@@ -141,6 +148,7 @@ export async function submitPromptToTranscript(input: {
       level: 'error',
       text: error instanceof Error ? error.message : String(error),
     });
+    input.onError?.();
     input.onChange?.();
   }
 }

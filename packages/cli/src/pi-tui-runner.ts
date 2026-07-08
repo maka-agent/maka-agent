@@ -241,6 +241,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       state,
       driver: input.driver,
       prompt,
+      // A turn failing is worth pulling the user back, regardless of how long it
+      // ran — a quick failure in a background tab would otherwise stay silent.
+      onError: () => attention.attentionNeeded(),
       onChange: () => {
         // A newly raised permission prompt renders at the transcript tail. If the
         // user has paged up, it would land below the fold and the session would
