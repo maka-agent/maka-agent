@@ -60,6 +60,13 @@ describe('chatConfigurationReasonFromError', () => {
     assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:not_a_real_reason')), undefined);
   });
 
+  it('rejects a malformed token that merely starts with a known reason', () => {
+    // The token is captured whole, so a known-reason prefix followed by extra
+    // characters is not mistaken for the known reason.
+    assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:missing_api_key2')), undefined);
+    assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:fake_backend-extra')), undefined);
+  });
+
   it('accepts a non-Error value', () => {
     assert.equal(chatConfigurationReasonFromError('NO_REAL_CONNECTION:fake_backend'), 'fake_backend');
   });

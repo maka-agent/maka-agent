@@ -88,7 +88,12 @@ function assertUnhandledReason(reason: never): never {
   throw new Error(`Unhandled ChatConfigurationReason: ${String(reason)}`);
 }
 
-const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+)/;
+// Capture the whole token up to the next delimiter (`:` in the IPC-wrapped
+// `NO_REAL_CONNECTION:<reason>: <msg>` form, whitespace, or end of message)
+// rather than a `[a-z_]+` prefix — otherwise a malformed token that starts with
+// a known reason (e.g. `missing_api_key2`) would capture `missing_api_key` and
+// pass the set check, returning the wrong reason-specific copy.
+const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([^\s:]+)/;
 
 /**
  * Recover the `ChatConfigurationReason` from a `NO_REAL_CONNECTION:<reason>`
