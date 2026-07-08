@@ -566,16 +566,18 @@ export function ChatView(props: {
             composer left-controls. Header keeps the per-session status
             chips only. */}
       </header>
-      {(props.sessionStatusBadge || props.connectionAlert || props.eventStreamAlert) && (
-        /* In normal flow below the header (see .maka-chat-status-cluster)
-           so wrapped multi-badge rows reserve space before banners and
-           messages. */
-        <div className="maka-chat-status-cluster">
-          {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
-          {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
-          {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
-        </div>
-      )}
+      {/* In normal flow below the header (see .maka-chat-status-cluster)
+          so wrapped multi-badge rows reserve space before banners and
+          messages. ALWAYS mounted (even with zero badges): the cluster
+          collapses/expands via the CSS `:empty` height transition instead of
+          conditional mount/unmount — unmounting it when a run completes used
+          to snap the whole conversation column up by the badge-row height in
+          a single frame (the settle "jump"). */}
+      <div className="maka-chat-status-cluster">
+        {props.sessionStatusBadge && <SessionStatusBadge badge={props.sessionStatusBadge} />}
+        {props.connectionAlert && <ChatHeaderAlertBadge alert={props.connectionAlert} />}
+        {props.eventStreamAlert && <ChatHeaderAlertBadge alert={props.eventStreamAlert} />}
+      </div>
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
           <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
@@ -677,6 +679,16 @@ export function ChatView(props: {
                     />
                   )}
                 </div>
+                {/* Equal-height placeholder for the turn footer toolbar
+                    (TurnFooterActions: mt-0.5 + h-8 buttons). The committed
+                    turn mounts a footer the live section doesn't have; in a
+                    bottom-pinned chat that extra row used to re-anchor the
+                    scroll and shift the whole conversation up by the footer
+                    height at the settle swap. Reserving the same box here
+                    makes the swap height-neutral — the real footer then only
+                    fades in (opacity, no layout). Outside the gap-2 timeline
+                    div, mirroring the committed structure. */}
+                {props.streamingText && <div aria-hidden="true" className="mt-0.5 h-8" />}
               </Message>
             </section>
           )}
@@ -1009,6 +1021,20 @@ const TurnView = memo(function TurnView(props: {
   const { turn } = props;
   const forwardBadges = props.lineageBadges?.filter((b) => b.direction === 'forward') ?? [];
   const reverseBadges = props.lineageBadges?.filter((b) => b.direction === 'reverse') ?? [];
+  // Streaming-settle polish: fade the footer toolbar in ONLY when it appears
+  // on an already-mounted turn (a live turn just settled). Turns hydrated from
+  // history mount WITH their footer and must not animate (default mounts don't
+  // animate — motion doc), so a ref pins whether the footer was VISIBLE at
+  // mount. "Visible" must mirror the render condition — the footer renders
+  // inside the `turn.timeline.length > 0` assistant block, and during a live
+  // turn `footerActions` can already be non-empty while the timeline is still
+  // empty; keying the ref on footerActions alone would mark it present-at-
+  // mount and suppress the entrance. Once the footer has appeared the class
+  // is inert: CSS animations run on element insertion only, so later
+  // re-renders never re-flash it.
+  const footerVisible = turn.timeline.length > 0 && !!(props.footerActions && props.footerActions.length > 0);
+  const footerVisibleOnMountRef = useRef(footerVisible);
+  const footerEntrance = footerVisible && !footerVisibleOnMountRef.current;
   return (
     <section
       className="maka-turn"
@@ -1118,6 +1144,7 @@ const TurnView = memo(function TurnView(props: {
               actions={props.footerActions}
               onAction={props.onFooterAction ? (actionId) => props.onFooterAction?.(turn.turnId, actionId) : undefined}
               assistantText={turn.assistant?.text ?? ''}
+              entrance={footerEntrance}
             />
           )}
         </Message>
@@ -1210,6 +1237,12 @@ function TurnFooterActions(props: {
   onAction?: (actionId: TurnFooterActionMeta['id']) => void;
   /** Assistant text used by the inline copy action. */
   assistantText?: string;
+  /**
+   * True when this footer appeared on an already-mounted turn (a live turn
+   * just settled): fade it in instead of popping. History-hydrated turns pass
+   * false — default mounts don't animate.
+   */
+  entrance?: boolean;
 }) {
   const [copyPhase, setCopyPhase] = useState<ClipboardCopyPhase | null>(null);
   const copyPendingRef = useRef(false);
@@ -1265,7 +1298,18 @@ function TurnFooterActions(props: {
     props.onAction?.(action.id);
   }
   return (
-    <Marker variant="footer" role="toolbar" aria-label="本轮回答操作">
+    <Marker
+      variant="footer"
+      role="toolbar"
+      aria-label="本轮回答操作"
+      // Settle entrance: opacity-only fade via the governed
+      // `@keyframes maka-footer-fade-in` (maka-tokens.css) — a `from`-only
+      // keyframe so the fade lands on the footer's own quiet 0.72 opacity
+      // instead of pinning 1. Reduced-motion collapses the duration via the
+      // base.css globals; visual-smoke never exercises a live settle, so the
+      // paused-at-0% hazard cannot occur.
+      className={props.entrance ? '[animation:maka-footer-fade-in_var(--duration-large)_var(--ease-out-strong)_both]' : undefined}
+    >
       {props.actions.map((action) => {
         // Per @kenji review: pending state must keep the original button
         // label visible (not a spinner-only) so screen readers can hear

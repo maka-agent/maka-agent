@@ -1231,6 +1231,15 @@
        in-progress assistant streaming-row visually separated from any
        previous turn while it lands. */
     box-sizing: border-box;
+    /* Streaming-settle position parity: the committed answer sits one
+       within-turn gap (12px, `.maka-turn { gap: var(--space-3) }`) below the
+       user row, but this out-of-band section used to butt flush against the
+       committed turn above it (sections have no parent gap). The 12px
+       mismatch made the answer text jump DOWN by exactly that much the frame
+       the stream settled into the committed turn. Matching the gap here means
+       the streaming text renders at the same y it will occupy once committed,
+       so the swap is position-neutral. */
+    margin-top: var(--space-3);
   }
 
   /* ---- Tool activity ---------------------------------------------- */
@@ -1482,6 +1491,19 @@
      var(--duration-*) token (motion-token-converge contract), so the window is
      retuned there, not with a bare ms here. */
   animation: maka-stream-fade-in var(--duration-large) var(--ease-out-strong) both;
+}
+
+/* Turn footer toolbar settle entrance (streaming UI rework, handoff polish).
+   `from`-only on purpose: the footer's steady state is its own cascaded
+   opacity (0.72 quiet, 1 on hover), so the animation must fade from 0 up to
+   the element's natural value and then get out of the way — an explicit
+   `to { opacity: 1 }` with fill `both` would pin the toolbar at full opacity
+   forever and defeat the quiet/hover treatment. Applied by chat-view's
+   TurnFooterActions only when the footer appears on an already-mounted turn
+   (a live settle); history hydration mounts don't animate. Reduced-motion /
+   visual-smoke globals in base.css collapse it. */
+@keyframes maka-footer-fade-in {
+  from { opacity: 0; }
 }
 .maka-shimmer {
   background-image: linear-gradient(

@@ -108,7 +108,7 @@ describe('assistant streaming handoff', () => {
     );
   });
 
-  it('committed assistant history clears a matching draining slot on the active session', async () => {
+  it('committed assistant history clears a matching draining slot on the active session (delayed fallback only)', async () => {
     const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
     const shell = await readRendererShellSource('app-shell.tsx');
 
@@ -117,10 +117,31 @@ describe('assistant streaming handoff', () => {
       /messages\.some\(\(message\) => message\.type === 'assistant' && message\.id === activeStreamingMessageId\)/,
       'active shell should detect when the committed assistant message has arrived',
     );
+    // Streaming-settle polish: the PRIMARY handoff signal is the bubble's
+    // onStreamingSettled (fires when catchingUp === false, i.e. the final
+    // text has been fully displayed). The committed-history path is a
+    // FALLBACK that must wait out a grace period past the smoother's 600ms
+    // completion drain budget — settling immediately used to cut the visible
+    // tail mid-typewriter and snap the last characters in with the swap.
     assert.match(
       shell,
-      /settleAssistantStreaming\(activeId, activeStreamingMessageId\)/,
-      'matching committed history should clear the draining streaming slot without requiring a session switch',
+      /const timer = window\.setTimeout\(\(\) => \{\s*void settleAssistantStreaming\(activeId, activeStreamingMessageId\);\s*\}, SETTLE_FALLBACK_GRACE_MS\)/,
+      'the committed-history settle must be a delayed fallback, never an immediate mid-drain cut',
+    );
+    assert.match(
+      shell,
+      /return \(\) => window\.clearTimeout\(timer\)/,
+      'the fallback timer must be cleaned up when the effect re-runs',
+    );
+    assert.match(
+      shell,
+      /const SETTLE_FALLBACK_GRACE_MS = 1000/,
+      'grace period must stay comfortably past the 600ms completion drain budget',
+    );
+    assert.match(
+      shell,
+      /onStreamingSettled=\{activeId \? \(\) => settleAssistantStreaming\(activeId, activeStreamingMessageId\) : undefined\}/,
+      'onStreamingSettled stays wired as the primary settle signal',
     );
   });
 

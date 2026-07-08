@@ -46,6 +46,27 @@
   justify-content: flex-end;
   gap: var(--space-1);
   -webkit-app-region: no-drag;
+  /* Streaming-settle polish: the cluster is ALWAYS mounted (chat-view renders
+     the div unconditionally) and collapses via `:empty` below, so the badge
+     row glides in/out instead of mount/unmount snapping the conversation
+     column by its full height in one frame. `interpolate-size` lets the
+     `height: auto` ↔ `0` pair actually transition (Chromium 129+; Electron's
+     runtime is far past that). The reduced-motion / visual-smoke globals in
+     base.css collapse `transition-duration`, so deterministic captures and
+     accessibility users still get the instant swap. */
+  interpolate-size: allow-keywords;
+  height: auto;
+  overflow: hidden;
+  transition:
+    height var(--duration-large) var(--ease-out-strong),
+    margin-top var(--duration-large) var(--ease-out-strong),
+    opacity var(--duration-large) var(--ease-out-strong);
+}
+
+.maka-chat-status-cluster:empty {
+  height: 0;
+  margin-top: 0;
+  opacity: 0;
 }
 
 .maka-chat-status-cluster .maka-chat-header-alert,
