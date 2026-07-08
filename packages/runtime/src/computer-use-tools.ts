@@ -165,10 +165,12 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
     name: 'computer',
     displayName: '电脑控制',
     description:
-      'Control the host computer via macOS Accessibility: take a screenshot, click, type, key, scroll on the user\'s real apps. '
-      + 'Actions run in the BACKGROUND without stealing focus or moving the cursor. Coordinates are in the declared display-pixel '
-      + 'space (the runtime maps them to the real screen). A click that reports verified=false did not confirm its effect — take a '
-      + 'screenshot to check. Never used for web pages inside Maka (use the browser tools for those).',
+      'Control the host computer via macOS Accessibility: take a screenshot, click, mouse_move, scroll on the user\'s real apps. '
+      + 'Actions run in the BACKGROUND without stealing keyboard focus or moving the user\'s REAL mouse cursor — instead a visual '
+      + 'agent-cursor glides to where you act, so the user sees your attention without being interrupted. Use mouse_move to glide the '
+      + 'agent-cursor to a target, then click/scroll to act there. Coordinates are in the declared display-pixel space (the runtime maps '
+      + 'them to the real screen). Prefer this over shelling out to cliclick/screencapture for host GUI control. Keyboard (type/key) is '
+      + 'unavailable on this backend. Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
     impl: async (args, { abortSignal, sessionId, toolCallId }): Promise<ComputerToolResult> => {

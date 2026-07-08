@@ -325,23 +325,33 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         case 'right_click':
         case 'middle_click':
         case 'double_click':
-        case 'triple_click': {
-          const args: Record<string, unknown> = { x: action.coordinate.x, y: action.coordinate.y, scope: 'desktop' };
-          if (action.type === 'right_click') args.button = 'right';
-          if (action.type === 'middle_click') args.button = 'middle';
-          if (action.type === 'double_click') args.count = 2;
-          if (action.type === 'triple_click') args.count = 3;
-          const r = await client.callTool('click', args, signal);
-          return { outcome: toOutcome(r, false) };
-        }
-        case 'scroll': {
-          const r = await client.callTool(
-            'scroll',
-            { x: action.coordinate.x, y: action.coordinate.y, scope: 'desktop', direction: action.scrollDirection, amount: action.scrollAmount },
-            signal,
-          );
-          return { outcome: toOutcome(r, undefined) };
-        }
+        case 'triple_click':
+          // FAIL CLOSED — cua-driver's scope:'desktop' (no-pid) click synthesizes a
+          // GLOBAL CGEvent that WARPS THE REAL CURSOR (empirically confirmed on a
+          // live run). That crosses the non-negotiable "never steal the cursor" red
+          // line. The no-warp path is click{pid, window_id, x, y} (CGEventPostToPid,
+          // 0px cursor move) OR the AX element path — both need resolving the target
+          // window+pid at the coordinate (a window-at-point hit-test), which is not
+          // wired yet. Until then we refuse rather than warp the user's cursor.
+          return {
+            outcome: {
+              ok: false,
+              error: 'unsupported_action',
+              message:
+                `'${action.type}' is disabled on the cua-driver backend: its desktop-scope click moves the user's REAL cursor. `
+                + 'A background click that does not touch the cursor requires window/pid targeting, not yet wired. '
+                + '(screenshot + mouse_move — the visual agent cursor — remain available.)',
+            },
+          };
+        case 'scroll':
+          // Same hazard as click: desktop-scope scroll warps the real cursor. Fail closed.
+          return {
+            outcome: {
+              ok: false,
+              error: 'unsupported_action',
+              message: "'scroll' is disabled on the cua-driver backend: desktop-scope scroll moves the user's real cursor; pid-targeted scroll not yet wired.",
+            },
+          };
         case 'type':
         case 'key':
           // FAIL CLOSED — see the module header. cua-driver keyboard is background-
@@ -362,6 +372,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           };
         case 'wait':
           await new Promise((res) => setTimeout(res, Math.min(action.durationMs, 10_000)));
+          return { outcome: { ok: true, tier: 'coordinate-background' } };
+        case 'mouse_move':
+          // By design we never move the REAL cursor; the overlay hook has already
+          // glided the agent cursor to this coordinate (Codex-style move_cursor).
+          // Acknowledge success rather than reporting unsupported for a reasonable,
+          // side-effect-free action.
           return { outcome: { ok: true, tier: 'coordinate-background' } };
         default:
           return { outcome: { ok: false, error: 'unsupported_action', message: `action '${action.type}' not mapped to cua-driver` } };

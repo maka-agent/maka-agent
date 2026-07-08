@@ -230,24 +230,34 @@ describe('cua-driver backend', () => {
     assert.ok(Buffer.from(res.screenshot!.base64, 'base64').byteLength > 0);
   });
 
-  it('left_click → click{x,y,scope:\'desktop\'}; right_click adds button; double_click adds count', async () => {
+  it('click / scroll fail closed and are NEVER sent to cua-driver (desktop-scope warps the real cursor)', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
-    await backend.run({ type: 'left_click', coordinate: { x: 10, y: 20 } } as CuAction, sig);
-    await backend.run({ type: 'right_click', coordinate: { x: 30, y: 40 } } as CuAction, sig);
-    await backend.run({ type: 'double_click', coordinate: { x: 50, y: 60 } } as CuAction, sig);
 
+    for (const action of [
+      { type: 'left_click', coordinate: { x: 10, y: 20 } },
+      { type: 'right_click', coordinate: { x: 30, y: 40 } },
+      { type: 'double_click', coordinate: { x: 50, y: 60 } },
+      { type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 },
+    ] as CuAction[]) {
+      const res = await backend.run(action, sig);
+      assert.equal(res.outcome.ok, false, `${action.type} must fail closed`);
+      if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
+    }
+
+    // The non-negotiable cursor invariant: no click/scroll ever reaches cua-driver.
     const records = await readRecords(logPath);
-    const clicks = records.filter(
-      (r) => r.kind === 'recv' && r.method === 'tools/call' && r.params && r.params.name === 'click',
-    );
-    assert.equal(clicks.length, 3);
-    // left_click: no button, no count.
-    assert.deepEqual(clicks[0].params.arguments, { x: 10, y: 20, scope: 'desktop' });
-    // right_click: button 'right'.
-    assert.deepEqual(clicks[1].params.arguments, { x: 30, y: 40, scope: 'desktop', button: 'right' });
-    // double_click: count 2.
-    assert.deepEqual(clicks[2].params.arguments, { x: 50, y: 60, scope: 'desktop', count: 2 });
+    const trace = methodTrace(records);
+    assert.ok(!trace.includes('tools/call:click'), 'click must never be sent (would warp the real cursor)');
+    assert.ok(!trace.includes('tools/call:scroll'), 'scroll must never be sent');
+  });
+
+  it('mouse_move succeeds without touching cua-driver (visual agent-cursor only)', async () => {
+    const { backend, logPath } = makeBackend();
+    const res = await backend.run({ type: 'mouse_move', coordinate: { x: 100, y: 100 } } as CuAction, new AbortController().signal);
+    assert.equal(res.outcome.ok, true);
+    const trace = methodTrace(await readRecords(logPath));
+    assert.ok(!trace.some((m) => m.startsWith('tools/call:click') || m.startsWith('tools/call:move')), 'mouse_move must not inject real input');
   });
 
   it('type / key fail closed as unsupported_action and never inject keystrokes', async () => {
@@ -273,10 +283,10 @@ describe('cua-driver backend', () => {
   });
 
   it('abort mid-call kills the child and rejects the promise', async () => {
-    const { backend, logPath } = makeBackend({ hangTool: 'click' });
+    const { backend, logPath } = makeBackend({ hangTool: 'get_desktop_state' });
     const controller = new AbortController();
-    const p = backend.run({ type: 'left_click', coordinate: { x: 1, y: 2 } } as CuAction, controller.signal);
-    // Let the handshake finish and the (hanging) click reach the mock.
+    const p = backend.run({ type: 'screenshot' } as CuAction, controller.signal);
+    // Let the handshake finish and the (hanging) capture reach the mock.
     await delay(150);
 
     const records = await readRecords(logPath);
