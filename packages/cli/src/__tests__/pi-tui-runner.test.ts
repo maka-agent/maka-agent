@@ -297,6 +297,48 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('re-pins to the tail after answering a permission prompt scrolled off-screen', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionThenTailDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+
+    // The prompt appears and snaps into view; then the user pages up past it to
+    // re-read context before deciding.
+    driver.releaseBody();
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Permission required'));
+    await pageUpBelowFold(terminal, 'Permission required');
+
+    // Answering resumes the turn at the tail. The continuation must be visible,
+    // not left below the scrolled-up viewport making the session look stuck.
+    terminal.input('y');
+    await waitFor(() => driver.completed);
+    await delay(50);
+    assert.ok(
+      plainTerminalOutput(terminal.screenOutput()).includes('after-permission-tail'),
+      'the post-decision continuation should be on screen',
+    );
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('holds the reader position when a late thinking completion grows a block above the fold', async () => {
     const terminal = new FakeTerminal();
     const driver = new LateThinkingDriver();
@@ -2397,6 +2439,72 @@ class PermissionAfterLongDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class PermissionThenTailDriver implements MakaSessionDriver {
+  completed = false;
+  private responded = false;
+  private continuePastBody: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'e', turnId: 't', ts: 1, messageId: 'm1', text: body };
+    await new Promise<void>((resolve) => {
+      this.continuePastBody = resolve;
+    });
+    yield {
+      type: 'permission_request',
+      id: 'event-permission',
+      turnId: 't',
+      ts: 2,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      category: 'shell_unsafe',
+      reason: 'shell_dangerous',
+      args: { command: 'npm test' },
+    };
+    while (!this.responded) await delay(2);
+    yield {
+      type: 'permission_decision_ack',
+      id: 'event-decision',
+      turnId: 't',
+      ts: 3,
+      requestId: 'permission-1',
+      toolUseId: 'tool-1',
+      decision: 'allow',
+      rememberForTurn: true,
+    };
+    // The turn resumes at the tail with output the user must see.
+    yield { type: 'text_delta', id: 'tail', turnId: 't', ts: 4, messageId: 'm1', text: '\n\nafter-permission-tail' };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 5, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseBody(): void {
+    this.continuePastBody?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {
+    this.responded = true;
+  }
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}

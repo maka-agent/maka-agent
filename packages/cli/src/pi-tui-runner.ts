@@ -158,6 +158,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const request = state.pendingPermission;
     if (!request || permissionInFlight) return false;
     permissionInFlight = true;
+    // Answering is the user acting; the decision resumes the turn at the tail
+    // (tool output, the next reply, or an error). Snap back to the tail so that
+    // continuation is visible even if the user had paged up past the prompt to
+    // read context before deciding — otherwise the session looks stuck.
+    layout.followTailNow();
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck.
     void input.driver.respondToPermission({
