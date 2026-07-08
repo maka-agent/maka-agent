@@ -1,3 +1,35 @@
+type SkeletonLine = { width: string; size?: 'lg' | 'sm' };
+
+// 权限/健康快照页共用的骨架行预设：首行大号标题条，其余模拟段落行宽。
+const SNAPSHOT_SKELETON_LINES: ReadonlyArray<SkeletonLine> = [
+  { width: '38%', size: 'lg' },
+  { width: '72%' },
+  { width: '60%' },
+  { width: '80%' },
+];
+
+// 带可访问性 label 的骨架行堆，供各设置页加载态共用，避免每页手写重复的 skeleton 标记。
+export function SettingsSkeletonStack({
+  label,
+  lines = SNAPSHOT_SKELETON_LINES,
+}: {
+  label: string;
+  lines?: ReadonlyArray<SkeletonLine>;
+}) {
+  return (
+    <div className="maka-skeleton-stack" aria-busy="true" aria-label={label}>
+      {lines.map((line, index) => (
+        <div
+          key={index}
+          className="maka-skeleton maka-skeleton-line"
+          data-size={line.size}
+          style={{ width: line.width }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function SettingsSkeleton() {
   return (
     <div className="settingsLoadingSkeleton" aria-busy="true" aria-label="正在加载设置">

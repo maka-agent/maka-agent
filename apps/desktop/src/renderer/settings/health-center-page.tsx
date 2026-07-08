@@ -10,6 +10,7 @@ import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
 import { Button, Badge, RelativeTime } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 /**
  * PR-UI-9 — Health Center read-only page. Consumes `window.maka.health.getSnapshot()`
@@ -91,12 +92,7 @@ export function HealthCenterPage() {
 
   if (loading) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载健康快照">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
-      </div>
+      <SettingsSkeletonStack label="正在加载健康快照" />
     );
   }
 

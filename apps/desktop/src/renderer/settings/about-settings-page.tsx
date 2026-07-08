@@ -3,6 +3,7 @@ import { Sparkles } from '@maka/ui/icons';
 import { Button, useToast } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 type AppInfo = Awaited<ReturnType<typeof window.maka.app.info>>;
 
@@ -47,11 +48,14 @@ export function AboutSettingsPage() {
 
   if (!info && !infoError) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载关于页">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '70%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '52%' }} />
-      </div>
+      <SettingsSkeletonStack
+        label="正在加载关于页"
+        lines={[
+          { width: '38%', size: 'lg' },
+          { width: '70%' },
+          { width: '52%' },
+        ]}
+      />
     );
   }
 

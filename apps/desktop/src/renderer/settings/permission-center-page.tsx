@@ -21,6 +21,7 @@ import { OS_PERMISSION_IDS } from '@maka/core';
 import { Button, Badge, RelativeTime, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 /**
  * PR-UI-8 — Permission Center read-only page. Consumes `window.maka.permissions.getSnapshot()`
@@ -173,12 +174,7 @@ export function PermissionCenterPage() {
 
   if (loading) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载权限快照">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
-      </div>
+      <SettingsSkeletonStack label="正在加载权限快照" />
     );
   }
 

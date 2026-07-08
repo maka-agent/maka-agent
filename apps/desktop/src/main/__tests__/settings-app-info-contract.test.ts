@@ -20,7 +20,7 @@ describe('Settings app-info loading contract', () => {
     );
     assert.match(
       aboutBlock,
-      /if \(!info && !infoError\) \{[\s\S]*aria-label="正在加载关于页"/,
+      /if \(!info && !infoError\) \{[\s\S]*label="正在加载关于页"/,
       'About page skeleton should only render while no error has occurred',
     );
     assert.match(
