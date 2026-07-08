@@ -43,7 +43,7 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
   });
 
   test('S15b frame cap is 2 MB and the boundary predicate is exclusive', () => {
-    expect(COMPUTER_USE_FRAME_MAX_BYTES).toBe(2 * 1024 * 1024);
+    expect(COMPUTER_USE_FRAME_MAX_BYTES).toBe(8 * 1024 * 1024);
     expect(exceedsComputerUseFrameCap(COMPUTER_USE_FRAME_MAX_BYTES)).toBe(false);
     expect(exceedsComputerUseFrameCap(COMPUTER_USE_FRAME_MAX_BYTES + 1)).toBe(true);
     expect(exceedsComputerUseFrameCap(0)).toBe(false);

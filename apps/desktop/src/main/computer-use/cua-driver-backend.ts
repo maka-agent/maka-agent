@@ -110,7 +110,7 @@ class CuaDriverClient {
       /* non-fatal */
     }
 
-    const child = spawn(this.opts.binaryPath, ['mcp', '--embedded', '--host-bundle-id', this.opts.hostBundleId], {
+    const child = spawn(this.opts.binaryPath, ['mcp', '--embedded', '--no-daemon-relaunch', '--host-bundle-id', this.opts.hostBundleId], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
@@ -118,6 +118,11 @@ class CuaDriverClient {
         CUA_DRIVER_HOST_BUNDLE_ID: this.opts.hostBundleId,
         CUA_DRIVER_RS_TELEMETRY_ENABLED: 'false',
         CUA_DRIVER_RS_UPDATE_CHECK: 'false',
+        // Stay in-process; do NOT relaunch cua-driver's daemon. Without this the
+        // daemon draws its OWN agent-cursor overlay — a SECOND cursor on top of
+        // Maka's. Maka owns the overlay, so cua's must not render. (Verified: this
+        // mode yields 0 cua cursor instances; capture still works in-process.)
+        CUA_DRIVER_RS_MCP_NO_RELAUNCH: '1',
       },
     });
     this.child = child;

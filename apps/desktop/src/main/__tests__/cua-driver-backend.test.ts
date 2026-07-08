@@ -212,7 +212,7 @@ describe('cua-driver backend', () => {
     // Spawn contract: args + env.
     const start = records.find((r) => r.kind === 'start');
     assert.ok(start, 'mock recorded a start line');
-    assert.deepEqual(start!.argv, ['mcp', '--embedded', '--host-bundle-id', HOST_BUNDLE_ID]);
+    assert.deepEqual(start!.argv, ['mcp', '--embedded', '--no-daemon-relaunch', '--host-bundle-id', HOST_BUNDLE_ID]);
     assert.equal(start!.env.CUA_DRIVER_EMBEDDED, '1');
     assert.equal(start!.env.CUA_DRIVER_RS_TELEMETRY_ENABLED, 'false');
     assert.equal(start!.env.CUA_DRIVER_RS_UPDATE_CHECK, 'false');

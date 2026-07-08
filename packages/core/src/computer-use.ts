@@ -117,12 +117,16 @@ export const COMPUTER_USE_FRAME_SOURCE_KINDS = ['live-capture', 'cached-still'] 
 export type ComputerUseFrameSourceKind = typeof COMPUTER_USE_FRAME_SOURCE_KINDS[number];
 
 /**
- * Max encoded bytes of a single frame sent to a provider. Mirrors the artifact
- * preview registry cap (@maka/ui IMAGE_PAYLOAD_MAX_BYTES = 2 MB); an oversize
- * frame is a `sensitivity_blocked`, never a silent downscale-and-upload (S15b).
- * Kept here (not imported from @maka/ui) because @maka/core is zero-dependency.
+ * Max encoded bytes of a single frame sent to a provider. A native Retina
+ * full-display PNG (e.g. 3024×1964) routinely runs 4–6 MB, so the original 2 MB
+ * cap blocked real screenshots as `sensitivity_blocked`. Raised to 8 MB to admit
+ * native-resolution captures (keeping the model's coordinate space == device px,
+ * which the click backend relies on). An oversize frame is still a
+ * `sensitivity_blocked`, never a silent downscale-and-upload (S15b). FOLLOW-UP:
+ * compress to JPEG at native resolution (small payload, same coordinates) rather
+ * than lean on a large cap.
  */
-export const COMPUTER_USE_FRAME_MAX_BYTES = 2 * 1024 * 1024;
+export const COMPUTER_USE_FRAME_MAX_BYTES = 8 * 1024 * 1024;
 
 export interface ComputerUseScreenFrame {
   /** The in-flight action this frame belongs to; cross-action reuse is invalid. */

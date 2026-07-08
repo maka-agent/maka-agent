@@ -1444,9 +1444,10 @@ Doc convention is the same as Path 17:
     to ONE in-flight action; cross-action reuse is invalid),
   - the source kind (`'live-capture' | 'cached-still'`) so the
     review path can distinguish a fresh frame from a stale one,
-  - a max-size invariant matching the artifact preview cap
-    (`IMAGE_PAYLOAD_MAX_BYTES` = 2 MB; oversize → sensitivity
-    block, not silent downscale-and-upload).
+  - a max-size invariant (`COMPUTER_USE_FRAME_MAX_BYTES` = 8 MB —
+    raised from 2 MB, which blocked real native Retina full-display
+    PNGs; oversize → sensitivity block, not silent downscale-and-
+    upload).
 - A screenshot frame MUST NOT be persisted raw to the session log.
   The session log records the action's outcome + a redacted text
   summary; the raw frame is held in main-process memory for the
