@@ -159,10 +159,16 @@ describe('Maka Pi TUI runner', () => {
     // Expanding the 31-line result makes it overflow the viewport; its head line
     // `expanded-tail` scrolls off the top when following the tail, so page up to
     // bring it into view. This exercises the global expand and scrollback together.
-    await waitFor(() => {
+    // Press once per settled render rather than inside a waitFor predicate, which
+    // would re-check a stale async screen and over-scroll.
+    for (let i = 0; i < 8 && !plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail'); i += 1) {
       terminal.input('\x1b[5~');
-      return plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail');
-    });
+      await delay(20);
+    }
+    assert.ok(
+      plainTerminalOutput(terminal.screenOutput()).includes('expanded-tail'),
+      'expected the expanded head line in view after paging up',
+    );
 
     terminal.input('\x03');
     await Promise.race([
