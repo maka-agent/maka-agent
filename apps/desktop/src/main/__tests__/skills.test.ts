@@ -1185,7 +1185,9 @@ name: Writer
     assert.match(skillPanel, /const runtimeLabel = formatSkillRuntimeLabel\(skill\)/);
     assert.match(skillPanel, /来源状态：\$\{statusLabel\}/);
     assert.match(skillPanel, /运行状态：\$\{runtimeLabel\}/);
-    assert.match(skillPanel, /className="maka-skill-library-runtime-label"[\s\S]*>\{runtimeLabel\}<\/span>/);
+    // Detail round 6, exception-only: the runtime chip renders ONLY for
+    // state_error — enabled/disabled is already expressed by the Switch.
+    assert.match(skillPanel, /\{skill\.runtimeStatus === 'state_error' && \([\s\S]*?className="maka-skill-library-runtime-label"[\s\S]*>\{runtimeLabel\}<\/span>/);
     assert.match(skillPanel, /className="maka-skill-library-status-label"[\s\S]*>\{statusLabel\}<\/span>/);
     assert.match(ui, /function formatSkillStatusLabel\(skill: SkillEntry\): string/);
     assert.match(ui, /function formatSkillRuntimeLabel\(skill: SkillEntry\): string/);

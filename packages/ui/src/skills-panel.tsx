@@ -268,7 +268,13 @@ function SkillLibraryPanel(props: {
                     </span>
                     <span className="maka-skill-library-meta">
                       <span>{skill.id}</span>
-                      <span className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</span>
+                      {/* Detail round 6, exception-only: the adjacent Switch
+                          already says enabled/disabled — the visible chip only
+                          appears for states the switch can't express
+                          (state_error). 已启用/已停用 stay in the hover text. */}
+                      {skill.runtimeStatus === 'state_error' && (
+                        <span className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</span>
+                      )}
                       <span className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</span>
                       {opening && <span>打开中…</span>}
                       {updating && <span>更新中…</span>}
@@ -638,9 +644,13 @@ export function SkillsModuleMain(props: {
           >
             打开目录
           </UiButton>
+          {/* Detail round 6: the page CTA is a REAL primary (variant default,
+              same recipe as daily-review's 生成每日回顾) — previously a ghost
+              re-skinned by CSS into a hardcoded black-gradient pill (theme-leak
+              literals + off-family radius). */}
           <UiButton
-            className="maka-button maka-skill-add-button"
-            variant="ghost"
+            className="maka-skill-add-button"
+            variant="default"
             type="button"
             onClick={() => void runSkillAction('create', props.onCreateSkillTemplate)}
             disabled={!props.onCreateSkillTemplate || skillActionBusy}

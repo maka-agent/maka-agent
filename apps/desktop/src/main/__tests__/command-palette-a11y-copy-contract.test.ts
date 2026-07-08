@@ -76,13 +76,21 @@ describe('Command palette accessibility and visible copy', () => {
 
     assert.match(
       src,
-      /import \{[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/,
+      /import \{[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/,
       'CommandPalette must consume shared primitive InputGroup + Dialog primitives from @maka/ui',
     );
     assert.match(
       src,
-      /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"[\s\S]*<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/,
-      'CommandPalette input shell must be shared primitive InputGroup with an accessible input label, whole-shell click focus, and trailing hint addon',
+      /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{[\s\S]*inputRef\.current\?\.focus\(\);[\s\S]*<InputGroupInput[\s\S]*aria-label="搜索命令、设置项或会话"/,
+      'CommandPalette input shell must be shared primitive InputGroup with an accessible input label and whole-shell click focus',
+    );
+    // Detail round 6: the shortcut hints (↵ 执行 / Esc 关闭) live in the
+    // footer bar ONLY. An inline input addon duplicated them in the same
+    // viewport — one affordance, one home.
+    assert.doesNotMatch(
+      src,
+      /maka-palette-input-hint/,
+      'Shortcut hints must not be duplicated in an input addon — the palette footer is the single source',
     );
     assert.doesNotMatch(
       src,
@@ -99,10 +107,10 @@ describe('Command palette accessibility and visible copy', () => {
       /margin:\s*var\(--space-2\)\s*var\(--space-2-5\);/,
       'Palette InputGroup should preserve the compact command-modal inset spacing',
     );
-    assert.match(
+    assert.doesNotMatch(
       styles,
-      /@media \(max-width: 720px\) \{[\s\S]*\.maka-palette-input-hint-addon \{[\s\S]*display:\s*none;/,
-      'Palette trailing key hint must collapse on narrow widths instead of squeezing the input',
+      /maka-palette-input-hint/,
+      'Input-addon hint CSS must stay deleted along with the duplicated hint markup',
     );
   });
 

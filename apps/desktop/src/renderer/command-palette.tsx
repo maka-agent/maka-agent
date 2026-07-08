@@ -41,7 +41,6 @@ import {
   EmptyMedia,
   EmptyTitle,
   InputGroup,
-  InputGroupAddon,
   InputGroupInput,
   Kbd,
   KbdGroup,
@@ -713,14 +712,6 @@ export function CommandPalette(props: {
                 />
               }
             />
-            <InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">
-              <span className="maka-palette-input-hint" aria-hidden="true">
-                <Kbd className="maka-shortcut-kbd">↵</Kbd>
-                <span>执行</span>
-                <Kbd className="maka-shortcut-kbd">Esc</Kbd>
-                <span>关闭</span>
-              </span>
-            </InputGroupAddon>
           </InputGroup>
           <Autocomplete.List className="maka-palette-list" id="maka-palette-list" aria-label="命令面板结果">
             {grouped.length === 0 ? (
