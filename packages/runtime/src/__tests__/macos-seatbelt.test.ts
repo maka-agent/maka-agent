@@ -52,6 +52,51 @@ function restrictedProfileWithEnabledNetwork(): PermissionProfile {
   };
 }
 
+function restrictedProfileWithDeniedChild(): PermissionProfile {
+  return {
+    type: 'managed',
+    name: 'custom',
+    fileSystem: {
+      kind: 'restricted',
+      entries: [
+        {
+          kind: 'special',
+          access: 'write',
+          special: ':workspace_roots',
+        },
+        {
+          kind: 'path',
+          access: 'deny',
+          path: '/repo/secret',
+        },
+      ],
+    },
+    network: { kind: 'restricted' },
+  };
+}
+
+function workspaceWriteProfileWithCustomProtectedMetadata(): PermissionProfile {
+  return {
+    type: 'managed',
+    name: 'custom',
+    fileSystem: {
+      kind: 'restricted',
+      entries: [
+        {
+          kind: 'special',
+          access: 'write',
+          special: ':workspace_roots',
+        },
+      ],
+      protectedMetadata: {
+        access: 'deny_write',
+        names: ['.git', '.maka'],
+      },
+    },
+    network: { kind: 'restricted' },
+  };
+}
+
 function policyText(profile: PermissionProfile): string {
   return buildSeatbeltPolicy({
     profile,
@@ -112,10 +157,36 @@ describe('buildSeatbeltPolicy', () => {
   it('protects metadata names with require-not regex under writable workspace roots', () => {
     const policy = policyText(createWorkspaceWritePermissionProfile());
 
-    assert.match(policy, /\(require-all \(subpath \(param "WRITABLE_ROOT_0"\)\)/);
+    assert.match(
+      policy,
+      /\(require-all\n    \(subpath \(param "WRITABLE_ROOT_0"\)\)/,
+    );
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.git(/.*)?$"))`));
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.agents(/.*)?$"))`));
     assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.codex(/.*)?$"))`));
+  });
+
+  it('uses protected metadata names from the active profile', () => {
+    const policy = policyText(workspaceWriteProfileWithCustomProtectedMetadata());
+
+    assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.git(/.*)?$"))`));
+    assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.maka(/.*)?$"))`));
+    assert.ok(!policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.agents(/.*)?$"))`));
+    assert.ok(!policy.includes(String.raw`(require-not (regex #"^/repo/(.*/)?\.codex(/.*)?$"))`));
+  });
+
+  it('excludes explicit deny roots from readable and writable root allow clauses', () => {
+    const policy = policyText(restrictedProfileWithDeniedChild());
+
+    assert.ok(policy.includes(String.raw`(require-not (regex #"^/repo/secret(/.*)?$"))`));
+    assert.match(
+      policy,
+      /\(allow file-read\*\n  \(require-all\n    \(subpath \(param "READABLE_ROOT_0"\)\)\n    \(require-not \(regex #"\^\/repo\/secret\(\/\.\*\)\?\$"\)\)\n  \)\)/,
+    );
+    assert.match(
+      policy,
+      /\(allow file-write\*\n  \(require-all\n    \(subpath \(param "WRITABLE_ROOT_0"\)\)\n    \(require-not \(regex #"\^\/repo\/secret\(\/\.\*\)\?\$"\)\)\n  \)\)/,
+    );
   });
 
   it('escapes workspace root before building protected metadata regex requirements', () => {
