@@ -92,6 +92,7 @@ import {
   ModelAdapter,
   normalizeAiSdkUsage,
   rawFinishReasonString,
+  sumNormalizedAiSdkUsage,
   type ModelFactory,
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
@@ -200,6 +201,20 @@ export type {
 } from '@maka/core/backend-types';
 
 export const INVALID_TOOL_NAME = 'invalid';
+
+/**
+ * Join non-empty prompt fragments with a blank-line separator. Returns
+ * `undefined` when nothing survives so callers can omit the field entirely.
+ * Used to merge trailing context fragments (turn tail prompt + live shell
+ * run context summary) into one append-only block on the current user turn.
+ */
+function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
+  const joined = fragments
+    .map((fragment) => fragment?.trim())
+    .filter((fragment): fragment is string => Boolean(fragment))
+    .join('\n\n');
+  return joined.length > 0 ? joined : undefined;
+}
 
 export function composePrepareStep(
   toolAvailability: PrepareStepFunctionLike | undefined,
@@ -547,23 +562,37 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
   /**
-   * User guidance injected mid-turn via `injectGuidance`. Kept for the
-   * whole turn (not drained): prepareStep re-appends every entry as a
-   * trailing `user` message before each LLM step, so the steer persists
-   * across steps — the model still has it when it produces its final
-   * answer, not only on the single step that followed injection. Reset at
-   * turn start and in cleanupAfterTurn.
+   * User guidance injected mid-turn via `injectGuidance`. Append-only for the
+   * whole turn (not drained): prepareStep re-appends every entry as a trailing
+   * `user` message before each LLM step, so the steer persists across steps —
+   * the model still has it when it produces its final answer, not only on the
+   * single step that followed injection. Reset at turn start and in
+   * cleanupAfterTurn.
    */
   private injectedGuidance: string[] = [];
 
   /**
-   * Count of guidance entries already fed to a step (via the standing-steer
-   * prepareStep) or to a continuation pass. The post-turn continuation fires
-   * while `injectedGuidance.length > guidanceConsumedCount` — i.e. there is
-   * guidance the user injected that no step has consumed yet (a pure-text
-   * turn that was already streaming when the steer arrived).
+   * Monotonic index of how many `injectedGuidance` entries have been appended
+   * to the model's messages (via the standing-steer prepareStep or a
+   * continuation pass). Only ever advanced (set to `injectedGuidance.length`
+   * at the moment the slice is read), never decremented, so a steer arriving
+   * during a prepareStep's async body is NOT marked delivered before it is
+   * actually read — it stays `length > index` and the continuation pass picks
+   * it up. The post-turn continuation fires while
+   * `injectedGuidance.length > deliveredToModelIndex`.
    */
-  private guidanceConsumedCount = 0;
+  private deliveredToModelIndex = 0;
+
+  /**
+   * Monotonic index of how many `injectedGuidance` entries have been emitted
+   * as `guidance` events into the turn's stream (and thus appended to the
+   * session ledger as `user` rows). Guidance events are buffered and flushed
+   * only at step boundaries (finish-step / turn end) — NEVER mid-step while a
+   * `tool_call` is awaiting its `tool_result` — so a steer injected during a
+   * tool window or a permission park lands AFTER the tool result in the
+   * ledger, keeping next-turn replay well-formed (no orphan `tool_use`).
+   */
+  private pendingGuidanceEventIndex = 0;
 
   /**
    * Id of the assistant step currently streaming, stamped onto each tool
@@ -747,7 +776,8 @@ export class AiSdkBackend implements AgentBackend {
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
     this.injectedGuidance = [];
-    this.guidanceConsumedCount = 0;
+    this.deliveredToModelIndex = 0;
+    this.pendingGuidanceEventIndex = 0;
     this.input.permissionEngine.beginTurn(turnId);
     this.abortController = new AbortController();
 
@@ -930,7 +960,13 @@ export class AiSdkBackend implements AgentBackend {
         watchdog.start();
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
-        const turnTailPrompt = await this.resolveTurnTailPrompt();
+        // Keep live shell context visible to the model: the turn tail prompt
+        // and the shell run context summary are both trailing, append-only
+        // context fragments, joined so neither is dropped.
+        const turnTailPrompt = joinPromptFragments([
+          await this.resolveTurnTailPrompt(),
+          await this.resolveShellRunContextSummary(),
+        ]);
         const currentUserContent = await this.buildCurrentUserContent(input.text, input.attachments);
         const messages = [
           ...priorReplay.messages,
@@ -1061,13 +1097,18 @@ export class AiSdkBackend implements AgentBackend {
         // never touches the steer. The buffer is NOT drained — the steer is
         // a standing instruction that persists across steps, so the model
         // still has it on the step that produces its final answer (not only
-        // on the single step that followed injection).
+        // on the single step that followed injection). `deliveredToModelIndex`
+        // is advanced synchronously at the moment we read the slice, so a
+        // steer arriving during the async `composedPrepareStep` body is read
+        // fresh (it is in `injectedGuidance` by the time we sample) and a
+        // steer arriving AFTER this sample stays `length > index` for the
+        // continuation pass — never marked delivered before it is read.
         const prepareStep: PrepareStepFunctionLike | undefined = composedPrepareStep
           ? async (options) => {
               const inner = await composedPrepareStep(options);
               const guidance = this.currentGuidance();
               if (guidance.length === 0) return inner;
-              this.guidanceConsumedCount = this.injectedGuidance.length;
+              this.deliveredToModelIndex = this.injectedGuidance.length;
               const baseMessages = inner?.messages ?? options.messages;
               return {
                 ...(inner ?? {}),
@@ -1080,7 +1121,7 @@ export class AiSdkBackend implements AgentBackend {
           : async (options) => {
               const guidance = this.currentGuidance();
               if (guidance.length === 0) return undefined;
-              this.guidanceConsumedCount = this.injectedGuidance.length;
+              this.deliveredToModelIndex = this.injectedGuidance.length;
               return {
                 messages: [
                   ...options.messages,
@@ -1139,6 +1180,10 @@ export class AiSdkBackend implements AgentBackend {
           // reasoning even though they land before this row in the ledger.
           if (isStepFinishChunk) {
             await flushStep();
+            // Step boundary: safe to flush buffered guidance events — any
+            // tool_call this step issued already has its tool_result in the
+            // ledger, so the steer `user` row lands after it, not between.
+            await this.flushPendingGuidanceEvents();
             this.currentStepMessageId = this.newId();
           }
         }
@@ -1154,6 +1199,11 @@ export class AiSdkBackend implements AgentBackend {
         // Catch-all: flush any residual step content if the provider closed the
         // stream without a trailing `finish-step` for the last step.
         await flushStep();
+        // Turn-end boundary: flush any guidance buffered during the final
+        // step (e.g. a steer that arrived while the last tool was parking on
+        // a permission prompt, or after the last finish-step) so it is
+        // persisted before the continuation pass / completion.
+        await this.flushPendingGuidanceEvents();
 
         // Same-turn deferred load: prepareStep expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
@@ -1217,47 +1267,54 @@ export class AiSdkBackend implements AgentBackend {
           turnHadAnyText = true;
         }
         // Mid-turn guidance continuation (steer): if the user injected guidance
-        // that no step has consumed yet (injectedGuidance.length > consumed),
-        // the turn ended without giving the model a chance to respond to it —
-        // e.g. a pure-text answer that was already streaming when the steer
-        // arrived, so there was no next prepareStep to land it on. Run a
-        // follow-up pass that appends the steer as a trailing user message on
-        // top of the full history (incl. the just-generated answer), so the
-        // model produces a visible response addressing it. The already-output
-        // answer is never edited — only subsequent output is constrained.
-        // Multiple steers stack in injection order (later == higher priority,
-        // trailing in the message list); each pass consumes the pending batch
-        // and re-checks, so steers injected during a pass get their own pass.
-        // Capped by maxSteps and a hard guard; never re-triggers on the same
-        // steer (consumedCount tracks it).
+        // that no step has consumed yet (injectedGuidance.length >
+        // deliveredToModelIndex), the turn ended without giving the model a chance
+        // to respond to it — e.g. a pure-text answer that was already streaming
+        // when the steer arrived, so there was no next prepareStep to land it
+        // on. Run a follow-up pass on top of the full history (incl. the
+        // just-generated answer); the standing-steer prepareStep re-appends the
+        // pending steer as a trailing user message, so the model produces a
+        // visible response addressing it. The already-output answer is never
+        // edited — only subsequent output is constrained.
+        // steers injected during a pass are picked up by the next pass
+        // (length > index again). Capped by maxSteps and a hard guard; the
+        // monotonic `deliveredToModelIndex` guarantees we never re-trigger on
+        // the same steer.
         let continuationFinishReason: unknown = finishReasonForGrace;
         let continuationGuard = 0;
         // Accumulates the conversation across passes: prior history + prompt,
-        // then each pass's answer + the steer that triggered it. A later steer
-        // builds on the full running transcript (incl. earlier steers + their
-        // responses) so context stays continuous and later steers stack on
-        // top of earlier ones (later == higher priority, trailing in the list).
+        // then each pass's answer. A later steer builds on the full running
+        // transcript (incl. earlier steers + their responses) so context stays
+        // continuous. The standing-steer prepareStep appends the pending steer
+        // batch at each step's tail, so it is NOT added to continuationMessages
+        // here (that would double-append).
         let continuationBase: ModelMessage[] = [...messages];
+        // Accumulated continuation token usage, merged into the turn's final
+        // token_usage event so continuation passes no longer underreport
+        // usage/cost (each pass re-sends the full history).
+        let continuationAccumUsage: NormalizedAiSdkUsage | undefined;
         while (
           !this.aborted
-          && this.injectedGuidance.length > this.guidanceConsumedCount
+          && this.injectedGuidance.length > this.deliveredToModelIndex
           && runtimeSteps < this.maxSteps
           && continuationGuard < this.maxSteps
           && continuationFinishReason !== 'tool-calls'
         ) {
           continuationGuard += 1;
-          const steer = this.injectedGuidance.splice(0);
-          this.guidanceConsumedCount = 0;
+          // Flush buffered guidance events BEFORE this pass produces any
+          // assistant text, so the steer `user` row lands in the ledger
+          // ahead of the follow-up assistant row (never between a tool_call
+          // and its tool_result — those already flushed at the prior
+          // finish-step / turn-end boundary).
+          await this.flushPendingGuidanceEvents();
           // Build on the full conversation: prior history + prompt + the
-          // already-generated answer + the steer(s) as trailing user msgs.
-          // The steer is consumed (spliced), so the standing-steer prepareStep
-          // won't double-append it on this pass's own steps. The answer so far
-          // is the assistant text produced in the current pass (one
-          // AssistantMessage per step was already persisted above via flushStep).
+          // already-generated answer. The standing-steer prepareStep appends
+          // the pending steer batch at the tail; the answer so far is the
+          // assistant text produced in the current pass (one AssistantMessage
+          // per step was already persisted above via flushStep).
           const continuationMessages: ModelMessage[] = [
             ...continuationBase,
             { role: 'assistant', content: passAssistantText } as ModelMessage,
-            ...steer.map((text) => ({ role: 'user', content: text }) as ModelMessage),
           ];
           // The next pass (if any) builds on this pass's transcript, including
           // the answer it produced and the steer it addressed.
@@ -1300,6 +1357,7 @@ export class AiSdkBackend implements AgentBackend {
             });
             if (isStepFinishChunk) {
               await flushStep();
+              await this.flushPendingGuidanceEvents();
               this.currentStepMessageId = this.newId();
             }
           }
@@ -1307,13 +1365,33 @@ export class AiSdkBackend implements AgentBackend {
             throw Object.assign(new Error('aborted'), { name: 'AbortError' });
           }
           await flushStep();
+          await this.flushPendingGuidanceEvents();
           continuationFinishReason = await continuationResult.finishReason.catch(() => 'stop');
-          // NOTE: continuation token usage is not merged into the turn's
-          // token_usage event (best-effort; the first pass's usage stands).
+          // Mark everything currently buffered as delivered to the model; a
+          // steer injected during this pass keeps length > index and earns its
+          // own next pass.
+          this.deliveredToModelIndex = this.injectedGuidance.length;
+          // Accumulate this pass's usage into the turn total.
+          const passUsage = normalizeAiSdkUsage(
+            await (continuationResult.totalUsage ?? continuationResult.usage),
+            { rawFinishReason },
+          );
+          if (passUsage) {
+            continuationAccumUsage = continuationAccumUsage
+              ? sumNormalizedAiSdkUsage(continuationAccumUsage, passUsage)
+              : passUsage;
+          }
         }        // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
         // is the billing-relevant sum across all internal tool-loop steps.
         try {
           tokenUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
+          // Merge accumulated continuation-pass usage so guidance follow-ups no
+          // longer underreport usage/cost (each pass re-sends the full history).
+          if (tokenUsage && continuationAccumUsage) {
+            tokenUsage = sumNormalizedAiSdkUsage(tokenUsage, continuationAccumUsage);
+          } else if (!tokenUsage && continuationAccumUsage) {
+            tokenUsage = continuationAccumUsage;
+          }
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
@@ -2947,7 +3025,8 @@ export class AiSdkBackend implements AgentBackend {
     this.toolRuntime.resetTurnState();
     this.aborted = false;
     this.injectedGuidance = [];
-    this.guidanceConsumedCount = 0;
+    this.deliveredToModelIndex = 0;
+    this.pendingGuidanceEventIndex = 0;
     this.currentStepMessageId = null;
   }
 
@@ -2955,20 +3034,37 @@ export class AiSdkBackend implements AgentBackend {
     const trimmed = text.trim();
     if (!trimmed || this.currentTurnId === null) return false;
     this.injectedGuidance.push(trimmed);
-    // Emit a guidance event into the running turn's stream so it is mapped
-    // to a  runtime event (persisted + shown in the conversation),
-    // in addition to prepareStep feeding it to the model's next step.
+    // NOTE: the guidance event is NOT emitted here. It is buffered and
+    // flushed at the next step boundary by `flushPendingGuidanceEvents()`
+    // so the steer `user` row never lands between a `tool_call` and its
+    // `tool_result` in the session ledger (which would corrupt next-turn
+    // replay with an orphan `tool_use`). prepareStep still feeds the steer
+    // to the model immediately from `injectedGuidance`.
+    return true;
+  }
+
+  /**
+   * Emit buffered guidance events into the running turn's stream at a step
+   * boundary. Called at each `finish-step` and at turn end / before a
+   * continuation pass. By construction no `tool_call` is awaiting its
+   * `tool_result` at these points, so the appended `user` rows keep the
+   * ledger replay well-formed.
+   */
+  private async flushPendingGuidanceEvents(): Promise<void> {
     const queue = this.currentQueue;
-    if (queue) {
+    const turnId = this.currentTurnId;
+    if (!queue || turnId === null) return;
+    while (this.pendingGuidanceEventIndex < this.injectedGuidance.length) {
+      const text = this.injectedGuidance[this.pendingGuidanceEventIndex];
+      this.pendingGuidanceEventIndex += 1;
       queue.push({
         type: 'guidance',
         id: this.newId(),
-        turnId: this.currentTurnId,
+        turnId,
         ts: this.now(),
-        text: trimmed,
+        text,
       });
     }
-    return true;
   }
 
   private currentGuidance(): string[] {

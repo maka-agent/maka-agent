@@ -274,7 +274,7 @@ const credentialStore = createFileCredentialStore(workspaceRoot);
 // is what lets a user commit a follow-up (“立即”) while a turn is still
 // running and have it answered after the current answer finishes,
 // without interrupting it and without racing the backend state.
-const sessionSendChain = new Map<string, Promise<void>>();
+const sessionSendChain = new Map<string, Promise<unknown>>();
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
 // Lives in main process only; renderer accesses via IPC. Tokens
 // never cross the IPC boundary (xuan G-X3). Cloak path is dynamic-

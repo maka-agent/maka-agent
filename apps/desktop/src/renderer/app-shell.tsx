@@ -44,6 +44,14 @@ import { ProviderBrandMark } from './settings/provider-brand-marks';
 // chat shell is not blocked on parsing them.
 const ArtifactPane = lazy(() => import('./artifact-pane').then((m) => ({ default: m.ArtifactPane })));
 const BrowserPanel = lazy(() => import('./browser-panel').then((m) => ({ default: m.BrowserPanel })));
+
+function BrowserPanelFallback() {
+  return (
+    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
+    </div>
+  );
+}
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
@@ -106,15 +114,6 @@ import {
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
-
-function BrowserPanelFallback() {
-  return (
-    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
-    </div>
-  );
-}
-
 
 function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
   if (a.length !== b.length) return false;
@@ -1768,6 +1767,11 @@ export function AppShell({
                           : undefined
                 }
                 onPermissionModeChange={(mode) => setPermissionMode(mode)}
+                onInjectGuidance={
+                  activeId
+                    ? (text) => window.maka.sessions.injectGuidance(activeId, text)
+                    : undefined
+                }
               />
             </div>
             {activeId && liveBrowserSessionIds.includes(activeId) && (

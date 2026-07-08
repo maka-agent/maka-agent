@@ -505,6 +505,45 @@ export function normalizeAiSdkUsage(
   };
 }
 
+/**
+ * Sum two normalized usage records (e.g. a main pass + continuation passes)
+ * into one billing-relevant total. `raw` provider breakdown fields are
+ * dropped (they are not safely summable); scalar token totals add. The
+ * `cacheMissInputSource` of the result is `derived` unless both inputs agree
+ * on `explicit`.
+ */
+export function sumNormalizedAiSdkUsage(
+  left: NormalizedAiSdkUsage,
+  right: NormalizedAiSdkUsage,
+): NormalizedAiSdkUsage {
+  const inputTokens = left.inputTokens + right.inputTokens;
+  const outputTokens = left.outputTokens + right.outputTokens;
+  const cacheHitInputTokens = left.cacheHitInputTokens + right.cacheHitInputTokens;
+  const cacheWriteInputTokens = left.cacheWriteInputTokens + right.cacheWriteInputTokens;
+  const explicitCacheMiss =
+    (left.cacheMissInputSource === 'explicit' ? left.cacheMissInputTokens : undefined)
+    ?? (right.cacheMissInputSource === 'explicit' ? right.cacheMissInputTokens : undefined);
+  const cacheMissInputTokens =
+    explicitCacheMiss ?? Math.max(0, inputTokens - cacheHitInputTokens - cacheWriteInputTokens);
+  const cacheMissInputSource: CacheMissInputSource =
+    left.cacheMissInputSource === 'explicit' && right.cacheMissInputSource === 'explicit'
+      ? 'explicit'
+      : 'derived';
+  const reasoningTokens = left.reasoningTokens + right.reasoningTokens;
+  return {
+    inputTokens,
+    outputTokens,
+    cacheHitInputTokens,
+    cacheMissInputTokens,
+    cacheMissInputSource,
+    cacheWriteInputTokens,
+    reasoningTokens,
+    totalTokens: inputTokens + outputTokens,
+    ...(left.rawFinishReason !== undefined ? { rawFinishReason: left.rawFinishReason } : {}),
+    cachedInputTokens: cacheHitInputTokens,
+  };
+}
+
 function finiteToken(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }

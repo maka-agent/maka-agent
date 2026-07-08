@@ -564,6 +564,85 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+function completeEvent(): SessionEvent {
+  return { type: 'complete', id: 'event-1', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
+}
+
+/**
+ * Override `window.__maka.readMessages` to return one of the pre-built
+ * arrays in sequence, so tests can simulate a stale read followed by
+ * a committed read.
+ */
+function installReadMessagesWindow(sequence: StoredMessage[][]): { readCount(): number; restore(): void } {
+  let readIndex = 0;
+  const globalObject = globalThis as typeof globalThis & { window?: unknown };
+  const previousWindow = globalObject.window;
+  globalObject.window = {
+    __maka: {
+      readMessages: async () => sequence[Math.min(readIndex++, sequence.length - 1)]!,
+    },
+  };
+  return {
+    readCount: () => readIndex,
+    restore: () => {
+      if (previousWindow === undefined) {
+        delete globalObject.window;
+      } else {
+        globalObject.window = previousWindow;
+      }
+    },
+  };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let index = 0; index < 8; index += 1) {
+    await Promise.resolve();
+  }
+}
+
+function buildEventHarness(
+  initialSlot: AssistantStreamSlot,
+  initialThinking: Record<string, string> = {},
+): {
+  handlers: ReturnType<typeof createAppShellSessionEventHandlers>;
+  getMessages: () => StoredMessage[];
+  getStreaming: () => Record<string, AssistantStreamSlot>;
+  getThinking: () => Record<string, string>;
+} {
+  const activeIdRef = { current: 'session-1' as string | undefined };
+  let messages: StoredMessage[] = [];
+  let streamingBySession: Record<string, AssistantStreamSlot> = { 'session-1': initialSlot };
+  const streamingBySessionRef = { current: streamingBySession };
+  let thinkingBySession: Record<string, string> = { ...initialThinking };
+  const thinkingBySessionRef = { current: thinkingBySession };
+
+  const chatActions = createAppShellChatActions({
+    activeIdRef,
+    addPendingSessionAction: () => true,
+    captureComposerImportOwner: () => ({ sessionId: 'session-1', navSection: 'sessions' }),
+    clearPendingSessionAction: () => {},
+    isNewChatSendSurfaceActive: () => false,
+    markSessionReadLocally: () => {},
+    messageRetryPendingRef: { current: new Set<string>() },
+    refreshSessions: async () => [],
+    getActiveSessionStatus: () => (streamingBySession['session-1'] ? 'running' : 'active'),
+    setActiveId: (sessionId) => {
+      activeIdRef.current = sessionId;
+    },
+    setMessageLoadErrorBySession: () => {},
+    setMessageRetryPendingBySession: () => {},
+    setMessages: (next) => {
+      messages = typeof next === 'function' ? next(messages) : next;
+    },
+    setNavSelection: () => {},
+    showModelSetupToast: () => {},
+    toastApi: { error: () => {} },
+    upsertSessionSummary: () => {},
+    validPendingNewChatModel: null,
+    pendingNewChatThinkingLevel: null,
+  });
+}
+
 function renderLiveTurn(liveTurn: LiveTurnProjection): string {
   return renderToStaticMarkup(createElement(ChatView, {
     activeSession: {

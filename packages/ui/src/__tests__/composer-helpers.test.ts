@@ -76,6 +76,10 @@ describe('composer queued inputs', () => {
     assert.equal(isComposerResponseBusy({ streaming: false, sessionStatus: 'active' }), false);
   });
 
+  it('treats a session parked on a permission prompt (waiting_for_user) as busy so a send steers the running turn', () => {
+    assert.equal(isComposerResponseBusy({ streaming: false, sessionStatus: 'waiting_for_user' }), true);
+  });
+
   it('trims and appends a queued input while preserving existing order', () => {
     const current: ComposerQueuedInput[] = [{ id: 'q1', text: 'first' }];
 

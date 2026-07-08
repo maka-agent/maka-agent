@@ -51,7 +51,13 @@ export function isComposerResponseBusy(input: {
   streaming?: boolean;
   sessionStatus?: string;
 }): boolean {
-  return input.streaming === true || input.sessionStatus === 'running';
+  // `waiting_for_user` is a running turn parked on a permission prompt — the
+  // single most natural moment to steer. Treat it as busy so a send routes
+  // to `injectGuidance` (steering the running turn) instead of queuing a new
+  // turn that cannot start while the current one holds the session.
+  return input.streaming === true
+    || input.sessionStatus === 'running'
+    || input.sessionStatus === 'waiting_for_user';
 }
 
 export function enqueueComposerQueuedInput(

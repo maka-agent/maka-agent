@@ -426,15 +426,17 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   injectGuidance(sessionId: string, text: string): boolean {
-    // Forward to every active session's backend (parent + any child agents).
-    // Returns true if at least one running turn accepted the guidance; the
-    // caller (IPC) treats false as "no running turn — fall back to a new turn".
-    const activeSessions = this.activeSessionsFor(sessionId);
-    let accepted = false;
-    for (const active of activeSessions) {
-      if (active.backend.injectGuidance?.(text)) accepted = true;
-    }
-    return accepted;
+    // Target the top-level run ONLY — the parent session's active backend.
+    // Fanning out to every child subagent sharing the sessionId would inject
+    // one steer into the parent AND all running subagents (duplicate
+    // 引导已注入 rows, stray user messages in subagent transcripts). The
+    // top-level backend's turn owns the user-facing conversation; subagents
+    // are internal and never steered directly by the user.
+    // Returns true if the running turn accepted the guidance; the caller
+    // (IPC) treats false as "no running turn — fall back to a new turn".
+    const active = this.active.get(sessionId);
+    if (!active) return false;
+    return active.backend.injectGuidance?.(text) ?? false;
   }
 
   updateCachedHeader(sessionId: string, header: SessionHeader): void {
