@@ -426,7 +426,10 @@
   gap: var(--space-3);
   padding: var(--space-4) var(--space-4);
   border-radius: var(--radius-surface);
-  border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.32);
+  /* Detail audit round 4: solid — dashed was the app's last stray border
+     language (the markdown dangerous-link underline is the one deliberate
+     dashed exception). */
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-secondary);
 }
