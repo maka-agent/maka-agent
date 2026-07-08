@@ -23,8 +23,8 @@ import {
   type WorkspaceExecutor,
 } from './workspace-executor.js';
 
-// Single source of truth for tool shape. AiSdkBackend exports them; we just
-// re-export here for back-compat with external callers that imported from
+// tool-runtime.ts is the single source of truth for the tool shape; this
+// re-export only keeps back-compat for callers that imported from
 // builtin-tools directly.
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
