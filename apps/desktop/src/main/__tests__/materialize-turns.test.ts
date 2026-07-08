@@ -391,6 +391,23 @@ describe('materializeTurns timeline', () => {
     assert.equal(turns[0]?.assistantThinking, 'think one\n\nthink two');
   });
 
+  it('renders a pure-tool step’s orphan tools before the next step’s answer', () => {
+    // The most common tool turn: step a1 only calls tools (no assistant row
+    // is persisted for it), step a2 delivers the summary. The a1 tools carry
+    // a stepId no assistant row matches — they must still render before the
+    // answer, not park past it as answer-then-tools.
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallStep('t1', 101, 'c1', 'a1'),
+      toolResultMsg('t1', 102, 'c1'),
+      assistantStep('t1', 103, 'a2', 'summary', 'think'),
+    ]);
+    const timeline = turns[0]!.timeline;
+    assert.deepEqual(timeline.map((i) => i.kind), ['tools', 'thinking', 'text']);
+    assert.equal((timeline[0] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'c1');
+    assert.equal((timeline[2] as { text: string }).text, 'summary');
+  });
+
   it('legacy call with no stepId sits before the summary text', () => {
     const turns = materializeTurns([
       userMsg('t1', 100, 'q'),

@@ -425,11 +425,16 @@ export function materializeTurns(
  *  - tool_call rows buffer their (merged) ToolActivityItem into `pending`,
  *    tagged by the item's stepId.
  *  - an assistant row (id === a step's messageId) flushes the buffer around
- *    its own thinking/text: thinking -> legacy tools (no stepId) -> text ->
- *    this step's tools. Step order is think->say->call, so thinking and text
- *    precede the tools whose stepId matches this row; legacy tools (no
- *    stepId, pre-per-step persistence) keep the old tools-then-summary
- *    reading and sit before the text.
+ *    its own thinking/text: earlier-step orphan tools -> thinking -> legacy
+ *    tools (no stepId) -> text -> this step's tools. Step order is
+ *    think->say->call, so thinking and text precede the tools whose stepId
+ *    matches this row; legacy tools (no stepId, pre-per-step persistence)
+ *    keep the old tools-then-summary reading and sit before the text. Tools
+ *    whose stepId matches no assistant row are orphans of a pure-tool step
+ *    (which persists no assistant message); ledger append order guarantees
+ *    they ran BEFORE this row landed, so they flush ahead of this step's
+ *    content — parking them past the text would invert the common
+ *    "call tools, then summarize next step" turn into answer-then-tools.
  *  - leftover buffered tools (abort / pure-tool turn with no assistant row)
  *    flush as a trailing tools group, then any live-only in-flight tools.
  *
@@ -454,8 +459,13 @@ function buildTurnTimeline(
       const rowId = message.id;
       const legacy = pending.filter((tool) => tool.stepId === undefined);
       const matched = pending.filter((tool) => tool.stepId === rowId);
-      // Tools bound to a later step we haven't reached yet stay buffered.
-      pending = pending.filter((tool) => tool.stepId !== undefined && tool.stepId !== rowId);
+      // stepId set but not this row's: orphans of an earlier pure-tool step
+      // (no assistant row carries their stepId). A later step's tools cannot
+      // be pending here — the ledger appends them after this assistant row —
+      // so these ran earlier and must render before this step's content.
+      const orphaned = pending.filter((tool) => tool.stepId !== undefined && tool.stepId !== rowId);
+      pending = [];
+      flushTools(orphaned);
       if (message.thinking?.text) {
         raw.push({ kind: 'thinking', text: message.thinking.text, messageId: rowId });
       }
