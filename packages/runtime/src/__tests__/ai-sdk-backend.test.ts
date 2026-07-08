@@ -23,9 +23,9 @@ import {
   formatSyntheticToolErrorText,
   normalizeAiSdkUsage,
   repairMakaToolCall,
-  type MakaTool,
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
+import type { MakaTool } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
 import {

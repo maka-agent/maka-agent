@@ -27,7 +27,8 @@ import {
 } from '../session-manager.js';
 import type { RuntimeKernelLike } from '../runtime-kernel.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
-import type { AgentBackend, MakaTool } from '../ai-sdk-backend.js';
+import type { AgentBackend } from '../ai-sdk-backend.js';
+import type { MakaTool } from '../tool-runtime.js';
 import type { InvocationResult } from '../invocation-context.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
 import {

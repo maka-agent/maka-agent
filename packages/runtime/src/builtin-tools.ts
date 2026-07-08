@@ -26,7 +26,7 @@ import {
 // Single source of truth for tool shape. AiSdkBackend exports them; we just
 // re-export here for back-compat with external callers that imported from
 // builtin-tools directly.
-import type { MakaTool, MakaToolContext } from './ai-sdk-backend.js';
+import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
 import { withFileWriteLock } from './file-write-lock.js';
 

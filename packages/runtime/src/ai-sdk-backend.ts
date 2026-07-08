@@ -177,7 +177,6 @@ export {
   TOOL_ERROR_RESULT_MAX_CHARS,
   formatSyntheticToolErrorText,
 } from './tool-runtime.js';
-export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export { normalizeAiSdkUsage } from './model-adapter.js';
 export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from './model-adapter.js';
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';

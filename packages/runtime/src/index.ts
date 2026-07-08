@@ -32,6 +32,7 @@ export { PermissionEngine, createDefaultPermissionEngineDeps } from './permissio
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
+export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type {
   AgentBackend,
   BackendCompactHistoryInput,
@@ -39,8 +40,6 @@ export type {
   AiSdkBackendInput,
   AppendMessageFn,
   AttachmentByteReader,
-  MakaTool,
-  MakaToolContext,
   ModelFactory,
   ModelFactoryInput,
   RunTraceEvent,
