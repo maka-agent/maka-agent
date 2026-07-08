@@ -383,6 +383,91 @@ describe('Maka session driver', () => {
       },
     }]);
   });
+
+  test('lists rewind targets newest-first, one per prompted turn, excluding the latest', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', '  first question\nmore detail'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      storedUserMessage('user-2', 'turn-2', 'second question'),
+      storedAssistantMessage('assistant-2', 'turn-2', 'second answer'),
+      storedUserMessage('user-3', 'turn-3', 'third question'),
+    ]);
+
+    const targets = await driver.listRewindTargets();
+
+    // turn-3 is the latest → excluded. Remaining newest-first, label = first
+    // non-empty prompt line.
+    assert.deepEqual(targets, [
+      { turnId: 'turn-2', label: 'second question' },
+      { turnId: 'turn-1', label: 'first question' },
+    ]);
+  });
+
+  test('lists no rewind targets before a session starts or with a single turn', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    assert.deepEqual(await driver.listRewindTargets(), []);
+
+    await collect(driver.sendPrompt('only question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'only question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
+    ]);
+    assert.deepEqual(await driver.listRewindTargets(), []);
+  });
+
+  test('rewinds by branching through the turn and switching onto the branch', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-rewind-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [sessionSummary({ id: 'session-1', cwd: repo })];
+      runtime.sessionMessages.set('session-1', [
+        storedUserMessage('user-1', 'turn-1', 'first question'),
+        storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+        storedUserMessage('user-2', 'turn-2', 'second question'),
+      ]);
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await driver.switchSession('session-1');
+
+      const result = await driver.rewindToTurn('turn-1');
+
+      assert.deepEqual(runtime.branched, [{ sessionId: 'session-1', sourceTurnId: 'turn-1' }]);
+      assert.equal(result.summary.id, 'session-1-branch');
+      assert.equal(driver.getSessionId(), 'session-1-branch');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects rewind before a session starts', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await assert.rejects(driver.rewindToTurn('turn-1'), /before a session starts/);
+    assert.deepEqual(runtime.branched, []);
+  });
 });
 
 class RecordingRuntime {
@@ -392,6 +477,7 @@ class RecordingRuntime {
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
+  readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -488,6 +574,19 @@ class RecordingRuntime {
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
     return this.sessionMessages.get(sessionId) ?? [];
+  }
+
+  async branchFromTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
+    this.branched.push({ sessionId, sourceTurnId: input.sourceTurnId });
+    // Model a branch by adding a new summary to the list switchSession reads.
+    const source = this.sessionSummaries.find((session) => session.id === sessionId);
+    const branch: SessionSummary = {
+      ...(source ?? sessionSummary({ id: sessionId })),
+      id: `${sessionId}-branch`,
+    };
+    this.sessionSummaries = [...this.sessionSummaries, branch];
+    this.sessionMessages.set(branch.id, this.sessionMessages.get(sessionId) ?? []);
+    return branch;
   }
 }
 

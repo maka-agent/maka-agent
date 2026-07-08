@@ -22,7 +22,7 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
-import type { MakaSessionDriver } from './session-driver.js';
+import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
   renderMakaPiStatusLine,
@@ -84,6 +84,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let turnRunning = false;
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
+  let lastIdleEscapeAt = 0;
   let resolveClosed: () => void;
   const closedPromise = new Promise<void>((resolve) => {
     resolveClosed = resolve;
@@ -302,11 +303,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  // Folder/connection safety is enforced inside driver.switchSession(),
-  // before it commits any internal state, so a rejected switch leaves the
-  // active session untouched and the next prompt still lands on the old one.
-  const switchSession = async (sessionId: string) => {
-    const { summary, messages } = await input.driver.switchSession(sessionId);
+  // Adopt a switch/rewind result: the active session is now `summary` with
+  // `messages`. Shared by switchSession and rewindToTurn so both land the same
+  // runner state (model/connection/thinking/transcript/scroll).
+  const applySwitchResult = ({ summary, messages }: MakaSessionSwitchResult): void => {
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
@@ -316,13 +316,35 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // The transcript is a different document now; drop any scroll position so the
     // resumed session opens following its latest messages, not mid-history.
     layout.followTailNow();
-    if (messages.length === 0) {
+  };
+
+  // Folder/connection safety is enforced inside driver.switchSession(),
+  // before it commits any internal state, so a rejected switch leaves the
+  // active session untouched and the next prompt still lands on the old one.
+  const switchSession = async (sessionId: string) => {
+    const result = await input.driver.switchSession(sessionId);
+    applySwitchResult(result);
+    if (result.messages.length === 0) {
       state.entries.push({
         kind: 'notice',
         level: 'info',
-        text: `Resumed session "${summary.name}"`,
+        text: `Resumed session "${result.summary.name}"`,
       });
     }
+    requestRender();
+  };
+
+  // Rewind branches the active session through the chosen turn and switches onto
+  // the branch (driver.rewindToTurn). The original session is left intact, so
+  // this is non-destructive and inherits the branch's resume guarantees.
+  const rewindToTurn = async (turnId: string) => {
+    const result = await input.driver.rewindToTurn(turnId);
+    applySwitchResult(result);
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: '已回退到选定轮次（分支为新会话，原会话保留）。',
+    });
     requestRender();
   };
 
@@ -399,6 +421,32 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         void runControl(() => switchSession(item.value));
       },
       { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 40 },
+    );
+  };
+
+  const showRewindPicker = async () => {
+    const targets = await input.driver.listRewindTargets();
+    if (targets.length === 0) {
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: '没有可回退的轮次。',
+      });
+      requestRender();
+      return;
+    }
+    const items: SelectItem[] = targets.map((target) => ({
+      value: target.turnId,
+      label: target.label,
+    }));
+    showSelectPicker(
+      'Rewind — 回到选定轮次（保留到此轮，丢弃之后）',
+      'Rewind',
+      items,
+      (item) => {
+        void runControl(() => rewindToTurn(item.value));
+      },
+      { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
     );
   };
 
@@ -593,6 +641,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
     },
     {
+      name: 'rewind',
+      description: 'Rewind to an earlier turn',
+      run: () => {
+        void runControl(showRewindPicker);
+      },
+    },
+    {
       name: 'session',
       description: 'Resume session',
       run: (parts: string[]) => {
@@ -704,6 +759,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         lastTurnEscapeAt = now;
       }
       return { consume: true };
+    }
+    // Idle double Escape opens the rewind picker (the same gesture that
+    // interrupts a running turn). This sits below the turnRunning branch, so it
+    // only arms when nothing is running. The first Escape falls through to the
+    // editor (preserving its clear/autocomplete behavior); only the second,
+    // within the window, consumes and opens the picker.
+    if (!busy && !turnRunning && matchesKey(data, Key.escape)) {
+      const now = Date.now();
+      if (lastIdleEscapeAt && now - lastIdleEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
+        lastIdleEscapeAt = 0;
+        void runControl(showRewindPicker);
+        return { consume: true };
+      }
+      lastIdleEscapeAt = now;
+      return undefined;
     }
     if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
       void close();

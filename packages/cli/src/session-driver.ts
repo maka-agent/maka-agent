@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type { SessionEvent } from '@maka/core/events';
 import type { PermissionMode, PermissionResponse } from '@maka/core/permission';
-import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
+import type { BranchFromTurnInput, CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary, StoredMessage } from '@maka/core/session';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 
@@ -16,6 +16,16 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
   updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
+  // Rewind reuses the runtime's branch primitive: a non-destructive copy of the
+  // transcript + RuntimeEvent ledger through a turn boundary, so resume
+  // correctness is inherited and the original session's log is left intact.
+  branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
+}
+
+/** A turn the user can rewind to: its id plus a one-line label (its prompt). */
+export interface RewindTarget {
+  turnId: string;
+  label: string;
 }
 
 export interface MakaSessionDriverInput {
@@ -42,6 +52,10 @@ export interface MakaSessionDriver {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   renameSession(name: string): Promise<void>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
+  /** Earlier turns the user can rewind to (excludes the current, latest turn). */
+  listRewindTargets(): Promise<RewindTarget[]>;
+  /** Rewind to a turn: branch the session through it and switch onto the branch. */
+  rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult>;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -151,6 +165,36 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     return { summary, messages };
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    if (!this.sessionId) return [];
+    const messages = await this.input.runtime.getMessages(this.sessionId);
+    // One target per turn that has a user prompt, in send order. The prompt text
+    // is the label — it is what the user recognizes a turn by.
+    const promptByTurn = new Map<string, string>();
+    const order: string[] = [];
+    for (const message of messages) {
+      if (message.type !== 'user' || promptByTurn.has(message.turnId)) continue;
+      promptByTurn.set(message.turnId, message.text);
+      order.push(message.turnId);
+    }
+    // Drop the latest turn: rewinding to it keeps everything, which is not a
+    // rewind. Remaining turns, newest first, are the real "go back to" points.
+    return order
+      .slice(0, -1)
+      .reverse()
+      .map((turnId) => ({ turnId, label: firstLine(promptByTurn.get(turnId) ?? '') }));
+  }
+
+  async rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult> {
+    if (!this.sessionId) throw new Error('Cannot rewind before a session starts.');
+    // Branch through the turn (copies transcript + ledger up to it), then switch
+    // onto the branch. switchSession re-validates folder/connection and loads the
+    // branched messages, so the branch inherits the same resume guarantees as any
+    // resumed session and the original session is left untouched.
+    const branch = await this.input.runtime.branchFromTurn(this.sessionId, { sourceTurnId: turnId });
+    return this.switchSession(branch.id);
+  }
+
   getSessionId(): string | null {
     return this.sessionId;
   }
@@ -173,6 +217,12 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
 function cwdRank(session: SessionSummary, cwd: string): number {
   return session.cwd === cwd ? 0 : 1;
+}
+
+/** First non-empty line of a prompt, for a compact rewind-target label. */
+function firstLine(text: string): string {
+  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0);
+  return line ?? '(empty prompt)';
 }
 
 async function assertSessionCwdExists(cwd: string): Promise<void> {
