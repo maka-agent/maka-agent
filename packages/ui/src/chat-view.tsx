@@ -7,6 +7,7 @@ import {
   BookOpen,
   CalendarDays,
   Check,
+  ChevronRight,
   Copy,
   GitBranch,
   Info,
@@ -25,12 +26,12 @@ import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
 import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
-import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnViewModel } from './materialize.js';
+import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
 import { Button as UiButton } from './ui.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { Bubble, Marker, markerVariants, Message } from './primitives/chat.js';
+import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
 import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
@@ -70,7 +71,7 @@ function ModulePanelFallback(props: { message: string }) {
   );
 }
 import { RelativeTime } from './relative-time.js';
-import { ToolActivity } from './tool-activity.js';
+import { ToolTrow } from './tool-activity.js';
 
 /**
  * Lifecycle status badge in the chat header (PR109b §9.8). Visual
@@ -654,7 +655,7 @@ export function ChatView(props: {
                  * text_complete / abort / error (parent clears the
                  * thinkingBySession entry). */}
                 {props.thinkingText && (
-                  <ReasoningPanel
+                  <DeepThinking
                     text={props.thinkingText}
                     live={!props.streamingText}
                     truncated={props.thinkingTruncated === true}
@@ -1044,40 +1045,17 @@ const TurnView = memo(function TurnView(props: {
           <MessageBody role="system" text={note.text} ts={note.ts} />
         </Message>
       ))}
-      {turn.tools.length > 0 && (
-        <div className="maka-turn-tools">
-          <ToolActivity items={turn.tools} />
-        </div>
-      )}
-      {turn.assistant && (
+      {turn.timeline.length > 0 && (
         <Message
           variant="assistant"
           data-turn-status={turn.status}
           aria-label="Maka 的回答"
         >
-          <div className="flex flex-col">
-            {turn.assistantThinking && (
-              <Collapsible className="maka-turn-thinking">
-                <CollapsibleTrigger>
-                  <span>查看思考过程</span>
-                  <span className="maka-turn-thinking-note">模型推理草稿，不是最终答案</span>
-                </CollapsibleTrigger>
-                <CollapsiblePanel>
-                  <div className="maka-turn-thinking-body">
-                    <Markdown text={turn.assistantThinking} />
-                    <div className="maka-turn-thinking-actions">
-                      <MessageCopyButton text={turn.assistantThinking} label="复制思考过程" />
-                    </div>
-                  </div>
-                </CollapsiblePanel>
-              </Collapsible>
-            )}
-            {/* PR109d-c: aborted turn body gets a muted "(已中断)" prefix
-                + Ban icon so the user can see this turn was cancelled
-                without it looking like a fault state (which is reserved
-                for `failed`). Lives in the message body wrapper so the
-                Copy button below still copies the assistant text without
-                the prefix. */}
+          <div className="flex flex-col gap-2">
+            {/* PR109d-c: aborted turn gets a muted "(已中断)" marker + Ban icon
+                so the user sees this turn was cancelled without it looking like
+                a fault state (reserved for `failed`). Rendered as its own row so
+                per-segment Copy buttons still yank clean answer text. */}
             {turn.status === 'aborted' && (
               <Marker variant="aborted" role="status">
                 <Ban size={12} strokeWidth={2} aria-hidden="true" />
@@ -1101,7 +1079,12 @@ const TurnView = memo(function TurnView(props: {
                 )}
               </Marker>
             )}
-            <MessageBody role="assistant" text={turn.assistant.text} ts={turn.assistant.ts} />
+            {/* The turn timeline is the rendering source of truth
+                (materialize.ts): each step's 深度思考 disclosure, answer bubble,
+                and Codex-style tool trow in the order the model produced them. */}
+            {turn.timeline.map((item, index) => (
+              <TurnTimelineEntry key={timelineEntryKey(item, index)} item={item} />
+            ))}
           </div>
           {reverseBadges.length > 0 && (
             <Marker variant="lineage-row-reverse" aria-label="本轮回答的衍生">
@@ -1126,7 +1109,7 @@ const TurnView = memo(function TurnView(props: {
             <TurnFooterActions
               actions={props.footerActions}
               onAction={props.onFooterAction ? (actionId) => props.onFooterAction?.(turn.turnId, actionId) : undefined}
-              assistantText={turn.assistant.text}
+              assistantText={turn.assistant?.text ?? ''}
             />
           )}
         </Message>
@@ -1339,25 +1322,6 @@ const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
 };
 
 /**
- * PR-UI-LAYOUT-42 — ReasoningPanel: collapsible "thinking" panel for
- * Anthropic-style extended thinking. Renders the live
- * `ThinkingDeltaEvent.text` (or final `ThinkingCompleteEvent.text`)
- * accumulated by the renderer in `thinkingBySession`.
- *
- * Default-open during streaming so the user sees the live reasoning;
- * collapses to a single-line summary if user clicks the header. The
- * panel itself is wrapped in a Base UI Collapsible for keyboard a11y
- * (Space/Enter toggles).
- *
- * `live=true` means thinking is still streaming (no text yet). Adds
- * a small pulse dot in the header so users see motion.
- *
- * The text inside is rendered as `<pre>` so the model's
- * step-by-step reasoning preserves indentation / line breaks. We
- * don't pipe through Markdown — thinking is usually plain prose +
- * occasional code, and full markdown would slow the streaming.
- */
-/**
  * PR-UI-RENDER-1 — streaming assistant bubble.
  *
  * Wraps the live `streamingText` in `useSmoothStreamContent` so the
@@ -1423,73 +1387,105 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
   );
 }
 
-function ReasoningPanel(props: { text: string; live: boolean; truncated: boolean }) {
-  // PR-UI-RENDER-1 + PR-UI-C0: smooth-stream the thinking text on top
-  // of the C0 redaction/cap chokepoint. `props.text` is the already-
-  // redacted-and-capped buffer (renderer ran it through
-  // `applyThinkingDelta` / `applyThinkingComplete` before passing
-  // here), so the smoother is purely a visual frame-pacing layer.
-  //
-  // C1 review fixup (@kenji msg fbb8f119) — defense in depth: even
-  // though C0 already redacted, we run `prepareSmoothStreamText`
-  // again before the smoother. `redactSecrets` is idempotent on
-  // already-masked text, and the gate guarantees the smoother
-  // contract ("smoother never sees raw secrets") holds even if a
-  // future change accidentally bypasses the C0 chokepoint.
-  //
-  // `live=true` means thinking is still flowing (no answer yet) →
-  // streaming=true so the smoother typewriters. `live=false` means
-  // `thinking_complete` already fired (caller passes a settled blob)
-  // → streaming=false, hook snaps. Reduced-motion / visual-smoke
-  // also forces snap so deterministic capture sees the final text
-  // immediately.
+/**
+ * Stable key for a timeline entry. Thinking/text keys use the source step's
+ * messageId (unique per step; adjacent thinking are pre-merged); tools use the
+ * first tool's id. The index disambiguates the rare adjacent-same-messageId
+ * edge and keeps React reconciliation stable across streaming re-renders.
+ */
+function timelineEntryKey(item: TurnTimelineItem, index: number): string {
+  if (item.kind === 'tools') return `tools-${item.items[0]?.toolUseId ?? index}`;
+  return `${item.kind}-${item.messageId}-${index}`;
+}
+
+/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
+function TurnTimelineEntry({ item }: { item: TurnTimelineItem }) {
+  if (item.kind === 'thinking') return <DeepThinking text={item.text} live={false} />;
+  if (item.kind === 'tools') return <ToolTrow items={item.items} />;
+  return <MessageBody role="assistant" text={item.text} ts={item.ts} />;
+}
+
+/**
+ * "深度思考" — the unified reasoning disclosure for both live streaming and
+ * committed history (replaces ReasoningPanel + the retired `.maka-turn-thinking`
+ * disclosure). Controlled Collapsible, collapsed by default (no defaultOpen —
+ * disclosure-collapsible-contract), fixed title "深度思考".
+ *
+ * `live=true` (thinking still flowing): the title shimmers (TextShimmer) and the
+ * expanded body streams plain redacted text through `useSmoothStreamContent`
+ * (non-Markdown for the same frame-pacing reason as the old ReasoningPanel),
+ * auto-following the tail. `live=false` (settled / committed): plain title,
+ * Markdown render + a "复制思考过程" button.
+ *
+ * `props.text` is the already-redacted-and-capped buffer (C0 chokepoint);
+ * `prepareSmoothStreamText` re-runs `redactSecrets` (idempotent) as
+ * defense-in-depth so the smoother never sees a raw secret. The "已截断" pill
+ * fires when the thinking cap dropped content.
+ */
+function DeepThinking(props: { text: string; live: boolean; truncated?: boolean }) {
   const snap = useStreamSnap();
   const safeText = prepareSmoothStreamText(props.text);
-  const { displayed } = useSmoothStreamContent(safeText, {
-    streaming: props.live,
-    snap,
-  });
-  // PR-UI-RENDER-1 @kenji review concern #4 — explicitly controlled
-  // open state. With a raw `open` JSX attribute, React's reconciler
-  // could re-assert the open state and undo the user's manual collapse
-  // on the next stream-driven re-render (the smoother re-renders at
-  // ~60Hz while the stream is live, so any reconciliation drift is
-  // immediately visible to the user). Owning the open state via
-  // useState + onOpenChange makes the panel uncontrolled-from-React's-view:
-  // the user's collapse sticks because we only write `open` from our
-  // own state, which we only mutate from the onOpenChange callback.
-  // Default-open at mount so users see the reasoning by default; first
-  // click toggles to closed and that sticks.
-  const [open, setOpen] = useState(true);
+  const { displayed } = useSmoothStreamContent(safeText, { streaming: props.live, snap });
+  // Controlled open (see ReasoningPanel history: a raw `open` attribute lets the
+  // ~60Hz stream re-render re-assert open state and undo a manual collapse).
+  // Collapsed by default so the answer reads cleanly; the click sticks.
+  const [open, setOpen] = useState(false);
+  const bodyRef = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (!props.live || !open) return;
+    const el = bodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [displayed, props.live, open]);
   return (
     <Collapsible
-      className="maka-reasoning-panel"
-      data-live={props.live ? 'true' : undefined}
+      className="my-0.5 flex flex-col"
+      data-deep-thinking={props.live ? 'live' : undefined}
       open={open}
-      onOpenChange={(v) => setOpen(v)}
+      onOpenChange={setOpen}
     >
-      <CollapsibleTrigger className="maka-reasoning-panel-header">
-        {props.live && <span className="maka-reasoning-panel-dot" aria-hidden="true" />}
-        <span className="maka-reasoning-panel-label">
-          {props.live ? '正在思考…' : '思考过程'}
-        </span>
-        {/* PR-UI-C0 review fixup (@kenji msg 7885a347): "已截断" pill
-            fires when `applyThinkingDelta` / `applyThinkingComplete`
-            dropped content (per-delta cap or per-session total cap).
-            Same chrome family as the A3 tool-output truncated pill. */}
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-0.5 text-left text-[length:var(--font-size-caption)]">
+        <ChevronRight
+          size={12}
+          strokeWidth={2}
+          aria-hidden="true"
+          className="shrink-0 text-[color:var(--muted-foreground)] [transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
+        />
+        {props.live ? (
+          <TextShimmer active={!snap} className="[font-weight:var(--font-weight-medium)]">深度思考</TextShimmer>
+        ) : (
+          <span className="[font-weight:var(--font-weight-medium)] text-[color:var(--muted-foreground)]">深度思考</span>
+        )}
+        {/* "已截断" pill: the thinking cap (applyThinkingDelta /
+            applyThinkingComplete) dropped content; same chrome as the
+            tool-output truncated pill. */}
         {props.truncated && (
           <span
-            className="maka-reasoning-panel-truncated"
+            className="ml-1 rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.30)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] px-1 text-[color:var(--warning-text,var(--info-text))]"
             data-truncated="true"
             title="部分 reasoning 已截断；显示的是最近的内容"
           >
             已截断
           </span>
         )}
-        <span className="maka-reasoning-panel-chevron" aria-hidden="true">›</span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
-        <pre className="maka-reasoning-panel-body">{displayed}</pre>
+        <div className="mt-1 ml-2 border-l border-[var(--border)] pl-2.5 text-[color:var(--foreground-secondary)]">
+          {props.live ? (
+            <pre
+              ref={bodyRef}
+              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal [scroll-behavior:auto]"
+            >
+              {displayed}
+            </pre>
+          ) : (
+            <div className="flex flex-col gap-1.5 text-[length:var(--font-size-caption)] italic opacity-[var(--opacity-pending)]">
+              <Markdown text={props.text} />
+              <div className="flex justify-end not-italic">
+                <MessageCopyButton text={props.text} label="复制思考过程" />
+              </div>
+            </div>
+          )}
+        </div>
       </CollapsiblePanel>
     </Collapsible>
   );
