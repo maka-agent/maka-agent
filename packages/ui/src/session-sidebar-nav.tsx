@@ -6,14 +6,14 @@ import { cva } from 'class-variance-authority';
 
 const navRowVariants = cva(
   [
-    'min-h-8 gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
+    'min-h-[var(--h-control-lg)] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
     'text-left text-sm text-[var(--foreground-secondary)]',
     'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
-    'hover:bg-foreground/6 hover:text-foreground',
-    'data-[active=true]:bg-foreground/9 data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
+    'hover:bg-[var(--state-hover-bg)] hover:text-foreground',
+    'data-[active=true]:bg-[var(--state-selected-bg)] data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
     'data-[active=true]:[&_.maka-nav-icon]:text-foreground',
-    '[&_.maka-nav-count]:bg-foreground/6 [&_.maka-nav-count]:text-[var(--muted-foreground)]',
-    'data-[active=true]:[&_.maka-nav-count]:bg-foreground/8 data-[active=true]:[&_.maka-nav-count]:text-foreground',
+    '[&_.maka-nav-count]:bg-[var(--state-hover-bg)] [&_.maka-nav-count]:text-[var(--muted-foreground)]',
+    'data-[active=true]:[&_.maka-nav-count]:bg-[var(--state-selected-bg)] data-[active=true]:[&_.maka-nav-count]:text-foreground',
     'aria-disabled:cursor-not-allowed aria-disabled:opacity-55 aria-disabled:hover:bg-transparent',
     'data-[disabled=true]:cursor-not-allowed data-[disabled=true]:opacity-55 data-[disabled=true]:hover:bg-transparent',
   ],
@@ -36,7 +36,7 @@ const settingsButtonClass =
   'w-full min-w-0 gap-2 rounded-sm border-0 bg-transparent px-2 py-1.5 ' +
   'text-left text-sm font-medium text-[var(--foreground-secondary)] ' +
   'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)] ' +
-  'hover:bg-foreground/6 hover:text-foreground';
+  'hover:bg-[var(--state-hover-bg)] hover:text-foreground';
 
 const MODULE_NAV_LABEL: Record<ModuleNavId, string> = {
   automations: '定时任务',
