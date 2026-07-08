@@ -969,6 +969,92 @@ function turnMessages(now: number): StoredMessage[] {
       cacheRead: 180,
       costUsd: 0.0042,
     },
+    // Streaming UI rework: a second, MULTI-STEP turn. Each step persists its own
+    // assistant row (thinking + text) plus tool_calls tagged with that row's id
+    // as `stepId`, so the turn timeline reconstructs the real per-step order —
+    // 深度思考 → answer text → tool trow — instead of one trailing tool group.
+    // Locks the capture for the new timeline (contrast the legacy stepless turn
+    // above, which renders tools-before-text).
+    ...multiStepTurnMessages(now),
+  ];
+}
+
+function multiStepTurnMessages(now: number): StoredMessage[] {
+  const turnId = 'turn-fixture-2';
+  const step1 = 'msg-assistant-2a';
+  const step2 = 'msg-assistant-2b';
+  return [
+    { type: 'user', id: 'msg-user-2', turnId, ts: now - 6 * 60_000, text: '确认 stream-fade 的环逻辑没有边界问题，然后跑一下单测。' },
+    {
+      type: 'tool_call',
+      id: 'tool-read-fade',
+      turnId,
+      ts: now - 6 * 60_000 + 4_000,
+      toolName: 'Read',
+      displayName: '读取 stream-fade.ts',
+      intent: '读取淡入环实现，确认窗口滑动与上限',
+      stepId: step1,
+      args: { file_path: 'packages/ui/src/stream-fade.ts' },
+    },
+    {
+      type: 'tool_result',
+      id: 'tool-read-fade-result',
+      turnId,
+      ts: now - 6 * 60_000 + 4_600,
+      toolUseId: 'tool-read-fade',
+      isError: false,
+      durationMs: 560,
+      content: { kind: 'text', text: 'export function updateFadeRing(...) { /* prune + cap */ }' },
+    },
+    {
+      type: 'assistant',
+      id: step1,
+      turnId,
+      ts: now - 5 * 60_000,
+      text: '环逻辑没问题：增长记录批次、超窗剪枝、按上限截断，收缩时整体重置。接下来跑单测确认。',
+      thinking: { text: 'boundary 取最老存活批次的 start，age 用 now 减去覆盖该 offset 的批次时间，窗口滑动和上限都覆盖了，值得跑一遍测试坐实。' },
+      modelId: 'glm-5.1',
+    },
+    {
+      type: 'tool_call',
+      id: 'tool-run-fade-tests',
+      turnId,
+      ts: now - 5 * 60_000 + 3_000,
+      toolName: 'Bash',
+      displayName: '运行 stream-fade 单测',
+      intent: '执行 node --test 跑淡入环与 tokenizer 单测',
+      stepId: step2,
+      args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js', cwd: '/workspace/maka' },
+    },
+    {
+      type: 'tool_result',
+      id: 'tool-run-fade-tests-result',
+      turnId,
+      ts: now - 5 * 60_000 + 5_200,
+      toolUseId: 'tool-run-fade-tests',
+      isError: false,
+      durationMs: 1_930,
+      content: {
+        kind: 'terminal',
+        cwd: '/workspace/maka',
+        cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
+        status: 'completed',
+        exitCode: 0,
+        stdout: 'tests 13\npass 13\nfail 0\n',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    },
+    {
+      type: 'assistant',
+      id: step2,
+      turnId,
+      ts: now - 4 * 60_000,
+      text: '13 个单测全绿，窗口滑动、乱序快照取龄和上限都被覆盖。边界没有问题。',
+      thinking: { text: '测试覆盖窗口滑动、乱序 age 查询与上限三类，全过说明剪枝和 cap 的顺序对，可以收尾。' },
+      modelId: 'glm-5.1',
+    },
   ];
 }
 

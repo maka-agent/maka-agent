@@ -295,6 +295,92 @@ const longMessages: StoredMessage[] = [
   ),
 ];
 
+// Multi-step reasoning turn (streaming UI rework): two think->say->call steps
+// in a single turn. Each step persists an assistant row (thinking + text) plus
+// tool_calls tagged with that row's id as `stepId`, so the turn timeline
+// reconstructs the real order — 深度思考 → answer text → tool trow — per step,
+// instead of lumping every tool into one trailing group.
+const multiStepConversation: StoredMessage[] = [
+  user('msg-user-multistep', 'turn-multistep', 12, '看一下 stream-fade 的环逻辑有没有边界问题，然后跑一下单测。'),
+  {
+    type: 'tool_call',
+    id: 'tool-read-stream-fade',
+    turnId: 'turn-multistep',
+    ts: NOW - 11 * 60_000,
+    toolName: 'Read',
+    displayName: '读取 stream-fade.ts',
+    intent: '读取淡入环的实现，确认窗口滑动与上限',
+    stepId: 'msg-assistant-step-1',
+    args: { file_path: 'packages/ui/src/stream-fade.ts' },
+  },
+  {
+    type: 'tool_result',
+    id: 'tool-read-stream-fade-result',
+    turnId: 'turn-multistep',
+    ts: NOW - 11 * 60_000 + 900,
+    toolUseId: 'tool-read-stream-fade',
+    isError: false,
+    durationMs: 640,
+    content: {
+      kind: 'text',
+      text: 'export function updateFadeRing(...) { /* prune + cap */ }',
+    },
+  },
+  {
+    type: 'assistant',
+    id: 'msg-assistant-step-1',
+    turnId: 'turn-multistep',
+    ts: NOW - 10 * 60_000,
+    text: '环逻辑没问题：增长记录批次、超窗剪枝、再按上限截断，收缩时整体重置。接下来我跑一下单测确认。',
+    thinking: {
+      text: '先读实现，确认 boundary 取的是最老存活批次的 start，age 用 now 减去覆盖该 offset 的批次时间。看起来窗口滑动和上限都覆盖了，值得跑一遍测试坐实。',
+    },
+    modelId: 'claude-sonnet-4-5',
+  },
+  {
+    type: 'tool_call',
+    id: 'tool-run-tests',
+    turnId: 'turn-multistep',
+    ts: NOW - 10 * 60_000 + 500,
+    toolName: 'Bash',
+    displayName: '运行 stream-fade 单测',
+    intent: '执行 node --test 跑淡入环与 tokenizer 的单测',
+    stepId: 'msg-assistant-step-2',
+    args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js' },
+  },
+  {
+    type: 'tool_result',
+    id: 'tool-run-tests-result',
+    turnId: 'turn-multistep',
+    ts: NOW - 9 * 60_000,
+    toolUseId: 'tool-run-tests',
+    isError: false,
+    durationMs: 1930,
+    content: {
+      kind: 'terminal',
+      cwd: '/workspace/maka-agent/apps/desktop',
+      cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
+      status: 'completed',
+      exitCode: 0,
+      stdout: 'tests 13\npass 13\nfail 0\n',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    },
+  },
+  {
+    type: 'assistant',
+    id: 'msg-assistant-step-2',
+    turnId: 'turn-multistep',
+    ts: NOW - 8 * 60_000,
+    text: '13 个单测全绿，环的窗口滑动、乱序快照取龄和上限都被覆盖。边界没有问题。',
+    thinking: {
+      text: '测试包含窗口滑动、乱序 age 查询与上限三类，全过说明剪枝和 cap 的顺序是对的，可以收尾。',
+    },
+    modelId: 'claude-sonnet-4-5',
+  },
+];
+
 export const EmptyChat: Story = {
   render: () => (
     <ChatSurface
@@ -341,6 +427,16 @@ export const WithToolActivity: Story = {
     <ChatSurface
       chat={{
         messages: toolConversation,
+      }}
+    />
+  ),
+};
+
+export const MultiStepReasoning: Story = {
+  render: () => (
+    <ChatSurface
+      chat={{
+        messages: multiStepConversation,
       }}
     />
   ),

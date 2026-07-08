@@ -394,6 +394,11 @@ export function createAppShellSessionEventHandlers(options: {
           intent: event.intent,
           status: 'pending',
           args: event.args,
+          // Carry the step id (streaming UI rework) so the turn timeline can
+          // order this in-flight tool after the matching step's thinking/text
+          // instead of lumping every live tool into a single trailing group.
+          // Optional: legacy providers / degraded history emit no stepId.
+          ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         });
         break;
       case 'tool_output_delta':
