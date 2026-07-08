@@ -144,13 +144,8 @@
     opacity: var(--opacity-disabled);
   }
 
-.settingsHealthSummaryTile[data-tone="success"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-  }
-
-.settingsHealthSummaryTile[data-tone="success"] strong {
-    color: var(--success-text);
-  }
+/* Status-color restraint: a healthy tile keeps the default hairline and
+   ink — color is reserved for the exception tones. */
 
 .settingsHealthSummaryTile[data-tone="info"] {
     border-color: oklch(from var(--info) l c h / 0.24);
@@ -223,9 +218,7 @@
     transition: border-color var(--duration-base) var(--ease-out-strong);
   }
 
-.settingsHealthSignalRow[data-status="ok"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-  }
+/* data-status="ok" keeps the default hairline — ok is the expected state. */
 
 .settingsHealthSignalRow[data-status="warning"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);

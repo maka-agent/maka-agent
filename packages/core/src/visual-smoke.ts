@@ -32,6 +32,7 @@ export type VisualSmokeScenario =
   | 'settings-general'
   | 'settings-memory'
   | 'settings-daily-review'
+  | 'settings-permissions'
   | 'module-skills'
   | 'module-daily-review'
   | 'workstation-statuses'

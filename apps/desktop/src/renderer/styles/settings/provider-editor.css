@@ -571,8 +571,8 @@
 }
 
 .providerOAuthCard[data-logged-in="true"] .providerOAuthCardBadge {
-  background: color-mix(in srgb, var(--success) 16%, var(--background));
-  color: var(--success-text);
+  background: var(--foreground-5);
+  color: var(--foreground-secondary);
 }
 
 .providerOAuthCardDescription {

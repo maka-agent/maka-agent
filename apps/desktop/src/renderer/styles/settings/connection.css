@@ -8,10 +8,8 @@
     background: var(--foreground-2);
     box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
-.settingsConnectionRow[data-status="verified"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-    background: oklch(from var(--success) l c h / 0.04);
-  }
+/* Status-color restraint: verified is the expected state — default
+   card chrome; color is reserved for exception states below. */
 .settingsConnectionRow[data-status="needs_reauth"] {
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.06);
@@ -34,10 +32,7 @@
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.04);
   }
-.settingsConnectionRow[data-status="authenticated"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-    background: oklch(from var(--success) l c h / 0.04);
-  }
+/* authenticated: expected state, default card chrome (see above). */
 .settingsConnectionRow[data-status="refresh_failed"],
   .settingsConnectionRow[data-status="quota_unavailable"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.30);
@@ -184,11 +179,8 @@
     background: var(--foreground-5);
     color: var(--foreground-secondary);
   }
-.settingsAuthContractBadge[data-tone="success"],
-  .settingsAuthActionPill[data-tone="success"] {
-    background: oklch(from var(--success) l c h / 0.12);
-    color: var(--success);
-  }
+/* success-tone badges/pills fall through to the neutral base — the
+   label text (已验证 etc.) carries the meaning. */
 .settingsAuthContractBadge[data-tone="info"],
   .settingsAuthActionPill[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);

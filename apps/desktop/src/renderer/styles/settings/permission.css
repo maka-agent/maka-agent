@@ -147,9 +147,8 @@
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.28);
   }
 
-.settingsCapabilityRow[data-readiness="enabled"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-  }
+/* Status-color restraint: "enabled" is the expected state — it keeps the
+   default hairline. Only exceptions (denied/degraded) wear a colored border. */
 
 .settingsCapabilityHeader {
     display: flex;
@@ -220,7 +219,8 @@
     color: var(--muted-foreground);
   }
 
-.settingsCapabilityLayers dd[data-tone="success"] { color: var(--success-text); }
+/* data-tone="success" intentionally has no rule — a healthy layer reads
+   in the default ink; color is reserved for warning/destructive/info. */
 
 .settingsCapabilityLayers dd[data-tone="warning"] { color: var(--warning-text, var(--info-text)); }
 
@@ -273,10 +273,8 @@
     color: var(--foreground-secondary);
   }
 
-.settingsCapabilityOsPermissions li em[data-tone="success"] {
-    color: var(--success-text);
-    background: oklch(from var(--success) l c h / 0.10);
-  }
+/* success chips fall through to the neutral base above — granted is the
+   expected state and doesn't need a green pill. */
 
 .settingsCapabilityOsPermissions li em[data-tone="warning"] {
     color: var(--warning-text, var(--info-text));
@@ -514,9 +512,12 @@
      granted are visible at a glance without re-introducing per-row
      borders that fight the unified card. */
 
+/* Status-color restraint: granted is the expected state — no stripe, no
+   green icon fill; the row label already says 已授权. Only the exception
+   states (denied / not_determined) keep an edge stripe. */
+
 .settingsOsPermissionRow[data-state="denied"]::before,
-  .settingsOsPermissionRow[data-state="not_determined"]::before,
-  .settingsOsPermissionRow[data-state="granted"]::before {
+  .settingsOsPermissionRow[data-state="not_determined"]::before {
     content: "";
     position: absolute;
     left: 0;
@@ -531,15 +532,6 @@
 
 .settingsOsPermissionRow[data-state="not_determined"]::before {
     background: oklch(from var(--warning, var(--info)) l c h / 0.55);
-  }
-
-.settingsOsPermissionRow[data-state="granted"]::before {
-    background: oklch(from var(--success) l c h / 0.45);
-  }
-
-.settingsOsPermissionRow[data-state="granted"] .settingsOsPermissionIcon {
-    background: oklch(from var(--success) l c h / 0.08);
-    color: oklch(from var(--success) l c h);
   }
 
 /* PR-PERMISSION-PAGE-REDESIGN: 4-cell summary above system permissions.
@@ -579,9 +571,8 @@
     letter-spacing: var(--tracking-wide);
   }
 
-.settingsPermissionSummaryTile[data-tone="success"] .settingsPermissionSummaryValue {
-    color: oklch(from var(--success) l c h);
-  }
+/* success tile keeps the default ink — the granted count is the normal
+   posture; only warning/destructive counts get colored. */
 
 .settingsPermissionSummaryTile[data-tone="warning"] .settingsPermissionSummaryValue {
     color: var(--warning-text, var(--info-text));

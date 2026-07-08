@@ -91,7 +91,9 @@ const OS_PERMISSION_STATE_COPY: Record<OsPermissionState, { label: string; tone:
   unknown: { label: '无法读取状态', tone: 'neutral' },
   not_determined: { label: '等待授权', tone: 'warning' },
   denied: { label: '已拒绝', tone: 'destructive' },
-  granted: { label: '已授权', tone: 'success' },
+  // Status-color restraint: granted is the expected state — neutral badge;
+  // color is reserved for the states that need the user's attention.
+  granted: { label: '已授权', tone: 'neutral' },
 };
 
 const OFFICECLI_INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash';
@@ -287,8 +289,11 @@ function PermissionSummaryTile(props: {
   value: number;
   tone: 'success' | 'warning' | 'destructive' | 'neutral';
 }) {
+  // A zero count is not an exception — the tone only paints when there is
+  // actually something to look at (0 已拒绝 in red read as a false alarm).
+  const effectiveTone = props.value > 0 ? props.tone : 'neutral';
   return (
-    <div className="settingsPermissionSummaryTile" data-tone={props.tone}>
+    <div className="settingsPermissionSummaryTile" data-tone={effectiveTone} data-empty={props.value === 0}>
       <span className="settingsPermissionSummaryValue">{props.value}</span>
       <span className="settingsPermissionSummaryLabel">{props.label}</span>
     </div>

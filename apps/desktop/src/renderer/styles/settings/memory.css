@@ -115,9 +115,9 @@
     display: grid;
     gap: var(--space-0-5);
     padding: var(--space-2) var(--space-2-5);
-    border: var(--border-width-hairline) solid oklch(from var(--success) l c h / 0.28);
+    border: var(--border-width-hairline) solid var(--border);
     border-radius: var(--radius-surface);
-    background: oklch(from var(--success) l c h / 0.08);
+    background: var(--foreground-3);
   }
 .settingsMemorySaveSummary strong {
     color: var(--foreground);

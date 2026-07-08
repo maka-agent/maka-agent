@@ -92,10 +92,10 @@
   pointer-events: none;
 }
 
-.maka-toast[data-variant="success"] { border-left: var(--border-width-accent) solid var(--success); }
-.maka-toast[data-variant="warning"] { border-left: var(--border-width-accent) solid var(--info); }
-.maka-toast[data-variant="error"]   { border-left: var(--border-width-accent) solid var(--destructive); }
-.maka-toast[data-variant="info"]    { border-left: var(--border-width-accent) solid var(--toast-accent); }
+/* Status-color restraint (2026-07-09): the per-variant colored left
+   stripe was a second, louder copy of the signal the tinted icon below
+   already carries — and the stripe-on-card pattern reads as generic
+   template design. One signal per message: neutral card, tinted icon. */
 
 .maka-toast-icon {
   margin-top: var(--space-0-5);
