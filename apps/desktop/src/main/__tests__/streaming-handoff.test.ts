@@ -125,6 +125,37 @@ describe('assistant streaming handoff', () => {
     assert.equal(countOccurrences(markup, 'data-turn-id='), 2, 'both turns still render');
   });
 
+  it('shimmers an in-flight tool trow so the user can tell a tool is running (#642 issue 3)', () => {
+    // A live tool rides the tail turn's timeline (materializeTurns appends
+    // live-only tools to the last turn). Its trow summary must render the
+    // TextShimmer sweep — the SAME "working" light-band the 深度思考 title uses
+    // — for the whole run window. `running` covers pending too, since many
+    // non-streaming tools (read/edit/grep) never leave `pending` before their
+    // tool_result lands. A settled (completed) tool must NOT shimmer.
+    const runningMarkup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'running', args: {} }],
+    });
+    assert.equal(countOccurrences(runningMarkup, 'data-slot="text-shimmer"'), 1, 'a running tool trow shimmers');
+
+    const pendingMarkup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'read', intent: '读取文件', status: 'pending', args: {} }],
+    });
+    assert.equal(countOccurrences(pendingMarkup, 'data-slot="text-shimmer"'), 1, 'a pending tool trow shimmers too');
+
+    const settledMarkup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'done', modelId: 'model' },
+      ],
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'completed', args: {}, durationMs: 1200 }],
+    });
+    assert.equal(countOccurrences(settledMarkup, 'data-slot="text-shimmer"'), 0, 'a completed tool trow does not shimmer');
+  });
+
   it('text_complete replaces the live slot with the final draining text', () => {
     const current: AssistantStreamSlots = {
       'session-1': { text: 'part', truncated: true, phase: 'streaming', messageId: 'assistant-1' },

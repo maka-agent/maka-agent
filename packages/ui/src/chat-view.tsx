@@ -1599,9 +1599,10 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
             已截断
           </span>
         )}
-        {/* Quiet trailing chevron: rides in on hover / open, matching the tool
-            trow rows. No always-on affordance so the folded row stays calm. */}
-        <span className="ml-auto inline-flex shrink-0 items-center text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
+        {/* Quiet chevron sits right after the label (near the text, not pinned
+            to the far edge), rides in on hover / open, matching the tool trow
+            rows. No always-on affordance so the folded row stays calm. */}
+        <span className="inline-flex shrink-0 items-center text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
           <ChevronRight
             size={14}
             strokeWidth={2}
@@ -1627,7 +1628,11 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
             </pre>
           ) : (
             <>
-              <div className="whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)]">
+              {/* Same `max-h-64 overflow-y-auto` bound as the live `<pre>` above
+                  so an expanded panel doesn't jump taller the frame thinking
+                  settles (live→settled swaps this body in place). Long reasoning
+                  stays a compact scroll box in both states. */}
+              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)]">
                 {props.text}
               </div>
               <div className="absolute right-0 top-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/reasoning:opacity-100 focus-within:opacity-100">

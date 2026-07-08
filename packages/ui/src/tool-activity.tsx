@@ -386,7 +386,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
           size={14}
           strokeWidth={2}
           aria-hidden="true"
-          className="ml-auto shrink-0 text-[color:var(--muted-foreground)] opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
+          className="shrink-0 text-[color:var(--muted-foreground)] opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
         />
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -439,10 +439,11 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
         ) : (
           <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
         )}
-        {/* Quiet meta: the duration + chevron ride in on hover / open, matching
+        {/* Quiet meta sits right after the label (near the text, not pinned to
+            the far edge): duration + chevron ride in on hover / open, matching
             the multi-tool summary row — status is carried by the shimmer /
             destructive tint, so no always-on status word. */}
-        <span className="ml-auto inline-flex shrink-0 items-center gap-2 text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
+        <span className="inline-flex shrink-0 items-center gap-2 text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
           {duration && <span className="[font-variant-numeric:tabular-nums]">{duration}</span>}
           <ChevronRight
             size={14}
