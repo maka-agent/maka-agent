@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { chatConfigurationReasonFromError, describeChatConfigurationReason } from '@maka/core';
+import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -109,13 +109,12 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
  * writes the same workspace this CLI reads.
  */
 export function formatStartupConnectionError(error: unknown, workspaceRoot: string): string | null {
-  const raw = error instanceof Error ? error.message : String(error);
-  // Intentional heuristic: `resolveDefaultSessionTarget` is the only producer on
-  // this startup path, so a substring match is enough to claim the error. An
-  // unrecognized token still resolves to the generic fix copy below, so a false
-  // match degrades to generic guidance rather than hiding a crash.
-  if (!raw.includes('NO_REAL_CONNECTION')) return null;
-  const reason = chatConfigurationReasonFromError(error);
+  // `resolveDefaultSessionTarget` is the only producer of `NO_REAL_CONNECTION`
+  // on this startup path. A matched error with an unknown reason still yields
+  // generic fix copy below; a non-match returns null so the real error keeps
+  // propagating to the top-level handler unchanged.
+  const { matched, reason } = parseNoRealConnectionError(error);
+  if (!matched) return null;
   return [
     '无法启动 Maka：还没有可用的模型连接。',
     '',

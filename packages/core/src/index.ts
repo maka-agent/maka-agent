@@ -675,10 +675,10 @@ export {
 
 // connection-error-copy.ts — shared not-ready-connection fix copy
 export {
-  CHAT_CONFIGURATION_REASONS,
   describeChatConfigurationReason,
-  chatConfigurationReasonFromError,
+  parseNoRealConnectionError,
 } from './connection-error-copy.js';
+export type { ParsedNoRealConnectionError } from './connection-error-copy.js';
 
 // session-name.ts (PR-UI-IPC-2)
 export type { NormalizeSessionNameResult } from './session-name.js';

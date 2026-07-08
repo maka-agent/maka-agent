@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import {
   CHAT_CONFIGURATION_REASONS,
   describeChatConfigurationReason,
-  chatConfigurationReasonFromError,
+  parseNoRealConnectionError,
 } from '../connection-error-copy.js';
 
 describe('describeChatConfigurationReason', () => {
   it('covers every reason in the union', () => {
-    // Derived from the source list, so a new ChatConfigurationReason is exercised
-    // here automatically rather than needing a hand-updated array.
+    // CHAT_CONFIGURATION_REASONS is derived from the copy table's keys, which is
+    // typed Record<ChatConfigurationReason, string> — so a new reason is exercised
+    // here automatically and cannot ship without copy (the Record won't compile).
     assert.equal(CHAT_CONFIGURATION_REASONS.length, 10);
   });
 
@@ -35,39 +36,58 @@ describe('describeChatConfigurationReason', () => {
   });
 });
 
-describe('chatConfigurationReasonFromError', () => {
+describe('parseNoRealConnectionError', () => {
   it('parses the bare CLI form NO_REAL_CONNECTION:<reason>', () => {
-    assert.equal(
-      chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:missing_default_connection')),
-      'missing_default_connection',
+    assert.deepEqual(
+      parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:missing_default_connection')),
+      { matched: true, reason: 'missing_default_connection' },
     );
   });
 
   it('parses the wrapped form NO_REAL_CONNECTION:<reason>: <message>', () => {
-    assert.equal(
-      chatConfigurationReasonFromError(
+    assert.deepEqual(
+      parseNoRealConnectionError(
         new Error("Error invoking remote method 'send': Error: NO_REAL_CONNECTION:missing_api_key: no key"),
       ),
-      'missing_api_key',
+      { matched: true, reason: 'missing_api_key' },
     );
   });
 
-  it('returns undefined for a non-NO_REAL_CONNECTION error', () => {
-    assert.equal(chatConfigurationReasonFromError(new Error('network timeout')), undefined);
+  it('reports no match for a non-NO_REAL_CONNECTION error', () => {
+    assert.deepEqual(parseNoRealConnectionError(new Error('network timeout')), { matched: false });
   });
 
-  it('returns undefined for an unrecognized reason token', () => {
-    assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:not_a_real_reason')), undefined);
+  it('matches but yields no reason for an unrecognized reason token', () => {
+    assert.deepEqual(
+      parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:not_a_real_reason')),
+      { matched: true, reason: undefined },
+    );
+  });
+
+  it('matches but yields no reason for the bare code with no token', () => {
+    assert.deepEqual(parseNoRealConnectionError(new Error('NO_REAL_CONNECTION')), {
+      matched: true,
+      reason: undefined,
+    });
   });
 
   it('rejects a malformed token that merely starts with a known reason', () => {
     // The token is captured whole, so a known-reason prefix followed by extra
-    // characters is not mistaken for the known reason.
-    assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:missing_api_key2')), undefined);
-    assert.equal(chatConfigurationReasonFromError(new Error('NO_REAL_CONNECTION:fake_backend-extra')), undefined);
+    // characters matches the failure but resolves to no known reason.
+    assert.deepEqual(parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:missing_api_key2')), {
+      matched: true,
+      reason: undefined,
+    });
+    assert.deepEqual(parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:fake_backend-extra')), {
+      matched: true,
+      reason: undefined,
+    });
   });
 
   it('accepts a non-Error value', () => {
-    assert.equal(chatConfigurationReasonFromError('NO_REAL_CONNECTION:fake_backend'), 'fake_backend');
+    assert.deepEqual(parseNoRealConnectionError('NO_REAL_CONNECTION:fake_backend'), {
+      matched: true,
+      reason: 'fake_backend',
+    });
   });
 });
