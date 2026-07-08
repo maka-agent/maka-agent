@@ -104,7 +104,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const transcript = new MakaTranscriptComponent(state, metadata);
   const statusLine = new MakaStatusLineComponent(metadata);
-  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
+  // Show the whole slash-command set at once — discoverability is the point of
+  // the menu. Keep a little headroom above the current command count.
+  const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: SLASH_COMMAND_MENU_MAX_VISIBLE });
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
   const attention = new AttentionController(terminal, {
@@ -408,11 +410,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
 
-    const items: SelectItem[] = currentSessions.slice(0, 10).map((session) => ({
+    // Sessions are recency-sorted; show the 10 most recent by their human name
+    // (the id is the selection value, not something the user should have to read).
+    const items: SelectItem[] = currentSessions.slice(0, SESSION_PICKER_LIMIT).map((session) => ({
       value: session.id,
-      label: session.id,
-      description: `${session.name} ${session.model}`,
+      label: session.name || session.id,
+      description: session.model,
     }));
+    if (currentSessions.length > SESSION_PICKER_LIMIT) {
+      // Don't let the cap hide sessions silently: point at the /session <id> path
+      // that still reaches any older session directly.
+      state.entries.push({
+        kind: 'notice',
+        level: 'info',
+        text: `Showing the ${SESSION_PICKER_LIMIT} most recent sessions. Use /session <id> to resume an older one.`,
+      });
+    }
     showSelectPicker(
       'Resume Session (Current Folder)',
       'Current Folder',
@@ -448,6 +461,41 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       },
       { minPrimaryColumnWidth: 24, maxPrimaryColumnWidth: 48 },
     );
+  };
+
+  const newSession = () => {
+    input.driver.startNewSession();
+    // Fresh transcript for the fresh session; the next prompt creates it on disk.
+    replaceTranscriptWithStoredMessages(state, []);
+    layout.followTailNow();
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: 'Started a new session. Send a prompt to begin.',
+    });
+    requestRender();
+  };
+
+  const showHelp = () => {
+    // Derive the command list from the registry so /help never drifts from the
+    // real commands. Keybindings are not commands, so they are listed by hand.
+    const commands = slashCommands
+      .map((command) => `  /${command.name} — ${command.description}`)
+      .join('\n');
+    const keybindings = [
+      '  Ctrl+O — expand or collapse all tool output',
+      '  Ctrl+T — expand or collapse the latest thinking block',
+      '  PageUp / PageDown — scroll the transcript',
+      '  Esc Esc (during a turn) — interrupt the turn',
+      '  Esc Esc (when idle) — rewind to an earlier turn',
+      '  Ctrl+C / Ctrl+D — exit Maka',
+    ].join('\n');
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Commands\n${commands}\n\nKeybindings\n${keybindings}`,
+    });
+    requestRender();
   };
 
   const showModelList = () => {
@@ -533,6 +581,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       description: 'Exit Maka',
       run: () => {
         void close();
+      },
+    },
+    {
+      name: 'help',
+      description: 'Show commands and keybindings',
+      run: () => {
+        void runControl(async () => showHelp());
+      },
+    },
+    {
+      name: 'new',
+      description: 'Start a new session',
+      run: () => {
+        void runControl(async () => newSession());
       },
     },
     {
@@ -1167,6 +1229,14 @@ function padLine(text: string, width: number): string {
 }
 
 const BOTTOM_PICKER_MARGIN_ROWS = 4;
+
+// Fits the current slash-command set (10) with headroom, so the full menu is
+// visible on a bare `/` rather than scrolling a subset.
+const SLASH_COMMAND_MENU_MAX_VISIBLE = 12;
+
+// The session picker shows only the most recent sessions; older ones stay
+// reachable via `/session <id>`.
+const SESSION_PICKER_LIMIT = 10;
 
 // Two Escapes this close together read as one deliberate "stop the turn".
 const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;

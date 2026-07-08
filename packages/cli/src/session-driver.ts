@@ -56,6 +56,8 @@ export interface MakaSessionDriver {
   listRewindTargets(): Promise<RewindTarget[]>;
   /** Rewind to a turn: branch the session through it and switch onto the branch. */
   rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult>;
+  /** Abandon the active session so the next prompt starts a fresh one. */
+  startNewSession(): void;
   stop(): Promise<void>;
   getSessionId(): string | null;
 }
@@ -198,6 +200,13 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     // resumed session and the original session is left untouched.
     const branch = await this.input.runtime.branchFromTurn(this.sessionId, { sourceTurnId: turnId });
     return this.switchSession(branch.id);
+  }
+
+  startNewSession(): void {
+    // Drop the active session id only. The current model / thinking / permission
+    // stay put, so the next prompt lazily creates a fresh session that inherits
+    // them (via ensureSession). The old session is left intact on disk.
+    this.sessionId = null;
   }
 
   getSessionId(): string | null {

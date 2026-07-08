@@ -516,6 +516,29 @@ describe('Maka session driver', () => {
     await assert.rejects(driver.rewindToTurn('turn-1'), /before a session starts/);
     assert.deepEqual(runtime.branched, []);
   });
+
+  test('startNewSession makes the next prompt create a fresh session, keeping settings', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await driver.setModel('claude-opus-4-1');
+    await collect(driver.sendPrompt('first'));
+    assert.equal(driver.getSessionId(), 'session-1');
+
+    driver.startNewSession();
+    assert.equal(driver.getSessionId(), null);
+
+    await collect(driver.sendPrompt('second'));
+    // A second createSession call — the prompt started a new session rather than
+    // reusing the old one — and it kept the current model.
+    assert.equal(runtime.created.length, 2);
+    assert.equal(runtime.created[1]?.model, 'claude-opus-4-1');
+    assert.equal(runtime.created[1]?.name, 'second');
+  });
 });
 
 class RecordingRuntime {
