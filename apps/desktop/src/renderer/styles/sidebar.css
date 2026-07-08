@@ -235,6 +235,7 @@
   justify-content: flex-start;
   gap: var(--space-1-5);
   width: 100%;
+  min-height: var(--h-control-lg);
   padding: 0 var(--space-1-5);
   border: 0;
   border-radius: var(--radius-control);
