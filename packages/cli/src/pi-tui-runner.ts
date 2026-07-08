@@ -410,22 +410,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return;
     }
 
-    // Sessions are recency-sorted; show the 10 most recent by their human name
-    // (the id is the selection value, not something the user should have to read).
-    const items: SelectItem[] = currentSessions.slice(0, SESSION_PICKER_LIMIT).map((session) => ({
+    // Recency-sorted. Label each row by its human name (the id is the selection
+    // value, not something the user should have to read) and disambiguate
+    // same-named sessions with a short id in the description. The list scrolls,
+    // so every session stays reachable — nothing is capped or hidden.
+    const items: SelectItem[] = currentSessions.map((session) => ({
       value: session.id,
       label: session.name || session.id,
-      description: session.model,
+      description: `${shortSessionId(session.id)} ${session.model}`,
     }));
-    if (currentSessions.length > SESSION_PICKER_LIMIT) {
-      // Don't let the cap hide sessions silently: point at the /session <id> path
-      // that still reaches any older session directly.
-      state.entries.push({
-        kind: 'notice',
-        level: 'info',
-        text: `Showing the ${SESSION_PICKER_LIMIT} most recent sessions. Use /session <id> to resume an older one.`,
-      });
-    }
     showSelectPicker(
       'Resume Session (Current Folder)',
       'Current Folder',
@@ -1234,9 +1227,11 @@ const BOTTOM_PICKER_MARGIN_ROWS = 4;
 // visible on a bare `/` rather than scrolling a subset.
 const SLASH_COMMAND_MENU_MAX_VISIBLE = 12;
 
-// The session picker shows only the most recent sessions; older ones stay
-// reachable via `/session <id>`.
-const SESSION_PICKER_LIMIT = 10;
+// A short, stable slice of a session id — enough to tell two same-named
+// sessions apart in the picker without showing the full unreadable uuid.
+function shortSessionId(id: string): string {
+  return id.slice(0, 8);
+}
 
 // Two Escapes this close together read as one deliberate "stop the turn".
 const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;

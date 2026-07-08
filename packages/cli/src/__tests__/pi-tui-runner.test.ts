@@ -876,6 +876,9 @@ describe('Maka Pi TUI runner', () => {
     assert.ok(exitIndex < modelIndex);
     assert.ok(modelIndex < permissionsIndex);
     assert.ok(permissionsIndex < sessionIndex);
+    // The whole menu is visible at once — including the last command
+    // alphabetically — so new commands don't push older ones below the fold.
+    assert.ok(output.indexOf('/thinking') > sessionIndex);
 
     terminal.input('\x03');
     await Promise.race([
@@ -1646,7 +1649,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('notes older sessions hidden by the picker cap', async () => {
+  test('the session picker scrolls through every session rather than capping', async () => {
     const terminal = new FakeTerminal();
     const sessions = Array.from({ length: 12 }, (_, i) => fakeSessionSummary(`session-${i}`, '/repo', `chat ${i}`));
     const driver = new SlashCommandDriver(sessions);
@@ -1663,7 +1666,44 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Showing the 10 most recent sessions. Use /session <id>'));
+    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    // All 12 are in the list (not sliced to 10): the scroll indicator counts the
+    // full total, so the window shows "(1/12)".
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/12)'));
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('the session picker disambiguates same-named sessions by short id', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('aaaa1111-2222-3333', '/repo', 'Same name'),
+      fakeSessionSummary('bbbb4444-5555-6666', '/repo', 'Same name'),
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    // Same label on both rows, but the short id in the description tells them apart.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('aaaa1111'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('bbbb4444'));
 
     terminal.input('\x1b');
     terminal.input('\x03');
