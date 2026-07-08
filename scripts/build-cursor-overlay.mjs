@@ -22,28 +22,34 @@ const jsToTs = {
   },
 };
 
-await mkdir(outDir, { recursive: true });
+/** Build the overlay renderer bundle + preload + html into dist/overlay. */
+export async function buildCursorOverlay({ logLevel = 'info' } = {}) {
+  await mkdir(outDir, { recursive: true });
+  await esbuild.build({
+    entryPoints: [join(srcOverlay, 'cursor-overlay.ts')],
+    bundle: true,
+    format: 'iife',
+    platform: 'browser',
+    target: 'chrome120',
+    outfile: join(outDir, 'cursor-overlay.js'),
+    plugins: [jsToTs],
+    logLevel,
+  });
+  await esbuild.build({
+    entryPoints: [join(srcOverlay, 'cursor-overlay-preload.ts')],
+    bundle: true,
+    format: 'cjs',
+    platform: 'node',
+    external: ['electron'],
+    outfile: join(outDir, 'cursor-overlay-preload.cjs'),
+    logLevel,
+  });
+  await copyFile(join(srcOverlay, 'cursor-overlay.html'), join(outDir, 'cursor-overlay.html'));
+  return outDir;
+}
 
-await esbuild.build({
-  entryPoints: [join(srcOverlay, 'cursor-overlay.ts')],
-  bundle: true,
-  format: 'iife',
-  platform: 'browser',
-  target: 'chrome120',
-  outfile: join(outDir, 'cursor-overlay.js'),
-  plugins: [jsToTs],
-  logLevel: 'info',
-});
-
-await esbuild.build({
-  entryPoints: [join(srcOverlay, 'cursor-overlay-preload.ts')],
-  bundle: true,
-  format: 'cjs',
-  platform: 'node',
-  external: ['electron'],
-  outfile: join(outDir, 'cursor-overlay-preload.cjs'),
-  logLevel: 'info',
-});
-
-await copyFile(join(srcOverlay, 'cursor-overlay.html'), join(outDir, 'cursor-overlay.html'));
-console.log('cursor overlay built →', outDir);
+// Run directly (npm run build:overlay) or import buildCursorOverlay (dev.mjs).
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const dir = await buildCursorOverlay();
+  console.log('cursor overlay built →', dir);
+}

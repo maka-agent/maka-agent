@@ -21,6 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { build as esbuildBuild } from 'esbuild';
+import { buildCursorOverlay } from '../../../scripts/build-cursor-overlay.mjs';
 
 const DESKTOP_DIR = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const REPO_ROOT    = resolve(DESKTOP_DIR, '..', '..');
@@ -87,6 +88,11 @@ await Promise.all([
   }).then(
     () => log('build', 'preload — done'),
     (e) => { log('build', `preload — FAILED: ${e.message}`); throw e; },
+  ),
+  // Cursor overlay renderer bundle + preload + html (esbuild; no tsc dependency).
+  buildCursorOverlay({ logLevel: 'warning' }).then(
+    () => log('build', 'cursor-overlay — done'),
+    (e) => { log('build', `cursor-overlay — FAILED: ${e.message}`); throw e; },
   ),
 ]);
 
