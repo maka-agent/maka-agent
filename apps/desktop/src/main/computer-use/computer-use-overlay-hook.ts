@@ -66,6 +66,7 @@ export function declaredPxToScreenPoint(pt: CuPoint, display: DisplayLike): { x:
 
 /** Build the overlay hook that drives `controller` from CU actions. */
 export function createComputerUseOverlayHook(controller: CursorOverlayController, screen: OverlayScreenLike): CuOverlayHook {
+  const debug = Boolean(process.env.MAKA_CU_E2E_PROMPT);
   return {
     onActionBegin(action, ctx) {
       const pt = coordinateOf(action);
@@ -73,9 +74,14 @@ export function createComputerUseOverlayHook(controller: CursorOverlayController
         // Non-coordinate action (type/key/screenshot/wait): keep the cursor
         // present at its last spot, don't move it.
         controller.ensure(ctx.sessionId);
+        if (debug) console.log(`[cu-overlay] ensure (no-coord ${action.type}) session=${ctx.sessionId.slice(0, 8)}`);
         return;
       }
       const screenPt = declaredPxToScreenPoint(pt, screen.getPrimaryDisplay());
+      if (debug) {
+        const d = screen.getPrimaryDisplay();
+        console.log(`[cu-overlay] move ${action.type} declared=(${pt.x},${pt.y}) → screen=(${Math.round(screenPt.x)},${Math.round(screenPt.y)}) scale=${d.scaleFactor} kind=${kindOf(action)}`);
+      }
       controller.move({
         actionId: ctx.toolCallId,
         sessionId: ctx.sessionId,

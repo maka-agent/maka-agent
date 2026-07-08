@@ -1768,44 +1768,61 @@ app.whenReady().then(async () => {
  * forwards events to the renderer so the chat shows the turn. Never runs normally.
  */
 async function maybeRunComputerUseE2e(): Promise<void> {
-  const prompt = process.env.MAKA_CU_E2E_PROMPT;
-  if (!prompt || app.isPackaged) return;
-  try {
-    const mode = (process.env.MAKA_CU_E2E_MODE ?? 'bypass') as Parameters<typeof runtime.createSession>[0]['permissionMode'];
-    const slug = await connectionStore.getDefault();
-    const { connection, model } = await getReadyConnection(slug, undefined);
-    const session = await runtime.createSession({
-      cwd: workspaceRoot,
-      backend: 'ai-sdk',
-      llmConnectionSlug: connection.slug,
-      model,
-      permissionMode: mode,
-      name: 'CU E2E',
-    });
-    emitSessionsChanged('created', session.id);
-    console.log(`[cu-e2e] session=${session.id} mode=${mode} conn=${connection.slug} model=${model}`);
-    console.log(`[cu-e2e] prompt: ${prompt}`);
-    const turnId = randomUUID();
-    const iterator = runtime.sendMessage(session.id, { turnId, text: prompt });
-    for await (const event of iterator) {
-      safeSendToRenderer(`sessions:event:${session.id}`, event);
-      const e = event as { type?: string; requestId?: string; name?: string; toolName?: string; args?: unknown; content?: unknown; text?: string };
-      if (e.type === 'permission_request' && e.requestId) {
-        console.log('[cu-e2e] auto-approve permission', e.requestId);
-        await runtime.respondToPermission(session.id, { requestId: e.requestId, decision: 'allow', rememberForTurn: true });
-      } else if (e.type === 'tool_start') {
-        console.log('[cu-e2e] tool_start', e.name ?? e.toolName, JSON.stringify(e.args ?? {}).slice(0, 220));
-      } else if (e.type === 'tool_result') {
-        console.log('[cu-e2e] tool_result', JSON.stringify(e.content ?? e.text ?? '').slice(0, 320));
-      } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
-        console.log(`[cu-e2e] turn ${e.type}`);
+  const raw = process.env.MAKA_CU_E2E_PROMPT;
+  if (!raw || app.isPackaged) return;
+  // A `;;`-delimited list runs each scenario as its own session, sequentially,
+  // so a broad suite runs on ONE app boot.
+  const prompts = raw.split(';;').map((p) => p.trim()).filter(Boolean);
+  const mode = (process.env.MAKA_CU_E2E_MODE ?? 'bypass') as Parameters<typeof runtime.createSession>[0]['permissionMode'];
+  const summary: string[] = [];
+  for (let i = 0; i < prompts.length; i++) {
+    const prompt = prompts[i];
+    const tag = `[cu-e2e ${i + 1}/${prompts.length}]`;
+    try {
+      const slug = await connectionStore.getDefault();
+      const { connection, model } = await getReadyConnection(slug, undefined);
+      const session = await runtime.createSession({
+        cwd: workspaceRoot,
+        backend: 'ai-sdk',
+        llmConnectionSlug: connection.slug,
+        model,
+        permissionMode: mode,
+        name: `CU E2E ${i + 1}`,
+      });
+      emitSessionsChanged('created', session.id);
+      console.log(`${tag} session=${session.id} mode=${mode} model=${model}`);
+      console.log(`${tag} prompt: ${prompt}`);
+      const turnId = randomUUID();
+      const iterator = runtime.sendMessage(session.id, { turnId, text: prompt });
+      const toolCounts = new Map<string, number>();
+      let cuActions = 0;
+      for await (const event of iterator) {
+        safeSendToRenderer(`sessions:event:${session.id}`, event);
+        const e = event as { type?: string; requestId?: string; name?: string; toolName?: string; args?: unknown; content?: unknown };
+        if (e.type === 'permission_request' && e.requestId) {
+          await runtime.respondToPermission(session.id, { requestId: e.requestId, decision: 'allow', rememberForTurn: true });
+        } else if (e.type === 'tool_start') {
+          const name = String(e.name ?? e.toolName ?? '?');
+          toolCounts.set(name, (toolCounts.get(name) ?? 0) + 1);
+          if (name === 'computer') cuActions++;
+          console.log(`${tag} tool_start ${name} ${JSON.stringify(e.args ?? {}).slice(0, 160)}`);
+        } else if (e.type === 'tool_result') {
+          console.log(`${tag} tool_result ${JSON.stringify(e.content ?? '').slice(0, 240)}`);
+        } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
+          console.log(`${tag} turn ${e.type}`);
+        }
       }
+      computerUseOverlay.clearForSession(session.id);
+      const toolsStr = [...toolCounts.entries()].map(([n, c]) => `${n}×${c}`).join(', ') || 'none';
+      summary.push(`${i + 1}. computer×${cuActions} | all: ${toolsStr}`);
+    } catch (error) {
+      console.error(`${tag} FAILED:`, error);
+      summary.push(`${i + 1}. FAILED: ${(error as Error).message}`);
     }
-    computerUseOverlay.clearForSession(session.id);
-    console.log('[cu-e2e] done');
-  } catch (error) {
-    console.error('[cu-e2e] FAILED:', error);
   }
+  console.log('[cu-e2e] ===== SUITE SUMMARY =====');
+  for (const line of summary) console.log(`[cu-e2e] ${line}`);
+  console.log('[cu-e2e] done');
 }
 
 /**
