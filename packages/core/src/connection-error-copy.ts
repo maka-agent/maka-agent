@@ -21,9 +21,10 @@
 import type { ChatConfigurationReason } from './connection-readiness.js';
 
 /**
- * Compile-time exhaustiveness anchor: every `ChatConfigurationReason` must have
- * an entry here, so adding a new reason to the union fails the build until its
- * copy and known-reason membership are added below.
+ * Runtime membership anchor: `Object.keys` of this record is the set of valid
+ * reason tokens the parser accepts. Typed as `Record<ChatConfigurationReason,
+ * true>`, so adding a reason to the union fails the build until it is listed
+ * here (which also keeps the parser's known-token set complete).
  */
 const CHAT_CONFIGURATION_REASON_PRESENCE: Record<ChatConfigurationReason, true> = {
   missing_default_connection: true,
@@ -43,12 +44,16 @@ const KNOWN_CHAT_CONFIGURATION_REASONS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Fix instructions for a not-ready connection. `undefined` (or any unrecognized
- * reason routed through here) returns the generic fallback rather than throwing,
- * so a future reason still renders help.
+ * Fix instructions for a not-ready connection. `undefined` (the parser's result
+ * for an unrecognized error) returns the generic fallback; every known reason
+ * has its own line. The switch is exhaustive over `ChatConfigurationReason` —
+ * `assertUnhandledReason` gives it a `never` tail, so adding a reason to the
+ * union fails the build here until its copy is added.
  */
 export function describeChatConfigurationReason(reason: ChatConfigurationReason | undefined): string {
   switch (reason) {
+    case undefined:
+      return '模型连接暂时无法用于发送，请到 设置 · 模型 检查后重试。';
     case 'missing_default_connection':
       return '等待配置默认模型。请到 设置 · 模型 添加一个可用模型连接后再发送。';
     case 'connection_missing':
@@ -70,8 +75,16 @@ export function describeChatConfigurationReason(reason: ChatConfigurationReason 
     case 'fake_backend':
       return '当前会话来自旧的本地模拟连接。请到 设置 · 模型 添加真实模型后新建会话。';
     default:
-      return '模型连接暂时无法用于发送，请到 设置 · 模型 检查后重试。';
+      return assertUnhandledReason(reason);
   }
+}
+
+/**
+ * Compile-time exhaustiveness guard: reachable only if a `ChatConfigurationReason`
+ * has no `case` above, which makes `reason` non-`never` and fails the build.
+ */
+function assertUnhandledReason(reason: never): never {
+  throw new Error(`Unhandled ChatConfigurationReason: ${String(reason)}`);
 }
 
 const NO_REAL_CONNECTION_REASON_RE = /NO_REAL_CONNECTION:([a-z_]+)/;
