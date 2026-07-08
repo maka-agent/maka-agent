@@ -40,6 +40,7 @@ export class CursorEngine {
   private spring: Spring | null = null;
   private springTgt: [number, number, number] | null = null;
   private clickT: number | null = null;
+  private clickOnArrive = false;
   pressed = false;
   private idleSecs = 0;
   private idleAlpha = 1;
@@ -52,8 +53,9 @@ export class CursorEngine {
     this.palette = p;
   }
 
-  /** Queue a glide to (x,y). `endHeading` is the resting arrow heading. */
-  moveTo(x: number, y: number, endHeading: number = REST_HEADING): void {
+  /** Queue a glide to (x,y). `endHeading` is the resting arrow heading.
+   *  `clickOnArrive` fires the click pulse the moment the cursor lands. */
+  moveTo(x: number, y: number, endHeading: number = REST_HEADING, clickOnArrive = false): void {
     const tx = x + Math.cos(endHeading) * CLICK_OFFSET;
     const ty = y + Math.sin(endHeading) * CLICK_OFFSET;
     // Sentinel: on the very first move snap onto the target so the path starts on-screen.
@@ -65,6 +67,7 @@ export class CursorEngine {
     this.dist = 0;
     this.spring = null;
     this.springTgt = null;
+    this.clickOnArrive = clickOnArrive;
     this.idleSecs = 0;
     this.idleAlpha = 1;
   }
@@ -106,6 +109,10 @@ export class CursorEngine {
         this.heading = endHeading;
         this.path = null;
         this.dist = 0;
+        if (this.clickOnArrive) {
+          this.clickT = 0;
+          this.clickOnArrive = false;
+        }
       } else {
         const s = this.path.sample(this.dist);
         this.pos = [s.x, s.y];
