@@ -122,3 +122,15 @@ export function isTrowRunning(items: readonly ToolActivityItem[]): boolean {
       item.status === 'running' || item.status === 'pending' || item.status === 'waiting_permission',
   );
 }
+
+/**
+ * True when the group must force itself open: a permission prompt or an error
+ * banner is inside. Both are actionable/diagnostic content that a collapsed
+ * summary line would hide — the old boxed cards kept errored tools expanded,
+ * and the trow keeps that behavior.
+ */
+export function trowNeedsAttention(items: readonly ToolActivityItem[]): boolean {
+  return items.some(
+    (item) => item.status === 'waiting_permission' || item.status === 'errored',
+  );
+}

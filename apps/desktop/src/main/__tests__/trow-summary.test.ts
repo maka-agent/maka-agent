@@ -11,6 +11,7 @@ import {
   isTrowRunning,
   summarizeTrowTools,
   trowActivityKind,
+  trowNeedsAttention,
   type ToolActivityItem,
 } from '@maka/ui';
 
@@ -85,5 +86,20 @@ describe('activeTrowTool + isTrowRunning', () => {
   it('prefers waiting_permission as active', () => {
     const items = [tool('Read', 'completed'), tool('Write', 'waiting_permission')];
     assert.equal(activeTrowTool(items)?.status, 'waiting_permission');
+  });
+});
+
+describe('trowNeedsAttention', () => {
+  it('forces the group open for a permission prompt or an errored tool', () => {
+    assert.equal(trowNeedsAttention([tool('Read'), tool('Bash', 'waiting_permission')]), true);
+    // An errored tool must keep the group expanded so the error banner and
+    // output stay diagnosable (parity with the old boxed cards).
+    assert.equal(trowNeedsAttention([tool('Read'), tool('Bash', 'errored')]), true);
+  });
+
+  it('stays collapsed for settled or merely running groups', () => {
+    assert.equal(trowNeedsAttention([tool('Read'), tool('Grep')]), false);
+    assert.equal(trowNeedsAttention([tool('Read', 'running'), tool('Grep', 'pending')]), false);
+    assert.equal(trowNeedsAttention([tool('Read', 'interrupted')]), false);
   });
 });

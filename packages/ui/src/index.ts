@@ -116,6 +116,7 @@ export {
   trowActivityKind,
   activeTrowTool,
   isTrowRunning,
+  trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
 // Streaming UI rework: per-word fade-in for streamed text (replaces the ▎
