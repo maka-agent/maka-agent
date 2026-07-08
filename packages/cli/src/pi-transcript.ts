@@ -843,7 +843,14 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
 
   const text = plainResultText(entry);
   if (!text) return undefined;
-  if (entry.toolName === 'Read') {
+  // Only a successful filesystem Read that carries real file content gets the
+  // line/byte summary — the same guard the expanded card uses. A runtime
+  // resource, errored, or archived Read falls through to the generic first-line
+  // summary so its status shows instead of a fabricated count.
+  if (entry.toolName === 'Read'
+    && entry.status !== 'error'
+    && isFilesystemReadPath(entry)
+    && isReadBodyResult(result)) {
     const lineCount = readBodyLineCount(text);
     return {
       text: `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`,
@@ -1095,23 +1102,26 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   // head/tail cap must never hide — otherwise a failed or timed-out background
   // command looks the same as a successful one. Render the status in full and
   // cap only the stdout/stderr stream bodies.
-  if (result?.kind === 'shell_run') return renderShellRunResult(result, width);
+  if (result?.kind === 'shell_run') return renderShellRunResult(entry, result, width);
   // Diffs are the deliberate exception to the head/tail cap: the whole change
   // is what the user is expanding to see.
   if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
   if (result?.kind === 'file_write') {
     return renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2);
   }
-  // Generic text/json dumps — a Grep/Bash body or raw tool text — are the
-  // file/command output the head/tail cap targets: the model already holds the
-  // full body, so the transcript only needs enough to orient. An undefined
-  // result with a formatted `output` string is treated the same way.
-  if (result === undefined || result.kind === 'text' || result.kind === 'json') {
+  // A generic `text` dump — a Bash body or raw tool text — is what the head/tail
+  // cap targets: the model already holds the full body, so the transcript only
+  // needs enough to orient. An undefined result with a formatted `output` string
+  // is treated the same way. `json` is deliberately excluded: a Read json is
+  // summarized above, a Grep/Glob json is a structured list the user expands to
+  // scan in full, and any other json collapses to a single inline line where the
+  // cap would be a no-op anyway.
+  if (result === undefined || result.kind === 'text') {
     return renderCappedResultText(plainResultText(entry), width);
   }
-  // Everything else is report-style content (agent reports, web-search results,
-  // subagent / workflow summaries, office-doc output) the user expands to read
-  // in full — render without the cap, like a diff.
+  // Everything else — json lists (Grep/Glob), agent reports, web-search results,
+  // subagent / workflow summaries, office-doc output — is content the user
+  // expands to read in full, so render it without the cap, like a diff.
   return renderToolText(plainResultText(entry), width);
 }
 
@@ -1160,14 +1170,23 @@ function renderTerminalResult(
  * the stdout/stderr stream bodies are capped.
  */
 function renderShellRunResult(
+  entry: MakaPiToolEntry,
   content: Extract<ToolResultContent, { kind: 'shell_run' }>,
   width: number,
 ): string[] {
   const lines: string[] = [];
-  // Repeat the command and cwd: for a StopBackgroundTask the tool input carries
-  // only the run ref, so without these the expanded card loses which background
-  // process this result is about.
-  lines.push(...renderIndented(ansi.dim(`$ ${content.cmd}`), width, 2));
+  // The command/cwd live on the result. Repeat the command only when the tool
+  // input does not already show it — a StopBackgroundTask input carries just the
+  // run ref, but a Bash background yield already renders `$ command`, so
+  // repeating it there would print the command twice. The cwd is not in either
+  // input summary, so show it once here.
+  const input = entry.input;
+  const inputHasCommand = input !== null
+    && typeof input === 'object'
+    && typeof (input as { command?: unknown }).command === 'string';
+  if (!inputHasCommand) {
+    lines.push(...renderIndented(ansi.dim(`$ ${content.cmd}`), width, 2));
+  }
   lines.push(...renderIndented(ansi.dim(`cwd: ${content.cwd}`), width, 2));
   const settled = content.status !== 'running' && content.status !== 'completed';
   const parts: string[] = [content.status];

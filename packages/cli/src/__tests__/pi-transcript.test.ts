@@ -731,6 +731,29 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /boom-stderr/);
   });
 
+  test('does not repeat the command when a Bash yield already shows it', () => {
+    const state = createMakaPiTranscriptState();
+    // A Bash background yield carries the command on both the input and the
+    // shell_run result; the expanded card must print `$ cmd` once, not twice.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'npm run watch' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'bg-9', status: 'running', cwd: '/repo',
+        cmd: 'npm run watch', startedAt: 1, updatedAt: 2,
+        stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+      },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    const occurrences = expanded.split('$ npm run watch').length - 1;
+    assert.equal(occurrences, 1);
+    assert.match(expanded, /cwd: \/repo/); // cwd is not in the input summary, so shown once here
+  });
+
   test('renders a report-style result in full instead of head/tail capping it', () => {
     const state = createMakaPiTranscriptState();
     // Report-style kinds (agent reports, summaries) are content the user expands
@@ -776,10 +799,13 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(compact, /12 matches \(Ctrl\+O\)/);
     assert.doesNotMatch(compact, /match-0/);
 
+    // Expanding a Grep card shows every match — a structured list the user
+    // opened the card to scan, not a raw dump to head/tail cap. All 12 rows,
+    // including the middle ones, must survive and there is no hidden-count marker.
     assert.equal(toggleAllToolExpansion(state), true);
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.match(expanded, /match-0/);
-    assert.match(expanded, /match-11/);
+    for (let i = 0; i < 12; i += 1) assert.match(expanded, new RegExp(`match-${i}\\b`));
+    assert.doesNotMatch(expanded, /lines hidden/);
   });
 
   test('summarizes Glob results as a file count and shows the list expanded', () => {
@@ -1142,6 +1168,28 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(rendered, /secret/);
     assert.match(rendered, /\[redacted\]/);
     assert.match(rendered, /\[stderr\]/);
+  });
+
+  test('caps a long live stream group in the expanded card', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-stream', toolName: 'Bash', args: { command: 'seq 20' },
+    }));
+    // Ten single-line stdout chunks form one stream group; the expanded card
+    // head/tail caps the group body just like a finished command dump.
+    for (let i = 0; i < 10; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_output_delta', toolUseId: 'bash-stream', seq: i, stream: 'stdout',
+        chunk: `${i === 0 ? '' : '\n'}stream-line-${i}`, redacted: false,
+      }));
+    }
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /stream-line-0/);
+    assert.match(expanded, /stream-line-9/);
+    assert.match(expanded, /lines hidden/);
+    assert.doesNotMatch(expanded, /stream-line-5/); // a middle line the cap hides
   });
 });
 
