@@ -156,6 +156,7 @@ import {
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
+import { selectComputerUseBackend } from './computer-use/select-backend.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -374,14 +375,23 @@ const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools = buildBrowserTools();
+// Computer-use dispatch: pick + construct a host backend (cua-driver default,
+// ax-helper via MAKA_CU_BACKEND). Fails closed off macOS / missing binary →
+// zero tools, so the `computer` capability group stays unavailable and the
+// tool is never advertised to the model. Disposed in the before-quit handler.
+const computerUse = selectComputerUseBackend();
+const computerUseTools = computerUse.tools;
 const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
     { id: 'rive', label: 'Rive', description: 'Durable multi-agent Rive workflows: validate/import/run/status, scheduler, retries.', toolNames: riveTools.map((tool) => tool.name) },
     { id: 'office', label: 'Office', description: 'Read and edit Office documents (Word, Excel, PowerPoint, PDF).', toolNames: officeTools.map((tool) => tool.name) },
     { id: 'browser', label: 'Browser', description: 'Drive the embedded browser: navigate, snapshot, click, type, wait, extract.', toolNames: browserTools.map((tool) => tool.name) },
+    ...(computerUseTools.length > 0
+      ? [{ id: 'computer_use', label: 'Computer', description: 'Control the host computer via macOS Accessibility: screenshot, click, type, key, scroll on the user\'s real apps.', toolNames: computerUseTools.map((tool) => tool.name) }]
+      : []),
     buildSubagentToolGroup(),
   ],
 };
@@ -1792,6 +1802,7 @@ app.on('before-quit', () => {
   void botRegistry.stopAll();
   void openGateway.stop();
   void mainWindowController.disposeBrowserViews();
+  computerUse.backend?.dispose?.();
 });
 
 app.on('activate', focusOrCreateMainWindow);
