@@ -342,7 +342,10 @@ export class AutomationManager {
         if (budgetSpent) {
           // The one/last fire was already attempted (fireCount reflects it), so
           // settle it terminally rather than re-run it (at-most-once semantics).
+          // Its outcome was never committed, so record the uncertainty instead of
+          // asserting a clean success — a genuine success leaves lastError null.
           automation.status = 'completed';
+          automation.lastError = 'Interrupted on restart before the fire outcome was recorded; not re-run.';
         } else {
           // A recurring automation should always carry a future fire time; a null
           // here is a corrupt/interrupted state — re-arm it.

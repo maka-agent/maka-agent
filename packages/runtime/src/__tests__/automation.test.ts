@@ -475,6 +475,8 @@ describe('AutomationManager', () => {
       const settled = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 3, maxFires: 3 });
       assert.equal(settled?.status, 'completed');
       assert.equal(settled?.nextFireAt, null);
+      // Surfaces the uncertainty rather than asserting a clean success.
+      assert.ok(settled?.lastError, 'an interrupted-then-settled fire must record its unknown outcome');
     });
 
     test('settles an interrupted once fire to completed (no drift, no re-run)', () => {

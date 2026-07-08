@@ -278,6 +278,31 @@ describe('AutomationScheduler', () => {
     assert.equal(t.manager.get(auto.id)?.status, 'expired');
   });
 
+  test('the expiry sweep leaves an expired CRON untouched when createFreshRun is absent', async () => {
+    // A host that cannot run cron must not mutate/persist crons at all — the
+    // durable store may be shared with (and owned by) a host that can, and this
+    // host's copy may be stale. Sweeping the cron here could clobber that store.
+    const t = createTestSetup(); // createFreshRun undefined → cron disabled
+    const cron = t.manager.create({
+      kind: 'cron', name: 'daily', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      expiresAt: t.getTime() + 30000,
+    });
+    assert.ok(!('error' in cron));
+    // A heartbeat with the same expiry IS swept (control).
+    const beat = t.manager.create({
+      kind: 'heartbeat', name: 'poll', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 3600 },
+      expiresAt: t.getTime() + 30000,
+    });
+    assert.ok(!('error' in beat));
+    t.advanceTime(31000);
+    t.scheduler.start();
+    await t.runTick();
+    assert.equal(t.manager.get(cron.id)?.status, 'active', 'expired cron must be left untouched on a cron-disabled host');
+    assert.equal(t.manager.get(beat.id)?.status, 'expired', 'heartbeat is still swept');
+  });
+
   test('a failed maxFires=1 fire ends failed/paused, never completed', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({

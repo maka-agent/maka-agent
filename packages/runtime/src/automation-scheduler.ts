@@ -107,6 +107,12 @@ export class AutomationScheduler {
     // regardless of nextFireAt. Prevents zombie-active entries.
     let sweptAny = false;
     for (const automation of active) {
+      // Same invariant as attemptFire: a host without a cron executor must not
+      // mutate/persist crons at all — the durable store may be shared with a
+      // host that CAN run them, and this host's in-memory copy may be stale
+      // (no reload after startup), so expiring a cron here could clobber the
+      // owning host's edits on disk. Leave crons entirely to that host.
+      if (automation.kind === 'cron' && !this.deps.createFreshRun) continue;
       if (automation.expiresAt && now >= automation.expiresAt) {
         if (this.deps.automationManager.sweepExpired(automation.id)) sweptAny = true;
       }
