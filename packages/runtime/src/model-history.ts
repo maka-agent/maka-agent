@@ -102,6 +102,8 @@ export type RuntimeEventModelReplayItem =
       content: string;
       /** Original attachments (if any) so replay can render image parts. */
       attachments?: AttachmentRef[];
+      /** Assistant step id (model-role text only); groups a step's parts. */
+      stepId?: string;
       eventId: string;
       ts: number;
     }
@@ -109,6 +111,8 @@ export type RuntimeEventModelReplayItem =
       kind: 'thinking';
       text: string;
       signature?: string;
+      /** Assistant step id; pairs this reasoning with its step's tool calls. */
+      stepId?: string;
       eventId: string;
       ts: number;
     }
@@ -117,6 +121,8 @@ export type RuntimeEventModelReplayItem =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      /** Assistant step id (from tool_start); groups the call with its step. */
+      stepId?: string;
       eventId: string;
       ts: number;
     }
@@ -271,20 +277,29 @@ export function buildRuntimeEventModelReplayPlan(
   const callsById = new Map<string, { name: string; eventId: string }>();
   const semanticKinds = new Set<RuntimeEventReplaySemanticKind>();
 
-  // Turns that call tools cannot also replay their thinking provider-native.
-  // The backend accumulates a turn's reasoning into a single end-of-turn
-  // `thinking_complete`, emitted AFTER the turn's tool_call/tool_result events,
-  // so the thinking lands last in ledger order. Materialization can only render
-  // a thinking item as a standalone assistant reasoning message; placed after
-  // the tool result it (a) drops the leading thinking block Anthropic requires
-  // on the tool-use assistant message and (b) leaves an orphan thinking block —
-  // Anthropic rejects both (400). Pure-reasoning turns (no tools) are safe and
-  // still replay. Pre-scan so the decision is independent of event order, and
-  // union any full-ledger tool-turn ids the caller supplies — `events` may be a
-  // budget/search slice that kept a tool turn's thinking but dropped its tool
-  // events (see BuildRuntimeEventModelReplayPlanOptions.toolActivityTurnIds).
-  const turnsWithToolActivity = new Set<string>(options.toolActivityTurnIds ?? []);
-  for (const id of collectToolActivityTurnIds(events)) turnsWithToolActivity.add(id);
+  // Signed thinking in a tool turn is only replayable when the turn's tool calls
+  // carry a step id (RuntimeEventRefs.stepId, stamped from tool_start): the
+  // materializer then merges the step's reasoning + tool calls into one provider
+  // assistant message. Legacy per-turn history has no step id — its single
+  // end-of-turn reasoning lands after the tool events and cannot be reattached
+  // to the tool-use assistant message (Anthropic 400), so it is still skipped.
+  //
+  // Classify each tool turn: paired (all its function_call events carry a
+  // stepId) vs unpaired (any lacks one). Union caller-supplied whole-ledger
+  // tool-turn ids that this (possibly sliced) `events` view cannot confirm as
+  // paired, so a sliced-away tool turn degrades safely to the legacy skip.
+  const pairedToolTurnIds = new Set<string>();
+  const unpairedToolTurnIds = new Set<string>();
+  for (const event of events) {
+    if (isPartialRuntimeEvent(event)) continue;
+    if (event.content?.kind === 'function_call' && event.turnId) {
+      if (event.refs?.stepId) pairedToolTurnIds.add(event.turnId);
+      else unpairedToolTurnIds.add(event.turnId);
+    }
+  }
+  for (const id of options.toolActivityTurnIds ?? []) {
+    if (!pairedToolTurnIds.has(id)) unpairedToolTurnIds.add(id);
+  }
 
   for (const event of events) {
     if (isPartialRuntimeEvent(event)) {
@@ -347,6 +362,11 @@ export function buildRuntimeEventModelReplayPlan(
           role,
           content: formatTextWithAttachmentRefs(event.content),
           ...(event.content.attachments ? { attachments: event.content.attachments } : {}),
+          // Model text carries its step id (the message id) so the materializer
+          // can close a step and group its reasoning + tool calls.
+          ...(role === 'assistant' && event.refs?.providerEventId
+            ? { stepId: event.refs.providerEventId }
+            : {}),
           eventId: event.id,
           ts: event.ts,
         });
@@ -374,14 +394,17 @@ export function buildRuntimeEventModelReplayPlan(
           ));
           continue;
         }
-        if (event.turnId && turnsWithToolActivity.has(event.turnId)) {
-          // Signed, but its turn also calls tools — unreplayable in position
-          // (see turnsWithToolActivity above). Keep it in the read-model for the
-          // UI; skip it from replay items without downgrading the whole history.
+        if (event.turnId && unpairedToolTurnIds.has(event.turnId)) {
+          // Signed, but its turn has tool calls with no step id to pair against
+          // (legacy per-turn history) — the end-of-turn reasoning cannot be
+          // reattached to the tool-use assistant message. Keep it in the
+          // read-model for the UI; skip it from replay without downgrading the
+          // whole history. Per-step history (paired tool calls) is not skipped:
+          // the materializer merges each step's reasoning with its tool calls.
           diagnostics.push(diagnostic(
             event,
             'signed_thinking_in_tool_turn_skipped',
-            'signed thinking RuntimeEvent skipped for model replay: its turn also calls tools, and end-of-turn thinking cannot be reattached to the tool-use assistant message',
+            'signed thinking RuntimeEvent skipped for model replay: its turn calls tools with no step id to pair the reasoning to a tool-use assistant message',
           ));
           continue;
         }
@@ -390,6 +413,7 @@ export function buildRuntimeEventModelReplayPlan(
           kind: 'thinking',
           text: event.content.text,
           signature: event.content.signature,
+          ...(event.refs?.providerEventId ? { stepId: event.refs.providerEventId } : {}),
           eventId: event.id,
           ts: event.ts,
         });
@@ -409,6 +433,7 @@ export function buildRuntimeEventModelReplayPlan(
           toolCallId: event.content.id,
           toolName: event.content.name,
           input: event.content.args,
+          ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
           eventId: event.id,
           ts: event.ts,
         });

@@ -5691,14 +5691,59 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.match(prompt, /sig-replay/);
   });
 
-  test('signed thinking from a tool-calling turn is NOT replayed as a stray reasoning block', async () => {
-    // Reproduce the ledger a signed Anthropic tool turn produces. The backend
-    // accumulates the turn's reasoning and emits ONE thinking_complete AFTER the
-    // tool events, so the ledger order is tool_start → tool_result →
-    // thinking_complete → text_complete. If that thinking re-entered
-    // provider-native replay it would materialize as an assistant reasoning
-    // message positioned AFTER the tool result — Anthropic 400. The replay must
-    // send the tool call/result but drop the thinking.
+  test('signed thinking from a per-step tool-calling turn IS replayed, merged with its tool call', async () => {
+    // Per-step ledger: the tool_start carries the step id (stepId === the
+    // step's message id 'm1'), so the step's signed reasoning + text + tool call
+    // regroup into ONE assistant message on replay (reasoning leads, then text,
+    // then the tool call, then the tool result) — the Anthropic-valid shape.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const priorEvents: SessionEvent[] = [
+      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
+      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
+      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'reasoning about the tool result', signature: 'sig-tool' },
+      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'the answer' },
+    ];
+    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = JSON.stringify(compactPrompt(secondModel));
+    // Reasoning (with signature), text, and the tool call all reach the request.
+    assert.match(prompt, /"type":"reasoning"/);
+    assert.match(prompt, /sig-tool/);
+    assert.match(prompt, /reasoning about the tool result/);
+    assert.match(prompt, /"toolName":"Read"|"toolCallId":"tool-1"/);
+    // Reasoning leads the tool call inside the assistant message (Anthropic order).
+    assert.ok(prompt.indexOf('reasoning about the tool result') < prompt.indexOf('tool-1'));
+  });
+
+  test('signed thinking from a legacy (unpaired) tool turn is NOT replayed as a stray reasoning block', async () => {
+    // Legacy per-turn ledger: the tool_start carries NO step id, so its
+    // end-of-turn reasoning cannot be paired to a tool-use assistant message and
+    // is still dropped from replay (no worse than before; avoids Anthropic 400).
     const ctx = {
       sessionId: 'session-1',
       invocationId: 'inv-1',
@@ -5833,6 +5878,91 @@ describe('AiSdkBackend thinking persistence', () => {
     const prompt = JSON.stringify(compactPrompt(secondModel));
     assert.match(prompt, /"type":"reasoning"/);
     assert.match(prompt, /sig-omitted/);
+  });
+
+  test('flushes one AssistantMessage per step, each with its own thinking + signature, and stamps tool_start.stepId', async () => {
+    // Two-step tool turn: step 1 reasons + calls a tool; step 2 reasons + answers.
+    // Each step must persist its own AssistantMessage with its own signature, and
+    // the step-1 tool_start must carry the step-1 assistant id.
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'reasoning-start', id: 'r1' },
+              { type: 'reasoning-delta', id: 'r1', delta: 'think one' },
+              { type: 'reasoning-delta', id: 'r1', delta: '', providerMetadata: { anthropic: { signature: 'sig-step-1' } } },
+              { type: 'reasoning-end', id: 'r1' },
+              { type: 'text-start', id: 't1' },
+              { type: 'text-delta', id: 't1', delta: 'calling the tool' },
+              { type: 'text-end', id: 't1' },
+              { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({ path: 'a.md' }) },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'reasoning-start', id: 'r2' },
+              { type: 'reasoning-delta', id: 'r2', delta: 'think two' },
+              { type: 'reasoning-delta', id: 'r2', delta: '', providerMetadata: { anthropic: { signature: 'sig-step-2' } } },
+              { type: 'reasoning-end', id: 'r2' },
+              { type: 'text-start', id: 't2' },
+              { type: 'text-delta', id: 't2', delta: 'final answer' },
+              { type: 'text-end', id: 't2' },
+              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } } },
+            ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
+      },
+    });
+
+    const assistants: AssistantMessage[] = [];
+    const events: SessionEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (m) => { if (m.type === 'assistant') assistants.push(m); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    // Two assistant rows with distinct ids and correctly paired signatures.
+    assert.equal(assistants.length, 2);
+    assert.equal(assistants[0]!.text, 'calling the tool');
+    assert.equal(assistants[0]!.thinking?.text, 'think one');
+    assert.equal(assistants[0]!.thinking?.signature, 'sig-step-1');
+    assert.equal(assistants[1]!.text, 'final answer');
+    assert.equal(assistants[1]!.thinking?.text, 'think two');
+    assert.equal(assistants[1]!.thinking?.signature, 'sig-step-2');
+    assert.notEqual(assistants[0]!.id, assistants[1]!.id);
+
+    // The tool_start of step 1 carries the step-1 assistant id.
+    const toolStart = events.find(
+      (event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start',
+    );
+    assert.ok(toolStart, 'expected a tool_start event');
+    assert.equal(toolStart.stepId, assistants[0]!.id);
+
+    // Each step emits its own thinking_complete/text_complete pointing at its row.
+    const textCompletes = events.filter(
+      (event): event is Extract<SessionEvent, { type: 'text_complete' }> => event.type === 'text_complete',
+    );
+    assert.deepEqual(
+      textCompletes.map((event) => [event.messageId, event.text]),
+      [[assistants[0]!.id, 'calling the tool'], [assistants[1]!.id, 'final answer']],
+    );
   });
 });
 

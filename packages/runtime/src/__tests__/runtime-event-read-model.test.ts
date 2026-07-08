@@ -398,7 +398,9 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['partial_skipped']);
   });
 
-  test('model thinking attaches to same-turn assistant text without breaking compatibility', () => {
+  test('model thinking attaches to the assistant text row that shares its step message id', () => {
+    // Real emission and backfill give a step's thinking and text the same message
+    // id (providerEventId / storedMessageId), so the projection pairs by id.
     const out = projectRuntimeEventsToStoredMessages([
       ev({
         id: 'evt-thinking',
@@ -406,6 +408,7 @@ describe('projectRuntimeEventsToStoredMessages', () => {
         role: 'model',
         author: 'agent',
         content: { kind: 'thinking', text: 'private reasoning', signature: 'sig-1' },
+        refs: { storedMessageId: 'legacy-assistant' },
       }),
       ev({
         id: 'evt-assistant',
@@ -429,6 +432,70 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.messages).toEqual(legacy);
     expect(out.diagnostics).toEqual([]);
     expect(compareRuntimeReadModelMessages(out.messages, legacy).compatible).toBe(true);
+  });
+
+  test('per-step thinking pairs each step assistant row by its own message id', () => {
+    // Two steps in one turn, each with its own signed thinking. The ledger order
+    // per step is thinking → text (finish-step flush), and each step's thinking
+    // carries its step message id, so it must attach to its own assistant row —
+    // not the last row of the turn.
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-think-1',
+        ts: ts + 1,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'reasoning one', signature: 'sig-1' },
+        refs: { providerEventId: 'step-1' },
+      }),
+      ev({
+        id: 'evt-text-1',
+        ts: ts + 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'answer one' },
+        refs: { providerEventId: 'step-1' },
+      }),
+      ev({
+        id: 'evt-think-2',
+        ts: ts + 3,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'reasoning two', signature: 'sig-2' },
+        refs: { providerEventId: 'step-2' },
+      }),
+      ev({
+        id: 'evt-text-2',
+        ts: ts + 4,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'answer two' },
+        refs: { providerEventId: 'step-2' },
+      }),
+    ], { runHeaders: [header] });
+
+    const assistants = out.messages.filter((message) => message.type === 'assistant');
+    expect(assistants).toEqual([
+      {
+        type: 'assistant',
+        id: 'step-1',
+        turnId,
+        ts: ts + 2,
+        text: 'answer one',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'reasoning one', signature: 'sig-1' },
+      },
+      {
+        type: 'assistant',
+        id: 'step-2',
+        turnId,
+        ts: ts + 4,
+        text: 'answer two',
+        modelId: 'claude-sonnet-4-5',
+        thinking: { text: 'reasoning two', signature: 'sig-2' },
+      },
+    ]);
+    expect(out.diagnostics).toEqual([]);
   });
 
   test('unsupported and incomplete events are diagnostic-only', () => {

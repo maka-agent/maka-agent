@@ -2220,27 +2220,38 @@ export class AiSdkBackend implements AgentBackend {
     return true;
   }
 
+  /**
+   * Materialize a replay plan into provider messages, grouping each assistant
+   * step's reasoning + text + tool calls into ONE assistant message (Anthropic
+   * requires the signed thinking block to lead the tool-use assistant message).
+   *
+   * The ledger lands a step's parts as: tool_call(s), tool_result(s), thinking,
+   * text (the per-step AssistantMessage flushes at `finish-step`, after the
+   * step's tool events). Model text carries the step id and closes the step: it
+   * emits `[reasoning, text, tool-call…]` then the tool results. Tool calls of a
+   * preceding pure-tool step (no text closer) flush first as a tool-only
+   * assistant. Legacy per-turn items (no step id) keep the older shape: tool
+   * calls form a tool-only assistant, text/thinking become standalone messages.
+   */
   private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
+    type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
+    type ToolResultItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>;
+    type ThinkingItem = Extract<RuntimeEventModelReplayItem, { kind: 'thinking' }>;
     const out: ModelMessage[] = [];
-    let toolBlock: {
-      calls: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>[];
-      results: Map<string, Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>>;
-      pending: Set<string>;
-    } | undefined;
-    const flushToolBlock = () => {
-      if (!toolBlock) return;
-      out.push({
-        role: 'assistant',
-        content: toolBlock.calls.map((item) => ({
-          type: 'tool-call',
-          toolCallId: item.toolCallId,
-          toolName: item.toolName,
-          input: item.input,
-        })),
-      });
-      for (const call of toolBlock.calls) {
-        const result = toolBlock.results.get(call.toolCallId);
+    let bufferedCalls: ToolCallItem[] = [];
+    const results = new Map<string, ToolResultItem>();
+    const reasoningByStep = new Map<string, ThinkingItem>();
+
+    const reasoningPart = (item: ThinkingItem) => ({
+      type: 'reasoning' as const,
+      text: item.text,
+      providerOptions: { anthropic: { signature: item.signature } },
+    });
+    const pushToolResults = (calls: readonly ToolCallItem[]) => {
+      for (const call of calls) {
+        const result = results.get(call.toolCallId);
         if (!result) continue;
+        results.delete(call.toolCallId);
         out.push({
           role: 'tool',
           content: [{
@@ -2251,26 +2262,72 @@ export class AiSdkBackend implements AgentBackend {
           }],
         });
       }
-      toolBlock = undefined;
+    };
+    // Emit one assistant message for a step: reasoning (if any), text (if any),
+    // then the step's tool calls, followed by those calls' tool results.
+    const emitStep = (reasoning: ThinkingItem | undefined, text: string, calls: readonly ToolCallItem[]) => {
+      const content: unknown[] = [];
+      if (reasoning) content.push(reasoningPart(reasoning));
+      if (text.length > 0) content.push({ type: 'text', text });
+      for (const call of calls) {
+        content.push({ type: 'tool-call', toolCallId: call.toolCallId, toolName: call.toolName, input: call.input });
+      }
+      if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
+      pushToolResults(calls);
+    };
+    // Flush buffered tool calls that no assistant text closed (legacy per-turn
+    // tool block or a pure-tool step) as a tool-only assistant + their results.
+    const flushLooseCalls = () => {
+      if (bufferedCalls.length === 0) return;
+      const calls = bufferedCalls;
+      bufferedCalls = [];
+      emitStep(undefined, '', calls);
     };
 
     for (const item of plan.items) {
-      if (item.kind === 'tool_call') {
-        toolBlock ??= { calls: [], results: new Map(), pending: new Set() };
-        toolBlock.calls.push(item);
-        toolBlock.pending.add(item.toolCallId);
-        continue;
+      switch (item.kind) {
+        case 'tool_call':
+          bufferedCalls.push(item);
+          break;
+        case 'tool_result':
+          results.set(item.toolCallId, item);
+          break;
+        case 'thinking':
+          if (item.stepId !== undefined) {
+            reasoningByStep.set(item.stepId, item);
+          } else {
+            // Legacy standalone reasoning (pure-reasoning turn): emit on its own.
+            flushLooseCalls();
+            out.push({ role: 'assistant', content: [reasoningPart(item)] } as ModelMessage);
+          }
+          break;
+        case 'text':
+          if (item.role !== 'assistant') {
+            flushLooseCalls();
+            out.push(await this.materializeRuntimeReplayItem(item));
+            break;
+          }
+          if (item.stepId !== undefined) {
+            const stepId = item.stepId;
+            const thisCalls = bufferedCalls.filter((call) => call.stepId === stepId);
+            const otherCalls = bufferedCalls.filter((call) => call.stepId !== stepId);
+            bufferedCalls = [];
+            if (otherCalls.length > 0) emitStep(undefined, '', otherCalls);
+            emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
+            reasoningByStep.delete(stepId);
+          } else {
+            // Legacy per-turn assistant text: standalone after any tool block.
+            flushLooseCalls();
+            out.push({ role: 'assistant', content: item.content });
+          }
+          break;
       }
-      if (item.kind === 'tool_result' && toolBlock?.pending.has(item.toolCallId)) {
-        toolBlock.results.set(item.toolCallId, item);
-        toolBlock.pending.delete(item.toolCallId);
-        if (toolBlock.pending.size === 0) flushToolBlock();
-        continue;
-      }
-      flushToolBlock();
-      out.push(await this.materializeRuntimeReplayItem(item));
     }
-    flushToolBlock();
+    flushLooseCalls();
+    // Any reasoning whose closing text never arrived (defensive): emit standalone.
+    for (const reasoning of reasoningByStep.values()) {
+      out.push({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage);
+    }
     return out;
   }
 

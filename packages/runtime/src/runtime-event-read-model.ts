@@ -78,11 +78,18 @@ interface ProjectionState {
     toolName: string;
     hint?: string;
   }>;
-  thinkingByTurn: Map<string, PendingThinking>;
+  /**
+   * Thinking awaiting its assistant text row, keyed by the step message id
+   * (function of the event's providerEventId / storedMessageId — the same id the
+   * step's assistant row gets). Per-step turns have several entries per turn, so
+   * keying by message id (not turn) attaches each step's reasoning to its own row.
+   */
+  thinkingByMessageId: Map<string, PendingThinking>;
 }
 
 interface PendingThinking {
   event: RuntimeEvent;
+  messageId: string;
   text: string;
   signature?: string;
 }
@@ -96,7 +103,7 @@ export function projectRuntimeEventsToStoredMessages(
     diagnostics: [],
     toolNameByUseId: new Map(),
     permissionRequestById: new Map(),
-    thinkingByTurn: new Map(),
+    thinkingByMessageId: new Map(),
   };
   const messages: StoredMessage[] = [];
 
@@ -163,8 +170,8 @@ export function projectRuntimeEventsToStoredMessages(
     }
   }
 
-  for (const pending of state.thinkingByTurn.values()) {
-    diagnostic(state, pending.event, 'unsupported_event', 'thinking content has no same-turn assistant text row');
+  for (const pending of state.thinkingByMessageId.values()) {
+    diagnostic(state, pending.event, 'unsupported_event', 'thinking content has no assistant text row with a matching message id');
   }
 
   return { messages, diagnostics: state.diagnostics };
@@ -382,15 +389,16 @@ function projectText(
       diagnostic(state, event, 'incomplete_event', 'model text RuntimeEvent requires AgentRunHeader.modelId');
       return false;
     }
+    const assistantId = stableMessageId(event, state, 'assistant');
     messages.push({
       type: 'assistant',
-      id: stableMessageId(event, state, 'assistant'),
+      id: assistantId,
       turnId: event.turnId,
       ts: event.ts,
       text: event.content.text,
       modelId: header.modelId,
     });
-    attachPendingThinking(event, state, messages);
+    attachPendingThinking(event, state, messages, assistantId);
     return true;
   }
 
@@ -420,13 +428,18 @@ function projectThinking(
   messages: StoredMessage[],
 ): boolean {
   if (event.content?.kind !== 'thinking') return false;
+  const messageId = thinkingMessageId(event);
   const pending: PendingThinking = {
     event,
+    messageId,
     text: event.content.text,
     ...(event.content.signature !== undefined ? { signature: event.content.signature } : {}),
   };
+  // The step's assistant text row lands after its thinking in ledger order, so
+  // attach eagerly if it already exists (older ordering), else park by message id
+  // for projectText's attachPendingThinking to claim.
   if (attachThinkingToAssistant(event, pending, messages)) return true;
-  state.thinkingByTurn.set(thinkingKey(event), pending);
+  state.thinkingByMessageId.set(messageId, pending);
   return true;
 }
 
@@ -650,12 +663,12 @@ function attachPendingThinking(
   event: RuntimeEvent,
   state: ProjectionState,
   messages: StoredMessage[],
+  assistantMessageId: string,
 ): void {
-  const key = thinkingKey(event);
-  const pending = state.thinkingByTurn.get(key);
+  const pending = state.thinkingByMessageId.get(assistantMessageId);
   if (!pending) return;
   if (attachThinkingToAssistant(event, pending, messages)) {
-    state.thinkingByTurn.delete(key);
+    state.thinkingByMessageId.delete(assistantMessageId);
   }
 }
 
@@ -664,9 +677,12 @@ function attachThinkingToAssistant(
   pending: PendingThinking,
   messages: StoredMessage[],
 ): boolean {
+  // Attach to the assistant row whose id equals the thinking's step message id
+  // (per-step pairing). Scans from the tail so the newest matching row wins.
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]!;
     if (message.type !== 'assistant' || message.turnId !== event.turnId) continue;
+    if (message.id !== pending.messageId) continue;
     message.thinking = {
       text: pending.text,
       ...(pending.signature !== undefined ? { signature: pending.signature } : {}),
@@ -676,8 +692,10 @@ function attachThinkingToAssistant(
   return false;
 }
 
-function thinkingKey(event: RuntimeEvent): string {
-  return `${event.runId}:${event.turnId}`;
+function thinkingMessageId(event: RuntimeEvent): string {
+  return event.refs?.providerEventId
+    ?? event.refs?.storedMessageId
+    ?? event.id;
 }
 
 function abortSourceFromRuntime(event: RuntimeEvent, header: AgentRunHeader): string | undefined {
