@@ -110,8 +110,12 @@ export async function createMakaCliRuntimeContext(
   // still-deferred leader-lock concern.)
   const cronEnabled = input.automationCreateFreshRun !== undefined;
   const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
+  // If the durable store fails to READ, we must not WRITE over it (a full sync
+  // would erase unread crons). Disable persistence loudly until restart.
+  let durableStoreReadable = true;
   const syncAutomations = cronEnabled
     ? (): void => {
+        if (!durableStoreReadable) return;
         const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
         automationStore.sync(durable).catch(err => {
           console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
@@ -132,7 +136,10 @@ export async function createMakaCliRuntimeContext(
     try {
       const saved = await automationStore.loadAll();
       automationManager.registerAll(saved);
-    } catch { /* best-effort */ }
+    } catch (err) {
+      durableStoreReadable = false;
+      console.error('[runtime-bootstrap] durable automation store unreadable; persistence disabled to avoid data loss:', err);
+    }
   }
 
   backends.register('ai-sdk', async (ctx) => {

@@ -35,19 +35,29 @@ class FileAutomationStore<T extends AutomationRecord> implements AutomationStore
   }
 
   async loadAll(): Promise<T[]> {
+    let text: string;
     try {
-      const text = await readFile(this.filePath, 'utf8');
-      const parsed = JSON.parse(text) as unknown;
-      if (!isAutomationFile(parsed)) {
-        console.warn('[automation-store] corrupt automations.json -- returning empty');
-        return [];
-      }
-      return parsed.automations as T[];
+      text = await readFile(this.filePath, 'utf8');
     } catch (error) {
+      // Absent file → legitimately empty store, safe to start fresh.
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      console.warn('[automation-store] failed to read automations.json -- returning empty:', error);
-      return [];
+      // A present-but-unreadable file (EMFILE/EBUSY/EACCES/…) must NOT be masked
+      // as empty: a caller that then full-overwrites the store would erase data
+      // it never read. Fail loud so the host disables persistence instead.
+      throw new Error(`[automation-store] failed to read ${this.filePath}: ${(error as Error).message}`);
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch (error) {
+      throw new Error(`[automation-store] ${this.filePath} is not valid JSON: ${(error as Error).message}`);
+    }
+    if (!isAutomationFile(parsed)) {
+      // Present but unrecognized (wrong version/shape) — same danger as a read
+      // error: treating it as empty and overwriting would drop real data.
+      throw new Error(`[automation-store] ${this.filePath} has an unrecognized shape or version`);
+    }
+    return parsed.automations as T[];
   }
 
   async save(automation: T): Promise<void> {

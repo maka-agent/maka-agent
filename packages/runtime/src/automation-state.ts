@@ -401,6 +401,95 @@ const MINUTES_PER_DAY = 24 * 60;
  */
 const MAX_SEARCH_MINUTES = 8 * 366 * MINUTES_PER_DAY; // ~8 years, bounded
 
+const CRON_MONTH_ALIASES: Record<string, number> = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+const CRON_DOW_ALIASES: Record<string, number> = {
+  sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
+};
+// Leap-year max days per month (Feb=29) — used only for impossible-date detection.
+const CRON_MAX_DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/** Replace alphabetic cron tokens (e.g. MON, JAN) with their numeric value. */
+function translateCronAliases(field: string, aliases: Record<string, number>): string {
+  return field.replace(/[a-zA-Z]+/g, (tok) => {
+    const n = aliases[tok.toLowerCase()];
+    return n === undefined ? tok : String(n);
+  });
+}
+
+/**
+ * Expand a numeric cron field to the set of values it matches within [min,max].
+ * Returns 'star' for "*", or null if any token is malformed or out of range.
+ */
+function expandCronField(field: string, min: number, max: number): number[] | 'star' | null {
+  if (field === '*') return 'star';
+  const values = new Set<number>();
+  for (const part of field.split(',')) {
+    let range = part;
+    let step = 1;
+    if (part.includes('/')) {
+      const [r, s] = part.split('/');
+      step = parseInt(s, 10);
+      if (!Number.isInteger(step) || step <= 0) return null;
+      range = r;
+    }
+    let lo: number;
+    let hi: number;
+    if (range === '*') {
+      lo = min; hi = max;
+    } else if (range.includes('-')) {
+      const [a, b] = range.split('-');
+      lo = parseInt(a, 10); hi = parseInt(b, 10);
+      if (!Number.isInteger(lo) || !Number.isInteger(hi)) return null;
+    } else {
+      lo = parseInt(range, 10);
+      if (!Number.isInteger(lo)) return null;
+      hi = part.includes('/') ? max : lo; // "5/10" means 5,15,25… up to max
+    }
+    if (lo < min || hi > max || lo > hi) return null;
+    for (let v = lo; v <= hi; v += step) values.add(v);
+  }
+  return [...values];
+}
+
+interface NormalizedCron {
+  minuteField: string; hourField: string; domField: string; monthField: string; dowField: string;
+}
+
+/**
+ * Validate + normalize a 5-field cron expression in O(1): translate named
+ * day/month tokens to numbers, reject out-of-range values, and fast-fail
+ * impossible calendar dates (e.g. Feb 30, Apr 31). Returns null for anything
+ * malformed or unsatisfiable so the caller skips the expensive minute scan.
+ */
+function normalizeCronExpression(expression: string): NormalizedCron | null {
+  const parts = expression.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const minuteField = parts[0];
+  const hourField = parts[1];
+  const domField = parts[2];
+  const monthField = translateCronAliases(parts[3], CRON_MONTH_ALIASES);
+  const dowField = translateCronAliases(parts[4], CRON_DOW_ALIASES);
+
+  if (expandCronField(minuteField, 0, 59) === null) return null;
+  if (expandCronField(hourField, 0, 23) === null) return null;
+  const domVals = expandCronField(domField, 1, 31);
+  const monthVals = expandCronField(monthField, 1, 12);
+  const dowVals = expandCronField(dowField, 0, 7); // 0 and 7 both = Sunday
+  if (domVals === null || monthVals === null || dowVals === null) return null;
+
+  // Impossible calendar date: only fast-fail when the day is constrained ONLY by
+  // dom+month (dow="*"). If dow is also restricted, Vixie OR-semantics mean a
+  // matching weekday can still fire, so we must NOT reject.
+  if (domVals !== 'star' && monthVals !== 'star' && dowVals === 'star') {
+    const maxDays = Math.max(...monthVals.map((m) => CRON_MAX_DAYS_IN_MONTH[m - 1]));
+    if (Math.min(...domVals) > maxDays) return null; // e.g. Feb 30, Apr 31
+  }
+
+  return { minuteField, hourField, domField, monthField, dowField };
+}
+
 /**
  * Compute the next Unix-ms timestamp at which a 5-field cron expression fires,
  * strictly after `fromTime`. Returns null for a malformed expression or one
@@ -417,10 +506,14 @@ const MAX_SEARCH_MINUTES = 8 * 366 * MINUTES_PER_DAY; // ~8 years, bounded
  * intentionally out of scope for this parser.
  */
 export function computeNextCronFire(expression: string, fromTime: number): number | null {
-  const fields = expression.trim().split(/\s+/);
-  if (fields.length !== 5) return null;
-
-  const [minuteField, hourField, domField, monthField, dowField] = fields;
+  // Validate + normalize BEFORE the bounded scan so an unsatisfiable or
+  // unsupported expression fails in O(1) instead of blocking the (main-process)
+  // thread for a multi-second full-window scan. This translates named tokens
+  // (MON-SUN, JAN-DEC), rejects out-of-range values, and fast-fails impossible
+  // calendar dates (e.g. Feb 30).
+  const normalized = normalizeCronExpression(expression);
+  if (!normalized) return null;
+  const { minuteField, hourField, domField, monthField, dowField } = normalized;
 
   // Vixie-cron day semantics: when BOTH the day-of-month and day-of-week fields
   // are restricted (neither is "*"), a day matches if it satisfies EITHER field

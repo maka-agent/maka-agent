@@ -95,22 +95,21 @@ describe('AutomationStore', () => {
     assert.equal(result[1].id, 'new-2');
   });
 
-  test('loadAll handles corrupt file gracefully', async () => {
+  test('loadAll FAILS LOUD on a corrupt file (never masks unreadable data as empty)', async () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(join(TEST_DIR, 'automations.json'), 'not valid json{{{', 'utf8');
 
     const store = createAutomationStore<TestRecord>(TEST_DIR);
-    const result = await store.loadAll();
-    assert.deepEqual(result, []);
+    // Returning [] here would let a subsequent full-overwrite sync erase real data.
+    await assert.rejects(() => store.loadAll(), /not valid JSON/);
   });
 
-  test('loadAll handles wrong version gracefully', async () => {
+  test('loadAll FAILS LOUD on an unrecognized version/shape', async () => {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(join(TEST_DIR, 'automations.json'), JSON.stringify({ version: 99, automations: [] }), 'utf8');
 
     const store = createAutomationStore<TestRecord>(TEST_DIR);
-    const result = await store.loadAll();
-    assert.deepEqual(result, []);
+    await assert.rejects(() => store.loadAll(), /unrecognized shape or version/);
   });
 
   test('atomic write: file is not corrupted on concurrent saves', async () => {

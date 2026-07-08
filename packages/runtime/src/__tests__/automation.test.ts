@@ -569,6 +569,61 @@ describe('computeNextCronFire', () => {
     assert.ok(next! > base);
   });
 
+  describe('validation + named tokens (O(1), no multi-second scan)', () => {
+    test('named weekday MON resolves to Monday', () => {
+      const base = new Date('2026-07-06T08:00:00').getTime(); // 2026-07-06 is a Monday
+      const named = computeNextCronFire('0 9 * * MON', base);
+      const numeric = computeNextCronFire('0 9 * * 1', base);
+      assert.ok(named);
+      assert.equal(named, numeric, 'MON must resolve identically to 1');
+      assert.equal(new Date(named!).getDay(), 1);
+    });
+
+    test('named month JAN resolves to January; case-insensitive', () => {
+      const base = new Date('2026-07-06T00:00:00').getTime();
+      const next = computeNextCronFire('0 0 1 jan *', base);
+      assert.ok(next);
+      assert.equal(new Date(next!).getMonth(), 0); // January
+      assert.equal(new Date(next!).getDate(), 1);
+    });
+
+    test('named weekday range MON-FRI fires on a weekday', () => {
+      const base = new Date('2026-07-06T00:00:00').getTime();
+      const next = computeNextCronFire('0 9 * * mon-fri', base);
+      assert.ok(next);
+      const dow = new Date(next!).getDay();
+      assert.ok(dow >= 1 && dow <= 5);
+    });
+
+    test('out-of-range fields are rejected in O(1)', () => {
+      const base = Date.now();
+      const start = Date.now();
+      assert.equal(computeNextCronFire('0 9 32 * *', base), null); // day 32
+      assert.equal(computeNextCronFire('0 25 * * *', base), null); // hour 25
+      assert.equal(computeNextCronFire('0 9 * 13 *', base), null); // month 13
+      assert.equal(computeNextCronFire('0 9 * * BADTOKEN', base), null);
+      assert.ok(Date.now() - start < 100, 'invalid expressions must fail fast, not scan');
+    });
+
+    test('impossible calendar dates fail fast (no 8-year scan)', () => {
+      const base = Date.now();
+      const start = Date.now();
+      assert.equal(computeNextCronFire('0 0 30 2 *', base), null); // Feb 30
+      assert.equal(computeNextCronFire('0 0 31 4 *', base), null); // Apr 31
+      assert.ok(Date.now() - start < 100, 'impossible dates must fail fast');
+    });
+
+    test('impossible dom is NOT rejected when dow is also restricted (Vixie OR)', () => {
+      // `0 0 30 2 5` = Feb 30 (impossible) OR any Friday in Feb (valid) → fires.
+      const base = new Date('2026-01-01T00:00:00').getTime();
+      const next = computeNextCronFire('0 0 30 2 5', base);
+      assert.ok(next, 'must still fire on Fridays in February');
+      const d = new Date(next!);
+      assert.equal(d.getMonth(), 1); // February
+      assert.equal(d.getDay(), 5); // Friday
+    });
+  });
+
   test('specific time (9:30)', () => {
     const base = new Date('2026-07-06T08:00:00').getTime();
     const next = computeNextCronFire('30 9 * * *', base);

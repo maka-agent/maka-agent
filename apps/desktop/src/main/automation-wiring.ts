@@ -43,8 +43,14 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
   // gate keeps the invariant explicit and symmetric with the CLI.
   const cronEnabled = deps.createFreshRun !== undefined;
 
+  // If we fail to READ the existing durable store, we must not WRITE over it — a
+  // full-overwrite sync would erase crons we never loaded. Disable persistence
+  // (loudly) until the next restart re-reads successfully.
+  let durableStoreReadable = true;
+
   const syncDurableToStore = cronEnabled
     ? (): void => {
+        if (!durableStoreReadable) return;
         const all = manager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
         store.sync(all).catch(err => {
           console.warn('[automation-wiring] failed to sync durable automations to disk:', err);
@@ -71,8 +77,15 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
 
   const loadDurableAutomations = async (): Promise<void> => {
     if (!cronEnabled) return; // a cron-disabled host must not adopt/reconcile crons it doesn't own
-    const saved = await store.loadAll();
-    manager.registerAll(saved);
+    try {
+      const saved = await store.loadAll();
+      manager.registerAll(saved);
+    } catch (err) {
+      // Could not read the existing durable state — disable persistence so a
+      // later create/mutate cannot overwrite (and erase) the unread crons.
+      durableStoreReadable = false;
+      console.error('[automation-wiring] durable automation store unreadable; persistence disabled to avoid data loss:', err);
+    }
   };
 
   return { manager, scheduler, tools, loadDurableAutomations };
