@@ -40,6 +40,13 @@ import {
 } from './pi-transcript.js';
 import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
+import {
+  AttentionController,
+  DISABLE_FOCUS_REPORTING,
+  ENABLE_FOCUS_REPORTING,
+  FOCUS_IN_SEQUENCE,
+  FOCUS_OUT_SEQUENCE,
+} from './tui-attention.js';
 
 export interface MakaPiTuiInput {
   title: string;
@@ -51,6 +58,12 @@ export interface MakaPiTuiInput {
   providerType?: ProviderType;
   permissionMode: PermissionMode;
   terminal?: Terminal;
+  /**
+   * How long a prompt turn must run before its completion rings the terminal
+   * BEL when unfocused. Injectable so tests exercise the long / short split
+   * without waiting real seconds; defaults to the attention layer's own value.
+   */
+  attentionLongTurnThresholdMs?: number;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -93,6 +106,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const editor = new Editor(tui, editorTheme(), { paddingX: 1, autocompleteMaxVisible: 8 });
   const editorSurface = new MakaAutocompleteAboveEditorComponent(editor);
   const layout = new MakaPiLayoutComponent(transcript, editorSurface, statusLine, terminal);
+  const attention = new AttentionController(terminal, {
+    baseTitle: input.title,
+    ...(input.attentionLongTurnThresholdMs !== undefined
+      ? { longTurnThresholdMs: input.attentionLongTurnThresholdMs }
+      : {}),
+  });
 
   const requestRender = () => {
     transcript.invalidate();
@@ -105,6 +124,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       level: 'error',
       text: error instanceof Error ? error.message : String(error),
     });
+    // An error is worth pulling the user back to a background tab.
+    attention.attentionNeeded();
     requestRender();
   };
 
@@ -122,6 +143,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
+    attention.controlStarted();
     requestRender();
     try {
       await action();
@@ -131,6 +153,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       busy = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
+      attention.controlEnded();
       requestRender();
     }
   };
@@ -150,6 +173,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // has already failed or the session never fully started.
     }
     terminal.setProgress(false);
+    // Stop asking the terminal for focus reports before handing it back.
+    terminal.write(DISABLE_FOCUS_REPORTING);
     tui.stop();
     resolveClosed();
   };
@@ -208,6 +233,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
+    attention.promptTurnStarted();
     requestRender();
 
     let permissionSnapped = false;
@@ -225,6 +251,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           if (!permissionSnapped) {
             permissionSnapped = true;
             layout.followTailNow();
+            // A pending decision blocks the turn; ring an unfocused terminal so
+            // the user is not left waiting on a prompt they cannot see.
+            attention.attentionNeeded();
           }
         } else {
           permissionSnapped = false;
@@ -237,6 +266,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
+      attention.promptTurnEnded();
       requestRender();
     });
   };
@@ -593,6 +623,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // live listener while close() awaits the runtime stop; letting Escape or any
     // other key through here would mutate state or fire a second stop.
     if (closed) return { consume: true };
+    // DEC 1004 focus reports drive the attention layer. Consume them so they
+    // never reach the editor as stray input; they are not user keystrokes.
+    if (data === FOCUS_IN_SEQUENCE) {
+      attention.focusChanged(true);
+      return { consume: true };
+    }
+    if (data === FOCUS_OUT_SEQUENCE) {
+      attention.focusChanged(false);
+      return { consume: true };
+    }
     // Kitty keyboard protocol terminals (Ghostty/Kitty) emit separate press and
     // release events. pi-tui only filters releases on the focused-component
     // path, but this raw listener runs before that, so a release would
@@ -665,7 +705,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return undefined;
   });
 
-  terminal.setTitle(input.title);
+  // The AttentionController set the initial title in its constructor. Enable
+  // focus reporting so it learns when the terminal is backgrounded; the input
+  // listener forwards the `\x1b[I` / `\x1b[O` reports.
+  terminal.write(ENABLE_FOCUS_REPORTING);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
   tui.start();

@@ -8,6 +8,7 @@ export class FakeTerminal implements Terminal {
   readonly kittyProtocolActive = false;
   readonly progressStates: boolean[] = [];
   readonly writes: string[] = [];
+  readonly titles: string[] = [];
   stopCalls = 0;
   private onInput: ((data: string) => void) | null = null;
 
@@ -32,7 +33,10 @@ export class FakeTerminal implements Terminal {
   clearLine(): void {}
   clearFromCursor(): void {}
   clearScreen(): void {}
-  setTitle(_title: string): void {}
+
+  setTitle(title: string): void {
+    this.titles.push(title);
+  }
 
   setProgress(active: boolean): void {
     this.progressStates.push(active);
