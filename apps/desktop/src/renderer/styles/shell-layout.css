@@ -265,7 +265,9 @@
 .maka-shell-topbar-button,
 .maka-shell-topbar-button *,
 .maka-workspace-icon-action,
-.maka-workspace-icon-action * {
+.maka-workspace-icon-action *,
+.maka-chat-header-memory-pill,
+.maka-chat-header-memory-pill * {
   -webkit-app-region: no-drag;
 }
 

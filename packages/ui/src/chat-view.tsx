@@ -522,27 +522,10 @@ export function ChatView(props: {
           switcher and the per-session memory/mode chips. */}
       <header className="maka-chat-header">
         <span className="maka-chat-header-spacer" />
-        {props.memoryActive && (
-          /* PR-CHAT-HEADER-MEMORY-PILL-PRIMITIVE-0 (round 11/30):
-             accent-tinted memory indicator pill in the chat
-             header was a raw <button>. Routed through UiButton
-             variant="quiet" — the bespoke `.maka-chat-header-
-             memory-pill` class still owns the pill's tinted
-             background, 999px border-radius, 11px font, and
-             accent border. */
-          <UiButton
-            type="button"
-            variant="quiet"
-            className="maka-chat-header-memory-pill"
-            data-active="true"
-            onClick={() => props.onOpenMemorySettings?.()}
-            title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
-            aria-label="本地记忆已启用"
-          >
-            <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
-            <span>记忆</span>
-          </UiButton>
-        )}
+        {/* PR-MEMORY-PILL-RELOCATE: memory indicator pill moved to
+            AppShellWorkspaceTopActions so it aligns with the
+            toolbar icon group instead of floating in the chat
+            header flex row. */}
         {deepResearchActive && (
           <span
             className="maka-chat-header-mode-pill"

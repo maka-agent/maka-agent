@@ -1395,6 +1395,8 @@ export function AppShell({
           }
         >
           <AppShellWorkspaceTopActions
+            memoryActive={memoryActive}
+            onOpenMemorySettings={() => openSettingsSection('memory')}
             onOpenFeedback={() => openSettingsSection('about')}
             onOpenPalette={openPalette}
             onOpenHelp={openHelp}

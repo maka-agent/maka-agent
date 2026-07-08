@@ -1,4 +1,4 @@
-import { CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Search, SquarePen } from '@maka/ui/icons';
+import { BookOpen, CircleGauge, Grid3X3, HelpCircle, MessageCircleQuestion, PanelLeftClose, PanelLeftOpen, Search, SquarePen } from '@maka/ui/icons';
 import { Button as UiButton, Tooltip, TooltipContent, TooltipTrigger } from '@maka/ui';
 
 export function AppShellTopbarActions(props: {
@@ -62,6 +62,8 @@ export function AppShellTopbarActions(props: {
 }
 
 export function AppShellWorkspaceTopActions(props: {
+  memoryActive?: boolean;
+  onOpenMemorySettings?(): void;
   onOpenFeedback(): void;
   onOpenPalette(): void;
   onOpenHelp(): void;
@@ -69,6 +71,22 @@ export function AppShellWorkspaceTopActions(props: {
 }) {
   return (
     <div className="maka-workspace-top-actions" role="toolbar" aria-label="工作区辅助操作">
+      {props.memoryActive && (
+        <Tooltip>
+          <TooltipTrigger
+            render={<UiButton variant="quiet" />}
+            type="button"
+            className="maka-chat-header-memory-pill"
+            data-active="true"
+            onClick={() => props.onOpenMemorySettings?.()}
+            aria-label="本地记忆已启用"
+          >
+            <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
+            <span>记忆</span>
+          </TooltipTrigger>
+          <TooltipContent>本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。</TooltipContent>
+        </Tooltip>
+      )}
       <Tooltip>
         <TooltipTrigger
           render={<UiButton variant="quiet" size="icon-sm" />}

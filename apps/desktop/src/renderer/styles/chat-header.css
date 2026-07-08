@@ -73,7 +73,9 @@
 
 /* PR-MEMORY-VISIBILITY-INDICATOR-0: small clickable pill that fires
    when local MEMORY.md is being injected into the agent's system
-   prompt. Tone matches the existing info badge family. */
+   prompt. Tone matches the existing info badge family.
+   PR-MEMORY-PILL-RELOCATE: moved from .maka-chat-header into
+   .maka-workspace-top-actions so it aligns with the toolbar icons. */
 .maka-chat-header-memory-pill {
   appearance: none;
   background: oklch(from var(--nav-active) l c h / 0.10);
@@ -86,9 +88,6 @@
   padding: 1px var(--space-1-5);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
-  -webkit-app-region: no-drag;
-  margin-right: var(--space-1);
-  margin-bottom: var(--space-0-5);
   white-space: nowrap;
   flex: 0 0 auto;
 }
