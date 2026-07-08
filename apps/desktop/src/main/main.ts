@@ -1,4 +1,4 @@
-import { app, ipcMain, nativeImage, safeStorage, shell } from 'electron';
+import { app, ipcMain, nativeImage, safeStorage, screen, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -157,6 +157,8 @@ import {
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
 import { selectComputerUseBackend } from './computer-use/select-backend.js';
+import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
+import { createComputerUseOverlayHook } from './computer-use/computer-use-overlay-hook.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -379,7 +381,13 @@ const browserTools = buildBrowserTools();
 // ax-helper via MAKA_CU_BACKEND). Fails closed off macOS / missing binary →
 // zero tools, so the `computer` capability group stays unavailable and the
 // tool is never advertised to the model. Disposed in the before-quit handler.
-const computerUse = selectComputerUseBackend();
+// The overlay controller draws the Maka-owned agent cursor over the real screen;
+// the hook feeds it each action's coordinate (S15 transform in MAIN). Torn down
+// per-session on turn-end (streamEvents) and unconditionally at before-quit.
+const computerUseOverlay = createCursorOverlayController();
+const computerUse = selectComputerUseBackend({
+  overlay: createComputerUseOverlayHook(computerUseOverlay, screen),
+});
 const computerUseTools = computerUse.tools;
 const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
@@ -1474,6 +1482,8 @@ async function streamEvents(
       }
       if (isTurnStatusChangingSessionEvent(event)) {
         emitSessionsChanged('turn-status-change', sessionId);
+        // Turn ended (complete/abort/error) → remove this session's agent cursor.
+        computerUseOverlay.clearForSession(sessionId);
       }
     }
     if (!finalAppendBroadcasted) {
@@ -1495,6 +1505,7 @@ async function streamEvents(
     openGateway.publishSessionEvent(sessionId, event);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
+    computerUseOverlay.clearForSession(sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
@@ -1803,6 +1814,7 @@ app.on('before-quit', () => {
   void openGateway.stop();
   void mainWindowController.disposeBrowserViews();
   computerUse.backend?.dispose?.();
+  computerUseOverlay.destroyAll();
 });
 
 app.on('activate', focusOrCreateMainWindow);

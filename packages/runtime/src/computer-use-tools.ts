@@ -46,6 +46,24 @@ export interface CuDispatchBackend {
   run(action: CuAction, signal: AbortSignal): Promise<CuRunResult>;
 }
 
+/** Context the overlay hook needs to key its per-action cursor + per-session teardown. */
+export interface CuOverlayHookContext {
+  sessionId: string;
+  toolCallId: string;
+}
+
+/**
+ * Optional visual seam: notified at each action's start (with the normalized
+ * `CuAction`, whose coordinate is in declared px) so a host can drive an agent-
+ * cursor overlay. Purely additive + display-only — it never affects dispatch,
+ * coordinates, or the real pointer. Backend-agnostic: it sits ABOVE `backend.run`,
+ * so it fires identically for cua-driver Tier-2 and the AX-helper Tier-1.
+ */
+export interface CuOverlayHook {
+  onActionBegin(action: CuAction, ctx: CuOverlayHookContext): void;
+  onActionEnd?(ctx: CuOverlayHookContext): void;
+}
+
 const coordinate = z.tuple([z.number(), z.number()]);
 const computerParams = z.object({
   action: z.enum(CU_ACTION_TYPES as unknown as [string, ...string[]]),
@@ -142,7 +160,7 @@ interface ComputerToolResult {
   screenshot?: { base64: string; mimeType: string };
 }
 
-export function buildComputerUseTools(deps: { backend: CuDispatchBackend }): MakaTool[] {
+export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overlay?: CuOverlayHook }): MakaTool[] {
   const tool: MakaTool<ComputerParams, ComputerToolResult> = {
     name: 'computer',
     displayName: '电脑控制',
@@ -153,7 +171,7 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend }): Mak
       + 'screenshot to check. Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
-    impl: async (args, { abortSignal }): Promise<ComputerToolResult> => {
+    impl: async (args, { abortSignal, sessionId, toolCallId }): Promise<ComputerToolResult> => {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
       // S12: re-check TCC at action-start; cached "granted" is insufficient.
       const tcc = await deps.backend.preflight(abortSignal);
@@ -166,16 +184,25 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend }): Mak
       if (capturing && !tcc.screenRecording) {
         return { text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
       }
-      const result = await deps.backend.run(action, abortSignal);
-      // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
-      // tool `output`) so `toModelOutput` below can hand the vision model an image
-      // block. Kept OFF `text`: coerceResultContent projects this object to a
-      // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
-      // ≤2MB frame never bloats history.
-      const text = summarize(action, result);
-      return result.screenshot
-        ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
-        : { text };
+      // Visual seam: drive the agent-cursor overlay at the coordinate authority
+      // point (declared px in `action`), backend-agnostic and display-only. Never
+      // throws into dispatch — a broken overlay must not break the action.
+      const overlayCtx = { sessionId, toolCallId };
+      try { deps.overlay?.onActionBegin(action, overlayCtx); } catch { /* overlay is best-effort */ }
+      try {
+        const result = await deps.backend.run(action, abortSignal);
+        // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
+        // tool `output`) so `toModelOutput` below can hand the vision model an image
+        // block. Kept OFF `text`: coerceResultContent projects this object to a
+        // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
+        // ≤2MB frame never bloats history.
+        const text = summarize(action, result);
+        return result.screenshot
+          ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
+          : { text };
+      } finally {
+        try { deps.overlay?.onActionEnd?.(overlayCtx); } catch { /* best-effort */ }
+      }
     },
     // Map the raw result into model-visible content: the summary as text, plus the
     // screenshot as a native image block when present. @ai-sdk/anthropic maps

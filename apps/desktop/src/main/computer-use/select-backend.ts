@@ -11,7 +11,7 @@
 // re-check, S17 typed errors, S18 abort); the backend only marshals dispatch.
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildComputerUseTools, type CuDispatchBackend } from '@maka/runtime';
+import { buildComputerUseTools, type CuDispatchBackend, type CuOverlayHook } from '@maka/runtime';
 import { createHelperBackend } from './helper-backend.js';
 import { createCuaDriverBackend } from './cua-driver-backend.js';
 import { resolveCuaDriverBinaryPath } from './cua-driver-path.js';
@@ -57,10 +57,11 @@ function readBackendId(): CuBackendId {
  * any unmet precondition or construction failure returns the NONE sentinel so
  * the caller simply advertises no tools.
  */
-export function selectComputerUseBackend(deps?: { hostBundleId?: string }): SelectedComputerUseBackend {
+export function selectComputerUseBackend(deps?: { hostBundleId?: string; overlay?: CuOverlayHook }): SelectedComputerUseBackend {
   // Fail closed off macOS — the whole capability is AX/ScreenCaptureKit-bound.
   if (process.platform !== 'darwin') return NONE;
 
+  const overlay = deps?.overlay;
   try {
     const backendId = readBackendId();
 
@@ -68,7 +69,7 @@ export function selectComputerUseBackend(deps?: { hostBundleId?: string }): Sele
       const helperPath = getAxHelperBinaryPath();
       if (!existsSync(helperPath)) return NONE;
       const backend = createHelperBackend({ helperPath });
-      return { backend, tools: buildComputerUseTools({ backend }), backendId };
+      return { backend, tools: buildComputerUseTools({ backend, overlay }), backendId };
     }
 
     // Default: cua-driver (Tier-2 coordinate-background).
@@ -78,7 +79,7 @@ export function selectComputerUseBackend(deps?: { hostBundleId?: string }): Sele
       binaryPath,
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
     });
-    return { backend, tools: buildComputerUseTools({ backend }), backendId };
+    return { backend, tools: buildComputerUseTools({ backend, overlay }), backendId };
   } catch (err) {
     // Fail closed → feature unavailable, never crash startup. Log so a genuine
     // construction bug (broken import, throwing resolver) is distinguishable

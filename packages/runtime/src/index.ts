@@ -68,7 +68,7 @@ export type {
 export { buildBuiltinTools } from './builtin-tools.js';
 export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
-export type { CuDispatchBackend, CuScreenshot, CuRunResult } from './computer-use-tools.js';
+export type { CuDispatchBackend, CuScreenshot, CuRunResult, CuOverlayHook, CuOverlayHookContext } from './computer-use-tools.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
