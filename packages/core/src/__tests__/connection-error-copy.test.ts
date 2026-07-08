@@ -57,6 +57,15 @@ describe('parseNoRealConnectionError', () => {
     assert.deepEqual(parseNoRealConnectionError(new Error('network timeout')), { matched: false });
   });
 
+  it('does not match a longer word that merely starts with the code', () => {
+    // The optional reason group means the bare code can match on its own, so the
+    // trailing word boundary must stop `NO_REAL_CONNECTIONS...` from matching and
+    // swallowing an unrelated startup error as connection guidance.
+    assert.deepEqual(parseNoRealConnectionError(new Error('NO_REAL_CONNECTIONS cache failed')), {
+      matched: false,
+    });
+  });
+
   it('matches but yields no reason for an unrecognized reason token', () => {
     assert.deepEqual(
       parseNoRealConnectionError(new Error('NO_REAL_CONNECTION:not_a_real_reason')),

@@ -58,11 +58,14 @@ export function describeChatConfigurationReason(reason: ChatConfigurationReason 
   return reason === undefined ? GENERIC_FIX_COPY : REASON_FIX_COPY[reason];
 }
 
-// Capture the whole reason token up to the next delimiter (`:` in the wrapped
-// `NO_REAL_CONNECTION:<reason>: <msg>` form, whitespace, or end) so a malformed
-// token that only prefixes a known reason (e.g. `missing_api_key2`) is not
-// mistaken for it. The reason group is optional so the bare code still matches.
-const NO_REAL_CONNECTION_RE = /NO_REAL_CONNECTION(?::([^\s:]+))?/;
+// `\bNO_REAL_CONNECTION\b` pins the whole code: the trailing boundary stops it
+// matching a longer word like `NO_REAL_CONNECTIONS` (the reason group is
+// optional, so without the boundary that prefix alone would falsely match and
+// swallow an unrelated error). Then capture the reason token whole, up to the
+// next delimiter (`:` in the wrapped `...:<reason>: <msg>` form, whitespace, or
+// end), so a token that only prefixes a known reason (`missing_api_key2`) is
+// not mistaken for it.
+const NO_REAL_CONNECTION_RE = /\bNO_REAL_CONNECTION\b(?::([^\s:]+))?/;
 
 export interface ParsedNoRealConnectionError {
   /** True when the error is a `NO_REAL_CONNECTION` failure. */
