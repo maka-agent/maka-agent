@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
-import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
+import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, MousePointer2, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
 import { redactSecrets } from './redact.js';
@@ -26,6 +26,7 @@ const REASON_PRESETS: Record<ReasonKind, ReasonPreset> = {
   network: { label: '对外网络请求', Icon: Wifi, tone: 'info' },
   privileged: { label: '特权操作 (sudo / su)', Icon: ShieldAlert, tone: 'destructive' },
   browser: { label: '读取和操作你登录的浏览器会话 · 请确认', Icon: Globe, tone: 'caution' },
+  computer_use: { label: '控制你的电脑：截屏 / 点击 / 输入 · 请确认', Icon: MousePointer2, tone: 'caution' },
   custom: { label: '自定义请求', Icon: HelpCircle, tone: 'info' },
 };
 
