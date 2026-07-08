@@ -18,6 +18,7 @@ const sourcePaths = [
   'appearance-settings-page.tsx',
   'web-search-settings-page.tsx',
   'memory-settings-page.tsx',
+  'memory-settings-labels.ts',
   'settings-error-copy.ts',
   'general-settings-page.tsx',
   'open-gateway-settings-page.tsx',
