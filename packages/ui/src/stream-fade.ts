@@ -115,6 +115,13 @@ export function fadeAgeAt(state: FadeRingState, offset: number, now: number): nu
 /** Snapshot the fade state for one render: a stable boundary + an age lookup. */
 export interface StreamFade {
   boundaryOffset: number;
+  /**
+   * Total grapheme length of the raw source buffer the ring measured
+   * (`displayed`). The rehype pass renders markdown, which hides syntax
+   * (link URLs, emphasis markers, fence chars), so visible-text offsets lag
+   * raw offsets; this anchors the two coordinate systems at the tail.
+   */
+  rawLength: number;
   ageAt(offset: number): number;
 }
 
@@ -148,6 +155,7 @@ export function useStreamFade(displayed: string, active: boolean): StreamFade | 
   const snapshotRing: FadeRingState = { batches: ring.batches.slice(), len: ring.len, seeded: ring.seeded };
   return {
     boundaryOffset,
+    rawLength: len,
     ageAt: (offset: number) => fadeAgeAt(snapshotRing, offset, now),
   };
 }
@@ -192,15 +200,21 @@ export interface HastNode {
  * resumes mid-flight instead of re-flashing on each streaming re-render. Only
  * the post-boundary tail is wrapped (zero cost for the stable body).
  *
- * Offsets are visible-grapheme offsets, which equal the raw displayed offsets
- * the boundary is measured in for plain prose (the common streaming case);
- * stripped markdown syntax adds a small drift that shifts which word starts
- * fading by a grapheme or two — cosmetically negligible.
+ * The ring measures offsets in RAW buffer graphemes, but this pass walks
+ * rendered VISIBLE text, which is shorter by every hidden markdown character
+ * (link URLs alone can hide dozens). The two coordinate systems are anchored
+ * at the tail: count the visible graphemes, shift the boundary and the age
+ * lookups by the total hidden amount. Exact for tokens after the last hidden
+ * syntax — the streaming tail, where fades live; tokens straddling hidden
+ * syntax near the boundary wrap slightly eagerly (errs toward motion).
  *
  * Pure (no react-markdown dep) so the offset behavior is unit-tested directly.
  */
 export function streamFadeRehypePlugin(fade: StreamFade) {
   return () => (tree: HastNode): void => {
+    const visibleTotal = countVisibleGraphemes(tree);
+    const shift = Math.max(0, fade.rawLength - visibleTotal);
+    const boundary = Math.max(0, fade.boundaryOffset - shift);
     let cursor = 0;
     const walk = (node: HastNode, inCode: boolean): void => {
       if (!Array.isArray(node.children)) return;
@@ -215,7 +229,7 @@ export function streamFadeRehypePlugin(fade: StreamFade) {
             out.push(child);
             continue;
           }
-          const { tokens, length } = tokenizeFade(value, cursor, fade.boundaryOffset);
+          const { tokens, length } = tokenizeFade(value, cursor, boundary);
           cursor += length;
           for (const token of tokens) {
             if (token.fade) {
@@ -224,7 +238,7 @@ export function streamFadeRehypePlugin(fade: StreamFade) {
                 tagName: 'span',
                 properties: {
                   className: ['maka-stream-fade'],
-                  style: `animation-delay:-${Math.round(fade.ageAt(token.offset))}ms`,
+                  style: `animation-delay:-${Math.round(fade.ageAt(token.offset + shift))}ms`,
                 },
                 children: [{ type: 'text', value: token.text }],
               });
@@ -241,6 +255,14 @@ export function streamFadeRehypePlugin(fade: StreamFade) {
     };
     walk(tree, false);
   };
+}
+
+/** Total graphemes across all text nodes — the same accounting walk() uses. */
+function countVisibleGraphemes(node: HastNode): number {
+  if (node.type === 'text') return segmentGraphemes(node.value ?? '').length;
+  let total = 0;
+  for (const child of node.children ?? []) total += countVisibleGraphemes(child);
+  return total;
 }
 
 /**
