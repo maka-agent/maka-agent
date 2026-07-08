@@ -1395,13 +1395,15 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
 
 /**
  * Stable key for a timeline entry. Thinking/text keys use the source step's
- * messageId (unique per step; adjacent thinking are pre-merged); tools use the
- * first tool's id. The index disambiguates the rare adjacent-same-messageId
- * edge and keeps React reconciliation stable across streaming re-renders.
+ * messageId (one thinking + one text per step, so kind+messageId is unique
+ * across the turn); tools use the first tool's id (unique per merged group).
+ * No index component: a semantic key survives a group being inserted or
+ * re-positioned mid-timeline without remounting — and thereby collapsing —
+ * the disclosures after it.
  */
 function timelineEntryKey(item: TurnTimelineItem, index: number): string {
   if (item.kind === 'tools') return `tools-${item.items[0]?.toolUseId ?? index}`;
-  return `${item.kind}-${item.messageId}-${index}`;
+  return `${item.kind}-${item.messageId}`;
 }
 
 /** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
