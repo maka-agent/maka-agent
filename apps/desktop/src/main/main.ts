@@ -86,8 +86,6 @@ import {
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
   ShellRunProcessManager,
-  WakeupScheduler,
-  buildCronTools,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -179,6 +177,7 @@ import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
 import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
+import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -338,6 +337,60 @@ const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
 
+// Unified Automation — single "Automation" tool for heartbeat + cron.
+// Deps are resolved lazily since runtime/store aren't ready at this point.
+const automationWiring = createMainAutomationWiring({
+  workspaceRoot,
+  async canFire(automation): Promise<boolean> {
+    // Kind-aware fire gate (see evaluateAutomationCanFire): incognito blocks all;
+    // cron is never gated on its creator session; heartbeat needs an idle session.
+    return evaluateAutomationCanFire(automation, {
+      isIncognitoActive: async () => (await getWorkspacePrivacyContext()).incognitoActive,
+      readSessionHeader: (sessionId) => store.readHeader(sessionId),
+    });
+  },
+  // Heartbeat: inject into the automation's own session; resolve after the stream.
+  async injectTurn(sessionId: string, prompt: string, automationId: string) {
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(sessionId, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    const r = await streamEvents(sessionId, iterator, turnId);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+  },
+  // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
+  // run the prompt there, so each fire is a first-class session + run.
+  async createFreshRun(prompt: string, automationId: string) {
+    const slug = await connectionStore.getDefault();
+    const { connection, model } = await getReadyConnection(slug, undefined);
+    const cwd = await resolveCurrentProjectRoot();
+    const session = await runtime.createSession({
+      cwd,
+      backend: 'ai-sdk',
+      llmConnectionSlug: connection.slug,
+      model,
+      permissionMode: 'explore',
+      name: `Automation: ${prompt.slice(0, 32)}`,
+      labels: ['automation', 'cron'],
+    });
+    emitSessionsChanged('created', session.id);
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(session.id, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    const r = await streamEvents(session.id, iterator, turnId);
+    // Archive the fresh cron session after its run finalizes so recurring crons
+    // do not accumulate an unbounded pile of active sessions. The session (with
+    // its run/trace) is preserved under the archive, labelled automation/cron.
+    await runtime.archive(session.id).catch(() => {});
+    emitSessionsChanged('archived', session.id);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+  },
+});
+
+// Load durable automations from disk on startup (fire-and-forget; errors are logged inside).
+void automationWiring.loadDurableAutomations();
+
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
   return { incognitoActive: settings.privacy.incognitoActive === true };
@@ -423,31 +476,6 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 const browserTools: MakaTool[] = buildBrowserTools();
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
-// WakeupScheduler — session-internal CronJob scheduling (Issue #15, Primitive 4).
-// The scheduler is created before `runtime` (which is defined below) because its
-// tools must be listed in `builtinTools`. The `injectTurn` / `canFire` callbacks
-// capture `runtime` via closure and only execute asynchronously (when timers fire),
-// so `runtime` is guaranteed to be initialized by then.
-const wakeupScheduler = new WakeupScheduler({
-  newId: randomUUID,
-  now: Date.now,
-  injectTurn: (sessionId, input) => {
-    const iterator = runtime.sendMessage(sessionId, input);
-    void streamEvents(sessionId, iterator, input.turnId);
-  },
-  canFire: async (sessionId) => {
-    try {
-      const header = await store.readHeader(sessionId);
-      // Review fix: waiting_for_user is the wakeup's HOME scenario — the
-      // whole point is to start a turn in place of the user. Only a
-      // running turn (or a terminal/archived session) defers the fire.
-      return (header.status === 'active' || header.status === 'waiting_for_user') && !header.archivedAt;
-    } catch {
-      return false;
-    }
-  },
-});
-const cronTools = buildCronTools(wakeupScheduler);
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -479,9 +507,8 @@ const builtinTools: MakaTool[] = [
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
-  // CronJob tools: CronCreate/CronDelete/CronList for session-internal scheduling.
-  // The agent can schedule prompts to fire at future times within the same session.
-  ...cronTools,
+  // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
+  ...automationWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -1235,7 +1262,6 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
     await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
-    wakeupScheduler.cancelAllForSession(sessionId);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
     emitSessionsChanged('message-appended', sessionId);
@@ -1315,10 +1341,11 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
     await runtime.archive(sessionId);
-    wakeupScheduler.cancelAllForSession(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
+    // Stop any automation loops (polling heartbeats) tied to the session.
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
   ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
@@ -1388,11 +1415,12 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
     await runtime.remove(sessionId);
-    wakeupScheduler.cancelAllForSession(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
     await releaseBrowserSession(sessionId);
+    // Stop any automation loops (polling heartbeats) tied to the session.
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
   });
 
@@ -1644,14 +1672,23 @@ async function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
   fallbackTurnId?: string,
-): Promise<void> {
+): Promise<{ turnId: string; ok: boolean; error?: string }> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
+  let turnAborted = false;
+  let turnError: string | undefined;
+  const turnId = fallbackTurnId ?? randomUUID();
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
+      }
+      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+        turnAborted = true;
+      }
+      if (event.type === 'error') {
+        turnError = event.message ?? event.reason ?? 'turn error';
       }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
@@ -1666,6 +1703,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
+    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
     const event = {
       type: 'error',
@@ -1685,6 +1723,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
+    return { turnId, ok: false, error: errorMessage(error) };
   }
 }
 
@@ -1999,6 +2038,7 @@ async function runBackgroundStartup(): Promise<void> {
     onConnectionsChanged: () => emitConnectionListChanged(),
     onSettingsChanged: () => void handleExternalSettingsChange(),
   });
+  automationWiring.scheduler.start();
 }
 
 app.on('window-all-closed', () => {
@@ -2020,8 +2060,8 @@ app.on('before-quit', (event) => {
 });
 
 async function runBeforeQuitCleanup(): Promise<void> {
+  automationWiring.scheduler.dispose();
   configWatcher?.stop();
-  wakeupScheduler.dispose();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   const results = await Promise.allSettled([

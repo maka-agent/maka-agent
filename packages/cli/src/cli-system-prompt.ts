@@ -1,9 +1,10 @@
-import type { PersonalizationSettings } from '@maka/core';
+import { redactSecrets, type PersonalizationSettings } from '@maka/core';
 import {
   buildPersonalizationPromptFragment,
   buildSessionEnvironmentPromptFragment,
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
+  type AutomationManager,
 } from '@maka/runtime';
 
 /**
@@ -38,7 +39,35 @@ export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Pr
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }
 
-export async function buildCliTurnTailPrompt(input: { cwd: string }): Promise<string> {
+export async function buildCliTurnTailPrompt(input: {
+  cwd: string;
+  sessionId?: string;
+  automationManager?: AutomationManager;
+}): Promise<string> {
   const projectGit = await resolveProjectGitInfo(input.cwd);
-  return buildSessionEnvironmentPromptFragment({ cwd: input.cwd, projectGit });
+  const fragments = [buildSessionEnvironmentPromptFragment({ cwd: input.cwd, projectGit })];
+
+  if (input.sessionId && input.automationManager) {
+    const automationFragment = buildAutomationTailFragment(input.sessionId, input.automationManager);
+    if (automationFragment) fragments.push(automationFragment);
+  }
+
+  return fragments.join('\n\n');
+}
+
+function buildAutomationTailFragment(sessionId: string, manager: AutomationManager): string | undefined {
+  const automations = manager.listForSession(sessionId).filter(a => a.status === 'active' || a.status === 'paused');
+  if (automations.length === 0) return undefined;
+  const lines = [
+    'Active automations (use Automation tool with mode "list" for full details):',
+    '<automations>',
+    ...automations.map(a => {
+      const schedule = a.schedule.type === 'cron' ? `cron "${a.schedule.expression}"`
+        : a.schedule.type === 'interval' ? `every ${a.schedule.seconds}s`
+        : `once`;
+      return `  ${a.status} id="${a.id}" name="${a.name}" kind=${a.kind} schedule=${schedule} fires=${a.fireCount}`;
+    }),
+    '</automations>',
+  ];
+  return lines.join('\n');
 }

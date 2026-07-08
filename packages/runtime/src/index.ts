@@ -628,21 +628,6 @@ export type {
 } from './tool-availability.js';
 
 // ───────────────────────────────────────────────────────────────────────────
-// WakeupScheduler — session-internal CronJob scheduling (Issue #15, Primitive 4).
-// ───────────────────────────────────────────────────────────────────────────
-export { WakeupScheduler, computeNextCronRun, computeJitter } from './wakeup-scheduler.js';
-export type { WakeupRecord, WakeupSchedulerDeps } from './wakeup-scheduler.js';
-export {
-  CRON_CREATE_TOOL_NAME,
-  CRON_DELETE_TOOL_NAME,
-  CRON_LIST_TOOL_NAME,
-  buildCronCreateTool,
-  buildCronDeleteTool,
-  buildCronListTool,
-  buildCronTools,
-} from './wakeup-tools.js';
-
-// ───────────────────────────────────────────────────────────────────────────
 // System-prompt fragments (shared by the desktop app and the CLI/TUI).
 // Read-only, stateless builders for project instructions, personalization, git
 // context, and the per-turn environment tail. The stateful LocalMemoryService
@@ -676,3 +661,21 @@ export {
 export type { ProjectGitInfo } from './system-prompt/project-context.js';
 export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
 export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Unified Automation (Codex-style: heartbeat + cron, single tool).
+// ───────────────────────────────────────────────────────────────────────────
+export { AutomationManager, computeNextCronFire, computeJitter, matchesCronField } from './automation-state.js';
+export type {
+  AutomationDefinition,
+  AutomationKind,
+  AutomationSchedule,
+  AutomationStatus,
+  AutomationManagerDeps,
+} from './automation-state.js';
+export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
+export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
+export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
+export type { AutomationToolDeps } from './automation-tools.js';
+export { evaluateAutomationCanFire, HEARTBEAT_IDLE_STATUSES } from './automation-can-fire.js';
+export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './automation-can-fire.js';

@@ -72,73 +72,82 @@ function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
   );
 }
 
-// ── CronJob result preview ──────────────────────────────────────────────────
+// ── Automation result preview ───────────────────────────────────────────────
 
-const CRON_TOOL_NAMES: ReadonlySet<string> = new Set(['CronCreate', 'CronDelete', 'CronList']);
+// Mirror of runtime's AUTOMATION_TOOL_NAME. @maka/ui must not depend on
+// @maka/runtime, so the unified Automation tool's name is duplicated here as
+// the single hook for its friendly card (same pattern as CONNECTOR_TOOL_NAMES).
+const AUTOMATION_TOOL_NAME = 'Automation';
 
-function isCronTool(name: string): boolean {
-  return CRON_TOOL_NAMES.has(name);
+function isAutomationTool(name: string): boolean {
+  return name === AUTOMATION_TOOL_NAME;
 }
 
-/** Compact preview card for CronCreate / CronDelete / CronList results. */
-function CronJobResultPreview(props: { toolName: string; value: unknown }) {
-  const data = props.value && typeof props.value === 'object' ? (props.value as Record<string, unknown>) : {};
-  const ok = data.ok === true;
+/** Icon for one automation description: recurring schedules cycle, one-shots tick. */
+function automationScheduleIcon(text: string): ComponentType<LucideProps> {
+  return /Schedule: (every |cron )/.test(text) ? Repeat : Clock;
+}
 
-  if (props.toolName === 'CronCreate' && ok) {
-    const recurring = data.recurring === true;
-    const firesIn = typeof data.fires_in_seconds === 'number' ? data.fires_in_seconds : null;
-    const cron = typeof data.cron === 'string' ? data.cron : null;
-    const jobId = typeof data.job_id === 'string' ? data.job_id : null;
-    const Icon = recurring ? Repeat : Clock;
+/**
+ * Compact preview card for the unified Automation tool's text results
+ * (created / deleted / listed). The tool returns human-readable text, so this
+ * parses its stable first-line shapes; anything unrecognized (pause/resume,
+ * errors) falls back to the generic text preview.
+ */
+function AutomationResultPreview(props: { text: string }) {
+  const text = props.text;
+
+  // mode:create success — "Automation created: "NAME" (kind[, durable])\nID: …\nSchedule: …\nNext fire: …"
+  const created = text.match(/^Automation created: "(.+?)" \((.+?)\)\n/);
+  if (created) {
+    const schedule = text.match(/^Schedule: (.+)$/m)?.[1];
+    const nextFire = text.match(/^Next fire: (.+)$/m)?.[1];
+    const Icon = automationScheduleIcon(text);
     return (
-      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_create">
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
           <Icon size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          {recurring ? '循环定时任务已创建' : '一次性定时任务已创建'}
+          自动化任务已创建：{created[1]}
         </p>
-        {firesIn !== null && (
-          <p className={previewVariants({ part: 'load-tool-count' })}>
-            {firesIn < 60 ? `${firesIn}s 后触发` : `${Math.round(firesIn / 60)}min 后触发`}
-          </p>
-        )}
-        {cron && <p className={previewVariants({ part: 'load-tool-tools' })}>cron: {cron}</p>}
-        {jobId && <p className={previewVariants({ part: 'load-tool-footer' })}>job_id: {jobId.slice(0, 8)}</p>}
+        {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{schedule}</p>}
+        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{nextFire}</p>}
+        <p className={previewVariants({ part: 'load-tool-footer' })}>{created[2]}</p>
       </div>
     );
   }
 
-  if (props.toolName === 'CronDelete' && ok) {
-    const cancelled = data.cancelled === true;
+  // mode:delete — "Automation "id" deleted." / not-found message
+  const deleted = text.match(/^Automation "(.+?)" (deleted\.|not found or not owned by this session\.)$/);
+  if (deleted) {
+    const ok = deleted[2] === 'deleted.';
     return (
-      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_delete">
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_delete">
         <p className={previewVariants({ part: 'load-tool-title' })}>
           <Check size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          {cancelled ? '定时任务已取消' : '未找到该任务（可能已触发或过期）'}
+          {ok ? '自动化任务已删除' : '未找到该任务（可能已完成或已删除）'}
         </p>
       </div>
     );
   }
 
-  if (props.toolName === 'CronList' && ok) {
-    const count = typeof data.count === 'number' ? data.count : 0;
-    const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+  // mode:list — automation blocks separated by "---", or the empty-list message.
+  const isList = text === 'No automations for this session.' || /^\[[A-Z]+\] .+ \((heartbeat|cron)/.test(text);
+  if (isList) {
+    const blocks = text === 'No automations for this session.' ? [] : text.split('\n---\n');
     return (
-      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_list">
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_list">
         <p className={previewVariants({ part: 'load-tool-title' })}>
           <Clock size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          定时任务列表 ({count})
+          自动化任务列表 ({blocks.length})
         </p>
-        {jobs.slice(0, 5).map((job, i) => {
-          const j = job && typeof job === 'object' ? (job as Record<string, unknown>) : {};
-          const recurring = j.recurring === true;
-          const status = typeof j.status === 'string' ? j.status : 'unknown';
-          const reason = typeof j.reason === 'string' ? j.reason : '';
-          const JobIcon = recurring ? Repeat : Clock;
+        {blocks.length === 0 && <p className={previewVariants({ part: 'load-tool-count' })}>当前会话暂无自动化任务</p>}
+        {blocks.slice(0, 5).map((block, i) => {
+          const head = block.split('\n')[0] ?? '';
+          const BlockIcon = automationScheduleIcon(block);
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
-              <JobIcon size={12} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
-              [{status}] {reason}
+              <BlockIcon size={12} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
+              {head}
             </p>
           );
         })}
@@ -146,8 +155,8 @@ function CronJobResultPreview(props: { toolName: string; value: unknown }) {
     );
   }
 
-  // Fallback for error or unexpected shape
-  return <ToolResultPreview content={{ kind: 'json', value: props.value }} />;
+  // Fallback for pause/resume confirmations, errors, or unexpected shapes.
+  return <ToolResultPreview content={{ kind: 'text', text }} />;
 }
 
 const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
@@ -311,8 +320,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
       {item.result && !permissionDenied && (
         isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
           <LoadToolResultPreview args={item.args} value={item.result.value} />
-        ) : isCronTool(item.toolName) && item.result.kind === 'json' ? (
-          <CronJobResultPreview toolName={item.toolName} value={item.result.value} />
+        ) : isAutomationTool(item.toolName) && item.result.kind === 'text' ? (
+          <AutomationResultPreview text={item.result.text} />
         ) : (
           <ToolResultPreview content={item.result} />
         )

@@ -33,6 +33,8 @@ export interface AgentRunHeader {
   regeneratedFromTurnId?: string;
   branchOfTurnId?: string;
   parentSessionId?: string;
+  /** Non-user trigger for this run (e.g. a scheduled automation fire). */
+  automationId?: string;
   failureClass?: string;
   failureMessage?: string;
   abortSource?: string;
