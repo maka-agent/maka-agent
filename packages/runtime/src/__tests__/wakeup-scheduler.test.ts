@@ -66,15 +66,16 @@ describe('WakeupScheduler', () => {
     assert.ok(fired[0].text.includes('hello wakeup'));
   });
 
-  test('fired non-recurring record is removed from scheduler', async () => {
+  test('fired non-recurring record stays listed as terminal history', async () => {
     const { scheduler, fireNextTimer } = createTestScheduler();
     const record = scheduler.schedule('session-1', { delaySeconds: 5, message: 'check', reason: 'test' });
     await fireNextTimer();
-    // The record object still reflects the fired status
     assert.equal(record.status, 'fired');
-    // But it is no longer in the scheduler's records (cleaned up after fire)
+    // Review fix: terminal records stay observable (capped by pruneSession)
+    // so CronList can show what just fired.
     const records = scheduler.listForSession('session-1');
-    assert.equal(records.length, 0, 'fired non-recurring record should be removed');
+    assert.equal(records.length, 1, 'fired record should stay as terminal history');
+    assert.equal(records[0]!.status, 'fired');
   });
 
   test('cancel prevents firing', () => {
@@ -150,10 +151,12 @@ describe('WakeupScheduler', () => {
   test('expires after max retries', async () => {
     const { scheduler, fired, fireNextTimer } = createTestScheduler({ canFire: async () => false });
     const record = scheduler.schedule('session-1', { delaySeconds: 5, message: 'expire-test', reason: 'test' });
-    await fireNextTimer();
-    await fireNextTimer();
-    await fireNextTimer();
-    await fireNextTimer();
+    // Review fix: the idle-gate now retries 12 times with exponential
+    // backoff (a 15s window silently dropped wakeups landing mid-turn);
+    // drain the initial fire plus all 12 retries.
+    for (let i = 0; i < 13; i++) {
+      await fireNextTimer();
+    }
     assert.equal(fired.length, 0);
     assert.equal(scheduler.listForSession('session-1').find(r => r.id === record.id)?.status, 'expired');
   });
@@ -293,9 +296,14 @@ describe('WakeupScheduler', () => {
     }
   });
 
-  test('computeJitter for one-shot non-30min-aligned returns 0', () => {
-    const jitter = computeJitter(60_000, false); // 1 minute, not 30min multiple
+  test('computeJitter for one-shot returns 0 when the fire time is off the round mark', () => {
+    // Review fix: the round-mark property belongs to the fire TIMESTAMP,
+    // not the delay. 10:07 + 30min = 10:37 → no early jitter.
+    const firesAt = new Date(2026, 0, 1, 10, 37, 0, 0).getTime();
+    const jitter = computeJitter(30 * 60 * 1000, false, Math.random, firesAt);
     assert.equal(jitter, 0);
+    // Without a timestamp there is no round-mark evidence → no jitter.
+    assert.equal(computeJitter(60_000, false), 0);
   });
 
   // ─── Idle-gate observability tests ─────────────────────────────────────────
@@ -374,10 +382,10 @@ describe('WakeupScheduler', () => {
 
   // ─── One-shot jitter on 30-minute-aligned delays ──────────────────────────
 
-  test('computeJitter for one-shot 30min-aligned returns negative value in bounds', () => {
+  test('computeJitter for one-shot firing on a :00/:30 minute returns negative value in bounds', () => {
     for (let i = 0; i < 50; i++) {
-      const delayMs = 30 * 60 * 1000; // 30 minutes, aligned
-      const jitter = computeJitter(delayMs, false);
+      const firesAt = new Date(2026, 0, 1, 11, i % 2 === 0 ? 0 : 30, 0, 0).getTime();
+      const jitter = computeJitter(17 * 60 * 1000, false, Math.random, firesAt);
       assert.ok(jitter <= 0, `one-shot jitter should be <= 0, got ${jitter}`);
       assert.ok(jitter >= -90_000, `one-shot jitter should be >= -90000, got ${jitter}`);
     }
@@ -385,14 +393,18 @@ describe('WakeupScheduler', () => {
 
   // ─── Record accumulation prevention tests ─────────────────────────────────
 
-  test('fired non-recurring job is removed from records', async () => {
+  test('fired non-recurring job stays observable as a terminal record', async () => {
+    // Review fix: fired one-shots used to be deleted immediately, making
+    // the 'fired' status unreachable and CronList unable to show what just
+    // happened. Terminal records stay (pruneSession caps the history).
     const { scheduler, fired, fireNextTimer } = createTestScheduler();
     scheduler.schedule('session-1', { delaySeconds: 5, message: 'one-shot', reason: 'test' });
     await fireNextTimer();
     assert.equal(fired.length, 1);
-    // The record should be removed after firing
     const records = scheduler.listForSession('session-1');
-    assert.equal(records.length, 0, 'fired non-recurring job should be removed');
+    assert.equal(records.length, 1, 'fired one-shot should stay as a terminal record');
+    assert.equal(records[0]!.status, 'fired');
+    assert.equal(scheduler.listForSession('session-1', { activeOnly: true }).length, 0);
   });
 
   test('recurring job does not duplicate records on fire', async () => {

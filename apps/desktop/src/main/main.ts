@@ -438,7 +438,10 @@ const wakeupScheduler = new WakeupScheduler({
   canFire: async (sessionId) => {
     try {
       const header = await store.readHeader(sessionId);
-      return header.status === 'active' && !header.archivedAt;
+      // Review fix: waiting_for_user is the wakeup's HOME scenario — the
+      // whole point is to start a turn in place of the user. Only a
+      // running turn (or a terminal/archived session) defers the fire.
+      return (header.status === 'active' || header.status === 'waiting_for_user') && !header.archivedAt;
     } catch {
       return false;
     }

@@ -170,8 +170,16 @@ export interface WakeupSchedulerDeps {
 
 const MAX_WAKEUPS_PER_SESSION = 5;
 const MAX_DELAY_SECONDS = 86_400;
-const BACKOFF_MS = 5_000;
-const MAX_FIRE_RETRIES = 3;
+const BACKOFF_BASE_MS = 5_000;
+/** Idle-gate backoff cap: retries stretch 5s → 10s → … → 5min. */
+const BACKOFF_MAX_MS = 5 * 60 * 1000;
+/**
+ * Review fix (first-principles): the whole point of a wakeup is to fire
+ * after long-running work; a 3×5s retry window silently dropped any wakeup
+ * that landed mid-turn (agent turns routinely run for minutes). Exponential
+ * backoff up to 5min × 12 attempts waits ~45 minutes before giving up.
+ */
+const MAX_FIRE_RETRIES = 12;
 
 /** Recurring jobs auto-expire after 7 days to prevent infinite loops. */
 const MAX_RECURRING_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -192,16 +200,22 @@ export const MAX_RECORDS_PER_SESSION = 50;
  * - One-shot firing on :00 or :30: up to 90s early jitter (returned as negative).
  *   Otherwise 0 for one-shot.
  */
-export function computeJitter(delayMs: number, recurring: boolean, random: () => number = Math.random): number {
+export function computeJitter(
+  delayMs: number,
+  recurring: boolean,
+  random: () => number = Math.random,
+  firesAtMs?: number,
+): number {
   if (recurring) {
     const maxJitter = Math.min(delayMs * 0.1, MAX_JITTER_MS);
     return Math.floor(random() * maxJitter);
   }
-  // One-shot: check if firesAt lands on :00 or :30
-  // Caller passes the actual firesAt timestamp for this check;
-  // here we compute based on delay alignment to 30-minute boundaries.
-  // We apply early jitter (negative) if delay is a multiple of 30 minutes.
-  if (delayMs > 0 && delayMs % (30 * 60 * 1000) === 0) {
+  // One-shot thundering-herd mitigation: if the ACTUAL fire time lands on a
+  // :00/:30 wall-clock minute, pull it up to 90s early. (Review fix: this
+  // used to test `delayMs % 30min`, but a 30-minute delay from 10:07 fires
+  // at 10:37 — the round-mark property belongs to the timestamp, not the
+  // delay.)
+  if (firesAtMs !== undefined && new Date(firesAtMs).getMinutes() % 30 === 0) {
     return -(Math.floor(random() * ONE_SHOT_JITTER_MS));
   }
   return 0;
@@ -261,8 +275,9 @@ export class WakeupScheduler {
       }
       delaySeconds = input.delaySeconds;
       const delayMs = delaySeconds * 1000;
-      // Apply jitter to the initial fire time
-      const jitter = computeJitter(delayMs, recurring, this.deps.random);
+      // Apply jitter to the initial fire time (round-mark check uses the
+      // actual candidate timestamp, not the delay)
+      const jitter = computeJitter(delayMs, recurring, this.deps.random, now + delayMs);
       const adjustedDelay = Math.max(0, delayMs + jitter);
       firesAt = now + adjustedDelay;
     } else {
@@ -392,10 +407,11 @@ export class WakeupScheduler {
         this.retries.delete(record.id);
         return;
       }
+      const backoffMs = Math.min(BACKOFF_BASE_MS * 2 ** (retryCount - 1), BACKOFF_MAX_MS);
       const backoffTimer = this.deps.setTimer(() => {
         this.timers.delete(record.id);
         void this.fire(record);
-      }, BACKOFF_MS);
+      }, backoffMs);
       this.timers.set(record.id, backoffTimer);
       return;
     }
@@ -413,8 +429,8 @@ export class WakeupScheduler {
 
       // Check auto-expire before scheduling next occurrence
       if (record.expiresAt !== null && now >= record.expiresAt) {
-        // Chain has expired; do not re-schedule. Remove the fired record.
-        this.records.delete(record.id);
+        // Chain has expired; keep the terminal record for observability.
+        record.status = 'expired';
         this.pruneSession(record.sessionId);
         return;
       }
@@ -426,8 +442,8 @@ export class WakeupScheduler {
         // For cron-based recurring: compute the NEXT cron match after now
         const nextRun = computeNextCronRun(record.cronExpression, now);
         if (nextRun === null) {
-          // No future match found — stop recurring. Remove the fired record.
-          this.records.delete(record.id);
+          // No future match found — stop recurring; keep the terminal record.
+          record.status = 'expired';
           this.pruneSession(record.sessionId);
           return;
         }
@@ -451,8 +467,9 @@ export class WakeupScheduler {
       record.deferredFires = [];
       this.scheduleTimer(record);
     } else {
-      // Non-recurring job: remove from records after successful fire
-      this.records.delete(record.id);
+      // Non-recurring job: keep the fired record for observability
+      // (list/CronList can show what just fired); pruneSession caps
+      // per-session terminal history at MAX_RECORDS_PER_SESSION.
       this.pruneSession(record.sessionId);
     }
   }
