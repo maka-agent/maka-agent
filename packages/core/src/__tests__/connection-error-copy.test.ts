@@ -7,14 +7,12 @@ import {
 } from '../connection-error-copy.js';
 
 describe('describeChatConfigurationReason', () => {
-  it('covers every reason in the union', () => {
-    // CHAT_CONFIGURATION_REASONS is derived from the copy table's keys, which is
-    // typed Record<ChatConfigurationReason, string> — so a new reason is exercised
-    // here automatically and cannot ship without copy (the Record won't compile).
-    assert.equal(CHAT_CONFIGURATION_REASONS.length, 10);
-  });
-
   it('returns distinct, non-empty fix copy for every reason', () => {
+    // CHAT_CONFIGURATION_REASONS derives from the copy table's keys, which is
+    // typed Record<ChatConfigurationReason, string> — adding a reason (missing
+    // key) or removing one (excess key) already fails the build, so this needs no
+    // hardcoded count; it only checks each reason maps to its own real copy.
+    assert.ok(CHAT_CONFIGURATION_REASONS.length > 0);
     const seen = new Set<string>();
     for (const reason of CHAT_CONFIGURATION_REASONS) {
       const copy = describeChatConfigurationReason(reason);
