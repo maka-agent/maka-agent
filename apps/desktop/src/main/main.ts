@@ -86,6 +86,8 @@ import {
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
   ShellRunProcessManager,
+  WakeupScheduler,
+  buildCronTools,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -421,6 +423,31 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 const browserTools: MakaTool[] = buildBrowserTools();
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...agentTools];
+// WakeupScheduler — session-internal CronJob scheduling (Issue #15, Primitive 4).
+// The scheduler is created before `runtime` (which is defined below) because its
+// tools must be listed in `builtinTools`. The `injectTurn` / `canFire` callbacks
+// capture `runtime` via closure and only execute asynchronously (when timers fire),
+// so `runtime` is guaranteed to be initialized by then.
+const wakeupScheduler = new WakeupScheduler({
+  newId: randomUUID,
+  now: Date.now,
+  injectTurn: (sessionId, input) => {
+    const iterator = runtime.sendMessage(sessionId, input);
+    void streamEvents(sessionId, iterator, input.turnId);
+  },
+  canFire: async (sessionId) => {
+    try {
+      const header = await store.readHeader(sessionId);
+      // Review fix: waiting_for_user is the wakeup's HOME scenario — the
+      // whole point is to start a turn in place of the user. Only a
+      // running turn (or a terminal/archived session) defers the fire.
+      return (header.status === 'active' || header.status === 'waiting_for_user') && !header.archivedAt;
+    } catch {
+      return false;
+    }
+  },
+});
+const cronTools = buildCronTools(wakeupScheduler);
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -452,6 +479,9 @@ const builtinTools: MakaTool[] = [
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
+  // CronJob tools: CronCreate/CronDelete/CronList for session-internal scheduling.
+  // The agent can schedule prompts to fire at future times within the same session.
+  ...cronTools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -1205,6 +1235,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:stop', async (_event, sessionId: string, input?: { source?: 'stop_button' }) => {
     await runtime.stopSession(sessionId, normalizeStopSessionInput(input));
+    wakeupScheduler.cancelAllForSession(sessionId);
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
     emitSessionsChanged('message-appended', sessionId);
@@ -1284,6 +1315,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:archive', async (_event, sessionId: string) => {
     await runtime.archive(sessionId);
+    wakeupScheduler.cancelAllForSession(sessionId);
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
@@ -1356,6 +1388,7 @@ function registerIpc(): void {
   });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
     await runtime.remove(sessionId);
+    wakeupScheduler.cancelAllForSession(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
@@ -1988,6 +2021,7 @@ app.on('before-quit', (event) => {
 
 async function runBeforeQuitCleanup(): Promise<void> {
   configWatcher?.stop();
+  wakeupScheduler.dispose();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
   const results = await Promise.allSettled([

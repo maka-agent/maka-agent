@@ -4,9 +4,11 @@ import {
   AlertOctagon,
   Check,
   ChevronRight,
+  Clock,
   Copy,
   FileText,
   Globe,
+  Repeat,
   Search,
   Settings,
   SquarePen,
@@ -68,6 +70,84 @@ function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
       <p className={previewVariants({ part: 'load-tool-footer' })}>{desc.footer}</p>
     </div>
   );
+}
+
+// ── CronJob result preview ──────────────────────────────────────────────────
+
+const CRON_TOOL_NAMES: ReadonlySet<string> = new Set(['CronCreate', 'CronDelete', 'CronList']);
+
+function isCronTool(name: string): boolean {
+  return CRON_TOOL_NAMES.has(name);
+}
+
+/** Compact preview card for CronCreate / CronDelete / CronList results. */
+function CronJobResultPreview(props: { toolName: string; value: unknown }) {
+  const data = props.value && typeof props.value === 'object' ? (props.value as Record<string, unknown>) : {};
+  const ok = data.ok === true;
+
+  if (props.toolName === 'CronCreate' && ok) {
+    const recurring = data.recurring === true;
+    const firesIn = typeof data.fires_in_seconds === 'number' ? data.fires_in_seconds : null;
+    const cron = typeof data.cron === 'string' ? data.cron : null;
+    const jobId = typeof data.job_id === 'string' ? data.job_id : null;
+    const Icon = recurring ? Repeat : Clock;
+    return (
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_create">
+        <p className={previewVariants({ part: 'load-tool-title' })}>
+          <Icon size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          {recurring ? '循环定时任务已创建' : '一次性定时任务已创建'}
+        </p>
+        {firesIn !== null && (
+          <p className={previewVariants({ part: 'load-tool-count' })}>
+            {firesIn < 60 ? `${firesIn}s 后触发` : `${Math.round(firesIn / 60)}min 后触发`}
+          </p>
+        )}
+        {cron && <p className={previewVariants({ part: 'load-tool-tools' })}>cron: {cron}</p>}
+        {jobId && <p className={previewVariants({ part: 'load-tool-footer' })}>job_id: {jobId.slice(0, 8)}</p>}
+      </div>
+    );
+  }
+
+  if (props.toolName === 'CronDelete' && ok) {
+    const cancelled = data.cancelled === true;
+    return (
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_delete">
+        <p className={previewVariants({ part: 'load-tool-title' })}>
+          <Check size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          {cancelled ? '定时任务已取消' : '未找到该任务（可能已触发或过期）'}
+        </p>
+      </div>
+    );
+  }
+
+  if (props.toolName === 'CronList' && ok) {
+    const count = typeof data.count === 'number' ? data.count : 0;
+    const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+    return (
+      <div className={previewVariants({ part: 'load-tool' })} data-kind="cron_list">
+        <p className={previewVariants({ part: 'load-tool-title' })}>
+          <Clock size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          定时任务列表 ({count})
+        </p>
+        {jobs.slice(0, 5).map((job, i) => {
+          const j = job && typeof job === 'object' ? (job as Record<string, unknown>) : {};
+          const recurring = j.recurring === true;
+          const status = typeof j.status === 'string' ? j.status : 'unknown';
+          const reason = typeof j.reason === 'string' ? j.reason : '';
+          const JobIcon = recurring ? Repeat : Clock;
+          return (
+            <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
+              <JobIcon size={12} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
+              [{status}] {reason}
+            </p>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Fallback for error or unexpected shape
+  return <ToolResultPreview content={{ kind: 'json', value: props.value }} />;
 }
 
 const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
@@ -231,6 +311,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
       {item.result && !permissionDenied && (
         isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
           <LoadToolResultPreview args={item.args} value={item.result.value} />
+        ) : isCronTool(item.toolName) && item.result.kind === 'json' ? (
+          <CronJobResultPreview toolName={item.toolName} value={item.result.value} />
         ) : (
           <ToolResultPreview content={item.result} />
         )
