@@ -347,6 +347,105 @@ describe('materializeTurns', () => {
   });
 });
 
+function toolCallStep(turnId: string, ts: number, id: string, stepId: string, toolName = 'Read'): StoredMessage {
+  return { type: 'tool_call', id, turnId, ts, toolName, args: {}, stepId };
+}
+
+function assistantStep(
+  turnId: string,
+  ts: number,
+  id: string,
+  text: string,
+  thinking?: string,
+): StoredMessage {
+  return {
+    type: 'assistant',
+    id,
+    turnId,
+    ts,
+    text,
+    modelId: 'm',
+    ...(thinking !== undefined ? { thinking: { text: thinking } } : {}),
+  } as StoredMessage;
+}
+
+describe('materializeTurns timeline', () => {
+  it('interleaves each step: thinking -> text -> that step’s tools', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallStep('t1', 101, 'c1', 'a1'),
+      toolResultMsg('t1', 102, 'c1'),
+      assistantStep('t1', 103, 'a1', 'step one', 'think one'),
+      toolCallStep('t1', 104, 'c2', 'a2'),
+      toolResultMsg('t1', 105, 'c2'),
+      assistantStep('t1', 106, 'a2', 'step two', 'think two'),
+    ]);
+    const timeline = turns[0]!.timeline;
+    assert.deepEqual(timeline.map((i) => i.kind), ['thinking', 'text', 'tools', 'thinking', 'text', 'tools']);
+    assert.equal((timeline[0] as { text: string }).text, 'think one');
+    assert.equal((timeline[1] as { text: string }).text, 'step one');
+    assert.equal((timeline[2] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'c1');
+    assert.equal((timeline[5] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'c2');
+    // Aggregate fields still reflect the concatenated whole for legacy consumers.
+    assert.equal(turns[0]?.assistant?.text, 'step one\n\nstep two');
+    assert.equal(turns[0]?.assistantThinking, 'think one\n\nthink two');
+  });
+
+  it('legacy call with no stepId sits before the summary text', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallMsg('t1', 101, 'c1', 'Read'),
+      toolResultMsg('t1', 102, 'c1'),
+      assistantMsg('t1', 103, 'summary'),
+    ]);
+    const timeline = turns[0]!.timeline;
+    assert.deepEqual(timeline.map((i) => i.kind), ['tools', 'text']);
+    assert.equal((timeline[1] as { text: string }).text, 'summary');
+  });
+
+  it('flushes leftover tools as a trailing group when the turn has no assistant row (abort)', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallStep('t1', 101, 'c1', 'a1'),
+    ]);
+    const timeline = turns[0]!.timeline;
+    assert.deepEqual(timeline.map((i) => i.kind), ['tools']);
+    assert.equal((timeline[0] as { items: { status: string }[] }).items[0]?.status, 'interrupted');
+  });
+
+  it('appends live-only in-flight tools to the timeline tail', () => {
+    const turns = materializeTurns(
+      [userMsg('t1', 100, 'q'), assistantStep('t1', 103, 'a1', 'hi')],
+      [{ toolUseId: 'live-1', toolName: 'Bash', status: 'running', args: {} }],
+    );
+    const timeline = turns[0]!.timeline;
+    assert.deepEqual(timeline.map((i) => i.kind), ['text', 'tools']);
+    assert.equal((timeline[1] as { items: { toolUseId: string }[] }).items[0]?.toolUseId, 'live-1');
+  });
+
+  it('merges adjacent thinking blocks and adjacent tool groups', () => {
+    const thinkingOnly = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      assistantStep('t1', 101, 'a1', '', 'first'),
+      assistantStep('t1', 102, 'a2', '', 'second'),
+    ]);
+    const tl1 = thinkingOnly[0]!.timeline;
+    assert.deepEqual(tl1.map((i) => i.kind), ['thinking']);
+    assert.equal((tl1[0] as { text: string }).text, 'first\n\nsecond');
+
+    const toolsOnly = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallStep('t1', 101, 'c1', 'a1'),
+      assistantStep('t1', 102, 'a1', ''),
+      toolCallStep('t1', 103, 'c2', 'a2'),
+      assistantStep('t1', 104, 'a2', ''),
+    ]);
+    const tl2 = toolsOnly[0]!.timeline;
+    assert.deepEqual(tl2.map((i) => i.kind), ['tools']);
+    assert.equal((tl2[0] as { items: unknown[] }).items.length, 2);
+  });
+});
+
 describe('deriveTurnLineageMap', () => {
   it('derives reverse links without mutating old turns', () => {
     const map = deriveTurnLineageMap([
