@@ -98,26 +98,42 @@ export async function createMakaCliRuntimeContext(
     generateId: () => randomUUID(),
     now: () => Date.now(),
   });
+  // Durable persistence is tied to cron capability. A cron-disabled host is
+  // heartbeat-only, and heartbeats are never durable — so it has NO durable
+  // automations of its own. Critically, the CLI shares the desktop's workspace
+  // (resolveMakaWorkspaceRoot reconstructs the Electron userData path), so its
+  // automations.json IS the desktop's. store.sync() is a full-file overwrite,
+  // so a heartbeat-only CLI writing its (empty) durable list would erase the
+  // desktop's crons, and loading+reconciling crons it can't run would mutate
+  // them. It therefore does neither — it leaves durable state entirely to the
+  // host that owns it. (Two cron-enabled hosts sharing a store is the separate,
+  // still-deferred leader-lock concern.)
+  const cronEnabled = input.automationCreateFreshRun !== undefined;
   const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
-  const syncAutomations = (): void => {
-    const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
-    automationStore.sync(durable).catch(err => {
-      console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
-    });
-  };
+  const syncAutomations = cronEnabled
+    ? (): void => {
+        const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
+        automationStore.sync(durable).catch(err => {
+          console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
+        });
+      }
+    : (): void => { /* heartbeat-only host owns no durable automations; never overwrite the shared store */ };
   const automationTool = buildAutomationTool({
     automationManager,
     onAutomationChange: syncAutomations,
-    cronEnabled: input.automationCreateFreshRun !== undefined,
+    cronEnabled,
   });
 
   const allTools = [...tools, automationTool];
 
-  // Load durable automations from disk.
-  try {
-    const saved = await automationStore.loadAll();
-    automationManager.registerAll(saved);
-  } catch { /* best-effort */ }
+  // Load durable automations only on a host that can run them — a cron-disabled
+  // host must not adopt/reconcile crons it doesn't own (see above).
+  if (cronEnabled) {
+    try {
+      const saved = await automationStore.loadAll();
+      automationManager.registerAll(saved);
+    } catch { /* best-effort */ }
+  }
 
   backends.register('ai-sdk', async (ctx) => {
     const ready = await resolveDefaultSessionTarget({

@@ -35,12 +35,22 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
 
   const store = createAutomationStore<AutomationDefinition>(deps.workspaceRoot);
 
-  const syncDurableToStore = (): void => {
-    const all = manager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
-    store.sync(all).catch(err => {
-      console.warn('[automation-wiring] failed to sync durable automations to disk:', err);
-    });
-  };
+  // Durable persistence is tied to cron capability: only a host that can run
+  // crons (createFreshRun present) owns durable automations and may load/write
+  // the shared automations.json. A cron-disabled host has no durable state of
+  // its own and must never overwrite the store (its full-file sync would clobber
+  // the owning host's crons). The desktop always provides createFreshRun; this
+  // gate keeps the invariant explicit and symmetric with the CLI.
+  const cronEnabled = deps.createFreshRun !== undefined;
+
+  const syncDurableToStore = cronEnabled
+    ? (): void => {
+        const all = manager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
+        store.sync(all).catch(err => {
+          console.warn('[automation-wiring] failed to sync durable automations to disk:', err);
+        });
+      }
+    : (): void => { /* no durable automations to persist on a cron-disabled host */ };
 
   const scheduler = new AutomationScheduler({
     automationManager: manager,
@@ -60,6 +70,7 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
   })];
 
   const loadDurableAutomations = async (): Promise<void> => {
+    if (!cronEnabled) return; // a cron-disabled host must not adopt/reconcile crons it doesn't own
     const saved = await store.loadAll();
     manager.registerAll(saved);
   };

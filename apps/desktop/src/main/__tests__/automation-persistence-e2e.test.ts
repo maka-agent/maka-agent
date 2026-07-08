@@ -45,6 +45,16 @@ function makeWiring(workspaceRoot: string) {
   });
 }
 
+/** A cron-DISABLED host (heartbeat-only), like the `maka` CLI — no createFreshRun. */
+function makeCronDisabledWiring(workspaceRoot: string) {
+  return createMainAutomationWiring({
+    workspaceRoot,
+    canFire: async () => true,
+    injectTurn: async () => ({ runId: 'run', ok: true }),
+    // createFreshRun omitted → cron disabled → must not persist/adopt durable state.
+  });
+}
+
 function automationTool(wiring: ReturnType<typeof makeWiring>): MakaTool {
   return wiring.tools[0];
 }
@@ -158,6 +168,48 @@ describe('E2E: durable cron persistence + cross-session query/management', () =>
       assert.equal(rows.length, 0, 'a non-durable heartbeat must not be persisted');
 
       wiring.scheduler.dispose();
+    } finally {
+      await rm(ws, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('E2E: a cron-disabled host (CLI) sharing the workspace never clobbers durable crons', () => {
+  it('a heartbeat-only wiring neither loads nor overwrites the owner\'s automations.json', async () => {
+    const ws = await mkdtemp(join(tmpdir(), 'maka-automation-clobber-'));
+    try {
+      // ── owner (cron-enabled, desktop) creates a durable cron ──────────────
+      const owner = makeWiring(ws);
+      await automationTool(owner).impl({
+        mode: 'create', kind: 'cron', name: 'daily backup', prompt: 'back up',
+        schedule: { type: 'cron', expression: '0 3 * * *' },
+      }, ctx('desktop-session')) as string;
+      const persisted = await waitForStore(ws, (rows) => rows.some(r => r.name === 'daily backup'));
+      assert.equal(persisted.length, 1);
+      owner.scheduler.dispose();
+
+      // ── a cron-disabled host (CLI) boots on the SAME workspace ────────────
+      const cli = makeCronDisabledWiring(ws);
+      // It must not adopt the cron it cannot run.
+      await cli.loadDurableAutomations();
+      assert.equal(cli.manager.listAll().length, 0, 'cron-disabled host must not load crons it cannot run');
+
+      // It creates a heartbeat and manages it — all the activity that would
+      // trigger a durable sync on a cron-enabled host.
+      await automationTool(cli).impl({
+        mode: 'create', kind: 'heartbeat', name: 'poll', prompt: 'p',
+        schedule: { type: 'interval', seconds: 60 },
+      }, ctx('cli-session')) as string;
+      const listed = await automationTool(cli).impl({ mode: 'list' }, ctx('cli-session')) as string;
+      const idMatch = listed.match(/ID: ([a-f0-9-]+)/i);
+      if (idMatch) await automationTool(cli).impl({ mode: 'delete', id: idMatch[1] }, ctx('cli-session')) as string;
+
+      // Give any (erroneous) sync a chance to land, then assert the owner's cron
+      // is STILL on disk, untouched.
+      await new Promise(r => setTimeout(r, 200));
+      const after = await readStore(ws);
+      assert.deepEqual(after.map(r => r.name), ['daily backup'], 'CLI must not overwrite/erase the desktop\'s durable cron');
+      cli.scheduler.dispose();
     } finally {
       await rm(ws, { recursive: true, force: true });
     }
