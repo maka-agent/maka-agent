@@ -56,6 +56,9 @@ import type {
   SessionHeader,
 } from '@maka/core/session';
 import type {
+  AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
   BackendSendInput,
   PermissionDecision,
 } from '@maka/core/backend-types';
@@ -175,27 +178,15 @@ export type { ModelFactory, ModelFactoryInput, RepairableAiSdkToolCall } from '.
 export type { RunTraceEvent, RunTraceRecorder } from './run-trace.js';
 
 // ============================================================================
-// AgentBackend interface
+// AgentBackend interface — port contract now lives in @maka/core/backend-types;
+// re-exported here for backward compatibility with existing import sites.
 // ============================================================================
 
-export interface BackendCompactHistoryInput {
-  turnId: string;
-  runtimeContext: readonly RuntimeEvent[];
-}
-
-export interface BackendCompactHistoryResult {
-  contextBudget?: ContextBudgetDiagnostic;
-}
-
-export interface AgentBackend {
-  readonly kind: BackendKind;
-  readonly sessionId: string;
-  send(input: BackendSendInput): AsyncIterable<SessionEvent>;
-  compactHistory?(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult>;
-  stop(reason: 'user_stop' | 'redirect'): Promise<void>;
-  respondToPermission(decision: PermissionDecision): Promise<void>;
-  dispose(): Promise<void>;
-}
+export type {
+  AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
+} from '@maka/core/backend-types';
 
 export const INVALID_TOOL_NAME = 'invalid';
 

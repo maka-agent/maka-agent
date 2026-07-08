@@ -62,7 +62,8 @@ import {
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 
-import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
+import type { MakaTool } from './ai-sdk-backend.js';
 import type { RunTraceRecorder } from './run-trace.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';

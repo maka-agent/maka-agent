@@ -673,7 +673,13 @@ export {
 } from './voice.js';
 
 // backend-types.ts
-export type { BackendSendInput, PermissionDecision } from './backend-types.js';
+export type {
+  BackendSendInput,
+  PermissionDecision,
+  AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
+} from './backend-types.js';
 
 // llm-connections.ts
 export type {

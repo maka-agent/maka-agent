@@ -12,8 +12,7 @@ import type {
 } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionEvent } from '@maka/core/events';
-import type { BackendSendInput } from '@maka/core/backend-types';
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';

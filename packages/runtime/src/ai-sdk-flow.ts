@@ -35,7 +35,7 @@ import type { CompleteEvent, SessionEvent } from '@maka/core/events';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
 import {
   type AgentFlow,
   type AgentFlowControl,

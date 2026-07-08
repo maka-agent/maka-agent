@@ -11,7 +11,8 @@ import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-i
 import type { PermissionResponse } from '@maka/core/permission';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
 import { AiSdkFlow, mapSessionEventToRuntimeEvent } from './ai-sdk-flow.js';
-import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
+import type { MakaTool } from './ai-sdk-backend.js';
 import type { InvocationContext, InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
 import type { BackendRegistry, CompactSessionInput, SessionStore, StopSessionInput } from './session-manager.js';
