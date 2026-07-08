@@ -244,6 +244,7 @@ export class ToolRuntime {
     const toolIntent = describeToolIntent(tool, args);
     const trace = this.input.getRunTrace?.() ?? null;
 
+    const stepId = this.input.getCurrentStepId?.();
     const callMsg: ToolCallMessage = {
       type: 'tool_call',
       id: toolUseId,
@@ -253,9 +254,11 @@ export class ToolRuntime {
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       args,
+      // Persist the same step id the tool_start event carries so the UI
+      // timeline and post-restart backfill can pair this call with its step.
+      ...(stepId !== undefined ? { stepId } : {}),
     };
     await this.input.appendMessage(callMsg);
-    const stepId = this.input.getCurrentStepId?.();
     const startEv: ToolStartEvent = {
       type: 'tool_start',
       id: this.input.newId(),
