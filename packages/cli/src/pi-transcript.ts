@@ -974,13 +974,15 @@ function renderCappedResultText(
 }
 
 /**
- * Line count for a Read body, dropping the file's normal trailing newline so
- * `foo\n` counts as one line. Shared by the compact and expanded summaries so
- * the same card can never flip its line count when toggled with Ctrl+O.
+ * Line count for a Read body, dropping only the single conventional EOF newline
+ * so `foo\n` counts as one line while a real trailing blank line is preserved
+ * (`a\n\n` is two lines, `\n` is one). Shared by the compact and expanded
+ * summaries so the same card can never flip its line count when toggled.
  */
 function readBodyLineCount(text: string): number {
-  const trimmed = text.replace(/\n+$/, '');
-  return trimmed ? trimmed.split('\n').length : 0;
+  if (text === '') return 0;
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return body.split('\n').length;
 }
 
 function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
@@ -1162,6 +1164,11 @@ function renderShellRunResult(
   width: number,
 ): string[] {
   const lines: string[] = [];
+  // Repeat the command and cwd: for a StopBackgroundTask the tool input carries
+  // only the run ref, so without these the expanded card loses which background
+  // process this result is about.
+  lines.push(...renderIndented(ansi.dim(`$ ${content.cmd}`), width, 2));
+  lines.push(...renderIndented(ansi.dim(`cwd: ${content.cwd}`), width, 2));
   const settled = content.status !== 'running' && content.status !== 'completed';
   const parts: string[] = [content.status];
   if (content.exitCode !== undefined) parts.push(`exit ${content.exitCode}`);

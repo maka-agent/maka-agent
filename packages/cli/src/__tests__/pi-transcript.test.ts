@@ -678,6 +678,22 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /Read 3 lines, 6 bytes/);
   });
 
+  test('preserves a real trailing blank line in the Read line count', () => {
+    const state = createMakaPiTranscriptState();
+    // Only the single conventional EOF newline is dropped: `a\n\n` keeps its
+    // trailing blank line (two lines), and a lone `\n` is one blank line.
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-blank', toolName: 'Read', args: { path: 'blank.txt' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-blank', isError: false,
+      content: { kind: 'json', value: { content: 'a\n\n' } },
+    }));
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /Read 2 lines, 3 bytes/);
+  });
+
   test('keeps shell_run status and exit visible while capping its stream body', () => {
     const state = createMakaPiTranscriptState();
     // A background command's status/exit is the whole point of expanding the
@@ -706,6 +722,9 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /exit 137/);
     assert.match(expanded, /killed by signal/);
     assert.match(expanded, /bg-42/);
+    // The command/cwd live on the result, not the ref-only input, so the
+    // expanded card must repeat them to say which process this was.
+    assert.match(expanded, /npm run watch/);
     // The stream body is still capped, and stderr keeps its label.
     assert.match(expanded, /lines hidden/);
     assert.match(expanded, /\[stderr\]/);
