@@ -53,6 +53,29 @@ describe('chat status cluster layout contract', () => {
     assert.match(emptyBody, /opacity:\s*0/);
   });
 
+  it('reserves the footer placeholder for every live turn, not only text answers', async () => {
+    // Regression (three-way review, ChatGPT P2): the settle jump this PR
+    // removes reappeared for thinking-only / textless turns. A settled turn
+    // ALWAYS mounts a footer (deriveTurnFooterActions yields regenerate/branch
+    // from TurnStatus alone; materialize emits a timeline item for a step's
+    // thinking even with empty text), so a turn that only thought (think →
+    // tool → end, or aborted mid-think) settles WITH a footer. Gating the
+    // live placeholder on streamingText left that shape unreserved. The
+    // placeholder lives inside the `streamingText || thinkingText` section and
+    // must render unconditionally there — never re-narrowed to streamingText.
+    const src = await readRepo('packages/ui/src/chat-view.tsx');
+    assert.match(
+      src,
+      /Unconditional \(not gated on streamingText\)[\s\S]*?\*\/\}\s*<div aria-hidden="true" className="mt-0\.5 h-8" \/>/,
+      'the footer placeholder must render unconditionally inside the live section (covers thinking-only turns)',
+    );
+    assert.doesNotMatch(
+      src,
+      /\{props\.streamingText && <div aria-hidden="true" className="mt-0\.5 h-8" \/>\}/,
+      'the placeholder must not be re-gated on streamingText alone — that misses thinking-only settle',
+    );
+  });
+
   it('uses an in-flow wrapping row instead of absolute positioning', async () => {
     const css = await readRendererContractCss();
     const body = ruleBody(css, '.maka-chat-status-cluster');

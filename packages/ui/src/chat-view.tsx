@@ -687,8 +687,20 @@ export function ChatView(props: {
                     height at the settle swap. Reserving the same box here
                     makes the swap height-neutral — the real footer then only
                     fades in (opacity, no layout). Outside the gap-2 timeline
-                    div, mirroring the committed structure. */}
-                {props.streamingText && <div aria-hidden="true" className="mt-0.5 h-8" />}
+                    div, mirroring the committed structure.
+
+                    Unconditional (not gated on streamingText): a settled turn
+                    ALWAYS mounts a footer — deriveTurnFooterActions yields
+                    regenerate/branch from TurnStatus alone, independent of
+                    answer text (turn-footer-actions.ts), and materialize emits
+                    a timeline item for a step's thinking even with empty text
+                    (materialize.ts). So a thinking-only / textless turn
+                    (think → tool → end, or aborted mid-think) settles WITH a
+                    footer too; gating the placeholder on streamingText left
+                    that shape unreserved and re-introduced the settle jump. We
+                    are already inside the `streamingText || thinkingText`
+                    section, so rendering it always covers every live turn. */}
+                <div aria-hidden="true" className="mt-0.5 h-8" />
               </Message>
             </section>
           )}
