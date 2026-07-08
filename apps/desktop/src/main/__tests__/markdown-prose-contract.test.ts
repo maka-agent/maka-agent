@@ -198,12 +198,13 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
       && !/\.maka-prose\s*>\s*p:nth-last-child/.test(css),
       'structural :nth-last-child prose hacks must not return — they assume a trailing non-markdown child that no longer exists',
     );
-    // The streaming caret still needs the trailing paragraph inlined, but
-    // scoped to the streaming bubble only.
-    assert.match(
-      css,
-      /\.maka-bubble-streaming\s*>\s*p:last-child\s*\{[^}]*display:\s*inline/,
-      'the caret-inline rule must be scoped to .maka-bubble-streaming so committed messages and .maka-prose reusers (tool results, #546 PR6) keep block paragraphs',
+    // The streaming ▎ caret (and its trailing-<p> inline hack) was retired by
+    // the streaming UI rework — the "still writing" signal is the per-word
+    // fade-in — so the streaming bubble must NOT re-introduce a
+    // `p:last-child { display: inline }` rule that would collapse block spacing.
+    assert.ok(
+      !/\.maka-bubble-streaming\s*>\s*p:last-child\s*\{[^}]*display:\s*inline/.test(css),
+      'the retired caret-inline hack must not return — the trailing paragraph keeps normal block layout',
     );
     // Negative side of the same contract: an unscoped variant on the
     // committed-message classes would inline the final paragraph of every

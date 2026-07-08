@@ -1,4 +1,4 @@
-import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, lazy, memo, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertOctagon,
   AlertTriangle,
@@ -21,6 +21,7 @@ import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
+import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
@@ -1370,9 +1371,14 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
     props.onSettled?.();
   }, [props.live, catchingUp, props.onSettled]);
 
+  // Per-word fade-in over the freshly revealed tail (replaces the ▎ caret).
+  // Skipped under snap (reduced-motion / visual-smoke) so the deterministic
+  // capture shows the final text at full opacity with no fade spans.
+  const streamFade = useStreamFade(displayed, !snap);
+
   return (
     <Bubble variant="assistant" className="maka-bubble-streaming">
-      <Markdown text={displayed} />
+      <Markdown text={displayed} streamFade={streamFade} />
       {props.truncated && (
         <div
           className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"
@@ -1426,6 +1432,11 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
   const snap = useStreamSnap();
   const safeText = prepareSmoothStreamText(props.text);
   const { displayed } = useSmoothStreamContent(safeText, { streaming: props.live, snap });
+  // Per-word fade over the freshly revealed reasoning tail — same entrance as the
+  // main answer bubble (replaces the old caret). Plain-text path (no Markdown),
+  // so we tokenize `displayed` directly and wrap post-boundary tokens. Inactive
+  // (returns undefined) when settled or under snap.
+  const streamFade = useStreamFade(displayed, props.live && !snap);
   // Controlled open (see ReasoningPanel history: a raw `open` attribute lets the
   // ~60Hz stream re-render re-assert open state and undo a manual collapse).
   // Collapsed by default so the answer reads cleanly; the click sticks.
@@ -1475,7 +1486,7 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
               ref={bodyRef}
               className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal [scroll-behavior:auto]"
             >
-              {displayed}
+              <DeepThinkingBody text={displayed} streamFade={streamFade} />
             </pre>
           ) : (
             <div className="flex flex-col gap-1.5 text-[length:var(--font-size-caption)] italic opacity-[var(--opacity-pending)]">
@@ -1488,6 +1499,37 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
         </div>
       </CollapsiblePanel>
     </Collapsible>
+  );
+}
+
+/**
+ * Plain-text reasoning body with the same per-word fade as the answer bubble.
+ * When `streamFade` is absent (settled / snap) it renders the raw string so the
+ * deterministic capture shows the full text with no spans. Otherwise it splits
+ * the whole buffer at grapheme 0 and wraps each post-boundary token in a
+ * `.maka-stream-fade` span with a negative `animation-delay` (= -age) so the
+ * entrance resumes mid-flight across the ~60Hz streaming re-renders.
+ */
+function DeepThinkingBody(props: { text: string; streamFade?: StreamFade }) {
+  const fade = props.streamFade;
+  if (!fade) return <>{props.text}</>;
+  const { tokens } = tokenizeFade(props.text, 0, fade.boundaryOffset);
+  return (
+    <>
+      {tokens.map((token, index) =>
+        token.fade ? (
+          <span
+            key={index}
+            className="maka-stream-fade"
+            style={{ animationDelay: `-${Math.round(fade.ageAt(token.offset))}ms` }}
+          >
+            {token.text}
+          </span>
+        ) : (
+          <Fragment key={index}>{token.text}</Fragment>
+        ),
+      )}
+    </>
   );
 }
 
