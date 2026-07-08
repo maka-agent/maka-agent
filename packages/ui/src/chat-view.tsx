@@ -647,29 +647,35 @@ export function ChatView(props: {
             // identical to TurnView's committed turn.
             <section className="maka-turn maka-turn-streaming">
               <Message variant="assistant">
-                {/* PR-UI-LAYOUT-42: Reasoning panel for Anthropic-style
-                 * extended thinking. Renders ABOVE the streaming
-                 * answer because thinking always precedes the
-                 * answer. Default-open during streaming so the user
-                 * sees the model reasoning; users can collapse it
-                 * if too verbose. The panel disappears entirely on
-                 * text_complete / abort / error (parent clears the
-                 * thinkingBySession entry). */}
-                {props.thinkingText && (
-                  <DeepThinking
-                    text={props.thinkingText}
-                    live={!props.streamingText}
-                    truncated={props.thinkingTruncated === true}
-                  />
-                )}
-                {props.streamingText && (
-                  <StreamingAssistantBubble
-                    text={props.streamingText}
-                    live={props.streamingComplete !== true}
-                    truncated={props.streamingTruncated === true}
-                    onSettled={props.onStreamingSettled}
-                  />
-                )}
+                {/* Same `flex flex-col gap-2` timeline wrapper a committed turn
+                    uses (TurnView), so the live 深度思考 + answer share the exact
+                    spacing rhythm and chrome as the settled timeline — the two
+                    DeepThinking sites are structurally identical. */}
+                <div className="flex flex-col gap-2">
+                  {/* PR-UI-LAYOUT-42: Reasoning panel for Anthropic-style
+                   * extended thinking. Renders ABOVE the streaming
+                   * answer because thinking always precedes the
+                   * answer. Default-open during streaming so the user
+                   * sees the model reasoning; users can collapse it
+                   * if too verbose. The panel disappears entirely on
+                   * text_complete / abort / error (parent clears the
+                   * thinkingBySession entry). */}
+                  {props.thinkingText && (
+                    <DeepThinking
+                      text={props.thinkingText}
+                      live={!props.streamingText}
+                      truncated={props.thinkingTruncated === true}
+                    />
+                  )}
+                  {props.streamingText && (
+                    <StreamingAssistantBubble
+                      text={props.streamingText}
+                      live={props.streamingComplete !== true}
+                      truncated={props.streamingTruncated === true}
+                      onSettled={props.onStreamingSettled}
+                    />
+                  )}
+                </div>
               </Message>
             </section>
           )}
@@ -1451,7 +1457,7 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
   }, [displayed, props.live, open]);
   return (
     <Collapsible
-      className="my-0.5 flex flex-col"
+      className="flex flex-col"
       data-deep-thinking={props.live ? 'live' : undefined}
       open={open}
       onOpenChange={setOpen}
@@ -1482,21 +1488,29 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
         )}
       </CollapsibleTrigger>
       <CollapsiblePanel>
-        <div className="mt-1 ml-2 border-l border-[var(--border)] pl-2.5 text-[color:var(--foreground-secondary)]">
+        {/* Left-border-indented quiet detail block, one language with the tool
+            trow's expanded body. `live` and settled render the SAME plain-text
+            body at the caption tier so the two states never jump size; settled
+            is muted + regular weight (long reasoning in italic reads poorly).
+            The copy action is an icon-only hover affordance pinned top-right so
+            it never squeezes the reading column into a vertical char stack. */}
+        <div className="group/reasoning relative mt-1 ml-2 border-l border-[var(--border)] pl-2.5 pr-7">
           {props.live ? (
             <pre
               ref={bodyRef}
-              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal [scroll-behavior:auto]"
+              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]"
             >
               <DeepThinkingBody text={displayed} streamFade={streamFade} />
             </pre>
           ) : (
-            <div className="flex flex-col gap-1.5 text-[length:var(--font-size-caption)] italic opacity-[var(--opacity-pending)]">
-              <Markdown text={props.text} />
-              <div className="flex justify-end not-italic">
-                <MessageCopyButton text={props.text} label="复制思考过程" />
+            <>
+              <div className="whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)]">
+                {props.text}
               </div>
-            </div>
+              <div className="absolute right-0 top-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/reasoning:opacity-100 focus-within:opacity-100">
+                <MessageCopyButton text={props.text} label="复制思考过程" footerStyle />
+              </div>
+            </>
           )}
         </div>
       </CollapsiblePanel>
