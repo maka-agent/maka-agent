@@ -24,7 +24,7 @@ import {
   type BackendFactoryContext,
   type SessionStore,
 } from '../session-manager.js';
-import type { AgentBackend } from '../ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
 import {
   buildRecoveredTerminalRuntimeEvent,
   buildSyntheticTerminalRuntimeEvent,
