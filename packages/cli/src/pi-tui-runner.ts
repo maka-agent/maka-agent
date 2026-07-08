@@ -703,6 +703,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
+    // The idle rewind gesture requires two *consecutive* Escapes. Any other key
+    // in between breaks it, so a stale first Escape never pairs with a much later
+    // one (e.g. `Esc`, type, `Esc`).
+    if (!matchesKey(data, Key.escape)) lastIdleEscapeAt = 0;
     if (matchesKey(data, Key.ctrl('o')) && !isKeyRepeat(data)) {
       if (toggleAllToolExpansion(state)) {
         requestRender();
@@ -762,10 +766,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
     // Idle double Escape opens the rewind picker (the same gesture that
     // interrupts a running turn). This sits below the turnRunning branch, so it
-    // only arms when nothing is running. The first Escape falls through to the
-    // editor (preserving its clear/autocomplete behavior); only the second,
-    // within the window, consumes and opens the picker.
+    // only arms when nothing is running. It engages only when the editor has no
+    // Escape work of its own — empty draft, no autocomplete popup — so the
+    // editor keeps owning Escape for clearing input and closing autocomplete.
+    // The first Escape falls through to the editor; only the second, within the
+    // window, consumes and opens the picker.
     if (!busy && !turnRunning && matchesKey(data, Key.escape)) {
+      const editorNeutral = editor.getText().length === 0 && !editor.isShowingAutocomplete();
+      if (!editorNeutral) {
+        lastIdleEscapeAt = 0;
+        return undefined;
+      }
       const now = Date.now();
       if (lastIdleEscapeAt && now - lastIdleEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastIdleEscapeAt = 0;

@@ -1910,6 +1910,41 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('does not open the rewind picker while the editor has a draft', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first question' }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+
+    // While a draft is present, Escape belongs to the editor (clear input), not
+    // the rewind gesture. Two Escapes must not open the picker.
+    terminal.input('draft in progress');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(40);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('回到选定轮次'), false);
+    assert.deepEqual(driver.rewound, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('interrupts at most once while the stop is still settling', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlowStopDriver();
