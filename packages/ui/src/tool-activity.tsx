@@ -22,6 +22,7 @@ import {
   isTrowRunning,
   summarizeTrowTools,
   trowActivityKind,
+  trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
@@ -238,16 +239,19 @@ export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
 
 function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const running = isTrowRunning(items);
-  const waiting = items.some((tool) => tool.status === 'waiting_permission');
+  const attention = trowNeedsAttention(items);
   const active = activeTrowTool(items) ?? items[0]!;
-  // Controlled open: default collapsed, but a waiting_permission tool forces the
-  // group open so the permission prompt isn't hidden behind the summary line.
-  // No defaultOpen (disclosure-collapsible-contract) — controlled open re-syncs
-  // from status, like ToolActivityCard.
-  const [open, setOpen] = useState(waiting);
+  // Controlled open: default collapsed, but a waiting_permission or errored
+  // tool forces the group open — a permission prompt must not hide behind the
+  // summary line, and an error banner must stay diagnosable (the old boxed
+  // cards kept errored tools expanded). The user's manual collapse sticks
+  // while `attention` stays true. No defaultOpen
+  // (disclosure-collapsible-contract) — controlled open re-syncs from status,
+  // like ToolActivityCard.
+  const [open, setOpen] = useState(attention);
   useEffect(() => {
-    if (waiting) setOpen(true);
-  }, [waiting]);
+    if (attention) setOpen(true);
+  }, [attention]);
   const SummaryIcon = trowKindIcon(active.toolName);
   const summary = running
     ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
