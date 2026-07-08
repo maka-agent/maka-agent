@@ -246,7 +246,7 @@ export function ChatView(props: {
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
   planReminders?: PlanReminder[];
   onRefreshPlanReminders?: () => void | Promise<void>;

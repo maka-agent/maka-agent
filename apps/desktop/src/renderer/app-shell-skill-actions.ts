@@ -16,7 +16,7 @@ export interface AppShellSkillActions {
   importManagedSkillSource(): Promise<void>;
   installManagedSkill(sourceId: string): Promise<void>;
   previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  updateManagedSkill(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<void>;
+  updateManagedSkill(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<boolean>;
   setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
   openSkill(skillId: string): Promise<void>;
 }
@@ -124,21 +124,23 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
-  async function updateManagedSkill(skillId: string, options: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string } = {}) {
+  async function updateManagedSkill(skillId: string, options: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string } = {}): Promise<boolean> {
     try {
       const result = await window.maka.skills.updateManaged(skillId, options);
       if (!result.ok) {
         if (isSkillsSurfaceActive()) toastApi.error('无法更新 Skill', managedUpdateFailureCopy(result.reason));
-        return;
+        return false;
       }
       await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
       if (isSkillsSurfaceActive()) {
         toastApi.success(options.force ? '已覆盖更新 Skill' : '已更新 Skill', `${result.skill.id}/SKILL.md 已更新到来源库版本。`);
       }
+      return true;
     } catch (error) {
       if (isSkillsSurfaceActive()) {
         toastApi.error('无法更新 Skill', generalizedErrorMessageChinese(error, '无法更新 Skill，请稍后重试。'));
       }
+      return false;
     }
   }
 

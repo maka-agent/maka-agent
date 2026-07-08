@@ -27,7 +27,7 @@ function SkillLibraryPanel(props: {
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
   actionBusy?: boolean;
   refreshPending?: boolean;
@@ -90,12 +90,12 @@ function SkillLibraryPanel(props: {
   async function applyManagedSkillUpdate(preview: ManagedSkillUpdatePreview) {
     if (!props.onUpdateManagedSkill) return;
     const force = preview.skill.managedUpdateStatus === 'local_modified';
-    await props.onUpdateManagedSkill(preview.skill.id, force ? {
-      force: true,
+    const updated = await props.onUpdateManagedSkill(preview.skill.id, {
+      ...(force ? { force: true } : {}),
       expectedCurrentSha256: preview.expectedCurrentSha256,
       expectedSourceSha256: preview.expectedSourceSha256,
-    } : undefined);
-    setUpdatePreview(null);
+    });
+    if (updated) setUpdatePreview(null);
   }
 
   const templates = (
@@ -575,7 +575,7 @@ export function SkillsModuleMain(props: {
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
-  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): void | Promise<void>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
@@ -591,15 +591,15 @@ export function SkillsModuleMain(props: {
     };
   }, []);
 
-  async function runSkillAction(
+  async function runSkillAction<Result>(
     actionKey: string,
-    action: (() => void | Promise<void>) | undefined,
+    action: (() => Result | Promise<Result>) | undefined,
   ) {
-    if (!action || pendingSkillActionRef.current !== null) return;
+    if (!action || pendingSkillActionRef.current !== null) return undefined;
     pendingSkillActionRef.current = actionKey;
     setPendingSkillAction(actionKey);
     try {
-      await action();
+      return await action();
     } finally {
       if (pendingSkillActionRef.current === actionKey) {
         pendingSkillActionRef.current = null;
@@ -670,7 +670,8 @@ export function SkillsModuleMain(props: {
         onImportManagedSkillSource={props.onImportManagedSkillSource ? () => runSkillAction('source:import', props.onImportManagedSkillSource) : undefined}
         onInstallManagedSkill={props.onInstallManagedSkill ? (sourceId) => runSkillAction(`source:install:${sourceId}`, () => props.onInstallManagedSkill?.(sourceId)) : undefined}
         onPreviewManagedSkillUpdate={props.onPreviewManagedSkillUpdate}
-        onUpdateManagedSkill={props.onUpdateManagedSkill ? (skillId, options) => runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options)) : undefined}
+        onUpdateManagedSkill={props.onUpdateManagedSkill ? async (skillId, options) =>
+          (await runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options))) === true : undefined}
         onSetSkillEnabled={props.onSetSkillEnabled ? (skillId, enabled) => runSkillAction(`runtime:set:${skillId}`, () => props.onSetSkillEnabled?.(skillId, enabled)) : undefined}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}

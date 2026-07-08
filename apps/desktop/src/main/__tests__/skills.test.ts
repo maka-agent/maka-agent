@@ -136,6 +136,37 @@ Make every slide carry one idea.`);
     });
   });
 
+  it('loads an enabled duplicate-name skill before reporting a disabled duplicate as blocked', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'disabled-copy', `---
+name: Shared Helper
+description: Disabled duplicate.
+---
+# Shared Helper
+Disabled copy.`);
+      await writeSkill(workspaceRoot, 'enabled-copy', `---
+name: Shared Helper
+description: Enabled duplicate.
+---
+# Shared Helper
+Enabled copy.`);
+
+      const disabled = await setSkillEnabled(workspaceRoot, 'disabled-copy', false);
+      assert.equal(disabled.ok, true);
+
+      const loadedByName = await loadSkillInstructions(workspaceRoot, 'Shared Helper');
+      assert.equal(loadedByName.ok, true);
+      if (!loadedByName.ok) return;
+      assert.equal(loadedByName.skill.id, 'enabled-copy');
+      assert.match(loadedByName.skill.instructions, /Enabled copy\./);
+
+      const loadedDisabledById = await loadSkillInstructions(workspaceRoot, 'disabled-copy');
+      assert.equal(loadedDisabledById.ok, false);
+      if (loadedDisabledById.ok) return;
+      assert.equal(loadedDisabledById.reason, 'disabled');
+    });
+  });
+
   it('fails closed when the workspace skill runtime state file is invalid', async () => {
     await withWorkspace(async (workspaceRoot) => {
       await writeSkill(workspaceRoot, 'browser-helper', `---
@@ -747,12 +778,36 @@ description: Build decks.
 # Deck Helper
 Version two.`, 'utf8');
 
-        const updated = await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot);
+        const cleanPreview = await previewManagedSkillUpdate(workspaceRoot, 'deck-helper', sourceRoot);
+        assert.equal(cleanPreview.ok, true);
+        if (!cleanPreview.ok) return;
+        await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
+name: Deck Helper
+description: Build decks.
+---
+# Deck Helper
+Version two changed after preview.`, 'utf8');
+        assert.deepEqual(await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot, {
+          expectedCurrentSha256: cleanPreview.preview.expectedCurrentSha256,
+          expectedSourceSha256: cleanPreview.preview.expectedSourceSha256,
+        }), {
+          ok: false,
+          reason: 'local_modified',
+        });
+        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), 'utf8'), /Version one\./);
+
+        const freshCleanPreview = await previewManagedSkillUpdate(workspaceRoot, 'deck-helper', sourceRoot);
+        assert.equal(freshCleanPreview.ok, true);
+        if (!freshCleanPreview.ok) return;
+        const updated = await updateManagedSkill(workspaceRoot, 'deck-helper', sourceRoot, {
+          expectedCurrentSha256: freshCleanPreview.preview.expectedCurrentSha256,
+          expectedSourceSha256: freshCleanPreview.preview.expectedSourceSha256,
+        });
         assert.equal(updated.ok, true);
         if (!updated.ok) return;
         assert.equal(updated.skill.managedUpdateStatus, 'up_to_date');
-        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), 'utf8'), /Version two\./);
-        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', '.maka', 'baseline', 'SKILL.md'), 'utf8'), /Version two\./);
+        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), 'utf8'), /Version two changed after preview\./);
+        assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', '.maka', 'baseline', 'SKILL.md'), 'utf8'), /Version two changed after preview\./);
 
         await writeFile(join(sourceRoot, 'deck-helper', 'SKILL.md'), `---
 name: Deck Helper
@@ -775,7 +830,7 @@ Local edit.`, 'utf8');
         if (!preview.ok) return;
         assert.match(preview.preview.currentContent, /Local edit\./);
         assert.match(preview.preview.sourceContent, /Version three\./);
-        assert.match(preview.preview.baselineContent ?? '', /Version two\./);
+        assert.match(preview.preview.baselineContent ?? '', /Version two changed after preview\./);
         assert.equal(preview.preview.skill.managedUpdateStatus, 'local_modified');
         assert.ok(preview.preview.summary.changedLineCount > 0);
 
@@ -859,6 +914,8 @@ Version two.`, 'utf8');
         const baselineStat = await lstat(baselinePath);
         assert.equal(baselineStat.isSymbolicLink(), true);
         assert.match(await readFile(join(workspaceRoot, 'skills', 'deck-helper', 'SKILL.md'), 'utf8'), /Version one\./);
+        const skills = await listInstalledSkills(workspaceRoot, { managedSourceRoot: sourceRoot });
+        assert.equal(skills.find((skill) => skill.id === 'deck-helper')?.managedUpdateStatus, 'update_available');
       } finally {
         await rm(sourceRoot, { recursive: true, force: true });
         await rm(outside, { recursive: true, force: true });
@@ -1095,9 +1152,9 @@ name: Writer
       /useEffect\(\(\) => \{\s*skillActionMountedRef\.current = true;[\s\S]*?return \(\) => \{\s*skillActionMountedRef\.current = false;\s*pendingSkillActionRef\.current = null;\s*\};\s*\}, \[\]\)/,
       'Skills actions must release pending ownership when the module unmounts',
     );
-    assert.match(skillsModuleMain, /async function runSkillAction\(/);
-    assert.match(skillsModuleMain, /if \(!action \|\| pendingSkillActionRef\.current !== null\) return;/, 'Skills actions must reject duplicate clicks immediately');
-    assert.match(skillsModuleMain, /pendingSkillActionRef\.current = actionKey[\s\S]*setPendingSkillAction\(actionKey\)[\s\S]*await action\(\)/, 'Skills actions must show pending state while waiting for renderer IPC');
+    assert.match(skillsModuleMain, /async function runSkillAction<Result>\(/);
+    assert.match(skillsModuleMain, /if \(!action \|\| pendingSkillActionRef\.current !== null\) return undefined;/, 'Skills actions must reject duplicate clicks immediately');
+    assert.match(skillsModuleMain, /pendingSkillActionRef\.current = actionKey[\s\S]*setPendingSkillAction\(actionKey\)[\s\S]*return await action\(\)/, 'Skills actions must show pending state while waiting for renderer IPC and preserve action results');
     assert.match(skillsModuleMain, /pendingSkillActionRef\.current = null[\s\S]*if \(skillActionMountedRef\.current\) setPendingSkillAction\(null\)/, 'Skills actions must not clear pending UI state after unmount');
     assert.match(skillsModuleMain, /className="maka-module-main-actions" role="group" aria-label="技能操作"/);
     assert.match(skillsModuleMain, /disabled=\{!props\.onOpenSkillsFolder \|\| skillActionBusy\}/, 'open folder button must be disabled while any Skills action is pending');
@@ -1151,14 +1208,16 @@ name: Writer
     assert.match(skillPanel, /导入本地 Skill/);
     assert.match(skillPanel, /onInstallManagedSkill\?\(sourceId: string\): void \| Promise<void>/);
     assert.match(skillPanel, /onPreviewManagedSkillUpdate\?\(skillId: string\): Promise<ManagedSkillUpdatePreview \| null>/);
-    assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): void \| Promise<void>/);
+    assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): boolean \| Promise<boolean>/);
     assert.match(skillPanel, /onSetSkillEnabled\?\(skillId: string, enabled: boolean\): void \| Promise<void>/);
     assert.match(skillPanel, /<Switch[\s\S]*checked=\{skill\.enabled\}[\s\S]*onCheckedChange=\{\(next\) => props\.onSetSkillEnabled\?\.\(skill\.id, next === true\)\}/);
     assert.match(skillPanel, /<div[\s\S]*className="maka-skill-library-row"[\s\S]*<\/div>/, 'Skill row body must be information, not the open-file control');
     assert.match(skillPanel, /className="maka-skill-library-open-button"[\s\S]*aria-label=\{`打开 \$\{skill\.name\} 的 SKILL\.md`\}/);
     assert.match(skillPanel, /<\/UiButton>\s*<Switch/, 'per-skill enable switch must sit next to the explicit open-file icon button');
+    assert.match(skillPanel, /const updated = await props\.onUpdateManagedSkill\(preview\.skill\.id/);
     assert.match(skillPanel, /expectedCurrentSha256: preview\.expectedCurrentSha256/);
     assert.match(skillPanel, /expectedSourceSha256: preview\.expectedSourceSha256/);
+    assert.match(skillPanel, /if \(updated\) setUpdatePreview\(null\)/);
     assert.match(skillPanel, /skill\.managedUpdateStatus === 'update_available'/);
     assert.match(skillPanel, /skill\.managedUpdateStatus === 'local_modified'/);
     assert.match(skillPanel, /查看更新/);
