@@ -11,11 +11,13 @@ import {
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
-import { Button as UiButton, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
+import { Button as UiButton, Switch, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
 import { Input } from './primitives/input.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
-import type { ManagedSkillSourceEntry, SkillEntry } from './module-panel-types.js';
+import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
+
+const SKILL_UPDATE_PREVIEW_MAX_LINES = 80;
 
 function SkillLibraryPanel(props: {
   skills?: SkillEntry[];
@@ -24,13 +26,16 @@ function SkillLibraryPanel(props: {
   onOpenSkill?(skillId: string): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
-  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
+  onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
+  onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
   actionBusy?: boolean;
   refreshPending?: boolean;
   createPending?: boolean;
   openingSkillId?: string | null;
   installingSourceId?: string | null;
   updatingSkillId?: string | null;
+  togglingSkillId?: string | null;
   searchQuery?: string;
   managedSkillSources?: ManagedSkillSourceEntry[];
 }) {
@@ -44,6 +49,8 @@ function SkillLibraryPanel(props: {
     if (skills.length > 0) return 'builtin';
     return 'market';
   });
+  const [updatePreview, setUpdatePreview] = useState<ManagedSkillUpdatePreview | null>(null);
+  const [reviewingSkillId, setReviewingSkillId] = useState<string | null>(null);
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
     if (!normalizedSkillQuery) return true;
@@ -69,6 +76,28 @@ function SkillLibraryPanel(props: {
     if (!normalizedSkillQuery) return true;
     return `${source.id} ${source.name} ${source.description}`.toLowerCase().includes(normalizedSkillQuery);
   });
+  async function reviewManagedSkillUpdate(skill: SkillEntry) {
+    if (!props.onPreviewManagedSkillUpdate || reviewingSkillId !== null) return;
+    setReviewingSkillId(skill.id);
+    try {
+      const preview = await props.onPreviewManagedSkillUpdate(skill.id);
+      if (preview) setUpdatePreview(preview);
+    } finally {
+      setReviewingSkillId(null);
+    }
+  }
+
+  async function applyManagedSkillUpdate(preview: ManagedSkillUpdatePreview) {
+    if (!props.onUpdateManagedSkill) return;
+    const force = preview.skill.managedUpdateStatus === 'local_modified';
+    const updated = await props.onUpdateManagedSkill(preview.skill.id, {
+      ...(force ? { force: true } : {}),
+      expectedCurrentSha256: preview.expectedCurrentSha256,
+      expectedSourceSha256: preview.expectedSourceSha256,
+    });
+    if (updated) setUpdatePreview(null);
+  }
+
   const templates = (
     <section className="maka-skill-examples" aria-label="技能示例">
       <ul className="maka-skill-example-grid" aria-label="技能模板示例">
@@ -212,23 +241,24 @@ function SkillLibraryPanel(props: {
               const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
               const description = formatSkillLibraryDescription(skill);
               const statusLabel = formatSkillStatusLabel(skill);
+              const runtimeLabel = formatSkillRuntimeLabel(skill);
               const opening = props.openingSkillId === skill.id;
               const updating = props.updatingSkillId === skill.id;
+              const toggling = props.togglingSkillId === skill.id;
+              const reviewing = reviewingSkillId === skill.id;
+              const reviewableManagedUpdate = skill.managedUpdateStatus === 'update_available' || skill.managedUpdateStatus === 'local_modified';
+              const canToggleSkill = Boolean(props.onSetSkillEnabled) && skill.runtimeStatus !== 'state_error';
               const hoverText = tools.length > 0
-                ? `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
-                : `打开技能文件：${skill.id}\n\n来源状态：${statusLabel}`;
+                ? `技能：${skill.id}\n\n运行状态：${runtimeLabel}\n来源状态：${statusLabel}\n声明工具：${toolsLabel}\n权限仍按当前会话策略判断；这里不是授权。`
+                : `技能：${skill.id}\n\n运行状态：${runtimeLabel}\n来源状态：${statusLabel}`;
               return (
-                <li key={skill.id} className="maka-skill-library-item">
-                  <UiButton
-                    type="button"
-                    variant="ghost"
+                <li key={skill.id} className="maka-skill-library-item" data-runtime-status={skill.runtimeStatus}>
+                  <div
                     className="maka-skill-library-row"
-                    onClick={() => props.onOpenSkill?.(skill.id)}
-                    disabled={props.actionBusy}
                     title={hoverText}
                   >
                     <span className="maka-skill-library-status" aria-hidden="true">
-                      {opening ? <Loader2 size={16} strokeWidth={1.8} /> : <Sparkles size={16} strokeWidth={1.8} />}
+                      <Sparkles size={16} strokeWidth={1.8} />
                     </span>
                     <span className="maka-skill-library-copy">
                       <span className="maka-skill-library-name">{skill.name}</span>
@@ -238,24 +268,42 @@ function SkillLibraryPanel(props: {
                     </span>
                     <span className="maka-skill-library-meta">
                       <span>{skill.id}</span>
-                      <span>{statusLabel}</span>
+                      <span className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</span>
+                      <span className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</span>
                       {opening && <span>打开中…</span>}
                       {updating && <span>更新中…</span>}
+                      {toggling && <span>切换中…</span>}
+                      {reviewing && <span>审查中…</span>}
                     </span>
-                    <span className="maka-skill-library-action" aria-hidden="true">
-                      {skill.managedUpdateStatus === 'update_available' ? '可更新' : '打开'}
-                    </span>
-                    <span className="maka-skill-library-switch" aria-hidden="true" data-state="on" />
+                  </div>
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    className="maka-skill-library-open-button"
+                    onClick={() => props.onOpenSkill?.(skill.id)}
+                    disabled={props.actionBusy || !props.onOpenSkill}
+                    aria-label={`打开 ${skill.name} 的 SKILL.md`}
+                    title="打开 SKILL.md"
+                  >
+                    {opening ? <Loader2 size={15} strokeWidth={1.75} aria-hidden="true" /> : <FileEdit size={15} strokeWidth={1.75} aria-hidden="true" />}
                   </UiButton>
-                  {skill.managedUpdateStatus === 'update_available' && props.onUpdateManagedSkill && (
+                  <Switch
+                    className="maka-skill-library-runtime-switch"
+                    checked={skill.enabled}
+                    disabled={props.actionBusy || !canToggleSkill}
+                    aria-label={skill.enabled ? `停用 ${skill.name}` : `启用 ${skill.name}`}
+                    title={skill.runtimeStatus === 'state_error' ? '当前项目的 Skill 状态文件异常' : skill.enabled ? '当前项目中 agent 可以使用此技能' : '当前项目中 agent 不会看到或加载此技能'}
+                    onCheckedChange={(next) => props.onSetSkillEnabled?.(skill.id, next === true)}
+                  />
+                  {reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
                     <UiButton
                       type="button"
                       variant="ghost"
                       className="maka-skill-market-install"
-                      onClick={() => props.onUpdateManagedSkill?.(skill.id)}
-                      disabled={props.actionBusy}
+                      onClick={() => void reviewManagedSkillUpdate(skill)}
+                      disabled={props.actionBusy || reviewingSkillId !== null}
                     >
-                      {updating ? '更新中…' : '更新'}
+                      {reviewing ? '审查中…' : skill.managedUpdateStatus === 'local_modified' ? '查看差异' : '查看更新'}
                     </UiButton>
                   )}
                 </li>
@@ -330,6 +378,57 @@ function SkillLibraryPanel(props: {
     </section>
   );
 
+  const updateReview = updatePreview ? (
+    <section className="maka-skill-governance-review" aria-label="Skill 更新审查">
+      <div className="maka-skill-section-row">
+        <span className="maka-skill-section-label">更新审查</span>
+        <small>{formatSkillStatusLabel(updatePreview.skill)}</small>
+      </div>
+      <div className="maka-skill-governance-summary">
+        <span>{updatePreview.skill.name}</span>
+        <span>{updatePreview.skill.managedSourceId ? `来源 ${updatePreview.skill.managedSourceId}` : '受管理来源'}</span>
+        <span>{updatePreview.skill.hasManagedBaseline ? '已有基线' : '缺少基线'}</span>
+        <span>{updatePreview.summary.currentLineCount} → {updatePreview.summary.sourceLineCount} 行</span>
+        <span>{updatePreview.summary.changedLineCount} 行不同</span>
+      </div>
+      {updatePreview.skill.managedUpdateStatus === 'local_modified' && (
+        <p className="maka-skill-governance-warning">
+          工作区副本已有本地修改。继续更新会用来源库版本覆盖当前 SKILL.md。
+        </p>
+      )}
+      <div className="maka-skill-diff-grid">
+        <div>
+          <span>当前工作区</span>
+          <pre>{previewText(updatePreview.currentContent)}</pre>
+        </div>
+        <div>
+          <span>来源库版本</span>
+          <pre>{previewText(updatePreview.sourceContent)}</pre>
+        </div>
+      </div>
+      <div className="maka-skill-governance-actions">
+        <UiButton
+          type="button"
+          variant="ghost"
+          className="maka-skill-filter-pill"
+          onClick={() => setUpdatePreview(null)}
+          disabled={props.actionBusy}
+        >
+          取消
+        </UiButton>
+        <UiButton
+          type="button"
+          variant="secondary"
+          className="maka-skill-filter-pill"
+          onClick={() => void applyManagedSkillUpdate(updatePreview)}
+          disabled={props.actionBusy || !props.onUpdateManagedSkill}
+        >
+          {updatePreview.skill.managedUpdateStatus === 'local_modified' ? '覆盖本地修改' : '更新到来源版本'}
+        </UiButton>
+      </div>
+    </section>
+  ) : null;
+
   return (
     <div className="maka-skill-library" aria-busy={props.actionBusy ? 'true' : undefined}>
       {banner}
@@ -339,6 +438,7 @@ function SkillLibraryPanel(props: {
         <TabsPanel value="builtin">{skillList(bundledSkills, normalizedSkillQuery ? '没有匹配的内置技能' : '暂无内置技能', normalizedSkillQuery ? '换一个关键词试试。' : '应用自带的技能会出现在这里。', '内置技能')}</TabsPanel>
         <TabsPanel value="installed">
           {skillList(installedSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}
+          {updateReview}
           {managedSources}
           {templates}
         </TabsPanel>
@@ -450,6 +550,17 @@ function formatSkillStatusLabel(skill: SkillEntry): string {
   return '本地';
 }
 
+function formatSkillRuntimeLabel(skill: SkillEntry): string {
+  if (skill.runtimeStatus === 'state_error') return '状态异常';
+  return skill.enabled ? '已启用' : '已停用';
+}
+
+function previewText(content: string): string {
+  const lines = content.replace(/\r\n/g, '\n').split('\n');
+  const clipped = lines.slice(0, SKILL_UPDATE_PREVIEW_MAX_LINES).join('\n');
+  return lines.length > SKILL_UPDATE_PREVIEW_MAX_LINES ? `${clipped}\n...` : clipped;
+}
+
 
 
 export function SkillsModuleMain(props: {
@@ -463,7 +574,9 @@ export function SkillsModuleMain(props: {
   onRefreshManagedSkillSources?(): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
-  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
+  onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
+  onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
 }) {
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
   const [skillSearchQuery, setSkillSearchQuery] = useState('');
@@ -478,15 +591,15 @@ export function SkillsModuleMain(props: {
     };
   }, []);
 
-  async function runSkillAction(
+  async function runSkillAction<Result>(
     actionKey: string,
-    action: (() => void | Promise<void>) | undefined,
+    action: (() => Result | Promise<Result>) | undefined,
   ) {
-    if (!action || pendingSkillActionRef.current !== null) return;
+    if (!action || pendingSkillActionRef.current !== null) return undefined;
     pendingSkillActionRef.current = actionKey;
     setPendingSkillAction(actionKey);
     try {
-      await action();
+      return await action();
     } finally {
       if (pendingSkillActionRef.current === actionKey) {
         pendingSkillActionRef.current = null;
@@ -556,13 +669,17 @@ export function SkillsModuleMain(props: {
         onOpenSkill={props.onOpenSkill ? (skillId) => runSkillAction(`open:${skillId}`, () => props.onOpenSkill?.(skillId)) : undefined}
         onImportManagedSkillSource={props.onImportManagedSkillSource ? () => runSkillAction('source:import', props.onImportManagedSkillSource) : undefined}
         onInstallManagedSkill={props.onInstallManagedSkill ? (sourceId) => runSkillAction(`source:install:${sourceId}`, () => props.onInstallManagedSkill?.(sourceId)) : undefined}
-        onUpdateManagedSkill={props.onUpdateManagedSkill ? (skillId) => runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId)) : undefined}
+        onPreviewManagedSkillUpdate={props.onPreviewManagedSkillUpdate}
+        onUpdateManagedSkill={props.onUpdateManagedSkill ? async (skillId, options) =>
+          (await runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options))) === true : undefined}
+        onSetSkillEnabled={props.onSetSkillEnabled ? (skillId, enabled) => runSkillAction(`runtime:set:${skillId}`, () => props.onSetSkillEnabled?.(skillId, enabled)) : undefined}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}
         createPending={pendingSkillAction === 'create'}
         openingSkillId={pendingSkillAction?.startsWith('open:') ? pendingSkillAction.slice('open:'.length) : null}
         installingSourceId={pendingSkillAction?.startsWith('source:install:') ? pendingSkillAction.slice('source:install:'.length) : null}
         updatingSkillId={pendingSkillAction?.startsWith('managed:update:') ? pendingSkillAction.slice('managed:update:'.length) : null}
+        togglingSkillId={pendingSkillAction?.startsWith('runtime:set:') ? pendingSkillAction.slice('runtime:set:'.length) : null}
         searchQuery={skillSearchQuery}
       />
     </main>

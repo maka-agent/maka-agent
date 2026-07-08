@@ -1,0 +1,94 @@
+import type { PermissionProfile } from '@maka/core/permission-profile';
+
+export type SandboxType = 'none' | 'macos-seatbelt' | 'linux';
+
+export type SandboxablePreference = 'auto' | 'require' | 'forbid';
+
+export type SandboxPlatform = NodeJS.Platform | (string & {});
+
+export type SandboxSelectionReason = 'platform_sandbox_selected' | 'sandbox_not_required';
+
+export type SandboxTransformFailureReason =
+  | 'unsupported_platform'
+  | 'backend_not_available'
+  | 'backend_not_implemented'
+  | 'sandbox_required'
+  | 'invalid_request';
+
+export interface SandboxPathContext {
+  workspaceRoots: readonly string[];
+  tmpdir?: string;
+  slashTmp?: string;
+  minimalRoots?: readonly string[];
+}
+
+export interface SandboxCommand {
+  program: string;
+  args: readonly string[];
+  cwd: string;
+  env?: Readonly<Record<string, string | undefined>>;
+  profile: PermissionProfile;
+  pathContext: SandboxPathContext;
+}
+
+export interface SandboxExecRequest {
+  argv: readonly string[];
+  cwd: string;
+  env?: Readonly<Record<string, string | undefined>>;
+  sandboxType: SandboxType;
+  effectiveProfile: PermissionProfile;
+}
+
+export interface SandboxSelectionInput {
+  profile: PermissionProfile;
+  preference?: SandboxablePreference;
+  platform?: SandboxPlatform;
+}
+
+export type SandboxSelectionResult =
+  | {
+      ok: true;
+      sandboxType: SandboxType;
+      requiresSandbox: boolean;
+      reason: SandboxSelectionReason;
+      platform: SandboxPlatform;
+      preference: SandboxablePreference;
+    }
+  | {
+      ok: false;
+      reason: SandboxTransformFailureReason;
+      sandboxType?: SandboxType;
+      requiresSandbox: boolean;
+      platform: SandboxPlatform;
+      preference: SandboxablePreference;
+      message?: string;
+    };
+
+export interface SandboxTransformRequest {
+  command: SandboxCommand;
+  preference?: SandboxablePreference;
+  platform?: SandboxPlatform;
+}
+
+export type SandboxTransformResult =
+  | {
+      ok: true;
+      exec: SandboxExecRequest;
+      sandboxType: SandboxType;
+      requiresSandbox: boolean;
+      preference: SandboxablePreference;
+    }
+  | {
+      ok: false;
+      reason: SandboxTransformFailureReason;
+      sandboxType?: SandboxType;
+      requiresSandbox: boolean;
+      platform: SandboxPlatform;
+      preference: SandboxablePreference;
+      message?: string;
+    };
+
+export interface SandboxBackend {
+  readonly type: Exclude<SandboxType, 'none'>;
+  transform(request: SandboxTransformRequest): SandboxTransformResult;
+}

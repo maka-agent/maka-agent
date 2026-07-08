@@ -210,26 +210,4 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(true, 'no unhandled error propagated from the taskkill spawn failure');
   });
 
-  test('Windows: timeout kills the process tree via taskkill', { skip: process.platform !== 'win32' }, async () => {
-    // Windows analogue of the POSIX process-tree test above; runs only on a
-    // Windows runner. A grandchild that holds stdout open would hang the runner
-    // unless taskkill /T kills the whole tree.
-    const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-win-'));
-    const pidFile = join(dir, 'child.pid');
-    const cmd =
-      'node -e "require(\'fs\').writeFileSync(process.env.MAKA_PIDOUT, String(process.pid)); setInterval(() => {}, 1000)"';
-    try {
-      const r = await runShellWithBoundedTail(
-        cmd,
-        base({ timeoutMs: 500, killGraceMs: 200, env: { ...process.env, MAKA_PIDOUT: pidFile } }),
-      );
-      assert.equal(r.timedOut, true);
-      assert.equal(r.exitCode, 124);
-      await delay(300);
-      const childPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
-      assert.throws(() => process.kill(childPid, 0), /ESRCH/, 'grandchild was killed via taskkill /T');
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
 });

@@ -198,6 +198,49 @@ export {
   preToolUse,
 } from './permission.js';
 
+// permission-profile.ts
+export type {
+  PermissionProfile,
+  PermissionProfileDisabled,
+  PermissionProfileExternal,
+  PermissionProfileManaged,
+  PermissionProfileMatchContext,
+  PermissionProfileName,
+  FileSystemAccessMode,
+  FileSystemProtectedMetadataPolicy,
+  FileSystemSandboxEntry,
+  FileSystemSandboxKind,
+  FileSystemSandboxPolicy,
+  FileSystemSpecialPath,
+  NetworkSandboxKind,
+  NetworkSandboxPolicy,
+  ProtectedMetadataName,
+} from './permission-profile.js';
+export {
+  FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_SANDBOX_KINDS,
+  FILE_SYSTEM_SPECIAL_PATHS,
+  NETWORK_SANDBOX_KINDS,
+  PROTECTED_METADATA_NAMES,
+  canReadPath,
+  canWritePath,
+  createDangerFullAccessPermissionProfile,
+  createExternalPermissionProfile,
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+  isDeniedPath,
+  isProtectedMetadataPath,
+} from './permission-profile.js';
+
+// permission-profile-compiler.ts
+export type {
+  CompilePermissionProfileInput,
+  CompiledPermissionProfile,
+} from './permission-profile-compiler.js';
+export {
+  compilePermissionProfile,
+} from './permission-profile-compiler.js';
+
 // permission-request-health.ts
 export type {
   PermissionRequestHealth,
@@ -672,6 +715,13 @@ export {
   isConnectionReady,
   isRealConnection,
 } from './connection-readiness.js';
+
+// connection-error-copy.ts — shared not-ready-connection fix copy
+export {
+  describeChatConfigurationReason,
+  parseNoRealConnectionError,
+} from './connection-error-copy.js';
+export type { ParsedNoRealConnectionError } from './connection-error-copy.js';
 
 // session-name.ts (PR-UI-IPC-2)
 export type { NormalizeSessionNameResult } from './session-name.js';

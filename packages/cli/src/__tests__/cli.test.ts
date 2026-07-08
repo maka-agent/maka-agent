@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, test } from 'node:test';
-import { parseMakaCliArgs } from '../cli.js';
+import { parseMakaCliArgs, formatStartupConnectionError } from '../cli.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -57,5 +57,39 @@ describe('Maka CLI args', () => {
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('startup connection-error guidance', () => {
+  const workspaceRoot = '/tmp/maka-workspace';
+
+  test('translates a missing default connection into actionable first-run help', () => {
+    const guidance = formatStartupConnectionError(
+      new Error('NO_REAL_CONNECTION:missing_default_connection'),
+      workspaceRoot,
+    );
+    assert.ok(guidance);
+    // Reason-specific fix line (shared core copy) — distinct per reason, so this
+    // asserts the translation ran, not just the static header/footer.
+    assert.match(guidance, /等待配置默认模型/);
+    // Static header plus the CLI-only footer that points at the desktop app and
+    // the on-disk workspace.
+    assert.match(guidance, /还没有可用的模型连接/);
+    assert.match(guidance, /设置 · 模型/);
+    assert.match(guidance, /Maka 桌面应用/);
+    assert.match(guidance, new RegExp(workspaceRoot));
+  });
+
+  test('uses the credential-specific copy for a missing API key', () => {
+    const guidance = formatStartupConnectionError(
+      new Error('NO_REAL_CONNECTION:missing_api_key'),
+      workspaceRoot,
+    );
+    assert.ok(guidance);
+    assert.match(guidance, /API key/);
+  });
+
+  test('returns null for an unrelated startup error so it propagates unchanged', () => {
+    assert.equal(formatStartupConnectionError(new Error('ENOENT: workspace missing'), workspaceRoot), null);
   });
 });

@@ -68,7 +68,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
@@ -927,11 +927,29 @@ contextBridge.exposeInMainWorld('maka', {
     > {
       return ipcRenderer.invoke('skills:installManaged', sourceId);
     },
-    updateManaged(skillId: string): Promise<
+    details(skillId: string): Promise<
+      | { ok: true; details: SkillGovernanceDetails }
+      | { ok: false; reason: 'not_found' | 'invalid_id' }
+    > {
+      return ipcRenderer.invoke('skills:details', skillId);
+    },
+    previewUpdate(skillId: string): Promise<
+      | { ok: true; preview: ManagedSkillUpdatePreview }
+      | { ok: false; reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed' }
+    > {
+      return ipcRenderer.invoke('skills:previewUpdate', skillId);
+    },
+    updateManaged(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<
       | { ok: true; skill: SkillEntry }
       | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
     > {
-      return ipcRenderer.invoke('skills:updateManaged', skillId);
+      return ipcRenderer.invoke('skills:updateManaged', skillId, options);
+    },
+    setEnabled(skillId: string, enabled: boolean): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
     createStarter(): Promise<
       | { ok: true; skill: SkillEntry; filePath: string }

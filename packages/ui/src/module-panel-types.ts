@@ -25,6 +25,54 @@ export interface SkillEntry {
   userModified?: boolean;
   validationStatus?: 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
   managedUpdateStatus?: 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
+  enabled: boolean;
+  runtimeStatus: 'enabled' | 'disabled' | 'state_error';
+}
+
+export type SkillGovernanceStatus = 'not_managed' | 'source_missing' | 'up_to_date' | 'update_available' | 'local_modified' | 'metadata_error';
+export type SkillValidationStatus = 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
+export type SkillValidationCode =
+  | 'missing_lock'
+  | 'modified'
+  | 'invalid_json'
+  | 'id_mismatch'
+  | 'unsupported_schema'
+  | 'invalid_hash'
+  | 'write_failed'
+  | 'lock_symlink';
+
+export interface SkillGovernanceDetails {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  declaredTools: string[];
+  sourceType: 'workspace' | 'bundled' | 'managed' | 'unknown';
+  userModified: boolean;
+  validationStatus: SkillValidationStatus;
+  enabled: boolean;
+  runtimeStatus: 'enabled' | 'disabled' | 'state_error';
+  validationCodes: SkillValidationCode[];
+  validationMessages: string[];
+  managedSourceId?: string;
+  managedUpdateStatus?: SkillGovernanceStatus;
+  hasManagedBaseline: boolean;
+  sourceAvailable?: boolean;
+  sourceChanged?: boolean;
+}
+
+export interface ManagedSkillUpdatePreview {
+  skill: SkillGovernanceDetails;
+  currentContent: string;
+  sourceContent: string;
+  baselineContent?: string;
+  expectedCurrentSha256: string;
+  expectedSourceSha256: string;
+  summary: {
+    currentLineCount: number;
+    sourceLineCount: number;
+    changedLineCount: number;
+  };
 }
 
 export interface ManagedSkillSourceEntry {

@@ -843,8 +843,15 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
 
   const text = plainResultText(entry);
   if (!text) return undefined;
-  if (entry.toolName === 'Read') {
-    const lineCount = text.split('\n').length;
+  // Only a successful filesystem Read that carries real file content gets the
+  // line/byte summary — the same guard the expanded card uses. A runtime
+  // resource, errored, or archived Read falls through to the generic first-line
+  // summary so its status shows instead of a fabricated count.
+  if (entry.toolName === 'Read'
+    && entry.status !== 'error'
+    && isFilesystemReadPath(entry)
+    && isReadBodyResult(result)) {
+    const lineCount = readBodyLineCount(text);
     return {
       text: `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`,
       expandable: true,
@@ -936,6 +943,103 @@ function renderToolText(text: string, width: number): string[] {
   return renderIndented(limitText(text, 12_000), width, 2);
 }
 
+// Expanding a tool card should reveal enough to orient, not replay a whole
+// file or command dump into the transcript. Long output collapses to its first
+// and last few lines with a hidden-count marker; diffs are the deliberate
+// exception (rendered in full) because the whole change is the point.
+const EXPANDED_TOOL_HEAD_LINES = 3;
+const EXPANDED_TOOL_TAIL_LINES = 3;
+
+/**
+ * Render tool output for the expanded card, keeping at most the first
+ * `EXPANDED_TOOL_HEAD_LINES` and last `EXPANDED_TOOL_TAIL_LINES` source lines
+ * with a dim marker in between. `style` colors the content lines (e.g. dim for
+ * stderr); the marker is always dim.
+ */
+function renderCappedResultText(
+  text: string,
+  width: number,
+  style: (line: string) => string = (line) => line,
+): string[] {
+  // Command output almost always ends in a newline; splitting raw would count
+  // that trailing empty string as a line, capping 7 real lines as if they were
+  // 8 and spending a tail slot on a blank. Drop trailing newlines before both
+  // the cap decision and the slice so the head/tail counts are real lines.
+  const trimmed = text.replace(/\n+$/, '');
+  const sourceLines = trimmed.split('\n');
+  if (sourceLines.length <= EXPANDED_TOOL_HEAD_LINES + EXPANDED_TOOL_TAIL_LINES + 1) {
+    return renderToolText(trimmed, width).map(style);
+  }
+  const hidden = sourceLines.length - EXPANDED_TOOL_HEAD_LINES - EXPANDED_TOOL_TAIL_LINES;
+  const head = sourceLines.slice(0, EXPANDED_TOOL_HEAD_LINES).join('\n');
+  const tail = sourceLines.slice(sourceLines.length - EXPANDED_TOOL_TAIL_LINES).join('\n');
+  return [
+    ...renderToolText(head, width).map(style),
+    ...renderIndented(ansi.dim(`⋯ ${hidden} lines hidden ⋯`), width, 2),
+    ...renderToolText(tail, width).map(style),
+  ];
+}
+
+/**
+ * Line count for a Read body, dropping only the single conventional EOF newline
+ * so `foo\n` counts as one line while a real trailing blank line is preserved
+ * (`a\n\n` is two lines, `\n` is one). Shared by the compact and expanded
+ * summaries so the same card can never flip its line count when toggled.
+ */
+function readBodyLineCount(text: string): number {
+  if (text === '') return 0;
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return body.split('\n').length;
+}
+
+function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
+  const text = plainResultText(entry);
+  // Byte count keeps the full content, since that is the file's real size on
+  // disk; the line count drops the trailing newline (see readBodyLineCount).
+  const lineCount = readBodyLineCount(text);
+  const summary = `Read ${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
+  return renderIndented(ansi.dim(summary), width, 2);
+}
+
+function readInputPath(entry: MakaPiToolEntry): string | undefined {
+  const input = entry.input;
+  const path = input !== null && typeof input === 'object'
+    ? (input as { path?: unknown }).path
+    : undefined;
+  return typeof path === 'string' && path.length > 0 ? path : undefined;
+}
+
+/** A Read whose path is a real file, not a `maka://runtime/...` resource. */
+function isFilesystemReadPath(entry: MakaPiToolEntry): boolean {
+  const path = readInputPath(entry);
+  return path !== undefined && !path.startsWith('maka://runtime/');
+}
+
+/** A Read of a `maka://runtime/...` resource (background-task output, etc.). */
+function isRuntimeResourceReadPath(entry: MakaPiToolEntry): boolean {
+  return readInputPath(entry)?.startsWith('maka://runtime/') ?? false;
+}
+
+/**
+ * True only for the result shapes a filesystem Read uses to carry actual file
+ * content. An `archived_tool_result` placeholder (or any other kind) is not a
+ * read body, so it renders its own status instead of a fabricated line count.
+ */
+function isReadBodyResult(result: ToolResultContent | undefined): boolean {
+  if (result?.kind === 'text') return true;
+  // A json Read body is the `{ content: string }` shape the file loader
+  // returns; any other json (e.g. an `{ error }` payload) is a status object,
+  // not file content, and should render its real shape rather than a
+  // fabricated line/byte count.
+  if (result?.kind === 'json') {
+    const value = result.value;
+    return value !== null
+      && typeof value === 'object'
+      && typeof (value as { content?: unknown }).content === 'string';
+  }
+  return false;
+}
+
 /**
  * Render live `tool_output_delta` chunks. Chunks are de-duped and ordered by
  * `seq` (so a late or repeated seq cannot corrupt the display), consecutive
@@ -946,7 +1050,7 @@ function renderToolStreams(deltas: readonly MakaPiToolOutputDelta[], width: numb
   const lines: string[] = [];
   for (const group of groupOutputDeltas(deltas)) {
     lines.push(fitLine(ansi.dim(`[${group.stream}]`), width));
-    lines.push(...renderToolText(group.text, width).map(ansi.dim));
+    lines.push(...renderCappedResultText(group.text, width, ansi.dim));
   }
   return lines;
 }
@@ -974,11 +1078,50 @@ function groupOutputDeltas(
 
 function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   const result = entry.result;
+  // A `maka://runtime/...` resource Read surfaces live state (background-task
+  // metadata + stdout/stderr) that only lives in the transcript. Its body opens
+  // with several metadata/separator lines, so a head/tail cap would hide the very
+  // output the user expanded to see — render it in full.
+  if (entry.toolName === 'Read' && isRuntimeResourceReadPath(entry)) {
+    return renderToolText(plainResultText(entry), width);
+  }
+  // A successful filesystem Read that returned real file content pulled it into
+  // the model's context; the transcript only needs to note that it happened, so
+  // skip the content and keep a summary. Everything else falls through to render
+  // its content: a failed Read (its error), and — critically — an
+  // `archived_tool_result` placeholder, so its not_loaded/missing status stays
+  // visible instead of being mistaken for a one-line file.
+  if (entry.toolName === 'Read'
+    && entry.status !== 'error'
+    && isFilesystemReadPath(entry)
+    && isReadBodyResult(result)) {
+    return renderReadSummary(entry, width);
+  }
   if (result?.kind === 'terminal') return renderTerminalResult(result, width);
+  // A background `shell_run` carries process metadata (ref, status, exit) the
+  // head/tail cap must never hide — otherwise a failed or timed-out background
+  // command looks the same as a successful one. Render the status in full and
+  // cap only the stdout/stderr stream bodies.
+  if (result?.kind === 'shell_run') return renderShellRunResult(entry, result, width);
+  // Diffs are the deliberate exception to the head/tail cap: the whole change
+  // is what the user is expanding to see.
   if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
   if (result?.kind === 'file_write') {
     return renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2);
   }
+  // A generic `text` dump — a Bash body or raw tool text — is what the head/tail
+  // cap targets: the model already holds the full body, so the transcript only
+  // needs enough to orient. An undefined result with a formatted `output` string
+  // is treated the same way. `json` is deliberately excluded: a Read json is
+  // summarized above, a Grep/Glob json is a structured list the user expands to
+  // scan in full, and any other json collapses to a single inline line where the
+  // cap would be a no-op anyway.
+  if (result === undefined || result.kind === 'text') {
+    return renderCappedResultText(plainResultText(entry), width);
+  }
+  // Everything else — json lists (Grep/Glob), agent reports, web-search results,
+  // subagent / workflow summaries, office-doc output — is content the user
+  // expands to read in full, so render it without the cap, like a diff.
   return renderToolText(plainResultText(entry), width);
 }
 
@@ -1011,11 +1154,59 @@ function renderTerminalResult(
     lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
   }
   if (content.stdout) {
-    lines.push(...renderToolText(content.stdout, width));
+    lines.push(...renderCappedResultText(content.stdout, width));
   }
   if (content.stderr) {
     lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
-    lines.push(...renderToolText(content.stderr, width).map(ansi.dim));
+    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
+  }
+  return lines;
+}
+
+/**
+ * Render a `shell_run` (background-process) result. The status line — status,
+ * exit code, failure message, and the run `ref` — is always shown in full so a
+ * head/tail cap can never hide whether the command failed or timed out; only
+ * the stdout/stderr stream bodies are capped.
+ */
+function renderShellRunResult(
+  entry: MakaPiToolEntry,
+  content: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  width: number,
+): string[] {
+  const lines: string[] = [];
+  // The command/cwd live on the result. The Bash input summary shows only the
+  // command's first line (`command.split('\n')[0]`), so skip the result-side
+  // `$ cmd` only when the input already shows the whole command — a single-line
+  // command. A multiline command, or a ref-only StopBackgroundTask input,
+  // renders the full command here so none of it is lost. The cwd is in neither
+  // input summary, so show it once here.
+  const input = entry.input;
+  const command = input !== null && typeof input === 'object'
+    ? (input as { command?: unknown }).command
+    : undefined;
+  const inputShowsFullCommand = typeof command === 'string'
+    && command.trim() !== ''
+    && !command.includes('\n');
+  if (!inputShowsFullCommand) {
+    lines.push(...renderIndented(ansi.dim(`$ ${content.cmd}`), width, 2));
+  }
+  lines.push(...renderIndented(ansi.dim(`cwd: ${content.cwd}`), width, 2));
+  const settled = content.status !== 'running' && content.status !== 'completed';
+  const parts: string[] = [content.status];
+  if (content.exitCode !== undefined) parts.push(`exit ${content.exitCode}`);
+  if (content.failureMessage) parts.push(content.failureMessage);
+  const head = parts.join(' · ');
+  // Keep the colored status and the dim ref as separate ansi spans; nesting one
+  // inside the other would let the inner reset terminate the outer color early.
+  const statusLine = `${settled ? ansi.red(head) : ansi.dim(head)} ${ansi.dim(`(${content.ref})`)}`;
+  lines.push(...renderIndented(statusLine, width, 2));
+  if (content.stdout) {
+    lines.push(...renderCappedResultText(content.stdout, width));
+  }
+  if (content.stderr) {
+    lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
+    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
   }
   return lines;
 }

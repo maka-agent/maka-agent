@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -57,10 +58,23 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       process.stderr.write(`${command.message}\n\n${helpText()}\n`);
       return command.exitCode;
     case 'run': {
-      const context = await createMakaCliRuntimeContext({
-        workspaceRoot: resolveMakaWorkspaceRoot(),
-        cwd: process.cwd(),
-      });
+      const workspaceRoot = resolveMakaWorkspaceRoot();
+      let context;
+      try {
+        context = await createMakaCliRuntimeContext({
+          workspaceRoot,
+          cwd: process.cwd(),
+        });
+      } catch (error) {
+        // A missing / misconfigured connection is the first thing a new user
+        // hits. Translate the raw `NO_REAL_CONNECTION:<reason>` throw into
+        // actionable guidance; let anything else propagate to the top-level
+        // handler unchanged.
+        const guidance = formatStartupConnectionError(error, workspaceRoot);
+        if (guidance === null) throw error;
+        process.stderr.write(`${guidance}\n`);
+        return 1;
+      }
       try {
         const driver = createMakaSessionDriver({
           runtime: context.runtime,
@@ -85,6 +99,31 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
       }
     }
   }
+}
+
+/**
+ * Turn a startup failure into first-run connection guidance, or `null` when the
+ * error is not a `NO_REAL_CONNECTION` failure (so the caller re-throws it). The
+ * reason-specific line reuses the shared core copy; the footer explains the CLI
+ * has no in-app settings — connections are configured in the desktop app, which
+ * writes the same workspace this CLI reads.
+ */
+export function formatStartupConnectionError(error: unknown, workspaceRoot: string): string | null {
+  // `resolveDefaultSessionTarget` is the only producer of `NO_REAL_CONNECTION`
+  // on this startup path. A matched error with an unknown reason still yields
+  // generic fix copy below; a non-match returns null so the real error keeps
+  // propagating to the top-level handler unchanged.
+  const { matched, reason } = parseNoRealConnectionError(error);
+  if (!matched) return null;
+  return [
+    '无法启动 Maka：还没有可用的模型连接。',
+    '',
+    describeChatConfigurationReason(reason),
+    '',
+    'Maka CLI 复用 Maka 桌面应用的配置。请打开 Maka 桌面应用，在 设置 · 模型',
+    '添加并启用一个模型连接（含 API key），然后重新运行 maka。',
+    `连接与凭据存储于：${workspaceRoot}`,
+  ].join('\n');
 }
 
 async function readPackageVersion(): Promise<string> {

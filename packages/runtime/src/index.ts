@@ -159,6 +159,37 @@ export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
 export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
+  MACOS_SEATBELT_BASE_POLICY,
+  MACOS_SEATBELT_EXECUTABLE,
+  MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
+  MacosSeatbeltBackend,
+  SandboxManager,
+  buildSeatbeltPolicy,
+  createDefaultSandboxManager,
+  createSeatbeltExecArgs,
+  escapeSeatbeltRegex,
+} from './sandbox/index.js';
+export type {
+  BuildSeatbeltPolicyInput,
+  BuildSeatbeltPolicyResult,
+  CreateSeatbeltExecArgsInput,
+} from './sandbox/index.js';
+export type {
+  SandboxBackend,
+  SandboxCommand,
+  SandboxExecRequest,
+  SandboxPathContext,
+  SandboxPlatform,
+  SandboxSelectionInput,
+  SandboxSelectionReason,
+  SandboxSelectionResult,
+  SandboxTransformFailureReason,
+  SandboxTransformRequest,
+  SandboxTransformResult,
+  SandboxType,
+  SandboxablePreference,
+} from './sandbox/index.js';
+export {
   AGENT_CONTEXT_ISOLATED,
   AGENT_INVOCATION_FOREGROUND,
   AGENT_WORKSPACE_SAME_WORKSPACE,

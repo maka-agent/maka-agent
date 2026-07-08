@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { ManagedSkillSourceEntry, SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from '@maka/ui';
 import { createSkillFailureCopy, openSkillFailureCopy } from './app-shell-copy';
 import { createOpenSkillAction } from './app-shell-open-skill-action';
 
@@ -15,7 +15,9 @@ export interface AppShellSkillActions {
   createSkillTemplate(): Promise<void>;
   importManagedSkillSource(): Promise<void>;
   installManagedSkill(sourceId: string): Promise<void>;
-  updateManagedSkill(skillId: string): Promise<void>;
+  previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
+  updateManagedSkill(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<boolean>;
+  setSkillEnabled(skillId: string, enabled: boolean): Promise<void>;
   openSkill(skillId: string): Promise<void>;
 }
 
@@ -106,18 +108,56 @@ export function createAppShellSkillActions(deps: {
     }
   }
 
-  async function updateManagedSkill(skillId: string) {
+  async function previewManagedSkillUpdate(skillId: string): Promise<ManagedSkillUpdatePreview | null> {
     try {
-      const result = await window.maka.skills.updateManaged(skillId);
+      const result = await window.maka.skills.previewUpdate(skillId);
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) toastApi.error('无法预览 Skill 更新', managedPreviewFailureCopy(result.reason));
+        return null;
+      }
+      return result.preview;
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法预览 Skill 更新', generalizedErrorMessageChinese(error, '无法预览 Skill 更新，请稍后重试。'));
+      }
+      return null;
+    }
+  }
+
+  async function updateManagedSkill(skillId: string, options: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string } = {}): Promise<boolean> {
+    try {
+      const result = await window.maka.skills.updateManaged(skillId, options);
       if (!result.ok) {
         if (isSkillsSurfaceActive()) toastApi.error('无法更新 Skill', managedUpdateFailureCopy(result.reason));
-        return;
+        return false;
       }
       await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
-      if (isSkillsSurfaceActive()) toastApi.success('已更新 Skill', `${result.skill.id}/SKILL.md 已更新到来源库版本。`);
+      if (isSkillsSurfaceActive()) {
+        toastApi.success(options.force ? '已覆盖更新 Skill' : '已更新 Skill', `${result.skill.id}/SKILL.md 已更新到来源库版本。`);
+      }
+      return true;
     } catch (error) {
       if (isSkillsSurfaceActive()) {
         toastApi.error('无法更新 Skill', generalizedErrorMessageChinese(error, '无法更新 Skill，请稍后重试。'));
+      }
+      return false;
+    }
+  }
+
+  async function setSkillEnabled(skillId: string, enabled: boolean) {
+    try {
+      const result = await window.maka.skills.setEnabled(skillId, enabled);
+      if (!result.ok) {
+        if (isSkillsSurfaceActive()) toastApi.error('无法切换 Skill', skillRuntimeFailureCopy(result.reason));
+        return;
+      }
+      await refreshSkills({ shouldShowError: isSkillsSurfaceActive });
+      if (isSkillsSurfaceActive()) {
+        toastApi.success(enabled ? '已启用 Skill' : '已停用 Skill', `${result.skill.name} 已更新当前项目的运行状态。`);
+      }
+    } catch (error) {
+      if (isSkillsSurfaceActive()) {
+        toastApi.error('无法切换 Skill', generalizedErrorMessageChinese(error, '无法切换 Skill，请稍后重试。'));
       }
     }
   }
@@ -128,7 +168,9 @@ export function createAppShellSkillActions(deps: {
     createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
+    previewManagedSkillUpdate,
     updateManagedSkill,
+    setSkillEnabled,
     openSkill,
   };
 }
@@ -155,4 +197,19 @@ function managedUpdateFailureCopy(reason: 'not_managed' | 'source_missing' | 'lo
   if (reason === 'metadata_error') return 'Skill 元数据异常，不能安全更新。';
   if (reason === 'blocked_path') return '目标路径不允许写入。';
   return '写入工作区失败，请检查文件权限。';
+}
+
+function managedPreviewFailureCopy(reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed'): string {
+  if (reason === 'not_managed') return '这个 Skill 不是受管理来源。';
+  if (reason === 'source_missing') return '来源库中找不到对应来源。';
+  if (reason === 'metadata_error') return 'Skill 元数据异常，不能安全预览。';
+  if (reason === 'blocked_path') return '目标路径不允许读取。';
+  return '读取 Skill 内容失败，请检查文件权限。';
+}
+
+function skillRuntimeFailureCopy(reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed'): string {
+  if (reason === 'not_found') return '当前工作区找不到这个 Skill。';
+  if (reason === 'blocked_path') return 'Skill 状态路径不允许写入。';
+  if (reason === 'state_error') return '当前工作区的 Skill 状态文件异常，需要先修复。';
+  return '写入当前项目的 Skill 状态失败，请检查文件权限。';
 }

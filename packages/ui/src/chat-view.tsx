@@ -38,6 +38,7 @@ import type {
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
   ManagedSkillSourceEntry,
+  ManagedSkillUpdatePreview,
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
   SkillEntry,
@@ -244,7 +245,9 @@ export function ChatView(props: {
   onRefreshManagedSkillSources?(): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
-  onUpdateManagedSkill?(skillId: string): void | Promise<void>;
+  onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
+  onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
+  onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
   planReminders?: PlanReminder[];
   onRefreshPlanReminders?: () => void | Promise<void>;
   onCreatePlanReminder?(input: PlanReminderDraftInput): boolean | Promise<boolean> | void | Promise<void>;
@@ -421,7 +424,9 @@ export function ChatView(props: {
           onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
           onImportManagedSkillSource={props.onImportManagedSkillSource}
           onInstallManagedSkill={props.onInstallManagedSkill}
+          onPreviewManagedSkillUpdate={props.onPreviewManagedSkillUpdate}
           onUpdateManagedSkill={props.onUpdateManagedSkill}
+          onSetSkillEnabled={props.onSetSkillEnabled}
         />
       </Suspense>
     );

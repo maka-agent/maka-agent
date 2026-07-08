@@ -863,7 +863,9 @@ export function AppShell({
     createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
+    previewManagedSkillUpdate,
     updateManagedSkill,
+    setSkillEnabled,
     openSkill,
   } = createAppShellSkillActions({
     isSkillsSurfaceActive,
@@ -1455,7 +1457,9 @@ export function AppShell({
                 onOpenSkillsFolder={() => openSkillsFolder()}
                 onImportManagedSkillSource={() => importManagedSkillSource()}
                 onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
-                onUpdateManagedSkill={(skillId) => updateManagedSkill(skillId)}
+                onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
+                onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
+                onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
                 planReminders={planReminders}
                 onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
                 onCreatePlanReminder={(input) => createPlanReminder(input)}
