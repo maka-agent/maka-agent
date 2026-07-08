@@ -167,10 +167,17 @@
     display: inline-flex;
     align-items: center;
     min-height: 20px;
+    /* Detail audit round 4: these are non-clickable guidance labels sitting
+       in the same row as a REAL button (测试凭据) — bare text next to a
+       button read as broken controls. A quiet filled label form makes the
+       affordance difference legible. */
+    padding: var(--space-0-5) var(--space-2);
     border-radius: var(--radius-control);
+    background: var(--foreground-5);
+    color: var(--muted-foreground);
     white-space: nowrap;
     font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
+    font-weight: var(--font-weight-medium);
   }
 .settingsAuthContractBadge {
     padding: var(--space-0-5) var(--space-2);
