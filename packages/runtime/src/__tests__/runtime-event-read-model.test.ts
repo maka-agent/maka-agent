@@ -608,6 +608,31 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     });
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['incomplete_event']);
   });
+
+  test('projects tool_call stepId from refs so the UI timeline keeps step pairing', () => {
+    const stepCall = (id: string, stepId?: string) => ev({
+      id: `evt-${id}`,
+      role: 'model' as const,
+      author: 'agent' as const,
+      content: {
+        kind: 'function_call' as const,
+        id,
+        name: 'Read',
+        args: { path: '/tmp/a.txt' },
+      },
+      refs: { toolCallId: id, ...(stepId ? { stepId } : {}) },
+    });
+
+    const withStep = projectRuntimeEventsToStoredMessages([stepCall('tool-step', 'step-1')], { runHeaders: [header] });
+    expect(withStep.messages[0]).toMatchObject({ type: 'tool_call', id: 'tool-step', stepId: 'step-1' });
+
+    // Legacy events without refs.stepId must not grow a stepId key: the UI
+    // uses its absence to pick the backward-compatible tools-first ordering.
+    const withoutStep = projectRuntimeEventsToStoredMessages([stepCall('tool-legacy')], { runHeaders: [header] });
+    const legacyCall = withoutStep.messages[0];
+    expect(legacyCall).toMatchObject({ type: 'tool_call', id: 'tool-legacy' });
+    expect(legacyCall && 'stepId' in legacyCall).toBe(false);
+  });
 });
 
 describe('compareRuntimeReadModelMessages', () => {

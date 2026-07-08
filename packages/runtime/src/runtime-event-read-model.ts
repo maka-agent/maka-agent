@@ -473,6 +473,10 @@ function projectFunctionCall(
     ...(stringStateDelta(event, 'intent') !== undefined
       ? { intent: stringStateDelta(event, 'intent') }
       : {}),
+    // Carry the step pairing through the projection: without it, sessions
+    // rebuilt from the runtime event log lose the tool↔step association and
+    // the UI timeline falls back to legacy tools-before-text ordering.
+    ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
     args: event.content.args,
   });
   return true;
