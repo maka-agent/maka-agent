@@ -36,15 +36,10 @@
 .maka-bubble-assistant {
   padding: var(--space-0-5) 0 0;
 }
-/* Streaming caret rides the last text line: the caret is
-   `.maka-bubble-streaming::after`, and after a block-level trailing <p> it
-   would wrap onto its own anonymous line. Inline the trailing paragraph
-   only while streaming. (PR #212 used `:nth-last-child(2)` variants of
-   this + the margin reset above because the bubble then ended with an
-   inline timestamp child; the timestamp moved to the turn footer and the
-   stale hacks instead zeroed/inlined the second-to-last *markdown* block —
-   issue #546 Phase B.) */
-.maka-bubble-streaming > p:last-child { display: inline; }
+/* The streaming ▎ caret + its trailing-<p> inline hack were retired by the
+   streaming UI rework: the "still writing" signal is now the per-word fade-in
+   (@keyframes maka-stream-fade-in, wrapped by markdown-body's rehype pass), so
+   the trailing paragraph keeps its normal block layout. */
 
 /* --- Hover-revealed copy button on assistant messages -------------------- */
 /* The wrapper is position: relative so the button can anchor to the top-right
@@ -130,29 +125,6 @@
   color: var(--destructive);
   background: oklch(from var(--destructive) l c h / 0.08);
   opacity: 1;
-}
-
-/* --- Streaming caret ------------------------------------------------------ */
-/* External design reference uses the half-block glyph ▎ tinted with --accent.
-   Subtler than a full ▋ and gives the impression of motion via the glyph shape
-   itself; we still gently pulse opacity. */
-.maka-bubble-streaming::after {
-  content: "▎";
-  display: inline-block;
-  margin-left: var(--space-0-5);
-  color: var(--status-running);
-  animation: maka-cursor 1.1s var(--ease-in-out-strong) infinite;
-  vertical-align: -2px;
-}
-@keyframes maka-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-/* When the truncation badge (`role="status"`, chat-view.tsx) is the last
-   child, the caret sits after the badge instead of the text. Accepted: the
-   badge does NOT mean the stream froze — `applyAssistantDelta` also sets
-   `truncated` for a single over-large delta (per-delta cap) while later
-   deltas keep appending, so hiding the caret there would kill a live
-   indicator. CSS can't tell the two truncation kinds apart. */
-@media (prefers-reduced-motion: reduce) {
-  .maka-bubble-streaming::after { animation: none; opacity: 1; }
 }
 
 /* --- User-turn meta row (relocated from tool-output.css) ----------------- */

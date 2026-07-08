@@ -1458,6 +1458,27 @@
   from { background-position: 150% 0; }
   to   { background-position: -150% 0; }
 }
+
+/* Governance-level keyframe for the streaming per-word fade-in (streaming UI
+   rework) — the replacement for the retired ▎ blink caret. markdown-body's
+   rehype pass wraps each freshly streamed word/char (after the stable
+   boundary) in `.maka-stream-fade` with a negative `animation-delay` (= -age)
+   so the entrance resumes mid-flight across React re-renders instead of
+   re-flashing. Only opacity animates (no layout). The wrapping is skipped
+   entirely under reduced-motion / visual-smoke (the smoother's snap path), so
+   this never freezes text at opacity 0 in a deterministic capture. */
+@keyframes maka-stream-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.maka-stream-fade {
+  /* --duration-large (280ms) is the fade window; FADE_MS in stream-fade.ts is
+     pinned to the same 280 so the negative animation-delay (= -age) lands at
+     the right point in the curve. Motion durations must come from a
+     var(--duration-*) token (motion-token-converge contract), so the window is
+     retuned there, not with a bare ms here. */
+  animation: maka-stream-fade-in var(--duration-large) var(--ease-out-strong) both;
+}
 .maka-shimmer {
   background-image: linear-gradient(
     90deg,

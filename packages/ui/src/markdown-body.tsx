@@ -31,6 +31,7 @@ import {
 } from './maka-uri.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { MakaUriContext } from './markdown.js';
+import { streamFadeRehypePlugin, type StreamFade } from './stream-fade.js';
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [
@@ -39,11 +40,14 @@ const MARKDOWN_REHYPE_PLUGINS = [
   [rehypeHighlight, { detect: true, ignoreMissing: true }],
 ] as const;
 
-export function MarkdownBody(props: { text: string }) {
+export function MarkdownBody(props: { text: string; streamFade?: StreamFade }) {
+  const rehypePlugins = props.streamFade
+    ? [...MARKDOWN_REHYPE_PLUGINS, streamFadeRehypePlugin(props.streamFade)]
+    : MARKDOWN_REHYPE_PLUGINS;
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-      rehypePlugins={MARKDOWN_REHYPE_PLUGINS as never}
+      rehypePlugins={rehypePlugins as never}
       components={{
         // PR-UI-RENDER-2: route `maka://` links through the internal
         // URI parser so the assistant can drop in-app navigation
