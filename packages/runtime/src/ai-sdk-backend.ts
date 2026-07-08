@@ -2256,7 +2256,9 @@ export class AiSdkBackend implements AgentBackend {
     // ledger) is INTENTIONALLY dropped at the end: a standalone tool message
     // with no preceding tool_use in an assistant message is an Anthropic 400.
     // The old item-by-item materializer emitted such orphans; do not "fix" this
-    // back — the plan already flags them as `unmatched_tool_result`.
+    // back — the plan flags them as `unmatched_tool_result` (a non-blocking
+    // diagnostic precisely so this drop path is reachable; see
+    // hasBlockingReplayDiagnostics).
     const pushToolResults = (calls: readonly ToolCallItem[]) => {
       for (const call of calls) {
         const result = results.get(call.toolCallId);
@@ -2566,10 +2568,13 @@ function stableStringifyForSignature(value: unknown): string {
 }
 
 function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {
+  // `unmatched_tool_result` is deliberately NOT blocking: the materializer
+  // drops an orphan tool result (its call sliced away or the ledger corrupt)
+  // on its own — see pushToolResults — so one orphan must not degrade the
+  // whole ledger to stored-message projection.
   return plan.diagnostics.some((diagnostic) =>
     diagnostic.code === 'unsupported_role' ||
     diagnostic.code === 'unsupported_content' ||
-    diagnostic.code === 'unmatched_tool_result' ||
     diagnostic.code === 'tool_id_mismatch'
   );
 }

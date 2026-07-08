@@ -2512,7 +2512,11 @@ describe('AiSdkBackend model history', () => {
     assert.equal(prompt.includes('large fold source fact 0'), false);
   });
 
-  test('uses StoredMessage projection when RuntimeEvent tool results are unmatched', async () => {
+  test('keeps RuntimeEvent replay when a tool result is unmatched (orphan dropped, rest replayed)', async () => {
+    // `unmatched_tool_result` is a non-blocking diagnostic: the materializer
+    // drops the orphan itself (a standalone tool message is an Anthropic 400),
+    // so the ledger stays on RuntimeEvent replay instead of falling back to
+    // StoredMessage projection.
     const model = completionModel();
     const backend = new AiSdkBackend({
       sessionId: 'session-1',
@@ -2547,9 +2551,9 @@ describe('AiSdkBackend model history', () => {
       ],
     }));
 
+    // RuntimeEvent replay (not the StoredMessage projection), orphan gone.
     assert.deepEqual(compactPrompt(model), [
-      { role: 'user', content: [{ type: 'text', text: 'projection user' }] },
-      { role: 'assistant', content: [{ type: 'text', text: 'projection assistant' }] },
+      { role: 'user', content: [{ type: 'text', text: 'runtime user' }] },
       { role: 'user', content: [{ type: 'text', text: 'current user' }] },
     ]);
   });
@@ -5848,6 +5852,61 @@ describe('AiSdkBackend thinking persistence', () => {
     const promptJson = JSON.stringify(prompt);
     assert.match(promptJson, /sig-interleaved/);
     assert.match(promptJson, /"toolCallId":"tool-1"/);
+  });
+
+  test('an orphan tool_result does not degrade replay: dropped, while paired history replays provider-native', async () => {
+    // Codex P2: `unmatched_tool_result` must not be a blocking diagnostic — the
+    // materializer intentionally drops the orphan (a standalone tool message is
+    // an Anthropic 400), so one orphan must not push the whole ledger back to
+    // stored-message projection. Paired call/result and the step's signed
+    // reasoning must all still reach the provider request.
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const priorEvents: SessionEvent[] = [
+      // Orphan: result with no prior tool_start (its call was sliced away).
+      { type: 'tool_result', id: 'e0', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-orphan', isError: false, content: { kind: 'text', text: 'orphan payload' } },
+      // Paired per-step tool call + result + signed reasoning + text.
+      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
+      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 3, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
+      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: 'plan the read', signature: 'sig-paired' },
+      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 5, messageId: 'm1', text: 'the answer' },
+    ];
+    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = compactPrompt(secondModel) as Array<{ role: string; content: unknown }>;
+    const promptJson = JSON.stringify(prompt);
+    // Provider-native replay happened: reasoning + signature + paired tool pair.
+    assert.match(promptJson, /"type":"reasoning"/);
+    assert.match(promptJson, /sig-paired/);
+    assert.match(promptJson, /"toolCallId":"tool-1"/);
+    assert.match(promptJson, /file contents/);
+    // The orphan result is dropped — no tool message for it anywhere.
+    assert.doesNotMatch(promptJson, /tool-orphan/);
+    assert.doesNotMatch(promptJson, /orphan payload/);
   });
 
   test('signed thinking from a legacy (unpaired) tool turn is NOT replayed as a stray reasoning block', async () => {
