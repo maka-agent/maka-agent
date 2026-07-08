@@ -389,6 +389,14 @@ SandboxTransformResult
 - [ ] 保留 Windows taskkill 逻辑，但 Windows sandbox 本轮不实现。
 - [ ] 保留现有 `runShellWithBoundedTail()`，作为 shell-string compatibility path。
 
+> 具体方案：Phase 5 只在 `packages/runtime/src/shell-exec.ts` 增加 argv-based process runner，不改变现有 `WorkspaceExecutor.exec()`、Bash tool 或 ToolRuntime 行为。现有命令继续走 `runShellWithBoundedTail(command)`；Phase 6 再把 Bash 接到 `SandboxManager.transform() -> runProcessWithBoundedTail(argv)`。
+>
+> 新增公开 API：`runProcessWithBoundedTail(argv: readonly string[], options: BoundedProcessOptions): Promise<BoundedProcessResult>`。`argv[0]` 是 program，`argv.slice(1)` 是 args，执行时使用 `spawn(program, args, { shell: false })`，不会把 argv 再拼回 shell string。`argv` 为空表示调用方没有提供可执行程序，属于“进程无法启动”类错误，直接 reject 明确错误；命令本身非 0 exit code 仍然 resolve result，保持现有 runner 契约。
+>
+> 类型命名采用通用 process 语义：新增 `BoundedProcessOptions` 与 `BoundedProcessResult`，并保留 `BoundedShellOptions`、`BoundedShellResult` 作为兼容别名。内部抽共享执行函数，统一处理 stdout/stderr streaming、bounded tail、live output cap、timeout、abort、POSIX process group termination、Windows `taskkill` 和 exit result 归一化。两个公开函数只负责选择不同 spawn 方式：shell-string path 使用 `shell: true`，argv path 使用 `shell: false`。
+>
+> Phase 5 明确不实现 sandbox 接入、不改变 Bash tool 调用路径、不处理内置 Read/Write/Edit/Glob/Grep 的 OS sandbox 兜底。它只补齐“可以直接执行 Phase 4 产出的 sandbox wrapper argv”的底层能力。
+
 验收标准：
 
 - 现有 Bash 行为不回退。

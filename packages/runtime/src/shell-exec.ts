@@ -61,7 +61,7 @@ export function shellTailValueWithUnsafeDropMarker(buf: BashTailBuffer): string 
   return text ? `${text}\n${UNSAFE_DROP_MARKER}` : UNSAFE_DROP_MARKER;
 }
 
-export interface BoundedShellOptions {
+export interface BoundedProcessOptions {
   cwd: string;
   /** Hard wall-clock cap; the child is SIGTERM'd and `timedOut` is set. */
   timeoutMs: number;
@@ -79,7 +79,7 @@ export interface BoundedShellOptions {
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
 }
 
-export interface BoundedShellResult {
+export interface BoundedProcessResult {
   exitCode: number;
   /** Last `maxRetainedChars` of stdout (line-aligned; see BashTailBuffer). */
   stdout: string;
@@ -95,6 +95,9 @@ export interface BoundedShellResult {
   aborted: boolean;
 }
 
+export type BoundedShellOptions = BoundedProcessOptions;
+export type BoundedShellResult = BoundedProcessResult;
+
 /**
  * Run `command` in a shell, streaming output into a memory-bounded tail. Never
  * kills the command for producing too much output — it keeps only the last
@@ -108,23 +111,59 @@ export function runShellWithBoundedTail(
   command: string,
   options: BoundedShellOptions,
 ): Promise<BoundedShellResult> {
+  return runSpawnedProcessWithBoundedTail(() => spawn(command, {
+    cwd: options.cwd,
+    env: options.env,
+    shell: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    // POSIX: make the shell its own process-group leader (setsid) so we can
+    // signal the WHOLE tree on timeout/abort. Killing only the shell PID would
+    // leave its children running — and if one keeps the stdout/stderr pipe
+    // open, 'close' never fires and the runner hangs. Not unref'd: we keep
+    // tracking it until it exits. Windows has no process groups; we use
+    // taskkill /T instead (see terminateTree).
+    detached: process.platform !== 'win32',
+  }), options);
+}
+
+/**
+ * Run an argv command directly, without shell reparsing. This is used for
+ * sandbox wrapper commands such as:
+ *   ['/usr/bin/sandbox-exec', '-p', policy, '--', '/bin/zsh', '-lc', command]
+ *
+ * It shares the same bounded-output, timeout, abort, and process-tree
+ * termination contract as runShellWithBoundedTail.
+ */
+export function runProcessWithBoundedTail(
+  argv: readonly string[],
+  options: BoundedProcessOptions,
+): Promise<BoundedProcessResult> {
+  const program = argv[0];
+  if (!program) return Promise.reject(new Error('Cannot run process with empty argv'));
+  return runSpawnedProcessWithBoundedTail(() => spawn(program, argv.slice(1), {
+    cwd: options.cwd,
+    env: options.env,
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+  }), options);
+}
+
+function runSpawnedProcessWithBoundedTail(
+  spawnChild: () => ChildProcess,
+  options: BoundedProcessOptions,
+): Promise<BoundedProcessResult> {
   const cap = options.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
   const liveCap = options.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
   const graceMs = options.killGraceMs ?? SIGKILL_GRACE_MS;
-  return new Promise<BoundedShellResult>((resolvePromise, reject) => {
-    const child = spawn(command, {
-      cwd: options.cwd,
-      env: options.env,
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // POSIX: make the shell its own process-group leader (setsid) so we can
-      // signal the WHOLE tree on timeout/abort. Killing only the shell PID would
-      // leave its children running — and if one keeps the stdout/stderr pipe
-      // open, 'close' never fires and the runner hangs. Not unref'd: we keep
-      // tracking it until it exits. Windows has no process groups; we use
-      // taskkill /T instead (see terminateTree).
-      detached: process.platform !== 'win32',
-    });
+  return new Promise<BoundedProcessResult>((resolvePromise, reject) => {
+    let child: ChildProcess;
+    try {
+      child = spawnChild();
+    } catch (error) {
+      reject(error);
+      return;
+    }
     const stdoutBuf = new BashTailBuffer(cap);
     const stderrBuf = new BashTailBuffer(cap);
     let stdoutChars = 0;

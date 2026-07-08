@@ -154,8 +154,13 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
-export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export type {
+  BoundedProcessOptions,
+  BoundedProcessResult,
+  BoundedShellOptions,
+  BoundedShellResult,
+} from './shell-exec.js';
 export {
   MACOS_SEATBELT_BASE_POLICY,
   MACOS_SEATBELT_EXECUTABLE,

@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
+import { runProcessWithBoundedTail, runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -152,4 +152,103 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(true, 'no unhandled error propagated from the taskkill spawn failure');
   });
 
+});
+
+describe('runProcessWithBoundedTail', () => {
+  test('runs argv directly and captures stdout, stderr, and exit 0', async () => {
+    const script = "process.stdout.write('hello\\n'); process.stderr.write('warn\\n');";
+    const r = await runProcessWithBoundedTail([process.execPath, '-e', script], base());
+    assert.deepEqual(
+      { exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut, aborted: r.aborted },
+      { exitCode: 0, stdout: 'hello\n', stderr: 'warn\n', timedOut: false, aborted: false },
+    );
+  });
+
+  test('captures a non-zero exit code as data without rejecting', async () => {
+    const script = "process.stderr.write('oops\\n'); process.exit(3);";
+    const r = await runProcessWithBoundedTail([process.execPath, '-e', script], base());
+    assert.equal(r.exitCode, 3);
+    assert.equal(r.stderr, 'oops\n');
+    assert.equal(r.stdout, '');
+  });
+
+  test('rejects empty argv because no program can be spawned', async () => {
+    await assert.rejects(
+      () => runProcessWithBoundedTail([], base()),
+      /Cannot run process with empty argv/,
+    );
+  });
+
+  test('executes wrapper-style argv without a shell reparse', async () => {
+    const r = await runProcessWithBoundedTail(['/usr/bin/env', 'printf', 'wrapped\\n'], base());
+    assert.equal(r.exitCode, 0);
+    assert.equal(r.stdout, 'wrapped\n');
+    assert.equal(r.stderr, '');
+  });
+
+  test('times out a slow argv process, kills it, and reports timedOut', async () => {
+    const script = 'setInterval(() => {}, 1000);';
+    const r = await runProcessWithBoundedTail([process.execPath, '-e', script], base({ timeoutMs: 150 }));
+    assert.equal(r.timedOut, true);
+    assert.equal(r.exitCode, 124);
+  });
+
+  test('aborts an argv process and reports aborted', async () => {
+    const ac = new AbortController();
+    const script = 'setInterval(() => {}, 1000);';
+    const promise = runProcessWithBoundedTail([process.execPath, '-e', script], base({
+      abortSignal: ac.signal,
+      killGraceMs: 150,
+    }));
+    setTimeout(() => ac.abort(), 50);
+    const r = await promise;
+    assert.equal(r.aborted, true);
+    assert.equal(r.exitCode, 130);
+  });
+
+  test('keeps only the bounded tail of large argv output', async () => {
+    const script = "console.log('HEADMARK'); for (let i = 1; i <= 50; i++) console.log(i); console.log('TAILMARK');";
+    const r = await runProcessWithBoundedTail([process.execPath, '-e', script], base({ maxRetainedChars: 12 }));
+    assert.equal(r.exitCode, 0);
+    assert.ok(r.stdout.includes('TAILMARK'), 'tail retained');
+    assert.ok(!r.stdout.includes('HEADMARK'), 'head dropped');
+    assert.ok(r.stdout.length <= 12, `tail bounded to cap, got ${r.stdout.length}`);
+    assert.equal(r.stdoutTruncated, true);
+  });
+
+  test('emits argv output live via emitOutput', async () => {
+    const seen: Array<[string, string]> = [];
+    const script = "process.stdout.write('aaa'); process.stderr.write('bbb');";
+    await runProcessWithBoundedTail(
+      [process.execPath, '-e', script],
+      base({ emitOutput: (s: 'stdout' | 'stderr', c: string) => seen.push([s, c]) }),
+    );
+    assert.ok(seen.some(([s, c]) => s === 'stdout' && c.includes('aaa')));
+    assert.ok(seen.some(([s, c]) => s === 'stderr' && c.includes('bbb')));
+  });
+
+  test('on timeout, kills the argv process group so children cannot keep running', async () => {
+    const dir = await fs.mkdtemp(join(tmpdir(), 'process-exec-tree-'));
+    const pidFile = join(dir, 'child.pid');
+    const childScript = `require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);`;
+    const parentScript = `
+      const { spawn } = require('node:child_process');
+      spawn(${JSON.stringify(process.execPath)}, ['-e', ${JSON.stringify(childScript)}], { stdio: 'inherit' });
+      setInterval(() => {}, 1000);
+    `;
+    try {
+      const r = await runProcessWithBoundedTail(
+        [process.execPath, '-e', parentScript],
+        base({ timeoutMs: 200, killGraceMs: 150 }),
+      );
+      assert.equal(r.timedOut, true);
+      assert.equal(r.exitCode, 124);
+      await delay(150);
+      const childPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
+      assert.ok(Number.isInteger(childPid) && childPid > 0, 'child recorded its pid');
+      assert.throws(() => process.kill(childPid, 0), /ESRCH/, 'child was killed with the process group');
+    } finally {
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
 });
