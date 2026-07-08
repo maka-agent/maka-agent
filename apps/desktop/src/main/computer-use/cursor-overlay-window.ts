@@ -18,7 +18,7 @@
  * inject a fake window factory + bounds resolver.
  */
 import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BrowserWindowConstructorOptions, Rectangle } from 'electron';
 
@@ -113,8 +113,18 @@ export function cursorOverlayWindowOptions(bounds: Rectangle, preloadPath: strin
 }
 
 function defaultOverlayDistDir(): string {
-  // Compiled to dist/main/computer-use/cursor-overlay-window.js → dist/overlay is ../../overlay.
-  return join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'overlay');
+  // Robust to BOTH layouts: prod tsc compiles this to dist/main/computer-use/*.js,
+  // while `npm run dev` esbuild-bundles it into dist/main/main.js — either way the
+  // overlay lives at <dist>/overlay. Walk up to the 'dist' root and join 'overlay'.
+  const start = dirname(fileURLToPath(import.meta.url));
+  let dir = start;
+  for (let i = 0; i < 6; i++) {
+    if (basename(dir) === 'dist') return join(dir, 'overlay');
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return join(start, '..', '..', 'overlay'); // fallback: assume dist/main/computer-use
 }
 
 export function createCursorOverlayController(

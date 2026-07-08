@@ -7,7 +7,7 @@
 //     main file. This file compiles to dist/main/computer-use/cua-driver-path.js,
 //     so apps/desktop is three levels up (../../../ from dist/main/computer-use).
 import { existsSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BINARY_NAME = 'cua-driver';
@@ -17,15 +17,20 @@ function currentResourcesPath(): string {
 }
 
 function devBinaryPath(): string {
-  return resolve(
-    dirname(fileURLToPath(import.meta.url)),
-    '..',
-    '..',
-    '..',
-    'resources',
-    'bin',
-    BINARY_NAME,
-  );
+  // Robust to BOTH build layouts: prod tsc emits dist/main/computer-use/*.js,
+  // while `npm run dev` esbuild-bundles into dist/main/main.js — either way the
+  // repo binary lives at <desktop>/resources/bin. Walk up to the 'dist' root,
+  // whose parent is <desktop>, then join resources/bin. (A naive fixed-depth
+  // `../../../` is wrong for the bundled layout and silently hides the binary.)
+  const start = dirname(fileURLToPath(import.meta.url));
+  let dir = start;
+  for (let i = 0; i < 6; i++) {
+    if (basename(dir) === 'dist') return join(dirname(dir), 'resources', 'bin', BINARY_NAME);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return resolve(start, '..', '..', '..', 'resources', 'bin', BINARY_NAME);
 }
 
 /**
@@ -40,12 +45,20 @@ export function cuaDriverBinaryPath(resourcesPath = currentResourcesPath()): str
 }
 
 /**
- * Resolve the cua-driver binary, returning the first existing candidate. In prod
- * only the packaged path is checked; in dev only the repo path. Returns null
- * when the binary is absent so callers can fail closed with a typed CU error
- * (permission/availability) rather than spawning a missing path.
+ * Resolve the cua-driver binary, returning the first existing candidate. Tries
+ * the packaged location (resourcesPath/bin) AND the dev repo path, because in an
+ * unpackaged dev run `process.resourcesPath` is set to Electron's OWN Resources
+ * dir (not Maka's) — so a resourcesPath-only check would look in the wrong place
+ * and silently hide the binary, dropping the whole `computer` capability. Returns
+ * null when absent so callers fail closed with a typed CU error.
  */
 export function resolveCuaDriverBinaryPath(resourcesPath = currentResourcesPath()): string | null {
-  const candidate = cuaDriverBinaryPath(resourcesPath);
-  return existsSync(candidate) ? candidate : null;
+  const candidates: string[] = [];
+  if (resourcesPath) candidates.push(join(resourcesPath, 'bin', BINARY_NAME));
+  const dev = devBinaryPath();
+  if (!candidates.includes(dev)) candidates.push(dev);
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
 }

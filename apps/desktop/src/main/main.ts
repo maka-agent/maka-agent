@@ -389,6 +389,7 @@ const computerUse = selectComputerUseBackend({
   overlay: createComputerUseOverlayHook(computerUseOverlay, screen),
 });
 const computerUseTools = computerUse.tools;
+console.log(`[cu-startup] backend=${computerUse.backendId} tools=${computerUseTools.length}`);
 const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
@@ -1756,7 +1757,56 @@ app.whenReady().then(async () => {
   // Keep the process alive until background work settles so schedulers
   // / bridges aren't torn down mid-start by a fast window-all-closed.
   await backgroundStartup;
+  await maybeRunComputerUseE2e();
 });
+
+/**
+ * DEV-ONLY end-to-end harness for the computer-use agent cursor. When
+ * MAKA_CU_E2E_PROMPT is set (and unpackaged), auto-runs one real natural-language
+ * turn against the real connection/runtime/tools so the overlay can be exercised
+ * without GUI typing. Auto-approves permission requests, logs tool activity, and
+ * forwards events to the renderer so the chat shows the turn. Never runs normally.
+ */
+async function maybeRunComputerUseE2e(): Promise<void> {
+  const prompt = process.env.MAKA_CU_E2E_PROMPT;
+  if (!prompt || app.isPackaged) return;
+  try {
+    const mode = (process.env.MAKA_CU_E2E_MODE ?? 'bypass') as Parameters<typeof runtime.createSession>[0]['permissionMode'];
+    const slug = await connectionStore.getDefault();
+    const { connection, model } = await getReadyConnection(slug, undefined);
+    const session = await runtime.createSession({
+      cwd: workspaceRoot,
+      backend: 'ai-sdk',
+      llmConnectionSlug: connection.slug,
+      model,
+      permissionMode: mode,
+      name: 'CU E2E',
+    });
+    emitSessionsChanged('created', session.id);
+    console.log(`[cu-e2e] session=${session.id} mode=${mode} conn=${connection.slug} model=${model}`);
+    console.log(`[cu-e2e] prompt: ${prompt}`);
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(session.id, { turnId, text: prompt });
+    for await (const event of iterator) {
+      safeSendToRenderer(`sessions:event:${session.id}`, event);
+      const e = event as { type?: string; requestId?: string; name?: string; toolName?: string; args?: unknown; content?: unknown; text?: string };
+      if (e.type === 'permission_request' && e.requestId) {
+        console.log('[cu-e2e] auto-approve permission', e.requestId);
+        await runtime.respondToPermission(session.id, { requestId: e.requestId, decision: 'allow', rememberForTurn: true });
+      } else if (e.type === 'tool_start') {
+        console.log('[cu-e2e] tool_start', e.name ?? e.toolName, JSON.stringify(e.args ?? {}).slice(0, 220));
+      } else if (e.type === 'tool_result') {
+        console.log('[cu-e2e] tool_result', JSON.stringify(e.content ?? e.text ?? '').slice(0, 320));
+      } else if (e.type === 'complete' || e.type === 'error' || e.type === 'abort') {
+        console.log(`[cu-e2e] turn ${e.type}`);
+      }
+    }
+    computerUseOverlay.clearForSession(session.id);
+    console.log('[cu-e2e] done');
+  } catch (error) {
+    console.error('[cu-e2e] FAILED:', error);
+  }
+}
 
 /**
  * Non-critical startup work that must NOT block the first window paint.
