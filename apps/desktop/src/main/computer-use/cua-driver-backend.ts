@@ -291,6 +291,59 @@ function toOutcome(result: JsonRpcResponse['result'], tierVerified: boolean | un
 export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatchBackend & { dispose: () => void } {
   const client = new CuaDriverClient(opts);
 
+  // Cached backing scale (device px per logical point). The model's click
+  // coordinate is in get_desktop_state DEVICE pixels; window bounds from
+  // list_windows are in logical SCREEN POINTS, so we convert with this.
+  let scaleFactor: number | undefined;
+  async function getScale(signal: AbortSignal): Promise<number> {
+    if (scaleFactor && scaleFactor > 0) return scaleFactor;
+    try {
+      const r = await client.callTool('get_screen_size', {}, signal);
+      const sc = r?.structuredContent ?? {};
+      const sf = typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
+      scaleFactor = sf;
+      return sf;
+    } catch {
+      return 1;
+    }
+  }
+
+  interface ResolvedWindow { pid: number; windowId: number; localX: number; localY: number }
+
+  /**
+   * Resolve the frontmost on-screen app window under a DEVICE-pixel click point,
+   * mirroring cua-driver's own scope:'desktop' resolution (screen-point space,
+   * layer-0, highest z_index wins). Returns the target pid + window_id + the
+   * window-local DEVICE coordinate. Null when NO app window owns the pixel (empty
+   * desktop) — where cua-driver would warp the real cursor, so we must refuse.
+   * Excludes non-layer-0 windows, which also excludes Maka's always-on-top overlay.
+   */
+  async function resolveWindowAt(deviceX: number, deviceY: number, signal: AbortSignal): Promise<ResolvedWindow | null> {
+    const scale = await getScale(signal);
+    const sx = deviceX / scale;
+    const sy = deviceY / scale;
+    const r = await client.callTool('list_windows', {}, signal);
+    const wins = (r?.structuredContent?.windows ?? []) as Array<Record<string, unknown>>;
+    const containing = wins
+      .filter((w) => {
+        const b = w.bounds as { x: number; y: number; width: number; height: number } | undefined;
+        return w.layer === 0 && w.is_on_screen !== false && b
+          && sx >= b.x && sx < b.x + b.width && sy >= b.y && sy < b.y + b.height
+          && typeof w.pid === 'number' && typeof w.window_id === 'number';
+      })
+      .sort((a, b) => (Number(b.z_index) || 0) - (Number(a.z_index) || 0));
+    const w = containing[0];
+    if (!w) return null;
+    const b = w.bounds as { x: number; y: number };
+    // window-local DEVICE px = model device coord − window origin (device).
+    return {
+      pid: w.pid as number,
+      windowId: w.window_id as number,
+      localX: deviceX - b.x * scale,
+      localY: deviceY - b.y * scale,
+    };
+  }
+
   return {
     async preflight(signal) {
       const r = await client.callTool('check_permissions', { prompt: false }, signal);
@@ -325,24 +378,32 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         case 'right_click':
         case 'middle_click':
         case 'double_click':
-        case 'triple_click':
-          // FAIL CLOSED — cua-driver's scope:'desktop' (no-pid) click synthesizes a
-          // GLOBAL CGEvent that WARPS THE REAL CURSOR (empirically confirmed on a
-          // live run). That crosses the non-negotiable "never steal the cursor" red
-          // line. The no-warp path is click{pid, window_id, x, y} (CGEventPostToPid,
-          // 0px cursor move) OR the AX element path — both need resolving the target
-          // window+pid at the coordinate (a window-at-point hit-test), which is not
-          // wired yet. Until then we refuse rather than warp the user's cursor.
-          return {
-            outcome: {
-              ok: false,
-              error: 'unsupported_action',
-              message:
-                `'${action.type}' is disabled on the cua-driver backend: its desktop-scope click moves the user's REAL cursor. `
-                + 'A background click that does not touch the cursor requires window/pid targeting, not yet wired. '
-                + '(screenshot + mouse_move — the visual agent cursor — remain available.)',
-            },
-          };
+        case 'triple_click': {
+          // Resolve the window under the point and click via pid+window_id, which
+          // forces cua-driver's click_at_xy_with_window_local → CGEventPostToPid /
+          // SLEventPostToPid — NO cursor warp (unlike windowless scope:'desktop',
+          // which CGWarpMouseCursorPositions the REAL cursor). Fail closed when no
+          // app window owns the pixel (empty desktop), where the only path warps.
+          const win = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          if (!win) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message:
+                  `no app window under the click point (empty desktop / wallpaper) — refusing '${action.type}': `
+                  + "the only backend path there warps the user's real cursor. Click on an app window instead.",
+              },
+            };
+          }
+          const args: Record<string, unknown> = { pid: win.pid, window_id: win.windowId, x: win.localX, y: win.localY };
+          if (action.type === 'right_click') args.button = 'right';
+          if (action.type === 'middle_click') args.button = 'middle';
+          if (action.type === 'double_click') args.count = 2;
+          if (action.type === 'triple_click') args.count = 3;
+          const r = await client.callTool('click', args, signal);
+          return { outcome: toOutcome(r, undefined) };
+        }
         case 'scroll':
           // Same hazard as click: desktop-scope scroll warps the real cursor. Fail closed.
           return {

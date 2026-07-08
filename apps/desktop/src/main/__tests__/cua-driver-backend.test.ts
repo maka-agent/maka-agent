@@ -77,6 +77,15 @@ function handle(msg) {
       case 'scroll':
         reply(id, { content: [{ type: 'text', text: 'scrolled' }], structuredContent: {} });
         return;
+      case 'get_screen_size':
+        reply(id, { content: [], structuredContent: { width: 1512, height: 982, scale_factor: 2 } });
+        return;
+      case 'list_windows':
+        // One layer-0 window covering screen-points (100,100)-(700,500).
+        reply(id, { content: [], structuredContent: { windows: [
+          { window_id: 77, pid: 4242, layer: 0, is_on_screen: true, z_index: 5, bounds: { x: 100, y: 100, width: 600, height: 400 } },
+        ] } });
+        return;
       case 'list_apps':
         // No frontmost app → the backend cannot resolve a target pid.
         reply(id, { content: [], structuredContent: { apps: [{ pid: 4242, frontmost: false }] } });
@@ -230,25 +239,42 @@ describe('cua-driver backend', () => {
     assert.ok(Buffer.from(res.screenshot!.base64, 'base64').byteLength > 0);
   });
 
-  it('click / scroll fail closed and are NEVER sent to cua-driver (desktop-scope warps the real cursor)', async () => {
+  it('click on an app window → pid+window_id path (no cursor warp), NEVER scope:desktop', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
+    // scale=2; window covers screen-points (100,100)-(700,500). Device (600,400) →
+    // screen (300,200) is inside → resolves. window-local device = (600-200, 400-200).
+    const res = await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    assert.equal(res.outcome.ok, true, 'click on a window succeeds');
 
-    for (const action of [
-      { type: 'left_click', coordinate: { x: 10, y: 20 } },
-      { type: 'right_click', coordinate: { x: 30, y: 40 } },
-      { type: 'double_click', coordinate: { x: 50, y: 60 } },
-      { type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 },
-    ] as CuAction[]) {
-      const res = await backend.run(action, sig);
-      assert.equal(res.outcome.ok, false, `${action.type} must fail closed`);
-      if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
-    }
-
-    // The non-negotiable cursor invariant: no click/scroll ever reaches cua-driver.
     const records = await readRecords(logPath);
-    const trace = methodTrace(records);
-    assert.ok(!trace.includes('tools/call:click'), 'click must never be sent (would warp the real cursor)');
+    const click = toolCall(records, 'click');
+    assert.ok(click, 'click was sent to cua-driver');
+    // The non-negotiable invariant: pid+window_id present (forces post_to_pid, no warp),
+    // and NO scope:desktop (the warping path) anywhere.
+    assert.equal(click!.pid, 4242);
+    assert.equal(click!.window_id, 77);
+    assert.equal(click!.x, 400);
+    assert.equal(click!.y, 200);
+    assert.equal(click!.scope, undefined, 'must NOT use scope:desktop (that warps the real cursor)');
+  });
+
+  it('click on empty desktop (no window) fails closed — never warps', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // Device (2000,2000) → screen (1000,1000): outside the mock window → no window.
+    const res = await backend.run({ type: 'left_click', coordinate: { x: 2000, y: 2000 } } as CuAction, sig);
+    assert.equal(res.outcome.ok, false);
+    if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
+    const trace = methodTrace(await readRecords(logPath));
+    assert.ok(!trace.includes('tools/call:click'), 'no click sent when no window (would warp)');
+  });
+
+  it('scroll fails closed (desktop-scope scroll warps the real cursor)', async () => {
+    const { backend, logPath } = makeBackend();
+    const res = await backend.run({ type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, new AbortController().signal);
+    assert.equal(res.outcome.ok, false);
+    const trace = methodTrace(await readRecords(logPath));
     assert.ok(!trace.includes('tools/call:scroll'), 'scroll must never be sent');
   });
 
