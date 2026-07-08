@@ -1670,6 +1670,11 @@ describe('Maka Pi TUI runner', () => {
     // All 12 are in the list (not sliced to 10): the scroll indicator counts the
     // full total, so the window shows "(1/12)".
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/12)'));
+    // And the 12th is genuinely reachable: scrolling down brings it into view,
+    // even though it starts below the visible window.
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('chat 11'), false);
+    for (let i = 0; i < 11; i += 1) terminal.input('\x1b[B');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('chat 11'));
 
     terminal.input('\x1b');
     terminal.input('\x03');
