@@ -135,8 +135,12 @@ function el(tagName: string, children: HastNode[]): HastNode {
   return { type: 'element', tagName, children };
 }
 
-function fadeFrom(boundaryOffset: number): StreamFade {
-  return { boundaryOffset, ageAt: () => 0 };
+/**
+ * `rawLength` defaults to 0 so the raw→visible shift clamps to zero — these
+ * fixtures have no hidden markdown syntax, raw and visible offsets coincide.
+ */
+function fadeFrom(boundaryOffset: number, rawLength = 0): StreamFade {
+  return { boundaryOffset, rawLength, ageAt: () => 0 };
 }
 
 /** Collect every text node's value in document order. */
@@ -174,6 +178,26 @@ describe('streamFadeRehypePlugin', () => {
     streamFadeRehypePlugin(fadeFrom(5))()(tree);
     // Only the second block is at/after the boundary.
     assert.deepEqual(fadedText(tree), ['world']);
+  });
+
+  it('shifts the boundary past markdown-hidden syntax so the visible tail still fades', () => {
+    // Raw buffer: 'see [docs](https://x.dev) now' → 29 graphemes; rendering
+    // hides '[', ']', '(https://x.dev)' → visible 'see docs now' = 12.
+    const raw = 'see [docs](https://x.dev) now';
+    const tree = el('root', [el('p', [text('see '), el('a', [text('docs')]), text(' now')])]);
+    // The streaming tail is ' now' (raw offsets 25..28). Without the tail
+    // anchor, boundary 25 exceeds every visible offset and nothing fades.
+    const ages: number[] = [];
+    const fade: StreamFade = {
+      boundaryOffset: 25,
+      rawLength: raw.length,
+      ageAt: (offset) => { ages.push(offset); return 0; },
+    };
+    streamFadeRehypePlugin(fade)()(tree);
+    assert.equal(flatText(tree), 'see docs now');
+    assert.deepEqual(fadedText(tree), ['now']);
+    // Age lookups happen in raw coordinates: visible 9 + hidden 17 = 26.
+    assert.deepEqual(ages, [26]);
   });
 
   it('advances the cursor through code but never wraps inside a fence', () => {
