@@ -104,8 +104,16 @@ export function createAppShellSessionEventHandlers(options: {
   function drainAssistantStreaming(sessionId: string, text: string, messageId?: string) {
     const applied = applyAssistantComplete(text);
     if (!applied.text) {
-      clearStreaming(sessionId);
-      void refreshMessages(sessionId);
+      // #642 refresh-before-clear: a textless / thinking-only turn has no answer
+      // bubble to hold the tail turn's assistant block open, so clearing the
+      // live buffer first would drop the live 深度思考 for a frame before the
+      // committed message lands — an unmount gap on the now-shared single node.
+      // Refresh the committed message in FIRST (gated on `messageId` when the
+      // runtime gave one), THEN clear, so the block stays mounted across the
+      // swap. (Text turns get this via the draining→settle handshake instead.)
+      void refreshMessages(sessionId, messageId ? { requiredAssistantMessageId: messageId } : undefined)
+        .catch(() => false)
+        .finally(() => clearStreaming(sessionId));
       return;
     }
     setStreamingBySession((current) => drainAssistantStreamSlot(current, sessionId, applied, messageId));
@@ -472,6 +480,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'complete':
         let refreshMessagesOptions: RefreshMessagesOptions | undefined;
+        let holdTextlessClear = false;
         if (event.stopReason !== 'permission_handoff') {
           const slot = streamingBySessionRef.current[sessionId];
           if (slot?.text) {
@@ -481,7 +490,12 @@ export function createAppShellSessionEventHandlers(options: {
               refreshMessagesOptions = { requiredAssistantMessageId: slot.messageId };
             }
           } else {
-            clearStreaming(sessionId);
+            // #642 refresh-before-clear (mirrors drainAssistantStreaming): hold
+            // the tail turn's live 深度思考 mounted until the committed message
+            // lands via the refresh below, so a textless / thinking-only turn
+            // doesn't drop its assistant block for a frame (unmount gap on the
+            // shared single node). Cleared once the refresh resolves.
+            holdTextlessClear = true;
           }
           // PR-PERMISSION-UI-CLEANUP-0: parallel the `abort` branch
           // above — drop any stranded permission request for this
@@ -502,7 +516,13 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         void refreshSessions();
-        void refreshMessages(sessionId, refreshMessagesOptions);
+        {
+          const refreshed = refreshMessages(sessionId, refreshMessagesOptions);
+          void refreshed.catch(() => false);
+          // #642: clear the held live buffer only AFTER the committed message
+          // has been refreshed in (textless / thinking-only completion).
+          if (holdTextlessClear) void refreshed.finally(() => clearStreaming(sessionId));
+        }
         break;
       default:
         break;

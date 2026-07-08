@@ -45,7 +45,11 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
     for (const selector of [
       // The `.maka-turn` flex/measure container is NOT a marker — it stays.
       '.maka-turn {',
-      '.maka-turn-streaming',
+      // #642 single render path: the separate `.maka-turn-streaming` section is
+      // gone; the streaming answer rides the tail turn's own `.maka-turn` node,
+      // and the content-visibility override that keeps the growing turn painted
+      // re-keys onto its `data-live-streaming` hook.
+      '.maka-turn[data-live-streaming="true"]',
       '.maka-turn[data-search-highlight="true"]',
       // NOTE: `.maka-turn-thinking` and `.maka-turn-tools` were retired by the
       // streaming UI rework — reasoning now renders through the `DeepThinking`
@@ -83,8 +87,10 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
       // lineage badge directions (models.css)
       'data-[direction=forward]:text-[oklch(from_var(--info-text)_calc(l_-_0.06)_c_h)]',
       'data-[direction=reverse]:text-[oklch(from_var(--brand-deep)_calc(l_-_0.04)_c_h)]',
-      // footer + footer action (models.css)
-      'opacity-[0.72] hover:opacity-100 focus-within:opacity-100',
+      // footer + footer action (models.css). #642: the footer is hidden by
+      // default and revealed on hover / focus-within of the answer block
+      // (`group/answer`), replacing the retired quiet-0.72 + settle fade-in.
+      'opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/answer:opacity-100 focus-within:opacity-100',
       'min-h-[28px]',
       // `h-8` (→30px) is folded into the footer-action / lineage-badge shells
       // now that the call sites use `UiButton size="nav"` (bare); it used to

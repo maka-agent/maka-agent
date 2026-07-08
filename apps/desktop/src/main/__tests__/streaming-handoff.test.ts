@@ -52,6 +52,79 @@ describe('assistant streaming handoff', () => {
     );
   });
 
+  it('renders the streaming answer inside the tail turn, not a separate section (#642)', () => {
+    const markup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: 'hello',
+      streamingComplete: false,
+    });
+    assert.doesNotMatch(markup, /maka-turn-streaming/, 'the separate streaming section is gone');
+    assert.match(markup, /data-turn-id="turn-1"/);
+    assert.match(markup, /data-live-streaming="true"/, 'the tail turn is flagged live for content-visibility');
+    assert.match(markup, /maka-bubble-streaming/, 'the live answer rides the tail turn');
+    assert.equal(
+      countOccurrences(markup, 'data-turn-id='),
+      1,
+      'exactly one turn node owns the whole streaming exchange (user bubble + live answer)',
+    );
+  });
+
+  it('suppresses the actionable footer while the tail turn streams (#642 R1)', () => {
+    const markup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: 'hello',
+      streamingComplete: false,
+      // Even when footer actions exist for the turn, a live tail must not render
+      // a clickable regenerate/branch — its derived status is `completed`.
+      turnFooterActionsByTurn: { 'turn-1': [{ id: 'regenerate', label: '重新生成', enabled: true }] },
+    });
+    assert.doesNotMatch(markup, /aria-label="本轮回答操作"/, 'no footer toolbar while live');
+    assert.doesNotMatch(markup, /重新生成/, 'no clickable regenerate on a still-streaming turn');
+    assert.match(markup, /aria-hidden="true" class="mt-0\.5 h-8"/, 'reserved-height footer placeholder instead');
+  });
+
+  it('renders the hover-gated footer once the turn has settled (#642)', () => {
+    const markup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'done', modelId: 'model' },
+      ],
+      turnFooterActionsByTurn: { 'turn-1': [{ id: 'regenerate', label: '重新生成', enabled: true }] },
+    });
+    assert.match(markup, /aria-label="本轮回答操作"/, 'settled turn renders the real footer toolbar');
+    assert.match(markup, /group-hover\/answer:opacity-100/, 'the footer is revealed on hover of the answer block');
+    assert.match(markup, /重新生成/, 'the settled footer carries its actions');
+  });
+
+  it('renders committed steps and the live step in one tail-turn section (#642 multi-step)', () => {
+    const markup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'step one', modelId: 'model' },
+      ],
+      streamingText: 'step two',
+      streamingComplete: false,
+    });
+    assert.match(markup, /step one/, 'the committed earlier step renders from the timeline');
+    assert.match(markup, /maka-bubble-streaming/, 'the in-flight step rides the same tail turn');
+    assert.equal(countOccurrences(markup, 'data-turn-id='), 1, 'committed + live steps share one turn node');
+  });
+
+  it('attaches the live answer to the last turn only (#642 tail selection)', () => {
+    const markup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'first ask' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'first answer', modelId: 'model' },
+        { type: 'user', id: 'user-2', turnId: 'turn-2', ts: 3, text: 'second ask' },
+      ],
+      streamingText: 'second answer',
+      streamingComplete: false,
+    });
+    assert.equal(countOccurrences(markup, 'maka-bubble-streaming'), 1, 'only the tail turn streams');
+    assert.equal(countOccurrences(markup, 'data-live-streaming="true"'), 1, 'exactly one live turn node');
+    assert.equal(countOccurrences(markup, 'data-turn-id='), 2, 'both turns still render');
+  });
+
   it('text_complete replaces the live slot with the final draining text', () => {
     const current: AssistantStreamSlots = {
       'session-1': { text: 'part', truncated: true, phase: 'streaming', messageId: 'assistant-1' },
@@ -103,8 +176,16 @@ describe('assistant streaming handoff', () => {
     assert.doesNotMatch(completeCase, /if \(!deferMessageRefresh\) \{[\s\S]*refreshMessages\(sessionId\)/);
     assert.match(
       completeCase,
-      /refreshMessagesOptions = \{ requiredAssistantMessageId: slot\.messageId \};[\s\S]*void refreshSessions\(\);\s*void refreshMessages\(sessionId, refreshMessagesOptions\);/,
+      /refreshMessagesOptions = \{ requiredAssistantMessageId: slot\.messageId \};[\s\S]*void refreshSessions\(\);\s*\{\s*const refreshed = refreshMessages\(sessionId, refreshMessagesOptions\);/,
       'complete must refresh committed history for the draining assistant message without making every refresh use settle delays',
+    );
+    // #642: a textless / thinking-only completion holds the live buffer until
+    // that same refresh resolves (refresh-before-clear), so the tail turn's
+    // answer block never unmounts before the committed message lands.
+    assert.match(
+      completeCase,
+      /holdTextlessClear = true;[\s\S]*if \(holdTextlessClear\) void refreshed\.finally\(\(\) => clearStreaming\(sessionId\)\);/,
+      'textless complete must defer clearStreaming until after the committed refresh',
     );
   });
 
@@ -232,6 +313,40 @@ describe('assistant streaming handoff', () => {
     }
   });
 
+  it('holds a textless completion until the committed message lands, then clears (#642)', async () => {
+    // Thinking-only / textless turn: the tail turn's live 深度思考 must stay
+    // mounted until the committed (empty-text) assistant message is refreshed
+    // in, so the answer block never unmounts before it lands.
+    const staleMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+    ];
+    const committedMessages: StoredMessage[] = [
+      ...staleMessages,
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([staleMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' });
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+      await flushAsyncWork();
+
+      assert.ok(
+        harness.getMessages().some((message) => message.type === 'assistant' && message.id === 'assistant-1'),
+        'the committed message is refreshed in before the live buffer clears',
+      );
+      assert.equal(windowFixture.readCount(), 2, 'the refresh waited for the committed message');
+      assert.equal(
+        harness.getStreaming()['session-1']?.text,
+        '',
+        'the live buffer is cleared only after the committed refresh (refresh-before-clear)',
+      );
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
   it('settled slot reducer keeps refresh-before-clear callers race-safe for a newer stream slot', () => {
     const settledSlot = { text: 'old final', truncated: false, phase: 'draining' as const, messageId: 'assistant-old' };
     const slots: AssistantStreamSlots = {
@@ -291,6 +406,32 @@ function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
 
+function renderChat(overrides: Partial<Parameters<typeof ChatView>[0]>): string {
+  const props: Parameters<typeof ChatView>[0] = {
+    activeSession: {
+      id: 'session-1',
+      name: 'handoff',
+      lastMessageAt: 1,
+      status: 'active',
+      backend: 'ai-sdk',
+      labels: [],
+      isFlagged: false,
+      isArchived: false,
+      hasUnread: false,
+      llmConnectionSlug: 'conn',
+      model: 'model',
+      permissionMode: 'ask',
+    },
+    messages: [],
+    streamingText: '',
+    tools: [],
+    mode: 'sessions',
+    onNew() {},
+    ...overrides,
+  };
+  return renderToStaticMarkup(createElement(ChatView, props));
+}
+
 function completeEvent(): SessionEvent {
   return {
     type: 'complete',
@@ -347,4 +488,63 @@ async function flushAsyncWork(): Promise<void> {
   for (let index = 0; index < 8; index += 1) {
     await Promise.resolve();
   }
+}
+
+function buildEventHarness(initialSlot: AssistantStreamSlot): {
+  handlers: ReturnType<typeof createAppShellSessionEventHandlers>;
+  getMessages: () => StoredMessage[];
+  getStreaming: () => Record<string, AssistantStreamSlot>;
+} {
+  const activeIdRef = { current: 'session-1' as string | undefined };
+  let messages: StoredMessage[] = [];
+  let streamingBySession: Record<string, AssistantStreamSlot> = { 'session-1': initialSlot };
+  const streamingBySessionRef = { current: streamingBySession };
+
+  const chatActions = createAppShellChatActions({
+    activeIdRef,
+    addPendingSessionAction: () => true,
+    captureComposerImportOwner: () => ({ sessionId: 'session-1', navSection: 'sessions' }),
+    clearPendingSessionAction: () => {},
+    isNewChatSendSurfaceActive: () => false,
+    markSessionReadLocally: () => {},
+    messageRetryPendingRef: { current: new Set<string>() },
+    refreshSessions: async () => [],
+    setActiveId: (sessionId) => {
+      activeIdRef.current = sessionId;
+    },
+    setMessageLoadErrorBySession: () => {},
+    setMessageRetryPendingBySession: () => {},
+    setMessages: (next) => {
+      messages = typeof next === 'function' ? next(messages) : next;
+    },
+    setNavSelection: () => {},
+    showModelSetupToast: () => {},
+    toastApi: { error: () => {} },
+    upsertSessionSummary: () => {},
+    validPendingNewChatModel: null,
+    pendingNewChatThinkingLevel: null,
+  });
+
+  const handlers = createAppShellSessionEventHandlers({
+    activeIdRef,
+    refreshMessages: chatActions.refreshMessages,
+    refreshSessions: async () => [],
+    setLiveToolsBySession: createStateSetter<Record<string, ToolActivityItem[]>>({}),
+    setPermissionBySession: createStateSetter<PermissionQueues>({}),
+    setStreamingBySession: (updater) => {
+      streamingBySession = updater(streamingBySession);
+      streamingBySessionRef.current = streamingBySession;
+    },
+    setThinkingBySession: createStateSetter<Record<string, string>>({}),
+    setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+    showModelSetupToast: () => {},
+    streamingBySessionRef,
+    toastApi: { error: () => {} },
+  });
+
+  return {
+    handlers,
+    getMessages: () => messages,
+    getStreaming: () => streamingBySession,
+  };
 }

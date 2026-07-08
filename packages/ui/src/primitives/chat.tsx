@@ -171,10 +171,14 @@ const markerVariants = cva("", {
         + " focus-visible:[outline:2px_solid_var(--focus-ring)] focus-visible:[outline-offset:2px]"
         + " data-[direction=forward]:bg-[oklch(from_var(--info)_l_c_h_/_0.06)] data-[direction=forward]:text-[oklch(from_var(--info-text)_calc(l_-_0.06)_c_h)]"
         + " data-[direction=reverse]:bg-[oklch(from_var(--brand-deep)_l_c_h_/_0.06)] data-[direction=reverse]:text-[oklch(from_var(--brand-deep)_calc(l_-_0.04)_c_h)]",
-      // `.maka-turn-footer` (+ measure-column re-anchor) — quiet toolbar that
-      // lifts to full opacity on hover / focus-within.
+      // `.maka-turn-footer` (+ measure-column re-anchor) — hidden by default,
+      // revealed when the answer block is hovered or keyboard focus lands
+      // inside it (#642). `group-hover/answer` keys off the `group/answer` on
+      // the assistant `Message`; `focus-within` keeps it reachable without a
+      // pointer. Opacity-only (layout stays reserved) so live→settled is
+      // height-neutral. Sole consumer is the assistant turn footer.
       footer:
-        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-0.5 mt-0.5 ml-0 mr-auto p-0 opacity-[0.72] hover:opacity-100 focus-within:opacity-100",
+        "flex w-full max-w-[var(--maka-chat-measure,680px)] flex-wrap items-center justify-start gap-0.5 mt-0.5 ml-0 mr-auto p-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/answer:opacity-100 focus-within:opacity-100",
       // `.maka-turn-footer-action` (UiButton) — borderless ghost action. Also
       // reused by the user-message copy (`MessageCopyButton footerStyle`), so
       // it carries only the button look, never the footer's measure column.

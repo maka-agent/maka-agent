@@ -120,11 +120,10 @@ describe('issue #406 design-system governance contract', () => {
       // per-word entrance that signals freshly streamed text.
       'maka-text-shimmer',
       'maka-stream-fade-in',
-      // Handoff polish: the turn footer toolbar fades in when a live turn
-      // settles (opacity only, into an equal-height placeholder slot) —
-      // functional "the answer is final, actions are now available" signal,
-      // never applied on history-hydration mounts.
-      'maka-footer-fade-in',
+      // #642: the `maka-footer-fade-in` settle-entrance keyframe was retired.
+      // The footer no longer appears on settle — it is hidden by default and
+      // revealed on hover / focus-within of the answer block, so there is no
+      // live mount transition to animate.
       'maka-shimmer',
       'maka-status-spin',
       'maka-tool-pulse',

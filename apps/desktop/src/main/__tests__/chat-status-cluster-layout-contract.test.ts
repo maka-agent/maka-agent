@@ -53,31 +53,33 @@ describe('chat status cluster layout contract', () => {
     assert.match(emptyBody, /opacity:\s*0/);
   });
 
-  it('reserves the footer placeholder for every live turn, not only text answers', async () => {
-    // Three-way review (ChatGPT P2): a settled turn ALWAYS mounts a footer
-    // (deriveTurnFooterActions yields regenerate/branch from TurnStatus alone;
-    // materialize emits a timeline item for a step's thinking even with empty
-    // text), so a thinking-only turn settles WITH a footer. The live footer
-    // placeholder must live inside the `streamingText || thinkingText` section
-    // and render unconditionally there — never re-narrowed to streamingText —
-    // so it reserves the footer box for every live turn.
-    //
-    // Groundwork only: this locks the reserved box. It makes the swap
-    // height-neutral where the live section is held to settle (text turns, via
-    // the draining handshake). The textless / thinking-only completion path is
-    // still non-atomic (clears live before the committed footer mounts); that
-    // is tracked in the single-render-path convergence (#642), not asserted
-    // here.
+  it('reserves the footer placeholder inside the tail turn while it streams (#642)', async () => {
+    // #642 single render path: there is no longer a separate
+    // `.maka-turn-streaming` section — the in-flight answer rides the tail
+    // turn's own TurnView. While that turn is live (`props.liveStreaming`),
+    // its footer slot is a reserved-height placeholder (same `mt-0.5 h-8` box
+    // the real footer occupies), NOT the actionable TurnFooterActions: the
+    // live tail's derived status is `completed`, so a real footer would offer
+    // a clickable regenerate/branch on a still-streaming answer. Reserving the
+    // box keeps the live→settled swap height-neutral on the one node.
     const src = await readRepo('packages/ui/src/chat-view.tsx');
-    assert.match(
-      src,
-      /Unconditional \(not gated on streamingText\)[\s\S]*?\*\/\}\s*<div aria-hidden="true" className="mt-0\.5 h-8" \/>/,
-      'the footer placeholder must render unconditionally inside the live section (covers thinking-only turns)',
-    );
     assert.doesNotMatch(
       src,
-      /\{props\.streamingText && <div aria-hidden="true" className="mt-0\.5 h-8" \/>\}/,
-      'the placeholder must not be re-gated on streamingText alone — that misses thinking-only settle',
+      /maka-turn-streaming/,
+      'the separate streaming section must be gone — the tail turn owns the live answer',
+    );
+    assert.match(
+      src,
+      /props\.liveStreaming \? \([\s\S]*?<div aria-hidden="true" className="mt-0\.5 h-8" \/>[\s\S]*?\) : \(/,
+      'while live, the tail turn footer slot must be the reserved-height placeholder, not the real footer',
+    );
+    // The assistant answer block mounts for a live tail turn even with an empty
+    // committed timeline (thinking-only / textless), so its answer never
+    // disappears at settle.
+    assert.match(
+      src,
+      /const showAssistantMessage = turn\.timeline\.length > 0 \|\| !!props\.liveStreaming;/,
+      'the assistant Message must mount when the turn has timeline content OR is the live tail',
     );
   });
 
