@@ -238,7 +238,7 @@ describe('AutomationScheduler', () => {
     assert.equal(t.manager.get(auto.id)?.lastRunId, 'fresh-1');
   });
 
-  test('cron marks failure when createFreshRun is not provided (does not advance)', async () => {
+  test('cron is silently ignored when createFreshRun is not provided (no state corruption)', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
       kind: 'cron', name: 'daily', prompt: 'review PRs',
@@ -246,15 +246,21 @@ describe('AutomationScheduler', () => {
     });
     assert.ok(!('error' in auto));
     const originalFireCount = auto.fireCount;
+    const originalNextFireAt = auto.nextFireAt;
     t.advanceTime(31000);
     t.scheduler.start();
     await t.runTick();
+    await t.runTick();
     assert.equal(t.fired.length, 0);
     const updated = t.manager.get(auto.id);
-    assert.equal(updated?.consecutiveFailures, 1);
-    assert.ok(updated?.lastError?.includes('not configured'));
-    // The fire did not "start" (no fresh executor) — fireCount unchanged.
+    // A host without a cron executor must leave the cron COMPLETELY untouched —
+    // no failure, no pause, no advance — because the durable store may be shared
+    // with a host that CAN run it (heartbeat-only CLI + desktop share a store).
+    assert.equal(updated?.status, 'active');
+    assert.equal(updated?.consecutiveFailures, 0);
+    assert.equal(updated?.lastError, null);
     assert.equal(updated?.fireCount, originalFireCount);
+    assert.equal(updated?.nextFireAt, originalNextFireAt);
   });
 
   test('expired automations are swept even before nextFireAt', async () => {

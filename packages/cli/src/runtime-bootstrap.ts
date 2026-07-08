@@ -15,6 +15,7 @@ import {
   buildLlmHistorySummarizer,
   buildProviderOptions,
   buildSubscriptionModelFetch,
+  evaluateAutomationCanFire,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
@@ -190,19 +191,14 @@ export async function createMakaCliRuntimeContext(
 
   const automationScheduler = new AutomationScheduler({
     automationManager,
-    canFire: async (automation) => {
-      // Global privacy gate (shared settings schema): don't fire under incognito.
-      const settings = await settingsStore.get();
-      if (settings.privacy?.incognitoActive === true) return false;
-      // The CLI enables heartbeat only (createFreshRun omitted); a cron short-
-      // circuits here so the scheduler reaches its "cron not configured" failure
-      // path instead of being gated on a session it never uses.
-      if (automation.kind === 'cron') return true;
-      const header = await store.readHeader(automation.sessionId);
-      if (!header || header.archivedAt) return false;
-      if (header.status === 'running' || header.status === 'blocked' || header.status === 'aborted') return false;
-      return true;
-    },
+    canFire: (automation) => evaluateAutomationCanFire(automation, {
+      // The CLI has no incognito UI, but the setting is shared — honour it if set.
+      isIncognitoActive: async () => (await settingsStore.get()).privacy?.incognitoActive === true,
+      readSessionHeader: (sessionId) => store.readHeader(sessionId),
+      // Default idle set {active, done} — a heartbeat never fires into a
+      // 'waiting_for_user' (agent blocked on the human) or 'running' session.
+      // Cron is disabled here (createFreshRun omitted); the scheduler ignores it.
+    }),
     // Heartbeat: inject into the automation's session; resolve after the drain.
     // The CLI has no multi-session UI, so cron (fresh-session) is disabled —
     // createFreshRun is omitted, so the tool advertises heartbeat only.

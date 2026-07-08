@@ -645,3 +645,5 @@ export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, MAX_DEFER_RETRIES } from '
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
 export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
 export type { AutomationToolDeps } from './automation-tools.js';
+export { evaluateAutomationCanFire, HEARTBEAT_IDLE_STATUSES } from './automation-can-fire.js';
+export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './automation-can-fire.js';

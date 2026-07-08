@@ -463,24 +463,27 @@ describe('AutomationManager', () => {
       return mgr.get('loaded');
     }
 
-    test('heals an interrupted fire: active + nextFireAt=null gets re-armed', () => {
-      // App quit mid-run after attemptStarted nulled nextFireAt but before the
-      // outcome settled → persisted as active with nextFireAt=null.
+    test('re-arms a corrupt recurring automation (active + nextFireAt=null, budget not spent)', () => {
+      // A recurring automation should always carry a future fire time; a null
+      // one is a corrupt/interrupted state → re-arm rather than leave a zombie.
       const healed = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 1 });
-      assert.ok(healed?.nextFireAt, 'interrupted active automation should be re-armed on load');
+      assert.ok(healed?.nextFireAt, 'corrupt recurring automation should be re-armed on load');
+      assert.equal(healed?.status, 'active');
     });
 
-    test('does NOT re-arm a spent maxFires automation on load', () => {
-      const kept = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 3, maxFires: 3 });
-      assert.equal(kept?.nextFireAt, null);
+    test('settles a spent-maxFires interrupted fire to completed (at-most-once, no re-run)', () => {
+      const settled = load(createManager(), { status: 'active', nextFireAt: null, fireCount: 3, maxFires: 3 });
+      assert.equal(settled?.status, 'completed');
+      assert.equal(settled?.nextFireAt, null);
     });
 
-    test('does NOT re-arm a once automation that already fired', () => {
-      const kept = load(createManager(), {
+    test('settles an interrupted once fire to completed (no drift, no re-run)', () => {
+      const settled = load(createManager(), {
         status: 'active', nextFireAt: null, fireCount: 1,
         schedule: { type: 'once', delaySeconds: 30 },
       });
-      assert.equal(kept?.nextFireAt, null);
+      assert.equal(settled?.status, 'completed');
+      assert.equal(settled?.nextFireAt, null);
     });
 
     test('leaves a normally-scheduled automation untouched', () => {
@@ -506,6 +509,40 @@ describe('AutomationManager', () => {
       const resumed = mgr.resume(id, 's1');
       assert.equal(resumed?.consecutiveFailures, 0, 'resume must reset the failure streak');
       assert.equal(resumed?.lastError, null);
+    });
+  });
+
+  describe('skipFire', () => {
+    test('advances a recurring automation to its next slot', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'cron', name: 'daily', prompt: 'p',
+        sessionId: 's1', schedule: { type: 'interval', seconds: 60 },
+      });
+      assert.ok(!('error' in auto));
+      const id = (auto as { id: string }).id;
+      const before = mgr.get(id)?.nextFireAt;
+      mgr.skipFire(id);
+      const after = mgr.get(id);
+      assert.equal(after?.status, 'active');
+      assert.ok(after?.nextFireAt && before && after.nextFireAt >= before);
+    });
+
+    test('a skipped once is settled terminally (no drift, not re-armed)', () => {
+      const mgr = createManager();
+      const auto = mgr.create({
+        kind: 'cron', name: 'remind', prompt: 'p',
+        sessionId: 's1', schedule: { type: 'once', delaySeconds: 30 },
+      });
+      assert.ok(!('error' in auto));
+      const id = (auto as { id: string }).id;
+      mgr.skipFire(id);
+      const after = mgr.get(id);
+      assert.equal(after?.status, 'expired', 'a skipped one-shot must not drift forward');
+      assert.equal(after?.nextFireAt, null);
+      // Idempotent: skipping again does nothing (already terminal).
+      mgr.skipFire(id);
+      assert.equal(mgr.get(id)?.status, 'expired');
     });
   });
 

@@ -125,6 +125,14 @@ export class AutomationScheduler {
   private async attemptFire(automation: AutomationDefinition): Promise<void> {
     if (this.disposed) return;
 
+    // A host without a cron executor cannot run cron automations. Leave them
+    // COMPLETELY untouched — do not fail, pause, or advance them, and emit no
+    // state change. The durable store may be shared with a host that CAN run
+    // them (e.g. the desktop shares its workspace with the `maka` CLI), so
+    // marking a cron failed/paused here would corrupt that shared durable state
+    // (a heartbeat-only CLI would otherwise pause the desktop's crons on disk).
+    if (automation.kind === 'cron' && !this.deps.createFreshRun) return;
+
     // In-flight guard: a fire whose run is still executing must not be started
     // again. canFire protects heartbeat (its run occupies the automation's own
     // session), but NOT cron (createFreshRun spawns a separate session, leaving
@@ -160,13 +168,6 @@ export class AutomationScheduler {
     }
 
     this.deferCounts.delete(automation.id);
-
-    // Cron without an executor cannot run — fail fast, do not advance the fire.
-    if (automation.kind === 'cron' && !this.deps.createFreshRun) {
-      this.deps.automationManager.attemptFailed(automation.id, 'Cron execution not configured (createFreshRun unavailable)');
-      this.deps.onStateChange?.();
-      return;
-    }
 
     const started = this.deps.automationManager.attemptStarted(automation.id);
     if (!started) {

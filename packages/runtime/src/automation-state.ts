@@ -254,8 +254,18 @@ export class AutomationManager {
     const automation = this.automations.get(id);
     if (!automation || automation.status !== 'active') return;
     const now = this.deps.now();
-    automation.nextFireAt = this.computeNextFire(automation.schedule, now);
     automation.updatedAt = now;
+    // A one-shot has no "next slot": re-arming it via computeNextFire re-adds the
+    // full delay, so repeated skips (e.g. a long incognito window or a busy
+    // session) would drift it forward indefinitely and then silently drop it at
+    // expiry. Its fire window has passed — settle it terminally instead.
+    if (automation.schedule.type === 'once') {
+      automation.nextFireAt = null;
+      automation.status = 'expired';
+      automation.lastError = 'Fire window skipped (session busy or privacy mode)';
+      return;
+    }
+    automation.nextFireAt = this.computeNextFire(automation.schedule, now);
   }
 
   /**
@@ -321,18 +331,23 @@ export class AutomationManager {
   registerAll(automations: AutomationDefinition[]): void {
     const now = this.deps.now();
     for (const automation of automations) {
-      // Heal an interrupted fire: a fire that started (fireCount bumped,
-      // nextFireAt nulled) but whose run never settled — because the app quit
-      // mid-run — persists as active with nextFireAt=null. Left alone it is a
-      // silent zombie (never fires again until expiry). If its budget isn't
-      // spent, re-arm it so it fires again.
-      if (
-        automation.status === 'active' &&
-        automation.nextFireAt === null &&
-        !(automation.maxFires != null && automation.fireCount >= automation.maxFires) &&
-        !(automation.schedule.type === 'once' && automation.fireCount > 0)
-      ) {
-        automation.nextFireAt = this.computeNextFire(automation.schedule, now);
+      // Reconcile an interrupted fire: a fire that started (fireCount bumped,
+      // nextFireAt nulled) but whose run never settled — the app quit mid-run —
+      // persists as active with nextFireAt=null. Left alone it is a silent
+      // zombie (never fires again until the 7-day expiry sweep).
+      if (automation.status === 'active' && automation.nextFireAt === null) {
+        const budgetSpent =
+          (automation.maxFires != null && automation.fireCount >= automation.maxFires) ||
+          (automation.schedule.type === 'once' && automation.fireCount > 0);
+        if (budgetSpent) {
+          // The one/last fire was already attempted (fireCount reflects it), so
+          // settle it terminally rather than re-run it (at-most-once semantics).
+          automation.status = 'completed';
+        } else {
+          // A recurring automation should always carry a future fire time; a null
+          // here is a corrupt/interrupted state — re-arm it.
+          automation.nextFireAt = this.computeNextFire(automation.schedule, now);
+        }
       }
       this.automations.set(automation.id, automation);
     }

@@ -338,7 +338,6 @@ const taskLedgerStore = taskLedgerWiring.store;
 
 // Unified Automation — single "Automation" tool for heartbeat + cron.
 // Deps are resolved lazily since runtime/store aren't ready at this point.
-const AUTOMATION_HEARTBEAT_IDLE_STATUSES: ReadonlySet<string> = new Set(['active', 'done']);
 const automationWiring = createMainAutomationWiring({
   workspaceRoot,
   async canFire(automation): Promise<boolean> {
@@ -347,7 +346,6 @@ const automationWiring = createMainAutomationWiring({
     return evaluateAutomationCanFire(automation, {
       isIncognitoActive: async () => (await getWorkspacePrivacyContext()).incognitoActive,
       readSessionHeader: (sessionId) => store.readHeader(sessionId),
-      idleStatuses: AUTOMATION_HEARTBEAT_IDLE_STATUSES,
     });
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
