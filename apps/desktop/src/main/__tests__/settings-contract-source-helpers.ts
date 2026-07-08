@@ -23,6 +23,7 @@ const sourcePaths = [
   'general-settings-page.tsx',
   'open-gateway-settings-page.tsx',
   'bot-chat-settings-page.tsx',
+  'bot-wechat-login.tsx',
   'usage-settings-page.tsx',
   'settings-metric-card.tsx',
   'settings-status-badge.ts',
