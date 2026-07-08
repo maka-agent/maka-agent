@@ -173,6 +173,9 @@ contextBridge.exposeInMainWorld('maka', {
     respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
       return ipcRenderer.invoke('sessions:respondToPermission', sessionId, response);
     },
+    injectGuidance(sessionId: string, text: string): Promise<boolean> {
+      return ipcRenderer.invoke('sessions:injectGuidance', sessionId, text);
+    },
     /**
      * PR-CMD-PALETTE-SAVE-CONVERSATION-FILE-0: write the renderer-formatted
      * conversation markdown to a user-chosen file. Renderer owns the

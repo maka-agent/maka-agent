@@ -10,18 +10,22 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
+import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, GripVertical, History, Mic, Pencil, Plus, Trash2 } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
 import {
   type ComposerHistoryState,
+  type ComposerQueuedInput,
   appendPromptContextDraft,
+  enqueueComposerQueuedInput,
+  isComposerResponseBusy,
   navigateComposerHistory,
   readComposerDraft,
   reconcileHistorySync,
   rememberComposerDraft,
   rememberComposerHistoryEntry,
+  takeComposerQueuedInput,
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
@@ -140,6 +144,14 @@ export const Composer = forwardRef<
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void | Promise<void>;
+    /**
+     * Inject `text` as guidance into the *running* turn so the agent reads
+     * it on its next LLM step. Resolves true when a turn was running and
+     * accepted the guidance; false when nothing is running (the composer
+     * then falls back to a normal send). Optional — only the desktop shell
+     * wires it (other hosts just send new turns).
+     */
+    onInjectGuidance?(text: string): Promise<boolean>;
     onPickAttachments?(): void | Promise<void>;
     onAttachFilePaths?(files: File[]): void | Promise<void>;
     pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
@@ -219,11 +231,22 @@ export const Composer = forwardRef<
   const [sendPending, setSendPending] = useState(false);
   const [pendingImportAction, setPendingImportAction] = useState<ComposerImportActionId | null>(null);
   const [hasDraftText, setHasDraftText] = useState(false);
+  const [queuedInputs, setQueuedInputs] = useState<ComposerQueuedInput[]>([]);
   const draftStoreRef = useRef<Map<string, string>>(new Map());
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   const composerMountedRef = useRef(true);
   const sendPendingRef = useRef(false);
   const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
+  const queuedInputSeqRef = useRef(0);
+  const autoDrainBlockedIdRef = useRef<string | null>(null);
+  // After a queued send resolves, the renderer doesn't observe
+  // streaming=true until the stream events arrive over IPC. This ref
+  // gates the auto-drain so the next queued item isn't fired into that
+  // gap (where it would collide with the in-flight turn or get dropped).
+  // Cleared by the watchdog effect when streaming starts, or by a
+  // safety timeout for turns that never stream.
+  const awaitingStreamStartRef = useRef(false);
+  const awaitingStreamWatchdogRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
@@ -258,6 +281,26 @@ export const Composer = forwardRef<
     const nextValue = value ?? textareaRef.current?.value ?? '';
     rememberComposerDraft(draftStoreRef.current, activeDraftKeyRef.current, nextValue);
     setHasDraftText(Boolean(nextValue.trim()));
+  }
+
+  function clearCurrentDraft() {
+    const textarea = textareaRef.current;
+    rememberComposerDraft(draftStoreRef.current, activeDraftKeyRef.current, '');
+    setHasDraftText(false);
+    formRef.current?.reset();
+    if (textarea) {
+      textarea.value = '';
+      textarea.style.height = '';
+      autoResize();
+    }
+  }
+
+  function queueCurrentText(text: string) {
+    queuedInputSeqRef.current += 1;
+    setQueuedInputs((current) => enqueueComposerQueuedInput(current, text, `queued-${Date.now()}-${queuedInputSeqRef.current}`));
+    autoDrainBlockedIdRef.current = null;
+    clearCurrentDraft();
+    resetPromptHistoryNavigation();
   }
 
   function resetPromptHistoryNavigation() {
@@ -327,6 +370,10 @@ export const Composer = forwardRef<
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
     if (!text) return;
+    if (isComposerResponseBusy({ streaming: props.streaming, sessionStatus: props.activeSession?.status })) {
+      queueCurrentText(text);
+      return;
+    }
     const submittedDraftKey = activeDraftKeyRef.current;
     sendPendingRef.current = true;
     setSendPending(true);
@@ -339,6 +386,16 @@ export const Composer = forwardRef<
     }
     if (!composerMountedRef.current) return;
     if (sent === false) return;
+    // Gate the auto-drain until this send starts streaming (see
+    // sendQueuedNow for the full rationale). Without it, a queued item
+    // would fire in the gap between onSend() resolving and streaming
+    // becoming true.
+    awaitingStreamStartRef.current = true;
+    if (awaitingStreamWatchdogRef.current) clearTimeout(awaitingStreamWatchdogRef.current);
+    awaitingStreamWatchdogRef.current = setTimeout(() => {
+      awaitingStreamWatchdogRef.current = null;
+      awaitingStreamStartRef.current = false;
+    }, 5000);
     // Save to both local ref and global persistence so the history
     // survives page reloads and is shared across all input surfaces.
     saveGlobalInputHistoryEntry(text);
@@ -362,6 +419,131 @@ export const Composer = forwardRef<
     event.preventDefault();
     void sendCurrent();
   }
+
+  // `immediate` distinguishes the two callers:
+  //  - auto-drain (immediate=false): the background pump that fires
+  //    queued items once the agent is idle. It must never interrupt the
+  //    running turn — bailing here leaves the item in the queue so both
+  //    the in-flight question and the queued one get answered.
+  //  - manual “立即” button (immediate=true): the user wants to steer
+  //    the running agent NOW. If a turn is running and `onInjectGuidance`
+  //    is wired, the guidance is injected into that turn’s next LLM step
+  //    (no new turn, no interruption) — e.g. step 10 -> guidance read at
+  //    step 11. If nothing is running, fall back to a normal new-turn send.
+  async function sendQueuedNow(id: string, options: { immediate?: boolean } = {}) {
+    const { immediate = false } = options;
+    if (props.disabled || sendPendingRef.current || pendingImportActionRef.current) return;
+    const busy = isComposerResponseBusy({ streaming: props.streaming, sessionStatus: props.activeSession?.status });
+    if (busy && !immediate) {
+      // Auto-drain path: don't steal the turn and don't dequeue the item
+      // — returning here leaves it in `queuedInputs` so the drain retries
+      // once the agent is idle. Dequeueing first (then bailing) would
+      // silently drop the queued message.
+      return;
+    }
+    autoDrainBlockedIdRef.current = null;
+    const taken = takeComposerQueuedInput(queuedInputs, id);
+    if (!taken.item) return;
+    // Drop the item from the queue immediately. Whether it is injected
+    // into the running turn or sent as a new turn, it has been "taken" —
+    // leaving it visible would make "立即" look like a no-op. (If the
+    // fallback send below fails, the catch/sent===false paths re-queue it.)
+    setQueuedInputs(taken.queue);
+    // Mid-turn guidance injection: when the user presses “立即” while a
+    // turn is running, inject the text into that turn instead of starting
+    // a new one. The runtime can’t run two turns concurrently on one
+    // session, so this is how you steer the running agent. If injection
+    // isn’t accepted (no running turn), fall through to a normal send.
+    if (immediate && busy && props.onInjectGuidance) {
+      let accepted = false;
+      try {
+        accepted = await props.onInjectGuidance(taken.item.text);
+      } catch {
+        accepted = false;
+      }
+      if (composerMountedRef.current && accepted) {
+        saveGlobalInputHistoryEntry(taken.item.text);
+        promptHistoryRef.current = {
+          entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, taken.item.text),
+          index: -1,
+          savedDraft: '',
+        };
+        return;
+      }
+      // Not accepted (no running turn) — fall through to send as a new turn.
+    }
+    sendPendingRef.current = true;
+    setSendPending(true);
+    let sent: boolean | void;
+    try {
+      sent = await props.onSend(taken.item.text);
+    } catch (err) {
+      // onSend threw — put the item back at the front of the queue so it isn't lost
+      if (composerMountedRef.current) {
+        setQueuedInputs((current) => [taken.item!, ...current]);
+      }
+      return;
+    } finally {
+      sendPendingRef.current = false;
+      if (composerMountedRef.current) setSendPending(false);
+    }
+    if (!composerMountedRef.current) return;
+    if (sent === false) {
+      autoDrainBlockedIdRef.current = taken.item.id;
+      setQueuedInputs((current) => [taken.item!, ...current]);
+      return;
+    }
+    autoDrainBlockedIdRef.current = null;
+    // Gate the auto-drain until this send actually starts streaming.
+    // There is a window between onSend() resolving and the renderer
+    // observing streaming=true (stream events travel IPC→state
+    // asynchronously); without this gate the drain would fire the next
+    // queued item into that gap, where it either collides with the
+    // in-flight turn (only the last send gets a response) or gets
+    // cancelled/dropped. The watchdog effect below clears this ref once
+    // streaming starts; the safety timeout covers turns that never stream.
+    awaitingStreamStartRef.current = true;
+    if (awaitingStreamWatchdogRef.current) clearTimeout(awaitingStreamWatchdogRef.current);
+    awaitingStreamWatchdogRef.current = setTimeout(() => {
+      awaitingStreamWatchdogRef.current = null;
+      awaitingStreamStartRef.current = false;
+    }, 5000);
+    saveGlobalInputHistoryEntry(taken.item.text);
+    promptHistoryRef.current = {
+      entries: rememberComposerHistoryEntry(promptHistoryRef.current.entries, taken.item.text),
+      index: -1,
+      savedDraft: '',
+    };
+  }
+
+  function editQueuedInput(id: string) {
+    if (autoDrainBlockedIdRef.current === id) autoDrainBlockedIdRef.current = null;
+    const taken = takeComposerQueuedInput(queuedInputs, id);
+    if (!taken.item) return;
+    setQueuedInputs(taken.queue);
+    const el = textareaRef.current;
+    if (!el) return;
+    resetPromptHistoryNavigation();
+    el.value = taken.item.text;
+    saveCurrentDraft(taken.item.text);
+    autoResize();
+    el.focus();
+    const length = el.value.length;
+    el.setSelectionRange(length, length);
+  }
+
+  function deleteQueuedInput(id: string) {
+    if (autoDrainBlockedIdRef.current === id) autoDrainBlockedIdRef.current = null;
+    setQueuedInputs((current) => current.filter((entry) => entry.id !== id));
+  }
+
+  // Clean up drain + watchdog timers on unmount
+  useEffect(() => {
+    return () => {
+      if (queueDrainTimerRef.current) clearTimeout(queueDrainTimerRef.current);
+      if (awaitingStreamWatchdogRef.current) clearTimeout(awaitingStreamWatchdogRef.current);
+    };
+  }, []);
 
   async function runImportAction(actionId: ComposerImportActionId, action: (() => void | Promise<void>) | undefined) {
     if (!action || props.disabled || props.streaming || pendingImportActionRef.current) return;
@@ -532,9 +714,52 @@ export const Composer = forwardRef<
     };
   }, [dragActive]);
 
+  /**
+   * Minimum delay (ms) between draining two queued items so the
+   * downstream agent has time to settle its session state (e.g.
+   * streaming → idle transition) before the next message fires.
+   * Without this gap, two back-to-back sends can land in the same
+   * conversation turn and the agent only responds to the last one.
+   */
+  const queueDrainGapMs = 300;
+  const queueDrainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear the "awaiting stream start" gate as soon as the just-sent
+  // turn actually begins streaming. The safety timeout in
+  // sendQueuedNow covers turns that never produce a stream.
+  useEffect(() => {
+    if (awaitingStreamStartRef.current && props.streaming) {
+      awaitingStreamStartRef.current = false;
+      if (awaitingStreamWatchdogRef.current) {
+        clearTimeout(awaitingStreamWatchdogRef.current);
+        awaitingStreamWatchdogRef.current = null;
+      }
+    }
+  }, [props.streaming]);
+
+  useEffect(() => {
+    if (
+      props.hidden
+      || props.disabled
+      || props.stopPending
+      || awaitingStreamStartRef.current
+      || isComposerResponseBusy({ streaming: props.streaming, sessionStatus: props.activeSession?.status })
+    ) return;
+    if (sendPendingRef.current || pendingImportActionRef.current) return;
+    const next = queuedInputs[0];
+    if (!next) return;
+    if (autoDrainBlockedIdRef.current === next.id) return;
+    if (queueDrainTimerRef.current) return;
+    queueDrainTimerRef.current = setTimeout(() => {
+      queueDrainTimerRef.current = null;
+      void sendQueuedNow(next.id);
+    }, queueDrainGapMs);
+  }, [props.hidden, props.streaming, props.activeSession?.status, props.disabled, props.stopPending, queuedInputs]);
+
   if (props.hidden) return null;
   const importActionBusy = pendingImportAction !== null;
   const sendDisabled = props.disabled || sendPending || importActionBusy || !hasDraftText;
+  const queuedActionDisabled = props.disabled || sendPending || importActionBusy || props.stopPending === true;
   const modelChipLabel = props.modelLabel?.trim() || '选择模型';
   const modelSwitcherDisabledReason = props.streaming
     ? '当前对话正在流式输出，等结束后再切换模型。'
@@ -555,6 +780,55 @@ export const Composer = forwardRef<
       onDrop={onComposerDrop}
       onSubmit={submit}
     >
+      {queuedInputs.length > 0 && (
+        <div className="maka-composer-queue" aria-label="输入队列">
+          {queuedInputs.map((item) => (
+            <div className="maka-composer-queue-item" key={item.id}>
+              <GripVertical size={14} strokeWidth={1.8} aria-hidden="true" className="maka-composer-queue-grip" />
+              <span className="maka-composer-queue-text" title={item.text}>{item.text}</span>
+              <div className="maka-composer-queue-actions">
+                <UiButton
+                  className="maka-composer-queue-now"
+                  variant="quiet"
+                  size="sm"
+                  type="button"
+                  disabled={queuedActionDisabled}
+                  onClick={() => void sendQueuedNow(item.id, { immediate: true })}
+                  title="立即排队：当前回答结束后作为下一轮发送"
+                  aria-label="立即排队，当前回答结束后作为下一轮发送"
+                >
+                  <ArrowUp size={13} strokeWidth={2} aria-hidden="true" />
+                  <span>立即</span>
+                </UiButton>
+                <UiButton
+                  className="maka-composer-queue-icon"
+                  variant="quiet"
+                  size="icon-sm"
+                  type="button"
+                  disabled={queuedActionDisabled}
+                  onClick={() => editQueuedInput(item.id)}
+                  title="编辑队列输入"
+                  aria-label="编辑队列输入"
+                >
+                  <Pencil size={14} strokeWidth={1.85} aria-hidden="true" />
+                </UiButton>
+                <UiButton
+                  className="maka-composer-queue-icon"
+                  variant="quiet"
+                  size="icon-sm"
+                  type="button"
+                  disabled={queuedActionDisabled}
+                  onClick={() => deleteQueuedInput(item.id)}
+                  title="删除队列输入"
+                  aria-label="删除队列输入"
+                >
+                  <Trash2 size={14} strokeWidth={1.85} aria-hidden="true" />
+                </UiButton>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div
         className="maka-composer-inner composerInner agents-parchment-paper-surface"
         data-streaming={props.streaming ? 'true' : undefined}

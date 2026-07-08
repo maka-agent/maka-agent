@@ -42,6 +42,7 @@ export interface RuntimeKernelLike {
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   hasActiveRuns(sessionId: string): boolean;
+  injectGuidance(sessionId: string, text: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
   disposeBackend(sessionId: string): Promise<void>;
 }
@@ -422,6 +423,18 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   hasActiveRuns(sessionId: string): boolean {
     return this.activeSessionsFor(sessionId).some((active) => active.activeRuns.size > 0);
+  }
+
+  injectGuidance(sessionId: string, text: string): boolean {
+    // Forward to every active session's backend (parent + any child agents).
+    // Returns true if at least one running turn accepted the guidance; the
+    // caller (IPC) treats false as "no running turn — fall back to a new turn".
+    const activeSessions = this.activeSessionsFor(sessionId);
+    let accepted = false;
+    for (const active of activeSessions) {
+      if (active.backend.injectGuidance?.(text)) accepted = true;
+    }
+    return accepted;
   }
 
   updateCachedHeader(sessionId: string, header: SessionHeader): void {

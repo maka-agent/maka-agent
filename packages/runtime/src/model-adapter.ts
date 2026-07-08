@@ -118,6 +118,11 @@ export interface ModelAdapterStreamCallbacks {
    * `text_complete`), carrying the accumulated text plus this signature.
    */
   onThinkingSignature: (signature: string) => void;
+  /**
+   * Fired once with the final accumulated thinking text and optional signature
+   * when thinking/reasoning is complete. Mirror of onTextComplete for reasoning.
+   */
+  onThinkingComplete: (text: string, signature?: string) => void;
 }
 
 export class ModelAdapter {

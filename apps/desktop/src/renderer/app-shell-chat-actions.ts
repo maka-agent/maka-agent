@@ -95,6 +95,27 @@ function toIngestItems(pending: readonly PendingAttachment[]): RendererIngestInp
   );
 }
 
+/**
+ * When a send is queued behind a running turn by the main-process
+ * serialiser, its user message isn't persisted until that turn finishes.
+ * We show an optimistic copy meanwhile; this helper keeps such pending
+ * optimistic messages across a `readMessages`-driven `setMessages(next)`
+ * (which would otherwise replace the list and drop them) until the real
+ * message for the same turn lands. Dedup is by `turnId` on user messages.
+ */
+export function preservePendingOptimistic(
+  current: readonly StoredMessage[],
+  next: readonly StoredMessage[],
+): StoredMessage[] {
+  const pending = current.filter(
+    (message) =>
+      message.type === 'user'
+      && message.id.startsWith('optimistic-user-')
+      && !next.some((realized) => realized.type === 'user' && realized.turnId === message.turnId),
+  );
+  return pending.length ? [...next, ...pending] : [...next];
+}
+
 export function createAppShellChatActions(deps: {
   activeIdRef: RefBox<string | undefined>;
   addPendingSessionAction: (
@@ -115,6 +136,7 @@ export function createAppShellChatActions(deps: {
   markSessionRunningOptimistic: (sessionId: string) => (() => void) | undefined;
   messageRetryPendingRef: RefBox<Set<string>>;
   refreshSessions: () => Promise<SessionSummary[]>;
+  getActiveSessionStatus: () => string | undefined;
   setActiveId: (sessionId: string | undefined) => void;
   setMessageLoadErrorBySession: MessageLoadErrorUpdater;
   setMessageRetryPendingBySession: BooleanRecordUpdater;
@@ -139,6 +161,7 @@ export function createAppShellChatActions(deps: {
     markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
+    getActiveSessionStatus,
     setActiveId,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
@@ -262,7 +285,18 @@ export function createAppShellChatActions(deps: {
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
-      await refreshMessagesUntilTurn(sessionId, turnId);
+      // If a turn is already running on this session, the main-process
+      // serialiser queues this send behind it (the runtime can't run two
+      // turns concurrently on one session), so the real user message won't
+      // land until the prior turn finishes. Skip the bounded poll (it would
+      // just time out); the optimistic copy stays visible thanks to
+      // preservePendingOptimistic in the read paths, and is replaced by
+      // the real message when this turn actually starts.
+      if (getActiveSessionStatus() !== 'running') {
+        await refreshMessagesUntilTurn(sessionId, turnId);
+      } else {
+        await refreshSessions();
+      }
       return true;
     } catch (error) {
       if (optimisticSessionId && optimisticTurnId) {
@@ -311,7 +345,7 @@ export function createAppShellChatActions(deps: {
       const next = result.messages;
       if (activeIdRef.current === sessionId) {
         markSessionReadLocally(sessionId, next);
-        setMessages(next);
+        setMessages((current) => preservePendingOptimistic(current, next));
         setMessageLoadErrorBySession((current) => {
           if (!current[sessionId]) return current;
           const updated = { ...current };

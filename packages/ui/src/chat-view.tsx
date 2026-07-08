@@ -13,6 +13,7 @@ import {
   GitBranch,
   Info,
   Loader2,
+  MessageCircleQuestion,
   RefreshCcw,
   Target,
   Sparkles,
@@ -1594,7 +1595,7 @@ function timelineEntryKey(item: TurnTimelineItem, index: number): string {
   return `${item.kind}-${item.messageId}`;
 }
 
-/** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
+/** Render one timeline entry: reasoning disclosure / answer bubble / steer marker / tool trow. */
 function TurnTimelineEntry(props: {
   item: TurnTimelineItem;
   onStreamingSettled?: (messageId?: string) => void;
@@ -1604,6 +1605,26 @@ function TurnTimelineEntry(props: {
     return <DeepThinking text={item.text} live={item.live === true} truncated={item.truncated === true} />;
   }
   if (item.kind === 'tools') return <ToolTrow items={item.items} />;
+  if (item.kind === 'steer') {
+    return (
+      <div
+        className="maka-steer-marker inline-flex flex-col gap-1 self-start"
+        aria-label="中途注入的引导"
+        title={item.ts ? formatAbsoluteTimestamp(item.ts) : undefined}
+      >
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[oklch(from_var(--info)_l_c_h_/_0.10)] text-[color:var(--info-text)] text-xs">
+          <MessageCircleQuestion size={12} strokeWidth={2} aria-hidden="true" />
+          引导已注入
+        </span>
+        <Bubble
+          variant="user"
+          className="maka-bubble-steer border border-dashed border-[var(--border-strong)] bg-transparent text-[color:var(--foreground-secondary)] opacity-90"
+        >
+          <span>{item.text}</span>
+        </Bubble>
+      </div>
+    );
+  }
   if (item.kind === 'text' && item.live) {
     return (
       <StreamingAssistantBubble

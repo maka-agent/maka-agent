@@ -58,4 +58,11 @@ export interface AgentBackend {
   stop(reason: 'user_stop' | 'redirect'): Promise<void>;
   respondToPermission(decision: PermissionDecision): Promise<void>;
   dispose(): Promise<void>;
+  /**
+   * Inject a user guidance message into the *running* turn so the agent
+   * reads it on its next LLM step (via prepareStep). Returns true when a
+   * turn is active and the guidance was buffered; false when no turn is
+   * running (caller should fall back to a normal new-turn send).
+   */
+  injectGuidance?(text: string): boolean;
 }

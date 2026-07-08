@@ -139,6 +139,7 @@ declare global {
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
+        injectGuidance(sessionId: string, text: string): Promise<boolean>;
         saveConversationToFile(input: {
           markdown: string;
           defaultName: string;

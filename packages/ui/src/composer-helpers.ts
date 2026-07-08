@@ -42,6 +42,37 @@ export interface ComposerHistoryState {
   savedDraft: string;
 }
 
+export interface ComposerQueuedInput {
+  id: string;
+  text: string;
+}
+
+export function isComposerResponseBusy(input: {
+  streaming?: boolean;
+  sessionStatus?: string;
+}): boolean {
+  return input.streaming === true || input.sessionStatus === 'running';
+}
+
+export function enqueueComposerQueuedInput(
+  queue: ComposerQueuedInput[],
+  text: string,
+  id: string,
+): ComposerQueuedInput[] {
+  const trimmed = text.trim();
+  if (!trimmed) return queue;
+  return [...queue, { id, text: trimmed }];
+}
+
+export function takeComposerQueuedInput(
+  queue: ComposerQueuedInput[],
+  id: string,
+): { item: ComposerQueuedInput | undefined; queue: ComposerQueuedInput[] } {
+  const item = queue.find((entry) => entry.id === id);
+  if (!item) return { item: undefined, queue };
+  return { item, queue: queue.filter((entry) => entry.id !== id) };
+}
+
 export function appendPromptContextDraft(current: string, fragment: string): string {
   const base = current.trimEnd();
   const next = fragment.trim();

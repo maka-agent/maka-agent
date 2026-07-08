@@ -30,6 +30,7 @@ describe('ModelAdapter stream and error normalization', () => {
       onThinkingSignature(signature: string) {
         this.signature = signature;
       },
+        onThinkingComplete() {},
     };
     const push = queue.push.bind(queue);
     queue.push = (event: SessionEvent) => {
@@ -88,6 +89,7 @@ describe('ModelAdapter stream and error normalization', () => {
       onTextComplete() {},
       onThinking() { this.thinkingCalls += 1; },
       onThinkingSignature() { this.signatureCalls += 1; },
+      onThinkingComplete() {},
     };
     const push = queue.push.bind(queue);
     queue.push = (event: SessionEvent) => {
@@ -132,6 +134,7 @@ describe('ModelAdapter stream and error normalization', () => {
       onThinkingSignature(signature: string) {
         this.signature = signature;
       },
+        onThinkingComplete() {},
     };
     const push = queue.push.bind(queue);
     queue.push = (event: SessionEvent) => {

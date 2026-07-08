@@ -154,6 +154,11 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshSessions();
         void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
+      case 'guidance':
+        // Mid-turn guidance was persisted as a user runtime event by the
+        // backend; re-read messages so it appears in the conversation.
+        void refreshMessages(sessionId);
+        break;
       }
       default:
         break;

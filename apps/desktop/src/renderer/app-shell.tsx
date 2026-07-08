@@ -44,14 +44,6 @@ import { ProviderBrandMark } from './settings/provider-brand-marks';
 // chat shell is not blocked on parsing them.
 const ArtifactPane = lazy(() => import('./artifact-pane').then((m) => ({ default: m.ArtifactPane })));
 const BrowserPanel = lazy(() => import('./browser-panel').then((m) => ({ default: m.BrowserPanel })));
-
-function BrowserPanelFallback() {
-  return (
-    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
-      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
-    </div>
-  );
-}
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
@@ -114,6 +106,15 @@ import {
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+
+function BrowserPanelFallback() {
+  return (
+    <div className="maka-browser-panel" role="status" aria-busy="true" aria-label="正在加载嵌入式浏览器">
+      <div className="maka-lazy-fallback" data-surface="panel">正在加载嵌入式浏览器…</div>
+    </div>
+  );
+}
+
 
 function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
   if (a.length !== b.length) return false;
@@ -295,6 +296,7 @@ export function AppShell({
   const composerRef = useRef<ComposerHandle>(null);
   const activeIdRef = useRef<string | undefined>(undefined);
   const rendererMountedRef = useRef(true);
+  const activeSessionStatusRef = useRef<string | undefined>(undefined);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
   // Active autonomous goal for the current session drives the header
@@ -358,31 +360,32 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
-  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
-  // 'streamed' on the first content event) separates the connect-to-first-token
-  // wait from the later step-to-step lulls; the `status === 'running'` gate
-  // self-heals a backgrounded session whose terminal event was missed while
-  // inactive (its arm can't clear without the event). The rising-edge delays
-  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
-  const activeTurnPhase = activeLiveTurn?.terminal ? undefined : activeLiveTurn?.phase;
-  const turnInFlight = activeTurnPhase !== undefined;
-  const modelWaitKind = deriveModelWait({
-    turnPhase: activeTurnPhase,
-    streamingText: activeStreaming,
-    thinkingText: activeThinking,
-    hasInFlightTools: hasInFlightLiveTools,
-  });
-  const sessionAwaitingModel = activeSession?.status === 'running';
-  // The prominent "正在处理…" first-token indicator (turn head only).
-  const showProcessingIndicator = useDelayedFlag(
-    sessionAwaitingModel && modelWaitKind === 'processing',
-    MODEL_PROCESSING_DELAY_MS,
-  );
-  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
-  const showContinuingIndicator = useDelayedFlag(
-    sessionAwaitingModel && modelWaitKind === 'continuing',
-    MODEL_CONTINUING_DELAY_MS,
-  );
+	  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
+	  // 'streamed' on the first content event) separates the connect-to-first-token
+	  // wait from the later step-to-step lulls; the `status === 'running'` gate
+	  // self-heals a backgrounded session whose terminal event was missed while
+	  // inactive (its arm can't clear without the event). The rising-edge delays
+	  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
+	  const activeTurnPhase = activeLiveTurn?.terminal ? undefined : activeLiveTurn?.phase;
+	  const turnInFlight = activeTurnPhase !== undefined;
+	  const modelWaitKind = deriveModelWait({
+	    turnPhase: activeTurnPhase,
+	    streamingText: activeStreaming,
+	    thinkingText: activeThinking,
+	    hasInFlightTools: hasInFlightLiveTools,
+	  });
+	  const sessionAwaitingModel = activeSession?.status === 'running';
+	  // The prominent "正在处理…" first-token indicator (turn head only).
+	  const showProcessingIndicator = useDelayedFlag(
+	    sessionAwaitingModel && modelWaitKind === 'processing',
+	    MODEL_PROCESSING_DELAY_MS,
+	  );
+	  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
+	  const showContinuingIndicator = useDelayedFlag(
+	    sessionAwaitingModel && modelWaitKind === 'continuing',
+	    MODEL_CONTINUING_DELAY_MS,
+	  );
+	  activeSessionStatusRef.current = activeSession?.status;
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
     : undefined;
@@ -971,6 +974,7 @@ export function AppShell({
     toastApi,
     upsertSessionSummary,
     validPendingNewChatModel,
+    getActiveSessionStatus: () => activeSessionStatusRef.current,
     pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
@@ -1028,19 +1032,16 @@ export function AppShell({
 
   const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = createAppShellSessionEventHandlers({
     activeIdRef,
-    liveTurnBySessionRef,
+	    liveTurnBySessionRef,
+	    notifyRunEnded: (payload) => {
+	      window.maka.notifications.runEnded(payload).catch(() => {});
+	    },
     refreshMessages,
     refreshSessions,
     setLiveTurnBySession,
     setPermissionBySession,
     showModelSetupToast,
     toastApi,
-    notifyRunEnded: ({ kind, sessionId, body }) => {
-      const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
-      // Best-effort: swallow any main-side failure so a missed banner
-      // never surfaces as an unhandled promise rejection.
-      void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
-    },
   });
 
   // Tool/thinking evidence may survive its event-triggered refresh, including

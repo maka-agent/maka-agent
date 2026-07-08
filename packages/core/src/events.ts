@@ -79,7 +79,8 @@ export type SessionEvent =
   | TokenUsageEvent
   | ErrorEvent
   | CompleteEvent
-  | AbortEvent;
+  | AbortEvent
+  | GuidanceEvent;
 
 export interface TextDeltaEvent extends BaseEvent {
   type: 'text_delta';
@@ -453,6 +454,17 @@ export interface CompleteEvent extends BaseEvent {
 export interface AbortEvent extends BaseEvent {
   type: 'abort';
   reason: 'user_stop' | 'redirect' | 'timeout' | 'crash';
+}
+
+/**
+ * Mid-turn user guidance injected via `sessions:injectGuidance`. Emitted by
+ * the backend into the running turn's event stream so the guidance is
+ * persisted as a `user` runtime event (visible in the conversation + logs),
+ * while `prepareStep` also feeds it to the model's next LLM step.
+ */
+export interface GuidanceEvent extends BaseEvent {
+  type: 'guidance';
+  text: string;
 }
 
 // ============================================================================
