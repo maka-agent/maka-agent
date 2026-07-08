@@ -449,6 +449,56 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('holds the reader position when one frame mixes above-fold and below-fold growth', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new MixedFrameDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    const visibleParas = () =>
+      (plainTerminalOutput(terminal.screenOutput()).match(/para-\d\d/g) ?? []).sort().join(',');
+
+    terminal.input('run');
+    terminal.input('\r');
+    // Expand thinking, then page up so the short thinking draft sits above the fold
+    // and a stable middle slice of the reply shows, with the reply tail below it.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('para-39'));
+    terminal.input('\x14');
+    await delay(20);
+    await pageUpBelowFold(terminal, 'para-39');
+    const before = visibleParas();
+    assert.ok(before.length > 0, 'expected reply paragraphs on screen while scrolled up');
+    assert.equal(
+      plainTerminalOutput(terminal.screenOutput()).includes('para-00'),
+      false,
+      'expected a middle slice, not the top, so a drift would be observable',
+    );
+
+    // One coalesced frame carries a thinking_complete (grows the block above the
+    // fold) and a text_delta (grows the reply tail below the fold) back-to-back.
+    // An offset-delta heuristic can only compensate for one side; anchoring to the
+    // visible content must hold the middle slice steady through both at once.
+    driver.releaseTail();
+    await waitFor(() => driver.completed);
+    await delay(50);
+    assert.equal(visibleParas(), before, 'viewport drifted on a mixed above/below-fold frame');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -2432,6 +2482,54 @@ class ShrinkingTailDriver implements MakaSessionDriver {
 
   releaseThinking(): void {
     this.continueThinking?.();
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class MixedFrameDriver implements MakaSessionDriver {
+  completed = false;
+  private continueTail: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // A short thinking draft (first entry), then a reply long enough to scroll
+    // through with the thinking above the fold and the reply tail below it.
+    yield { type: 'thinking_delta', id: 'th', turnId: 't', ts: 1, messageId: 'm1', text: 'draft' };
+    const body = Array.from({ length: 40 }, (_, i) => `para-${String(i).padStart(2, '0')}`).join('\n\n');
+    yield { type: 'text_delta', id: 'tx1', turnId: 't', ts: 2, messageId: 'm1', text: body };
+    await new Promise<void>((resolve) => {
+      this.continueTail = resolve;
+    });
+    // Back-to-back with no await between: the runner applies both before the
+    // scheduled render fires, so they land in one coalesced frame — thinking grows
+    // above the fold while the reply tail grows below it.
+    const tall = Array.from({ length: 8 }, (_, i) => `reason-${i}`).join('\n');
+    yield { type: 'thinking_complete', id: 'thc', turnId: 't', ts: 3, messageId: 'm1', text: tall };
+    const more = `\n\n${Array.from({ length: 10 }, (_, i) => `para-${String(i + 40).padStart(2, '0')}`).join('\n\n')}`;
+    yield { type: 'text_delta', id: 'tx2', turnId: 't', ts: 4, messageId: 'm1', text: more };
+    yield { type: 'complete', id: 'c', turnId: 't', ts: 5, stopReason: 'end_turn' };
+    this.completed = true;
+  }
+
+  releaseTail(): void {
+    this.continueTail?.();
   }
 
   async stop(): Promise<void> {}

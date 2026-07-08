@@ -26,7 +26,7 @@ import type { MakaSessionDriver } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
   renderMakaPiStatusLine,
-  renderMakaPiTranscript,
+  renderMakaPiTranscriptSource,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
@@ -35,6 +35,8 @@ import {
   windowTranscriptLines,
   type MakaPiTranscriptMetadata,
   type MakaPiTranscriptState,
+  type RenderedTranscript,
+  type TranscriptLineOwner,
 } from './pi-transcript.js';
 import { ansi, editorTheme, selectListTheme, stripAnsi } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
@@ -675,7 +677,11 @@ class MakaTranscriptComponent implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
-    return renderMakaPiTranscript(this.state, this.metadata(), width);
+    return this.renderSource(width).lines;
+  }
+
+  renderSource(width: number): RenderedTranscript {
+    return renderMakaPiTranscriptSource(this.state, this.metadata(), width);
   }
 }
 
@@ -690,16 +696,32 @@ class MakaStatusLineComponent implements Component {
 }
 
 /**
- * Index of the first line that differs between `prev` and `next`, or the length
- * of the shorter array when one is a prefix of the other. Used to locate where a
- * transcript re-render changed relative to the viewport.
+ * Row of the line the scroll anchor points at in a freshly rendered transcript,
+ * or -1 when the anchored entry is gone entirely (e.g. compaction replaced the
+ * transcript). If the entry survives but its block shrank past the anchored row,
+ * fall back to the entry's last remaining row so the viewport stays on that
+ * entry instead of jumping.
  */
-function firstDivergentLine(prev: readonly string[], next: readonly string[]): number {
-  const shared = Math.min(prev.length, next.length);
-  for (let i = 0; i < shared; i++) {
-    if (prev[i] !== next[i]) return i;
+function findAnchorRow(owners: readonly (TranscriptLineOwner | null)[], anchor: TranscriptLineOwner): number {
+  let lastRowOfEntry = -1;
+  for (let i = 0; i < owners.length; i++) {
+    const owner = owners[i];
+    if (!owner || owner.entry !== anchor.entry) continue;
+    if (owner.row === anchor.row) return i;
+    lastRowOfEntry = i; // rows are emitted in order, so this tracks the max seen
   }
-  return shared;
+  return lastRowOfEntry;
+}
+
+/** The owner of the first content line at or after `start` (skipping spacers). */
+function anchorOwnerAt(owners: readonly (TranscriptLineOwner | null)[], start: number): TranscriptLineOwner | null {
+  for (let i = Math.max(0, start); i < owners.length; i++) {
+    if (owners[i]) return owners[i];
+  }
+  for (let i = Math.min(start, owners.length) - 1; i >= 0; i--) {
+    if (owners[i]) return owners[i];
+  }
+  return null;
 }
 
 class MakaPiLayoutComponent extends Container {
@@ -712,10 +734,18 @@ class MakaPiLayoutComponent extends Container {
   private lastTotalLines = 0;
   private lastViewportRows = 0;
   private lastWidth = 0;
-  private lastLines: string[] = [];
+  // The content the top of the viewport is pinned to while scrolled. Anchoring to
+  // a piece of content (an entry + row) rather than a line offset keeps the
+  // reader on the same text no matter how blocks re-render between frames —
+  // growing or shrinking, above or below the fold, or several at once in one
+  // coalesced paint. Null while following the tail.
+  private anchor: TranscriptLineOwner | null = null;
+  // Set by an explicit scroll so the next render honours the new offset verbatim
+  // instead of re-deriving it from the (now stale) anchor.
+  private pendingUserScroll = false;
 
   constructor(
-    private readonly transcript: Component,
+    private readonly transcript: MakaTranscriptComponent,
     private readonly editor: Component,
     private readonly statusLine: Component,
     private readonly terminal: Terminal,
@@ -727,7 +757,8 @@ class MakaPiLayoutComponent extends Container {
   }
 
   render(width: number): string[] {
-    const transcriptLines = this.transcript.render(width);
+    const source = this.transcript.renderSource(width);
+    const transcriptLines = source.lines;
     const editorLines = this.editor.render(width);
     const statusLines = this.statusLine.render(width);
     const viewportRows = Math.max(0, this.terminal.rows - editorLines.length - statusLines.length);
@@ -737,23 +768,26 @@ class MakaPiLayoutComponent extends Container {
       // tail rather than land the viewport on an arbitrary mid-message row.
       this.followTail = true;
       this.scrollOffset = 0;
-    } else if (!this.followTail && transcriptLines.length !== this.lastTotalLines) {
-      // The transcript's line count changed. Preserve the reader's position by
-      // holding the top of the visible slice fixed — but only when the change is
-      // entirely below the fold, so the visible slice itself is untouched. A
-      // streamed append or in-place edit to the tail block (a `text_delta`
-      // re-wrapping the last line, a `thinking_complete` growing or shrinking an
-      // expanded block below the fold, a resolved permission prompt collapsing to
-      // a notice) qualifies; an edit above the fold (a block the reader has
-      // scrolled past) does not — there the tail is unchanged, so the
-      // below-the-fold offset must stay put or the window drifts.
-      // `firstDivergentLine` locates the change; a first difference at or below
-      // the old viewport bottom means the visible slice is a stable prefix, so
-      // shift the offset by the (signed) delta to track the tail. Growth and
-      // shrink are symmetric; windowTranscriptLines clamps the result.
-      const viewportBottom = this.lastTotalLines - this.scrollOffset;
-      if (firstDivergentLine(this.lastLines, transcriptLines) >= viewportBottom) {
-        this.scrollOffset += transcriptLines.length - this.lastTotalLines;
+      this.anchor = null;
+    } else if (this.pendingUserScroll) {
+      // An explicit scroll already set scrollOffset; honour it as-is, then re-derive
+      // the anchor from the resulting window below.
+    } else if (!this.followTail && this.anchor) {
+      // A re-render (stream delta, expansion toggle, ...). Recompute the offset so
+      // the anchored content line is back at the top of the viewport. Deriving it
+      // from the anchor's live position — rather than nudging the old offset by a
+      // line delta — is correct for every kind of change at once: only the anchor's
+      // current row matters, not where or how the transcript grew or shrank.
+      const anchorRow = findAnchorRow(source.owners, this.anchor);
+      if (anchorRow < 0) {
+        // The anchored entry is gone (e.g. a session switch replaced the
+        // transcript); fall back to the tail rather than a stale position.
+        this.followTail = true;
+        this.scrollOffset = 0;
+        this.anchor = null;
+      } else {
+        const contentRows = viewportRows >= 2 ? viewportRows - 1 : viewportRows;
+        this.scrollOffset = Math.max(0, transcriptLines.length - anchorRow - contentRows);
       }
     }
 
@@ -765,7 +799,8 @@ class MakaPiLayoutComponent extends Container {
     );
     this.scrollOffset = windowed.scrollOffset;
     this.followTail = windowed.scrollOffset === 0;
-    this.lastLines = transcriptLines;
+    this.anchor = this.followTail ? null : anchorOwnerAt(source.owners, windowed.hiddenAbove);
+    this.pendingUserScroll = false;
     this.lastTotalLines = transcriptLines.length;
     this.lastViewportRows = viewportRows;
     this.lastWidth = width;
@@ -792,6 +827,9 @@ class MakaPiLayoutComponent extends Container {
     if (next === current) return false;
     this.scrollOffset = next;
     this.followTail = next === 0;
+    // The user moved the viewport; the next render must apply this offset, not the
+    // old anchor. The render then re-anchors to whatever is now on top.
+    this.pendingUserScroll = true;
     return true;
   }
 
@@ -818,13 +856,14 @@ class MakaPiLayoutComponent extends Container {
 
   /**
    * Re-pin to the live tail. Call when the transcript is replaced wholesale (a
-   * session switch), so the render's "new lines appended" heuristic does not
-   * mistake a different, larger transcript for appended output and open the
-   * resumed session scrolled into its history.
+   * session switch) or the user submits, so the viewport follows the newest
+   * output instead of holding a now-irrelevant scroll position.
    */
   followTailNow(): void {
     this.followTail = true;
     this.scrollOffset = 0;
+    this.anchor = null;
+    this.pendingUserScroll = false;
   }
 }
 

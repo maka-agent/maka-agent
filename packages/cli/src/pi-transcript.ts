@@ -452,26 +452,64 @@ function systemNoteText(message: SystemNoteMessage): string | undefined {
   }
 }
 
-export function renderMakaPiTranscript(
+/**
+ * Identifies which transcript entry (and which line within its rendered block)
+ * a given transcript row came from. Spacer rows and the permission prompt have
+ * no stable entry identity and are reported as `null` owners. The scroll layout
+ * uses this to anchor the viewport to a piece of content rather than a line
+ * offset, so it stays pinned to what the reader is looking at across arbitrary
+ * re-renders (blocks growing, shrinking, above or below the fold, or all at
+ * once in one coalesced frame).
+ */
+export interface TranscriptLineOwner {
+  entry: MakaPiTranscriptEntry;
+  /** 0-based line index within the entry's rendered block. */
+  row: number;
+}
+
+export interface RenderedTranscript {
+  lines: string[];
+  owners: (TranscriptLineOwner | null)[];
+}
+
+export function renderMakaPiTranscriptSource(
   state: MakaPiTranscriptState,
   _metadata: MakaPiTranscriptMetadata,
   width: number,
-): string[] {
+): RenderedTranscript {
   const safeWidth = Math.max(1, width);
   const lines: string[] = [];
+  const owners: (TranscriptLineOwner | null)[] = [];
 
   for (const entry of state.entries) {
     // A blank spacer above every entry, then its (memoized) rendered block.
     lines.push('');
-    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
+    owners.push(null);
+    const block = renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking);
+    block.forEach((line, row) => {
+      lines.push(line);
+      owners.push({ entry, row });
+    });
   }
 
   if (state.pendingPermission) {
     lines.push('');
-    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+    owners.push(null);
+    for (const line of renderPermissionPrompt(state.pendingPermission, safeWidth)) {
+      lines.push(line);
+      owners.push(null);
+    }
   }
 
-  return lines;
+  return { lines, owners };
+}
+
+export function renderMakaPiTranscript(
+  state: MakaPiTranscriptState,
+  metadata: MakaPiTranscriptMetadata,
+  width: number,
+): string[] {
+  return renderMakaPiTranscriptSource(state, metadata, width).lines;
 }
 
 /**
@@ -489,6 +527,10 @@ interface TranscriptEntryRender {
 
 const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, TranscriptEntryRender>();
 
+// Returns the cached line array by reference on a hit — callers must treat it as
+// read-only (copy the lines into their own buffer rather than mutating in place),
+// or a later render would serve corrupted content for that entry. The only
+// caller, renderMakaPiTranscriptSource, copies each line out.
 function renderTranscriptEntryMemoized(
   entry: MakaPiTranscriptEntry,
   width: number,
