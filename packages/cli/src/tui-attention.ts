@@ -60,6 +60,9 @@ export class AttentionController {
   private attention = false;
   private turnStartedAt = 0;
   private lastTitle: string | null = null;
+  // Set once the session is closing; every event method then no-ops so a turn
+  // finalizer that settles after close() cannot re-dirty the handed-back title.
+  private stopped = false;
 
   constructor(
     private readonly terminal: AttentionTerminal,
@@ -72,6 +75,7 @@ export class AttentionController {
 
   /** A prompt turn began: activity starts and any prior attention is acknowledged. */
   promptTurnStarted(): void {
+    if (this.stopped) return;
     this.turnStartedAt = this.now();
     this.attention = false;
     this.busy = true;
@@ -85,6 +89,7 @@ export class AttentionController {
    * that failed is exactly as worth surfacing as one that succeeded.
    */
   promptTurnEnded(): void {
+    if (this.stopped) return;
     this.busy = false;
     if (this.now() - this.turnStartedAt >= this.longTurnThresholdMs) {
       this.raiseAttention();
@@ -95,6 +100,7 @@ export class AttentionController {
 
   /** A control action (model/session switch, compaction) started: busy, never rings. */
   controlStarted(): void {
+    if (this.stopped) return;
     this.attention = false;
     this.busy = true;
     this.refreshTitle();
@@ -102,19 +108,34 @@ export class AttentionController {
 
   /** A control action ended. */
   controlEnded(): void {
+    if (this.stopped) return;
     this.busy = false;
     this.refreshTitle();
   }
 
   /** The app needs the user now (a permission prompt appeared, or an error surfaced). */
   attentionNeeded(): void {
+    if (this.stopped) return;
     this.raiseAttention();
   }
 
   /** Terminal focus changed; regaining focus acknowledges any pending attention. */
   focusChanged(focused: boolean): void {
+    if (this.stopped) return;
     this.focused = focused;
     if (focused) this.attention = false;
+    this.refreshTitle();
+  }
+
+  /**
+   * The session is closing: drop any busy / attention marker so the tab is not
+   * handed back to the shell still marked busy, and go inert so a turn finalizer
+   * that settles after this cannot re-dirty the title.
+   */
+  reset(): void {
+    this.stopped = true;
+    this.busy = false;
+    this.attention = false;
     this.refreshTitle();
   }
 

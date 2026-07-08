@@ -65,6 +65,22 @@ describe('AttentionController title', () => {
     controller.focusChanged(true); // still focused, still idle → no new title
     assert.equal(terminal.titles.length, before);
   });
+
+  test('reset clears the busy marker and goes inert', () => {
+    const { terminal, controller } = makeController(8000);
+    controller.focusChanged(false);
+    controller.promptTurnStarted();
+    assert.equal(terminal.title, '● Maka');
+    controller.reset();
+    assert.equal(terminal.title, 'Maka');
+    // A finalizer that settles after close must not re-dirty the handed-back
+    // title or ring — every event method is now a no-op.
+    controller.promptTurnEnded();
+    controller.attentionNeeded();
+    controller.promptTurnStarted();
+    assert.equal(terminal.title, 'Maka');
+    assert.equal(terminal.bells, 0);
+  });
 });
 
 describe('AttentionController long-turn ring', () => {

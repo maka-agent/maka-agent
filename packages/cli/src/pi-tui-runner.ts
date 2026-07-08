@@ -173,6 +173,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // has already failed or the session never fully started.
     }
     terminal.setProgress(false);
+    // Drop the busy / attention title marker so the tab is not handed back to
+    // the shell still marked busy when Ctrl-C exits mid-turn (before the turn
+    // finalizer runs). reset() also makes the controller inert.
+    attention.reset();
     // Stop asking the terminal for focus reports before handing it back.
     terminal.write(DISABLE_FOCUS_REPORTING);
     tui.stop();

@@ -2172,6 +2172,35 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('clears the busy title marker when Ctrl-C exits mid-turn', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.titles.includes('● Maka'));
+
+    // Quit while the turn is still parked: close() must reset the title so the
+    // shell tab is not left marked busy after Maka exits.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+    assert.equal(terminal.titles.at(-1), 'Maka');
+  });
+
 });
 
 /** Count the standalone BEL bytes the attention layer wrote. */
