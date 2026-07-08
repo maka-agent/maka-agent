@@ -1424,6 +1424,10 @@
 
   .maka-code {
     font-family: var(--font-mono);
+    /* Geist Mono ships programming ligatures on by default, which collapse a
+       run like `=== 目录 ===` into a strikethrough-looking rule. Code and
+       command surfaces read literally, so ligatures stay off. */
+    font-variant-ligatures: none;
     font-size: var(--font-size-ui);
     background: var(--foreground-3);
     border: var(--border-width-hairline) solid var(--border);
