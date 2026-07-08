@@ -1132,11 +1132,13 @@ describe('transcript entry render memoization', () => {
 
   test('re-renders a tool entry when Ctrl+O expansion is toggled', () => {
     const state = createMakaPiTranscriptState();
+    // A Grep (not a filesystem Read, which now renders only a summary) so
+    // expansion genuinely changes the rendered block and its body is shown.
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start',
       toolUseId: 'tool-1',
-      toolName: 'Read',
-      args: { path: 'file.ts' },
+      toolName: 'Grep',
+      args: { pattern: 'beta' },
     }));
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_result',
