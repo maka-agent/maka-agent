@@ -76,6 +76,7 @@ export type RuntimeEventReplayDiagnosticCode =
   | 'unsupported_content'
   | 'system_runtime_fact_diagnostic_only'
   | 'terminal_fact_diagnostic_only'
+  | 'empty_text_skipped'
   | 'unsigned_thinking_skipped'
   | 'signed_thinking_in_tool_turn_skipped'
   | 'unmatched_tool_result'
@@ -329,6 +330,22 @@ export function buildRuntimeEventModelReplayPlan(
     }
 
     if (!runtimeEventHasModelVisibleContent(event)) {
+      // A model-role empty text event is the step closer of a thinking-only /
+      // tool-only step (the backend emits text_complete with '' so the
+      // read-model gets an assistant row for the step's reasoning). It carries
+      // nothing to replay but is NOT unsupported history — flagging it
+      // unsupported_content would block provider-native replay of the whole
+      // ledger (hasBlockingReplayDiagnostics). Skip it benignly; the
+      // materializer pairs the step's parked reasoning with its tool calls by
+      // stepId at flush time, so no text closer is needed.
+      if (event.content.kind === 'text' && event.role === 'model') {
+        diagnostics.push(diagnostic(
+          event,
+          'empty_text_skipped',
+          'empty model text RuntimeEvent (thinking/tool-only step closer) skipped for model replay',
+        ));
+        continue;
+      }
       diagnostics.push(diagnostic(
         event,
         'unsupported_content',

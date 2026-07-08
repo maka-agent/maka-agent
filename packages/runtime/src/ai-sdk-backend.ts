@@ -2228,10 +2228,12 @@ export class AiSdkBackend implements AgentBackend {
    * The ledger lands a step's parts as: tool_call(s), tool_result(s), thinking,
    * text (the per-step AssistantMessage flushes at `finish-step`, after the
    * step's tool events). Model text carries the step id and closes the step: it
-   * emits `[reasoning, text, tool-call…]` then the tool results. Tool calls of a
-   * preceding pure-tool step (no text closer) flush first as a tool-only
-   * assistant. Legacy per-turn items (no step id) keep the older shape: tool
-   * calls form a tool-only assistant, text/thinking become standalone messages.
+   * emits `[reasoning, text, tool-call…]` then the tool results. Steps with no
+   * text closer — a thinking + tool step (its empty text closer is skipped from
+   * the plan as `empty_text_skipped`) or a pure-tool step — flush grouped by
+   * stepId, claiming any parked reasoning for that step. Legacy per-turn items
+   * (no step id) keep the older shape: tool calls form a tool-only assistant,
+   * text/thinking become standalone messages.
    */
   private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
     type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
@@ -2275,13 +2277,34 @@ export class AiSdkBackend implements AgentBackend {
       if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
       pushToolResults(calls);
     };
-    // Flush buffered tool calls that no assistant text closed (legacy per-turn
-    // tool block or a pure-tool step) as a tool-only assistant + their results.
+    // Emit tool calls no assistant text closed: a thinking + tool step with no
+    // text (its empty closer is skipped from the plan), a pure-tool step, or a
+    // legacy per-turn tool block. Group consecutive calls by stepId so each step
+    // stays one assistant message, and claim the step's parked reasoning by
+    // stepId — this is how the common Anthropic interleaved-thinking step shape
+    // (reasoning + tool call, no text) gets its reasoning merged ahead of its
+    // calls. Calls without a stepId group together (legacy shape, no reasoning).
+    const emitGroupedCalls = (calls: readonly ToolCallItem[]) => {
+      let group: ToolCallItem[] = [];
+      const emitGroup = () => {
+        if (group.length === 0) return;
+        const stepId = group[0]!.stepId;
+        const reasoning = stepId !== undefined ? reasoningByStep.get(stepId) : undefined;
+        if (stepId !== undefined) reasoningByStep.delete(stepId);
+        emitStep(reasoning, '', group);
+        group = [];
+      };
+      for (const call of calls) {
+        if (group.length > 0 && group[0]!.stepId !== call.stepId) emitGroup();
+        group.push(call);
+      }
+      emitGroup();
+    };
     const flushLooseCalls = () => {
       if (bufferedCalls.length === 0) return;
       const calls = bufferedCalls;
       bufferedCalls = [];
-      emitStep(undefined, '', calls);
+      emitGroupedCalls(calls);
     };
 
     for (const item of plan.items) {
@@ -2312,7 +2335,9 @@ export class AiSdkBackend implements AgentBackend {
             const thisCalls = bufferedCalls.filter((call) => call.stepId === stepId);
             const otherCalls = bufferedCalls.filter((call) => call.stepId !== stepId);
             bufferedCalls = [];
-            if (otherCalls.length > 0) emitStep(undefined, '', otherCalls);
+            // Earlier steps' unclosed calls flush first (with their own parked
+            // reasoning, if any) so step order is preserved.
+            if (otherCalls.length > 0) emitGroupedCalls(otherCalls);
             emitStep(reasoningByStep.get(stepId), item.content, thisCalls);
             reasoningByStep.delete(stepId);
           } else {

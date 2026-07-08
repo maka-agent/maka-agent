@@ -5740,6 +5740,60 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.ok(prompt.indexOf('reasoning about the tool result') < prompt.indexOf('tool-1'));
   });
 
+  test('thinking-only tool step (no text) replays reasoning + tool call in one assistant message without an empty text block', async () => {
+    // Anthropic interleaved thinking's most common step shape: the step reasons,
+    // calls a tool, and produces NO closing text — the backend still flushes the
+    // step's AssistantMessage (text: '') so the signed block persists, and emits
+    // text_complete with empty text. On replay the step must merge into ONE
+    // assistant message [reasoning, tool-call] with NO empty text part between
+    // them (emitStep skips text.length === 0; an empty text block is provider
+    // noise and this locks that skip path).
+    const ctx = {
+      sessionId: 'session-1',
+      invocationId: 'inv-1',
+      runId: 'run-prev',
+      turnId: 'turn-prev',
+      now: () => 7,
+      newId: idGenerator(),
+    } as unknown as InvocationContext;
+    const memory = createSessionEventMapMemory();
+    const priorEvents: SessionEvent[] = [
+      { type: 'tool_start', id: 'e1', turnId: 'turn-prev', ts: 1, toolUseId: 'tool-1', toolName: 'Read', args: { path: 'package.json' }, stepId: 'm1' },
+      { type: 'tool_result', id: 'e2', turnId: 'turn-prev', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'file contents' } },
+      { type: 'thinking_complete', id: 'e3', turnId: 'turn-prev', ts: 3, messageId: 'm1', text: 'plan the read', signature: 'sig-interleaved' },
+      { type: 'text_complete', id: 'e4', turnId: 'turn-prev', ts: 4, messageId: 'm1', text: '' },
+    ];
+    const runtimeContext = priorEvents.map((event) => mapSessionEventToRuntimeEvent(event, ctx, memory));
+
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(secondBackend.send({ turnId: 'turn-current', text: 'follow up', context: [], runtimeContext }));
+
+    const prompt = compactPrompt(secondModel) as Array<{ role: string; content: unknown }>;
+    const assistantMessages = prompt.filter((message) => message.role === 'assistant');
+    assert.equal(assistantMessages.length, 1, 'reasoning and tool call must merge into one assistant message');
+    const parts = assistantMessages[0]!.content as Array<{ type: string; text?: string }>;
+    // Reasoning leads the tool call; no text part at all (not even an empty one).
+    assert.deepEqual(parts.map((part) => part.type), ['reasoning', 'tool-call']);
+    assert.equal(parts[0]!.text, 'plan the read');
+    const promptJson = JSON.stringify(prompt);
+    assert.match(promptJson, /sig-interleaved/);
+    assert.match(promptJson, /"toolCallId":"tool-1"/);
+  });
+
   test('signed thinking from a legacy (unpaired) tool turn is NOT replayed as a stray reasoning block', async () => {
     // Legacy per-turn ledger: the tool_start carries NO step id, so its
     // end-of-turn reasoning cannot be paired to a tool-use assistant message and
