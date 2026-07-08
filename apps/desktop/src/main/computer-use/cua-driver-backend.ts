@@ -13,14 +13,19 @@
 // abort) stay in the @maka/runtime `computer` tool. cua-driver does NOT redact
 // secrets — the runtime redacts every backend-supplied message upstream.
 //
-// KEYBOARD IS INTENTIONALLY UNSUPPORTED HERE (fails closed). cua-driver's
-// type_text/press_key require a target `pid`, and the only pid this backend can
-// resolve is the OS-frontmost app — which is BY DEFINITION the user's active
-// window. Routing keystrokes there would violate the non-negotiable "never
-// disturb the user's active app" invariant, so `type`/`key` return a truthful
-// `unsupported_action` error instead of injecting into the user's window.
-// Background keyboard to a *specific* target belongs to the AX-helper backend
-// (MAKA_CU_BACKEND=ax-helper), which posts to a resolved pid via CGEventPostToPid.
+// KEYBOARD FAILS CLOSED HERE. Not because the mechanism is unsafe — verified
+// against the real driver, cua-driver's type_text/press_key ARE background-safe
+// (delivery_mode:"background" = no fronting/raising/focus-steal) and target an
+// explicit pid. The problem is *which* pid: the flat Anthropic computer grammar
+// (type/key carry only `text`, no target) gives no window/pid context, and a
+// scope:'desktop' click does not raise/focus its target — so the only pid we
+// could GUESS is the OS-frontmost app = the user's active window. Typing there
+// would violate the non-negotiable "never disturb the user's active app". Doing
+// it right needs the element/window flow (get_accessibility_tree / get_window_state
+// → owner pid or element_index+window_id → type_text{pid, delivery_mode:background}),
+// which this coordinate-oriented backend does not implement yet. Until then type/key
+// return a truthful `unsupported_action` rather than guess. (The Tier-1 AX helper
+// backend already does targeted background typing to a resolved pid.)
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -339,9 +344,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
         case 'type':
         case 'key':
-          // FAIL CLOSED — see the module header. cua-driver keyboard requires a
-          // pid, and the only pid we could resolve (frontmost) is the user's
-          // active window. We refuse honestly instead of injecting there.
+          // FAIL CLOSED — see the module header. cua-driver keyboard is background-
+          // safe (delivery_mode:"background", no focus steal) but needs a *target
+          // pid*; the flat grammar carries none, and guessing frontmost = the user's
+          // active window. We refuse honestly rather than guess (upgrade path: resolve
+          // the target pid via get_accessibility_tree / get_window_state, then type
+          // to THAT pid — never frontmost).
           return {
             outcome: {
               ok: false,
