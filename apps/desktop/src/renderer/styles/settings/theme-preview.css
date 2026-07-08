@@ -369,12 +369,12 @@
    palette's brand identity even when the current page is on a
    different palette. */
 .settingsPaletteSwatch-default          { background: oklch(0.70 0.135 250); }
-.settingsPaletteSwatch-onedark          { background: oklch(0.60 0.14 250); }
+.settingsPaletteSwatch-onedark          { background: oklch(0.62 0.13 237); }
 .settingsPaletteSwatch-catppuccin-mocha { background: oklch(0.65 0.18 330); }
 .settingsPaletteSwatch-tokyo-night      { background: oklch(0.55 0.16 215); }
 .settingsPaletteSwatch-nord             { background: oklch(0.62 0.12 215); }
 .settingsPaletteSwatch-coral            { background: oklch(0.68 0.18 25); }
-.settingsPaletteSwatch-azure            { background: oklch(0.58 0.18 252); }
+.settingsPaletteSwatch-azure            { background: oklch(0.55 0.12 195); }
 .settingsPaletteSwatch-forest           { background: oklch(0.50 0.12 152); }
 .settingsPaletteSwatch-dusk             { background: oklch(0.55 0.18 305); }
 .settingsPaletteSwatch-sand             { background: oklch(0.62 0.14 55); }

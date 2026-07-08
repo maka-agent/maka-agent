@@ -664,7 +664,7 @@
 [data-maka-theme="onedark"] {
   --background: oklch(0.95 0.005 250);
   --foreground: oklch(0.30 0.02 250);
-  --accent: oklch(0.60 0.14 250);              /* blue */
+  --accent: oklch(0.62 0.13 237);              /* One Dark blue (#61AFEF family) */
   --info: oklch(0.72 0.14 60);                 /* warm amber */
   --success: oklch(0.62 0.16 145);
   --destructive: oklch(0.62 0.20 22);
@@ -674,7 +674,7 @@
 [data-maka-theme="onedark"].dark {
   --background: oklch(0.21 0.010 250);
   --foreground: oklch(0.90 0.010 250);
-  --accent: oklch(0.68 0.15 250);
+  --accent: oklch(0.70 0.13 237);
   --info: oklch(0.74 0.15 70);
   --success: oklch(0.65 0.16 145);
   --destructive: oklch(0.70 0.18 22);
@@ -774,7 +774,7 @@
 [data-maka-theme="azure"] {
   --background: oklch(0.98 0.005 250);
   --foreground: oklch(0.20 0.015 250);
-  --accent: oklch(0.58 0.18 252);               /* product blue */
+  --accent: oklch(0.55 0.12 195);               /* lake cyan */
   --info: oklch(0.68 0.13 240);
   --success: oklch(0.66 0.15 150);
   --destructive: oklch(0.62 0.18 22);
@@ -784,7 +784,7 @@
 [data-maka-theme="azure"].dark {
   --background: oklch(0.20 0.015 250);
   --foreground: oklch(0.93 0.010 250);
-  --accent: oklch(0.70 0.18 252);
+  --accent: oklch(0.72 0.13 195);
   --info: oklch(0.74 0.13 240);
   --success: oklch(0.72 0.14 150);
   --destructive: oklch(0.72 0.18 22);
