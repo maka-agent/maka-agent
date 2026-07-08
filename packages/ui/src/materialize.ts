@@ -277,18 +277,33 @@ export function materializeTurns(
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
       };
     } else if (message.type === 'assistant') {
-      turn.assistant = { id: message.id, role: 'assistant', text: message.text, ts: message.ts };
+      // A turn now holds one AssistantMessage per model step. Concatenate their
+      // text (and thinking) in step order so the turn reads as one answer; keep
+      // the first step's id as the stable anchor, and advance ts to the latest
+      // step so durationMs measures to the turn's final assistant message.
+      const priorText = turn.assistant?.text ?? '';
+      const mergedText = message.text.length > 0
+        ? (priorText.length > 0 ? `${priorText}\n\n${message.text}` : message.text)
+        : priorText;
+      turn.assistant = {
+        id: turn.assistant?.id ?? message.id,
+        role: 'assistant',
+        text: mergedText,
+        ts: message.ts,
+      };
       turn.modelId = message.modelId;
       if (message.thinking?.text) {
-        turn.assistantThinking = message.thinking.text;
+        turn.assistantThinking = turn.assistantThinking
+          ? `${turn.assistantThinking}\n\n${message.thinking.text}`
+          : message.thinking.text;
       }
       // Time-to-answer measured from the earliest message in this turn (usually
-      // the user's send) to the assistant message ts. Tool runs are inside
-      // this window, so the same metric captures both LLM latency and tool
-      // wall-time. We only compute this once the assistant message lands, so
-      // a streaming turn stays at undefined ("进行中" per kenji's PR82
-      // review) instead of ticking up against the current clock and forcing
-      // visible re-renders.
+      // the user's send) to the turn's final assistant message ts. Tool runs are
+      // inside this window, so the same metric captures both LLM latency and tool
+      // wall-time. We only compute this once an assistant message lands, so a
+      // streaming turn stays at undefined ("进行中" per kenji's PR82 review)
+      // instead of ticking up against the current clock and forcing visible
+      // re-renders. Recomputed as each step lands, so it ends at the last step.
       if (message.ts !== undefined && message.ts >= turn.startedAt) {
         turn.durationMs = message.ts - turn.startedAt;
       }

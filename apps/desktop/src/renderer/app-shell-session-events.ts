@@ -295,9 +295,18 @@ export function createAppShellSessionEventHandlers(options: {
         // racing a committed-message refresh.
         setStreamingBySession((current) => {
           const prevSlot = current[sessionId];
-          const prevText = prevSlot?.text ?? '';
+          // Per-step guard: each model step streams under its own messageId. When
+          // the id changes (a new step began, or a prior step's slot is still
+          // draining), start this step's bubble fresh instead of appending onto
+          // the previous step's text — otherwise the next step's answer would
+          // flicker duplicated onto the last one.
+          const sameMessage =
+            prevSlot === undefined
+            || prevSlot.messageId === undefined
+            || prevSlot.messageId === event.messageId;
+          const prevText = sameMessage ? (prevSlot?.text ?? '') : '';
           const applied = applyAssistantDelta(prevText, event.text);
-          const nextTruncated = (prevSlot?.truncated ?? false) || applied.truncated;
+          const nextTruncated = (sameMessage ? (prevSlot?.truncated ?? false) : false) || applied.truncated;
           // Avoid a re-render when nothing materially changed (e.g.
           // a non-string `event.text` defensively dropped by the
           // helper, no truncated change).
