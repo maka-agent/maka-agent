@@ -673,6 +673,12 @@ export {
   isRealConnection,
 } from './connection-readiness.js';
 
+// connection-error-copy.ts — shared not-ready-connection fix copy
+export {
+  describeChatConfigurationReason,
+  chatConfigurationReasonFromError,
+} from './connection-error-copy.js';
+
 // session-name.ts (PR-UI-IPC-2)
 export type { NormalizeSessionNameResult } from './session-name.js';
 export {
