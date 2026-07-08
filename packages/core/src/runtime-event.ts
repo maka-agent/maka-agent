@@ -241,6 +241,14 @@ export interface RuntimeEventRefs {
   toolCallId?: string;
   providerEventId?: string;
   artifactId?: string;
+  /**
+   * Assistant step id for a function_call event: the id of the step's
+   * text/thinking messages (their `providerEventId`). Model replay pairs a
+   * step's signed thinking with its tool calls by this id. Absent on legacy
+   * (per-turn) events; a missing stepId marks history that cannot be paired
+   * and is replayed with the older degraded semantics.
+   */
+  stepId?: string;
 }
 
 // ============================================================================

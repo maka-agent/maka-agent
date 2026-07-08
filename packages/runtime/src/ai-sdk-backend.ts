@@ -537,6 +537,12 @@ export class AiSdkBackend implements AgentBackend {
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  /**
+   * Id of the assistant step currently streaming. Read by ToolRuntime via
+   * `getCurrentStepId` so each tool call's `tool_start` carries the step it
+   * belongs to. Rotated at every step boundary in `send()`; null between turns.
+   */
+  private currentStepMessageId: string | null = null;
 
   constructor(input: AiSdkBackendInput) {
     this.input = input;
@@ -570,6 +576,7 @@ export class AiSdkBackend implements AgentBackend {
       now: this.now,
       getPermissionPauseTarget: () => this.currentWatchdog,
       getCurrentRunId: () => this.currentRunId ?? undefined,
+      getCurrentStepId: () => this.currentStepMessageId ?? undefined,
       spawnChildAgent: input.spawnChildAgent,
       listChildAgents: input.listChildAgents,
       readChildAgentOutput: input.readChildAgentOutput,
@@ -677,11 +684,74 @@ export class AiSdkBackend implements AgentBackend {
     const queue = new AsyncEventQueue<SessionEvent>();
     this.currentQueue = queue;
 
-    const assistantMessageId = this.newId();
-    let assistantText = '';
-    let thinkingText = '';
-    let thinkingSignature: string | undefined;
+    // One AssistantMessage is flushed per AI SDK step (not per turn), so the
+    // ledger records the text↔tool timeline at step granularity and each step's
+    // Anthropic thinking signature stays paired with its own thinking text. The
+    // turn's first step reuses this id; every later step rotates to a fresh one
+    // at its step boundary (see the fullStream loop below).
+    this.currentStepMessageId = this.newId();
+    let stepText = '';
+    let stepThinking = '';
+    let stepSignature: string | undefined;
+    // Whether any step flushed non-empty text this turn — drives the step-cap
+    // grace notice below (a turn whose every step was tool-only gets the notice).
+    let turnHadAnyText = false;
     const startedAt = this.now();
+
+    // Flush the current step's AssistantMessage (text + thinking) and the paired
+    // terminal thinking/text events, then clear the per-step accumulators.
+    // Persist when the step produced text OR reasoning — a thinking-only step
+    // (Anthropic's signed/omitted reasoning has empty text) still round-trips its
+    // signed block; a pure-tool step (no text, no thinking) writes nothing, so
+    // tool-only steps leave no placeholder assistant row. thinking_complete
+    // precedes text_complete so the read-model attaches this step's reasoning to
+    // this step's assistant row. Hoisted to send() scope so both the streaming
+    // path and the abort/error handler can flush a partial step.
+    const flushStep = async (): Promise<void> => {
+      const hasThinking = stepThinking.length > 0 || stepSignature !== undefined;
+      if (stepText.length === 0 && !hasThinking) return;
+      const stepId = this.currentStepMessageId ?? this.newId();
+      const msg: AssistantMessage = {
+        type: 'assistant',
+        id: stepId,
+        turnId,
+        ts: this.now(),
+        text: stepText,
+        modelId: this.input.modelId,
+        ...(hasThinking
+          ? {
+              thinking: {
+                text: stepThinking,
+                ...(stepSignature !== undefined ? { signature: stepSignature } : {}),
+              },
+            }
+          : {}),
+      };
+      await this.input.appendMessage(msg);
+      if (hasThinking) {
+        queue.push({
+          type: 'thinking_complete',
+          id: this.newId(),
+          turnId,
+          ts: this.now(),
+          messageId: stepId,
+          text: stepThinking,
+          ...(stepSignature !== undefined ? { signature: stepSignature } : {}),
+        } satisfies ThinkingCompleteEvent);
+      }
+      queue.push({
+        type: 'text_complete',
+        id: this.newId(),
+        turnId,
+        ts: this.now(),
+        messageId: stepId,
+        text: stepText,
+      } satisfies TextCompleteEvent);
+      if (stepText.length > 0) turnHadAnyText = true;
+      stepText = '';
+      stepThinking = '';
+      stepSignature = undefined;
+    };
     let tokenUsage: NormalizedAiSdkUsage | undefined;
     let tokenUsageCostUsd: number | undefined;
     let streamStatus: LlmCallRecord['status'] = 'success';
@@ -936,18 +1006,30 @@ export class AiSdkBackend implements AgentBackend {
         for await (const chunk of result.fullStream) {
           if (this.aborted) break;
           watchdog.markActivity();
-          if (chunk.type === 'step-finish') {
+          // AI SDK v6 delimits steps with `start-step` / `finish-step`; the step
+          // count and finish reason ride the terminal `finish-step` / `finish`.
+          if (chunk.type === 'finish-step') {
             runtimeSteps += 1;
           }
-          if (chunk.type === 'finish' || chunk.type === 'step-finish') {
+          if (chunk.type === 'finish' || chunk.type === 'finish-step') {
             rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
           }
-          this.modelAdapter.handleStreamChunk(chunk, turnId, assistantMessageId, queue, {
-            onText: (t) => { assistantText += t; },
-            onTextComplete: (t) => { assistantText = t; },
-            onThinking: (t) => { thinkingText += t; },
-            onThinkingSignature: (sig) => { thinkingSignature = sig; },
+          this.modelAdapter.handleStreamChunk(chunk, turnId, this.currentStepMessageId!, queue, {
+            onText: (t) => { stepText += t; },
+            onTextComplete: (t) => { stepText = t; },
+            onThinking: (t) => { stepThinking += t; },
+            onThinkingSignature: (sig) => { stepSignature = sig; },
           });
+          // Step boundary: the step's text/thinking deltas are all in (the
+          // fullStream is drained in order), so flush this step's AssistantMessage
+          // and rotate to a fresh id for the next step. The step's tool calls
+          // (appended mid-step via execute()) already carry the pre-rotation id
+          // via `getCurrentStepId`, so replay can regroup them with this step's
+          // reasoning even though they land before this row in the ledger.
+          if (chunk.type === 'finish-step') {
+            await flushStep();
+            this.currentStepMessageId = this.newId();
+          }
         }
 
         // If the stream loop exited because stop() flipped this.aborted while a
@@ -957,6 +1039,10 @@ export class AiSdkBackend implements AgentBackend {
         if (this.aborted) {
           throw Object.assign(new Error('aborted'), { name: 'AbortError' });
         }
+
+        // Catch-all: flush any residual step content if the provider closed the
+        // stream without a trailing `finish-step` for the last step.
+        await flushStep();
 
         // Same-turn deferred load: prepareStep expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
@@ -982,74 +1068,36 @@ export class AiSdkBackend implements AgentBackend {
         if (finishReasonForGrace === 'tool-calls' && runtimeSteps < this.maxSteps) {
           runtimeSteps = this.maxSteps;
         }
+        // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
+        // mid-tool-loop and no step ever produced closing text, append a final
+        // assistant message (its own step id) so the UI has a closing line and
+        // the user can send "继续" for a fresh turn.
         if (
           !this.aborted
-          && assistantText.length === 0
+          && !turnHadAnyText
           && finishReasonForGrace === 'tool-calls'
         ) {
-          assistantText =
+          const graceId = this.currentStepMessageId ?? this.newId();
+          const graceText =
             `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
             + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
-        }
-
-        // Persist the assistant turn if it produced text OR reasoning. A turn
-        // that ends with only thinking (no final text) must still persist its
-        // reasoning; gating solely on text would drop it. The AssistantMessage
-        // carries an empty `text` in that case, and we still emit text_complete
-        // (empty) so the RuntimeEvent read-model has a same-turn assistant row
-        // to attach the thinking to — otherwise projectThinking has nothing to
-        // hang the reasoning on and discards it.
-        //
-        // A signature is thinking even with no text: Anthropic's omitted /
-        // redacted thinking returns a signed reasoning block whose text is
-        // empty. Dropping it would lose the signed block for provider-native
-        // replay (reasoning continuity). Persist `text: ''` + signature so the
-        // block round-trips faithfully; the render layer is responsible for not
-        // surfacing an empty thinking entry.
-        const hasThinking = thinkingText.length > 0 || thinkingSignature !== undefined;
-        if (assistantText.length > 0 || hasThinking) {
-          const msg: AssistantMessage = {
+          await this.input.appendMessage({
             type: 'assistant',
-            id: assistantMessageId,
+            id: graceId,
             turnId,
             ts: this.now(),
-            text: assistantText,
+            text: graceText,
             modelId: this.input.modelId,
-            ...(hasThinking
-              ? {
-                  thinking: {
-                    text: thinkingText,
-                    ...(thinkingSignature !== undefined ? { signature: thinkingSignature } : {}),
-                  },
-                }
-              : {}),
-          };
-          await this.input.appendMessage(msg);
-          // Emit the terminal thinking event before text_complete so the
-          // RuntimeEvent stream carries a non-partial `thinking` message. Only
-          // partial `thinking_delta`s were emitted during streaming, so without
-          // this the read-model projection (and materialized session) drops all
-          // reasoning. The read-model attaches this to the same-turn assistant
-          // text row emitted just below.
-          if (hasThinking) {
-            queue.push({
-              type: 'thinking_complete',
-              id: this.newId(),
-              turnId,
-              ts: this.now(),
-              messageId: assistantMessageId,
-              text: thinkingText,
-              ...(thinkingSignature !== undefined ? { signature: thinkingSignature } : {}),
-            } satisfies ThinkingCompleteEvent);
-          }
+          });
           queue.push({
             type: 'text_complete',
             id: this.newId(),
             turnId,
             ts: this.now(),
-            messageId: assistantMessageId,
-            text: assistantText,
+            messageId: graceId,
+            text: graceText,
           } satisfies TextCompleteEvent);
+          turnHadAnyText = true;
         }
 
         // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
@@ -1162,6 +1210,10 @@ export class AiSdkBackend implements AgentBackend {
         streamStatus = this.aborted ? 'aborted' : 'error';
         streamErrorClass = this.modelAdapter.classifyError(watchdogTimeoutError ?? err);
         if (this.aborted) {
+          // Flush the in-flight step's partial text/thinking before the abort
+          // signal. Earlier steps already flushed at their `finish-step`; this
+          // keeps their and this step's partial output (partialOutputRetained).
+          await flushStep().catch(() => {});
           queue.push({
             type: 'abort',
             id: this.newId(),
@@ -2359,6 +2411,7 @@ export class AiSdkBackend implements AgentBackend {
     this.currentTurnId = null;
     this.currentRunId = null;
     this.currentRunTrace = null;
+    this.currentStepMessageId = null;
     this.toolRuntime.resetTurnState();
     this.aborted = false;
   }

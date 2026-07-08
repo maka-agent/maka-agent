@@ -112,6 +112,13 @@ export interface ToolRuntimeInput {
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
   getCurrentRunId?: () => string | undefined;
+  /**
+   * Id of the assistant step currently streaming, stamped onto each tool call's
+   * `tool_start` event so model replay can group a step's reasoning + tool calls
+   * into one provider assistant message. Undefined leaves the step unpaired
+   * (legacy per-turn behavior).
+   */
+  getCurrentStepId?: () => string | undefined;
   spawnChildAgent?: (input: {
     parentRunId: string;
     spec: AgentSpec;
@@ -248,6 +255,7 @@ export class ToolRuntime {
       args,
     };
     await this.input.appendMessage(callMsg);
+    const stepId = this.input.getCurrentStepId?.();
     const startEv: ToolStartEvent = {
       type: 'tool_start',
       id: this.input.newId(),
@@ -258,6 +266,7 @@ export class ToolRuntime {
       args,
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
+      ...(stepId !== undefined ? { stepId } : {}),
     };
     queue.push(startEv);
     trace?.emit('tool', 'tool_started', 'Tool execution started', {

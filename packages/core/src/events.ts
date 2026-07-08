@@ -102,6 +102,14 @@ export interface ToolStartEvent extends BaseEvent {
   args: unknown;
   displayName?: string;
   intent?: string;
+  /**
+   * Id of the assistant step this tool call belongs to (equals the step's
+   * AssistantMessage id / the step's text+thinking messageId). Lets model
+   * replay group a step's reasoning + text + tool calls into one provider
+   * assistant message. Absent on legacy events; consumers treat a missing
+   * stepId as un-pairable (degraded, per-turn) history.
+   */
+  stepId?: string;
 }
 
 export type ToolOutputStream = typeof TOOL_OUTPUT_STREAMS[number];

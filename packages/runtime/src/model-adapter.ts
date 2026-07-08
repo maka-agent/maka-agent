@@ -249,6 +249,13 @@ export class ModelAdapter {
       }
       case 'reasoning-start':
         break;
+      // Step boundaries (AI SDK v6 emits `start-step` / `finish-step`; older
+      // `step-finish` kept for compatibility) and the terminal `finish` carry no
+      // text/thinking to stream. The backend owns step accounting: it counts and
+      // flushes one AssistantMessage per step and rotates the messageId at each
+      // `finish-step`. Handling them here would double-count, so they are no-ops.
+      case 'start-step':
+      case 'finish-step':
       case 'step-finish':
       case 'finish':
         break;

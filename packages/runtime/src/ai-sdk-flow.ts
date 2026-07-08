@@ -195,7 +195,10 @@ export function mapSessionEventToRuntimeEvent(
           name: event.toolName,
           args: event.args,
         },
-        refs: { toolCallId: event.toolUseId },
+        refs: {
+          toolCallId: event.toolUseId,
+          ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
+        },
       };
       if (event.displayName !== undefined || event.intent !== undefined) {
         const stateDelta: Record<string, unknown> = {};
