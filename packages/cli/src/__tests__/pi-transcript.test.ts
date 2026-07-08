@@ -754,6 +754,29 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /cwd: \/repo/); // cwd is not in the input summary, so shown once here
   });
 
+  test('renders the full command for a multiline background Bash yield', () => {
+    const state = createMakaPiTranscriptState();
+    // The Bash input summary shows only the first line, so a multiline command
+    // must be rendered in full by the result or the rest is lost.
+    const command = 'npm run build \\\n  --watch \\\n  --verbose';
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-ml', toolName: 'Bash', args: { command },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-ml', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'bg-ml', status: 'running', cwd: '/repo',
+        cmd: command, startedAt: 1, updatedAt: 2,
+        stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+      },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /--watch/);
+    assert.match(expanded, /--verbose/);
+  });
+
   test('renders a report-style result in full instead of head/tail capping it', () => {
     const state = createMakaPiTranscriptState();
     // Report-style kinds (agent reports, summaries) are content the user expands

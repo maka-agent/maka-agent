@@ -1175,16 +1175,20 @@ function renderShellRunResult(
   width: number,
 ): string[] {
   const lines: string[] = [];
-  // The command/cwd live on the result. Repeat the command only when the tool
-  // input does not already show it — a StopBackgroundTask input carries just the
-  // run ref, but a Bash background yield already renders `$ command`, so
-  // repeating it there would print the command twice. The cwd is not in either
+  // The command/cwd live on the result. The Bash input summary shows only the
+  // command's first line (`command.split('\n')[0]`), so skip the result-side
+  // `$ cmd` only when the input already shows the whole command — a single-line
+  // command. A multiline command, or a ref-only StopBackgroundTask input,
+  // renders the full command here so none of it is lost. The cwd is in neither
   // input summary, so show it once here.
   const input = entry.input;
-  const inputHasCommand = input !== null
-    && typeof input === 'object'
-    && typeof (input as { command?: unknown }).command === 'string';
-  if (!inputHasCommand) {
+  const command = input !== null && typeof input === 'object'
+    ? (input as { command?: unknown }).command
+    : undefined;
+  const inputShowsFullCommand = typeof command === 'string'
+    && command.trim() !== ''
+    && !command.includes('\n');
+  if (!inputShowsFullCommand) {
     lines.push(...renderIndented(ansi.dim(`$ ${content.cmd}`), width, 2));
   }
   lines.push(...renderIndented(ansi.dim(`cwd: ${content.cwd}`), width, 2));
