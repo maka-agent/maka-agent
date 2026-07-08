@@ -46,9 +46,7 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
     // A turn holds one assistant message per model step; join their text in step
     // order so the export carries the whole answer, not just the first step.
     const assistantText = turnMessages
-      .filter((m) => m.type === 'assistant')
-      .map((m) => (m as { text: string }).text)
-      .filter((text) => text.length > 0)
+      .flatMap((m) => (m.type === 'assistant' && m.text.length > 0 ? [m.text] : []))
       .join('\n\n');
     const toolCalls = turnMessages.filter((m) => m.type === 'tool_call');
 

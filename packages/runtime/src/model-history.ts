@@ -289,6 +289,14 @@ export function buildRuntimeEventModelReplayPlan(
   // stepId) vs unpaired (any lacks one). Union caller-supplied whole-ledger
   // tool-turn ids that this (possibly sliced) `events` view cannot confirm as
   // paired, so a sliced-away tool turn degrades safely to the legacy skip.
+  //
+  // The judgment is deliberately TURN-granular, not per-step: one turn is
+  // written by one backend build, so old (no stepId) and new (stepId) tool
+  // calls cannot mix within a turn — per-step classification would add
+  // complexity for a state that cannot exist. And pairedToolTurnIds is not
+  // dead state: it is what lets a caller-supplied tool-turn id (from the FULL
+  // ledger) stay replayable when this sliced view can prove the turn's calls
+  // are step-paired — without it every sliced tool turn would degrade.
   const pairedToolTurnIds = new Set<string>();
   const unpairedToolTurnIds = new Set<string>();
   for (const event of events) {
