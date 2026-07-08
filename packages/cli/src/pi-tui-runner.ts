@@ -234,6 +234,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     layout.followTailNow();
     if (handleSlashCommand(prompt)) return;
 
+    runAgentTurn(prompt);
+  };
+
+  // Runs one agent turn rendered in the transcript. Shared by user submits.
+  function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
     interruptRequested = false;
@@ -279,7 +284,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       attention.promptTurnEnded();
       requestRender();
     });
-  };
+  }
 
   const setModel = async (nextModel: string) => {
     await input.driver.setModel(nextModel);
