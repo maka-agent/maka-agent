@@ -79,6 +79,13 @@ export function DailyReviewPanel(props: {
   const summaryScopeKeyRef = useRef<string | null>(null);
   const pendingDailyReviewActionRef = useRef<string | null>(null);
   const archiveLoadRequestRef = useRef(0);
+  // PR-582-FOLLOWUP: bridge methods (fetchDay, listArchives, getArchive)
+  // are thin IPC wrappers that don't depend on the connections array.
+  // Track the latest bridge via ref so effects don't re-fire when the
+  // bridge object is recreated due to an unrelated connections change
+  // (e.g. updatedAt timestamp bump from a provider status refresh).
+  const bridgeRef = useRef(props.bridge);
+  bridgeRef.current = props.bridge;
   const currentSummaryScopeKey = dailyReviewScopeKey(offsetDays, range);
   const visibleSummary = summaryScopeKey === currentSummaryScopeKey ? summary : null;
   const canLoadArchives = Boolean(props.bridge.listArchives && props.bridge.getArchive);
@@ -105,7 +112,7 @@ export function DailyReviewPanel(props: {
     const scopeKey = dailyReviewScopeKey(offsetDays, range);
     setLoading(true);
     setError(null);
-    props.bridge
+    bridgeRef.current
       .fetchDay(offsetDays, range)
       .then((next) => {
         if (cancelled) return;
@@ -127,10 +134,10 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [offsetDays, range, reloadToken, props.bridge]);
+  }, [offsetDays, range, reloadToken]);
 
   useEffect(() => {
-    const listArchives = props.bridge.listArchives;
+    const listArchives = bridgeRef.current.listArchives;
     if (!listArchives) {
       setArchives([]);
       setSelectedArchiveId(null);
@@ -155,10 +162,10 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken, props.bridge]);
+  }, [archiveReloadToken]);
 
   useEffect(() => {
-    const getArchive = props.bridge.getArchive;
+    const getArchive = bridgeRef.current.getArchive;
     if (!getArchive || !selectedArchiveId) {
       archiveLoadRequestRef.current += 1;
       setSelectedArchive(null);
@@ -188,7 +195,7 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken, selectedArchiveId, props.bridge]);
+  }, [archiveReloadToken, selectedArchiveId]);
 
   useEffect(() => {
     if (modelOptions.length === 0) {
