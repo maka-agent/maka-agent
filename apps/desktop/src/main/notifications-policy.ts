@@ -26,15 +26,22 @@ export interface RunNotificationGate {
    * a banner would be pure noise.
    */
   readonly windowFocused: boolean;
+  /**
+   * `settings.privacy.incognitoActive`. A banner carries the session
+   * name + reply/error preview *outside* the app (Notification Center,
+   * lock screen), which contradicts incognito, so we suppress entirely
+   * — consistent with incognito pausing local memory / search.
+   */
+  readonly incognito: boolean;
 }
 
 /**
  * Single source of truth for "should we raise a native notification for
- * this finished turn". All three gates must pass; order is irrelevant
- * because the predicate is a plain conjunction.
+ * this finished turn". All gates must pass; order is irrelevant because
+ * the predicate is a plain conjunction.
  */
 export function shouldRaiseRunNotification(gate: RunNotificationGate): boolean {
-  return gate.enabled && gate.supported && !gate.windowFocused;
+  return gate.enabled && gate.supported && !gate.windowFocused && !gate.incognito;
 }
 
 export interface RunNotificationCopy {

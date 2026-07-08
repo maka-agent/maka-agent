@@ -38,6 +38,7 @@ export function registerNotificationsIpc(deps: NotificationsIpcDeps): void {
       enabled: settings.notifications.runComplete,
       supported,
       windowFocused: deps.mainWindowController.isFocused(),
+      incognito: settings.privacy.incognitoActive,
     };
     if (!shouldRaiseRunNotification(gate)) return;
 

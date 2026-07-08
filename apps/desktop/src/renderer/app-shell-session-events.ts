@@ -476,11 +476,16 @@ export function createAppShellSessionEventHandlers(options: {
           // permission overlay was mounted would leave the overlay
           // stuck on screen until the user manually switches away.
           setPermissionBySession((current) => clearPermissions(current, sessionId));
-          // Only a real turn end is worth a notification. A
-          // `permission_handoff` complete is a *pause* waiting on the
-          // user — notifying there would fire mid-conversation. `slot.text`
-          // holds the streamed reply, which main trims into the body.
-          notifyRunEnded?.({ kind: 'completed', sessionId, body: slot?.text });
+          // Notify "completed" ONLY for a genuine successful end. Use an
+          // allowlist, not `!== permission_handoff`: `error` is emitted as
+          // `error` then `complete(stopReason='error')`, so treating any
+          // non-handoff complete as success would double-fire a misleading
+          // “回答已生成” after the error banner. `user_stop` (user is present)
+          // and `plan_handoff` (a pause) are likewise not turn ends.
+          // `slot.text` holds the streamed reply, which main trims into the body.
+          if (event.stopReason === 'end_turn' || event.stopReason === 'max_tokens') {
+            notifyRunEnded?.({ kind: 'completed', sessionId, body: slot?.text });
+          }
         }
         void refreshSessions();
         void refreshMessages(sessionId, refreshMessagesOptions);

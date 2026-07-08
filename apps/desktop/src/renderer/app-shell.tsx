@@ -972,7 +972,9 @@ export function AppShell({
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
-      void window.maka.notifications.runEnded({ kind, title, body });
+      // Best-effort: swallow any main-side failure so a missed banner
+      // never surfaces as an unhandled promise rejection.
+      void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
     },
   });
 
