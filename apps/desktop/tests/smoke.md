@@ -1568,8 +1568,12 @@ Doc convention is the same as Path 17:
   `error` set OR a true success. No middle ground.
 - Closed error enum: `permission_missing` / `overlay_failed` /
   `invalid_coordinate` / `capture_failed` / `sensitivity_blocked` /
-  `aborted` / `timeout`. Adding a new error mode is a type-surgery
-  change AND a smoke.md S17 update.
+  `unsupported_action` / `aborted` / `timeout`. Adding a new error
+  mode is a type-surgery change AND a smoke.md S17 update.
+  (`unsupported_action`: a backend refuses an action it cannot
+  perform safely — e.g. cua-driver keyboard, whose only resolvable
+  target is the user's frontmost app; it fails closed here rather
+  than route keystrokes into the user's active window.)
 
 **Deferred.**
 - Per-action timeout policy: each CU verb has a max-wall-time;

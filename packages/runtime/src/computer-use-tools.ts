@@ -13,6 +13,7 @@ import {
   type CuPoint,
   type ComputerUseActionOutcome,
 } from '@maka/core';
+import { redactSecrets } from '@maka/core/redaction';
 import type { MakaTool } from './tool-runtime.js';
 
 const COMPUTER_USE_CATEGORY = 'computer_use';
@@ -116,7 +117,11 @@ export function adaptToCuAction(args: ComputerParams): CuAction {
 function summarize(action: CuAction, result: CuRunResult): string {
   const { outcome } = result;
   if (!outcome.ok) {
-    return `computer.${action.type} failed: ${outcome.error}${outcome.message ? ` — ${outcome.message}` : ''}`
+    // S16: a backend-supplied message may echo screen/AX-derived text (cua-driver
+    // does not redact — the runtime is the redaction chokepoint). Redact before it
+    // reaches the model.
+    const msg = outcome.message ? ` — ${redactSecrets(outcome.message)}` : '';
+    return `computer.${action.type} failed: ${outcome.error}${msg}`
       + (typeof outcome.completedSubSteps === 'number' ? ` (completed ${outcome.completedSubSteps} sub-steps)` : '');
   }
   const verified = outcome.verified === undefined ? 'n/a' : String(outcome.verified);
@@ -125,8 +130,20 @@ function summarize(action: CuAction, result: CuRunResult): string {
     + (outcome.verified === false ? ' — dispatch could not be confirmed; re-screenshot to verify' : '');
 }
 
+/**
+ * Raw result of the `computer` tool. `text` is the S16-safe summary the runtime
+ * records to session history (via coerceResultContent's text-only projection:
+ * this object has no `kind`, so only `text` survives). `screenshot`, when
+ * present, rides along ONLY to feed `toModelOutput` — it never enters `text`, so
+ * the ≤2MB frame base64 stays out of session history.
+ */
+interface ComputerToolResult {
+  text: string;
+  screenshot?: { base64: string; mimeType: string };
+}
+
 export function buildComputerUseTools(deps: { backend: CuDispatchBackend }): MakaTool[] {
-  const tool: MakaTool<ComputerParams, unknown> = {
+  const tool: MakaTool<ComputerParams, ComputerToolResult> = {
     name: 'computer',
     displayName: '电脑控制',
     description:
@@ -136,25 +153,51 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend }): Mak
       + 'screenshot to check. Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
-    impl: async (args, { abortSignal }) => {
-      if (abortSignal.aborted) return { kind: 'text', text: 'computer aborted before start' };
+    impl: async (args, { abortSignal }): Promise<ComputerToolResult> => {
+      if (abortSignal.aborted) return { text: 'computer aborted before start' };
       // S12: re-check TCC at action-start; cached "granted" is insufficient.
       const tcc = await deps.backend.preflight(abortSignal);
       if (!tcc.accessibility) {
-        return { kind: 'text', text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)' };
+        return { text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)' };
       }
       const action = adaptToCuAction(args);
       // A capture-bearing action additionally needs Screen Recording (S12).
       const capturing = action.type === 'screenshot' || action.type === 'zoom';
       if (capturing && !tcc.screenRecording) {
-        return { kind: 'text', text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
+        return { text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
       }
       const result = await deps.backend.run(action, abortSignal);
-      // NOTE (next increment, gated on the installed ai-sdk image-return shape):
-      // when result.screenshot is present, return it as an image content block so
-      // the vision model can SEE the new state. Until that wiring lands, surface a
-      // faithful text summary + the frame dimensions.
-      return { kind: 'text', text: summarize(action, result) };
+      // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
+      // tool `output`) so `toModelOutput` below can hand the vision model an image
+      // block. Kept OFF `text`: coerceResultContent projects this object to a
+      // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
+      // ≤2MB frame never bloats history.
+      const text = summarize(action, result);
+      return result.screenshot
+        ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
+        : { text };
+    },
+    // Map the raw result into model-visible content: the summary as text, plus the
+    // screenshot as a native image block when present. @ai-sdk/anthropic maps
+    // `image-data` → an Anthropic image block. Robust to the runtime's synthetic
+    // failure return shape ({ error }) from permission/loop-gate blocks, which
+    // reaches here as `output` too.
+    toModelOutput: ({ output }) => {
+      const o = (output ?? {}) as Partial<ComputerToolResult> & { error?: unknown };
+      const text = typeof o.text === 'string'
+        ? o.text
+        : typeof o.error === 'string'
+          ? o.error
+          : 'computer: no result';
+      return {
+        type: 'content',
+        value: [
+          { type: 'text', text },
+          ...(o.screenshot
+            ? [{ type: 'image-data' as const, data: o.screenshot.base64, mediaType: o.screenshot.mimeType }]
+            : []),
+        ],
+      };
     },
   };
   return [tool];

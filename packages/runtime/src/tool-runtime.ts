@@ -29,6 +29,20 @@ import { truncateToolOutput } from './tool-output.js';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
 
+/**
+ * Content parts a tool may surface to the model via {@link MakaTool.toModelOutput}.
+ * Mirrors the ai@6 `ToolResultOutput` content-part union (only the parts we use).
+ * `image-data` is the shape @ai-sdk/anthropic maps to a native Anthropic image block.
+ */
+export type ToolModelOutputPart =
+  | { type: 'text'; text: string }
+  | { type: 'image-data'; data: string; mediaType: string };
+
+export interface ToolModelOutput {
+  type: 'content';
+  value: ToolModelOutputPart[];
+}
+
 export interface MakaTool<P = any, R = unknown> {
   /** Canonical (Claude-SDK-style) name. Pi adapter translates to canonical. */
   name: string;
@@ -47,6 +61,16 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
+  /**
+   * Optional mapping of this tool's raw result (the value `impl` returns, which
+   * the runtime forwards to ai-sdk as the tool `output`) into model-visible
+   * content — e.g. an image block so a vision model can SEE a screenshot.
+   * Matches the ai@6 `Tool.toModelOutput` call shape. When omitted, ai-sdk
+   * JSON-stringifies the output as today. `input`/`output` are `unknown` (the
+   * implementer narrows) so the field never makes `MakaTool<P, R>` invariant and
+   * every tool stays assignable to `MakaTool<any, unknown>`.
+   */
+  toModelOutput?: (options: { toolCallId: string; input: unknown; output: unknown }) => ToolModelOutput;
 }
 
 export interface MakaToolContext {

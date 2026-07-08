@@ -25,6 +25,7 @@ export const COMPUTER_USE_ERROR_CODES = [
   'invalid_coordinate',
   'capture_failed',
   'sensitivity_blocked',
+  'unsupported_action',
   'aborted',
   'timeout',
 ] as const;
