@@ -119,6 +119,20 @@ function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boole
   return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
 }
 
+/**
+ * Pull the shell command string out of a command-tool's args (bash / shell).
+ * Used to render a single `$ <command>` invocation line while the tool is in
+ * flight — the settled terminal result preview already prints the command in
+ * its header, so this only fills the running gap. Returns undefined for a
+ * non-command shape so the caller falls back to the compact redacted-args view.
+ */
+function extractToolCommand(args: unknown): string | undefined {
+  if (!args || typeof args !== 'object') return undefined;
+  const record = args as Record<string, unknown>;
+  const raw = record.command ?? record.cmd ?? record.script;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+}
+
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
   return (
     <section className={toolVariants({ part: 'container' })} aria-label="工具调用记录">
@@ -179,17 +193,37 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
   const permissionDenied = isPermissionDeniedToolResult(item.result);
+  const running = item.status === 'running' || item.status === 'pending';
+  const command = trowActivityKind(item.toolName) === 'command' ? extractToolCommand(item.args) : undefined;
+  // A terminal result preview already prints `$ cmd` + cwd + exit in its head,
+  // so the invocation line only fills the in-flight gap (and any non-terminal
+  // result). The compact redacted-args fallback still routes through
+  // formatRedactedJson (tool-args-redaction-contract).
+  const resultIsTerminal = item.result?.kind === 'terminal';
+  const showInvocation = !permissionDenied && !resultIsTerminal && (command !== undefined || item.args !== undefined);
+  // While running the live stream is the output; once a structured result
+  // preview exists it is the single quiet output block — never render both
+  // (the old body double-printed stdout as stream + preview).
+  const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
   return (
-    <div className={toolVariants({ part: 'body' })}>
+    // Flat, left-border-indented detail area — one visual language with the
+    // 深度思考 disclosure body. No nested card frame, no per-row rounded boxes.
+    <div className="mt-1 ml-2 flex flex-col gap-1.5 border-l border-[var(--border)] pl-2.5 pb-1">
       {errored && <ToolErrorBanner result={item.result} />}
-      {item.intent && !permissionDenied && <p className={toolVariants({ part: 'intent' })}>{formatToolIntent(item.intent)}</p>}
-      {item.args !== undefined && !permissionDenied && (
-        <pre className={`maka-code ${toolVariants({ part: 'args' })}`}>{formatRedactedJson(item.args)}</pre>
+      {showInvocation && (
+        command !== undefined ? (
+          <code className="[font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">
+            <span className="select-none text-[color:var(--muted-foreground)]">$ </span>
+            {redactSecrets(command)}
+          </code>
+        ) : (
+          <pre className="m-0 max-h-40 overflow-auto [font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">{formatRedactedJson(item.args)}</pre>
+        )
       )}
-      {item.outputChunks && item.outputChunks.length > 0 && (
+      {showLiveStream && (
         <ToolOutputStream
-          chunks={item.outputChunks}
-          live={item.status === 'running' || item.status === 'pending'}
+          chunks={item.outputChunks!}
+          live={running}
           interrupted={item.status === 'interrupted'}
           truncated={item.outputTruncated === true}
         />
@@ -252,18 +286,19 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   useEffect(() => {
     if (attention) setOpen(true);
   }, [attention]);
+  const hasError = items.some((item) => item.status === 'errored');
   const SummaryIcon = trowKindIcon(active.toolName);
   const summary = running
     ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
     : summarizeTrowTools(items);
   return (
-    <Collapsible className="my-0.5 flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
-        <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-[color:var(--muted-foreground)]" />
+        <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
           <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-caption)]">{summary}</TextShimmer>
         ) : (
-          <span className="min-w-0 truncate text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)]">{summary}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}>{summary}</span>
         )}
         <ChevronRight
           size={14}
@@ -297,19 +332,41 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
     setOpen(isOpenByDefault(item.status));
   }, [item.status]);
   const duration = formatDuration(item.durationMs);
+  const running = item.status === 'running' || item.status === 'pending' || item.status === 'waiting_permission';
+  const errored = item.status === 'errored';
+  const RowIcon = trowKindIcon(item.toolName);
+  // One row language with the multi-tool summary row: a kind icon + a
+  // user-language phrase, never the old status-dot + mono tool-name + status
+  // word. Running shimmers the model's intent (or the friendly tool name);
+  // settled prefers the intent, falls back to the display name.
+  const runningSummary = formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item);
+  const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
   return (
     <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-0.5 text-left text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)]">
-        <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
-        <span className="min-w-0 truncate [font-family:var(--font-mono)] text-[color:var(--foreground-secondary)]">{resolveToolDisplayName(item)}</span>
-        <span className="ml-auto inline-flex shrink-0 items-center gap-2">
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
+        <RowIcon
+          size={16}
+          strokeWidth={1.75}
+          aria-hidden="true"
+          className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
+        />
+        {running ? (
+          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-caption)]">{runningSummary}</TextShimmer>
+        ) : item.intent ? (
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
+        ) : (
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
+        )}
+        {/* Quiet meta: the duration + chevron ride in on hover / open, matching
+            the multi-tool summary row — status is carried by the shimmer /
+            destructive tint, so no always-on status word. */}
+        <span className="ml-auto inline-flex shrink-0 items-center gap-2 text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
           {duration && <span className="[font-variant-numeric:tabular-nums]">{duration}</span>}
-          <span>{STATUS_LABEL[item.status]}</span>
           <ChevronRight
-            size={12}
+            size={14}
             strokeWidth={2}
             aria-hidden="true"
-            className="opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
+            className="[transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
           />
         </span>
       </CollapsibleTrigger>
