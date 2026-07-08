@@ -78,22 +78,23 @@
    .maka-workspace-top-actions so it aligns with the toolbar icons. */
 .maka-chat-header-memory-pill {
   appearance: none;
-  background: oklch(from var(--nav-active) l c h / 0.10);
-  border: var(--border-width-hairline) solid oklch(from var(--nav-active) l c h / 0.25);
-  color: var(--nav-active);
-  border-radius: var(--radius-pill);
+  background: transparent;
+  border: none;
+  color: var(--foreground-secondary);
+  border-radius: var(--radius-control);
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
-  padding: 1px var(--space-1-5);
+  gap: var(--space-0-5);
+  padding: var(--space-0-5) var(--space-1);
   font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   flex: 0 0 auto;
 }
 
 .maka-chat-header-memory-pill:hover {
-  background: oklch(from var(--nav-active) l c h / 0.18);
+  background: var(--hover);
+  color: var(--foreground);
 }
 
 .maka-chat-header-memory-pill:focus-visible {
