@@ -33,6 +33,7 @@ export type ToolCategory =
   | 'network_send' //      POST / PUT / DELETE
   | 'privileged' //        sudo, chmod, chown, kill, systemctl
   | 'browser' //           embedded-browser observe→act on the user's logged-in sessions
+  | 'computer_use' //      host-level screen control (AX/synthetic input) on the user's real apps
   | 'custom_tool' //       our own session-scoped tools without a stricter category hint
   | 'subagent'; //         read-only delegated exploration tools
 
@@ -47,6 +48,7 @@ export const TOOL_CATEGORIES: readonly ToolCategory[] = [
   'network_send',
   'privileged',
   'browser',
+  'computer_use',
   'custom_tool',
   'subagent',
 ];
@@ -79,6 +81,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // Driving the user's logged-in browser is an out-of-process effect; explore
     // mode is read-only-local, so block it like other network/write effects.
     browser: 'block',
+    // Host-level screen control is the most powerful out-of-process effect;
+    // read-only-local explore mode blocks it outright.
+    computer_use: 'block',
     custom_tool: 'prompt',
     subagent: 'allow',
   },
@@ -93,6 +98,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'prompt',
     privileged: 'prompt',
     browser: 'prompt',
+    computer_use: 'prompt',
     custom_tool: 'allow',
     subagent: 'prompt',
   },
@@ -114,6 +120,10 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     // visible view stays a confirmed safety net, not a default-allow. The
     // user's "allow for this turn" then carries the observe→act loop.
     browser: 'prompt',
+    // Host-level screen control drives the user's real apps — irreversible
+    // (it can click Send, delete, buy). Always prompt so the overlay + the
+    // user's per-turn approval are a confirmed safety net, never default-allow.
+    computer_use: 'prompt',
   },
   bypass: {
     read: 'allow',
@@ -126,6 +136,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'allow',
     privileged: 'allow',
     browser: 'allow',
+    computer_use: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
   },
@@ -329,6 +340,10 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
   // is the safety net for which page is driven. Other categories stay scoped
   // to the specific tool + args below.
   if (category === 'browser') return 'browser';
+  // Host computer-use shares ONE turn-scope like browser: the overlay + the
+  // user's per-turn approval carry the whole screenshot→click→type loop; the
+  // visible overlay, not per-action prompts, is the safety net.
+  if (category === 'computer_use') return 'computer_use';
   switch (toolName) {
     case 'Write':
     case 'Edit':
@@ -390,6 +405,8 @@ function categoryToReason(c: ToolCategory): PermissionRequest['reason'] {
       return 'privileged';
     case 'browser':
       return 'browser';
+    case 'computer_use':
+      return 'computer_use';
     default:
       return 'custom';
   }
@@ -412,6 +429,7 @@ export interface PermissionRequest {
     | 'git_destructive'
     | 'privileged'
     | 'browser'
+    | 'computer_use'
     | 'custom';
   args: unknown;
   hint?: string;
