@@ -19,7 +19,7 @@ import {
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
-import { formatAbsoluteTimestamp, turnAbortMarkerLabel } from './chat-display-helpers.js';
+import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
@@ -72,7 +72,6 @@ function ModulePanelFallback(props: { message: string }) {
     </div>
   );
 }
-import { RelativeTime } from './relative-time.js';
 import { ToolTrow } from './tool-activity.js';
 
 /**
@@ -778,12 +777,13 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
 const MessageBody = memo(function MessageBody(props: { role: string; text: string; ts?: number; attachments?: readonly AttachmentRef[] }) {
   if (props.role === 'user') {
     // User turn: the message sits in a tinted, width-capped block aligned to
-    // the right (so the right-anchor reads even for long messages), with a
-    // quiet always-visible time + a copy affordance in a meta row beneath it.
-    // The time is no longer hover-gated (was `opacity: 0` until hover, which
-    // hid it from touch + assistive tech). Copy reuses MessageCopyButton in
-    // `footerStyle`, so it's the same quiet ghost action as the assistant
-    // turn footer's copy (same primitive + `markerVariants('footer-action')`).
+    // the right (so the right-anchor reads even for long messages), with an
+    // absolute HH:mm time + a copy affordance in a meta row beneath it. #642:
+    // the whole meta row is hover-gated on the user bubble (`group/usermsg`) —
+    // hidden at rest, revealed on hover / focus-within, matching the assistant
+    // footer's hover reveal. Copy reuses MessageCopyButton in `footerStyle`, so
+    // it's the same quiet ghost action as the assistant turn footer's copy
+    // (same primitive + `markerVariants('footer-action')`).
     return (
       <>
         <Bubble variant="user">
@@ -805,17 +805,22 @@ const MessageBody = memo(function MessageBody(props: { role: string; text: strin
             </div>
           ) : null}
         </Bubble>
-        <div className="maka-message-meta">
+        {/* #642: the whole meta row — absolute HH:mm time + copy — hides by
+            default and appears when the user bubble is hovered or keyboard
+            focus lands inside (keys off `group/usermsg` on the user Message).
+            Absolute wall-clock time (not relative "N 小时前"); the full date
+            stays on the time's `title` and the bubble's own `title`. */}
+        <div className="maka-message-meta opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/usermsg:opacity-100 focus-within:opacity-100">
           {props.ts !== undefined && (
-            <RelativeTime ts={props.ts} className="maka-message-time-inline" />
+            <small
+              className="maka-message-time-inline tabular-nums"
+              aria-hidden="true"
+              title={formatAbsoluteTimestamp(props.ts)}
+            >
+              {formatClockTime(props.ts)}
+            </small>
           )}
-          {/* #642: copy hides by default, appears when the user bubble is
-              hovered or focus lands inside (keys off `group/usermsg` on the
-              user Message). The time stays always-visible (a11y: it must reach
-              touch + assistive tech, see the role==='user' note above). */}
-          <span className="opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/usermsg:opacity-100 focus-within:opacity-100">
-            <MessageCopyButton text={props.text} footerStyle />
-          </span>
+          <MessageCopyButton text={props.text} footerStyle />
         </div>
       </>
     );
