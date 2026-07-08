@@ -54,15 +54,20 @@ describe('chat status cluster layout contract', () => {
   });
 
   it('reserves the footer placeholder for every live turn, not only text answers', async () => {
-    // Regression (three-way review, ChatGPT P2): the settle jump this PR
-    // removes reappeared for thinking-only / textless turns. A settled turn
-    // ALWAYS mounts a footer (deriveTurnFooterActions yields regenerate/branch
-    // from TurnStatus alone; materialize emits a timeline item for a step's
-    // thinking even with empty text), so a turn that only thought (think →
-    // tool → end, or aborted mid-think) settles WITH a footer. Gating the
-    // live placeholder on streamingText left that shape unreserved. The
-    // placeholder lives inside the `streamingText || thinkingText` section and
-    // must render unconditionally there — never re-narrowed to streamingText.
+    // Three-way review (ChatGPT P2): a settled turn ALWAYS mounts a footer
+    // (deriveTurnFooterActions yields regenerate/branch from TurnStatus alone;
+    // materialize emits a timeline item for a step's thinking even with empty
+    // text), so a thinking-only turn settles WITH a footer. The live footer
+    // placeholder must live inside the `streamingText || thinkingText` section
+    // and render unconditionally there — never re-narrowed to streamingText —
+    // so it reserves the footer box for every live turn.
+    //
+    // Groundwork only: this locks the reserved box. It makes the swap
+    // height-neutral where the live section is held to settle (text turns, via
+    // the draining handshake). The textless / thinking-only completion path is
+    // still non-atomic (clears live before the committed footer mounts); that
+    // is tracked in the single-render-path convergence (#642), not asserted
+    // here.
     const src = await readRepo('packages/ui/src/chat-view.tsx');
     assert.match(
       src,

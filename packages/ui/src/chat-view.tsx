@@ -697,9 +697,21 @@ export function ChatView(props: {
                     (materialize.ts). So a thinking-only / textless turn
                     (think → tool → end, or aborted mid-think) settles WITH a
                     footer too; gating the placeholder on streamingText left
-                    that shape unreserved and re-introduced the settle jump. We
-                    are already inside the `streamingText || thinkingText`
-                    section, so rendering it always covers every live turn. */}
+                    that shape unreserved. We are already inside the
+                    `streamingText || thinkingText` section, so rendering it
+                    always reserves the footer box for every live turn.
+
+                    Groundwork, not a full fix for the textless case: this only
+                    makes the swap height-neutral when the live section is held
+                    until the committed footer mounts. Text turns get that via
+                    the draining→settleAssistantStreaming handshake (refresh the
+                    committed message BEFORE clearing the live slot). Textless /
+                    thinking-only completion currently clears the live section
+                    first and refreshes messages async (drainAssistantStreaming
+                    `!applied.text`), so the swap is non-atomic and can still
+                    flash for that shape. Closing that is tracked in the
+                    single-render-path convergence (#642), which removes the
+                    two-subtree seam entirely. */}
                 <div aria-hidden="true" className="mt-0.5 h-8" />
               </Message>
             </section>
