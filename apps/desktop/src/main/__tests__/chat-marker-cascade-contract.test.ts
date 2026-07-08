@@ -40,18 +40,18 @@ describe('chat Marker shell migration contract (#332 PR2)', () => {
     }
   });
 
-  it('keeps the turn container + deferred reasoning chrome (out of scope)', async () => {
+  it('keeps the turn container (out of scope)', async () => {
     const css = await readAllRendererCss();
     for (const selector of [
       // The `.maka-turn` flex/measure container is NOT a marker — it stays.
       '.maka-turn {',
-      '.maka-turn-tools',
       '.maka-turn-streaming',
       '.maka-turn[data-search-highlight="true"]',
-      // `.maka-turn-thinking` is explicitly deferred (pseudo-element chevron +
-      // @starting-style fade don't reduce to leaf utilities); it stays authored.
-      '.maka-turn-thinking',
-      '.maka-turn-thinking [data-slot="collapsible-trigger"]',
+      // NOTE: `.maka-turn-thinking` and `.maka-turn-tools` were retired by the
+      // streaming UI rework — reasoning now renders through the `DeepThinking`
+      // disclosure (Tailwind-literal chrome + the `maka-text-shimmer` primitive)
+      // and tools through the flat `ToolTrow`, so the hand-authored committed-
+      // turn thinking `<details>` chrome and the tools-section wrapper are gone.
     ]) {
       assert.ok(css.includes(selector), `out-of-scope turn rule "${selector}" must be preserved`);
     }

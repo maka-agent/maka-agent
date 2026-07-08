@@ -109,3 +109,12 @@ export type { BadgeProps } from './primitives/badge.js';
 // / destructive.
 export { Chip, chipVariants } from './primitives/chip.js';
 export type { ChipProps } from './primitives/chip.js';
+// Streaming UI rework: Codex-style tool "trow" grouping helpers. Pure bucketing
+// + summary used by the timeline tool renderer (ToolTrow) and unit-tested.
+export {
+  summarizeTrowTools,
+  trowActivityKind,
+  activeTrowTool,
+  isTrowRunning,
+  type TrowActivityKind,
+} from './tool-activity/trow-summary.js';

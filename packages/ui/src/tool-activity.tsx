@@ -1,12 +1,32 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
 import { type ToolResultContent } from '@maka/core';
-import { AlertOctagon, Check, Copy, X } from './icons.js';
+import {
+  AlertOctagon,
+  Check,
+  ChevronRight,
+  Copy,
+  FileText,
+  Globe,
+  Search,
+  Settings,
+  SquarePen,
+  Terminal,
+  X,
+  type LucideProps,
+} from './icons.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
+import {
+  activeTrowTool,
+  isTrowRunning,
+  summarizeTrowTools,
+  trowActivityKind,
+  type TrowActivityKind,
+} from './tool-activity/trow-summary.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { LiveIndicator, previewVariants, streamVariants, toolVariants } from './primitives/chat.js';
+import { LiveIndicator, previewVariants, streamVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
@@ -113,9 +133,6 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
 }
 
 function ToolActivityCard({ item }: { item: ToolActivityItem }) {
-  const duration = formatDuration(item.durationMs);
-  const errored = item.status === 'errored';
-  const permissionDenied = isPermissionDeniedToolResult(item.result);
   // Controlled open that follows item.status: a card that defaults open while
   // pending/running auto-collapses when it settles to completed/interrupted
   // (restoring the pre-Collapsible native-disclosure behavior, where
@@ -127,6 +144,7 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
   useEffect(() => {
     setOpen(isOpenByDefault(item.status));
   }, [item.status]);
+  const duration = formatDuration(item.durationMs);
   return (
     <Collapsible
       data-slot="tool"
@@ -144,28 +162,155 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
         </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
-        <div className={toolVariants({ part: 'body' })}>
-          {errored && <ToolErrorBanner result={item.result} />}
-          {item.intent && !permissionDenied && <p className={toolVariants({ part: 'intent' })}>{formatToolIntent(item.intent)}</p>}
-          {item.args !== undefined && !permissionDenied && (
-            <pre className={`maka-code ${toolVariants({ part: 'args' })}`}>{formatRedactedJson(item.args)}</pre>
-          )}
-          {item.outputChunks && item.outputChunks.length > 0 && (
-            <ToolOutputStream
-              chunks={item.outputChunks}
-              live={item.status === 'running' || item.status === 'pending'}
-              interrupted={item.status === 'interrupted'}
-              truncated={item.outputTruncated === true}
-            />
-          )}
-          {item.result && !permissionDenied && (
-            isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
-              <LoadToolResultPreview args={item.args} value={item.result.value} />
-            ) : (
-              <ToolResultPreview content={item.result} />
-            )
-          )}
+        <ToolCardBody item={item} />
+      </CollapsiblePanel>
+    </Collapsible>
+  );
+}
+
+/**
+ * The tool detail body — error banner, intent, args, live output stream, and
+ * result preview — shared by the boxed `ToolActivityCard` and the flat trow
+ * rows. Extracted so the trow can render the same details without the card
+ * frame. Args/intent stay routed through `formatRedactedJson` /
+ * `formatToolIntent` (tool-args-redaction-contract).
+ */
+function ToolCardBody({ item }: { item: ToolActivityItem }) {
+  const errored = item.status === 'errored';
+  const permissionDenied = isPermissionDeniedToolResult(item.result);
+  return (
+    <div className={toolVariants({ part: 'body' })}>
+      {errored && <ToolErrorBanner result={item.result} />}
+      {item.intent && !permissionDenied && <p className={toolVariants({ part: 'intent' })}>{formatToolIntent(item.intent)}</p>}
+      {item.args !== undefined && !permissionDenied && (
+        <pre className={`maka-code ${toolVariants({ part: 'args' })}`}>{formatRedactedJson(item.args)}</pre>
+      )}
+      {item.outputChunks && item.outputChunks.length > 0 && (
+        <ToolOutputStream
+          chunks={item.outputChunks}
+          live={item.status === 'running' || item.status === 'pending'}
+          interrupted={item.status === 'interrupted'}
+          truncated={item.outputTruncated === true}
+        />
+      )}
+      {item.result && !permissionDenied && (
+        isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
+          <LoadToolResultPreview args={item.args} value={item.result.value} />
+        ) : (
+          <ToolResultPreview content={item.result} />
+        )
+      )}
+    </div>
+  );
+}
+
+// Per-bucket icon for a trow's summary row + flat tool rows. Kept here (not in
+// the pure summary module) because icons are React components.
+const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
+  read: FileText,
+  search: Search,
+  websearch: Globe,
+  webfetch: Globe,
+  edit: SquarePen,
+  command: Terminal,
+  explore: Search,
+  browser: Globe,
+  tool: Settings,
+};
+
+function trowKindIcon(toolName: string): ComponentType<LucideProps> {
+  return TROW_KIND_ICON[trowActivityKind(toolName)];
+}
+
+/**
+ * Codex-style tool trow (streaming UI rework): one contiguous run of tool
+ * activity rendered as a single flat, borderless disclosure — replacing the
+ * boxed "工具调用 N" card stack inside a turn. A single-tool group is just that
+ * tool's own row (no double nesting); a multi-tool group adds a summary line
+ * (shimmering active-tool description while running; bucketed counts once
+ * settled) that expands to the flat-stacked tool rows.
+ */
+export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
+  if (items.length === 0) return null;
+  if (items.length === 1) return <ToolTrowRow item={items[0]!} />;
+  return <ToolTrowGroup items={items} />;
+}
+
+function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
+  const running = isTrowRunning(items);
+  const waiting = items.some((tool) => tool.status === 'waiting_permission');
+  const active = activeTrowTool(items) ?? items[0]!;
+  // Controlled open: default collapsed, but a waiting_permission tool forces the
+  // group open so the permission prompt isn't hidden behind the summary line.
+  // No defaultOpen (disclosure-collapsible-contract) — controlled open re-syncs
+  // from status, like ToolActivityCard.
+  const [open, setOpen] = useState(waiting);
+  useEffect(() => {
+    if (waiting) setOpen(true);
+  }, [waiting]);
+  const SummaryIcon = trowKindIcon(active.toolName);
+  const summary = running
+    ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
+    : summarizeTrowTools(items);
+  return (
+    <Collapsible className="my-0.5 flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
+        <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className="shrink-0 text-[color:var(--muted-foreground)]" />
+        {running ? (
+          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-caption)]">{summary}</TextShimmer>
+        ) : (
+          <span className="min-w-0 truncate text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)]">{summary}</span>
+        )}
+        <ChevronRight
+          size={14}
+          strokeWidth={2}
+          aria-hidden="true"
+          className="ml-auto shrink-0 text-[color:var(--muted-foreground)] opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
+        />
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
+          {items.map((item) => (
+            <ToolTrowRow key={item.toolUseId} item={item} />
+          ))}
         </div>
+      </CollapsiblePanel>
+    </Collapsible>
+  );
+}
+
+/**
+ * A single flat, borderless tool row inside a trow (or a whole single-tool
+ * trow). A caption/mono weak-color header (status dot + name + duration/status)
+ * expands to the shared `ToolCardBody`. Controlled open by status —
+ * waiting_permission / running / errored open, settled collapsed — so a
+ * permission prompt is never hidden. No card frame (`toolVariants({item})`),
+ * per the flat trow visual language.
+ */
+function ToolTrowRow({ item }: { item: ToolActivityItem }) {
+  const [open, setOpen] = useState(isOpenByDefault(item.status));
+  useEffect(() => {
+    setOpen(isOpenByDefault(item.status));
+  }, [item.status]);
+  const duration = formatDuration(item.durationMs);
+  return (
+    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-0.5 text-left text-[length:var(--font-size-caption)] text-[color:var(--muted-foreground)]">
+        <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
+        <span className="min-w-0 truncate [font-family:var(--font-mono)] text-[color:var(--foreground-secondary)]">{resolveToolDisplayName(item)}</span>
+        <span className="ml-auto inline-flex shrink-0 items-center gap-2">
+          {duration && <span className="[font-variant-numeric:tabular-nums]">{duration}</span>}
+          <span>{STATUS_LABEL[item.status]}</span>
+          <ChevronRight
+            size={12}
+            strokeWidth={2}
+            aria-hidden="true"
+            className="opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
+          />
+        </span>
+      </CollapsibleTrigger>
+      <CollapsiblePanel>
+        <ToolCardBody item={item} />
       </CollapsiblePanel>
     </Collapsible>
   );

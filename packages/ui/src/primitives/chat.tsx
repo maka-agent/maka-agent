@@ -347,6 +347,58 @@ export function LiveIndicator({
 }
 
 /**
+ * `TextShimmer` — a running "sweep of light" across short label text
+ * (streaming UI rework). Used for the "深度思考" disclosure title while
+ * reasoning streams and for a working trow's active-tool summary.
+ *
+ * Two overlaid layers on the same grid cell: an opaque `base` (keeps the text
+ * readable at all times, and is all a snapshot / reduced-motion user sees) and
+ * a `sweep` layer whose animated linear-gradient is clipped to the glyph shape
+ * (`background-clip: text` + transparent fill) so a light band travels across
+ * the letters. The band motion is the one declaration that can't be a leaf
+ * literal — it rides the governed `@keyframes maka-text-shimmer` in
+ * maka-tokens.css (like `LiveIndicator`'s `maka-pulse`) plus the literal
+ * utilities here.
+ *
+ * `active={false}` (or reduced-motion) renders just the base text — callers
+ * pass `active` false for settled/snap states so the sweep never runs in a
+ * deterministic capture. Kept INTERNAL (off the package barrel, imported by
+ * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ */
+export function TextShimmer({
+  children,
+  active = true,
+  className,
+}: {
+  children: React.ReactNode;
+  active?: boolean;
+  className?: string;
+}): React.ReactElement {
+  if (!active) {
+    return <span className={cn("inline-block", className)}>{children}</span>;
+  }
+  return (
+    <span data-slot="text-shimmer" className={cn("relative inline-grid", className)}>
+      {/* Base: opaque, muted, always readable. */}
+      <span className="[grid-area:1/1] text-[color:var(--muted-foreground)]">{children}</span>
+      {/* Sweep: a clipped light band that travels across the glyphs. */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "[grid-area:1/1] bg-clip-text [-webkit-text-fill-color:transparent] text-transparent",
+          "bg-[linear-gradient(100deg,transparent_30%,oklch(from_var(--foreground)_l_c_h_/_0.95)_50%,transparent_70%)]",
+          "[background-size:200%_100%] [background-position:150%_0]",
+          "[animation:maka-text-shimmer_1.8s_linear_infinite]",
+          "motion-reduce:[animation:none] motion-reduce:opacity-0",
+        )}
+      >
+        {children}
+      </span>
+    </span>
+  );
+}
+
+/**
  * Tool-activity card shell (issue #332, PR3b).
  *
  * Retires the bespoke `ToolActivity` chrome — the inline section + count, the

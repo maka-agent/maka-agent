@@ -1217,86 +1217,11 @@
     content-visibility: visible;
   }
 
-  .maka-turn-tools {
-    padding: 0 var(--space-2) 0 0;
-  }
-
-  /* Optional reasoning block — collapsed by default, expandable to inspect
-   * the model's chain of thought without cluttering the answer.
-   *
-   * PR-REASONING-PANEL-SMOOTH-EXPAND-0 (WAWQAQ msg `145f15d5`,
-   * skills round task #116): native `<details>` had no toggle
-   * feedback — clicking flicked content in/out without any handle.
-   * Polishes the summary into a real affordance:
-   *   - Replace browser-default disclosure triangle (varies per UA)
-   *     with a custom chevron that rotates 90deg on `[open]` using
-   *     a spring-ish cubic-bezier from design-taste-frontend §5
-   *     (var(--duration-emphasized) `cubic-bezier(0.16, 1, 0.3, 1)`).
-   * `cursor: pointer` deliberately NOT applied to the summary —
-   * macOS reserves the hand for links; details summaries use the
-   * default arrow. Enforced by `cursor-convention-contract.test.ts`.
-   * Native height animation requires `interpolate-size` + per-
-   * element JS state and isn't a single-element CSS fix; deferred
-   * until we route reasoning through Base UI's Accordion. */
-  .maka-turn-thinking {
-    margin: 0 0 var(--space-2);
-    padding: var(--space-2) var(--space-2-5);
-    border: var(--border-width-hairline) dashed oklch(from var(--focus-ring) l c h / 0.25);
-    border-radius: var(--radius-surface);
-    background: oklch(from var(--focus-ring) l c h / 0.03);
-    font-size: var(--font-size-ui);
-    color: var(--foreground-secondary);
-  }
-
-  .maka-turn-thinking [data-slot="collapsible-trigger"] {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-weight: var(--font-weight-semibold);
-    color: var(--focus-ring);
-    letter-spacing: var(--tracking-wide);
-    /* `cursor: pointer` intentionally omitted — native macOS reserves
-       the hand cursor for links; the Collapsible trigger is a button-like
-       control and uses the default arrow. Enforced by
-       `cursor-convention-contract.test.ts`. */
-  }
-
-  /* Replace the default disclosure triangle with a custom chevron
-     that rotates smoothly on toggle. */
-  .maka-turn-thinking [data-slot="collapsible-trigger"]::before {
-    content: '';
-    flex-shrink: 0;
-    width: 0;
-    height: 0;
-    border-style: solid;
-    border-width: 4px 0 4px 5px;
-    border-color: transparent transparent transparent currentColor;
-    transition: transform var(--duration-emphasized) var(--ease-out-strong);
-  }
-  .maka-turn-thinking [data-slot="collapsible-trigger"][data-panel-open]::before {
-    transform: rotate(90deg);
-  }
-
-  .maka-turn-thinking-note {
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: var(--tracking-wider);
-    color: var(--muted-foreground);
-    text-transform: uppercase;
-  }
-
-  .maka-turn-thinking-body {
-    margin-top: var(--space-1-5);
-    line-height: var(--leading-normal);
-    font-style: italic;
-    opacity: var(--opacity-pending);
-  }
-
-  .maka-turn-thinking-actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: var(--space-1-5);
-  }
+  /* The streaming UI rework retired `.maka-turn-tools` (the tools-section
+     wrapper) and the `.maka-turn-thinking` reasoning `<details>` chrome. Tools
+     now render inline via the flat `ToolTrow` and reasoning via the
+     `DeepThinking` disclosure, both Tailwind-literal + the `TextShimmer`
+     primitive — see packages/ui/src/tool-activity.tsx and chat-view.tsx. */
 
   /* The streaming bubble (out-of-band, before the in-progress turn is
    * fully persisted) sits at the bottom of the chat surface; give it the
@@ -1518,6 +1443,20 @@
 @keyframes maka-shimmer {
   0%   { background-position: -200% 0; }
   100% { background-position:  200% 0; }
+}
+
+/* Governance-level keyframe for the `TextShimmer` primitive (streaming UI
+   rework). A named `@keyframes` is a global rule, not an element property, so
+   it can't be a Tailwind leaf-literal — it lives here (the shared motion home)
+   like `maka-pulse` / `maka-tool-pulse`, with the shimmer's other declarations
+   as literal utilities in the primitive. Sweeps a clipped light band left→right
+   across the glyph shape by translating `background-position`; the two-layer
+   primitive keeps an opaque base underneath so the text stays readable. Frozen
+   by the global reduced-motion / visual-smoke rules in base.css and the
+   primitive's own `motion-reduce:` guards. */
+@keyframes maka-text-shimmer {
+  from { background-position: 150% 0; }
+  to   { background-position: -150% 0; }
 }
 .maka-shimmer {
   background-image: linear-gradient(

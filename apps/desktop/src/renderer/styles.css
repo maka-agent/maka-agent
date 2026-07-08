@@ -34,7 +34,6 @@
 @import "./styles/composer.css";
 @import "./styles/chat-detail.css";
 @import "./styles/settings.css";
-@import "./styles/reasoning-panel.css";
 @import "./styles/markdown-link.css" layer(components);
 @import "./styles/permission-dialog.css";
 @import "./styles/daily-review.css";
