@@ -659,6 +659,80 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(expanded, /Read \d+ lines,/);
   });
 
+  test('reports the same Read line count collapsed and expanded for a trailing-newline file', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'read-count', toolName: 'Read', args: { path: 'three.txt' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'read-count', isError: false,
+      content: { kind: 'json', value: { content: 'a\nb\nc\n' } },
+    }));
+
+    // Collapsed and expanded must agree: both drop the trailing newline, so the
+    // same card cannot flip from "4 lines" to "3 lines" when toggled with Ctrl+O.
+    const compact = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(compact, /3 lines, 6 bytes/);
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /Read 3 lines, 6 bytes/);
+  });
+
+  test('keeps shell_run status and exit visible while capping its stream body', () => {
+    const state = createMakaPiTranscriptState();
+    // A background command's status/exit is the whole point of expanding the
+    // card; a bare head/tail cap would keep only `$ cmd` + the last stdout lines
+    // and hide whether the process failed or timed out.
+    const stdout = Array.from({ length: 10 }, (_, i) => `out-line-${i}`).join('\n');
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'shell-1', toolName: 'StopBackgroundTask',
+      args: { ref: 'bg-42' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'shell-1', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'bg-42', status: 'failed', cwd: '/repo',
+        cmd: 'npm run watch', startedAt: 1, updatedAt: 2, exitCode: 137,
+        failureMessage: 'killed by signal',
+        stdout, stderr: 'boom-stderr',
+        stdoutTruncated: false, stderrTruncated: false,
+      },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    // Failure metadata a bare head/tail cap would bury stays visible.
+    assert.match(expanded, /failed/);
+    assert.match(expanded, /exit 137/);
+    assert.match(expanded, /killed by signal/);
+    assert.match(expanded, /bg-42/);
+    // The stream body is still capped, and stderr keeps its label.
+    assert.match(expanded, /lines hidden/);
+    assert.match(expanded, /\[stderr\]/);
+    assert.match(expanded, /boom-stderr/);
+  });
+
+  test('renders a report-style result in full instead of head/tail capping it', () => {
+    const state = createMakaPiTranscriptState();
+    // Report-style kinds (agent reports, summaries) are content the user expands
+    // to read in full; unlike a raw command dump they must not be capped.
+    const report = Array.from({ length: 12 }, (_, i) => `report-line-${i}`).join('\n');
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'sum-1', toolName: 'Task', args: {},
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'sum-1', isError: false,
+      content: { kind: 'summary', original: 'x', summarized: report, reason: 'too_large' },
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /report-line-0/);
+    assert.match(expanded, /report-line-6/); // a mid-body line a head/tail cap would hide
+    assert.match(expanded, /report-line-11/);
+    assert.doesNotMatch(expanded, /lines hidden/);
+  });
+
   test('summarizes Grep results as a match count and shows matches expanded', () => {
     const state = createMakaPiTranscriptState();
     const matches = Array.from({ length: 12 }, (_, i) => `match-${i}`);

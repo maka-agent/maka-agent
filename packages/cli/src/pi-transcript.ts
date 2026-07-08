@@ -844,7 +844,7 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   const text = plainResultText(entry);
   if (!text) return undefined;
   if (entry.toolName === 'Read') {
-    const lineCount = text.split('\n').length;
+    const lineCount = readBodyLineCount(text);
     return {
       text: `${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`,
       expandable: true,
@@ -973,13 +973,21 @@ function renderCappedResultText(
   ];
 }
 
+/**
+ * Line count for a Read body, dropping the file's normal trailing newline so
+ * `foo\n` counts as one line. Shared by the compact and expanded summaries so
+ * the same card can never flip its line count when toggled with Ctrl+O.
+ */
+function readBodyLineCount(text: string): number {
+  const trimmed = text.replace(/\n+$/, '');
+  return trimmed ? trimmed.split('\n').length : 0;
+}
+
 function renderReadSummary(entry: MakaPiToolEntry, width: number): string[] {
   const text = plainResultText(entry);
-  // Drop the file's normal trailing newline before counting, matching the cap
-  // convention, so `foo\n` reads as one line rather than two. Byte count keeps
-  // the full content, since that is the file's real size on disk.
-  const trimmed = text.replace(/\n+$/, '');
-  const lineCount = trimmed ? trimmed.split('\n').length : 0;
+  // Byte count keeps the full content, since that is the file's real size on
+  // disk; the line count drops the trailing newline (see readBodyLineCount).
+  const lineCount = readBodyLineCount(text);
   const summary = `Read ${lineCount} line${lineCount === 1 ? '' : 's'}, ${byteLength(text)} bytes`;
   return renderIndented(ansi.dim(summary), width, 2);
 }
@@ -1009,7 +1017,18 @@ function isRuntimeResourceReadPath(entry: MakaPiToolEntry): boolean {
  * read body, so it renders its own status instead of a fabricated line count.
  */
 function isReadBodyResult(result: ToolResultContent | undefined): boolean {
-  return result?.kind === 'text' || result?.kind === 'json';
+  if (result?.kind === 'text') return true;
+  // A json Read body is the `{ content: string }` shape the file loader
+  // returns; any other json (e.g. an `{ error }` payload) is a status object,
+  // not file content, and should render its real shape rather than a
+  // fabricated line/byte count.
+  if (result?.kind === 'json') {
+    const value = result.value;
+    return value !== null
+      && typeof value === 'object'
+      && typeof (value as { content?: unknown }).content === 'string';
+  }
+  return false;
 }
 
 /**
@@ -1070,13 +1089,28 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
     return renderReadSummary(entry, width);
   }
   if (result?.kind === 'terminal') return renderTerminalResult(result, width);
+  // A background `shell_run` carries process metadata (ref, status, exit) the
+  // head/tail cap must never hide — otherwise a failed or timed-out background
+  // command looks the same as a successful one. Render the status in full and
+  // cap only the stdout/stderr stream bodies.
+  if (result?.kind === 'shell_run') return renderShellRunResult(result, width);
   // Diffs are the deliberate exception to the head/tail cap: the whole change
   // is what the user is expanding to see.
   if (result?.kind === 'file_diff') return renderDiffResult(result.diff, width);
   if (result?.kind === 'file_write') {
     return renderIndented(`Wrote ${result.bytes} bytes to ${result.path}`, width, 2);
   }
-  return renderCappedResultText(plainResultText(entry), width);
+  // Generic text/json dumps — a Grep/Bash body or raw tool text — are the
+  // file/command output the head/tail cap targets: the model already holds the
+  // full body, so the transcript only needs enough to orient. An undefined
+  // result with a formatted `output` string is treated the same way.
+  if (result === undefined || result.kind === 'text' || result.kind === 'json') {
+    return renderCappedResultText(plainResultText(entry), width);
+  }
+  // Everything else is report-style content (agent reports, web-search results,
+  // subagent / workflow summaries, office-doc output) the user expands to read
+  // in full — render without the cap, like a diff.
+  return renderToolText(plainResultText(entry), width);
 }
 
 /** Best-effort extraction of the human-readable body from a tool result. */
@@ -1107,6 +1141,36 @@ function renderTerminalResult(
   if (content.exitCode !== 0) {
     lines.push(...renderIndented(ansi.red(`exit ${content.exitCode}`), width, 2));
   }
+  if (content.stdout) {
+    lines.push(...renderCappedResultText(content.stdout, width));
+  }
+  if (content.stderr) {
+    lines.push(...renderIndented(ansi.dim('[stderr]'), width, 2));
+    lines.push(...renderCappedResultText(content.stderr, width, ansi.dim));
+  }
+  return lines;
+}
+
+/**
+ * Render a `shell_run` (background-process) result. The status line — status,
+ * exit code, failure message, and the run `ref` — is always shown in full so a
+ * head/tail cap can never hide whether the command failed or timed out; only
+ * the stdout/stderr stream bodies are capped.
+ */
+function renderShellRunResult(
+  content: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  width: number,
+): string[] {
+  const lines: string[] = [];
+  const settled = content.status !== 'running' && content.status !== 'completed';
+  const parts: string[] = [content.status];
+  if (content.exitCode !== undefined) parts.push(`exit ${content.exitCode}`);
+  if (content.failureMessage) parts.push(content.failureMessage);
+  const head = parts.join(' · ');
+  // Keep the colored status and the dim ref as separate ansi spans; nesting one
+  // inside the other would let the inner reset terminate the outer color early.
+  const statusLine = `${settled ? ansi.red(head) : ansi.dim(head)} ${ansi.dim(`(${content.ref})`)}`;
+  lines.push(...renderIndented(statusLine, width, 2));
   if (content.stdout) {
     lines.push(...renderCappedResultText(content.stdout, width));
   }
