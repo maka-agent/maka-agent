@@ -322,7 +322,19 @@ export function ChatView(props: {
   // timeline — as `turns[last]`. Only the tail TurnView gets a fresh
   // `liveStreaming` object per delta (→ it alone re-renders); every sibling
   // gets a stable `undefined` and its memo skips (the plain-text perf path).
-  const streamingActive = !!(props.streamingText || props.thinkingText);
+  // A turn is "still live" — and must keep its non-actionable footer placeholder
+  // instead of a clickable regenerate/branch — while ANY of text, thinking, OR a
+  // tool is in flight. Deriving liveness from streamingText/thinkingText alone
+  // let a tool-only step (tool_start with no answer text yet) fall through to the
+  // settled branch, whose derived status is `completed`, rendering an actionable
+  // footer on a still-running answer (review P2-B). LiveStreamingEntries already
+  // no-ops when text and thinking are both empty, so a tool-only tail renders the
+  // running tool from its timeline with no empty live bubble.
+  const hasInFlightTool = props.tools.some(
+    (tool) =>
+      tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
+  );
+  const streamingActive = !!(props.streamingText || props.thinkingText || hasInFlightTool);
   const tailTurnId = streamingActive ? turns[turns.length - 1]?.turnId : undefined;
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt

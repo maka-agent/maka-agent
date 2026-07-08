@@ -200,6 +200,7 @@ export function AppShell({
   const {
     state: sessionUiState,
     streamingBySessionRef,
+    thinkingBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
@@ -987,6 +988,7 @@ export function AppShell({
     setThinkingTruncatedBySession,
     showModelSetupToast,
     streamingBySessionRef,
+    thinkingBySessionRef,
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;

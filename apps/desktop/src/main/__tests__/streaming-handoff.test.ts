@@ -156,6 +156,36 @@ describe('assistant streaming handoff', () => {
     assert.equal(countOccurrences(settledMarkup, 'data-slot="text-shimmer"'), 0, 'a completed tool trow does not shimmer');
   });
 
+  it('suppresses the actionable footer while only a tool is running, with no answer text (#642 review P2-B)', () => {
+    // A tool step can start (tool_start / running) before any answer text or
+    // thinking streams. The tail turn must still count as live so its footer is
+    // the reserved placeholder, NOT an actionable regenerate/branch on a
+    // still-running answer (whose derived status defaults to `completed`).
+    const running = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行命令', status: 'running', args: {} }],
+      turnFooterActionsByTurn: { 'turn-1': [{ id: 'regenerate', label: '重新生成', enabled: true }] },
+    });
+    assert.equal(countOccurrences(running, 'data-live-streaming="true"'), 1, 'the tool-only tail turn is still marked live');
+    assert.doesNotMatch(running, /aria-label="本轮回答操作"/, 'no actionable footer toolbar while a tool runs');
+    assert.doesNotMatch(running, /重新生成/, 'regenerate must not be clickable on a still-running answer');
+
+    // Once the tool settles and the answer commits, the real footer returns —
+    // the guard must not over-suppress the footer on a genuinely finished turn.
+    const settled = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'done', modelId: 'model' },
+      ],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行命令', status: 'completed', args: {}, durationMs: 100 }],
+      turnFooterActionsByTurn: { 'turn-1': [{ id: 'regenerate', label: '重新生成', enabled: true }] },
+    });
+    assert.match(settled, /aria-label="本轮回答操作"/, 'a settled turn with a completed tool shows the real footer');
+    assert.equal(countOccurrences(settled, 'data-live-streaming="true"'), 0, 'a settled turn is not marked live');
+  });
+
   it('text_complete replaces the live slot with the final draining text', () => {
     const current: AssistantStreamSlots = {
       'session-1': { text: 'part', truncated: true, phase: 'streaming', messageId: 'assistant-1' },
@@ -212,11 +242,13 @@ describe('assistant streaming handoff', () => {
     );
     // #642: a textless / thinking-only completion holds the live buffer until
     // that same refresh resolves (refresh-before-clear), so the tail turn's
-    // answer block never unmounts before the committed message lands.
+    // answer block never unmounts before the committed message lands. The
+    // deferred clear is identity-guarded (review P2-A) so a newer turn started
+    // during the refresh isn't wiped.
     assert.match(
       completeCase,
-      /holdTextlessClear = true;[\s\S]*if \(holdTextlessClear\) void refreshed\.finally\(\(\) => clearStreaming\(sessionId\)\);/,
-      'textless complete must defer clearStreaming until after the committed refresh',
+      /heldTextless = \{[\s\S]*if \(heldTextless\) \{[\s\S]*void refreshed\.finally\(\(\) => clearStreamingIfCurrent\(sessionId, held\)\);/,
+      'textless complete must defer an identity-guarded clear until after the committed refresh',
     );
   });
 
@@ -324,6 +356,7 @@ describe('assistant streaming handoff', () => {
         setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
         showModelSetupToast: () => {},
         streamingBySessionRef,
+        thinkingBySessionRef: { current: {} as Record<string, string> },
         toastApi: { error: () => {} },
       });
 
@@ -373,6 +406,89 @@ describe('assistant streaming handoff', () => {
         '',
         'the live buffer is cleared only after the committed refresh (refresh-before-clear)',
       );
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('deferred textless clear does not wipe a newer turn that took over the slot (#642 review P2-A)', async () => {
+    // Turn-1 is thinking-only: its text_complete schedules a refresh-before-clear.
+    // Before that async refresh resolves, the user sends turn-2 whose first
+    // text_delta takes over the session's live slot with a new messageId. The
+    // deferred clear must recognise the slot is no longer turn-1's and leave
+    // turn-2's answer intact (the pre-P2-A unguarded clearStreaming blanked it).
+    const committedMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([committedMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness(
+        { text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+        { 'session-1': 'turn-1 reasoning' },
+      );
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+      // turn-2 starts before the refresh resolves — a new step's messageId.
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_delta', id: 'td-2', turnId: 'turn-2', ts: 4, messageId: 'assistant-2', text: 'turn-2 answer',
+      } as SessionEvent);
+      await flushAsyncWork();
+
+      assert.equal(harness.getStreaming()['session-1']?.text, 'turn-2 answer', 'the newer turn answer survives');
+      assert.equal(harness.getStreaming()['session-1']?.messageId, 'assistant-2', 'the newer slot identity is untouched');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('deferred textless clear does not wipe a newer turn thinking (#642 review P2-A)', async () => {
+    const committedMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([committedMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness(
+        { text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+        { 'session-1': 'turn-1 reasoning' },
+      );
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+      // turn-2 is thinking-only: its reasoning must not be clobbered by clearThinking.
+      harness.handlers.handleEvent('session-1', {
+        type: 'thinking_delta', id: 'th-2', turnId: 'turn-2', ts: 4, text: 'turn-2 reasoning',
+      } as SessionEvent);
+      await flushAsyncWork();
+
+      assert.match(harness.getThinking()['session-1'] ?? '', /turn-2 reasoning/, 'the newer turn reasoning survives');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('deferred textless clear still clears the turn buffer when no newer turn raced in (#642 review P2-A control)', async () => {
+    // Positive control: the identity guard must NOT break the normal path — with
+    // no racing turn-2, the held snapshot still matches, so the live thinking is
+    // cleared after the committed message lands (no stale reasoning left behind).
+    const committedMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([committedMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness(
+        { text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+        { 'session-1': 'turn-1 reasoning' },
+      );
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+      await flushAsyncWork();
+
+      assert.equal(harness.getThinking()['session-1'], '', 'turn-1 reasoning is cleared once its committed message lands');
     } finally {
       windowFixture.restore();
     }
@@ -521,15 +637,21 @@ async function flushAsyncWork(): Promise<void> {
   }
 }
 
-function buildEventHarness(initialSlot: AssistantStreamSlot): {
+function buildEventHarness(
+  initialSlot: AssistantStreamSlot,
+  initialThinking: Record<string, string> = {},
+): {
   handlers: ReturnType<typeof createAppShellSessionEventHandlers>;
   getMessages: () => StoredMessage[];
   getStreaming: () => Record<string, AssistantStreamSlot>;
+  getThinking: () => Record<string, string>;
 } {
   const activeIdRef = { current: 'session-1' as string | undefined };
   let messages: StoredMessage[] = [];
   let streamingBySession: Record<string, AssistantStreamSlot> = { 'session-1': initialSlot };
   const streamingBySessionRef = { current: streamingBySession };
+  let thinkingBySession: Record<string, string> = { ...initialThinking };
+  const thinkingBySessionRef = { current: thinkingBySession };
 
   const chatActions = createAppShellChatActions({
     activeIdRef,
@@ -566,10 +688,14 @@ function buildEventHarness(initialSlot: AssistantStreamSlot): {
       streamingBySession = updater(streamingBySession);
       streamingBySessionRef.current = streamingBySession;
     },
-    setThinkingBySession: createStateSetter<Record<string, string>>({}),
+    setThinkingBySession: (updater) => {
+      thinkingBySession = updater(thinkingBySession);
+      thinkingBySessionRef.current = thinkingBySession;
+    },
     setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
     showModelSetupToast: () => {},
     streamingBySessionRef,
+    thinkingBySessionRef,
     toastApi: { error: () => {} },
   });
 
@@ -577,5 +703,6 @@ function buildEventHarness(initialSlot: AssistantStreamSlot): {
     handlers,
     getMessages: () => messages,
     getStreaming: () => streamingBySession,
+    getThinking: () => thinkingBySession,
   };
 }
