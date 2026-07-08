@@ -628,21 +628,6 @@ export type {
 } from './tool-availability.js';
 
 // ───────────────────────────────────────────────────────────────────────────
-// WakeupScheduler — session-internal CronJob scheduling (Issue #15, Primitive 4).
-// ───────────────────────────────────────────────────────────────────────────
-export { WakeupScheduler, computeNextCronRun, computeJitter } from './wakeup-scheduler.js';
-export type { WakeupRecord, WakeupSchedulerDeps } from './wakeup-scheduler.js';
-export {
-  CRON_CREATE_TOOL_NAME,
-  CRON_DELETE_TOOL_NAME,
-  CRON_LIST_TOOL_NAME,
-  buildCronCreateTool,
-  buildCronDeleteTool,
-  buildCronListTool,
-  buildCronTools,
-} from './wakeup-tools.js';
-
-// ───────────────────────────────────────────────────────────────────────────
 // System-prompt fragments (shared by the desktop app and the CLI/TUI).
 // Read-only, stateless builders for project instructions, personalization, git
 // context, and the per-turn environment tail. The stateful LocalMemoryService
