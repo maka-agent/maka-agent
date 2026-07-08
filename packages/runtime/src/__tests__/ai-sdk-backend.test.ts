@@ -2053,6 +2053,62 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('provider error mid-step still persists the streamed partial text (partialOutputRetained)', async () => {
+    // Codex P1: the non-abort error exit (provider failure / watchdog timeout)
+    // must flush the in-flight step's partial accumulators just like the abort
+    // exit does — the user already saw the streamed text, so it belongs in the
+    // ledger. The gate releases only after the backend has emitted the partial
+    // text_delta, so consumption-before-error is deterministic.
+    const gate = makeGate();
+    const model = new MockLanguageModelV3({
+      doStream: {
+        stream: new ReadableStream<LanguageModelV3StreamPart>({
+          async start(controller) {
+            controller.enqueue({ type: 'stream-start', warnings: [] });
+            controller.enqueue({ type: 'text-start', id: 'text-1' });
+            controller.enqueue({ type: 'text-delta', id: 'text-1', delta: 'partial answer' });
+            await gate.promise;
+            controller.error(new Error('provider exploded mid-step'));
+          },
+        }),
+      },
+    });
+    const assistants: AssistantMessage[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        if (message.type === 'assistant') assistants.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+      if (event.type === 'text_delta' && event.text === 'partial answer') gate.release();
+    }
+
+    // The streamed partial persists as this step's AssistantMessage.
+    assert.equal(assistants.length, 1);
+    assert.equal(assistants[0]!.text, 'partial answer');
+    // And the turn still closes as an error, not a false success.
+    assert.equal(events.some((event) => event.type === 'error'), true);
+    const completes = events.filter((event) => event.type === 'complete');
+    assert.equal(completes.length > 0, true);
+    assert.equal(
+      completes.every((event) => (event as { stopReason?: string }).stopReason === 'error'),
+      true,
+    );
+  });
+
   test('writes host history compact block and replays the host summary in the same request', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];

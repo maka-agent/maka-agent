@@ -1209,11 +1209,13 @@ export class AiSdkBackend implements AgentBackend {
       } catch (err) {
         streamStatus = this.aborted ? 'aborted' : 'error';
         streamErrorClass = this.modelAdapter.classifyError(watchdogTimeoutError ?? err);
+        // Flush the in-flight step's partial text/thinking before the terminal
+        // abort/error events. Earlier steps already flushed at their
+        // `finish-step`; this keeps their and this step's streamed-out output on
+        // BOTH exits — user stop and provider error / watchdog timeout — so
+        // partialOutputRetained reflects what the user actually saw.
+        await flushStep().catch(() => {});
         if (this.aborted) {
-          // Flush the in-flight step's partial text/thinking before the abort
-          // signal. Earlier steps already flushed at their `finish-step`; this
-          // keeps their and this step's partial output (partialOutputRetained).
-          await flushStep().catch(() => {});
           queue.push({
             type: 'abort',
             id: this.newId(),
