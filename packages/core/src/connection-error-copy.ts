@@ -1,8 +1,7 @@
 /**
- * Human-readable copy for a not-ready chat connection — the single source of
- * truth shared by every surface (desktop renderer, CLI first-run) so the
- * `NO_REAL_CONNECTION:<reason>` codes map to one set of fix instructions rather
- * than a per-surface table.
+ * Human-readable copy for a not-ready chat connection. This module is the
+ * canonical home: it maps the `NO_REAL_CONNECTION:<reason>` codes to one set of
+ * fix instructions so callers do not reimplement the table.
  *
  * Pure & sync. `describeChatConfigurationReason` turns a `ChatConfigurationReason`
  * into a Chinese sentence that names what is missing and where to fix it (设置 ·
@@ -10,21 +9,21 @@
  * `NO_REAL_CONNECTION:<reason>` error, tolerating both the bare CLI form and the
  * `NO_REAL_CONNECTION:<reason>: <message>` form that IPC wrapping produces.
  *
- * This module is the canonical home for the copy. The desktop renderer still
- * carries an identical inline switch in
- * `apps/desktop/src/renderer/model-connection-errors.ts` (`noRealConnectionSetupDescription`),
- * pinned verbatim by a source-snapshot boundary test; delegating that copy to
- * this function is a follow-up left out of the CLI-scoped change that introduced
- * this module.
+ * The desktop renderer (`apps/desktop/src/renderer/model-connection-errors.ts`,
+ * `noRealConnectionSetupDescription`) still carries its own identical copy; a
+ * boundary test substring-pins only three of its reasons, so the other seven can
+ * drift until that copy is delegated to this function — a follow-up left out of
+ * the CLI-scoped change that introduced this module.
  */
 
 import type { ChatConfigurationReason } from './connection-readiness.js';
 
 /**
- * Runtime membership anchor: `Object.keys` of this record is the set of valid
- * reason tokens the parser accepts. Typed as `Record<ChatConfigurationReason,
- * true>`, so adding a reason to the union fails the build until it is listed
- * here (which also keeps the parser's known-token set complete).
+ * Compile-time completeness anchor: the `Record<ChatConfigurationReason, true>`
+ * literal cannot omit a union member, so adding a reason fails the build until
+ * it is listed here. `CHAT_CONFIGURATION_REASONS` is the runtime list derived
+ * from it — the single source both the parser's known-token set and the tests
+ * read, so coverage tracks the union automatically.
  */
 const CHAT_CONFIGURATION_REASON_PRESENCE: Record<ChatConfigurationReason, true> = {
   missing_default_connection: true,
@@ -39,9 +38,11 @@ const CHAT_CONFIGURATION_REASON_PRESENCE: Record<ChatConfigurationReason, true> 
   fake_backend: true,
 };
 
-const KNOWN_CHAT_CONFIGURATION_REASONS: ReadonlySet<string> = new Set(
-  Object.keys(CHAT_CONFIGURATION_REASON_PRESENCE),
-);
+export const CHAT_CONFIGURATION_REASONS = Object.keys(
+  CHAT_CONFIGURATION_REASON_PRESENCE,
+) as ChatConfigurationReason[];
+
+const KNOWN_CHAT_CONFIGURATION_REASONS: ReadonlySet<string> = new Set(CHAT_CONFIGURATION_REASONS);
 
 /**
  * Fix instructions for a not-ready connection. `undefined` (the parser's result

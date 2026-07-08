@@ -1,28 +1,21 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ChatConfigurationReason } from '../connection-readiness.js';
 import {
+  CHAT_CONFIGURATION_REASONS,
   describeChatConfigurationReason,
   chatConfigurationReasonFromError,
 } from '../connection-error-copy.js';
 
-const ALL_REASONS: ChatConfigurationReason[] = [
-  'missing_default_connection',
-  'connection_missing',
-  'connection_disabled',
-  'missing_api_key',
-  'missing_model',
-  'empty_model_list',
-  'model_not_enabled',
-  'model_not_chat_capable',
-  'oauth_subscription_not_wired',
-  'fake_backend',
-];
-
 describe('describeChatConfigurationReason', () => {
+  it('covers every reason in the union', () => {
+    // Derived from the source list, so a new ChatConfigurationReason is exercised
+    // here automatically rather than needing a hand-updated array.
+    assert.equal(CHAT_CONFIGURATION_REASONS.length, 10);
+  });
+
   it('returns distinct, non-empty fix copy for every reason', () => {
     const seen = new Set<string>();
-    for (const reason of ALL_REASONS) {
+    for (const reason of CHAT_CONFIGURATION_REASONS) {
       const copy = describeChatConfigurationReason(reason);
       assert.ok(copy.length > 0, `${reason} has copy`);
       assert.equal(seen.has(copy), false, `${reason} copy is distinct`);

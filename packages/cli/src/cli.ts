@@ -110,6 +110,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
  */
 export function formatStartupConnectionError(error: unknown, workspaceRoot: string): string | null {
   const raw = error instanceof Error ? error.message : String(error);
+  // Intentional heuristic: `resolveDefaultSessionTarget` is the only producer on
+  // this startup path, so a substring match is enough to claim the error. An
+  // unrecognized token still resolves to the generic fix copy below, so a false
+  // match degrades to generic guidance rather than hiding a crash.
   if (!raw.includes('NO_REAL_CONNECTION')) return null;
   const reason = chatConfigurationReasonFromError(error);
   return [

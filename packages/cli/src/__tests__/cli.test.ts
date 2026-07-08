@@ -69,8 +69,11 @@ describe('startup connection-error guidance', () => {
       workspaceRoot,
     );
     assert.ok(guidance);
-    // Reason-specific fix line (shared core copy) plus the CLI-only footer that
-    // points at the desktop app and the on-disk workspace.
+    // Reason-specific fix line (shared core copy) — distinct per reason, so this
+    // asserts the translation ran, not just the static header/footer.
+    assert.match(guidance, /等待配置默认模型/);
+    // Static header plus the CLI-only footer that points at the desktop app and
+    // the on-disk workspace.
     assert.match(guidance, /还没有可用的模型连接/);
     assert.match(guidance, /设置 · 模型/);
     assert.match(guidance, /Maka 桌面应用/);
