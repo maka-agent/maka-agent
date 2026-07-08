@@ -1082,7 +1082,13 @@ export class AiSdkBackend implements AgentBackend {
           && !turnHadAnyText
           && finishReasonForGrace === 'tool-calls'
         ) {
-          const graceId = this.currentStepMessageId ?? this.newId();
+          // Always a fresh id. When the stream closed without a trailing
+          // finish-step, `currentStepMessageId` is already taken: the catch-all
+          // flush just used it for a thinking-only last step's AssistantMessage
+          // (reuse would duplicate a ledger id), and a pure-tool last step's
+          // tool_starts carry it as stepId (replay would adopt the grace text
+          // as that step's closer). A rotated-but-unused id is discardable.
+          const graceId = this.newId();
           const graceText =
             `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
             + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';

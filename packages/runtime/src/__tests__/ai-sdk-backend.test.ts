@@ -6049,6 +6049,77 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.match(prompt, /sig-omitted/);
   });
 
+  test('grace notice never reuses a taken step id when the stream ends without a trailing finish-step', async () => {
+    // ChatGPT P2: on the catch-all path (no trailing finish-step) the last
+    // step's id is already taken — by the thinking-only AssistantMessage the
+    // catch-all flush just wrote, and by the tool step's tool_start.stepId. The
+    // grace notice must mint its own id or the ledger gets a duplicate message
+    // id / replay adopts the grace text as the tool step's closer.
+    //
+    // streamText always synthesizes trailing step boundaries, so drive the
+    // backend through a patched startStream: step 1 runs a real tool via the
+    // wrapped execute (genuine tool_start.stepId), step 2 is thinking-only and
+    // the stream ends abruptly with no finish-step / finish.
+    const appended: StoredMessage[] = [];
+    const events: SessionEvent[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => { appended.push(message); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    type FakeStreamInput = {
+      tools: Record<string, { execute: (args: unknown, ctx: { toolCallId: string; abortSignal: AbortSignal }) => Promise<unknown> }>;
+      abortSignal: AbortSignal;
+    };
+    (backend as unknown as {
+      modelAdapter: { startStream: (input: FakeStreamInput) => Promise<unknown> };
+    }).modelAdapter.startStream = async (input: FakeStreamInput) => ({
+      fullStream: (async function* () {
+        // Step 1 (pure tool): execute mid-step, then close the step.
+        await input.tools['Read']!.execute({ path: 'a.md' }, { toolCallId: 'tool-1', abortSignal: input.abortSignal });
+        yield { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } };
+        // Step 2 (thinking-only): signed reasoning, then the stream ends with
+        // NO trailing finish-step and NO finish chunk.
+        yield { type: 'reasoning-delta', delta: 'final thoughts' };
+        yield { type: 'reasoning-delta', delta: '', providerMetadata: { anthropic: { signature: 'sig-last' } } };
+      })(),
+      usage: Promise.resolve(undefined),
+      totalUsage: Promise.resolve(undefined),
+      finishReason: Promise.resolve('tool-calls'),
+    });
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    const assistants = appended.filter((m): m is AssistantMessage => m.type === 'assistant');
+    // Catch-all flush persisted the thinking-only step; grace added its own row.
+    assert.equal(assistants.length, 2);
+    const thinkingOnly = assistants.find((m) => m.thinking?.signature === 'sig-last');
+    const grace = assistants.find((m) => m.text.includes('步工具调用上限'));
+    assert.ok(thinkingOnly, 'thinking-only last step must persist');
+    assert.ok(grace, 'grace notice must persist');
+    // The grace id collides with nothing: not the last step's assistant row...
+    assert.notEqual(grace.id, thinkingOnly.id);
+    // ...and not any tool step's stepId.
+    const toolStepIds = events
+      .filter((event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start')
+      .map((event) => event.stepId);
+    assert.equal(toolStepIds.length, 1);
+    assert.equal(toolStepIds.includes(grace.id), false);
+    // No duplicate message ids anywhere in the ledger.
+    const ids = appended.map((m) => (m as { id: string }).id);
+    assert.equal(new Set(ids).size, ids.length, `duplicate ledger ids: ${ids.join(', ')}`);
+  });
+
   test('flushes one AssistantMessage per step, each with its own thinking + signature, and stamps tool_start.stepId', async () => {
     // Two-step tool turn: step 1 reasons + calls a tool; step 2 reasons + answers.
     // Each step must persist its own AssistantMessage with its own signature, and
