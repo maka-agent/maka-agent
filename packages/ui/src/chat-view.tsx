@@ -5,6 +5,7 @@ import {
   ArrowDown,
   Ban,
   BookOpen,
+  Brain,
   CalendarDays,
   Check,
   ChevronRight,
@@ -1462,30 +1463,44 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
       open={open}
       onOpenChange={setOpen}
     >
-      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 py-0.5 text-left text-[length:var(--font-size-caption)]">
-        <ChevronRight
-          size={12}
-          strokeWidth={2}
+      {/* Structurally identical to a tool trow row: [16px icon slot] + [label]
+          + [hover-reveal trailing chevron]. One font size (base 13px), one
+          weight (normal), muted color — the whole folded timeline reads as a
+          single tier, hierarchy carried by color, not by size/weight jitter. */}
+      <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
+        <Brain
+          size={16}
+          strokeWidth={1.75}
           aria-hidden="true"
-          className="shrink-0 text-[color:var(--muted-foreground)] [transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
+          className="shrink-0 text-[color:var(--muted-foreground)]"
         />
         {props.live ? (
-          <TextShimmer active={!snap} className="[font-weight:var(--font-weight-medium)]">深度思考</TextShimmer>
+          <TextShimmer active={!snap} className="min-w-0 truncate text-[length:var(--font-size-base)]">深度思考</TextShimmer>
         ) : (
-          <span className="[font-weight:var(--font-weight-medium)] text-[color:var(--muted-foreground)]">深度思考</span>
+          <span className="min-w-0 truncate text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">深度思考</span>
         )}
         {/* "已截断" pill: the thinking cap (applyThinkingDelta /
             applyThinkingComplete) dropped content; same chrome as the
             tool-output truncated pill. */}
         {props.truncated && (
           <span
-            className="ml-1 rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.30)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] px-1 text-[color:var(--warning-text,var(--info-text))]"
+            className="rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.30)] bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] px-1 text-[length:var(--font-size-caption)] text-[color:var(--warning-text,var(--info-text))]"
             data-truncated="true"
             title="部分 reasoning 已截断；显示的是最近的内容"
           >
             已截断
           </span>
         )}
+        {/* Quiet trailing chevron: rides in on hover / open, matching the tool
+            trow rows. No always-on affordance so the folded row stays calm. */}
+        <span className="ml-auto inline-flex shrink-0 items-center text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
+          <ChevronRight
+            size={14}
+            strokeWidth={2}
+            aria-hidden="true"
+            className="[transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
+          />
+        </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
         {/* Left-border-indented quiet detail block, one language with the tool

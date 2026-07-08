@@ -296,9 +296,9 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-caption)]">{summary}</TextShimmer>
+          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}>{summary}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}>{summary}</span>
         )}
         <ChevronRight
           size={14}
@@ -351,11 +351,11 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
         {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-caption)]">{runningSummary}</TextShimmer>
+          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{runningSummary}</TextShimmer>
         ) : item.intent ? (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-caption)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
         )}
         {/* Quiet meta: the duration + chevron ride in on hover / open, matching
             the multi-tool summary row — status is carried by the shimmer /
