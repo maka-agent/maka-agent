@@ -1,5 +1,8 @@
 import { describe, test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { dirname, join } from 'node:path';
 import { AutomationManager, computeNextCronFire, matchesCronField } from '../automation-state.js';
 import type { AutomationSchedule } from '../automation-state.js';
 
@@ -621,6 +624,25 @@ describe('computeNextCronFire', () => {
       const d = new Date(next!);
       assert.equal(d.getMonth(), 1); // February
       assert.equal(d.getDay(), 5); // Friday
+    });
+
+    test('DST fall-back: next fire is strictly after fromTime (regression: no re-fire storm)', () => {
+      // Under America/New_York, 2026-11-01T06:30Z is inside the REPEATED (fall-back)
+      // local hour. A local wall-clock round-trip would shift the scan start ~59min
+      // before fromTime, returning a candidate <= fromTime → the scheduler would
+      // re-fire every tick for the whole hour. Run in a child with TZ set; the
+      // snippet exits non-zero (→ execFileSync throws) if strictly-after is violated.
+      const modUrl = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', 'automation-state.js')).href;
+      const snippet =
+        `import(${JSON.stringify(modUrl)}).then(m => {` +
+        `const from = Date.parse('2026-11-01T06:30:00Z');` +
+        `const next = m.computeNextCronFire('30 1 * * *', from);` +
+        `process.exit(typeof next === 'number' && next > from ? 0 : 1);` +
+        `}).catch(() => process.exit(2));`;
+      assert.doesNotThrow(() => execFileSync(process.execPath, ['--input-type=module', '-e', snippet], {
+        env: { ...process.env, TZ: 'America/New_York' },
+        stdio: 'pipe',
+      }));
     });
   });
 

@@ -525,10 +525,15 @@ export function computeNextCronFire(expression: string, fromTime: number): numbe
   const dowIsStar = dowField === '*';
   const bothDayFieldsRestricted = !domIsStar && !dowIsStar;
 
-  // Zero out seconds/ms for clean minute boundaries.
-  const fromDate = new Date(fromTime);
-  fromDate.setSeconds(0, 0);
-  const baseTime = fromDate.getTime() + 60000; // start from next minute
+  // Start the scan at the next whole-minute boundary strictly after fromTime,
+  // computed in EPOCH arithmetic. Using Date.setSeconds() would round-trip the
+  // instant through local wall-clock; during a DST fall-back (a repeated local
+  // hour) V8 re-encodes the ambiguous time to the earlier offset, shifting the
+  // start ~59 min BEFORE fromTime. The scan would then return a candidate
+  // <= fromTime, breaking the strictly-after contract and making the scheduler
+  // re-fire every tick for the whole repeated hour. Epoch math is offset-safe;
+  // candidate wall-clock fields are still read with local getters below.
+  const baseTime = fromTime - (fromTime % 60000) + 60000;
 
   for (let attempt = 0; attempt < MAX_SEARCH_MINUTES; attempt++) {
     const candidateTime = baseTime + attempt * 60000;
