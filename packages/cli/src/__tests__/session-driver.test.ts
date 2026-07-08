@@ -411,6 +411,54 @@ describe('Maka session driver', () => {
     ]);
   });
 
+  test('keeps the last prompted turn as a target when the head is a non-prompt turn (e.g. compact)', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    // After /compact the conversation head is the compact turn (no user
+    // message). turn-2 is still a real, rewindable turn: rewinding to it
+    // discards the compact, so it must not be dropped as "the latest turn".
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'first question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      storedUserMessage('user-2', 'turn-2', 'second question'),
+      storedAssistantMessage('assistant-2', 'turn-2', 'second answer'),
+      storedContextCompactedNote('note-1', 'turn-compact'),
+    ]);
+
+    const targets = await driver.listRewindTargets();
+
+    assert.deepEqual(targets, [
+      { turnId: 'turn-2', label: 'second question' },
+      { turnId: 'turn-1', label: 'first question' },
+    ]);
+  });
+
+  test('keeps the only prompted turn as a target after a compact', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('only question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'only question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
+      storedContextCompactedNote('note-1', 'turn-compact'),
+    ]);
+
+    assert.deepEqual(await driver.listRewindTargets(), [
+      { turnId: 'turn-1', label: 'only question' },
+    ]);
+  });
+
   test('lists no rewind targets before a session starts or with a single turn', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -636,6 +684,16 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     ts: 2,
     text,
     modelId: 'claude-sonnet-4-5',
+  };
+}
+
+function storedContextCompactedNote(id: string, turnId: string): StoredMessage {
+  return {
+    type: 'system_note',
+    id,
+    turnId,
+    ts: 3,
+    kind: 'context_compacted',
   };
 }
 

@@ -177,10 +177,15 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       promptByTurn.set(message.turnId, message.text);
       order.push(message.turnId);
     }
-    // Drop the latest turn: rewinding to it keeps everything, which is not a
-    // rewind. Remaining turns, newest first, are the real "go back to" points.
+    // Drop the turn at the conversation head: branching to it keeps everything,
+    // which is not a rewind. The head is the last message's turn, which is not
+    // always the last prompted turn — e.g. after /compact the head is the compact
+    // turn (no user message), so every prompted turn stays a valid rewind target
+    // (rewinding then discards the compact). Remaining turns, newest first, are
+    // the real "go back to" points.
+    const headTurnId = messages.length > 0 ? messages[messages.length - 1].turnId : undefined;
     return order
-      .slice(0, -1)
+      .filter((turnId) => turnId !== headTurnId)
       .reverse()
       .map((turnId) => ({ turnId, label: firstLine(promptByTurn.get(turnId) ?? '') }));
   }

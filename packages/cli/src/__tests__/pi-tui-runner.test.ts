@@ -1945,6 +1945,40 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('a non-Escape key between two Escapes does not open the rewind picker', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first question' }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+
+    // The editor stays neutral (empty) throughout, but a left-arrow between the
+    // two Escapes breaks the gesture: the two Escapes must be consecutive.
+    terminal.input('\x1b');
+    await delay(20);
+    terminal.input('\x1b[D');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(40);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('回到选定轮次'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('interrupts at most once while the stop is still settling', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlowStopDriver();
