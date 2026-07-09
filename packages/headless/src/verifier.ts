@@ -16,6 +16,7 @@ export function normalizeVerifier(task: Task): VerifierSpec {
       if (typeof verifier.command !== 'string' || verifier.command.trim().length === 0) {
         throw new Error(`task "${task.id}": command verifier requires a non-empty command`);
       }
+      validateOptionalWorkspaceRelativePath(task.id, verifier.cwd, 'cwd');
       validateProtectedPaths(task.id, verifier.protectedPaths);
       return {
         ...verifier,
@@ -251,9 +252,24 @@ function validateProtectedPaths(taskId: string, protectedPaths: unknown): assert
     );
   }
   for (const rel of protectedPaths) {
-    if (typeof rel !== 'string' || isAbsolute(rel) || rel.split(/[\\/]+/).includes('..')) {
+    if (typeof rel !== 'string') {
       throw new Error(`task "${taskId}": protectedPaths entry must be a workspace-relative path: ${String(rel)}`);
     }
+    assertWorkspaceRelativePath(taskId, rel, 'protectedPaths entry');
+  }
+}
+
+function validateOptionalWorkspaceRelativePath(taskId: string, value: unknown, field: string): void {
+  if (value === undefined) return;
+  if (typeof value !== 'string') {
+    throw new Error(`task "${taskId}": command verifier ${field} must be a workspace-relative path: ${String(value)}`);
+  }
+  assertWorkspaceRelativePath(taskId, value, `command verifier ${field}`);
+}
+
+function assertWorkspaceRelativePath(taskId: string, value: string, label: string): void {
+  if (isAbsolute(value) || /^[A-Za-z]:[\\/]/.test(value) || value.split(/[\\/]+/).includes('..')) {
+    throw new Error(`task "${taskId}": ${label} must be a workspace-relative path: ${value}`);
   }
 }
 
