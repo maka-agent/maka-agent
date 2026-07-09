@@ -1512,7 +1512,6 @@ function ModelProcessingIndicator() {
     <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
       <Loader2
         size={16}
-        strokeWidth={1.75}
         aria-hidden="true"
         className="shrink-0 animate-spin text-[color:var(--muted-foreground)]"
       />
