@@ -50,6 +50,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   awaitingPermission: string;
   sending: string;
   streamingHintPrefix: string;
+  streamingHintProcessingPrefix: string;
   streamingHintInterrupt: string;
 }> = {
   zh: {
@@ -63,6 +64,9 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     // extended-thinking stream). Composer = output-streaming;
     // ReasoningPanel = reasoning-streaming; distinct signals, distinct copy.
     streamingHintPrefix: 'Maka 正在回答…',
+    // #646: before the first token, nothing is being answered yet — match the
+    // timeline's "正在处理…" model-wait indicator so the two aren't at odds.
+    streamingHintProcessingPrefix: 'Maka 正在处理…',
     streamingHintInterrupt: '或点停止中断',
   },
   en: {
@@ -74,6 +78,8 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     // `is thinking`, so it doesn't collide with the ReasoningPanel's
     // `Thinking…` label.
     streamingHintPrefix: 'Maka is responding…',
+    // #646: pre-first-token wait — Maka is working, not yet answering.
+    streamingHintProcessingPrefix: 'Maka is working…',
     streamingHintInterrupt: 'or click Stop to interrupt',
   },
 };
@@ -100,11 +106,19 @@ export const Composer = forwardRef<
     disabled?: boolean;
     hidden?: boolean;
     /**
-     * When true, the assistant is currently streaming a response.
-     * Toolbar swaps to a "Maka 正在回答…" hint and the Stop button is
-     * the only visible action — Send is hidden because the model is busy.
+     * When true, a turn is in flight — live output OR (with `processing`) the
+     * pre-first-token wait. Toolbar swaps to a working hint ("Maka 正在回答…" or
+     * "正在处理…") and the Stop button is the only visible action — Send is hidden
+     * because the model is busy.
      */
     streaming?: boolean;
+    /**
+     * #646: the `streaming` window is the pre-first-token wait (the model is
+     * being awaited with nothing streaming yet), not live output. Only changes
+     * the hint copy — "Maka 正在处理…" instead of "正在回答…", matching the
+     * timeline's model-wait indicator. Ignored unless `streaming` is true.
+     */
+    processing?: boolean;
     /** True while the current streaming session is processing a stop request. */
     stopPending?: boolean;
     /** Runtime-only key used to keep unsent drafts isolated per session. */
@@ -622,7 +636,7 @@ export const Composer = forwardRef<
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
-                {copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
+                {props.processing ? copy.streamingHintProcessingPrefix : copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
               </span>
             ) : (
               null

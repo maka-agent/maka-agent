@@ -1591,6 +1591,10 @@ export function AppShell({
                 // indicator; a turn that resolves inside the 200ms window never
                 // needed a Stop button anyway.
                 streaming={activeStreamingLive || showProcessingIndicator}
+                // #646: in the wait window (Stop is up but nothing streams yet)
+                // the hint reads "Maka 正在处理…" to match the timeline indicator,
+                // instead of "正在回答…". Mutually exclusive with activeStreamingLive.
+                processing={showProcessingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
