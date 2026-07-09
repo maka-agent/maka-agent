@@ -277,51 +277,29 @@ describe('assistant streaming handoff', () => {
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
   });
 
-  it('heals a backgrounded session whose turn ended off-screen so returning shows Send, not a stale Stop (#646 review)', async () => {
+  it('heals a session whose turn ended off-screen against its authoritative status, not against an event/switch that fires too early (#646 review)', async () => {
     const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
     const effects = await readRendererShellSource('app-shell-effects.ts');
 
-    // The gate on Composer.streaming only survives because the transient renderer
-    // state of a backgrounded session is reconciled against its authoritative
-    // status: when sessions:changed reports it no longer running / waiting_for_user
-    // and it isn't the active session, its arm + streaming slot + live tools are
-    // dropped. Without this the `activeStreamingLive` disjunct would keep a stale
-    // Stop (and half-streamed bubble) on return. Must not regress.
-    const handler = effects.match(/const handleSessionChange = useEffectEvent\([\s\S]*?\n {2}\}\);/)?.[0] ?? '';
-    assert.match(handler, /refreshedSessions\.then\(/);
-    assert.match(handler, /changedSessionId === options\.activeIdRef\.current\) return;/);
-    assert.match(
-      handler,
-      /summary\.status === 'running' \|\| summary\.status === 'waiting_for_user'\) return;/,
-    );
-    assert.match(handler, /options\.clearSessionRendererState\(changedSessionId\)/);
-  });
+    // The gate on Composer.streaming only survives because a session's transient
+    // renderer state (streaming slot, arm, live tools) is reconciled against the
+    // AUTHORITATIVE status. subscribeEvents follows activeId only with no replay, so
+    // a turn that ends while backgrounded — or whose terminal status only lands after
+    // the user switches back — freezes that transient mid-turn and the ungated
+    // `activeStreamingLive` keeps a stuck Stop / half-streamed bubble. The heal must
+    // key off the status landing in `sessions` (deps `[options.sessions]`), NOT off
+    // the sessions:changed event or an activeId switch (both read status too early),
+    // and must leave a `draining` slot to its own lifecycle. Must not regress.
+    assert.match(effects, /export function useSettledSessionTransientReconcile\(/);
+    assert.match(effects, /session\.status === 'running' \|\| session\.status === 'waiting_for_user'\) continue;/);
+    assert.match(effects, /streamingBySessionRef\.current\[session\.id\]\?\.phase === 'draining'\) continue;/);
+    assert.match(effects, /options\.clearSessionUiState\(session\.id\)/);
+    assert.match(effects, /\}, \[options\.sessions\]\);/);
 
-  it('also heals stale live transient at switch-in, closing the reconcile race when the user returns before its refresh resolves (#646 review)', async () => {
-    const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
-    const effects = await readRendererShellSource('app-shell-effects.ts');
-    const shell = await readRendererShellSource('app-shell.tsx');
-
-    // handleSessionChange's terminal reconcile keeps an active-guard so a live
-    // completion's draining lifecycle isn't cut short — but that guard also skips a
-    // session the user switches back into before the refresh resolves. The switch-in
-    // path must therefore reconcile the newly-active session's stale live transient
-    // BEFORE it re-establishes the event stream. Runs only on activeId change, so it
-    // never races a live completion (same-session) or a fresh send.
-    const activate = effects.match(/useLayoutEffect\(\(\) => \{[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
-    assert.match(activate, /options\.reconcileTransientOnActivate\(activeId\);/);
-    assert.match(
-      activate,
-      /reconcileTransientOnActivate\(activeId\);[\s\S]*subscribeEvents\(activeId/,
-      'switch-in reconcile must run before re-subscribing the live stream',
-    );
-
-    // The reconcile is status-authoritative and draining-safe: skip a still-running
-    // / waiting session, skip a slot mid-drain, otherwise drop the frozen transient.
-    const fn = shell.match(/function reconcileTransientOnActivate\(sessionId: string\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? '';
-    assert.match(fn, /status === 'running' \|\| status === 'waiting_for_user'\) return;/);
-    assert.match(fn, /streamingBySessionRef\.current\[sessionId\]\?\.phase === 'draining'\) return;/);
-    assert.match(fn, /clearSessionUiState\(sessionId\)/);
+    // The former event/switch-triggered reconciles read status before the terminal
+    // refresh resolved — they must be gone so the race can't reappear.
+    assert.doesNotMatch(effects, /reconcileTransientOnActivate/);
+    assert.doesNotMatch(effects, /refreshedSessions\.then\(/);
   });
 
   it('complete refreshes committed messages even while the streaming bubble drains', async () => {

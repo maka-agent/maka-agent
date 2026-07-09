@@ -11,7 +11,7 @@ import type {
   ThemePreference,
 } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { NavSelection, PermissionQueues } from '@maka/ui';
+import type { AssistantStreamSlot, NavSelection, PermissionQueues } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
@@ -197,8 +197,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     options.handleConnectionEvent(event);
   });
   const handleSessionChange = useEffectEvent((event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
-    const refreshedSessions = options.refreshSessions();
-    void refreshedSessions;
+    void options.refreshSessions();
     if (event.sessionId) {
       options.setSessionEventHealthBySession((current) => {
         const previous = current[event.sessionId!];
@@ -218,22 +217,6 @@ export function useAppShellBootstrapSubscriptions(options: {
     const changedSessionId = event.sessionId;
     if (event.reason === 'message-appended' && changedSessionId && changedSessionId === options.activeIdRef.current) {
       void options.refreshMessages(changedSessionId);
-    }
-    // #646 review: a backgrounded session's SessionEvent stream isn't subscribed
-    // here (useActiveSessionEvents follows activeId only), so when its turn reaches
-    // a terminal status while backgrounded, its transient renderer state (the arm,
-    // the streaming slot, live thinking/tools) stays frozen mid-turn — surfacing a
-    // stuck Stop and a half-streamed bubble on return. Heal it against the
-    // authoritative status: once the refresh shows no turn in flight (not running /
-    // not waiting_for_user) and it isn't the active session, drop its transient
-    // state. The active session is left to its own event lifecycle (draining, etc.).
-    if (changedSessionId) {
-      void refreshedSessions.then((summaries) => {
-        if (changedSessionId === options.activeIdRef.current) return;
-        const summary = summaries.find((entry) => entry.id === changedSessionId);
-        if (!summary || summary.status === 'running' || summary.status === 'waiting_for_user') return;
-        options.clearSessionRendererState(changedSessionId);
-      });
     }
     if (event.reason === 'rebound') {
       const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';
@@ -331,7 +314,6 @@ export function useActiveSessionEvents(options: {
   activeIdRef: RefBox<string | undefined>;
   handleEvent: (sessionId: string, event: SessionEvent) => void;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
-  reconcileTransientOnActivate: (sessionId: string) => void;
   setMessageLoadErrorBySession: (
     updater: (current: Record<string, string>) => Record<string, string>,
   ) => void;
@@ -392,11 +374,6 @@ export function useActiveSessionEvents(options: {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
-    // #646 review: before re-establishing this session's live stream, drop any
-    // stale live transient it froze while backgrounded (a turn that ended
-    // off-screen leaves a phantom streaming slot / arm). Runs first so the fresh
-    // event-health subscription below isn't clobbered.
-    options.reconcileTransientOnActivate(activeId);
     options.setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
       const next = { ...current };
@@ -479,4 +456,36 @@ export function useSessionEventHealthPolling(options: {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activePermission?.requestId]);
+}
+
+// #646: transient live state (streaming slot, arm, live thinking/tools) is only
+// advanced and cleared by the ACTIVE session's SessionEvent stream (subscribeEvents
+// follows activeId only, with no replay of missed events). So any session that
+// reaches a terminal status while backgrounded — or whose terminal status only
+// lands after the user has switched back — leaves that transient frozen mid-turn,
+// surfacing a stuck Stop (via the ungated `activeStreamingLive`) and a half-streamed
+// bubble. Heal it against the authoritative status, not against an event or a switch
+// (both fire before the terminal status is known): whenever the sessions list
+// settles, drop the transient of every session that is no longer running /
+// waiting_for_user. Because it keys off the status landing in `sessions`, it closes
+// the hole regardless of which path or timing delivers that status. A slot mid-drain
+// (`phase: 'draining'` — a normal completion the active session is settling, incl.
+// the #642 refresh-before-clear hold) is left to its own lifecycle. `clearSessionUiState`
+// is idempotent (referentially stable when there's nothing to drop), so the common
+// "terminal session with no transient" case triggers no re-render.
+export function useSettledSessionTransientReconcile(options: {
+  sessions: readonly SessionSummary[];
+  streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
+  clearSessionUiState: (sessionId: string) => void;
+}) {
+  const reconcile = useEffectEvent(() => {
+    for (const session of options.sessions) {
+      if (session.status === 'running' || session.status === 'waiting_for_user') continue;
+      if (options.streamingBySessionRef.current[session.id]?.phase === 'draining') continue;
+      options.clearSessionUiState(session.id);
+    }
+  });
+  useEffect(() => {
+    reconcile();
+  }, [options.sessions]);
 }
