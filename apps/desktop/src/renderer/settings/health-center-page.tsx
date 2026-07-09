@@ -39,7 +39,9 @@ const HEALTH_LAYER_COPY: Record<HealthSignalLayer, { label: string; description:
 };
 
 const HEALTH_STATUS_COPY: Record<HealthSignalStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
-  ok: { label: '正常', tone: 'success' },
+  // Status-color restraint (#651 rule): 正常 is the EXPECTED state — neutral
+  // ink; color stays reserved for the signals that need attention.
+  ok: { label: '正常', tone: 'neutral' },
   info: { label: '提示', tone: 'info' },
   warning: { label: '警告', tone: 'warning' },
   error: { label: '错误', tone: 'destructive' },
@@ -153,7 +155,7 @@ export function HealthCenterPage() {
           drops its `role="listitem"` because the `<li>`
           wrapper already carries it. */}
       <ul aria-label="健康摘要" className="settingsHealthSummary">
-        <HealthSummaryTile tone="success" label="正常" count={snapshot.summary.ok} />
+        <HealthSummaryTile tone="neutral" label="正常" count={snapshot.summary.ok} />
         <HealthSummaryTile tone="info" label="提示" count={snapshot.summary.info} />
         <HealthSummaryTile tone="warning" label="警告" count={snapshot.summary.warning} />
         <HealthSummaryTile tone="destructive" label="错误" count={snapshot.summary.error} />

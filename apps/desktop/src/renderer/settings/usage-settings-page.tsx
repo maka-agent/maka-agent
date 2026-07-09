@@ -200,7 +200,7 @@ export function UsageSettingsPage(props: {
         <div className="settingsNotice">
           当前仅显示汇总指标。打开详情记录后，可以查看逐条模型请求和工具调用，按模型、工具或状态筛选，并用于排查费用与失败请求。
           <div className="settingsActionRow settingsNoticeAction">
-            <Button type="button" variant="ghost" size="sm" onClick={() => void updateUsage({ showDetails: true })}>
+            <Button type="button" variant="outline" size="sm" onClick={() => void updateUsage({ showDetails: true })}>
               显示明细
             </Button>
           </div>

@@ -36,6 +36,8 @@ export type VisualSmokeScenario =
   | 'settings-voice'
   | 'settings-gateway'
   | 'settings-search'
+  | 'settings-usage'
+  | 'settings-health'
   | 'module-skills'
   | 'module-daily-review'
   | 'workstation-statuses'
