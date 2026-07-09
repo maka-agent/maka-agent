@@ -1404,6 +1404,49 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('switches connection and model together from a cross-connection /model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        { connectionSlug: 'openai', connectionName: 'OpenAI', providerType: 'openai', model: 'gpt-5.5', isDefaultConnection: true },
+        { connectionSlug: 'zai', connectionName: 'Z.ai', providerType: 'openai', model: 'glm-5.2', isDefaultConnection: false },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => terminal.output().includes('glm-5.2'));
+    // The picker opens on the current model (gpt-5.5); move down to the choice on
+    // the other connection and select it.
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, ['zai']);
+    // The status line now reflects both the new model and the new connection.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka glm-5.2 zai ask /repo'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /rename without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -3484,6 +3527,7 @@ class ToolOutputDriver implements MakaSessionDriver {
 class SlashCommandDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
+  readonly modelConnections: Array<string | undefined> = [];
   readonly permissionModes: PermissionMode[] = [];
   readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
@@ -3523,8 +3567,9 @@ class SlashCommandDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
-  async setModel(model: string): Promise<void> {
+  async setModel(model: string, connectionSlug?: string): Promise<void> {
     this.models.push(model);
+    this.modelConnections.push(connectionSlug);
   }
   async renameSession(name: string): Promise<void> {
     this.renames.push(name);

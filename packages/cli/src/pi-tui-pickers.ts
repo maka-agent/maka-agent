@@ -11,6 +11,7 @@ import {
 } from '@earendil-works/pi-tui';
 import { PERMISSION_MODES, type PermissionMode } from '@maka/core/permission';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import type { ModelChoice } from './connection-target.js';
 import { ansi, stripAnsi } from './tui-ansi.js';
 
 export class MakaAutocompleteProvider implements AutocompleteProvider {
@@ -124,6 +125,25 @@ export function modelPickerItems(currentModel: string, models: readonly string[]
     label: id,
     ...(id === currentModel ? { description: 'current' } : {}),
   }));
+}
+
+/**
+ * `/model` items across every ready connection. The value is the choice's index
+ * (models can repeat across connections, so no id is unique on its own); the
+ * caller maps it back to the {@link ModelChoice}. The description carries the
+ * owning connection so identical model ids on different providers are readable.
+ */
+export function modelChoicePickerItems(
+  choices: readonly ModelChoice[],
+  current: { model: string; connectionSlug: string },
+): SelectItem[] {
+  return choices.map((choice, index) => {
+    const isCurrent = choice.model === current.model && choice.connectionSlug === current.connectionSlug;
+    const tags = [choice.connectionName || choice.connectionSlug];
+    if (isCurrent) tags.push('current');
+    else if (choice.isDefaultConnection) tags.push('default');
+    return { value: String(index), label: choice.model, description: tags.join(' · ') };
+  });
 }
 
 export function permissionModePickerItems(currentMode: PermissionMode): SelectItem[] {

@@ -15,6 +15,7 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
+import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
@@ -42,6 +43,7 @@ import {
 import {
   MakaAutocompleteProvider,
   PickerOverlay,
+  modelChoicePickerItems,
   modelPickerItems,
   permissionModePickerItems,
   thinkingLevelPickerItems,
@@ -54,6 +56,13 @@ export interface MakaPiTuiInput {
   cwd: string;
   model: string;
   models?: readonly string[];
+  /**
+   * Every selectable model across all ready connections. When present, `/model`
+   * lists these (grouped by connection) and selecting one rebinds the session to
+   * that connection + model. Falls back to `models` (current connection only)
+   * when absent.
+   */
+  modelChoices?: readonly ModelChoice[];
   connectionSlug: string;
   providerType?: ProviderType;
   permissionMode: PermissionMode;
@@ -73,10 +82,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let cwd = input.cwd;
   let model = input.model;
   let connectionSlug = input.connectionSlug;
+  // Mutable: a cross-connection /model switch rebinds the provider, which changes
+  // both the connection and the thinking variants the new model supports.
+  let providerType = input.providerType;
   let permissionMode = input.permissionMode;
   let thinkingLevel: ThinkingLevel | undefined = undefined;
-  let thinkingLevels: readonly ThinkingLevel[] = input.providerType
-    ? thinkingVariantsForModel(input.providerType, input.model)
+  let thinkingLevels: readonly ThinkingLevel[] = providerType
+    ? thinkingVariantsForModel(providerType, input.model)
     : [];
   let busy = false;
   let closed = false;
@@ -285,11 +297,28 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     await input.driver.setModel(nextModel);
     model = nextModel;
     thinkingLevel = undefined;
-    thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, nextModel) : [];
+    thinkingLevels = providerType ? thinkingVariantsForModel(providerType, nextModel) : [];
     state.entries.push({
       kind: 'notice',
       level: 'info',
       text: `Model: ${nextModel}`,
+    });
+    requestRender();
+  };
+
+  // Cross-connection /model: rebind the session to the chosen connection + model.
+  // Updates the provider (and thus the thinking variants) and the status line.
+  const setModelChoice = async (choice: ModelChoice) => {
+    await input.driver.setModel(choice.model, choice.connectionSlug);
+    model = choice.model;
+    connectionSlug = choice.connectionSlug;
+    providerType = choice.providerType;
+    thinkingLevel = undefined;
+    thinkingLevels = thinkingVariantsForModel(choice.providerType, choice.model);
+    state.entries.push({
+      kind: 'notice',
+      level: 'info',
+      text: `Model: ${choice.model} (${choice.connectionName || choice.connectionSlug})`,
     });
     requestRender();
   };
@@ -313,7 +342,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
-    thinkingLevels = input.providerType ? thinkingVariantsForModel(input.providerType, summary.model) : [];
+    thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
     // The transcript is a different document now; drop any scroll position so the
     // resumed session opens following its latest messages, not mid-history.
@@ -492,6 +521,30 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const showModelList = () => {
+    const choices = input.modelChoices;
+    // Cross-connection picker when the caller supplied choices across all ready
+    // connections; otherwise the single-connection list (typed /model, tests).
+    if (choices && choices.length > 0) {
+      const selectedIndex = choices.findIndex(
+        (choice) => choice.model === model && choice.connectionSlug === connectionSlug,
+      );
+      showSelectPicker(
+        'Select Model',
+        connectionSlug,
+        modelChoicePickerItems(choices, { model, connectionSlug }),
+        (item) => {
+          const choice = choices[Number(item.value)];
+          if (!choice) return;
+          void runControl(() => setModelChoice(choice));
+        },
+        {
+          minPrimaryColumnWidth: 24,
+          maxPrimaryColumnWidth: 48,
+          ...(selectedIndex >= 0 ? { selectedIndex } : {}),
+        },
+      );
+      return;
+    }
     showSelectPicker(
       'Select Model',
       connectionSlug,

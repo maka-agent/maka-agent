@@ -125,6 +125,60 @@ describe('Maka session driver', () => {
     }]);
   });
 
+  test('switches connection and model together on an active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setModel('glm-5.2', 'zai');
+
+    // The connection rides in the same updateSession patch, so the next turn
+    // rebuilds the backend on the new provider.
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { model: 'glm-5.2', thinkingLevel: undefined, llmConnectionSlug: 'zai' },
+    }]);
+  });
+
+  test('a same-connection setModel does not churn the connection', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setModel('claude-opus-4-1', 'anthropic');
+
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
+    }]);
+  });
+
+  test('creates the next session on a connection chosen before any session exists', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await driver.setModel('glm-5.2', 'zai');
+    await collect(driver.sendPrompt('run tests'));
+
+    assert.equal(runtime.created[0]?.llmConnectionSlug, 'zai');
+    assert.equal(runtime.created[0]?.model, 'glm-5.2');
+  });
+
   test('renames the active session through runtime updateSession', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -547,7 +601,7 @@ class RecordingRuntime {
   readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
-  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
+  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
@@ -622,7 +676,7 @@ class RecordingRuntime {
     };
   }
 
-  async updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string }): Promise<SessionSummary> {
+  async updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string }): Promise<SessionSummary> {
     this.sessionUpdates.push({ sessionId, patch });
     return {
       id: sessionId,
@@ -633,7 +687,7 @@ class RecordingRuntime {
       hasUnread: false,
       status: 'active',
       backend: 'ai-sdk',
-      llmConnectionSlug: 'anthropic',
+      llmConnectionSlug: patch.llmConnectionSlug ?? 'anthropic',
       model: patch.model ?? 'claude-sonnet-4-5',
       permissionMode: 'ask',
     };

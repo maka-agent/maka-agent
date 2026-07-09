@@ -89,6 +89,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           cwd: context.cwd,
           model: context.target.model,
           models: selectableModelIdsForTarget(context.target),
+          modelChoices: context.modelChoices,
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',

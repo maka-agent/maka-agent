@@ -15,7 +15,7 @@ export interface MakaSessionRuntime {
   stopSession(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
-  updateSession(sessionId: string, patch: { model?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
+  updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
   // Rewind reuses the runtime's branch primitive: a non-destructive copy of the
   // transcript + RuntimeEvent ledger through a turn boundary, so resume
   // correctness is inherited and the original session's log is left intact.
@@ -47,7 +47,12 @@ export interface MakaSessionDriver {
   sendPrompt(prompt: string): AsyncIterable<SessionEvent>;
   compactSession(): AsyncIterable<SessionEvent>;
   respondToPermission(response: PermissionResponse): Promise<void>;
-  setModel(model: string): Promise<void>;
+  /**
+   * Switch the active session's model, optionally rebinding it to another
+   * connection at the same time (cross-provider `/model`). The next turn builds
+   * a fresh backend on the new connection.
+   */
+  setModel(model: string, connectionSlug?: string): Promise<void>;
   setThinkingLevel(level: ThinkingLevel | undefined): Promise<void>;
   setPermissionMode(mode: PermissionMode): Promise<void>;
   renameSession(name: string): Promise<void>;
@@ -69,6 +74,9 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
   private model: string;
+  // The connection the active/next session runs on. Mutable so a cross-provider
+  // /model switch can rebind it; new sessions are created on this connection.
+  private llmConnectionSlug: string;
   private thinkingLevel: ThinkingLevel | undefined;
   private permissionMode: PermissionMode;
   private readonly newId: () => string;
@@ -76,6 +84,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   constructor(private readonly input: MakaSessionDriverInput) {
     this.newId = input.newId ?? randomUUID;
     this.model = input.model;
+    this.llmConnectionSlug = input.llmConnectionSlug;
     this.permissionMode = input.permissionMode ?? 'ask';
   }
 
@@ -112,15 +121,24 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     await this.input.runtime.respondToPermission(this.sessionId, response);
   }
 
-  async setModel(model: string): Promise<void> {
+  async setModel(model: string, connectionSlug?: string): Promise<void> {
+    // Only rebind the connection when a different one is asked for; a same-slug
+    // /model is a plain model change and must not churn the backend needlessly.
+    const nextConnection = connectionSlug && connectionSlug !== this.llmConnectionSlug ? connectionSlug : undefined;
     if (this.sessionId) {
-      // Switching model clears the per-model thinking variant.
-      const summary = await this.input.runtime.updateSession(this.sessionId, { model, thinkingLevel: undefined });
+      // Switching model (or connection) clears the per-model thinking variant.
+      const summary = await this.input.runtime.updateSession(this.sessionId, {
+        model,
+        thinkingLevel: undefined,
+        ...(nextConnection ? { llmConnectionSlug: nextConnection } : {}),
+      });
       this.model = summary.model;
+      this.llmConnectionSlug = summary.llmConnectionSlug;
       this.thinkingLevel = summary.thinkingLevel;
       return;
     }
     this.model = model;
+    if (nextConnection) this.llmConnectionSlug = nextConnection;
     this.thinkingLevel = undefined;
   }
 
@@ -156,12 +174,13 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     if (summary.cwd !== this.input.cwd) {
       throw new Error('Session belongs to a different folder; run Maka in that folder to resume it.');
     }
-    if (summary.llmConnectionSlug !== this.input.llmConnectionSlug) {
+    if (summary.llmConnectionSlug !== this.llmConnectionSlug) {
       throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
     }
     const messages = await this.input.runtime.getMessages(summary.id);
     this.sessionId = summary.id;
     this.model = summary.model;
+    this.llmConnectionSlug = summary.llmConnectionSlug;
     this.thinkingLevel = summary.thinkingLevel;
     this.permissionMode = summary.permissionMode;
     return { summary, messages };
@@ -219,7 +238,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       cwd: this.input.cwd,
       name: prompt.slice(0, 42) || '新建对话',
       backend: 'ai-sdk',
-      llmConnectionSlug: this.input.llmConnectionSlug,
+      llmConnectionSlug: this.llmConnectionSlug,
       model: this.model,
       permissionMode: this.permissionMode,
       ...(this.thinkingLevel !== undefined ? { thinkingLevel: this.thinkingLevel } : {}),

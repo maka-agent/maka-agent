@@ -26,8 +26,8 @@ import {
   createSettingsStore,
   createShellRunStore,
 } from '@maka/storage';
-import type { ReadySessionTarget } from './connection-target.js';
-import { resolveDefaultSessionTarget } from './connection-target.js';
+import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
+import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 
 export interface MakaCliRuntimeContext {
@@ -35,6 +35,8 @@ export interface MakaCliRuntimeContext {
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
+  /** Selectable models across every ready connection, for the `/model` picker. */
+  modelChoices: ModelChoice[];
   tools: ReturnType<typeof buildBuiltinTools>;
   close(): Promise<void>;
 }
@@ -71,6 +73,7 @@ export async function createMakaCliRuntimeContext(
     credentialStore,
     requestedModel: input.requestedModel,
   });
+  const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
   const shellRuns = new ShellRunProcessManager({
@@ -81,7 +84,10 @@ export async function createMakaCliRuntimeContext(
   const tools = buildBuiltinTools({ shellRuns });
 
   backends.register('ai-sdk', async (ctx) => {
-    const ready = await resolveDefaultSessionTarget({
+    // Resolve the session's own connection — not the global default — so a
+    // /model switch that rebinds the session to another provider actually runs
+    // on that provider (the desktop app resolves the backend the same way).
+    const ready = await resolveSessionTargetForSlug(ctx.header.llmConnectionSlug, {
       connectionStore,
       credentialStore,
       requestedModel: ctx.header.model,
@@ -155,6 +161,7 @@ export async function createMakaCliRuntimeContext(
     cwd: input.cwd,
     runtime,
     target,
+    modelChoices,
     tools,
     close: () => shellRuns.terminateAll(),
   };

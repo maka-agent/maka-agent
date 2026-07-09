@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core/llm-connections';
-import { resolveDefaultSessionTarget } from '../connection-target.js';
+import { listReadyModelChoices, resolveDefaultSessionTarget } from '../connection-target.js';
 
 describe('default session target resolver', () => {
   test('uses the default ready connection and requested model', async () => {
@@ -144,6 +144,58 @@ describe('default session target resolver', () => {
       }),
       /NO_REAL_CONNECTION:missing_default_connection/,
     );
+  });
+});
+
+describe('listReadyModelChoices', () => {
+  test('lists models across every ready connection and skips fake / not-ready', async () => {
+    const zai = makeConnection({
+      slug: 'zai',
+      name: 'Z.ai',
+      providerType: 'ollama', // authKind none → ready without a stored secret
+      defaultModel: 'glm-5.2',
+      models: [{ id: 'glm-5.2' }, { id: 'glm-5-air' }],
+    });
+    const openai = makeConnection({
+      slug: 'openai',
+      name: 'OpenAI',
+      providerType: 'openai', // needs an api key
+      defaultModel: 'gpt-5.5',
+      models: [{ id: 'gpt-5.5' }],
+    });
+    const openaiNoKey = makeConnection({
+      slug: 'openai-2',
+      name: 'OpenAI 2',
+      providerType: 'openai',
+      defaultModel: 'gpt-5.5',
+    });
+    const fake = makeConnection({ slug: 'fake', name: 'Fake', providerType: 'ollama', defaultModel: 'x' });
+
+    const choices = await listReadyModelChoices({
+      connectionStore: {
+        list: async () => [zai, openai, openaiNoKey, fake],
+        getDefault: async () => 'zai',
+      },
+      credentialStore: {
+        getSecret: async (slug) => (slug === 'openai' ? 'sk-real' : null),
+      },
+    });
+
+    // Two ready connections contribute; the keyless OpenAI and the fake are skipped.
+    assert.deepEqual(
+      choices.filter((choice) => choice.connectionSlug === 'zai').map((choice) => choice.model),
+      ['glm-5.2', 'glm-5-air'],
+    );
+    assert.deepEqual(
+      choices.filter((choice) => choice.connectionSlug === 'openai').map((choice) => choice.model),
+      ['gpt-5.5'],
+    );
+    assert.equal(choices.some((choice) => choice.connectionSlug === 'openai-2'), false);
+    assert.equal(choices.some((choice) => choice.connectionSlug === 'fake'), false);
+    // The default connection is flagged so the picker can mark it.
+    assert.equal(choices.find((choice) => choice.connectionSlug === 'zai')?.isDefaultConnection, true);
+    assert.equal(choices.find((choice) => choice.connectionSlug === 'openai')?.isDefaultConnection, false);
+    assert.equal(choices.find((choice) => choice.connectionSlug === 'zai')?.connectionName, 'Z.ai');
   });
 });
 
