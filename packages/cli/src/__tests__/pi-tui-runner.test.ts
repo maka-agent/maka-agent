@@ -5,6 +5,7 @@ import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import type { MakaSessionDriver, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
+import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
 import {
   assertBottomPickerPlacement,
@@ -2359,7 +2360,10 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => driver.prompts.length === 1);
     await waitFor(() => bellCount(terminal) === 1);
-    assert.ok(terminal.titles.includes('● Maka'), 'title marks busy during the turn');
+    assert.ok(
+      terminal.titles.includes(`${BUSY_SPINNER_FRAMES[0]} Maka`),
+      'title marks busy during the turn',
+    );
     assert.ok(terminal.titles.includes('★ Maka'), 'title marks attention after the unfocused finish');
 
     terminal.input('\x03');
@@ -2516,7 +2520,7 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('run');
     terminal.input('\r');
-    await waitFor(() => terminal.titles.includes('● Maka'));
+    await waitFor(() => terminal.titles.includes(`${BUSY_SPINNER_FRAMES[0]} Maka`));
 
     // Quit while the turn is still parked: close() must reset the title so the
     // shell tab is not left marked busy after Maka exits.

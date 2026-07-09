@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { AttentionController } from '../tui-attention.js';
+import { AttentionController, BUSY_SPINNER_FRAMES } from '../tui-attention.js';
+
+const BUSY = `${BUSY_SPINNER_FRAMES[0]} Maka`;
 
 const BELL = '\x07';
 
@@ -21,16 +23,31 @@ class SpyTerminal {
   }
 }
 
-/** A controller wired to a spy terminal and a clock the test advances by hand. */
+/** A controller wired to a spy terminal, a clock, and a spinner ticked by hand. */
 function makeController(longTurnThresholdMs = 8000) {
   const terminal = new SpyTerminal();
   let clock = 0;
+  let spinnerTick: (() => void) | null = null;
   const controller = new AttentionController(terminal, {
     baseTitle: 'Maka',
     now: () => clock,
     longTurnThresholdMs,
+    // Capture the spinner callback instead of scheduling a real interval, so the
+    // test drives frame advances deterministically and no timer leaks.
+    scheduleSpinnerInterval: (callback) => {
+      spinnerTick = callback;
+      return () => {
+        spinnerTick = null;
+      };
+    },
   });
-  return { terminal, controller, advance: (ms: number) => (clock += ms) };
+  return {
+    terminal,
+    controller,
+    advance: (ms: number) => (clock += ms),
+    tickSpinner: () => spinnerTick?.(),
+    spinnerRunning: () => spinnerTick !== null,
+  };
 }
 
 describe('AttentionController title', () => {
@@ -42,7 +59,7 @@ describe('AttentionController title', () => {
   test('marks busy while a turn runs and returns to plain when it ends quickly', () => {
     const { terminal, controller, advance } = makeController(8000);
     controller.promptTurnStarted();
-    assert.equal(terminal.title, '● Maka');
+    assert.equal(terminal.title, BUSY);
     advance(500);
     controller.promptTurnEnded();
     assert.equal(terminal.title, 'Maka');
@@ -53,7 +70,7 @@ describe('AttentionController title', () => {
     const { terminal, controller } = makeController();
     controller.focusChanged(false);
     controller.controlStarted();
-    assert.equal(terminal.title, '● Maka');
+    assert.equal(terminal.title, BUSY);
     controller.controlEnded();
     assert.equal(terminal.title, 'Maka');
     assert.equal(terminal.bells, 0);
@@ -70,7 +87,7 @@ describe('AttentionController title', () => {
     const { terminal, controller } = makeController(8000);
     controller.focusChanged(false);
     controller.promptTurnStarted();
-    assert.equal(terminal.title, '● Maka');
+    assert.equal(terminal.title, BUSY);
     controller.reset();
     assert.equal(terminal.title, 'Maka');
     // A finalizer that settles after close must not re-dirty the handed-back
@@ -80,6 +97,38 @@ describe('AttentionController title', () => {
     controller.promptTurnStarted();
     assert.equal(terminal.title, 'Maka');
     assert.equal(terminal.bells, 0);
+  });
+
+  test('animates the busy marker through spinner frames while a turn runs', () => {
+    const { terminal, controller, tickSpinner, spinnerRunning } = makeController(8000);
+    controller.promptTurnStarted();
+    assert.equal(terminal.title, `${BUSY_SPINNER_FRAMES[0]} Maka`);
+    assert.equal(spinnerRunning(), true);
+
+    tickSpinner();
+    assert.equal(terminal.title, `${BUSY_SPINNER_FRAMES[1]} Maka`);
+    tickSpinner();
+    assert.equal(terminal.title, `${BUSY_SPINNER_FRAMES[2]} Maka`);
+
+    controller.promptTurnEnded();
+    assert.equal(terminal.title, 'Maka');
+    // The interval is released and the frame resets, so the next turn opens on
+    // the first frame rather than mid-cycle.
+    assert.equal(spinnerRunning(), false);
+    controller.promptTurnStarted();
+    assert.equal(terminal.title, `${BUSY_SPINNER_FRAMES[0]} Maka`);
+  });
+
+  test('stops the spinner while an attention marker overrides the busy marker', () => {
+    const { controller, spinnerRunning } = makeController(8000);
+    controller.focusChanged(false);
+    controller.promptTurnStarted();
+    assert.equal(spinnerRunning(), true);
+    // A permission prompt while unfocused mid-turn raises attention (★), which
+    // outranks the busy marker; the spinner must stop rather than animate a
+    // marker that is no longer shown.
+    controller.attentionNeeded();
+    assert.equal(spinnerRunning(), false);
   });
 });
 
@@ -132,7 +181,7 @@ describe('AttentionController long-turn ring', () => {
     controller.promptTurnEnded();
     assert.equal(terminal.title, '★ Maka');
     controller.promptTurnStarted();
-    assert.equal(terminal.title, '● Maka');
+    assert.equal(terminal.title, BUSY);
   });
 });
 

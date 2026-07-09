@@ -33,6 +33,16 @@ export interface AttentionControllerOptions {
    * are already watching. Permission prompts and errors ring regardless.
    */
   longTurnThresholdMs?: number;
+  /** Busy-marker spinner frames; defaults to the braille cycle. */
+  busySpinnerFrames?: readonly string[];
+  /** Spinner frame interval in ms; defaults to {@link DEFAULT_BUSY_SPINNER_INTERVAL_MS}. */
+  busySpinnerIntervalMs?: number;
+  /**
+   * Injectable interval scheduler for the spinner so tests can advance frames by
+   * hand instead of waiting real timers. Returns a cancel function. Defaults to
+   * an unref'd global setInterval so a lingering tick never blocks process exit.
+   */
+  scheduleSpinnerInterval?: (callback: () => void, intervalMs: number) => () => void;
 }
 
 /** DEC 1004 focus reports the runner enables and forwards to `focusChanged`. */
@@ -43,9 +53,21 @@ export const ENABLE_FOCUS_REPORTING = '\x1b[?1004h';
 export const DISABLE_FOCUS_REPORTING = '\x1b[?1004l';
 
 const BELL = '\x07';
-const BUSY_TITLE_MARKER = '● ';
+// Braille spinner (matches pi-tui's Loader frames) shown while a turn or control
+// action runs, so a glance at the tab tells you Maka is working — a static dot
+// could not be told apart from an idle indicator.
+export const BUSY_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+export const DEFAULT_BUSY_SPINNER_INTERVAL_MS = 80;
 const ATTENTION_TITLE_MARKER = '★ ';
 const DEFAULT_LONG_TURN_THRESHOLD_MS = 8000;
+
+function defaultScheduleSpinnerInterval(callback: () => void, intervalMs: number): () => void {
+  const handle = setInterval(callback, intervalMs);
+  // Never let the spinner tick alone keep the process alive; it is always
+  // cleared when the turn ends or the session closes anyway.
+  handle.unref?.();
+  return () => clearInterval(handle);
+}
 
 export class AttentionController {
   private readonly now: () => number;
@@ -63,6 +85,12 @@ export class AttentionController {
   // Set once the session is closing; every event method then no-ops so a turn
   // finalizer that settles after close() cannot re-dirty the handed-back title.
   private stopped = false;
+  // Spinner animation state for the busy marker.
+  private readonly busySpinnerFrames: readonly string[];
+  private readonly busySpinnerIntervalMs: number;
+  private readonly scheduleSpinnerInterval: (callback: () => void, intervalMs: number) => () => void;
+  private spinnerFrame = 0;
+  private cancelSpinner: (() => void) | null = null;
 
   constructor(
     private readonly terminal: AttentionTerminal,
@@ -70,6 +98,13 @@ export class AttentionController {
   ) {
     this.now = options.now ?? Date.now;
     this.longTurnThresholdMs = options.longTurnThresholdMs ?? DEFAULT_LONG_TURN_THRESHOLD_MS;
+    this.busySpinnerFrames = options.busySpinnerFrames && options.busySpinnerFrames.length > 0
+      ? options.busySpinnerFrames
+      : BUSY_SPINNER_FRAMES;
+    this.busySpinnerIntervalMs = options.busySpinnerIntervalMs && options.busySpinnerIntervalMs > 0
+      ? options.busySpinnerIntervalMs
+      : DEFAULT_BUSY_SPINNER_INTERVAL_MS;
+    this.scheduleSpinnerInterval = options.scheduleSpinnerInterval ?? defaultScheduleSpinnerInterval;
     this.refreshTitle();
   }
 
@@ -162,18 +197,39 @@ export class AttentionController {
   }
 
   private refreshTitle(): void {
+    // Keep the spinner ticking exactly while the busy marker is on screen, so it
+    // animates during work and stops (freeing the timer) the moment it isn't.
+    this.syncSpinner();
     // Attention outranks busy: a turn parked on a permission prompt is "busy"
     // but what it actually needs is the user, so surface that first. Attention
     // is only ever set while unfocused, so a normal running turn still shows busy.
     const title = this.attention
       ? `${ATTENTION_TITLE_MARKER}${this.options.baseTitle}`
       : this.busy
-        ? `${BUSY_TITLE_MARKER}${this.options.baseTitle}`
+        ? `${this.busySpinnerFrames[this.spinnerFrame] ?? ''} ${this.options.baseTitle}`
         : this.options.baseTitle;
     // Only write on a real change so the title stream stays quiet between turns
-    // and a test can read the transitions rather than a run of duplicates.
+    // and a test can read the transitions rather than a run of duplicates. Each
+    // spinner tick advances the frame first, so the title genuinely differs.
     if (title === this.lastTitle) return;
     this.lastTitle = title;
     this.terminal.setTitle(title);
+  }
+
+  // Start or stop the spinner interval to match whether the busy marker is
+  // currently shown (busy, not overridden by attention, session still live).
+  private syncSpinner(): void {
+    const shouldRun = this.busy && !this.attention && !this.stopped && this.busySpinnerFrames.length > 0;
+    if (shouldRun && !this.cancelSpinner) {
+      this.cancelSpinner = this.scheduleSpinnerInterval(() => {
+        this.spinnerFrame = (this.spinnerFrame + 1) % this.busySpinnerFrames.length;
+        this.refreshTitle();
+      }, this.busySpinnerIntervalMs);
+    } else if (!shouldRun && this.cancelSpinner) {
+      this.cancelSpinner();
+      this.cancelSpinner = null;
+      // Reset so the next busy episode opens on the first frame, not mid-cycle.
+      this.spinnerFrame = 0;
+    }
   }
 }
