@@ -21,6 +21,7 @@ const SHORTCUTS: Section[] = [
     rows: [
       { keys: ['⌘', 'K'], description: '打开命令面板（跳会话 / 设置 / 主题等）' },
       { keys: ['?'], description: '打开 / 关闭此快捷键面板' },
+      { keys: ['⌘', 'N'], description: '新建任务' },
       { keys: ['⌘', ','], description: '打开设置' },
       { keys: ['Esc'], description: '关闭当前模态框' },
     ],

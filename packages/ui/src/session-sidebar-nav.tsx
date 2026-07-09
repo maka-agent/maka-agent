@@ -71,6 +71,7 @@ export function SessionSidebarNav(props: {
       >
         <Plus className="maka-nav-icon" aria-hidden="true" />
         <span>新任务</span>
+        <kbd className="maka-nav-kbd" aria-hidden="true">⌘ N</kbd>
       </UiButton>
       <UiButton
         variant="quiet"

@@ -719,3 +719,19 @@
 .maka-list-row:hover .maka-list-row-name {
   color: var(--foreground);
 }
+
+/* ⌘N hint on the 新任务 row — quiet kbd chip pushed to the right rail,
+   visible at rest like the reference app (it advertises a real global
+   shortcut registered in app-shell-effects). */
+.maka-nav-kbd {
+  margin-left: auto;
+  padding: 0 var(--space-1);
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--foreground-3);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+  white-space: nowrap;
+}
