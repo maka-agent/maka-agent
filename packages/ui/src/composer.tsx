@@ -51,6 +51,7 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   sending: string;
   streamingHintPrefix: string;
   streamingHintProcessingPrefix: string;
+  streamingHintContinuingPrefix: string;
   streamingHintInterrupt: string;
 }> = {
   zh: {
@@ -67,6 +68,9 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     // #646: before the first token, nothing is being answered yet — match the
     // timeline's "正在处理…" model-wait indicator so the two aren't at odds.
     streamingHintProcessingPrefix: 'Maka 正在处理…',
+    // #646: a mid-turn step-to-step lull after content has already streamed —
+    // matches the timeline's calm "继续中…" hint, never re-showing "正在处理…".
+    streamingHintContinuingPrefix: 'Maka 继续中…',
     streamingHintInterrupt: '或点停止中断',
   },
   en: {
@@ -80,6 +84,8 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
     streamingHintPrefix: 'Maka is responding…',
     // #646: pre-first-token wait — Maka is working, not yet answering.
     streamingHintProcessingPrefix: 'Maka is working…',
+    // #646: mid-turn step-to-step lull after content — calmer than the head wait.
+    streamingHintContinuingPrefix: 'Maka is continuing…',
     streamingHintInterrupt: 'or click Stop to interrupt',
   },
 };
@@ -119,6 +125,13 @@ export const Composer = forwardRef<
      * timeline's model-wait indicator. Ignored unless `streaming` is true.
      */
     processing?: boolean;
+    /**
+     * #646: a mid-turn step-to-step lull after content has already streamed. Only
+     * changes the hint copy — "Maka 继续中…", matching the timeline's calm hint —
+     * so the Stop button stays up without re-showing "正在处理…". Ignored unless
+     * `streaming` is true; mutually exclusive with `processing`.
+     */
+    continuing?: boolean;
     /** True while the current streaming session is processing a stop request. */
     stopPending?: boolean;
     /** Runtime-only key used to keep unsent drafts isolated per session. */
@@ -636,7 +649,11 @@ export const Composer = forwardRef<
             ) : props.streaming ? (
               <span className="maka-composer-streaming-hint">
                 <span className="maka-composer-streaming-dot" aria-hidden="true" />
-                {props.processing ? copy.streamingHintProcessingPrefix : copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
+                {props.processing
+                  ? copy.streamingHintProcessingPrefix
+                  : props.continuing
+                    ? copy.streamingHintContinuingPrefix
+                    : copy.streamingHintPrefix} <Kbd className="maka-shortcut-kbd">Esc</Kbd> {copy.streamingHintInterrupt}
               </span>
             ) : (
               null

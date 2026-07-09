@@ -337,7 +337,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: PROCESSING_SESSION_ID,
-        turnActiveBySession: { [PROCESSING_SESSION_ID]: true },
+        turnActiveBySession: { [PROCESSING_SESSION_ID]: 'waiting' },
       };
     case 'permission-destructive':
       return {

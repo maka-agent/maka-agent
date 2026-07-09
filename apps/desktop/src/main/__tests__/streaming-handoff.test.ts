@@ -13,6 +13,7 @@ import {
 } from '@maka/ui/assistant-stream';
 import { createAppShellChatActions } from '../../renderer/app-shell-chat-actions.js';
 import { createAppShellSessionEventHandlers } from '../../renderer/app-shell-session-events.js';
+import type { TurnPhase } from '../../renderer/model-wait-state.js';
 
 describe('assistant streaming handoff', () => {
   it('keeps a draining assistant answer as the single visible owner before committed handoff', () => {
@@ -256,13 +257,14 @@ describe('assistant streaming handoff', () => {
       /slot\.text && slot\.phase === 'streaming'/,
       'sidebar streaming pulse should ignore final text that is only draining into history',
     );
-    // #646: the composer Stop reaches the model-wait window too, so the prop is
-    // now `activeStreamingLive || showProcessingIndicator`. Both disjuncts are
-    // draining-safe — `activeStreamingLive` excludes draining by construction,
-    // and `showProcessingIndicator` requires zero streaming text — so draining
-    // still settles the composer. The guard against inlining the raw
+    // #646: composer Stop is decoupled from the wait indicators and driven off
+    // `turnInFlight` (the whole turn, so Stop never blinks out in a mid-turn
+    // lull), with `activeStreamingLive` folded in defensively. Both disjuncts are
+    // draining-safe — `turnInFlight` is the arm phase (independent of the
+    // draining slot) and `activeStreamingLive` excludes draining by construction —
+    // so draining still settles the composer. The guard against inlining the raw
     // `activeStreaming.length > 0` (which WOULD keep draining live) stays.
-    assert.match(shell, /streaming=\{activeStreamingLive \|\| showProcessingIndicator\}/);
+    assert.match(shell, /streaming=\{turnInFlight \|\| activeStreamingLive\}/);
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
   });
 
@@ -596,7 +598,7 @@ describe('model-wait indicator arm/clear wiring (#646)', () => {
     const windowFixture = installReadMessagesWindow([[]]);
     try {
       const harness = buildEventHarness(streamingSlot);
-      assert.equal(harness.getTurnActive()['session-1'], true, 'harness starts armed');
+      assert.equal(harness.getTurnActive()['session-1'], 'waiting', 'harness starts armed at the head');
       harness.handlers.handleEvent('session-1', completeEvent());
       assert.equal(harness.getTurnActive()['session-1'], undefined, 'complete drops the arm');
     } finally {
@@ -611,7 +613,7 @@ describe('model-wait indicator arm/clear wiring (#646)', () => {
       harness.handlers.handleEvent('session-1', {
         type: 'complete', id: 'event-2', turnId: 'turn-1', ts: 3, stopReason: 'permission_handoff',
       } as SessionEvent);
-      assert.equal(harness.getTurnActive()['session-1'], true, 'a permission pause is not a turn end');
+      assert.ok(harness.getTurnActive()['session-1'] !== undefined, 'a permission pause is not a turn end');
     } finally {
       windowFixture.restore();
     }
@@ -633,12 +635,51 @@ describe('model-wait indicator arm/clear wiring (#646)', () => {
     }
   });
 
-  it('keeps the turn armed while content streams — the derivation hides the indicator, not a clear', () => {
+  it('promotes the phase to streamed on the first content event, without clearing the arm', () => {
     const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming' });
+    assert.equal(harness.getTurnActive()['session-1'], 'waiting', 'starts at the first-token head');
     harness.handlers.handleEvent('session-1', {
       type: 'text_delta', id: 'event-d', turnId: 'turn-1', ts: 2, messageId: 'assistant-1', text: 'hello',
     } as SessionEvent);
-    assert.equal(harness.getTurnActive()['session-1'], true, 'the arm persists across the whole turn');
+    assert.equal(
+      harness.getTurnActive()['session-1'],
+      'streamed',
+      'the arm persists (turn still in flight) but leaves the "正在处理…" head phase',
+    );
+  });
+
+  it('a multi-step turn never returns to the first-token head phase between steps (#646)', () => {
+    // Regression for the real-machine bug: a tool-using turn returned to the
+    // "正在处理…" indicator in every step-to-step lull because the phase was a
+    // plain boolean. Once streamed, only a terminal event (which clears the arm
+    // and starts a fresh 'waiting' next turn) can leave 'streamed'.
+    const windowFixture = installReadMessagesWindow([[], [], []]);
+    try {
+      const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming' });
+      const step = (type: SessionEvent['type'], extra: Record<string, unknown> = {}) =>
+        harness.handlers.handleEvent('session-1', {
+          type, id: `e-${type}-${extra.toolUseId ?? ''}`, turnId: 'turn-1', ts: 2, ...extra,
+        } as SessionEvent);
+
+      step('thinking_delta', { text: 'reasoning step 1' });
+      assert.equal(harness.getTurnActive()['session-1'], 'streamed', 'first reasoning leaves the head');
+      step('tool_start', { toolUseId: 't1', toolName: 'read' });
+      step('tool_result', { toolUseId: 't1', content: 'file body', isError: false });
+      // The step-to-step lull: tool settled, nothing streaming. Still 'streamed',
+      // so the derivation yields 'continuing' (calm hint), never 'processing'.
+      assert.equal(
+        harness.getTurnActive()['session-1'],
+        'streamed',
+        'the lull after a settled tool stays streamed — no "正在处理…" re-trigger',
+      );
+      step('thinking_delta', { text: 'reasoning step 2' });
+      assert.equal(harness.getTurnActive()['session-1'], 'streamed', 'the next step stays streamed');
+
+      harness.handlers.handleEvent('session-1', completeEvent());
+      assert.equal(harness.getTurnActive()['session-1'], undefined, 'the turn end clears the arm');
+    } finally {
+      windowFixture.restore();
+    }
   });
 });
 
@@ -662,6 +703,24 @@ describe('model-wait indicator rendering (#646)', () => {
     const markup = renderChat({ messages: userTurn, streamingText: 'hello', processingIndicator: true });
     assert.doesNotMatch(markup, /正在处理…/, 'the derivation is exclusive, but the render guards it too');
     assert.match(markup, /maka-bubble-streaming/, 'the streaming answer owns the tail turn instead');
+  });
+
+  it('renders the calm "继续中…" hint mid-turn — not "正在处理…", and without a shimmer (#646)', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', continuingIndicator: true });
+    assert.match(markup, /继续中…/, 'the mid-turn lull shows the calm continuation hint');
+    assert.doesNotMatch(markup, /正在处理…/, 'the prominent first-token indicator must not re-appear');
+    assert.match(markup, /data-live-streaming="true"/, 'the tail turn stays live so its footer is non-actionable');
+  });
+
+  it('prefers the first-token indicator when both cues momentarily co-derive', () => {
+    const markup = renderChat({
+      messages: userTurn,
+      streamingText: '',
+      processingIndicator: true,
+      continuingIndicator: true,
+    });
+    assert.match(markup, /正在处理…/, 'processing wins the exclusive render guard');
+    assert.doesNotMatch(markup, /继续中…/, 'the continuing hint stands down while processing shows');
   });
 });
 
@@ -761,7 +820,7 @@ function buildEventHarness(
   getMessages: () => StoredMessage[];
   getStreaming: () => Record<string, AssistantStreamSlot>;
   getThinking: () => Record<string, string>;
-  getTurnActive: () => Record<string, boolean>;
+  getTurnActive: () => Record<string, TurnPhase>;
 } {
   const activeIdRef = { current: 'session-1' as string | undefined };
   let messages: StoredMessage[] = [];
@@ -769,8 +828,9 @@ function buildEventHarness(
   const streamingBySessionRef = { current: streamingBySession };
   let thinkingBySession: Record<string, string> = { ...initialThinking };
   const thinkingBySessionRef = { current: thinkingBySession };
-  // The harness represents a turn already in flight, so it starts armed (#646).
-  let turnActiveBySession: Record<string, boolean> = { 'session-1': true };
+  // The harness represents a turn already in flight at its head, so it starts in
+  // the 'waiting' (first-token) phase (#646).
+  let turnActiveBySession: Record<string, TurnPhase> = { 'session-1': 'waiting' };
 
   const chatActions = createAppShellChatActions({
     activeIdRef,

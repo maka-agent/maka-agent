@@ -3,6 +3,7 @@ import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
+import type { TurnPhase } from './model-wait-state.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -28,6 +29,7 @@ type ComposerImportOwner = {
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
+type TurnPhaseRecordUpdater = (updater: (current: Record<string, TurnPhase>) => Record<string, TurnPhase>) => void;
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
 type MessageLoadErrorUpdater = (updater: (current: Record<string, string>) => Record<string, string>) => void;
 
@@ -118,7 +120,7 @@ export function createAppShellChatActions(deps: {
   setNavSelection: (selection: NavSelection) => void;
   /** #646: arm the "正在处理…" indicator locally at send() — the model-wait
    * window opens before any SessionEvent arrives (turn_started is not one). */
-  setTurnActiveBySession: BooleanRecordUpdater;
+  setTurnActiveBySession: TurnPhaseRecordUpdater;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
@@ -188,12 +190,17 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
-  // #646: open / close the model-wait window for a session. Armed the moment
+  // #646: open the turn's model-wait window for a session. Armed the moment
   // send() commits (before the IPC round-trip) so the "正在处理…" indicator
   // covers the connect-to-first-token gap that has no SessionEvent of its own;
-  // disarmed if the send never reaches the runtime (the catch below).
+  // disarmed if the send never reaches the runtime (the catch below). Always
+  // (re)set to `'waiting'`: a fresh send is a new first-token wait, so it must
+  // overwrite any `'streamed'` left by a prior turn whose terminal event was
+  // missed — otherwise the new turn's head would never show the indicator.
   function armTurnActive(sessionId: string): void {
-    setTurnActiveBySession((current) => (current[sessionId] ? current : { ...current, [sessionId]: true }));
+    setTurnActiveBySession((current) =>
+      current[sessionId] === 'waiting' ? current : { ...current, [sessionId]: 'waiting' },
+    );
   }
 
   function disarmTurnActive(sessionId: string): void {

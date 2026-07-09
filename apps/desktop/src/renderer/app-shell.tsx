@@ -67,7 +67,7 @@ import { deriveBranchBanner } from './branch-banner';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
-import { MODEL_PROCESSING_DELAY_MS, deriveModelWaitIdle } from './model-wait-state';
+import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
 import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
@@ -355,21 +355,30 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
-  // #646: the "正在处理…" indicator — the model is being awaited with nothing
-  // streaming. `turnActive` (armed at send, no lag) gives a clean start/end; the
-  // `status === 'running'` gate self-heals a backgrounded session whose terminal
-  // event was missed while inactive (its arm can't clear without the event). The
-  // 200ms rising-edge delay (useDelayedFlag) suppresses the flash on fast turns.
-  const activeTurnActive = activeId ? sessionUiState.turnActiveBySession[activeId] === true : false;
+  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
+  // 'streamed' on the first content event) separates the connect-to-first-token
+  // wait from the later step-to-step lulls; the `status === 'running'` gate
+  // self-heals a backgrounded session whose terminal event was missed while
+  // inactive (its arm can't clear without the event). The rising-edge delays
+  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
+  const activeTurnPhase = activeId ? sessionUiState.turnActiveBySession[activeId] : undefined;
+  const turnInFlight = activeTurnPhase !== undefined;
+  const modelWaitKind = deriveModelWait({
+    turnPhase: activeTurnPhase,
+    streamingText: activeStreaming,
+    thinkingText: activeThinking,
+    hasInFlightTools: hasInFlightLiveTools,
+  });
+  const sessionAwaitingModel = activeSession?.status === 'running';
+  // The prominent "正在处理…" first-token indicator (turn head only).
   const showProcessingIndicator = useDelayedFlag(
-    activeSession?.status === 'running'
-      && deriveModelWaitIdle({
-        turnActive: activeTurnActive,
-        streamingText: activeStreaming,
-        thinkingText: activeThinking,
-        hasInFlightTools: hasInFlightLiveTools,
-      }),
+    sessionAwaitingModel && modelWaitKind === 'processing',
     MODEL_PROCESSING_DELAY_MS,
+  );
+  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
+  const showContinuingIndicator = useDelayedFlag(
+    sessionAwaitingModel && modelWaitKind === 'continuing',
+    MODEL_CONTINUING_DELAY_MS,
   );
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
@@ -1468,6 +1477,7 @@ export function AppShell({
                 streamingComplete={activeStreamingComplete}
                 streamingMessageId={activeStreamingMessageId}
                 processingIndicator={showProcessingIndicator}
+                continuingIndicator={showContinuingIndicator}
                 onStreamingSettled={activeId ? () => settleAssistantStreaming(activeId, activeStreamingMessageId) : undefined}
                 streamingTruncated={activeStreamingTruncated}
                 thinkingText={activeThinking}
@@ -1584,17 +1594,19 @@ export function AppShell({
                 hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
-                // #646: Stop must reach the wait window too — the moment the user
-                // most wants to interrupt is while the model is being awaited with
-                // nothing streaming yet. `activeStreamingLive` only covers visible
-                // output, so fold in the (debounced, status-gated) processing
-                // indicator; a turn that resolves inside the 200ms window never
-                // needed a Stop button anyway.
-                streaming={activeStreamingLive || showProcessingIndicator}
-                // #646: in the wait window (Stop is up but nothing streams yet)
-                // the hint reads "Maka 正在处理…" to match the timeline indicator,
-                // instead of "正在回答…". Mutually exclusive with activeStreamingLive.
+                // #646: Stop must be available for the WHOLE turn — the moment the
+                // user most wants to interrupt is a long wait with nothing on
+                // screen (first token, or a slow provider's step-to-step lull).
+                // Drive Stop off `turnInFlight` (armed at send, cleared at the
+                // terminal event), not the wait indicators, so it never blinks out
+                // in a mid-turn gap. `activeStreamingLive` is folded in defensively
+                // for the rare replay where the arm was over-cleared.
+                streaming={turnInFlight || activeStreamingLive}
+                // #646: in the first-token wait (Stop up, nothing streams yet) the
+                // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
+                // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
                 processing={showProcessingIndicator && !activeStreamingLive}
+                continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}

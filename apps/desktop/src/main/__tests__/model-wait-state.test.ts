@@ -3,12 +3,12 @@ import { describe, it } from 'node:test';
 import {
   MODEL_PROCESSING_DELAY_MS,
   createDelayedFlag,
-  deriveModelWaitIdle,
+  deriveModelWait,
   type DelayedFlagScheduler,
 } from '../../renderer/model-wait-state.js';
 
-const IDLE = {
-  turnActive: true,
+const HEAD = {
+  turnPhase: 'waiting',
   streamingText: '',
   thinkingText: '',
   hasInFlightTools: false,
@@ -43,32 +43,40 @@ function fakeScheduler() {
   };
 }
 
-describe('deriveModelWaitIdle', () => {
-  it('is true when the turn is active and nothing is streaming', () => {
-    assert.equal(deriveModelWaitIdle(IDLE), true);
+describe('deriveModelWait', () => {
+  it("is 'processing' at the turn head — armed, waiting for the first token", () => {
+    assert.equal(deriveModelWait(HEAD), 'processing');
   });
 
-  it('is false when the turn is not active', () => {
-    assert.equal(deriveModelWaitIdle({ ...IDLE, turnActive: false }), false);
+  it("is 'none' when no turn is in flight", () => {
+    assert.equal(deriveModelWait({ ...HEAD, turnPhase: undefined }), 'none');
   });
 
-  it('is false once answer text is streaming', () => {
-    assert.equal(deriveModelWaitIdle({ ...IDLE, streamingText: 'hi' }), false);
+  it("is 'none' once answer text is streaming", () => {
+    assert.equal(deriveModelWait({ ...HEAD, streamingText: 'hi' }), 'none');
   });
 
-  it('is false once reasoning is streaming', () => {
-    assert.equal(deriveModelWaitIdle({ ...IDLE, thinkingText: 'because' }), false);
+  it("is 'none' once reasoning is streaming", () => {
+    assert.equal(deriveModelWait({ ...HEAD, thinkingText: 'because' }), 'none');
   });
 
-  it('is false while a tool is in flight', () => {
-    assert.equal(deriveModelWaitIdle({ ...IDLE, hasInFlightTools: true }), false);
+  it("is 'none' while a tool is in flight", () => {
+    assert.equal(deriveModelWait({ ...HEAD, hasInFlightTools: true }), 'none');
   });
 
-  it('re-satisfies after a tool settles (mid-turn resume gap, no explicit re-arm)', () => {
-    const running = deriveModelWaitIdle({ ...IDLE, hasInFlightTools: true });
-    const settled = deriveModelWaitIdle({ ...IDLE, hasInFlightTools: false });
-    assert.equal(running, false);
-    assert.equal(settled, true);
+  it("a mid-turn lull after content is 'continuing', NOT 'processing' (#646)", () => {
+    // Once the turn has streamed (phase 'streamed'), a tool settling back to an
+    // idle state is the calm "继续中…" hint — the prominent "正在处理…" must not
+    // re-fire in every step-to-step gap (the regression this split fixes).
+    const running = deriveModelWait({ ...HEAD, turnPhase: 'streamed', hasInFlightTools: true });
+    const settled = deriveModelWait({ ...HEAD, turnPhase: 'streamed', hasInFlightTools: false });
+    assert.equal(running, 'none');
+    assert.equal(settled, 'continuing');
+  });
+
+  it("the head wait stays 'processing' only until the first content event flips the phase", () => {
+    assert.equal(deriveModelWait({ ...HEAD, turnPhase: 'waiting' }), 'processing');
+    assert.equal(deriveModelWait({ ...HEAD, turnPhase: 'streamed' }), 'continuing');
   });
 });
 

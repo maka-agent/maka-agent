@@ -140,13 +140,13 @@ export interface VisualSmokeState {
   permissionBySession?: Record<string, PermissionRequestEvent>;
   liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
   /**
-   * #646: per-session "a turn is in flight" flag, mirroring the renderer's
-   * `turnActiveBySession`. A fixture seeds `true` for a running session with no
-   * live streaming/thinking/tools so the "正在处理…" model-wait indicator and the
-   * composer Stop render — the connect-to-first-token state that has no other
-   * observable seed. Real users never receive a visual smoke state.
+   * #646: per-session turn phase, mirroring the renderer's `turnActiveBySession`.
+   * `'waiting'` = the connect-to-first-token wait (seed it for a running session
+   * with no live streaming/thinking/tools so the "正在处理…" indicator + composer
+   * Stop render); `'streamed'` = a mid-turn lull after content (the calm "继续中…"
+   * hint). Real users never receive a visual smoke state.
    */
-  turnActiveBySession?: Record<string, boolean>;
+  turnActiveBySession?: Record<string, 'waiting' | 'streamed'>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
    * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`

@@ -1,20 +1,44 @@
 /**
- * Pure model-wait derivation + rising-edge debounce for the "正在处理…"
- * indicator (#646).
+ * Pure model-wait derivation + rising-edge debounce for the two turn-wait cues
+ * (#646).
  *
- * The indicator shows while the model is being awaited with nothing else
- * streaming — one derived predicate, plus a delay so a fast first token never
- * flashes it. Kept free of React so the timing is unit-tested with an injected
- * scheduler (fake timers) — the layer where the real bugs live (200ms race,
- * mid-turn recover, arm/cancel).
+ * A turn has two kinds of "nothing is streaming right now" lulls, and they must
+ * read differently:
+ *   - `processing` — the connect-to-first-token wait at the turn head, before
+ *     any event has arrived. The screen is otherwise empty, so it earns the
+ *     prominent "正在处理…" indicator.
+ *   - `continuing` — a mid-turn lull AFTER the turn has already produced content
+ *     (a tool settled, a step's text finished) while the model works on the next
+ *     step. The prior steps are already on screen, so this earns only a calm
+ *     "继续中…" hint, never "正在处理…" (which would flicker on after every step
+ *     and read as if the live thinking had been swallowed — the #646 regression
+ *     this split fixes).
+ *
+ * The single dimension that separates them is the turn PHASE: `'waiting'` until
+ * the first content event, `'streamed'` after. Kept free of React so the timing
+ * is unit-tested with an injected scheduler (fake timers).
  */
 
-/** Rising-edge delay before the processing indicator appears. Tunable. */
+/** Rising-edge delay before the first-token processing indicator appears. Tunable. */
 export const MODEL_PROCESSING_DELAY_MS = 200;
 
+/**
+ * Rising-edge delay before the mid-turn "继续中…" hint appears. Longer than the
+ * first-token delay so a quick hop between two fast steps never flashes it — the
+ * hint is only worth showing once a step-to-step lull is visibly stalling.
+ */
+export const MODEL_CONTINUING_DELAY_MS = 600;
+
+/**
+ * A turn's coarse phase from the renderer's point of view. Absent (no entry) =
+ * no turn in flight. `'waiting'` = armed at send, no content event yet.
+ * `'streamed'` = the turn has emitted at least one content event.
+ */
+export type TurnPhase = 'waiting' | 'streamed';
+
 export interface ModelWaitInputs {
-  /** Turn armed locally at send(); cleared on complete / error / abort. */
-  turnActive: boolean;
+  /** Turn phase, or undefined when no turn is in flight. */
+  turnPhase: TurnPhase | undefined;
   /** Active session's live assistant answer buffer. */
   streamingText: string;
   /** Active session's live reasoning buffer. */
@@ -23,19 +47,23 @@ export interface ModelWaitInputs {
   hasInFlightTools: boolean;
 }
 
+/** Which wait cue (if any) the current turn state calls for. */
+export type ModelWaitKind = 'none' | 'processing' | 'continuing';
+
 /**
- * True when the model is being awaited and nothing is currently streaming —
- * covers both the turn head (send → first content) and the mid-turn resume gap
- * after a tool settles: `hasInFlightTools` falls back to false, so the predicate
- * re-satisfies on its own with no explicit re-arm event.
+ * Which turn-wait cue to show. `'none'` whenever something is actively on
+ * screen (streaming text / reasoning / an in-flight tool) or no turn is in
+ * flight. Otherwise the turn is idle-waiting, and the PHASE decides: the
+ * first-token head is `'processing'`, every later step-to-step lull is
+ * `'continuing'`.
  */
-export function deriveModelWaitIdle(input: ModelWaitInputs): boolean {
-  return (
-    input.turnActive &&
+export function deriveModelWait(input: ModelWaitInputs): ModelWaitKind {
+  const idle =
     input.streamingText.length === 0 &&
     input.thinkingText.length === 0 &&
-    !input.hasInFlightTools
-  );
+    !input.hasInFlightTools;
+  if (!idle || input.turnPhase === undefined) return 'none';
+  return input.turnPhase === 'waiting' ? 'processing' : 'continuing';
 }
 
 export interface DelayedFlagScheduler {

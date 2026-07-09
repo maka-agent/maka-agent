@@ -3,6 +3,7 @@ import type { SettingsSection, ThemePreference } from '@maka/core';
 import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
+import type { TurnPhase } from './model-wait-state';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -23,7 +24,7 @@ export function createAppShellVisualSmokeActions(options: {
   setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
   setThinkingBySession: StateUpdater<Record<string, string>>;
-  setTurnActiveBySession: StateUpdater<Record<string, boolean>>;
+  setTurnActiveBySession: StateUpdater<Record<string, TurnPhase>>;
 }): AppShellVisualSmokeActions {
   const {
     openPalette,

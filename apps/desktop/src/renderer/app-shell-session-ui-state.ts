@@ -1,6 +1,7 @@
 import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
 import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
+import type { TurnPhase } from './model-wait-state';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -12,13 +13,16 @@ export interface AppShellSessionUiState {
   thinkingBySession: Record<string, string>;
   thinkingTruncatedBySession: Record<string, boolean>;
   liveToolsBySession: Record<string, ToolActivityItem[]>;
-  // #646: a turn is "active" from local send() until complete / error / abort.
-  // Combined with an empty streaming/thinking/tool state it drives the
-  // "正在处理…" indicator (see model-wait-state.ts). Cleared synchronously on the
-  // turn-ending event (mirrors the unguarded clearStreaming — the clear runs
-  // before any next turn exists); a stale over-clear only misses one indicator
-  // window and self-heals next turn.
-  turnActiveBySession: Record<string, boolean>;
+  // #646: a turn's phase from local send() until complete / error / abort.
+  // `'waiting'` = armed, no content event yet (the first-token "正在处理…"
+  // window); `'streamed'` = at least one content event has arrived, so later
+  // step-to-step lulls read as the calm "继续中…" hint instead (see
+  // model-wait-state.ts). Absent = no turn in flight. Set to `'waiting'` at send,
+  // promoted to `'streamed'` on the first content event, cleared synchronously on
+  // the turn-ending event (mirrors the unguarded clearStreaming — the clear runs
+  // before any next turn exists); a stale over-clear only misses one wait window
+  // and self-heals next turn.
+  turnActiveBySession: Record<string, TurnPhase>;
   permissionBySession: PermissionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
   pendingPermissionModeBySession: Record<string, boolean>;

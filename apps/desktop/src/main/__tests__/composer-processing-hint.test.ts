@@ -35,6 +35,13 @@ describe('composer model-wait hint (#646)', () => {
     assert.doesNotMatch(markup, /Maka 正在处理…/);
   });
 
+  it('reads "继续中…" in a mid-turn lull — Stop stays up without re-showing "正在处理…" (#646)', () => {
+    const markup = render({ streaming: true, processing: false, continuing: true });
+    assert.match(markup, /Maka 继续中…/, 'the step-to-step lull uses the calm continuation copy');
+    assert.doesNotMatch(markup, /Maka 正在处理…/, 'the first-token copy must not re-appear mid-turn');
+    assert.doesNotMatch(markup, /Maka 正在回答…/, 'and it is distinct from the live-answer copy');
+  });
+
   it('shows neither hint when idle (Send is offered, not Stop)', () => {
     const markup = render({ streaming: false });
     assert.doesNotMatch(markup, /Maka 正在处理…/);

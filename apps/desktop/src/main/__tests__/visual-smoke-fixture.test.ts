@@ -521,7 +521,7 @@ describe('visual smoke fixture mode', () => {
       const state = getVisualSmokeState(fixture);
       // The turn is armed on a running session — the derivation's inputs.
       assert.equal(state?.activeSessionId, 'visual-smoke-processing');
-      assert.deepEqual(state?.turnActiveBySession, { 'visual-smoke-processing': true });
+      assert.deepEqual(state?.turnActiveBySession, { 'visual-smoke-processing': 'waiting' });
       // Nothing may be streaming / thinking / running as a tool, or the
       // derivation would hide the indicator (it fires only in the zero-content
       // wait). This scenario deliberately seeds none of them.

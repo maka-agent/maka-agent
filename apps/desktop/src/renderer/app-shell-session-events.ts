@@ -24,9 +24,27 @@ import {
   sessionEventErrorMessage,
 } from './model-connection-errors.js';
 import type { RefreshMessagesOptions } from './app-shell-chat-actions.js';
+import type { TurnPhase } from './model-wait-state.js';
 
 type RefBox<T> = { current: T };
 type StateUpdater<T> = (updater: (current: T) => T) => void;
+
+// #646: the event types that count as a turn producing content. The first of
+// these to arrive promotes the turn from `'waiting'` (first-token wait) to
+// `'streamed'`, so the "正在处理…" indicator is only ever the connect-to-first-
+// token gap. Terminal (complete / abort / error) and bookkeeping (token_usage)
+// events are excluded — they don't represent visible progress.
+const TURN_CONTENT_EVENT_TYPES: ReadonlySet<SessionEvent['type']> = new Set([
+  'thinking_delta',
+  'thinking_complete',
+  'text_delta',
+  'text_complete',
+  'tool_start',
+  'tool_output_delta',
+  'tool_result',
+  'permission_request',
+  'permission_decision_ack',
+]);
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -46,8 +64,9 @@ export function createAppShellSessionEventHandlers(options: {
   setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThinkingBySession: StateUpdater<Record<string, string>>;
   setThinkingTruncatedBySession: StateUpdater<Record<string, boolean>>;
-  /** #646: clear the turn-active flag when a turn ends (see model-wait-state.ts). */
-  setTurnActiveBySession: StateUpdater<Record<string, boolean>>;
+  /** #646: set/clear the turn phase (see model-wait-state.ts). Promoted to
+   * 'streamed' on the first content event; cleared when the turn ends. */
+  setTurnActiveBySession: StateUpdater<Record<string, TurnPhase>>;
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   thinkingBySessionRef: RefBox<Record<string, string>>;
@@ -118,6 +137,19 @@ export function createAppShellSessionEventHandlers(options: {
       delete next[sessionId];
       return next;
     });
+  }
+
+  /**
+   * #646: promote a turn out of the first-token wait on its first content event.
+   * Guarded one-way `'waiting' → 'streamed'`: it never re-arms 'waiting' (a late
+   * or replayed event mid-turn is a no-op) and never touches a session with no
+   * turn in flight. After this, `deriveModelWait` yields `'continuing'` (the calm
+   * "继续中…" hint) for the step-to-step lulls instead of `'processing'`.
+   */
+  function markTurnStreamed(sessionId: string) {
+    setTurnActiveBySession((current) =>
+      current[sessionId] === 'waiting' ? { ...current, [sessionId]: 'streamed' } : current,
+    );
   }
 
   /**
@@ -350,6 +382,9 @@ export function createAppShellSessionEventHandlers(options: {
   }
 
   function handleEvent(sessionId: string, event: SessionEvent) {
+    // #646: the first content event of a turn ends the first-token wait, so the
+    // "正在处理…" indicator can't re-trigger in later step-to-step lulls.
+    if (TURN_CONTENT_EVENT_TYPES.has(event.type)) markTurnStreamed(sessionId);
     switch (event.type) {
       case 'text_delta': {
         // PR-UI-Cx (@kenji msg 94b0063d / cd09bcac / fixup v2 3c01e901):

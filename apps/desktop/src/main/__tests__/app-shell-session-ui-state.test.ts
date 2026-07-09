@@ -36,7 +36,7 @@ function seededState(): AppShellSessionUiState {
       drop: [{ toolUseId: 'tool-drop', toolName: 'Shell', status: 'running', args: {} }],
       keep: [{ toolUseId: 'tool-keep', toolName: 'Shell', status: 'pending', args: {} }],
     },
-    turnActiveBySession: { drop: true, keep: true },
+    turnActiveBySession: { drop: 'waiting', keep: 'streamed' },
     permissionBySession: {
       drop: [permissionRequest('drop')],
       keep: [permissionRequest('keep')],
