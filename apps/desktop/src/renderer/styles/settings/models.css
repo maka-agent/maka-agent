@@ -34,6 +34,10 @@
   transition: background-color var(--duration-quick) var(--ease-out-strong);
 }
 
+/* Round 10: interactive fills in the seamless list are ROUNDED like every
+   other row surface in the app (sidebar nav, session list) — square
+   full-bleed bands broke the radius language. */
+.enabledProviderTrigger { border-radius: var(--radius-control); }
 .enabledProviderTrigger:hover { background: var(--state-hover-bg); }
 
 .enabledProviderName {
@@ -106,6 +110,10 @@
 
 .enabledProviderPanel li + li .enabledConnRow {
   border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledConnRow {
+  border-radius: var(--radius-control);
 }
 
 .enabledConnRow[data-default="true"] {
