@@ -19,6 +19,7 @@ export type ProviderType =
   | 'zai-coding-plan'
   | 'MiniMax'
   | 'MiniMax-cn'
+  | 'litellm'
   | 'ollama'
   | 'openai-compatible'
   | 'claude-subscription'
@@ -236,6 +237,19 @@ export const PROVIDER_DEFAULTS: Record<ProviderType, ProviderDefaults> = {
     catalogBadge: 'API',
     signupUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
   },
+  litellm: {
+    label: 'LiteLLM',
+    description: 'AI gateway proxy for 100+ LLM providers.',
+    baseUrl: 'http://localhost:4000/v1',
+    authKind: 'api_key',
+    backendKind: 'ai-sdk',
+    fallbackModels: [],
+    status: 'ready',
+    protocol: 'openai',
+    category: 'custom',
+    catalogBadge: 'Gateway',
+    signupUrl: 'https://docs.litellm.ai/',
+  },
   ollama: {
     label: 'Ollama',
     description: 'Local models from Ollama on localhost.',
@@ -327,6 +341,7 @@ export const CATALOG_PROVIDER_TYPES: ProviderType[] = [
   'openai',
   'google',
   'ollama',
+  'litellm',
   'openai-compatible',
 ];
 

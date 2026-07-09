@@ -133,6 +133,7 @@ export function ProviderBrandMark({ type }: { type: ProviderType }): ReactElemen
       return <Claude />;
     case 'openai':
     case 'codex-subscription':
+    case 'litellm':
     case 'openai-compatible':
       return <OpenAI />;
     case 'google':

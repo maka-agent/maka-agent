@@ -100,6 +100,13 @@ export function getAIModel(input: ModelFactoryInput): LanguageModelV3 {
         baseURL: baseURL || 'https://api.z.ai/api/coding/paas/v4',
       }).chatModel(modelId);
 
+    case 'litellm':
+      return createOpenAICompatible({
+        name: 'litellm',
+        apiKey,
+        baseURL: baseURL || 'http://localhost:4000/v1',
+      }).chatModel(modelId);
+
     case 'ollama':
       return createOpenAICompatible({
         name: 'ollama',
