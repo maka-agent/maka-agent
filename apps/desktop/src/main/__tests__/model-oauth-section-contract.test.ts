@@ -287,7 +287,9 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(overlay, /className="providerConfigSheetClose"/);
     assert.match(overlay, /aria-label="关闭模型配置"/);
-    assert.match(overlay, /<X strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
+    // Icon stroke governance round: per-call-site strokeWidth props were
+    // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).
+    assert.match(overlay, /<X aria-hidden="true" \/>/);
     assert.match(styles, /\.providerConfigOverlay\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
     assert.doesNotMatch(
       styles,

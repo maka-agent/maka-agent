@@ -578,7 +578,7 @@ export const Composer = forwardRef<
                 data-pending={pendingImportAction === 'pick' ? 'true' : undefined}
                 title="添加附件"
               >
-                <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
+                <Plus size={15} aria-hidden="true" />
               </UiButton>
             ) : null}
             {/* PR-MOVE-PERMISSION-MODE: the static "通用" role chip
@@ -693,7 +693,7 @@ export const Composer = forwardRef<
                 data-pending={sendPending ? 'true' : undefined}
                 title={buttonCopy.sendLabel}
               >
-                <ArrowUp size={16} strokeWidth={2.1} aria-hidden="true" />
+                <ArrowUp size={16} aria-hidden="true" />
               </UiButton>
             )}
           </div>
@@ -727,11 +727,11 @@ export const Composer = forwardRef<
                     ? `选择工作目录：${wp.label ?? '当前工作目录'}，当前分支 ${wp.branch}`
                     : `选择工作目录：${wp.label ?? '当前工作目录'}`}
                 >
-                  <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
+                  <FolderOpen size={13} aria-hidden="true" />
                   {wp.label
                     ? <span className="maka-composer-workspace-current">{wp.label}</span>
                     : <span>选择工作目录</span>}
-                  <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+                  <ChevronDown size={12} aria-hidden="true" />
                 </UiButton>
               )}
             />
@@ -741,20 +741,20 @@ export const Composer = forwardRef<
                   <>
                     {wp.recentWorkspaces.map((wsp) => (
                       <MenuItem key={wsp} onClick={() => { wp.onSelect(wsp); }}>
-                        <History size={13} strokeWidth={1.7} aria-hidden="true" />
+                        <History size={13} aria-hidden="true" />
                         <span>{basenameFromPath(wsp)}</span>
                       </MenuItem>
                     ))}
                     <MenuSeparator />
                     <MenuItem onClick={() => { wp.onOpen(); }}>
-                      <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
+                      <FolderOpen size={13} aria-hidden="true" />
                       <span>选择其他目录...</span>
                     </MenuItem>
                   </>
                 )
                 : (
                   <MenuItem onClick={() => { wp.onOpen(); }}>
-                    <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
+                    <FolderOpen size={13} aria-hidden="true" />
                     <span>选择工作目录...</span>
                   </MenuItem>
                 )}
@@ -783,9 +783,9 @@ export const Composer = forwardRef<
                         ? `切换分支：${bp.branch}`
                         : '选择分支'}
                     >
-                      <GitBranch size={13} strokeWidth={1.7} aria-hidden="true" />
+                      <GitBranch size={13} aria-hidden="true" />
                       <span className="maka-composer-branch-current">{bp.branch ?? '—'}</span>
-                      <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
+                      <ChevronDown size={12} aria-hidden="true" />
                     </UiButton>
                   )}
                 />
@@ -802,10 +802,10 @@ export const Composer = forwardRef<
                           void bp.onSelect(b);
                         }}
                       >
-                        <GitBranch size={13} strokeWidth={1.7} aria-hidden="true" />
+                        <GitBranch size={13} aria-hidden="true" />
                         <span>{b}</span>
                         {b === bp.branch && (
-                          <Check size={12} strokeWidth={2} aria-hidden="true" className="maka-composer-branch-check" />
+                          <Check size={12} aria-hidden="true" className="maka-composer-branch-check" />
                         )}
                       </MenuItem>
                     ))

@@ -234,7 +234,7 @@ export function SearchModal(props: {
             onClick={() => props.onClose()}
             aria-label="关闭搜索"
           >
-            <X size={16} strokeWidth={1.8} aria-hidden="true" />
+            <X size={16} aria-hidden="true" />
           </DialogClose>
         </header>
         {/*
@@ -264,7 +264,7 @@ export function SearchModal(props: {
         >
           <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
             <InputGroupAddon>
-              <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
+              <Search size={16} aria-hidden="true" className="maka-search-modal-input-icon" />
             </InputGroupAddon>
             <Autocomplete.Input
               render={
@@ -300,7 +300,7 @@ export function SearchModal(props: {
                   aria-label="清空搜索"
                   onClick={clearSearchQuery}
                 >
-                  <X size={14} strokeWidth={1.8} aria-hidden="true" />
+                  <X size={14} aria-hidden="true" />
                 </UiButton>
               </InputGroupAddon>
             )}

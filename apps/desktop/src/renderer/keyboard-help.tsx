@@ -127,7 +127,7 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
         <div className="maka-modal-header maka-help-header">
           <div>
             <span className="maka-help-eyebrow" aria-hidden="true">
-              <Keyboard size={14} strokeWidth={1.75} />
+              <Keyboard size={14} />
               <span>键盘快捷键</span>
             </span>
             <h2 className="maka-modal-title" id="maka-help-title">所有可用快捷键</h2>
@@ -140,7 +140,7 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
             aria-label="关闭快捷键面板"
             onClick={props.onClose}
           >
-            <X strokeWidth={1.75} aria-hidden="true" />
+            <X aria-hidden="true" />
           </Button>
         </div>
         <div className="maka-modal-body maka-help-body">

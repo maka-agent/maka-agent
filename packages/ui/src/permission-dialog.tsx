@@ -110,7 +110,7 @@ export function PermissionDialog(props: {
       >
         <div className="maka-modal-header maka-permission-header">
           <span className="maka-permission-icon" aria-hidden="true">
-            <preset.Icon size={20} strokeWidth={1.75} />
+            <preset.Icon size={20} />
           </span>
           <div>
             <h2 className="maka-modal-title" id="permissionTitle">需要确认权限</h2>

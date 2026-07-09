@@ -414,7 +414,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
         <>
           {activeListError && (
             <Alert variant="error" className="maka-artifact-list-error">
-              <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
+              <AlertTriangle size={14} aria-hidden="true" />
               <AlertTitle>生成文件列表载入失败</AlertTitle>
               <AlertDescription>{activeListError}</AlertDescription>
               <AlertAction>
@@ -428,7 +428,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
                   aria-busy={pendingArtifactListRetry ? 'true' : undefined}
                   data-pending={pendingArtifactListRetry ? 'true' : undefined}
                 >
-                  <RefreshCcw size={13} strokeWidth={1.75} aria-hidden="true" />
+                  <RefreshCcw size={13} aria-hidden="true" />
                   <span>{pendingArtifactListRetry ? '重试中…' : '重试'}</span>
                 </Button>
               </AlertAction>

@@ -157,7 +157,7 @@ export const Checkbox = forwardRef<
       {...props}
     >
       <BaseCheckbox.Indicator className="grid place-items-center">
-        <Check size={11} strokeWidth={3} aria-hidden="true" />
+        <Check size={11} aria-hidden="true" />
       </BaseCheckbox.Indicator>
     </BaseCheckbox.Root>
   );
@@ -266,7 +266,7 @@ export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsW
     >
       {children}
       <BaseSelect.Icon>
-        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+        <ChevronDown size={14} aria-hidden="true" />
       </BaseSelect.Icon>
     </BaseSelect.Trigger>
   );
@@ -320,7 +320,7 @@ export const SelectItem = forwardRef<HTMLDivElement, React.ComponentPropsWithout
     >
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
         <BaseSelect.ItemIndicator>
-          <Check size={13} strokeWidth={2} aria-hidden="true" />
+          <Check size={13} aria-hidden="true" />
         </BaseSelect.ItemIndicator>
       </span>
       <span className="min-w-0">

@@ -8,6 +8,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Blocks,
   CalendarDays,
   ChevronRight,
   Clock,
@@ -292,7 +293,7 @@ export function buildCommandList(args: {
       kind: 'action',
       label: '打开 · 技能',
       group: '导航',
-      Icon: Sparkles,
+      Icon: Blocks,
       keywords: ['skills', '技能'],
       run: () => select({ section: 'skills' }),
     });
@@ -746,18 +747,18 @@ export function CommandPalette(props: {
                         className="maka-palette-item"
                       >
                         <span className="maka-palette-icon" aria-hidden="true">
-                          <cmd.Icon size={15} strokeWidth={1.5} />
+                          <cmd.Icon size={15} />
                         </span>
                         <span className="maka-palette-label">{cmd.label}</span>
                         {cmd.hint && (
                           <span className="maka-palette-hint">
                             {cmd.hint}
-                            <ChevronRight size={12} strokeWidth={1.75} aria-hidden="true" />
+                            <ChevronRight size={12} aria-hidden="true" />
                           </span>
                         )}
                         {!cmd.hint && (
                           <span className="maka-palette-hint maka-palette-cursor" aria-hidden="true">
-                            <CornerDownLeft size={12} strokeWidth={1.75} />
+                            <CornerDownLeft size={12} />
                           </span>
                         )}
                       </Autocomplete.Item>

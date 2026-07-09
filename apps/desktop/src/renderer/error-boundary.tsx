@@ -103,7 +103,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
       <div className="maka-error-surface" role="alert" aria-live="assertive">
         <Card className="maka-error-card">
           <span className="maka-error-icon" aria-hidden="true">
-            <AlertTriangle size={28} strokeWidth={1.6} />
+            <AlertTriangle size={28} />
           </span>
           <div className="maka-error-copy">
             <h2>Maka 渲染层崩溃了</h2>
@@ -129,11 +129,11 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
                 aria-busy={copyPending ? 'true' : undefined}
                 onClick={this.handleCopyReport}
               >
-                <CopyIcon size={14} strokeWidth={1.75} aria-hidden="true" />
+                <CopyIcon size={14} aria-hidden="true" />
                 <span>{copyLabel}</span>
               </UiButton>
               <UiButton type="button" variant="secondary" onClick={this.handleReset}>
-                <RotateCw size={14} strokeWidth={1.75} aria-hidden="true" />
+                <RotateCw size={14} aria-hidden="true" />
                 <span>重试</span>
               </UiButton>
               <UiButton

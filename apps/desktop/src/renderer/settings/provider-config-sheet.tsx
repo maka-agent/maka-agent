@@ -77,7 +77,7 @@ export function ProviderConfigSheetOverlay(props: { onClose(): void; children: R
         aria-label="关闭模型配置"
         onClick={props.onClose}
       >
-        <X strokeWidth={1.75} aria-hidden="true" />
+        <X aria-hidden="true" />
       </Button>
       {props.children}
     </ProviderSheet>

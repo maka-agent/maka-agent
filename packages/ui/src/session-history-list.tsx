@@ -310,7 +310,6 @@ function SessionListGroups(props: {
               >
                 <ChevronRight
                   size={12}
-                  strokeWidth={2}
                   aria-hidden="true"
                   style={{
                     transform: expanded ? 'rotate(90deg)' : undefined,
@@ -382,7 +381,7 @@ function ProjectSessionGroup(props: {
         aria-expanded={expanded}
         aria-controls={`maka-list-group-body-${props.groupKey}`}
       >
-        <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
+        <FolderOpen size={14} aria-hidden="true" />
         <span>{props.label}</span>
       </UiButton>
       {expanded && (
@@ -458,7 +457,7 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
       aria-label={title}
       title={title}
     >
-      <Icon size={12} strokeWidth={2} aria-hidden="true" />
+      <Icon size={12} aria-hidden="true" />
     </span>
   );
 }
@@ -813,8 +812,8 @@ const SessionRow = memo(function SessionRow(props: {
             title={session.isFlagged ? '取消置顶对话' : '置顶对话'}
           >
             {session.isFlagged
-              ? <PinOff size={14} strokeWidth={1.75} aria-hidden="true" />
-              : <Pin size={14} strokeWidth={1.75} aria-hidden="true" />}
+              ? <PinOff size={14} aria-hidden="true" />
+              : <Pin size={14} aria-hidden="true" />}
           </UiButton>
           <UiButton
             type="button"
@@ -829,7 +828,7 @@ const SessionRow = memo(function SessionRow(props: {
             disabled={actionBusy}
             title="重命名（双击行名也可）"
           >
-            <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />
+            <Pencil size={14} aria-hidden="true" />
           </UiButton>
           <UiButton
             type="button"
@@ -852,8 +851,8 @@ const SessionRow = memo(function SessionRow(props: {
             title={session.isArchived ? '取消归档' : '归档'}
           >
             {session.isArchived
-              ? <ArchiveRestore size={14} strokeWidth={1.75} aria-hidden="true" />
-              : <Archive size={14} strokeWidth={1.75} aria-hidden="true" />}
+              ? <ArchiveRestore size={14} aria-hidden="true" />
+              : <Archive size={14} aria-hidden="true" />}
           </UiButton>
           <UiButton
             type="button"
@@ -868,7 +867,7 @@ const SessionRow = memo(function SessionRow(props: {
             disabled={actionBusy}
             title="删除"
           >
-            <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
+            <Trash2 size={14} aria-hidden="true" />
           </UiButton>
         </div>
       )}

@@ -96,8 +96,8 @@ export function PasswordInput(props: {
             aria-label={copying ? '复制中' : justCopied ? '已复制' : '复制'}
           >
             {justCopied
-              ? <Check size={16} strokeWidth={1.75} aria-hidden="true" />
-              : <Copy size={16} strokeWidth={1.75} aria-hidden="true" />}
+              ? <Check size={16} aria-hidden="true" />
+              : <Copy size={16} aria-hidden="true" />}
           </Button>
         )}
         <Button
@@ -110,7 +110,7 @@ export function PasswordInput(props: {
           aria-label={visible ? '隐藏' : '显示'}
           aria-pressed={visible}
         >
-          {visible ? <EyeOff size={16} strokeWidth={1.75} aria-hidden="true" /> : <Eye size={16} strokeWidth={1.75} aria-hidden="true" />}
+          {visible ? <EyeOff size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
         </Button>
       </div>
     </div>

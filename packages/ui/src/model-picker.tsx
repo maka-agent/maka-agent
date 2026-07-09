@@ -52,7 +52,7 @@ const ModelPickerTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsWit
     >
       {children}
       <BaseCombobox.Icon>
-        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+        <ChevronDown size={14} aria-hidden="true" />
       </BaseCombobox.Icon>
     </BaseCombobox.Trigger>
   );
@@ -98,7 +98,7 @@ const ModelPickerItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRe
     >
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
         <BaseCombobox.ItemIndicator>
-          <Check size={13} strokeWidth={2} aria-hidden="true" />
+          <Check size={13} aria-hidden="true" />
         </BaseCombobox.ItemIndicator>
       </span>
       <span className="min-w-0">{children}</span>

@@ -140,7 +140,7 @@ export function VoiceModelsSettingsPage() {
 
       <div className="settingsFeatureStatusHero">
         <span className="settingsFeatureStatusIcon" aria-hidden="true">
-          <Volume2 size={24} strokeWidth={1.5} />
+          <Volume2 size={24} />
         </span>
         <div>
           <div className="settingsFeatureStatusHeroHeading">

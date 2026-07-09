@@ -343,7 +343,7 @@ export function PlanReminderPanel(props: {
               aria-busy={refreshPending ? 'true' : undefined}
               title={refreshPending ? '正在刷新定时任务' : '刷新定时任务'}
             >
-              <RefreshCcw size={15} strokeWidth={1.75} aria-hidden="true" />
+              <RefreshCcw size={15} aria-hidden="true" />
             </UiButton>
             {/* Designer audit P2-14: 通过 Maka 创建 was a second button
                 wired to the EXACT same handler as 新建定时任务 — pure
@@ -351,7 +351,7 @@ export function PlanReminderPanel(props: {
                 point; reintroduce a second button only when a genuinely
                 different (chat-driven) flow exists. */}
             <UiButton type="button" className="maka-plan-new-task-button" onClick={openCreateReminderDialog}>
-              <Plus size={15} strokeWidth={1.75} aria-hidden="true" />
+              <Plus size={15} aria-hidden="true" />
               新建定时任务
             </UiButton>
           </div>
@@ -369,7 +369,7 @@ export function PlanReminderPanel(props: {
             the control (as a real Switch) when the wake-lock lands. */}
         <Alert variant="info" className="maka-plan-system-alert">
           <div className="maka-plan-system-alert-main">
-            <Info strokeWidth={1.75} aria-hidden="true" />
+            <Info aria-hidden="true" />
             <div>
               {/* Designer audit P2-12: one sentence, the one that matters —
                   the queue/run-history mechanics line was engineering trivia. */}
@@ -484,7 +484,7 @@ export function PlanReminderPanel(props: {
                         <span className="maka-plan-template-note">{template.note}</span>
                       </span>
                       <span className="maka-plan-template-schedule">
-                        <Clock size={13} strokeWidth={1.75} aria-hidden="true" />
+                        <Clock size={13} aria-hidden="true" />
                         {template.scheduleLabel}
                       </span>
                     </UiButton>
@@ -527,42 +527,42 @@ export function PlanReminderPanel(props: {
                             disabled={reminderActionPending}
                             aria-label="提醒操作"
                           >
-                            <MoreHorizontal size={16} strokeWidth={1.75} aria-hidden="true" />
+                            <MoreHorizontal size={16} aria-hidden="true" />
                           </MenuTrigger>
                           <MenuPopup className="maka-plan-card-menu" align="end">
                             <MenuItem
                               onClick={() => editReminder(reminder)}
                               disabled={submitPending || reminderActionPending || reminder.status === 'completed'}
                             >
-                              <Pencil size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <Pencil size={14} aria-hidden="true" />
                               编辑
                             </MenuItem>
                             <MenuItem
                               onClick={() => duplicateReminder(reminder)}
                               disabled={submitPending || reminderActionPending}
                             >
-                              <Copy size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <Copy size={14} aria-hidden="true" />
                               复制
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:trigger`, () => props.onTriggerNow?.(reminder.id))}
                               disabled={reminderActionPending || !reminder.enabled}
                             >
-                              <RefreshCcw size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <RefreshCcw size={14} aria-hidden="true" />
                               {pendingActionKeys.has(`${reminder.id}:trigger`) ? '触发中…' : '立即触发'}
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:snooze`, () => props.onSnooze?.(reminder.id))}
                               disabled={reminderActionPending || !reminder.enabled || reminder.status !== 'scheduled' || typeof reminder.nextRunAt !== 'number'}
                             >
-                              <Clock size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <Clock size={14} aria-hidden="true" />
                               {pendingActionKeys.has(`${reminder.id}:snooze`) ? '延后中…' : '延后 10 分钟'}
                             </MenuItem>
                             <MenuItem
                               onClick={() => void runPlanReminderAction(`${reminder.id}:clear-runs`, () => props.onClearRunHistory?.(reminder.id))}
                               disabled={reminderActionPending || reminder.runs.length === 0 || reminder.status === 'completed'}
                             >
-                              <ArchiveRestore size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <ArchiveRestore size={14} aria-hidden="true" />
                               {pendingActionKeys.has(`${reminder.id}:clear-runs`) ? '清空中…' : '清空记录'}
                             </MenuItem>
                             <MenuItem
@@ -570,7 +570,7 @@ export function PlanReminderPanel(props: {
                               onClick={() => void runPlanReminderAction(`${reminder.id}:delete`, () => props.onDelete?.(reminder.id))}
                               disabled={reminderActionPending}
                             >
-                              <Trash2 size={14} strokeWidth={1.75} aria-hidden="true" />
+                              <Trash2 size={14} aria-hidden="true" />
                               {pendingActionKeys.has(`${reminder.id}:delete`) ? '删除中…' : '删除'}
                             </MenuItem>
                           </MenuPopup>
@@ -594,7 +594,7 @@ export function PlanReminderPanel(props: {
                       </div>
                       <div className="maka-plan-card-footer">
                         <span className="maka-plan-card-chip">
-                          <Clock size={13} strokeWidth={1.75} aria-hidden="true" />
+                          <Clock size={13} aria-hidden="true" />
                           {reminder.nextRunAt ? (
                             <>
                               下次触发：{formatReminderTime(reminder.nextRunAt)}
@@ -607,7 +607,7 @@ export function PlanReminderPanel(props: {
                           )}
                         </span>
                         <span className="maka-plan-card-chip">
-                          <Repeat size={13} strokeWidth={1.75} aria-hidden="true" />
+                          <Repeat size={13} aria-hidden="true" />
                           {formatPlanRecurrence(reminder)}
                         </span>
                       </div>
@@ -674,7 +674,7 @@ export function PlanReminderPanel(props: {
                 disabled={formInteractionDisabled}
                 aria-label="关闭计划提醒表单"
               >
-                <X size={16} strokeWidth={1.8} aria-hidden="true" />
+                <X size={16} aria-hidden="true" />
               </DialogClose>
             </header>
             <div className="maka-plan-form-grid">
@@ -832,7 +832,7 @@ export function PlanReminderPanel(props: {
                 取消
               </UiButton>
               <UiButton className="maka-button maka-plan-submit" type="submit" disabled={submitDisabled}>
-                {isEditing ? <Check size={14} strokeWidth={1.75} aria-hidden="true" /> : <Plus size={14} strokeWidth={1.75} aria-hidden="true" />}
+                {isEditing ? <Check size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                 <span>{submitPending ? (isEditing ? '保存中…' : '创建中…') : (isEditing ? '保存提醒' : '创建提醒')}</span>
               </UiButton>
             </footer>

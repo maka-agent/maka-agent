@@ -569,7 +569,7 @@ export function ChatView(props: {
             title="本地 MEMORY.md 已加入 agent 系统提示。点击进入设置 · 记忆 管理。"
             aria-label="本地记忆已启用"
           >
-            <BookOpen size={12} strokeWidth={1.75} aria-hidden="true" />
+            <BookOpen size={12} aria-hidden="true" />
             <span>记忆</span>
           </UiButton>
         )}
@@ -580,7 +580,7 @@ export function ChatView(props: {
             title="深度研究会话使用只读探索边界：先阅读和分析，默认不改文件。"
             aria-label="深度研究，只读探索"
           >
-            <Sparkles size={12} strokeWidth={1.75} aria-hidden="true" />
+            <Sparkles size={12} aria-hidden="true" />
             <span>深度研究</span>
           </span>
         )}
@@ -602,7 +602,7 @@ export function ChatView(props: {
       </div>
       {isLocalSimulationBackend && (
         <Alert variant="info" className="maka-fake-backend-banner" role="status">
-          <AlertTriangle size={14} strokeWidth={1.75} aria-hidden="true" />
+          <AlertTriangle size={14} aria-hidden="true" />
           <AlertDescription>
             当前会话来自旧的本地模拟连接。要拿到真实 LLM 回复，请到 <strong>设置 · 模型</strong> 添加 Anthropic / OpenAI / GLM 等 API key。
           </AlertDescription>
@@ -711,7 +711,7 @@ export function ChatView(props: {
             onClick={scrollToBottom}
             aria-label="跳到最新消息"
           >
-            <ArrowDown size={16} strokeWidth={2} aria-hidden="true" />
+            <ArrowDown size={16} aria-hidden="true" />
           </UiButton>
         )}
       </div>
@@ -875,8 +875,8 @@ function MessageCopyButton(props: { text: string; label?: string; footerStyle?: 
         ? '复制失败'
         : baseLabel;
   const icon = copied
-    ? <Check size={iconSize} strokeWidth={2} aria-hidden="true" />
-    : <Copy size={iconSize} strokeWidth={footer ? 2 : 1.75} aria-hidden="true" />;
+    ? <Check size={iconSize} aria-hidden="true" />
+    : <Copy size={iconSize} aria-hidden="true" />;
 
   if (footer) {
     // icon-only + tooltip, matching the assistant footer copy action (#546)
@@ -965,7 +965,7 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
         aria-label={tooltip ?? label}
         title={tooltip}
       >
-        <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+        <AlertTriangle size={12} aria-hidden="true" />
         <span>{label}</span>
       </UiButton>
     );
@@ -977,7 +977,7 @@ function ChatHeaderAlertBadge(props: { alert: ChatHeaderAlert }) {
       aria-label={tooltip ?? label}
       title={tooltip}
     >
-      <AlertTriangle size={12} strokeWidth={2} aria-hidden="true" />
+      <AlertTriangle size={12} aria-hidden="true" />
       <span>{label}</span>
     </span>
   );
@@ -1079,7 +1079,7 @@ const TurnView = memo(function TurnView(props: {
               title={badge.tooltip ?? badge.label}
               onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
             >
-              <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
+              <GitBranch size={11} aria-hidden="true" />
               <span>{badge.label}</span>
             </UiButton>
           ))}
@@ -1118,7 +1118,7 @@ const TurnView = memo(function TurnView(props: {
                 per-segment Copy buttons still yank clean answer text. */}
             {turn.status === 'aborted' && (
               <Marker variant="aborted" role="status">
-                <Ban size={12} strokeWidth={2} aria-hidden="true" />
+                <Ban size={12} aria-hidden="true" />
                 <em>{turnAbortMarkerLabel(turn.abortSource)}</em>
               </Marker>
             )}
@@ -1131,7 +1131,7 @@ const TurnView = memo(function TurnView(props: {
             {turn.status === 'failed' && props.failedReasonLabel && (
               <Marker variant="failed-banner" role="alert">
                 <Marker as="span" variant="failed-icon" aria-hidden="true">
-                  <AlertOctagon size={14} strokeWidth={2} />
+                  <AlertOctagon size={14} />
                 </Marker>
                 <span>{props.failedReasonLabel}</span>
                 {props.failedRecoveryLabel && (
@@ -1175,7 +1175,7 @@ const TurnView = memo(function TurnView(props: {
                   title={badge.tooltip ?? badge.label}
                   onClick={() => props.onLineageBadgeClick?.(badge.targetTurnId)}
                 >
-                  <GitBranch size={11} strokeWidth={2} aria-hidden="true" />
+                  <GitBranch size={11} aria-hidden="true" />
                   <span>{badge.label}</span>
                 </UiButton>
               ))}
@@ -1249,7 +1249,7 @@ function SessionBranchBanner(props: {
         ? `从中断前分支自 ${banner.parentSessionName} · 点击跳回原会话`
         : `分自 ${banner.parentSessionName} · 点击跳回原会话`}
     >
-      <GitBranch size={12} strokeWidth={2} aria-hidden="true" />
+      <GitBranch size={12} aria-hidden="true" />
       <span>
         {banner.fromAbortedTurn
           ? `从中断前分支自 ${banner.parentSessionName}`
@@ -1373,7 +1373,7 @@ function TurnFooterActions(props: {
           ? (copyPhase ? copyFeedbackLabel : (action.tooltip ?? action.label))
           : (action.tooltip ?? action.label);
         const icon = isCopyAction && copyPhase === 'copied'
-          ? <Check size={12} strokeWidth={2} aria-hidden="true" />
+          ? <Check size={12} aria-hidden="true" />
           : STATUS_FOOTER_ICON[action.id];
         return (
           <Tooltip key={action.id}>
@@ -1405,10 +1405,10 @@ function TurnFooterActions(props: {
 }
 
 const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
-  regenerate: <RefreshCcw size={12} strokeWidth={2} aria-hidden="true" />,
-  branch: <GitBranch size={12} strokeWidth={2} aria-hidden="true" />,
-  copy: <Copy size={12} strokeWidth={2} aria-hidden="true" />,
-  info: <Info size={12} strokeWidth={2} aria-hidden="true" />,
+  regenerate: <RefreshCcw size={12} aria-hidden="true" />,
+  branch: <GitBranch size={12} aria-hidden="true" />,
+  copy: <Copy size={12} aria-hidden="true" />,
+  info: <Info size={12} aria-hidden="true" />,
 };
 
 /**
@@ -1590,7 +1590,6 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <Brain
           size={16}
-          strokeWidth={1.75}
           aria-hidden="true"
           className="shrink-0 text-[color:var(--muted-foreground)]"
         />
@@ -1617,7 +1616,6 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
         <span className="inline-flex shrink-0 items-center text-[color:var(--muted-foreground)] opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:opacity-100">
           <ChevronRight
             size={14}
-            strokeWidth={2}
             aria-hidden="true"
             className="[transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
           />

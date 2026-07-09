@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  Blocks,
   BookOpen,
   CalendarDays,
   FileEdit,
@@ -7,7 +8,6 @@ import {
   Plus,
   Search,
   ShieldAlert,
-  Sparkles,
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
@@ -104,7 +104,7 @@ function SkillLibraryPanel(props: {
         {SKILL_EXAMPLE_CARDS.map((example) => (
           <li key={example.title} className="maka-skill-template-row">
             <span className="maka-skill-template-icon" aria-hidden="true">
-              <example.Icon size={13} strokeWidth={1.8} />
+              <example.Icon size={13} />
             </span>
             <span className="maka-skill-template-copy">
               <strong>{example.title}</strong>
@@ -150,17 +150,17 @@ function SkillLibraryPanel(props: {
       </div>
       <div className="maka-skill-featured-art" aria-hidden="true">
         <span>
-          <FileEdit size={22} strokeWidth={1.7} />
+          <FileEdit size={22} />
           <strong>复盘</strong>
           <small>总结沉淀</small>
         </span>
         <span>
-          <BookOpen size={22} strokeWidth={1.7} />
+          <BookOpen size={22} />
           <strong>文档</strong>
           <small>审阅润色</small>
         </span>
         <span>
-          <Sparkles size={22} strokeWidth={1.7} />
+          <Blocks size={22} />
           <strong>发布</strong>
           <small>检查清单</small>
         </span>
@@ -187,7 +187,7 @@ function SkillLibraryPanel(props: {
             <article key={card.title} className="maka-skill-market-card">
               <div className="maka-skill-market-card-head">
                 <span className="maka-skill-market-icon" aria-hidden="true">
-                  <card.Icon size={18} strokeWidth={1.8} />
+                  <card.Icon size={18} />
                 </span>
                 <div>
                   <h3>{card.title}</h3>
@@ -214,7 +214,7 @@ function SkillLibraryPanel(props: {
     <section className="maka-skill-installed" aria-label={label}>
       {list.length === 0 ? (
         <EmptyState
-          Icon={Sparkles}
+          Icon={Blocks}
           title={emptyTitle}
           body={emptyBody}
           cta={props.onCreateSkillTemplate ? {
@@ -258,7 +258,7 @@ function SkillLibraryPanel(props: {
                     title={hoverText}
                   >
                     <span className="maka-skill-library-status" aria-hidden="true">
-                      <Sparkles size={16} strokeWidth={1.8} />
+                      <Blocks size={16} />
                     </span>
                     <span className="maka-skill-library-copy">
                       <span className="maka-skill-library-name">{skill.name}</span>
@@ -291,7 +291,7 @@ function SkillLibraryPanel(props: {
                     aria-label={`打开 ${skill.name} 的 SKILL.md`}
                     title="打开 SKILL.md"
                   >
-                    {opening ? <Loader2 size={15} strokeWidth={1.75} aria-hidden="true" /> : <FileEdit size={15} strokeWidth={1.75} aria-hidden="true" />}
+                    {opening ? <Loader2 size={15} aria-hidden="true" /> : <FileEdit size={15} aria-hidden="true" />}
                   </UiButton>
                   <Switch
                     className="maka-skill-library-runtime-switch"
@@ -356,7 +356,7 @@ function SkillLibraryPanel(props: {
               <li key={source.id} className="maka-skill-library-item">
                 <div className="maka-skill-library-row" title={`来源：${source.id}`}>
                   <span className="maka-skill-library-status" aria-hidden="true">
-                    <BookOpen size={16} strokeWidth={1.8} />
+                    <BookOpen size={16} />
                   </span>
                   <span className="maka-skill-library-copy">
                     <span className="maka-skill-library-name">{source.name}</span>
@@ -626,7 +626,7 @@ export function SkillsModuleMain(props: {
         </div>
         <div className="maka-module-main-actions" role="group" aria-label="技能操作">
           <label className="maka-skill-search" aria-label="搜索技能">
-            <Search size={15} strokeWidth={1.75} aria-hidden="true" />
+            <Search size={15} aria-hidden="true" />
             <Input
               unstyled
               value={skillSearchQuery}
@@ -655,7 +655,7 @@ export function SkillsModuleMain(props: {
             onClick={() => void runSkillAction('create', props.onCreateSkillTemplate)}
             disabled={!props.onCreateSkillTemplate || skillActionBusy}
           >
-            <Plus size={15} strokeWidth={1.75} aria-hidden="true" />
+            <Plus size={15} aria-hidden="true" />
             {pendingSkillAction === 'create' ? '创建中…' : '添加'}
             <span className="maka-visually-hidden">{skillCreateLegacyLabel}</span>
           </UiButton>

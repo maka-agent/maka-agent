@@ -58,7 +58,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
       </ItemContent>
       <ItemActions className="providerCatalogActions">
         {display.badge && <span className="providerCatalogBadge">{display.badge}</span>}
-        <ChevronRight className="providerCatalogChevron" size={15} strokeWidth={2} aria-hidden="true" />
+        <ChevronRight className="providerCatalogChevron" size={15} aria-hidden="true" />
       </ItemActions>
     </Item>
   );

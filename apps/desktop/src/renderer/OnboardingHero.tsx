@@ -306,7 +306,7 @@ function NeedsConnectionHero(props: {
                     <ItemDescription>{display.description}</ItemDescription>
                   </ItemContent>
                   <ItemActions>
-                    <ChevronRight size={16} strokeWidth={1.9} aria-hidden="true" />
+                    <ChevronRight size={16} aria-hidden="true" />
                   </ItemActions>
                 </Item>
               </li>
@@ -366,7 +366,7 @@ function NeedsDefaultConnectionHero(props: {
 }) {
   return (
     <SetupHero
-      icon={<SettingsIcon size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<SettingsIcon size={14} aria-hidden="true" />}
       eyebrow="选择默认模型连接"
       title="选一个连接作为默认。"
       body={
@@ -404,7 +404,7 @@ function NeedsConnectionCredentialsHero(props: {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
-      icon={<KeyRound size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<KeyRound size={14} aria-hidden="true" />}
       eyebrow="补齐凭据"
       title="这个连接还缺 API key。"
       body={
@@ -450,7 +450,7 @@ function NeedsDefaultModelHero(props: {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
-      icon={<Cpu size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<Cpu size={14} aria-hidden="true" />}
       eyebrow="选择默认模型"
       title="这个连接还没选默认模型。"
       body={
@@ -497,7 +497,7 @@ function BlockedHero(props: {
   void props.reason;
   return (
     <SetupHero
-      icon={<AlertCircle size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<AlertCircle size={14} aria-hidden="true" />}
       eyebrow="等待恢复模型连接"
       title="当前没有通过验证的模型连接。"
       body={
@@ -716,7 +716,7 @@ function ReadyEmptyHero(props: {
     <section className="maka-onboarding maka-onboarding-ready" aria-label={copy.ariaLabel}>
       <header>
         <span className="maka-onboarding-eyebrow">
-          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+          <Sparkles size={12} aria-hidden="true" />
           <span>{copy.eyebrow}</span>
         </span>
         <h1>{copy.headline}</h1>
@@ -771,7 +771,7 @@ function ReadyEmptyHero(props: {
           aria-label={quickChatBusy ? copy.submitPendingLabel : copy.submitIdleLabel}
           title={quickChatBusy ? copy.submitPendingLabel : copy.submitIdleLabel}
         >
-          <ArrowUp size={18} strokeWidth={2.2} aria-hidden="true" />
+          <ArrowUp size={18} aria-hidden="true" />
         </Button>
       </div>
 

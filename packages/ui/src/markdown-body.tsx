@@ -180,8 +180,8 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
           data-pending={copyPending ? 'true' : undefined}
         >
           {copied
-            ? <Check size={12} strokeWidth={2} aria-hidden="true" />
-            : <Copy size={12} strokeWidth={1.75} aria-hidden="true" />}
+            ? <Check size={12} aria-hidden="true" />
+            : <Copy size={12} aria-hidden="true" />}
         </UiButton>
       </div>
       <pre {...rest}>{children}</pre>

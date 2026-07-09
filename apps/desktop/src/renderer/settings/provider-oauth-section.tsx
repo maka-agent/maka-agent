@@ -188,7 +188,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
               </ItemContent>
               <ItemActions className="providerCatalogActions">
                 <span className="providerCatalogBadge providerOAuthCardBadge">{liveBadge}</span>
-                <ChevronRight className="providerCatalogChevron" size={15} strokeWidth={2} aria-hidden="true" />
+                <ChevronRight className="providerCatalogChevron" size={15} aria-hidden="true" />
               </ItemActions>
             </Item>
           );

@@ -224,7 +224,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                             <span className="enabledStatusDot" aria-hidden="true" />
                             {rollupLabel}
                           </span>
-                          <ChevronRight className="enabledChevron" size={15} strokeWidth={2} aria-hidden="true" />
+                          <ChevronRight className="enabledChevron" size={15} aria-hidden="true" />
                         </span>
                       </PrimitiveAccordionTrigger>
                     </PrimitiveAccordionHeader>

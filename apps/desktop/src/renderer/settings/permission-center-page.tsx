@@ -510,7 +510,7 @@ function OsPermissionRow(props: {
   return (
     <li className="settingsOsPermissionRow" data-state={snapshot.status}>
       <div className="settingsOsPermissionIcon" aria-hidden="true">
-        {Icon ? <Icon size={18} strokeWidth={1.6} /> : null}
+        {Icon ? <Icon size={18} /> : null}
       </div>
       <div className="settingsOsPermissionBody">
         <div className="settingsOsPermissionHeading">

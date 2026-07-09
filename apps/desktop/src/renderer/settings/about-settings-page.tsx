@@ -116,7 +116,7 @@ export function AboutSettingsPage() {
     <div className="settingsAboutPage">
       <header className="settingsAboutHero">
         <span className="settingsAboutLogo" aria-hidden="true">
-          <Sparkles size={26} strokeWidth={1.5} />
+          <Sparkles size={26} />
         </span>
         <div>
           <div className="settingsAboutHeading">

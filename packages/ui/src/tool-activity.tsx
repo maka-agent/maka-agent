@@ -106,7 +106,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Icon size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Icon size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
           自动化任务已创建：{created[1]}
         </p>
         {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{schedule}</p>}
@@ -123,7 +123,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_delete">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Check size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Check size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
           {ok ? '自动化任务已删除' : '未找到该任务（可能已完成或已删除）'}
         </p>
       </div>
@@ -137,7 +137,7 @@ function AutomationResultPreview(props: { text: string }) {
     return (
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_list">
         <p className={previewVariants({ part: 'load-tool-title' })}>
-          <Clock size={14} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
+          <Clock size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
           自动化任务列表 ({blocks.length})
         </p>
         {blocks.length === 0 && <p className={previewVariants({ part: 'load-tool-count' })}>当前会话暂无自动化任务</p>}
@@ -146,7 +146,7 @@ function AutomationResultPreview(props: { text: string }) {
           const BlockIcon = automationScheduleIcon(block);
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
-              <BlockIcon size={12} strokeWidth={1.75} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
+              <BlockIcon size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
               {head}
             </p>
           );
@@ -385,7 +385,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   return (
     <Collapsible className="flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
-        <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
+        <SummaryIcon size={16} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
           <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
         ) : (
@@ -393,7 +393,6 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
         )}
         <ChevronRight
           size={14}
-          strokeWidth={2}
           aria-hidden="true"
           className="shrink-0 text-[color:var(--muted-foreground)] opacity-0 [transition:transform_var(--duration-quick)_var(--ease-out-strong),opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover:opacity-100 group-data-[panel-open]:rotate-90 group-data-[panel-open]:opacity-100"
         />
@@ -437,7 +436,6 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <RowIcon
           size={16}
-          strokeWidth={1.75}
           aria-hidden="true"
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
@@ -456,7 +454,6 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
           {duration && <span className="[font-variant-numeric:tabular-nums]">{duration}</span>}
           <ChevronRight
             size={14}
-            strokeWidth={2}
             aria-hidden="true"
             className="[transition:transform_var(--duration-quick)_var(--ease-out-strong)] group-data-[panel-open]:rotate-90"
           />
@@ -590,7 +587,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
 
   return (
     <Alert variant="error" className="mb-2.5">
-      <AlertOctagon size={16} strokeWidth={2} aria-hidden="true" />
+      <AlertOctagon size={16} aria-hidden="true" />
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
         <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
@@ -631,7 +628,7 @@ export function OverlayHost(props: { content?: ToolResultContent; onClose(): voi
         onClick={props.onClose}
         aria-label="关闭预览"
       >
-        <X size={14} strokeWidth={1.75} aria-hidden="true" />
+        <X size={14} aria-hidden="true" />
         <span>关闭</span>
       </UiButton>
       <ToolResultPreview content={props.content} />

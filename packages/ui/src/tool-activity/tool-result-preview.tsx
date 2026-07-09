@@ -242,7 +242,7 @@ function TerminalPreview(props: {
             data-copied={handoffCopyPhase === 'copied' ? 'true' : 'false'}
             data-copy-error={handoffCopyPhase === 'failed' ? 'true' : undefined}
           >
-            {handoffCopyPhase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+            {handoffCopyPhase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
             <span>{handoffCopyLabel}</span>
           </UiButton>
         </div>
