@@ -636,8 +636,8 @@ export function SkillsModuleMain(props: {
             />
           </label>
           <UiButton
-            className="maka-button maka-button-ghost"
-            variant="ghost"
+            className="maka-button"
+            variant="outline"
             type="button"
             onClick={() => void runSkillAction('folder', props.onOpenSkillsFolder)}
             disabled={!props.onOpenSkillsFolder || skillActionBusy}
@@ -660,8 +660,8 @@ export function SkillsModuleMain(props: {
             <span className="maka-visually-hidden">{skillCreateLegacyLabel}</span>
           </UiButton>
           <UiButton
-            className="maka-button maka-button-ghost"
-            variant="ghost"
+            className="maka-button"
+            variant="outline"
             type="button"
             onClick={() => void runSkillAction('refresh', props.onRefreshSkills)}
             disabled={!props.onRefreshSkills || skillActionBusy}
