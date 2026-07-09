@@ -121,21 +121,30 @@ export async function listReadyModelChoices(input: {
   const choices: ModelChoice[] = [];
   for (const connection of connections) {
     if (connection.slug === 'fake') continue;
-    const credentialKind = credentialKindForConnection(connection);
-    const secret = credentialKind
-      ? await input.credentialStore.getSecret(connection.slug, credentialKind)
-      : '';
-    const hasSecret = credentialKind === null || (typeof secret === 'string' && secret.length > 0);
-    const verdict = isConnectionReady({ connection, hasSecret });
-    if (!verdict.ready) continue;
-    for (const model of selectableModelIdsForTarget({ connection, model: verdict.model })) {
-      choices.push({
-        connectionSlug: connection.slug,
-        connectionName: connection.name,
-        providerType: connection.providerType,
-        model,
-        isDefaultConnection: connection.slug === defaultSlug,
-      });
+    // Isolate each connection: reading one connection's secret can throw (a
+    // legacy or corrupt credentials.json), and this list is an optional
+    // convenience for the /model picker — it must never take down startup. A
+    // failing or not-ready connection is simply skipped, so a usable default
+    // (e.g. a keyless local model) still launches.
+    try {
+      const credentialKind = credentialKindForConnection(connection);
+      const secret = credentialKind
+        ? await input.credentialStore.getSecret(connection.slug, credentialKind)
+        : '';
+      const hasSecret = credentialKind === null || (typeof secret === 'string' && secret.length > 0);
+      const verdict = isConnectionReady({ connection, hasSecret });
+      if (!verdict.ready) continue;
+      for (const model of selectableModelIdsForTarget({ connection, model: verdict.model })) {
+        choices.push({
+          connectionSlug: connection.slug,
+          connectionName: connection.name,
+          providerType: connection.providerType,
+          model,
+          isDefaultConnection: connection.slug === defaultSlug,
+        });
+      }
+    } catch {
+      // Unreadable credentials for this connection: skip it, keep the rest.
     }
   }
   return choices;

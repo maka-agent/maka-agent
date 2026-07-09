@@ -197,6 +197,43 @@ describe('listReadyModelChoices', () => {
     assert.equal(choices.find((choice) => choice.connectionSlug === 'openai')?.isDefaultConnection, false);
     assert.equal(choices.find((choice) => choice.connectionSlug === 'zai')?.connectionName, 'Z.ai');
   });
+
+  test('skips a connection whose credential read throws instead of failing the whole list', async () => {
+    // A local keyless connection plus an API connection whose stored credentials
+    // are corrupt/legacy, so reading its secret throws.
+    const local = makeConnection({
+      slug: 'local',
+      name: 'Local',
+      providerType: 'ollama', // authKind none → no secret read
+      defaultModel: 'qwen',
+      models: [{ id: 'qwen' }],
+    });
+    const broken = makeConnection({
+      slug: 'openai',
+      name: 'OpenAI',
+      providerType: 'openai', // needs a secret → getSecret is called and throws
+      defaultModel: 'gpt-5.5',
+      models: [{ id: 'gpt-5.5' }],
+    });
+
+    const choices = await listReadyModelChoices({
+      connectionStore: {
+        list: async () => [local, broken],
+        getDefault: async () => 'local',
+      },
+      credentialStore: {
+        getSecret: async (slug) => {
+          if (slug === 'openai') throw new Error('credentials.json is unreadable');
+          return null;
+        },
+      },
+    });
+
+    // The broken connection is skipped; the keyless local model still lists, so
+    // startup (which awaits this) survives an unrelated corrupt credential file.
+    assert.deepEqual(choices.map((choice) => choice.connectionSlug), ['local']);
+    assert.deepEqual(choices.map((choice) => choice.model), ['qwen']);
+  });
 });
 
 function makeConnection(input: Partial<LlmConnection>): LlmConnection {
