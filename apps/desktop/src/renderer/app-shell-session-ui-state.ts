@@ -1,6 +1,7 @@
 import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
 import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
+import type { TurnPhase } from './model-wait-state';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -12,6 +13,16 @@ export interface AppShellSessionUiState {
   thinkingBySession: Record<string, string>;
   thinkingTruncatedBySession: Record<string, boolean>;
   liveToolsBySession: Record<string, ToolActivityItem[]>;
+  // #646: a turn's phase from local send() until complete / error / abort.
+  // `'waiting'` = armed, no content event yet (the first-token "正在处理…"
+  // window); `'streamed'` = at least one content event has arrived, so later
+  // step-to-step lulls read as the calm "继续中…" hint instead (see
+  // model-wait-state.ts). Absent = no turn in flight. Set to `'waiting'` at send,
+  // promoted to `'streamed'` on the first content event, cleared synchronously on
+  // the turn-ending event (mirrors the unguarded clearStreaming — the clear runs
+  // before any next turn exists); a stale over-clear only misses one wait window
+  // and self-heals next turn.
+  turnActiveBySession: Record<string, TurnPhase>;
   permissionBySession: PermissionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
   pendingPermissionModeBySession: Record<string, boolean>;
@@ -28,6 +39,7 @@ const SESSION_UI_MAP_KEYS = [
   'thinkingBySession',
   'thinkingTruncatedBySession',
   'liveToolsBySession',
+  'turnActiveBySession',
   'permissionBySession',
   'sessionEventHealthBySession',
   'pendingPermissionModeBySession',
@@ -37,6 +49,23 @@ const SESSION_UI_MAP_KEYS = [
 type MissingSessionUiMapKey = Exclude<AppShellSessionUiStateMapKey, typeof SESSION_UI_MAP_KEYS[number]>;
 const allSessionUiMapsAreListed: Record<MissingSessionUiMapKey, never> = {};
 void allSessionUiMapsAreListed;
+
+// #646: the subset of maps that hold a turn's transient live state — the
+// streaming slot, live thinking + its truncated flag, live tools, and the turn
+// arm. `useSettledSessionTransientReconcile` heals a session whose turn ended
+// while its SessionEvent stream wasn't being followed, and must drop ONLY this
+// transient. The independently-scoped maps (message load error / retry, pending
+// permission-mode / model toggles, the permission queue, event-stream health,
+// stop-pending) each have their own lifecycle and must survive a mere turn
+// settle — a full `clearAppShellSessionUiStateForSession` (session deletion)
+// would wipe them too.
+const TURN_TRANSIENT_MAP_KEYS = [
+  'streamingBySession',
+  'thinkingBySession',
+  'thinkingTruncatedBySession',
+  'liveToolsBySession',
+  'turnActiveBySession',
+] as const satisfies readonly AppShellSessionUiStateMapKey[];
 
 export function createInitialAppShellSessionUiState(): AppShellSessionUiState {
   return Object.fromEntries(SESSION_UI_MAP_KEYS.map((key) => [key, {}])) as unknown as AppShellSessionUiState;
@@ -77,6 +106,17 @@ export function clearAppShellSessionUiStateForSession(
 ): AppShellSessionUiState {
   let nextState = state;
   for (const key of SESSION_UI_MAP_KEYS) {
+    nextState = clearSessionUiStateMap(nextState, key, sessionId);
+  }
+  return nextState;
+}
+
+export function clearAppShellTurnTransientForSession(
+  state: AppShellSessionUiState,
+  sessionId: string,
+): AppShellSessionUiState {
+  let nextState = state;
+  for (const key of TURN_TRANSIENT_MAP_KEYS) {
     nextState = clearSessionUiStateMap(nextState, key, sessionId);
   }
   return nextState;
@@ -129,12 +169,16 @@ export function createAppShellSessionUiStateController(
     setThinkingBySession: createMapSetter('thinkingBySession'),
     setThinkingTruncatedBySession: createMapSetter('thinkingTruncatedBySession'),
     setLiveToolsBySession: createMapSetter('liveToolsBySession'),
+    setTurnActiveBySession: createMapSetter('turnActiveBySession'),
     setPermissionBySession: createMapSetter('permissionBySession'),
     setSessionEventHealthBySession: createMapSetter('sessionEventHealthBySession'),
     setPendingPermissionModeBySession: createMapSetter('pendingPermissionModeBySession'),
     setPendingSessionModelBySession: createMapSetter('pendingSessionModelBySession'),
     clearSessionUiState: (sessionId: string) => {
       replaceState(clearAppShellSessionUiStateForSession(currentState, sessionId));
+    },
+    clearTurnTransientState: (sessionId: string) => {
+      replaceState(clearAppShellTurnTransientForSession(currentState, sessionId));
     },
   };
 }
@@ -164,10 +208,12 @@ export function useAppShellSessionUiState() {
     setThinkingBySession: controller.setThinkingBySession,
     setThinkingTruncatedBySession: controller.setThinkingTruncatedBySession,
     setLiveToolsBySession: controller.setLiveToolsBySession,
+    setTurnActiveBySession: controller.setTurnActiveBySession,
     setPermissionBySession: controller.setPermissionBySession,
     setSessionEventHealthBySession: controller.setSessionEventHealthBySession,
     setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
     setPendingSessionModelBySession: controller.setPendingSessionModelBySession,
     clearSessionUiState: controller.clearSessionUiState,
+    clearTurnTransientState: controller.clearTurnTransientState,
   };
 }

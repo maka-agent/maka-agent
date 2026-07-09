@@ -13,6 +13,7 @@ import {
 } from '@maka/ui/assistant-stream';
 import { createAppShellChatActions } from '../../renderer/app-shell-chat-actions.js';
 import { createAppShellSessionEventHandlers } from '../../renderer/app-shell-session-events.js';
+import type { TurnPhase } from '../../renderer/model-wait-state.js';
 
 describe('assistant streaming handoff', () => {
   it('keeps a draining assistant answer as the single visible owner before committed handoff', () => {
@@ -156,6 +157,38 @@ describe('assistant streaming handoff', () => {
     assert.equal(countOccurrences(settledMarkup, 'data-slot="text-shimmer"'), 0, 'a completed tool trow does not shimmer');
   });
 
+  it('delays the tool shimmer and lands settled rows without fading replayed history (#646)', () => {
+    // A running tool row's sweep rides the ~200ms `animation-delay` (the delayed
+    // TextShimmer), so a sub-second tool unmounts inside the window and never
+    // visibly sweeps. The model-wait "正在处理…" indicator shimmers immediately
+    // (its delay is at the mount level), so only tool rows carry the delayed form.
+    const runningMarkup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'running', args: {} }],
+    });
+    assert.match(
+      runningMarkup,
+      /maka-text-shimmer_1\.8s_linear_var\(--duration-emphasized\)_infinite/,
+      'a running tool row shimmers on a delay',
+    );
+    assert.doesNotMatch(runningMarkup, /data-settled="true"/, 'a running row is not settled');
+
+    // A completed row rendered fresh IS the replayed-history case (never seen
+    // running in this view): it carries data-settled for the visual-smoke
+    // endpoint + CSS hook, but must NOT play the one-shot settle fade — a loaded
+    // transcript's tool rows stay static, they do not fade in on scroll.
+    const settledMarkup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'done', modelId: 'model' },
+      ],
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'completed', args: {}, durationMs: 1200 }],
+    });
+    assert.match(settledMarkup, /data-settled="true"/, 'a completed tool row is marked settled');
+    assert.doesNotMatch(settledMarkup, /maka-stream-fade-in/, 'a replayed-history row does not fade in');
+  });
+
   it('suppresses the actionable footer while only a tool is running, with no answer text (#642 review P2-B)', () => {
     // A tool step can start (tool_start / running) before any answer text or
     // thinking streams. The tail turn must still count as live so its footer is
@@ -224,8 +257,97 @@ describe('assistant streaming handoff', () => {
       /slot\.text && slot\.phase === 'streaming'/,
       'sidebar streaming pulse should ignore final text that is only draining into history',
     );
-    assert.match(shell, /streaming=\{activeStreamingLive\}/);
+    // #646: composer Stop is decoupled from the wait indicators and driven off
+    // `turnInFlight` (the whole turn, so Stop never blinks out in a mid-turn
+    // lull), with `activeStreamingLive` folded in defensively. Both disjuncts are
+    // draining-safe — `turnInFlight` is the arm phase (independent of the
+    // draining slot) and `activeStreamingLive` excludes draining by construction —
+    // so draining still settles the composer. The guard against inlining the raw
+    // `activeStreaming.length > 0` (which WOULD keep draining live) stays.
+    //
+    // #646 review (ChatGPT): `turnInFlight` alone goes stale for a session whose
+    // turn completes while backgrounded — the event stream only follows activeId,
+    // so its terminal event (and clearTurnActive) never arrives. Returning to that
+    // session would then show a stuck Stop that hides Send. The arm is therefore
+    // gated on `sessionAwaitingModel` (status === 'running'), which sessions:changed
+    // keeps truthful for backgrounded sessions; this must not regress back to a bare
+    // `turnInFlight`.
+    assert.match(shell, /streaming=\{\(sessionAwaitingModel && turnInFlight\) \|\| activeStreamingLive\}/);
+    assert.doesNotMatch(shell, /streaming=\{turnInFlight \|\| activeStreamingLive\}/);
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
+  });
+
+  it('heals a session whose turn ended off-screen against its authoritative status, not against an event/switch that fires too early (#646 review)', async () => {
+    const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
+    const effects = await readRendererShellSource('app-shell-effects.ts');
+
+    // The gate on Composer.streaming only survives because a session's transient
+    // renderer state (streaming slot, arm, live tools) is reconciled against the
+    // AUTHORITATIVE status. subscribeEvents follows activeId only with no replay, so
+    // a turn that ends while backgrounded — or whose terminal status only lands after
+    // the user switches back — freezes that transient mid-turn and the ungated
+    // `activeStreamingLive` keeps a stuck Stop / half-streamed bubble. The heal must
+    // key off the status landing in `sessions` (deps `[options.sessions]`), NOT off
+    // the sessions:changed event or an activeId switch (both read status too early),
+    // and must leave a `draining` slot to its own lifecycle. Must not regress.
+    assert.match(effects, /export function useSettledSessionTransientReconcile\(/);
+    assert.match(effects, /session\.status === 'running' \|\| session\.status === 'waiting_for_user'\) continue;/);
+    assert.match(effects, /streamingBySessionRef\.current\[session\.id\]\?\.phase === 'draining'\) continue;/);
+    // #680 review P2: the heal drops ONLY the turn transient — never the
+    // independently-scoped message-load-error / retry / pending-toggle state that a
+    // full clearSessionUiState would wipe on every settle. And it skips a session
+    // whose textless completion is mid refresh-before-clear (no draining slot to key
+    // off), so the held live thinking survives until the committed message lands.
+    assert.match(effects, /options\.settlingBySessionRef\.current\.has\(session\.id\)\) continue;/);
+    assert.match(effects, /options\.clearTurnTransientState\(session\.id\)/);
+    assert.doesNotMatch(effects, /options\.clearSessionUiState\(session\.id\)/);
+    assert.match(effects, /\}, \[options\.sessions\]\);/);
+
+    // The former event/switch-triggered reconciles read status before the terminal
+    // refresh resolved — they must be gone so the race can't reappear.
+    assert.doesNotMatch(effects, /reconcileTransientOnActivate/);
+    assert.doesNotMatch(effects, /refreshedSessions\.then\(/);
+  });
+
+  it('the settled-session turn-transient clear drops only turn transient, keeping message-load-error / pending toggles (#680 review P2)', async () => {
+    const { createInitialAppShellSessionUiState, clearAppShellTurnTransientForSession, clearAppShellSessionUiStateForSession } =
+      await import('../../renderer/app-shell-session-ui-state.js');
+    // A settled session whose committed read failed carries a message-load error +
+    // retry affordance, and may have in-flight permission-mode / model toggles.
+    // None of these belong to the turn; a mere settle must not wipe them (the bug
+    // was that the reconcile reused the full clearSessionUiState, so any unrelated
+    // sessions refresh nuked the error banner while the messages never reloaded).
+    const populated = {
+      ...createInitialAppShellSessionUiState(),
+      streamingBySession: { s1: { text: 'half', truncated: false, phase: 'streaming' as const, messageId: 'a1' } },
+      thinkingBySession: { s1: 'live reasoning' },
+      thinkingTruncatedBySession: { s1: true },
+      liveToolsBySession: { s1: [{ toolUseId: 't1', toolName: 'bash', status: 'running' as const, args: {} }] },
+      turnActiveBySession: { s1: 'streamed' as TurnPhase },
+      messageLoadErrorBySession: { s1: '读取对话失败' },
+      messageRetryPendingBySession: { s1: true },
+      pendingPermissionModeBySession: { s1: true },
+      pendingSessionModelBySession: { s1: true },
+    };
+
+    const narrow = clearAppShellTurnTransientForSession(populated, 's1');
+    // Turn transient is dropped (the frozen stuck-Stop / half-bubble heal).
+    assert.equal(narrow.streamingBySession.s1, undefined, 'the frozen streaming slot is dropped');
+    assert.equal(narrow.thinkingBySession.s1, undefined, 'the frozen live thinking is dropped');
+    assert.equal(narrow.thinkingTruncatedBySession.s1, undefined, 'the truncated flag is dropped');
+    assert.equal(narrow.liveToolsBySession.s1, undefined, 'the frozen live tools are dropped');
+    assert.equal(narrow.turnActiveBySession.s1, undefined, 'the stale turn arm is dropped');
+    // Independently-scoped state survives the settle.
+    assert.equal(narrow.messageLoadErrorBySession.s1, '读取对话失败', 'the message-load error survives a settle');
+    assert.equal(narrow.messageRetryPendingBySession.s1, true, 'the retry-pending flag survives');
+    assert.equal(narrow.pendingPermissionModeBySession.s1, true, 'a pending permission-mode toggle survives');
+    assert.equal(narrow.pendingSessionModelBySession.s1, true, 'a pending session-model toggle survives');
+
+    // Contrast: the full deletion clear (session removed) still wipes everything —
+    // that path is intentionally broad and must not regress to the narrow one.
+    const full = clearAppShellSessionUiStateForSession(populated, 's1');
+    assert.equal(full.messageLoadErrorBySession.s1, undefined, 'the full deletion clear still wipes non-transient state');
+    assert.equal(full.turnActiveBySession.s1, undefined, 'the full deletion clear still wipes turn transient');
   });
 
   it('complete refreshes committed messages even while the streaming bubble drains', async () => {
@@ -247,8 +369,8 @@ describe('assistant streaming handoff', () => {
     // during the refresh isn't wiped.
     assert.match(
       completeCase,
-      /heldTextless = \{[\s\S]*if \(heldTextless\) \{[\s\S]*void refreshed\.finally\(\(\) => clearStreamingIfCurrent\(sessionId, held\)\);/,
-      'textless complete must defer an identity-guarded clear until after the committed refresh',
+      /heldTextless = \{[\s\S]*if \(heldTextless\) \{[\s\S]*settlingBySessionRef\.current\.add\(sessionId\);[\s\S]*void refreshed\.finally\(\(\) => \{[\s\S]*clearStreamingIfCurrent\(sessionId, held\);[\s\S]*settlingBySessionRef\.current\.delete\(sessionId\);/,
+      'textless complete must mark the session settling, then defer an identity-guarded clear until after the committed refresh',
     );
   });
 
@@ -324,6 +446,7 @@ describe('assistant streaming handoff', () => {
         clearPendingSessionAction: () => {},
         isNewChatSendSurfaceActive: () => false,
         markSessionReadLocally: () => {},
+        markSessionRunningOptimistic: () => undefined,
         messageRetryPendingRef: { current: new Set<string>() },
         refreshSessions: async () => [],
         setActiveId: (sessionId) => {
@@ -335,6 +458,7 @@ describe('assistant streaming handoff', () => {
           messages = typeof next === 'function' ? next(messages) : next;
         },
         setNavSelection: () => {},
+        setTurnActiveBySession: () => {},
         showModelSetupToast: () => {},
         toastApi: { error: () => {} },
         upsertSessionSummary: () => {},
@@ -354,9 +478,11 @@ describe('assistant streaming handoff', () => {
         },
         setThinkingBySession: createStateSetter<Record<string, string>>({}),
         setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+        setTurnActiveBySession: () => {},
         showModelSetupToast: () => {},
         streamingBySessionRef,
         thinkingBySessionRef: { current: {} as Record<string, string> },
+        settlingBySessionRef: { current: new Set<string>() },
         toastApi: { error: () => {} },
       });
 
@@ -406,6 +532,39 @@ describe('assistant streaming handoff', () => {
         '',
         'the live buffer is cleared only after the committed refresh (refresh-before-clear)',
       );
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('marks a textless completion settling until the committed refresh resolves, so the status reconcile skips it (#680 review P2)', async () => {
+    // The status-driven reconcile keys off sessions settling to a terminal status,
+    // which can land before this hold's async refresh resolves. Without a settling
+    // mark the reconcile would clear the held live thinking early (the textless path
+    // sets no draining slot for it to skip on), re-opening the #642 unmount flicker.
+    const committedMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([committedMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness(
+        { text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+        { 'session-1': 'turn-1 reasoning' },
+      );
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+
+      // Synchronously after the completion, the hold is registered AND the live
+      // thinking is still mounted — so a reconcile firing now skips this session.
+      assert.equal(harness.getSettling().has('session-1'), true, 'the textless hold is marked settling');
+      assert.equal(harness.getThinking()['session-1'], 'turn-1 reasoning', 'the live thinking is still held');
+
+      await flushAsyncWork();
+
+      assert.equal(harness.getSettling().has('session-1'), false, 'the settling mark is released once the committed refresh resolves');
+      assert.equal(harness.getThinking()['session-1'], '', 'the live thinking clears only after the refresh (refresh-before-clear)');
     } finally {
       windowFixture.restore();
     }
@@ -549,6 +708,139 @@ describe('assistant streaming handoff', () => {
   });
 });
 
+describe('model-wait indicator arm/clear wiring (#646)', () => {
+  const streamingSlot: AssistantStreamSlot = { text: 'answer', truncated: false, phase: 'streaming', messageId: 'assistant-1' };
+
+  it('clears the turn-active arm when the turn completes for real (end_turn)', () => {
+    const windowFixture = installReadMessagesWindow([[]]);
+    try {
+      const harness = buildEventHarness(streamingSlot);
+      assert.equal(harness.getTurnActive()['session-1'], 'waiting', 'harness starts armed at the head');
+      harness.handlers.handleEvent('session-1', completeEvent());
+      assert.equal(harness.getTurnActive()['session-1'], undefined, 'complete drops the arm');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('keeps the turn armed on a permission_handoff complete (the turn only pauses)', () => {
+    const windowFixture = installReadMessagesWindow([[]]);
+    try {
+      const harness = buildEventHarness(streamingSlot);
+      harness.handlers.handleEvent('session-1', {
+        type: 'complete', id: 'event-2', turnId: 'turn-1', ts: 3, stopReason: 'permission_handoff',
+      } as SessionEvent);
+      assert.ok(harness.getTurnActive()['session-1'] !== undefined, 'a permission pause is not a turn end');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('clears the arm on error and on abort', () => {
+    for (const event of [
+      { type: 'error', id: 'event-e', turnId: 'turn-1', ts: 3, message: 'boom' },
+      { type: 'abort', id: 'event-a', turnId: 'turn-1', ts: 3 },
+    ] as SessionEvent[]) {
+      const windowFixture = installReadMessagesWindow([[]]);
+      try {
+        const harness = buildEventHarness(streamingSlot);
+        harness.handlers.handleEvent('session-1', event);
+        assert.equal(harness.getTurnActive()['session-1'], undefined, `${event.type} drops the arm`);
+      } finally {
+        windowFixture.restore();
+      }
+    }
+  });
+
+  it('promotes the phase to streamed on the first content event, without clearing the arm', () => {
+    const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming' });
+    assert.equal(harness.getTurnActive()['session-1'], 'waiting', 'starts at the first-token head');
+    harness.handlers.handleEvent('session-1', {
+      type: 'text_delta', id: 'event-d', turnId: 'turn-1', ts: 2, messageId: 'assistant-1', text: 'hello',
+    } as SessionEvent);
+    assert.equal(
+      harness.getTurnActive()['session-1'],
+      'streamed',
+      'the arm persists (turn still in flight) but leaves the "正在处理…" head phase',
+    );
+  });
+
+  it('a multi-step turn never returns to the first-token head phase between steps (#646)', () => {
+    // Regression for the real-machine bug: a tool-using turn returned to the
+    // "正在处理…" indicator in every step-to-step lull because the phase was a
+    // plain boolean. Once streamed, only a terminal event (which clears the arm
+    // and starts a fresh 'waiting' next turn) can leave 'streamed'.
+    const windowFixture = installReadMessagesWindow([[], [], []]);
+    try {
+      const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming' });
+      const step = (type: SessionEvent['type'], extra: Record<string, unknown> = {}) =>
+        harness.handlers.handleEvent('session-1', {
+          type, id: `e-${type}-${extra.toolUseId ?? ''}`, turnId: 'turn-1', ts: 2, ...extra,
+        } as SessionEvent);
+
+      step('thinking_delta', { text: 'reasoning step 1' });
+      assert.equal(harness.getTurnActive()['session-1'], 'streamed', 'first reasoning leaves the head');
+      step('tool_start', { toolUseId: 't1', toolName: 'read' });
+      step('tool_result', { toolUseId: 't1', content: 'file body', isError: false });
+      // The step-to-step lull: tool settled, nothing streaming. Still 'streamed',
+      // so the derivation yields 'continuing' (calm hint), never 'processing'.
+      assert.equal(
+        harness.getTurnActive()['session-1'],
+        'streamed',
+        'the lull after a settled tool stays streamed — no "正在处理…" re-trigger',
+      );
+      step('thinking_delta', { text: 'reasoning step 2' });
+      assert.equal(harness.getTurnActive()['session-1'], 'streamed', 'the next step stays streamed');
+
+      harness.handlers.handleEvent('session-1', completeEvent());
+      assert.equal(harness.getTurnActive()['session-1'], undefined, 'the turn end clears the arm');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+});
+
+describe('model-wait indicator rendering (#646)', () => {
+  const userTurn: StoredMessage[] = [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }];
+
+  it('renders "正在处理…" with a shimmer inside the tail turn when armed with nothing streaming', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', processingIndicator: true });
+    assert.match(markup, /正在处理…/, 'the processing label is shown');
+    assert.match(markup, /data-slot="text-shimmer"/, 'the label shimmers (the "working" signal)');
+    assert.match(markup, /data-live-streaming="true"/, 'the tail turn stays live so its footer is non-actionable');
+    assert.match(markup, /aria-hidden="true" class="mt-0\.5 h-8"/, 'reserved-height placeholder footer, not a clickable one');
+  });
+
+  it('shows nothing extra when the indicator is off', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', processingIndicator: false });
+    assert.doesNotMatch(markup, /正在处理…/);
+  });
+
+  it('yields to a streaming answer — the indicator never renders alongside content', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: 'hello', processingIndicator: true });
+    assert.doesNotMatch(markup, /正在处理…/, 'the derivation is exclusive, but the render guards it too');
+    assert.match(markup, /maka-bubble-streaming/, 'the streaming answer owns the tail turn instead');
+  });
+
+  it('renders the calm "继续中…" hint mid-turn — not "正在处理…", and without a shimmer (#646)', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', continuingIndicator: true });
+    assert.match(markup, /继续中…/, 'the mid-turn lull shows the calm continuation hint');
+    assert.doesNotMatch(markup, /正在处理…/, 'the prominent first-token indicator must not re-appear');
+    assert.match(markup, /data-live-streaming="true"/, 'the tail turn stays live so its footer is non-actionable');
+  });
+
+  it('prefers the first-token indicator when both cues momentarily co-derive', () => {
+    const markup = renderChat({
+      messages: userTurn,
+      streamingText: '',
+      processingIndicator: true,
+      continuingIndicator: true,
+    });
+    assert.match(markup, /正在处理…/, 'processing wins the exclusive render guard');
+    assert.doesNotMatch(markup, /继续中…/, 'the continuing hint stands down while processing shows');
+  });
+});
+
 function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
@@ -645,6 +937,8 @@ function buildEventHarness(
   getMessages: () => StoredMessage[];
   getStreaming: () => Record<string, AssistantStreamSlot>;
   getThinking: () => Record<string, string>;
+  getTurnActive: () => Record<string, TurnPhase>;
+  getSettling: () => Set<string>;
 } {
   const activeIdRef = { current: 'session-1' as string | undefined };
   let messages: StoredMessage[] = [];
@@ -652,6 +946,10 @@ function buildEventHarness(
   const streamingBySessionRef = { current: streamingBySession };
   let thinkingBySession: Record<string, string> = { ...initialThinking };
   const thinkingBySessionRef = { current: thinkingBySession };
+  const settlingBySessionRef = { current: new Set<string>() };
+  // The harness represents a turn already in flight at its head, so it starts in
+  // the 'waiting' (first-token) phase (#646).
+  let turnActiveBySession: Record<string, TurnPhase> = { 'session-1': 'waiting' };
 
   const chatActions = createAppShellChatActions({
     activeIdRef,
@@ -660,6 +958,7 @@ function buildEventHarness(
     clearPendingSessionAction: () => {},
     isNewChatSendSurfaceActive: () => false,
     markSessionReadLocally: () => {},
+    markSessionRunningOptimistic: () => undefined,
     messageRetryPendingRef: { current: new Set<string>() },
     refreshSessions: async () => [],
     setActiveId: (sessionId) => {
@@ -671,6 +970,9 @@ function buildEventHarness(
       messages = typeof next === 'function' ? next(messages) : next;
     },
     setNavSelection: () => {},
+    setTurnActiveBySession: (updater) => {
+      turnActiveBySession = updater(turnActiveBySession);
+    },
     showModelSetupToast: () => {},
     toastApi: { error: () => {} },
     upsertSessionSummary: () => {},
@@ -693,9 +995,13 @@ function buildEventHarness(
       thinkingBySessionRef.current = thinkingBySession;
     },
     setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+    setTurnActiveBySession: (updater) => {
+      turnActiveBySession = updater(turnActiveBySession);
+    },
     showModelSetupToast: () => {},
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi: { error: () => {} },
   });
 
@@ -704,5 +1010,118 @@ function buildEventHarness(
     getMessages: () => messages,
     getStreaming: () => streamingBySession,
     getThinking: () => thinkingBySession,
+    getTurnActive: () => turnActiveBySession,
+    getSettling: () => settlingBySessionRef.current,
   };
 }
+
+describe('send optimistically opens the model-wait window (#646)', () => {
+  const globalObject = globalThis as unknown as { window?: unknown };
+
+  function installSendWindow(opts: { failSend?: boolean } = {}): { restore(): void } {
+    const previousWindow = globalObject.window;
+    let lastTurnId: string | undefined;
+    globalObject.window = {
+      maka: {
+        sessions: {
+          // Echo the turnId so the readMessages poll below resolves on its first
+          // pass — otherwise refreshMessagesUntilTurn spins to its wall-clock
+          // deadline and the test stalls for ~1s.
+          send: async (_sessionId: string, payload: { turnId: string }) => {
+            if (opts.failSend) throw new Error('send rejected before the runtime');
+            lastTurnId = payload.turnId;
+            return { attachments: [] };
+          },
+          readMessages: async (): Promise<StoredMessage[]> =>
+            lastTurnId ? [{ type: 'user', id: 'u-1', turnId: lastTurnId, ts: 1, text: 'hello' }] : [],
+        },
+      },
+      setTimeout: (callback: () => void) => {
+        queueMicrotask(callback);
+        return 0;
+      },
+    };
+    return {
+      restore: () => {
+        if (previousWindow === undefined) delete globalObject.window;
+        else globalObject.window = previousWindow;
+      },
+    };
+  }
+
+  function buildChatActions(runningMarks: string[], restoreMarks?: string[]): {
+    chatActions: ReturnType<typeof createAppShellChatActions>;
+    getTurnActive: () => Record<string, TurnPhase>;
+  } {
+    const activeIdRef = { current: 'session-1' as string | undefined };
+    let turnActiveBySession: Record<string, TurnPhase> = {};
+    const chatActions = createAppShellChatActions({
+      activeIdRef,
+      addPendingSessionAction: () => true,
+      captureComposerImportOwner: () => ({ sessionId: 'session-1', navSection: 'sessions' }),
+      clearPendingSessionAction: () => {},
+      isNewChatSendSurfaceActive: () => false,
+      markSessionReadLocally: () => {},
+      markSessionRunningOptimistic: (sessionId) => {
+        runningMarks.push(sessionId);
+        // Mirror the real marker: hand back a restore callback so a failed send
+        // can revert the optimistic 'running' status.
+        return restoreMarks ? () => restoreMarks.push(sessionId) : undefined;
+      },
+      messageRetryPendingRef: { current: new Set<string>() },
+      refreshSessions: async () => [],
+      setActiveId: (sessionId) => {
+        activeIdRef.current = sessionId;
+      },
+      setMessageLoadErrorBySession: () => {},
+      setMessageRetryPendingBySession: () => {},
+      setMessages: () => {},
+      setNavSelection: () => {},
+      setTurnActiveBySession: (updater) => {
+        turnActiveBySession = updater(turnActiveBySession);
+      },
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+      upsertSessionSummary: () => {},
+      validPendingNewChatModel: null,
+      pendingNewChatThinkingLevel: null,
+    });
+    return { chatActions, getTurnActive: () => turnActiveBySession };
+  }
+
+  it('marks the active session running the moment send() commits — the "正在处理…" gate must not wait for the status round-trip (#646)', async () => {
+    const windowFixture = installSendWindow();
+    try {
+      const runningMarks: string[] = [];
+      const { chatActions, getTurnActive } = buildChatActions(runningMarks);
+      await chatActions.send('hello');
+      // The status nudge that opens the head indicator, and the arm that gives it
+      // a 'waiting' phase, both land synchronously at send — not after the IPC
+      // status round-trip that used to lose the first-token race.
+      assert.deepEqual(runningMarks, ['session-1']);
+      assert.equal(getTurnActive()['session-1'], 'waiting');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('reverts the optimistic running status when send() fails before the runtime (#646 review)', async () => {
+    const windowFixture = installSendWindow({ failSend: true });
+    try {
+      const runningMarks: string[] = [];
+      const restoreMarks: string[] = [];
+      const { chatActions, getTurnActive } = buildChatActions(runningMarks, restoreMarks);
+      const ok = await chatActions.send('hello');
+      // A send that never reached the runtime gets no subscribeChanges event to
+      // reconcile the optimistic bump, so the catch must both disarm the turn and
+      // invoke the restore callback — otherwise the session keeps a phantom running
+      // dot and a blocked permission-mode toggle.
+      assert.equal(ok, false);
+      assert.deepEqual(runningMarks, ['session-1']);
+      assert.deepEqual(restoreMarks, ['session-1'], 'the optimistic status must be restored on failure');
+      assert.equal(getTurnActive()['session-1'], undefined, 'a failed send disarms the turn');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+});

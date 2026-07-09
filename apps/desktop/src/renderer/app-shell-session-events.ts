@@ -24,9 +24,27 @@ import {
   sessionEventErrorMessage,
 } from './model-connection-errors.js';
 import type { RefreshMessagesOptions } from './app-shell-chat-actions.js';
+import type { TurnPhase } from './model-wait-state.js';
 
 type RefBox<T> = { current: T };
 type StateUpdater<T> = (updater: (current: T) => T) => void;
+
+// #646: the event types that count as a turn producing content. The first of
+// these to arrive promotes the turn from `'waiting'` (first-token wait) to
+// `'streamed'`, so the "正在处理…" indicator is only ever the connect-to-first-
+// token gap. Terminal (complete / abort / error) and bookkeeping (token_usage)
+// events are excluded — they don't represent visible progress.
+const TURN_CONTENT_EVENT_TYPES: ReadonlySet<SessionEvent['type']> = new Set([
+  'thinking_delta',
+  'thinking_complete',
+  'text_delta',
+  'text_complete',
+  'tool_start',
+  'tool_output_delta',
+  'tool_result',
+  'permission_request',
+  'permission_decision_ack',
+]);
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -46,9 +64,18 @@ export function createAppShellSessionEventHandlers(options: {
   setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThinkingBySession: StateUpdater<Record<string, string>>;
   setThinkingTruncatedBySession: StateUpdater<Record<string, boolean>>;
+  /** #646: set/clear the turn phase (see model-wait-state.ts). Promoted to
+   * 'streamed' on the first content event; cleared when the turn ends. */
+  setTurnActiveBySession: StateUpdater<Record<string, TurnPhase>>;
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   thinkingBySessionRef: RefBox<Record<string, string>>;
+  /** #646: sessions whose textless / thinking-only completion is holding its live
+   * buffer open until the committed message refreshes in (the #642 refresh-before-
+   * clear). This path sets no draining slot (a thinking-only turn may have no slot),
+   * so `useSettledSessionTransientReconcile` reads this set to avoid clearing the
+   * held thinking before `clearStreamingIfCurrent` runs. */
+  settlingBySessionRef: RefBox<Set<string>>;
   toastApi: ToastApi;
   /** Report a terminal turn to the main process, which decides whether
    * to raise an OS notification (gated on a product toggle + window
@@ -66,9 +93,11 @@ export function createAppShellSessionEventHandlers(options: {
     setStreamingBySession,
     setThinkingBySession,
     setThinkingTruncatedBySession,
+    setTurnActiveBySession,
     showModelSetupToast,
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi,
     notifyRunEnded,
   } = options;
@@ -101,6 +130,33 @@ export function createAppShellSessionEventHandlers(options: {
       return { ...current, [sessionId]: { text: '', truncated: false, phase: 'streaming' } };
     });
     clearThinking(sessionId);
+  }
+
+  /**
+   * #646: the turn ended — drop the "正在处理…" arm so the indicator can't
+   * linger after the reply settles. Synchronous and unguarded, like
+   * `clearStreaming`: a turn-ending event runs before the next turn is armed.
+   */
+  function clearTurnActive(sessionId: string) {
+    setTurnActiveBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }
+
+  /**
+   * #646: promote a turn out of the first-token wait on its first content event.
+   * Guarded one-way `'waiting' → 'streamed'`: it never re-arms 'waiting' (a late
+   * or replayed event mid-turn is a no-op) and never touches a session with no
+   * turn in flight. After this, `deriveModelWait` yields `'continuing'` (the calm
+   * "继续中…" hint) for the step-to-step lulls instead of `'processing'`.
+   */
+  function markTurnStreamed(sessionId: string) {
+    setTurnActiveBySession((current) =>
+      current[sessionId] === 'waiting' ? { ...current, [sessionId]: 'streamed' } : current,
+    );
   }
 
   /**
@@ -165,9 +221,16 @@ export function createAppShellSessionEventHandlers(options: {
         slot: streamingBySessionRef.current[sessionId],
         thinking: thinkingBySessionRef.current[sessionId],
       };
+      // Mark settling for the hold's duration so the status-driven reconcile
+      // (`useSettledSessionTransientReconcile`) doesn't wipe the held thinking
+      // before this clear runs — this textless path sets no draining slot.
+      settlingBySessionRef.current.add(sessionId);
       void refreshMessages(sessionId, messageId ? { requiredAssistantMessageId: messageId } : undefined)
         .catch(() => false)
-        .finally(() => clearStreamingIfCurrent(sessionId, held));
+        .finally(() => {
+          clearStreamingIfCurrent(sessionId, held);
+          settlingBySessionRef.current.delete(sessionId);
+        });
       return;
     }
     setStreamingBySession((current) => drainAssistantStreamSlot(current, sessionId, applied, messageId));
@@ -333,6 +396,9 @@ export function createAppShellSessionEventHandlers(options: {
   }
 
   function handleEvent(sessionId: string, event: SessionEvent) {
+    // #646: the first content event of a turn ends the first-token wait, so the
+    // "正在处理…" indicator can't re-trigger in later step-to-step lulls.
+    if (TURN_CONTENT_EVENT_TYPES.has(event.type)) markTurnStreamed(sessionId);
     switch (event.type) {
       case 'text_delta': {
         // PR-UI-Cx (@kenji msg 94b0063d / cd09bcac / fixup v2 3c01e901):
@@ -511,6 +577,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'error':
         clearStreaming(sessionId);
+        clearTurnActive(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
@@ -527,6 +594,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'abort':
         clearStreaming(sessionId);
+        clearTurnActive(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         markInFlightToolsInterrupted(sessionId);
         void refreshSessions();
@@ -536,6 +604,10 @@ export function createAppShellSessionEventHandlers(options: {
         let refreshMessagesOptions: RefreshMessagesOptions | undefined;
         let heldTextless: { messageId?: string; slot?: AssistantStreamSlot; thinking?: string } | undefined;
         if (event.stopReason !== 'permission_handoff') {
+          // The turn genuinely ended (permission_handoff only pauses it) — drop
+          // the "正在处理…" arm so the indicator doesn't flash on as the reply
+          // settles.
+          clearTurnActive(sessionId);
           const slot = streamingBySessionRef.current[sessionId];
           if (slot?.text) {
             setStreamingBySession((current) => markAssistantStreamSlotDraining(current, sessionId));
@@ -581,10 +653,17 @@ export function createAppShellSessionEventHandlers(options: {
           void refreshed.catch(() => false);
           // #642: clear the held live buffer only AFTER the committed message
           // has been refreshed in (textless / thinking-only completion), and only
-          // if this turn's buffer is still current (review P2-A).
+          // if this turn's buffer is still current (review P2-A). Mark the session
+          // settling for the duration so the status-driven reconcile
+          // (`useSettledSessionTransientReconcile`) doesn't wipe the held thinking
+          // early — this path sets no draining slot for the reconcile to skip on.
           if (heldTextless) {
             const held = heldTextless;
-            void refreshed.finally(() => clearStreamingIfCurrent(sessionId, held));
+            settlingBySessionRef.current.add(sessionId);
+            void refreshed.finally(() => {
+              clearStreamingIfCurrent(sessionId, held);
+              settlingBySessionRef.current.delete(sessionId);
+            });
           }
         }
         break;

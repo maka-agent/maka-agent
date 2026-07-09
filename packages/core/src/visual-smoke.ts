@@ -18,6 +18,10 @@ export type VisualSmokeScenario =
   // screenshot locks streaming-vs-committed horizontal alignment — the gap
   // that let the "streaming markdown sits ~110px too far left" bug ship.
   | 'streaming-answer'
+  // #646 real-time status language: a running session whose turn is armed with
+  // nothing streaming yet — the "正在处理…" model-wait indicator rides the tail
+  // turn and the composer shows Stop. Locks the connect-to-first-token state.
+  | 'model-processing'
   | 'permission-destructive'
   | 'stale-sessions'
   | 'settings-data'
@@ -140,6 +144,14 @@ export interface VisualSmokeState {
   thinkingBySession?: Record<string, string>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
   liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
+  /**
+   * #646: per-session turn phase, mirroring the renderer's `turnActiveBySession`.
+   * `'waiting'` = the connect-to-first-token wait (seed it for a running session
+   * with no live streaming/thinking/tools so the "正在处理…" indicator + composer
+   * Stop render); `'streamed'` = a mid-turn lull after content (the calm "继续中…"
+   * hint). Real users never receive a visual smoke state.
+   */
+  turnActiveBySession?: Record<string, 'waiting' | 'streamed'>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
    * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`

@@ -3,6 +3,7 @@ import type { SettingsSection, ThemePreference } from '@maka/core';
 import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
+import type { TurnPhase } from './model-wait-state';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -23,6 +24,7 @@ export function createAppShellVisualSmokeActions(options: {
   setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
   setThinkingBySession: StateUpdater<Record<string, string>>;
+  setTurnActiveBySession: StateUpdater<Record<string, TurnPhase>>;
 }): AppShellVisualSmokeActions {
   const {
     openPalette,
@@ -37,6 +39,7 @@ export function createAppShellVisualSmokeActions(options: {
     setStreamingBySession,
     setThemePref,
     setThinkingBySession,
+    setTurnActiveBySession,
   } = options;
 
   async function applyVisualSmokeFixture() {
@@ -81,6 +84,11 @@ export function createAppShellVisualSmokeActions(options: {
     }
     if (state.liveToolsBySession) {
       setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
+    }
+    if (state.turnActiveBySession) {
+      // #646: seed the "a turn is in flight" flag so the model-wait indicator +
+      // composer Stop render. Mirrors the streaming/thinking init pattern.
+      setTurnActiveBySession((current) => ({ ...current, ...state.turnActiveBySession }));
     }
     // PR-IR-01b: theme override applied BEFORE the persisted user pref so
     // the screenshot variant matches `<theme>-<viewport>-<motion>.png`

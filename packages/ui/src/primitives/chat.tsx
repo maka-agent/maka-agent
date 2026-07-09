@@ -373,14 +373,23 @@ export function LiveIndicator({
  * pass `active` false for settled/snap states so the sweep never runs in a
  * deterministic capture. Kept INTERNAL (off the package barrel, imported by
  * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ *
+ * `delayed` (#646 run→done seam) holds the sweep at its resting frame for
+ * `--duration-emphasized` (~200ms) before it starts — a purely CSS de-flicker so
+ * a sub-second tool row (which unmounts inside the window) never visibly sweeps,
+ * while the base text is readable from frame 0. The keyframe rests at
+ * `background-position:150% 0` (= the sweep's declared start), so the delay reads
+ * as plain static muted text, matching `active={false}`.
  */
 export function TextShimmer({
   children,
   active = true,
+  delayed = false,
   className,
 }: {
   children: React.ReactNode;
   active?: boolean;
+  delayed?: boolean;
   className?: string;
 }): React.ReactElement {
   if (!active) {
@@ -390,14 +399,19 @@ export function TextShimmer({
     <span data-slot="text-shimmer" className={cn("relative inline-grid", className)}>
       {/* Base: opaque, muted, always readable. */}
       <span className="[grid-area:1/1] text-[color:var(--muted-foreground)]">{children}</span>
-      {/* Sweep: a clipped light band that travels across the glyphs. */}
+      {/* Sweep: a clipped light band that travels across the glyphs. The delay
+          rides inside the `animation` shorthand (second <time> = animation-delay)
+          so it can't be reset by the shorthand — the governance keyframe name is
+          still `maka-text-shimmer`, the only token the scanner reads. */}
       <span
         aria-hidden="true"
         className={cn(
           "[grid-area:1/1] bg-clip-text [-webkit-text-fill-color:transparent] text-transparent",
           "bg-[linear-gradient(100deg,transparent_30%,oklch(from_var(--foreground)_l_c_h_/_0.95)_50%,transparent_70%)]",
           "[background-size:200%_100%] [background-position:150%_0]",
-          "[animation:maka-text-shimmer_1.8s_linear_infinite]",
+          delayed
+            ? "[animation:maka-text-shimmer_1.8s_linear_var(--duration-emphasized)_infinite]"
+            : "[animation:maka-text-shimmer_1.8s_linear_infinite]",
           "motion-reduce:[animation:none] motion-reduce:opacity-0",
         )}
       >

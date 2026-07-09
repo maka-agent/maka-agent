@@ -158,6 +158,20 @@ export function ChatView(props: {
    * user knows the visible answer is bounded.
    */
   streamingTruncated?: boolean;
+  /**
+   * #646: true while the first-token wait indicator ("正在处理…") should show —
+   * the turn is armed at send with no content event yet. Rendered as a transient
+   * trailing entry of the tail turn, covering only the connect-to-first-token gap.
+   */
+  processingIndicator?: boolean;
+  /**
+   * #646: true while the calm mid-turn hint ("继续中…") should show — the turn has
+   * already produced content and is in a step-to-step lull (a tool settled / a
+   * step's text finished) with nothing streaming while the model works on the next
+   * step. Deliberately quieter than the first-token indicator so it never reads as
+   * the live thinking being swallowed.
+   */
+  continuingIndicator?: boolean;
   tools: ToolActivityItem[];
   activeSession?: SessionSummary;
   activeConnectionLabel?: string;
@@ -337,7 +351,11 @@ export function ChatView(props: {
     (tool) =>
       tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
   );
-  const streamingActive = !!(props.streamingText || props.thinkingText || hasInFlightTool);
+  // The model-wait indicator keeps the tail turn "live" too, so its footer stays
+  // the non-actionable placeholder and the indicator injects into the tail turn
+  // (not the fallback section) — it is, by derivation, only ever true when text /
+  // thinking / tools are all absent.
+  const streamingActive = !!(props.streamingText || props.thinkingText || hasInFlightTool || props.processingIndicator || props.continuingIndicator);
   const tailTurnId = streamingActive ? turns[turns.length - 1]?.turnId : undefined;
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
@@ -395,7 +413,7 @@ export function ChatView(props: {
     const el = scrollRef.current;
     if (!el || !pinnedToBottom) return;
     el.scrollTop = el.scrollHeight;
-  }, [chat.length, props.streamingText, tools.length, pinnedToBottom]);
+  }, [chat.length, props.streamingText, tools.length, props.processingIndicator, props.continuingIndicator, pinnedToBottom]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
@@ -670,6 +688,8 @@ export function ChatView(props: {
                         streamingTruncated: props.streamingTruncated,
                         thinkingTruncated: props.thinkingTruncated,
                         onStreamingSettled: props.onStreamingSettled,
+                        processingIndicator: props.processingIndicator,
+                        continuingIndicator: props.continuingIndicator,
                       }
                     : undefined
                 }
@@ -693,6 +713,8 @@ export function ChatView(props: {
                     streamingTruncated={props.streamingTruncated}
                     thinkingTruncated={props.thinkingTruncated}
                     onStreamingSettled={props.onStreamingSettled}
+                    processingIndicator={props.processingIndicator}
+                    continuingIndicator={props.continuingIndicator}
                   />
                 </div>
                 <div aria-hidden="true" className="mt-0.5 h-8" />
@@ -1053,6 +1075,8 @@ const TurnView = memo(function TurnView(props: {
     streamingTruncated?: boolean;
     thinkingTruncated?: boolean;
     onStreamingSettled?: () => void;
+    processingIndicator?: boolean;
+    continuingIndicator?: boolean;
   };
 }) {
   const { turn } = props;
@@ -1176,6 +1200,8 @@ const TurnView = memo(function TurnView(props: {
                 streamingTruncated={props.liveStreaming.streamingTruncated}
                 thinkingTruncated={props.liveStreaming.thinkingTruncated}
                 onStreamingSettled={props.liveStreaming.onStreamingSettled}
+                processingIndicator={props.liveStreaming.processingIndicator}
+                continuingIndicator={props.liveStreaming.continuingIndicator}
               />
             )}
           </div>
@@ -1457,6 +1483,8 @@ function LiveStreamingEntries(props: {
   streamingTruncated?: boolean;
   thinkingTruncated?: boolean;
   onStreamingSettled?: () => void;
+  processingIndicator?: boolean;
+  continuingIndicator?: boolean;
 }) {
   return (
     <>
@@ -1475,7 +1503,58 @@ function LiveStreamingEntries(props: {
           onSettled={props.onStreamingSettled}
         />
       )}
+      {/* #646: the wait cues only when nothing else is live — the derivation
+          upstream guarantees text/thinking are empty here, but the guards keep it
+          honest against a transitional render. Processing (first token) wins over
+          continuing (mid-turn lull) if both ever momentarily co-derive. */}
+      {props.processingIndicator && !props.thinkingText && !props.streamingText && (
+        <ModelProcessingIndicator />
+      )}
+      {props.continuingIndicator && !props.processingIndicator && !props.thinkingText && !props.streamingText && (
+        <ModelContinuingIndicator />
+      )}
     </>
+  );
+}
+
+/**
+ * #646: the "正在处理…" row — the model is being awaited with nothing streaming
+ * yet. Same row language as a tool trow / 深度思考 (16px icon + `TextShimmer`
+ * label, muted, base tier); a neutral spinner (not Brain — this isn't reasoning)
+ * carries the "working" affordance. The 200ms appearance delay lives upstream in
+ * `useDelayedFlag`, so by the time this renders the wait is already worth showing.
+ */
+function ModelProcessingIndicator() {
+  return (
+    <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
+      <Loader2
+        size={16}
+        aria-hidden="true"
+        className="shrink-0 animate-spin text-[color:var(--muted-foreground)]"
+      />
+      <TextShimmer active className="min-w-0 truncate text-[length:var(--font-size-base)]">正在处理…</TextShimmer>
+    </div>
+  );
+}
+
+/**
+ * #646: the calm "继续中…" hint — a mid-turn step-to-step lull after the turn has
+ * already produced content (a tool settled / a step's text finished) while the
+ * model works on the next step. Deliberately quieter than
+ * `ModelProcessingIndicator`: muted + dimmed static text, no spinner and no
+ * shimmer (both read as "actively working" and, fired after every step, made the
+ * live thinking look swallowed — the regression this split fixes). A plain
+ * whitelisted fade-in is the only motion; reduced-motion neutralizes it globally.
+ */
+function ModelContinuingIndicator() {
+  return (
+    <div
+      className="flex items-center py-0.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)] opacity-70 [animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="min-w-0 truncate">继续中…</span>
+    </div>
   );
 }
 

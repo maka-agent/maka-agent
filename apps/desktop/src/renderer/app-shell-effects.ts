@@ -11,7 +11,7 @@ import type {
   ThemePreference,
 } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { NavSelection, PermissionQueues } from '@maka/ui';
+import type { AssistantStreamSlot, NavSelection, PermissionQueues } from '@maka/ui';
 import { messageReadErrorMessage } from './app-shell-copy';
 import { applyTheme, applyThemePalette } from './theme';
 import { safeLocalStorageSet } from './browser-storage';
@@ -456,4 +456,46 @@ export function useSessionEventHealthPolling(options: {
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [activeId, activeSession?.status, activeStreamingLive, hasInFlightLiveTools, activePermission?.requestId]);
+}
+
+// #646: transient live state (streaming slot, arm, live thinking/tools) is only
+// advanced and cleared by the ACTIVE session's SessionEvent stream (subscribeEvents
+// follows activeId only, with no replay of missed events). So any session that
+// reaches a terminal status while backgrounded — or whose terminal status only
+// lands after the user has switched back — leaves that transient frozen mid-turn,
+// surfacing a stuck Stop (via the ungated `activeStreamingLive`) and a half-streamed
+// bubble. Heal it against the authoritative status, not against an event or a switch
+// (both fire before the terminal status is known): whenever the sessions list
+// settles, drop the turn transient of every session that is no longer running /
+// waiting_for_user. Because it keys off the status landing in `sessions`, it closes
+// the hole regardless of which path or timing delivers that status.
+//
+// Two settles the active session drives itself are left to their own lifecycle, so
+// this reconcile can't cut in front of the committed message landing:
+//  - a slot mid-drain (`phase: 'draining'`) — the text completion handshake, and
+//  - a session in `settlingBySessionRef` — the #642 textless / thinking-only
+//    refresh-before-clear hold, which has no draining slot to key off (a thinking-
+//    only turn may have no slot at all).
+// It drops ONLY the turn transient (`clearTurnTransientState`), never the
+// independently-scoped message-load-error / retry / pending-toggle / permission /
+// health state — those survive a mere settle. The clear is idempotent (referentially
+// stable when there's nothing to drop), so the common "terminal session with no
+// transient" case triggers no re-render.
+export function useSettledSessionTransientReconcile(options: {
+  sessions: readonly SessionSummary[];
+  streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
+  settlingBySessionRef: RefBox<Set<string>>;
+  clearTurnTransientState: (sessionId: string) => void;
+}) {
+  const reconcile = useEffectEvent(() => {
+    for (const session of options.sessions) {
+      if (session.status === 'running' || session.status === 'waiting_for_user') continue;
+      if (options.streamingBySessionRef.current[session.id]?.phase === 'draining') continue;
+      if (options.settlingBySessionRef.current.has(session.id)) continue;
+      options.clearTurnTransientState(session.id);
+    }
+  });
+  useEffect(() => {
+    reconcile();
+  }, [options.sessions]);
 }

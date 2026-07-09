@@ -29,6 +29,9 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // the main panel (below a committed turn) so the screenshot locks
   // streaming-vs-committed horizontal alignment.
   'streaming-answer',
+  // #646: a running session with an armed turn but nothing streaming yet —
+  // captures the "正在处理…" model-wait indicator + composer Stop.
+  'model-processing',
   'permission-destructive',
   'stale-sessions',
   // PR108j: per-Settings-section fixtures so the screenshot pipeline
@@ -330,6 +333,17 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         activeSessionId: TURN_SESSION_ID,
         streamingBySession: { [TURN_SESSION_ID]: STREAMING_ANSWER_MARKDOWN },
       };
+    case 'model-processing':
+      // #646: a running session whose turn is armed (turnActiveBySession) with
+      // NO streaming / thinking / tool seeded, so the derivation fires and the
+      // "正在处理…" indicator rides the tail user turn while the composer shows
+      // Stop. The session's on-disk status is `running` so the status gate self-
+      // heals like the real backgrounded-session path.
+      return {
+        ...state,
+        activeSessionId: PROCESSING_SESSION_ID,
+        turnActiveBySession: { [PROCESSING_SESSION_ID]: 'waiting' },
+      };
     case 'permission-destructive':
       return {
         ...state,
@@ -486,6 +500,7 @@ export async function seedVisualSmokeFixture(input: {
     await input.credentialStore.setSecret(slug, 'api_key', `fixture-key-${slug}`);
   }
   await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
+  await writeSession(input.workspaceRoot, processingSession(now), processingMessages(now));
   await writeSession(input.workspaceRoot, streamingSession(now), streamingMessages(now));
   await writeSession(input.workspaceRoot, permissionSession(now), permissionMessages(now));
   await writeSession(input.workspaceRoot, errorSession(now), errorMessages(now));
@@ -645,6 +660,7 @@ const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
 ]);
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
+const PROCESSING_SESSION_ID = 'visual-smoke-processing';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 // PR-STREAM-TURN-CENTER: realistic multi-block markdown (heading + paragraph +
 // list) for the `streaming-answer` scenario, so the captured streaming bubble
@@ -1066,6 +1082,29 @@ function turnMessages(now: number): StoredMessage[] {
     // Locks the capture for the new timeline (contrast the legacy stepless turn
     // above, which renders tools-before-text).
     ...multiStepTurnMessages(now),
+  ];
+}
+
+// #646: a running session whose latest turn is a lone user prompt with no
+// assistant reply yet — the on-disk shape of "just sent, awaiting first token".
+// Paired with `turnActiveBySession` + status `running`, the renderer derives the
+// "正在处理…" model-wait indicator on the tail turn and the composer shows Stop.
+function processingSession(now: number): SessionHeader {
+  return header({
+    id: PROCESSING_SESSION_ID,
+    name: '正在处理请求',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 2_000,
+    status: 'running',
+  });
+}
+
+function processingMessages(now: number): StoredMessage[] {
+  const turnId = 'turn-processing-1';
+  return [
+    { type: 'user', id: 'msg-processing-user', turnId, ts: now - 2_000, text: '把刚才那批改动整理成一份可交接的变更说明，并指出还需我确认的点。' },
   ];
 }
 

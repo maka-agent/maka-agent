@@ -67,6 +67,8 @@ import { deriveBranchBanner } from './branch-banner';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
+import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
+import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { filterSessions, readNavSelection } from './nav-selection';
@@ -108,6 +110,7 @@ import {
   useAppShellPersistenceEffects,
   useAppShellRefSync,
   useSessionEventHealthPolling,
+  useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 
@@ -197,6 +200,11 @@ export function AppShell({
   const [messageLoadPending, setMessageLoadPending] = useState(false);
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
   const stopPendingRef = useRef<Set<string>>(new Set());
+  // #646: sessions whose textless / thinking-only completion is mid refresh-before-
+  // clear (#642). Shared between the event handlers (which set/clear it) and the
+  // status-driven reconcile (which skips them), so the reconcile can't wipe the
+  // held live thinking before the committed message lands.
+  const settlingBySessionRef = useRef<Set<string>>(new Set());
   const {
     state: sessionUiState,
     streamingBySessionRef,
@@ -209,11 +217,13 @@ export function AppShell({
     setThinkingBySession,
     setThinkingTruncatedBySession,
     setLiveToolsBySession,
+    setTurnActiveBySession,
     setPermissionBySession,
     setSessionEventHealthBySession,
     setPendingPermissionModeBySession,
     setPendingSessionModelBySession,
     clearSessionUiState,
+    clearTurnTransientState,
   } = useAppShellSessionUiState();
   const {
     messageLoadErrorBySession,
@@ -355,6 +365,31 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
+  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
+  // 'streamed' on the first content event) separates the connect-to-first-token
+  // wait from the later step-to-step lulls; the `status === 'running'` gate
+  // self-heals a backgrounded session whose terminal event was missed while
+  // inactive (its arm can't clear without the event). The rising-edge delays
+  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
+  const activeTurnPhase = activeId ? sessionUiState.turnActiveBySession[activeId] : undefined;
+  const turnInFlight = activeTurnPhase !== undefined;
+  const modelWaitKind = deriveModelWait({
+    turnPhase: activeTurnPhase,
+    streamingText: activeStreaming,
+    thinkingText: activeThinking,
+    hasInFlightTools: hasInFlightLiveTools,
+  });
+  const sessionAwaitingModel = activeSession?.status === 'running';
+  // The prominent "正在处理…" first-token indicator (turn head only).
+  const showProcessingIndicator = useDelayedFlag(
+    sessionAwaitingModel && modelWaitKind === 'processing',
+    MODEL_PROCESSING_DELAY_MS,
+  );
+  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
+  const showContinuingIndicator = useDelayedFlag(
+    sessionAwaitingModel && modelWaitKind === 'continuing',
+    MODEL_CONTINUING_DELAY_MS,
+  );
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
     : undefined;
@@ -919,6 +954,7 @@ export function AppShell({
     setStreamingBySession,
     setThemePref,
     setThinkingBySession,
+    setTurnActiveBySession,
   });
 
   const {
@@ -933,6 +969,7 @@ export function AppShell({
     clearPendingSessionAction,
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
+    markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
     setActiveId,
@@ -940,6 +977,7 @@ export function AppShell({
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
+    setTurnActiveBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -1008,9 +1046,11 @@ export function AppShell({
     setStreamingBySession,
     setThinkingBySession,
     setThinkingTruncatedBySession,
+    setTurnActiveBySession,
     showModelSetupToast,
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
@@ -1117,6 +1157,12 @@ export function AppShell({
     sessionEventHealthBySessionRef,
     setSessionEventHealthBySession,
   });
+  useSettledSessionTransientReconcile({
+    sessions,
+    streamingBySessionRef,
+    settlingBySessionRef,
+    clearTurnTransientState,
+  });
 
   function captureComposerImportOwner(): ComposerImportOwner {
     return {
@@ -1180,6 +1226,50 @@ export function AppShell({
       sessionsRef.current = next;
       return next;
     });
+  }
+
+  // #646: on send() we KNOW locally that a turn is starting, but the session's
+  // persisted status only flips to 'running' after an IPC round-trip
+  // (runtime → subscribeChanges). The head "正在处理…" indicator is gated on
+  // `status === 'running'` (that gate self-heals a backgrounded session whose
+  // terminal event was missed), so without a local nudge the first-token wait
+  // races — and usually loses — against the lagging status. Set it optimistically
+  // so the gate opens synchronously; subscribeChanges reconciles the real value.
+  //
+  // Returns a restore callback (or undefined when nothing was nudged). If send()
+  // fails before the turn reaches the runtime, no subscribeChanges event will
+  // arrive to reconcile the optimistic value, so the caller must revert it — but
+  // only while it is STILL the optimistic 'running' (a real status that landed
+  // meanwhile wins). Prevents a failed send from leaving a phantom running dot
+  // that also blocks the permission-mode toggle until the next unrelated refresh.
+  function markSessionRunningOptimistic(sessionId: string): (() => void) | undefined {
+    const prior = sessionsRef.current.find((entry) => entry.id === sessionId);
+    if (!prior || prior.status === 'running') return undefined;
+    const priorStatus = prior.status;
+    setSessions((current) => {
+      let changed = false;
+      const next = current.map((entry) => {
+        if (entry.id !== sessionId || entry.status === 'running') return entry;
+        changed = true;
+        return { ...entry, status: 'running' as const };
+      });
+      if (!changed) return current;
+      sessionsRef.current = next;
+      return next;
+    });
+    return () => {
+      setSessions((current) => {
+        let changed = false;
+        const next = current.map((entry) => {
+          if (entry.id !== sessionId || entry.status !== 'running') return entry;
+          changed = true;
+          return { ...entry, status: priorStatus };
+        });
+        if (!changed) return current;
+        sessionsRef.current = next;
+        return next;
+      });
+    };
   }
 
   function markSessionReadLocally(sessionId: string, readMessages: readonly StoredMessage[]): void {
@@ -1471,6 +1561,8 @@ export function AppShell({
                 streamingText={activeStreaming}
                 streamingComplete={activeStreamingComplete}
                 streamingMessageId={activeStreamingMessageId}
+                processingIndicator={showProcessingIndicator}
+                continuingIndicator={showContinuingIndicator}
                 onStreamingSettled={activeId ? () => settleAssistantStreaming(activeId, activeStreamingMessageId) : undefined}
                 streamingTruncated={activeStreamingTruncated}
                 thinkingText={activeThinking}
@@ -1588,7 +1680,26 @@ export function AppShell({
                 hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
-                streaming={activeStreamingLive}
+                // #646: Stop must be available for the WHOLE turn — the moment the
+                // user most wants to interrupt is a long wait with nothing on
+                // screen (first token, or a slow provider's step-to-step lull).
+                // Drive Stop off `turnInFlight` (armed at send, cleared at the
+                // terminal event), not the wait indicators, so it never blinks out
+                // in a mid-turn gap. But `turnInFlight` alone goes STALE: the event
+                // stream only follows `activeId`, so a session whose turn completes
+                // while backgrounded never receives its terminal event and keeps its
+                // arm. Gate on `sessionAwaitingModel` (status === 'running', kept
+                // truthful for backgrounded sessions by sessions:changed and made
+                // synchronous at send by markSessionRunningOptimistic) so returning
+                // to such a session shows Send, not a stuck Stop that hides it.
+                // `activeStreamingLive` is folded in defensively for the rare replay
+                // where the arm was over-cleared.
+                streaming={(sessionAwaitingModel && turnInFlight) || activeStreamingLive}
+                // #646: in the first-token wait (Stop up, nothing streams yet) the
+                // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
+                // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
+                processing={showProcessingIndicator && !activeStreamingLive}
+                continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
