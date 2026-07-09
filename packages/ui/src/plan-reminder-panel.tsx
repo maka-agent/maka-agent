@@ -335,7 +335,7 @@ export function PlanReminderPanel(props: {
             <UiButton
               type="button"
               variant="quiet"
-              size="icon-sm"
+              size="icon"
               className="maka-plan-refresh-button"
               onClick={() => void refreshFromPanel()}
               disabled={!props.onRefresh || refreshPending}
