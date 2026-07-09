@@ -79,7 +79,7 @@ const GROUP_LABEL: Record<SessionGroupId, string> = {
   pinned: '已置顶',
   running: '进行中',
   waiting_for_user: '等待你',
-  blocked: '已阻塞',
+  blocked: '需要处理',
   active: '会话',
   review: '待审核',
   done: '已完成',

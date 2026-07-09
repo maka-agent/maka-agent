@@ -170,7 +170,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
           return (
             <Item
               key={card.id}
-              className="providerCatalogRow providerOAuthCard rounded-none"
+              className="providerCatalogRow providerOAuthCard"
               data-card-id={card.id}
               data-provider={card.providerType}
               data-status="ready"

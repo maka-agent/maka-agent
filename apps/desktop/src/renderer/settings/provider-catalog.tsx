@@ -14,7 +14,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
   if (disabled) {
     return (
       <Item
-        className="providerCatalogRow rounded-none"
+        className="providerCatalogRow"
         data-provider={props.type}
         data-status={disabledStatus}
         data-disabled="true"
@@ -39,7 +39,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
 
   return (
     <Item
-      className="providerCatalogRow rounded-none"
+      className="providerCatalogRow"
       data-provider={props.type}
       data-status="ready"
       aria-label={providerCatalogAriaLabel(display, props.count)}

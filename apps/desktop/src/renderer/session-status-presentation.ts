@@ -91,7 +91,7 @@ const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
   // honestly conveys "you need to do something" without screaming
   // failure. Real hard failures surface through ChatHeaderAlertBadge,
   // which still uses destructive.
-  blocked: { label: '已阻塞', tone: 'warning', interactive: true },
+  blocked: { label: '需要处理', tone: 'warning', interactive: true },
   review: { label: '待审核', tone: 'info', interactive: true },
   done: { label: '已完成', tone: 'success', interactive: true },
   archived: { label: '已归档', tone: 'muted', interactive: false },
@@ -129,7 +129,7 @@ export function describeBlockedReason(reason: SessionBlockedReason | undefined):
 /**
  * Compose a single-line aria-label / tooltip for a blocked session,
  * combining the status label and the cause. Example:
- *   "已阻塞 · 等待配置可用模型连接"
+ *   "需要处理 · 等待配置可用模型连接"
  *
  * Non-blocked sessions return just the status label.
  */

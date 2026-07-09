@@ -502,7 +502,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       section,
-      /className="providerCatalogRow providerOAuthCard rounded-none"/,
+      /className="providerCatalogRow providerOAuthCard"/,
       'OAuth tab rows must reuse the same governed provider catalog row chrome as 国内 / 海外 / 本地 rows',
     );
     assert.match(

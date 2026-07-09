@@ -129,7 +129,7 @@ describe('sessionStatusAriaLabel', () => {
 
   it('blocked status combines status label + blocked reason', () => {
     const text = sessionStatusAriaLabel('blocked', 'auth');
-    assert.match(text, /已阻塞/);
+    assert.match(text, /需要处理/);
     assert.match(text, /登录|登陆/);
     // Separator stays consistent
     assert.match(text, / · /);
@@ -137,7 +137,7 @@ describe('sessionStatusAriaLabel', () => {
 
   it('blocked without reason falls back to actionable recovery copy', () => {
     const text = sessionStatusAriaLabel('blocked');
-    assert.match(text, /已阻塞/);
+    assert.match(text, /需要处理/);
     assert.match(text, /运行中断，可重试/);
     assert.doesNotMatch(text, /未知阻塞/);
   });

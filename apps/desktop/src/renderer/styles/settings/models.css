@@ -164,6 +164,10 @@
   overflow: auto;
 }
 
+.providerCatalogRow {
+  border-radius: var(--radius-control);
+}
+
 .providerMarketGrid .providerCatalogRow + .providerCatalogRow,
 .providerOAuthGrid .providerCatalogRow + .providerCatalogRow {
   border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
