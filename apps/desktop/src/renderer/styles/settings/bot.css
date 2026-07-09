@@ -414,10 +414,13 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-/* Detail audit: bare Switch controls sat at the value column's START
-   (x≈mid-page) while inputs/selects hug the right rail — two alignments
-   in one list. Controls end-align like every other row control. */
-.settingsRow > button[role="switch"] {
+/* Detail audit + alignment-governance round: bare Switch controls sat at
+   the value column's START (x≈mid-page) while inputs/selects hug the right
+   rail. The original fix was tag-qualified (`button[role="switch"]`) but
+   Base UI renders the Switch root as a SPAN — the selector matched nothing
+   and rotted silently. Tag-AGNOSTIC by rule: role is the contract, the
+   rendered tag never is. */
+.settingsRow > [role="switch"] {
   justify-self: end;
 }
 
