@@ -499,16 +499,6 @@
   gap: var(--space-3);
   box-shadow: var(--shadow-minimal);
 }
-.settingsBotScanLoginHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.settingsBotScanLoginHeader h3 {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
 .settingsBotScanLoginBody {
   display: flex;
   flex-direction: column;
@@ -593,19 +583,6 @@
   padding: var(--space-4);
 }
 
-.settingsWechatQrHeader {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
-}
-
-.settingsWechatQrHeader h3 {
-  margin: 0 0 var(--space-1);
-  font-size: 1.0667em;
-  font-weight: var(--font-weight-semibold);
-}
-
-.settingsWechatQrHeader p,
 .settingsWechatQrCaption {
   margin: 0;
   color: var(--muted-foreground);
@@ -613,23 +590,6 @@
   line-height: var(--leading-normal);
 }
 
-.settingsWechatQrClose {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-}
-
-.settingsWechatQrClose:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
-.settingsWechatQrClose:focus-visible,
 .settingsWechatQrSecondary:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.24);

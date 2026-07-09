@@ -357,28 +357,6 @@
    SimpleStatsTable in usage-settings-page.tsx (inline Tailwind classes,
    no public primitive — a single HTML <table> consumer did not justify one). */
 
-.settingsCloseButton {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  line-height: var(--leading-none);
-}
-
-.settingsCloseButton svg {
-  width: 14px;
-  height: 14px;
-}
-
-.settingsCloseButton:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
 .settingsRow {
   display: grid;
   grid-template-columns: minmax(150px, 0.36fr) minmax(0, 1fr);

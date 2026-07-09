@@ -386,7 +386,6 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsNotice': '--radius-surface',
       '.settingsAboutLogo': '--radius-surface',
       '.settingsAboutPrivacy': '--radius-surface',
-      '.settingsWechatQrClose': '--radius-control',
       '.settingsWechatQrFrame': '--radius-surface',
       '.settingsWechatQrState': '--radius-surface',
       '.providerUnavailableNotice': '--radius-surface',

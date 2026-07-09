@@ -10,8 +10,10 @@
 //     aria-label="关闭" — NO border box, no eyebrow, no second title.
 //
 // Palette-style modals whose input row IS the header (command-palette) do
-// NOT use this — they are intentionally headerless. Modals with a genuine
-// subtitle (permission-dialog) keep their richer bespoke header.
+// NOT use this — they are intentionally headerless. `subtitle` covers
+// modals with one line of instructional copy under the title (wechat QR
+// login); permission-dialog keeps its richer bespoke header (status pill +
+// wait-time meta exceed a subtitle line).
 //
 // Self-contained styling: the header is styled with Tailwind utility classes
 // so the primitive is portable across packages and needs no consumer CSS.
@@ -27,34 +29,46 @@ export interface DialogHeaderProps {
   title: ReactNode;
   /** Id applied to the title <h2> so DialogContent aria-labelledby can point at it. */
   titleId?: string;
+  /** Optional single-line instructional copy under the title (muted, --font-size-ui). */
+  subtitle?: ReactNode;
   /** Close handler wired to the quiet icon-sm close button. */
   onClose(): void;
   /** Accessible label for the close button. Defaults to the shared "关闭". */
   closeLabel?: string;
 }
 
-export function DialogHeader({ icon, title, titleId, onClose, closeLabel = '关闭' }: DialogHeaderProps) {
+export function DialogHeader({ icon, title, titleId, subtitle, onClose, closeLabel = '关闭' }: DialogHeaderProps) {
   return (
     <header
-      className="flex items-center gap-2 border-b border-border px-4 py-2.5"
+      className="flex items-start gap-2 border-b border-border px-4 py-2.5"
       data-slot="dialog-header"
     >
       {icon != null && (
         <span
-          className="flex shrink-0 items-center text-muted-foreground [&>svg]:h-4 [&>svg]:w-4"
+          className="flex h-5 shrink-0 items-center text-muted-foreground [&>svg]:h-4 [&>svg]:w-4"
           aria-hidden="true"
           data-slot="dialog-header-icon"
         >
           {icon}
         </span>
       )}
-      <h2
-        id={titleId}
-        className="min-w-0 flex-1 truncate text-[length:var(--font-size-ui)] font-semibold text-foreground"
-        data-slot="dialog-header-title"
-      >
-        {title}
-      </h2>
+      <div className="min-w-0 flex-1" data-slot="dialog-header-copy">
+        <h2
+          id={titleId}
+          className="min-w-0 truncate text-[length:var(--font-size-ui)] font-semibold leading-5 text-foreground"
+          data-slot="dialog-header-title"
+        >
+          {title}
+        </h2>
+        {subtitle != null && (
+          <p
+            className="mt-0.5 text-[length:var(--font-size-ui)] leading-normal text-muted-foreground"
+            data-slot="dialog-header-subtitle"
+          >
+            {subtitle}
+          </p>
+        )}
+      </div>
       <Button
         type="button"
         variant="quiet"

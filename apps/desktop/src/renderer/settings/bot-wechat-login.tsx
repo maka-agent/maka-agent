@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { X } from '@maka/ui/icons';
 import type { BotChannelSettings } from '@maka/core';
 import type { WechatBridgeQrCodeResult } from '@maka/runtime';
-import { Button, DialogContent, DialogRoot, Input } from '@maka/ui';
+import { Button, DialogContent, DialogHeader, DialogRoot, Input } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -202,19 +201,7 @@ export function WeChatScanLoginModal(props: {
         aria-label="微信扫码登录"
         showClose={false}
       >
-        <header className="settingsBotScanLoginHeader">
-          <h3>微信扫码登录</h3>
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon-sm"
-            className="settingsCloseButton"
-            aria-label="关闭微信扫码登录"
-            onClick={props.onClose}
-          >
-            <X aria-hidden="true" />
-          </Button>
-        </header>
+        <DialogHeader title="微信扫码登录" closeLabel="关闭微信扫码登录" onClose={props.onClose} />
         <div className="settingsBotScanLoginBody">
           {qr?.qrcodeUrl && (status === 'waiting' || status === 'confirmed') ? (
             <img
@@ -330,22 +317,13 @@ export function WechatQrLoginModal(props: {
         aria-labelledby="settingsWechatQrTitle"
         showClose={false}
       >
-        <div className="settingsWechatQrHeader">
-          <div>
-            <h3 id="settingsWechatQrTitle">微信扫码登录</h3>
-            <p>使用手机微信扫描二维码，并在手机上确认登录本机 wechat-bridge。</p>
-          </div>
-          <Button
-            type="button"
-            variant="quiet"
-            size="icon-sm"
-            className="settingsWechatQrClose"
-            aria-label="关闭微信扫码登录"
-            onClick={props.onClose}
-          >
-            <X size={17} aria-hidden="true" />
-          </Button>
-        </div>
+        <DialogHeader
+          title="微信扫码登录"
+          titleId="settingsWechatQrTitle"
+          subtitle="使用手机微信扫描二维码，并在手机上确认登录本机 wechat-bridge。"
+          closeLabel="关闭微信扫码登录"
+          onClose={props.onClose}
+        />
 
         <div className="settingsWechatQrBody">
           {loading ? (
