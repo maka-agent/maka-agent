@@ -18,6 +18,7 @@ import {
   formatDailyReviewModelLabel,
 } from './daily-review-helpers.js';
 import { Button as UiButton } from './ui.js';
+import { Item, ItemContent } from './primitives/item.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
@@ -404,25 +405,38 @@ export function DailyReviewPanel(props: {
               <ul className="maka-daily-review-archive-list" aria-label="回顾报告历史">
                 {archives.map((archive) => (
                   <li key={archive.id}>
-                    <UiButton
-                      type="button"
-                      variant="quiet"
+                    {/* Archive row now speaks the shared Item row language:
+                        hover 4% / selected 6.5% come from the primitive
+                        (selected → --state-selected-bg), ItemContent stacks
+                        the title over the meta line. The row class keeps only
+                        geometry (padding, radius, selected border). */}
+                    <Item
                       className="maka-daily-review-archive-row"
-                      data-active={selectedArchiveId === archive.id ? 'true' : undefined}
-                      onClick={() => chooseDailyReviewArchive(archive.id)}
+                      selected={selectedArchiveId === archive.id}
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => chooseDailyReviewArchive(archive.id)}
+                        />
+                      }
                     >
-                      <span className="maka-daily-review-archive-row-title">
-                        {formatDailyReviewArchiveTitle(archive)}
-                      </span>
-                      {/* Designer audit P2-11: the row used to repeat the
-                          detail card's entire header (status + timestamp).
-                          The list only needs to identify the report; status
-                          and generation time live in the detail. */}
-                      <span className="maka-daily-review-archive-row-meta">
-                        {archive.totals.sessionCount} 对话
-                        {archive.status !== 'ok' ? ` · ${DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}` : ''}
-                      </span>
-                    </UiButton>
+                      <ItemContent>
+                        {/* Plain span (not ItemTitle): the row title relies on
+                            block-level text-overflow ellipsis, which ItemTitle's
+                            flex layout would defeat. */}
+                        <span className="maka-daily-review-archive-row-title">
+                          {formatDailyReviewArchiveTitle(archive)}
+                        </span>
+                        {/* Designer audit P2-11: the row used to repeat the
+                            detail card's entire header (status + timestamp).
+                            The list only needs to identify the report; status
+                            and generation time live in the detail. */}
+                        <span className="maka-daily-review-archive-row-meta">
+                          {archive.totals.sessionCount} 对话
+                          {archive.status !== 'ok' ? ` · ${DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}` : ''}
+                        </span>
+                      </ItemContent>
+                    </Item>
                   </li>
                 ))}
               </ul>

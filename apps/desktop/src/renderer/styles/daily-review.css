@@ -112,28 +112,18 @@
     padding: 0;
   }
 
+/* Migrated onto the Item primitive (round 2): hover 4% / selected 6.5%
+   fills + the stacked title-over-meta column now come from Item +
+   ItemContent, so this rule keeps only geometry (padding, radius) and the
+   selected-state border accent. `data-selected` is Item's selected hook. */
 .maka-daily-review-archive-row {
-  appearance: none;
   border: var(--border-width-hairline) solid transparent;
   border-radius: var(--radius-control);
-  background: transparent;
-  color: inherit;
-  display: grid;
-  gap: 1px;
   min-width: 0;
   padding: var(--space-1-5) var(--space-2);
-  text-align: left;
-  transition:
-    background var(--duration-quick) var(--ease-out-strong),
-    border-color var(--duration-quick) var(--ease-out-strong);
 }
 
-.maka-daily-review-archive-row:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-daily-review-archive-row[data-active="true"] {
-  background: var(--state-selected-bg);
+.maka-daily-review-archive-row[data-selected] {
   border-color: var(--border-strong);
 }
 

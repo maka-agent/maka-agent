@@ -234,7 +234,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                           <li key={connection.slug}>
                             <Item
                               className="enabledConnRow mx-2 py-2 pr-6 pl-10"
-                              data-default={connection.slug === defaultSlug ? 'true' : undefined}
+                              selected={connection.slug === defaultSlug}
                               data-test-status={connection.lastTestStatus ?? 'untested'}
                               data-disabled={connection.enabled ? undefined : 'true'}
                               aria-label={chipAriaLabel(connection)}

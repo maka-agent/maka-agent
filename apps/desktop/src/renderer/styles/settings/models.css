@@ -121,9 +121,9 @@
   border-radius: var(--radius-control);
 }
 
-.enabledConnRow[data-default="true"] {
-  background: var(--state-selected-bg);
-}
+/* The default-connection selected wash now rides the Item `selected` prop
+   (data-selected → --state-selected-bg), so no bespoke [data-default] fill
+   rule remains here — one selected-row implementation across the app. */
 
 .enabledConnRow[data-disabled="true"] {
   opacity: var(--opacity-muted);
