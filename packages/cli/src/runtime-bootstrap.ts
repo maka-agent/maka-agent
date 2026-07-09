@@ -158,22 +158,45 @@ export async function createMakaCliRuntimeContext(
 }
 
 // The CLI keeps turn-boundary history compaction but disables *in-turn* semantic
-// compaction. Firing mid-turn, it interrupts the live reply with a
+// compaction by default. Firing mid-turn, it interrupts the live reply with a
 // `Context compacted: semanticCompact` notice for small savings, which reads as
-// noise in an interactive session. Strip it from the default policy rather than
-// setting an env override, so the rest of the budget (history compact, tool-result
-// pruning) is untouched.
+// noise in an interactive session. So we drop it from the default policy rather
+// than setting an env override, leaving the rest of the budget (history compact,
+// tool-result pruning) untouched.
+//
+// But only the *default* is off: if the user explicitly opts in via
+// `MAKA_CONTEXT_SEMANTIC_COMPACT` or `MAKA_CONTEXT_SEMANTIC_COMPACT_MODE`, honor
+// it so the path can still be exercised and debugged from the CLI.
 function buildCliContextBudgetPolicy(
   connection: Parameters<typeof buildDefaultContextBudgetPolicy>[0],
   modelId: string,
+  env: Record<string, string | undefined> = process.env,
 ): ReturnType<typeof buildDefaultContextBudgetPolicy> {
   const policy = buildDefaultContextBudgetPolicy(connection, {
     name: 'cli-default-history-budget',
     modelId,
   });
   if (!policy?.semanticCompact) return policy;
+  // buildDefaultContextBudgetPolicy already reflects env-off (policy would have
+  // no semanticCompact), so reaching here means default-on or an explicit opt-in.
+  // Keep it only for the explicit opt-in; otherwise apply the CLI default (off).
+  if (userOptedIntoSemanticCompact(env)) return policy;
   const { semanticCompact: _omitted, ...rest } = policy;
   return rest;
+}
+
+// True when the environment explicitly turns semantic compaction on — either a
+// truthy `MAKA_CONTEXT_SEMANTIC_COMPACT`, or a `MAKA_CONTEXT_SEMANTIC_COMPACT_MODE`
+// set to a mode other than `off`. Mirrors the spellings the runtime policy
+// accepts. An invalid boolean would already have thrown inside the default
+// policy build above, so this only classifies well-formed values.
+function userOptedIntoSemanticCompact(env: Record<string, string | undefined>): boolean {
+  const enable = env.MAKA_CONTEXT_SEMANTIC_COMPACT?.trim().toLowerCase();
+  if (enable === '1' || enable === 'true' || enable === 'yes' || enable === 'on' || enable === 'enabled') {
+    return true;
+  }
+  const mode = env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE?.trim().toLowerCase();
+  return mode === 'validate_only' || mode === 'prepare_step_dry_run' || mode === 'replace';
 }
 
 export async function getOrCreateCliClaudeDeviceId(
