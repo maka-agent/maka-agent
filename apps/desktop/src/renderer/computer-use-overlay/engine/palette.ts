@@ -43,6 +43,24 @@ export function defaultPalette(): Palette {
 }
 
 /**
+ * Maka's brand cursor palette, derived from the app's primary token
+ * `--action` = oklch(0.62 0.19 264) (a blue/indigo). Gradient tip→tail around it
+ * plus a soft brand bloom, so the agent cursor reads as "Maka" rather than a
+ * random per-session hue. (FOLLOW-UP: thread the live --primary from the renderer
+ * so it tracks theme changes instead of this baked snapshot.)
+ */
+export function makaBrandPalette(): Palette {
+  return {
+    name: 'maka_brand',
+    cursorStart: [144, 182, 255], // lightest at the tip
+    cursorMid: [73, 126, 247], // the primary
+    cursorEnd: [71, 97, 228], // deeper at the tail
+    bloomOuter: [157, 189, 255],
+    bloomInner: [212, 229, 255],
+  };
+}
+
+/**
  * Select a palette for an instance id using the same stable-hash logic as the
  * Rust `Palette::for_instance` (a port of C# `AgentCursorPalette.ForInstance`).
  * Same id → same colour, always.

@@ -11,7 +11,7 @@
 // All units are logical points. The caller scales the canvas by devicePixelRatio
 // once, then paints in logical px.
 import { planPath, PlannedPath } from './dubins.js';
-import { defaultPalette, paletteForInstance, type Palette, type Rgb, rgba } from './palette.js';
+import { makaBrandPalette, type Palette, type Rgb, rgba } from './palette.js';
 
 const PI = Math.PI;
 
@@ -44,10 +44,13 @@ export class CursorEngine {
   pressed = false;
   private idleSecs = 0;
   private idleAlpha = 1;
-  private palette: Palette = defaultPalette();
+  private palette: Palette = makaBrandPalette();
 
-  setSession(sessionId: string): void {
-    this.palette = paletteForInstance(sessionId);
+  setSession(_sessionId: string): void {
+    // Always the Maka brand colour (per 昊卿: match the app theme, not a per-run
+    // hash). Kept the sessionId param so multi-agent hue differentiation can be
+    // added later without touching callers.
+    this.palette = makaBrandPalette();
   }
   setPalette(p: Palette): void {
     this.palette = p;
