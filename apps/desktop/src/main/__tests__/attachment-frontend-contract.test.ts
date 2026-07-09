@@ -145,3 +145,38 @@ describe('attachment frontend contract', () => {
     assert.match(markup, /maka-user-attachment-thumb-pending/);
   });
 });
+
+// #546 Phase B — attachment visual token/radius convergence.
+// The attachment thumbnail (chat-view) and file card (composer + sent turn)
+// used raw shadcn semantic classes (`bg-muted`, `border-border`,
+// `text-muted-foreground/60`) and the deprecated `rounded-lg` alias, off the
+// maka surface-alpha + radius-token system every other chat surface uses.
+// These assertions pin the converged form so the surfaces cannot drift back.
+describe('attachment visual token governance (#546)', () => {
+  it('image thumbnail placeholder uses maka surface-alpha + radius tokens, not shadcn aliases', async () => {
+    const chatView = await readRepo('packages/ui/src/chat-view.tsx');
+    const m = chatView.match(/maka-user-attachment-thumb-pending[^"]*/);
+    assert.ok(m, 'pending thumbnail className not found — component renamed?');
+    const cls = m[0];
+    // No raw shadcn surface aliases — the card next to it uses --foreground-alpha-*.
+    assert.doesNotMatch(cls, /\bbg-muted\b/, 'use bg-[var(--foreground-alpha-6)], not bg-muted');
+    assert.doesNotMatch(cls, /\bborder-border\b/, 'use border-[var(--border)], not border-border');
+    // No magic alpha stacked on the 50%-ink muted token (dips below the contrast floor).
+    assert.doesNotMatch(cls, /muted-foreground\/\d+/, 'drop the /NN alpha; use a clean --muted-foreground');
+    // No deprecated rounded-lg alias.
+    assert.doesNotMatch(cls, /\brounded-lg\b/, 'rounded-lg is the deprecated surface alias; use rounded-md');
+    assert.match(cls, /bg-\[var\(--foreground-alpha-6\)\]/, 'surface fill must be the shared --foreground-alpha-6 token');
+    assert.match(cls, /\brounded-md\b/, 'thumbnail is a surface — rounded-md (8px)');
+  });
+
+  it('file card nests radius tiers concentrically and stays off deprecated aliases', async () => {
+    const card = await readRepo('packages/ui/src/attachment-file-card.tsx');
+    // Whole file is the attachment card, so file-wide assertions are safe.
+    assert.doesNotMatch(card, /\brounded-lg\b/, 'rounded-lg is the deprecated surface alias; use rounded-md');
+    assert.doesNotMatch(card, /\bbg-muted\b/, 'surface fills use --foreground-alpha-*, not bg-muted');
+    // Outer card = surface (8px); inner icon tile + remove button = control (6px),
+    // so the nested corners read concentric instead of matching the outer radius.
+    assert.match(card, /\brounded-md\b/, 'outer card surface must be rounded-md (8px)');
+    assert.match(card, /\brounded-sm\b/, 'inner tile + control button must be rounded-sm (6px), tighter than the card');
+  });
+});

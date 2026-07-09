@@ -762,7 +762,7 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
   }, [props.attachment]);
   if (!src) {
     return (
-      <span className="maka-user-attachment-thumb-pending h-32 w-32 rounded-lg border border-border bg-muted grid place-items-center text-muted-foreground/60" aria-hidden="true">
+      <span className="maka-user-attachment-thumb-pending h-32 w-32 rounded-md border border-[var(--border)] bg-[var(--foreground-alpha-6)] grid place-items-center text-[color:var(--muted-foreground)]" aria-hidden="true">
         <Loader2 className="h-5 w-5 animate-spin" />
       </span>
     );
@@ -771,15 +771,15 @@ function AttachmentImage(props: { attachment: AttachmentRef }) {
     <>
       <button
         type="button"
-        className="group relative inline-flex rounded-lg overflow-hidden border border-border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="group relative inline-flex rounded-md overflow-hidden border border-[var(--border)] transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         onClick={() => setLightboxOpen(true)}
         aria-label={`查看图片 ${props.attachment.name}`}
       >
         <img className="h-32 w-32 object-cover transition group-hover:opacity-90" src={src} alt={props.attachment.name} />
       </button>
       <DialogRoot open={lightboxOpen} onOpenChange={setLightboxOpen}>
-        <DialogContent className="!w-auto !max-w-[90vw] !max-h-[90vh] !bg-transparent !p-0 !shadow-none !rounded-lg overflow-visible">
-          <img className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl" src={src} alt={props.attachment.name} />
+        <DialogContent className="!w-auto !max-w-[90vw] !max-h-[90vh] !bg-transparent !p-0 !shadow-none !rounded-md overflow-visible">
+          <img className="max-h-[90vh] max-w-[90vw] object-contain rounded-md shadow-2xl" src={src} alt={props.attachment.name} />
         </DialogContent>
       </DialogRoot>
     </>
