@@ -9,10 +9,15 @@
 // Usage: node scripts/audit-alignment.mjs   (expects a built renderer)
 // Rule of thumb: mixed types align CENTERS; same types also match heights.
 import { spawn } from 'node:child_process';
-const ROOT='/Users/jakevin/.slock/agents/f3545298-8201-4cd0-95cf-432e8a5987e9/maka-agent';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const ELECTRON=ROOT+'/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron';
 const FIXTURES=['module-skills','module-daily-review','plan-reminders','settings-general','fetched-empty','settings-data','settings-gateway','turn-narrative','settings-permissions'];
 let port=Number(process.env.AUDIT_PORT_BASE ?? 14600);
+let totalIssues=0;
+let fixtureErrors=0;
 const EXPR=`(()=>{
   const controls=[...document.querySelectorAll('button,[role=button],[role=switch],input,select,[role=combobox],[role=tab]')].filter(e=>{
     const r=e.getBoundingClientRect();
@@ -50,7 +55,7 @@ const EXPR=`(()=>{
 })()`;
 for(const fx of FIXTURES){
   const P=port++;
-  const child=spawn(ELECTRON,[ROOT+'/apps/desktop','--remote-debugging-port='+P,'--user-data-dir=/private/tmp/claude-501/audit-'+P+'-'+process.pid],{env:{...process.env,MAKA_VISUAL_SMOKE_FIXTURE:fx,MAKA_VISUAL_SMOKE_THEME:'light'},stdio:'ignore'});
+  const child=spawn(ELECTRON,[ROOT+'/apps/desktop','--remote-debugging-port='+P,'--user-data-dir='+join(tmpdir(),'maka-audit-'+P+'-'+process.pid)],{env:{...process.env,MAKA_VISUAL_SMOKE_FIXTURE:fx,MAKA_VISUAL_SMOKE_THEME:'light'},stdio:'ignore'});
   try{
     await new Promise(r=>setTimeout(r,8500));
     const list=await (await fetch(`http://127.0.0.1:${P}/json/list`)).json();
@@ -62,8 +67,16 @@ for(const fx of FIXTURES){
     console.log('==',fx,'==');
     const arr=JSON.parse(r.result.value);
     for(const i of arr) console.log(JSON.stringify(i));
+    totalIssues+=arr.length;
     if(!arr.length) console.log('(clean)');
-  }catch(e){console.log('==',fx,'== ERROR',e.message);}
+  }catch(e){console.log('==',fx,'== ERROR',e.message);fixtureErrors++;}
   child.kill('SIGKILL');
 }
+// CI semantics: alignment findings fail the run; fixture-level launch errors
+// fail too (a fixture that can't boot means the audit didn't actually cover it).
+if(totalIssues>0 || fixtureErrors>0){
+  console.log(`FAIL: ${totalIssues} alignment issue(s), ${fixtureErrors} fixture error(s)`);
+  process.exit(1);
+}
+console.log('alignment audit: all fixtures clean');
 process.exit(0);
