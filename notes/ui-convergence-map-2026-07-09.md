@@ -32,7 +32,15 @@ already contract-governed — the work is moving STRUCTURE onto shared primitive
 
 ## Status
 - [x] 1 Chip — SHIPPED #681 (5 recipes retired, dot prop added, contract extended)
-- [ ] 2 Item rows — started 2026-07-09
+- [~] 2 Item rows — round 2 shipped on feat/item-row-convergence: Item gained
+      `selected` (→ --state-selected-bg) + `interactive` gate. Migrated
+      enabledConnRow (data-default → selected) and daily-review archive rows
+      (UiButton → Item). providerCatalogRow already on Item. DEFERRED with
+      reasons: enabledProviderTrigger (accordion header, not a row),
+      settingsOsPermissionRow (static grid + stripe, pinned grid/div-actions),
+      daily-review session rows (composite: preview sibling outside the button),
+      maka-skill-library-row (bespoke grid + parent-li hover, skills.test.ts
+      pin — interactive={false} support landed for a future adoption).
 - [ ] 3 PageHeader
 - [ ] 4 StatTile
 - [ ] 5 SectionHeader/ActionRow
