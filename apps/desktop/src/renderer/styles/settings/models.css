@@ -189,16 +189,9 @@
 /* Gated providers carry a real trailing state badge in ItemActions (not an
  * absolute ::after), tinted by the gate reason. The row itself is a plain
  * div Item with no render prop, so it is inert — the provider-surface gate
- * never lets a gated provider read as clickable. */
-.providerCatalogRow[data-status="unavailable"] .providerCatalogBadge.is-state {
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
-}
-
-.providerCatalogRow[data-status="experimental"] .providerCatalogBadge.is-state {
-  background: oklch(from var(--warning) l c h / 0.14);
-  color: var(--warning-text);
-}
+ * never lets a gated provider read as clickable. The state badge is now the
+ * Chip primitive (info = unavailable, warning = experimental); tone→alpha
+ * lives in chip.tsx, so no bespoke .is-state tint rules remain here. */
 
 /* PR-UI-13 (@yuejing 2026-05-22): ProviderLogo size normalization.
  *

@@ -12,6 +12,7 @@ import {
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
 import { Button as UiButton, Switch, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
+import { Chip, type ChipProps } from './primitives/chip.js';
 import { Input } from './primitives/input.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
@@ -273,9 +274,9 @@ function SkillLibraryPanel(props: {
                           appears for states the switch can't express
                           (state_error). 已启用/已停用 stay in the hover text. */}
                       {skill.runtimeStatus === 'state_error' && (
-                        <span className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</span>
+                        <Chip size="sm" variant="warning" className="maka-skill-library-runtime-label" data-status={skill.runtimeStatus}>{runtimeLabel}</Chip>
                       )}
-                      <span className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</span>
+                      <Chip size="sm" variant={skillStatusChipTone(skill)} className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</Chip>
                       {opening && <span>打开中…</span>}
                       {updating && <span>更新中…</span>}
                       {toggling && <span>切换中…</span>}
@@ -559,6 +560,21 @@ function formatSkillStatusLabel(skill: SkillEntry): string {
 function formatSkillRuntimeLabel(skill: SkillEntry): string {
   if (skill.runtimeStatus === 'state_error') return '状态异常';
   return skill.enabled ? '已启用' : '已停用';
+}
+
+// Derive the source-status Chip tone from the same data-status the retired
+// .maka-skill-library-status-label CSS keyed off. Exception-only: 内置 / 本地
+// (expected states) stay neutral; only genuine attention states carry a tone.
+//   metadata_error / local_modified → warning (needs the user's attention)
+//   受管理 (managed base) → info (managed but nothing wrong)
+//   bundled / workspace default → neutral
+function skillStatusChipTone(skill: SkillEntry): ChipProps['variant'] {
+  if (skill.validationStatus === 'metadata_error') return 'warning';
+  if (skill.sourceType === 'managed') {
+    if (skill.managedUpdateStatus === 'local_modified' || skill.managedUpdateStatus === 'metadata_error') return 'warning';
+    return 'info';
+  }
+  return 'neutral';
 }
 
 function previewText(content: string): string {

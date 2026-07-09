@@ -49,10 +49,36 @@ test('chip converge (#520 PR9)', async () => {
     'apps/desktop/src/renderer/settings/memory-settings-page.tsx',
     'apps/desktop/src/renderer/settings/account-settings-page.tsx',
     'apps/desktop/src/renderer/settings/provider-oauth-section.tsx',
+    // Round 1 convergence (#520 follow-up): hand-rolled status-chip recipes
+    // collapsed onto Chip. These call sites GAIN Chip coverage — the retired
+    // CSS labels (settingsBotStatusPill, providerCatalogBadge.is-state, and
+    // the packages/ui status labels) now render the primitive.
+    'apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx',
+    'apps/desktop/src/renderer/settings/provider-catalog.tsx',
+    'packages/ui/src/skills-panel.tsx',
+    'packages/ui/src/plan-reminder-panel.tsx',
+    'packages/ui/src/daily-review-panel.tsx',
   ];
   for (const rel of settingsChipFiles) {
     assert.match(read(rel), CHIP_IMPORT_RE, `${rel} must import Chip`);
   }
+
+  // 5b. Chip gains a `dot` prop (leading 6px currentColor round dot) — the
+  // "● 已连接" affordance retired from .settingsBotStatusPill. bot-chat renders
+  // the dotted Chip so the connection affordance survives the migration.
+  assert.match(chipSrc, /\bdot\?:\s*boolean/, 'Chip must expose a dot? prop');
+  assert.match(
+    chipSrc,
+    /data-slot="chip-dot"[\s\S]*bg-current[\s\S]*opacity-70/,
+    'Chip dot must be a currentColor round dot at 70% alpha',
+  );
+  const botChatSrc = read('apps/desktop/src/renderer/settings/bot-chat-settings-page.tsx');
+  assert.match(botChatSrc, /<Chip\s+dot\b/, 'BotStatusPill must render a dotted Chip');
+  assert.doesNotMatch(
+    read('apps/desktop/src/renderer/styles/settings/bot.css'),
+    /\.settingsBotStatusPillDot\s*\{/,
+    'settingsBotStatusPillDot CSS must be retired (dot now lives on Chip)',
+  );
 
   // 6. Chip neutral variant tokens — bg = foreground-5 (bg-secondary aliases
   //    --color-secondary = var(--foreground-5)), text = foreground-secondary

@@ -336,14 +336,19 @@ function AccountAuthActionView(props: {
       </Button>
     );
   }
+  // Non-interactive guidance label sitting next to the real 测试凭据 button.
+  // Migrated onto the squared Chip primitive (tone→alpha authority); the
+  // AccountAuthTone union (neutral/info/success/warning/destructive) maps 1:1
+  // to Chip variants. The preview-kind dashed-border affordance stays in CSS.
   return (
-    <span
+    <Chip
+      variant={props.action.tone}
       className="settingsAuthActionPill"
       data-kind={props.action.kind}
       data-tone={props.action.tone}
       title={props.action.detail}
     >
       {props.action.label}
-    </span>
+    </Chip>
   );
 }
