@@ -270,12 +270,23 @@ describe('cua-driver backend', () => {
     assert.ok(!trace.includes('tools/call:click'), 'no click sent when no window (would warp)');
   });
 
-  it('scroll fails closed (desktop-scope scroll warps the real cursor)', async () => {
+  it('scroll on an app window → pid+window_id (no warp); empty desktop fails closed', async () => {
     const { backend, logPath } = makeBackend();
-    const res = await backend.run({ type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, new AbortController().signal);
-    assert.equal(res.outcome.ok, false);
-    const trace = methodTrace(await readRecords(logPath));
-    assert.ok(!trace.includes('tools/call:scroll'), 'scroll must never be sent');
+    const sig = new AbortController().signal;
+    // On a window: device (600,400) → screen (300,200) is inside the mock window.
+    const onWin = await backend.run({ type: 'scroll', coordinate: { x: 600, y: 400 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, sig);
+    assert.equal(onWin.outcome.ok, true);
+    const scroll = toolCall(await readRecords(logPath), 'scroll');
+    assert.ok(scroll, 'scroll sent when a window is under the point');
+    assert.equal(scroll!.pid, 4242);
+    assert.equal(scroll!.window_id, 77);
+    assert.equal(scroll!.scope, undefined, 'must NOT use scope:desktop');
+    assert.equal(scroll!.direction, 'down');
+    assert.equal(scroll!.amount, 3);
+
+    // Empty desktop → fail closed (device (5,5) → screen (2.5,2.5), outside window).
+    const empty = await backend.run({ type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, sig);
+    assert.equal(empty.outcome.ok, false);
   });
 
   it('mouse_move succeeds without touching cua-driver (visual agent-cursor only)', async () => {

@@ -409,15 +409,28 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           const r = await client.callTool('click', args, signal);
           return { outcome: toOutcome(r, undefined) };
         }
-        case 'scroll':
-          // Same hazard as click: desktop-scope scroll warps the real cursor. Fail closed.
-          return {
-            outcome: {
-              ok: false,
-              error: 'unsupported_action',
-              message: "'scroll' is disabled on the cua-driver backend: desktop-scope scroll moves the user's real cursor; pid-targeted scroll not yet wired.",
-            },
-          };
+        case 'scroll': {
+          // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
+          // (no cursor warp — the warp only exists in the empty-desktop click path).
+          // Resolve the window under the point and scroll it window-locally; fail
+          // closed on empty desktop (nothing scrollable there anyway).
+          const win = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          if (!win) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message: "no app window under the scroll point (empty desktop) — refusing 'scroll'. Scroll over an app window instead.",
+              },
+            };
+          }
+          const r = await client.callTool(
+            'scroll',
+            { pid: win.pid, window_id: win.windowId, x: win.localX, y: win.localY, direction: action.scrollDirection, amount: action.scrollAmount },
+            signal,
+          );
+          return { outcome: toOutcome(r, undefined) };
+        }
         case 'type':
         case 'key':
           // FAIL CLOSED — see the module header. cua-driver keyboard is background-
