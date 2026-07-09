@@ -41,7 +41,7 @@ already contract-governed — the work is moving STRUCTURE onto shared primitive
       daily-review session rows (composite: preview sibling outside the button),
       maka-skill-library-row (bespoke grid + parent-li hover, skills.test.ts
       pin — interactive={false} support landed for a future adoption).
-- [ ] 3 PageHeader
+- [ ] 3 PageHeader — next
 - [ ] 4 StatTile
 - [ ] 5 SectionHeader/ActionRow
 
