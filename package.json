@@ -26,7 +26,9 @@
     "check:stale": "node scripts/check-stale-dist.mjs",
     "prepare:officecli": "node scripts/prepare-officecli.mjs",
     "check:officecli-bundle": "node scripts/check-officecli-bundle.mjs",
-    "check:release": "npm run check:stale && npm run check:officecli-bundle && node scripts/check-dead-css.mjs --check",
+    "prepare:cua-driver": "node scripts/prepare-cua-driver.mjs",
+    "check:cua-driver-bundle": "node scripts/check-cua-driver-bundle.mjs",
+    "check:release": "npm run check:stale && npm run check:officecli-bundle && npm run check:cua-driver-bundle && node scripts/check-dead-css.mjs --check",
     "check:chat-visual": "electron scripts/check-chat-marker-computed-style.mjs",
     "cost:deepseek-baseline": "node scripts/deepseek-live-cost-baseline.mjs"
   },

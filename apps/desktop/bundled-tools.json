@@ -8,5 +8,13 @@
       "win32-arm64": "officecli-win-arm64.exe",
       "win32-x64": "officecli-win-x64.exe"
     }
+  },
+  "cuaDriver": {
+    "repo": "trycua/cua",
+    "version": "v0.7.1",
+    "tag": "cua-driver-rs-v0.7.1",
+    "asset": "cua-driver-rs-0.7.1-darwin-universal-binary.tar.gz",
+    "binaryName": "cua-driver",
+    "sha256": "43a78c1789c6f0fff12f87b5d4089e4d4da5f256832ca9a7c5f5fdaa79ba76d4"
   }
 }
