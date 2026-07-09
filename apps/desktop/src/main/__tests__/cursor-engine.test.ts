@@ -54,13 +54,18 @@ test('engine glides + spring-settles onto target+offset, no NaN', () => {
   assert.ok(frames > 20 && frames < 60 * 6, `glide duration sane (${(frames / 60).toFixed(2)}s)`);
 });
 
-test('first move snaps in from off-screen sentinel (no wild glide from -200)', () => {
+test('first move glides IN from off-screen (not a pop) and converges to target', () => {
   const e = new CursorEngine();
-  // sentinel start
   assert.ok(e.pos[0] < -100, 'starts off-screen');
   e.moveTo(400, 400);
   e.tick(1 / 60);
-  assert.ok(e.pos[0] > 0 && e.pos[1] > 0, 'came on-screen on first move');
+  // Entered on-screen but NOT already at the target — it's gliding in.
+  assert.ok(e.pos[0] > 0 && e.pos[0] < 400, `entering, still gliding (pos ${e.pos[0]})`);
+  let frames = 1;
+  while (e.isMoving() && frames < 600) { e.tick(1 / 60); frames++; }
+  const tx = 400 + Math.cos(Math.PI / 4) * 16;
+  const ty = 400 + Math.sin(Math.PI / 4) * 16;
+  assert.ok(Math.hypot(e.pos[0] - tx, e.pos[1] - ty) < 1.5, 'converged to target+offset');
 });
 
 test('click pulse clears over ~0.25s', () => {

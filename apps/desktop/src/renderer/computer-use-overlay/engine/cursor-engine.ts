@@ -61,8 +61,13 @@ export class CursorEngine {
   moveTo(x: number, y: number, endHeading: number = REST_HEADING, clickOnArrive = false): void {
     const tx = x + Math.cos(endHeading) * CLICK_OFFSET;
     const ty = y + Math.sin(endHeading) * CLICK_OFFSET;
-    // Sentinel: on the very first move snap onto the target so the path starts on-screen.
-    if (this.pos[0] < -50) this.pos = [tx, ty];
+    // First appearance: enter from up-and-left of the target so the cursor visibly
+    // GLIDES in (Dubins path) rather than popping into place — much easier to spot
+    // on a short turn. (Was: snap to target = instant pop.)
+    if (this.pos[0] < -50) {
+      this.pos = [tx - 240, ty - 170];
+      this.heading = REST_HEADING;
+    }
     const [x0, y0] = this.pos;
     const th0 = this.heading + PI;
     const th1 = endHeading + PI;
