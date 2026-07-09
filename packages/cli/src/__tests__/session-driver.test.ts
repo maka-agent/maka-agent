@@ -438,7 +438,7 @@ describe('Maka session driver', () => {
     }]);
   });
 
-  test('lists rewind targets newest-first, one per prompted turn, excluding the latest', async () => {
+  test('lists rewind targets newest-first, one per prompted turn, including the latest', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
       runtime,
@@ -457,15 +457,21 @@ describe('Maka session driver', () => {
 
     const targets = await driver.listRewindTargets();
 
-    // turn-3 is the latest → excluded. Remaining newest-first, label = first
-    // non-empty prompt line.
+    // Rewinding resets to *before* a turn, so the latest turn (turn-3) is itself a
+    // valid target (undo it, edit its prompt, resend). All prompted turns appear
+    // newest-first, label = first non-empty prompt line.
     assert.deepEqual(targets, [
+      { turnId: 'turn-3', label: 'third question' },
       { turnId: 'turn-2', label: 'second question' },
       { turnId: 'turn-1', label: 'first question' },
     ]);
   });
 
-  test('keeps the last prompted turn as a target when the head is a non-prompt turn (e.g. compact)', async () => {
+  test('surfaces the interrupted latest turn as a rewind target', async () => {
+    // Regression: interrupting a turn leaves its (aborted) turn_state as the last
+    // message, so the old head-exclusion dropped exactly the turn the user wanted
+    // to redo. Every prompted turn is now a target regardless of the trailing
+    // message.
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
       runtime,
@@ -474,9 +480,30 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
     await collect(driver.sendPrompt('first question'));
-    // After /compact the conversation head is the compact turn (no user
-    // message). turn-2 is still a real, rewindable turn: rewinding to it
-    // discards the compact, so it must not be dropped as "the latest turn".
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'first question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      storedUserMessage('user-2', 'turn-2', 'interrupted question'),
+      storedTurnState('state-2', 'turn-2', 'aborted'),
+    ]);
+
+    assert.deepEqual(await driver.listRewindTargets(), [
+      { turnId: 'turn-2', label: 'interrupted question' },
+      { turnId: 'turn-1', label: 'first question' },
+    ]);
+  });
+
+  test('keeps all prompted turns as targets when the head is a non-prompt turn (e.g. compact)', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    // A /compact turn has no user message, so it never becomes a target itself;
+    // the prompted turns around it stay listed unchanged.
     runtime.sessionMessages.set('session-1', [
       storedUserMessage('user-1', 'turn-1', 'first question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
@@ -513,7 +540,7 @@ describe('Maka session driver', () => {
     ]);
   });
 
-  test('lists no rewind targets before a session starts or with a single turn', async () => {
+  test('lists no rewind targets before a session starts, but the sole turn once one exists', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
       runtime,
@@ -528,10 +555,14 @@ describe('Maka session driver', () => {
       storedUserMessage('user-1', 'turn-1', 'only question'),
       storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
     ]);
-    assert.deepEqual(await driver.listRewindTargets(), []);
+    // The single turn is now rewindable: reset to before it (an empty branch) and
+    // refill its prompt.
+    assert.deepEqual(await driver.listRewindTargets(), [
+      { turnId: 'turn-1', label: 'only question' },
+    ]);
   });
 
-  test('rewinds by branching through the turn and switching onto the branch', async () => {
+  test('rewinds by branching before the turn, switching onto the branch, and returning its prompt', async () => {
     const repo = await mkdtemp(join(tmpdir(), 'maka-rewind-cwd-'));
     try {
       const runtime = new RecordingRuntime();
@@ -539,7 +570,7 @@ describe('Maka session driver', () => {
       runtime.sessionMessages.set('session-1', [
         storedUserMessage('user-1', 'turn-1', 'first question'),
         storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
-        storedUserMessage('user-2', 'turn-2', 'second question'),
+        storedUserMessage('user-2', 'turn-2', 'second question\nwith detail'),
       ]);
       const driver = createMakaSessionDriver({
         runtime,
@@ -549,14 +580,36 @@ describe('Maka session driver', () => {
       });
       await driver.switchSession('session-1');
 
-      const result = await driver.rewindToTurn('turn-1');
+      const result = await driver.rewindToTurn('turn-2');
 
-      assert.deepEqual(runtime.branched, [{ sessionId: 'session-1', sourceTurnId: 'turn-1' }]);
+      // Branches *before* turn-2 (dropping it), and returns turn-2's full prompt
+      // — the whole text, not the one-line label — for the editor to refill.
+      assert.deepEqual(runtime.branchedBefore, [{ sessionId: 'session-1', sourceTurnId: 'turn-2' }]);
+      assert.deepEqual(runtime.branched, []);
       assert.equal(result.summary.id, 'session-1-branch');
+      assert.equal(result.prompt, 'second question\nwith detail');
       assert.equal(driver.getSessionId(), 'session-1-branch');
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
+  });
+
+  test('rejects rewind to a turn with no user prompt', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'first question'),
+      storedContextCompactedNote('note-1', 'turn-compact'),
+    ]);
+
+    await assert.rejects(driver.rewindToTurn('turn-compact'), /no user prompt/);
+    assert.deepEqual(runtime.branchedBefore, []);
   });
 
   test('rejects rewind before a session starts', async () => {
@@ -568,7 +621,7 @@ describe('Maka session driver', () => {
       model: 'claude-sonnet-4-5',
     });
     await assert.rejects(driver.rewindToTurn('turn-1'), /before a session starts/);
-    assert.deepEqual(runtime.branched, []);
+    assert.deepEqual(runtime.branchedBefore, []);
   });
 
   test('startNewSession makes the next prompt create a fresh session, keeping settings', async () => {
@@ -603,6 +656,7 @@ class RecordingRuntime {
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
+  readonly branchedBefore: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -703,6 +757,15 @@ class RecordingRuntime {
 
   async branchFromTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
     this.branched.push({ sessionId, sourceTurnId: input.sourceTurnId });
+    return this.recordBranch(sessionId);
+  }
+
+  async branchBeforeTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
+    this.branchedBefore.push({ sessionId, sourceTurnId: input.sourceTurnId });
+    return this.recordBranch(sessionId);
+  }
+
+  private recordBranch(sessionId: string): SessionSummary {
     // Model a branch by adding a new summary to the list switchSession reads.
     const source = this.sessionSummaries.find((session) => session.id === sessionId);
     const branch: SessionSummary = {
@@ -771,6 +834,17 @@ function storedContextCompactedNote(id: string, turnId: string): StoredMessage {
     turnId,
     ts: 3,
     kind: 'context_compacted',
+  };
+}
+
+function storedTurnState(id: string, turnId: string, status: 'completed' | 'aborted' | 'failed'): StoredMessage {
+  return {
+    type: 'turn_state',
+    id,
+    turnId,
+    ts: 4,
+    status,
+    partialOutputRetained: false,
   };
 }
 

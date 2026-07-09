@@ -4552,6 +4552,74 @@ describe('SessionManager permission mode updates', () => {
     await drain(manager.sendMessage(child.id, { turnId: 'child-turn', text: 'continue' }));
     expect(contexts.find((ctx) => ctx.sessionId === child.id)?.header.thinkingLevel).toBe('high');
   });
+
+  test('branchBeforeTurn keeps everything strictly before the turn, dropping it and later turns', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(16_000) });
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'first', text: 'keep me' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'second', text: 'drop me' }));
+
+    const child = await manager.branchBeforeTurn(session.id, { sourceTurnId: 'second', name: 'Child' });
+
+    expect(child.parentSessionId).toBe(session.id);
+    expect(child.branchOfTurnId).toBe('second');
+    const childMessages = await store.readMessages(child.id);
+    expect(childMessages.some((message) => (message as { turnId?: string }).turnId === 'first')).toBe(true);
+    expect(childMessages.some((message) => (message as { turnId?: string }).turnId === 'second')).toBe(false);
+    expect(childMessages.some((message) => message.type === 'turn_state')).toBe(false);
+    // The dropped turn is untouched in the original session.
+    const parentMessages = await store.readMessages(session.id);
+    expect(parentMessages.some((message) => (message as { turnId?: string }).turnId === 'second')).toBe(true);
+  });
+
+  test('branchBeforeTurn on the first turn yields an empty-context branch that can continue', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(16_500) });
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'only', text: 'the one prompt' }));
+
+    const child = await manager.branchBeforeTurn(session.id, { sourceTurnId: 'only', name: 'Child' });
+
+    expect(child.parentSessionId).toBe(session.id);
+    const childMessages = await store.readMessages(child.id);
+    // Only the session_start note — no copied user/assistant messages.
+    expect(childMessages.some((message) => message.type === 'user' || message.type === 'assistant')).toBe(false);
+    expect(childMessages.some((message) => message.type === 'system_note')).toBe(true);
+    // The empty branch is a normal session: the next prompt runs fine.
+    await drain(manager.sendMessage(child.id, { turnId: 'child-turn', text: 'restart' }));
+    expect((await store.readMessages(child.id)).some((message) => message.type === 'user')).toBe(true);
+  });
+
+  test('branchBeforeTurn rejects an unknown turn', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'end_turn' },
+    ]));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(16_800) });
+    const session = await manager.createSession(makeInput({ name: 'Parent' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'only', text: 'the one prompt' }));
+
+    let branchError: unknown;
+    try {
+      await manager.branchBeforeTurn(session.id, { sourceTurnId: 'nope' });
+    } catch (error) {
+      branchError = error;
+    }
+    expect(branchError instanceof Error ? branchError.message : String(branchError)).toContain('Cannot branch before unknown turn');
+  });
 });
 
 class DelegatingRuntimeKernel implements RuntimeKernelLike {

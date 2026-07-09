@@ -3,7 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
-import type { MakaSessionDriver, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
+import type { MakaSessionDriver, MakaSessionRewindResult, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
@@ -1595,8 +1595,10 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
     await waitFor(() => driver.rewound.length === 1);
     assert.deepEqual(driver.rewound, ['turn-2']);
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('已回退到选定轮次'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('已回退到该轮之前'));
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('first answer'));
+    // The rewound turn's prompt is refilled into the editor for an edit-and-resend.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('refilled: turn-2'));
 
     terminal.input('\x03');
     await Promise.race([
@@ -2193,7 +2195,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2269,7 +2271,7 @@ class PermissionPromptDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2320,7 +2322,7 @@ class InterruptibleTurnDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2375,7 +2377,7 @@ class SlowStopDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2440,7 +2442,7 @@ class HangingStopDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2495,7 +2497,7 @@ class ThinkingOutputDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2563,7 +2565,7 @@ class ToolOutputDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2638,7 +2640,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(_turnId: string): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(_turnId: string): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {
@@ -2767,7 +2769,7 @@ class DeferredControlDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2820,7 +2822,7 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2905,7 +2907,7 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2950,7 +2952,7 @@ class QuickErrorDriver implements MakaSessionDriver {
   async listRewindTargets(): Promise<RewindTarget[]> {
     return [];
   }
-  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(): Promise<MakaSessionRewindResult> {
     throw new Error('rewind not supported in this fake');
   }
   startNewSession(): void {}
@@ -2973,9 +2975,12 @@ class RewindDriver extends SlashCommandDriver {
     return this.targets;
   }
 
-  override async rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult> {
+  override async rewindToTurn(turnId: string): Promise<MakaSessionRewindResult> {
     this.rewound.push(turnId);
-    return switchResult(fakeSessionSummary('session-branch'), [...this.branchMessages]);
+    return {
+      ...switchResult(fakeSessionSummary('session-branch'), [...this.branchMessages]),
+      prompt: `refilled: ${turnId}`,
+    };
   }
 }
 

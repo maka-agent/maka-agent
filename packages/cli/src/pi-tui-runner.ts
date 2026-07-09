@@ -349,16 +349,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  // Rewind branches the active session through the chosen turn and switches onto
-  // the branch (driver.rewindToTurn). The original session is left intact, so
-  // this is non-destructive and inherits the branch's resume guarantees.
+  // Rewind branches the active session to just before the chosen turn and
+  // switches onto the branch (driver.rewindToTurn), then refills the editor with
+  // that turn's prompt. The original session is left intact, so this is
+  // non-destructive and inherits the branch's resume guarantees.
   const rewindToTurn = async (turnId: string) => {
     const result = await input.driver.rewindToTurn(turnId);
     applySwitchResult(result);
+    // Refill the editor with the discarded turn's prompt so the user can edit
+    // and resend it. The picker only arms when the editor is neutral (empty
+    // draft, no autocomplete), so overwriting the text loses no in-progress work.
+    editor.setText(result.prompt);
     state.entries.push({
       kind: 'notice',
       level: 'info',
-      text: '已回退到选定轮次（分支为新会话，原会话保留）。',
+      text: '已回退到该轮之前（分支为新会话，原会话保留），该轮 prompt 已回填输入框，可修改后重新发送。',
     });
     requestRender();
   };
@@ -459,7 +464,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: target.label,
     }));
     showSelectPicker(
-      'Rewind — 回到选定轮次（保留到此轮，丢弃之后）',
+      'Rewind — 回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）',
       'Rewind',
       items,
       (item) => {
