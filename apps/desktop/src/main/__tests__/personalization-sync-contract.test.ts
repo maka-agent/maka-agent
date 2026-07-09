@@ -1,10 +1,18 @@
 /**
  * Source-grounded contract for PR-PERSONALIZATION-SYNC-0
- * (WAWQAQ msg 23c079a9 round 7). The personalization form
- * initializes from `props.settings.personalization` once on mount.
- * Without a sync effect, the visible inputs diverge from the
- * persisted store after server-side sanitization rewrites the
- * saved value.
+ * (WAWQAQ msg 23c079a9 round 7) + PR-TONE-AUTOSAVE-0.
+ *
+ * The personalization form initializes from
+ * `props.settings.personalization` once on mount. Without a sync
+ * effect, the visible inputs diverge from the persisted store after
+ * server-side sanitization rewrites the saved value.
+ *
+ * PR-TONE-AUTOSAVE-0: the block used to carry the page's only explicit
+ * save control + helper line while every neighbor persisted silently on
+ * change/blur. It now autosaves like its siblings — 显示名称 flushes on
+ * blur, 界面语言 persists on change, 助手语气偏好 debounces mid-typing and
+ * flushes on blur — with no button and no success toast (silence is the
+ * page's success language; only failures surface via toast.error).
  */
 
 import { strict as assert } from 'node:assert';
@@ -17,7 +25,10 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     const src = await readSettingsCombinedSource();
     const pageStart = src.indexOf('function PersonalizationSettingsPage');
     assert.notEqual(pageStart, -1, 'PersonalizationSettingsPage must exist');
-    return src.slice(pageStart, pageStart + 7000);
+    // Window widened for PR-TONE-AUTOSAVE-0: the autosave rewrite added the
+    // shared persist path + per-field handlers, pushing the tone textarea's
+    // blur flush (the last JSX row) past the old 7000-char slice.
+    return src.slice(pageStart, pageStart + 8500);
   }
 
   it('PersonalizationSettingsPage syncs state when persisted personalization changes', async () => {
@@ -30,6 +41,13 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
       head,
       /useEffect\(\(\) => \{[\s\S]*?setDisplayName\(value\.displayName\)[\s\S]*?setAssistantTone\(value\.assistantTone\)[\s\S]*?setUiLocale\(value\.uiLocale\)[\s\S]*?\},\s*\[\s*value\.displayName,\s*value\.assistantTone,\s*value\.uiLocale,?\s*\]\)/,
       'PersonalizationSettingsPage must sync local state when persisted values change',
+    );
+    // The sync must not clobber a value the user is mid-editing while an
+    // autosave for it is still in flight — guarded on the pending count.
+    assert.match(
+      head,
+      /if \(persistPendingCountRef\.current > 0\) return;[\s\S]*?setDisplayName\(value\.displayName\)/,
+      'Personalization state sync must skip while an autosave is in flight',
     );
   });
 
@@ -48,63 +66,124 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     );
   });
 
-  it('PersonalizationSettingsPage gates saves synchronously and freezes the draft while saving', async () => {
+  it('PersonalizationSettingsPage autosaves via a last-write-wins persist path', async () => {
     const page = await readPersonalizationPage();
 
+    // Shared persist helper takes a partial personalization patch and
+    // routes through onUpdate.
     assert.match(
       page,
-      /const savingRef = useRef\(false\)/,
-      'Personalization save must have a synchronous ref gate, not only React state',
+      /async function persistPersonalization\(patch: Partial<PersonalizationSettings>\) \{[\s\S]*?await props\.onUpdate\(\{ personalization: patch \}\)/,
+      'Personalization must persist a partial patch through a shared autosave path',
+    );
+    // Monotonic ticket disambiguates overlapping in-flight saves so a
+    // stale earlier response can't clobber a newer write (last write wins).
+    assert.match(
+      page,
+      /const persistTicketRef = useRef\(0\)/,
+      'Personalization autosave must carry a monotonic ticket for last-write-wins',
     );
     assert.match(
       page,
-      /async function save\(\) \{[\s\S]*if \(savingRef\.current\) return;[\s\S]*savingRef\.current = true;[\s\S]*setSaving\(true\)/,
-      'Personalization save must lock before the first async settings update',
+      /const ticket = \+\+persistTicketRef\.current;[\s\S]*?if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;/,
+      'Personalization autosave must ignore responses whose ticket is no longer current',
     );
     assert.match(
       page,
-      /finally \{[\s\S]*savingRef\.current = false;[\s\S]*setSaving\(false\)/,
-      'Personalization save must release the synchronous gate in finally',
-    );
-    assert.match(
-      page,
-      /disabled=\{saving\}[\s\S]*aria-label="显示名称"/,
-      'Display name input must freeze while the saved payload is in flight',
-    );
-    assert.match(
-      page,
-      /ariaLabel="界面语言"[\s\S]*disabled=\{saving\}/,
-      'Locale segmented control must freeze while the saved payload is in flight',
-    );
-    assert.match(
-      page,
-      /disabled=\{saving\}[\s\S]*aria-label="助手语气偏好"/,
-      'Assistant tone textarea must freeze while the saved payload is in flight',
-    );
-    assert.match(
-      page,
-      /disabled=\{saving\}[\s\S]*aria-busy=\{saving\}[\s\S]*data-pending=\{saving \? 'true' : undefined\}/,
-      'Save button must expose pending state to the UI and accessibility tree',
+      /const persistPendingCountRef = useRef\(0\)/,
+      'Personalization autosave must track pending saves so the sync effect can defer',
     );
   });
 
-  it('PersonalizationSettingsPage describes the save action with its persistence boundary copy', async () => {
+  it('PersonalizationSettingsPage debounces the tone textarea and flushes on blur', async () => {
+    const page = await readPersonalizationPage();
+
+    // A debounce timer + a fixed interval constant.
+    assert.match(
+      page,
+      /const TONE_AUTOSAVE_DEBOUNCE_MS = \d+/,
+      'Tone autosave must debounce on a fixed interval constant',
+    );
+    assert.match(
+      page,
+      /const toneDebounceRef = useRef<ReturnType<typeof setTimeout> \| null>\(null\)/,
+      'Tone autosave must hold a debounce timer ref',
+    );
+    assert.match(
+      page,
+      /function scheduleToneSave\([\s\S]*?toneDebounceRef\.current = setTimeout\([\s\S]*?assistantTone:[\s\S]*?\},\s*TONE_AUTOSAVE_DEBOUNCE_MS\)/,
+      'Tone autosave must schedule a debounced persist after the user stops typing',
+    );
+    // Blur wins immediately: clears the pending timer and persists now.
+    assert.match(
+      page,
+      /function flushTone\([\s\S]*?clearTimeout\(toneDebounceRef\.current\)[\s\S]*?persistPersonalization\(\{ assistantTone:/,
+      'Tone blur must clear the debounce timer and flush the save immediately',
+    );
+    assert.match(
+      page,
+      /onBlur=\{\(event\) => flushTone\(event\.currentTarget\.value\)\}/,
+      'Tone textarea must flush on blur',
+    );
+    // The tone textarea change handler must schedule the debounced save.
+    assert.match(
+      page,
+      /onChange=\{\(event\) => \{[\s\S]*?setAssistantTone\(event\.currentTarget\.value\);[\s\S]*?scheduleToneSave\(event\.currentTarget\.value\);/,
+      'Tone textarea onChange must schedule the debounced autosave',
+    );
+  });
+
+  it('PersonalizationSettingsPage autosaves display name on blur and locale on change', async () => {
     const page = await readPersonalizationPage();
 
     assert.match(
       page,
-      /const personalizationSaveHelpId = useId\(\)/,
-      'Personalization save help copy must have a stable React-generated id',
+      /onBlur=\{\(event\) => flushDisplayName\(event\.currentTarget\.value\)\}[\s\S]*?aria-label="显示名称"/,
+      'Display name must flush its autosave on blur',
     );
     assert.match(
+      page,
+      /onChange=\{\(next\) => persistLocale\(next as UiLocalePreference\)\}[\s\S]*?ariaLabel="界面语言"/,
+      'Locale segmented control must persist immediately on change',
+    );
+  });
+
+  it('PersonalizationSettingsPage has no explicit save control in the personalization block', async () => {
+    const page = await readPersonalizationPage();
+
+    // Autosave siblings never render an in-row commit control; the block
+    // must not reintroduce one, nor its describing helper id/copy.
+    assert.doesNotMatch(
+      page,
+      /<Button[\s\S]*?onClick=\{\(\) => void save\(\)\}/,
+      'Personalization block must not carry an in-row commit control',
+    );
+    assert.doesNotMatch(
+      page,
+      /const personalizationSaveHelpId = useId\(\)/,
+      'The dropped commit control must not leave its describing help id behind',
+    );
+    assert.doesNotMatch(
       page,
       /aria-describedby=\{personalizationSaveHelpId\}/,
-      'Personalization save button must reference the visible persistence boundary help text',
+      'No control should reference the removed persistence-boundary help copy',
     );
-    assert.match(
+  });
+
+  it('PersonalizationSettingsPage stays silent on success (no toast, autosave language)', async () => {
+    const page = await readPersonalizationPage();
+
+    // Silence is the page's success language — matching every autosave
+    // sibling. No confirmation toast on a successful persist.
+    assert.doesNotMatch(
       page,
-      /<p id=\{personalizationSaveHelpId\} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。<\/p>/,
-      'Personalization save help text must remain visible and programmatically associated',
+      /toast\.success\(/,
+      'Personalization autosave must not fire a success toast',
+    );
+    assert.doesNotMatch(
+      page,
+      /toast\.warning\(/,
+      'Personalization autosave must not fire a warning toast',
     );
   });
 
@@ -118,33 +197,27 @@ describe('Personalization form state sync (PR-PERSONALIZATION-SYNC-0)', () => {
     );
     assert.match(
       page,
-      /useEffect\(\(\) => \{[\s\S]*personalizationMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*personalizationMountedRef\.current = false;[\s\S]*savingRef\.current = false;/,
-      'Personalization cleanup must release the synchronous save owner when Settings closes',
+      /useEffect\(\(\) => \{[\s\S]*personalizationMountedRef\.current = true;[\s\S]*return \(\) => \{[\s\S]*personalizationMountedRef\.current = false;/,
+      'Personalization cleanup must release page ownership when Settings closes',
     );
+    // Cleanup must invalidate any in-flight save's late apply (bump ticket)
+    // and drop a pending debounced flush so it can't fire post-unmount.
     assert.match(
       page,
-      /const result = await props\.onUpdate\([\s\S]*?\);[\s\S]*if \(!personalizationMountedRef\.current\) return;[\s\S]*applyUiLocale\(uiLocale\);/,
+      /return \(\) => \{[\s\S]*persistTicketRef\.current \+= 1;[\s\S]*clearTimeout\(toneDebounceRef\.current\)/,
+      'Personalization cleanup must invalidate in-flight saves and cancel the pending debounce',
+    );
+    // A stale locale must not be applied after Settings closes: the mount +
+    // ticket guard gates the applyUiLocale side effect.
+    assert.match(
+      page,
+      /if \(!personalizationMountedRef\.current \|\| ticket !== persistTicketRef\.current\) return;[\s\S]*applyUiLocale\(patch\.uiLocale\)/,
       'Personalization save must not apply a stale UI locale after Settings is closed',
     );
     assert.match(
       page,
-      /if \(warnings\) \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.warning\('已保存并做安全清理'/,
-      'Personalization warning toast must only fire while the page is still mounted',
-    );
-    assert.match(
-      page,
-      /else \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.success\('个性化已保存'\)/,
-      'Personalization success toast must only fire while the page is still mounted',
-    );
-    assert.match(
-      page,
-      /catch \(error\) \{[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
-      'Personalization failure toast must only fire while the page is still mounted',
-    );
-    assert.match(
-      page,
-      /finally \{[\s\S]*savingRef\.current = false;[\s\S]*if \(personalizationMountedRef\.current\) \{[\s\S]*setSaving\(false\);/,
-      'Personalization save cleanup must not write React state after unmount',
+      /catch \(error\) \{[\s\S]*if \(personalizationMountedRef\.current && ticket === persistTicketRef\.current\) \{[\s\S]*toast\.error\('保存失败', settingsActionErrorMessage\(error\)\)/,
+      'Personalization failure toast must only fire while the page still owns the save',
     );
   });
 });

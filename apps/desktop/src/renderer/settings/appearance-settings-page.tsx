@@ -1,13 +1,13 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SettingsRows } from './settings-rows';
 import type {
   AppSettings,
-  PersonalizationSettingsWarning,
+  PersonalizationSettings,
   ThemePalette,
   ThemePreference,
   UpdateAppSettingsResult,
 } from '@maka/core';
-import { Button, ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useToast } from '@maka/ui';
+import { ChoiceCard, ChoiceCardGroup, Input, SettingsSegmented as Segmented, Textarea, useToast } from '@maka/ui';
 import { applyUiLocale, type UiLocalePreference } from '../theme';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -43,25 +43,48 @@ export function AppearanceSettingsPage(props: {
   );
 }
 
+// PR-TONE-AUTOSAVE-0: the personalization block used to be the page's ONLY
+// control with an explicit 保存 button + helper line — every neighboring row
+// (显示名称 / 界面语言 / 默认模型 / switches) persists silently on change or
+// blur. Two save models on one page. This block now autosaves like its
+// siblings: 显示名称 and 助手语气偏好 flush on blur (and the tone textarea
+// also debounces mid-typing), 界面语言 persists on change. No button, no
+// success toast — silence is the page's success language; only failures
+// surface (toast.error, like every sibling persist path).
+
 export function PersonalizationSettingsPage(props: {
   settings: AppSettings;
   onUpdate(patch: Parameters<typeof window.maka.settings.update>[0]): Promise<UpdateAppSettingsResult>;
 }) {
+  // Persist the tone textarea this long after the user stops typing; blur
+  // flushes immediately regardless.
+  const TONE_AUTOSAVE_DEBOUNCE_MS = 800;
   const value = props.settings.personalization;
   const [displayName, setDisplayName] = useState(value.displayName);
   const [assistantTone, setAssistantTone] = useState(value.assistantTone);
   const [uiLocale, setUiLocale] = useState<UiLocalePreference>(value.uiLocale);
   const toast = useToast();
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
   const personalizationMountedRef = useRef(false);
-  const personalizationSaveHelpId = useId();
+  // Last-write-wins persist queue, mirrored on NetworkProxySection below:
+  // a monotonic ticket disambiguates overlapping in-flight saves so a stale
+  // response can't clobber a newer one, and a pending-count keeps the sync
+  // effect from resetting local state mid-edit.
+  const persistTicketRef = useRef(0);
+  const persistPendingCountRef = useRef(0);
+  // Debounce timer for the tone textarea; flushed immediately on blur.
+  const toneDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     personalizationMountedRef.current = true;
     return () => {
       personalizationMountedRef.current = false;
-      savingRef.current = false;
+      // Invalidate any in-flight save's late UI write, and drop the pending
+      // debounced flush so it can't fire after the panel closes.
+      persistTicketRef.current += 1;
+      if (toneDebounceRef.current) {
+        clearTimeout(toneDebounceRef.current);
+        toneDebounceRef.current = null;
+      }
     };
   }, []);
 
@@ -73,55 +96,68 @@ export function PersonalizationSettingsPage(props: {
   //      persisted store has the sanitized version.
   //   2. Another agent / background sync mutates settings while the
   //      panel is open.
-  // The user's in-progress edits aren't blown away — this only
-  // fires when the persisted reference identity actually changes.
+  // Guarded on the pending-save count so an autosave that's still in
+  // flight doesn't get its optimistic local value reset out from under
+  // the user mid-edit — the sync only lands when nothing is in flight.
   useEffect(() => {
+    if (persistPendingCountRef.current > 0) return;
     setDisplayName(value.displayName);
     setAssistantTone(value.assistantTone);
     setUiLocale(value.uiLocale);
   }, [value.displayName, value.assistantTone, value.uiLocale]);
 
-  async function save() {
-    if (savingRef.current) return;
-    savingRef.current = true;
-    setSaving(true);
+  // Shared persist path for every personalization field. Newest write wins:
+  // each call bumps the ticket, and only the response whose ticket is still
+  // current is allowed to apply side effects (locale) — a slow earlier save
+  // resolving after a newer one is discarded.
+  async function persistPersonalization(patch: Partial<PersonalizationSettings>) {
+    const ticket = ++persistTicketRef.current;
+    persistPendingCountRef.current += 1;
     try {
-      const result = await props.onUpdate({
-        personalization: {
-          displayName: displayName.trim().slice(0, 60),
-          assistantTone: assistantTone.trim().slice(0, 500),
-          uiLocale,
-        },
-      });
-      if (!personalizationMountedRef.current) return;
-      // PR-LANG-PREF-0: apply the chosen locale to <html> right
-      // after save so the change takes effect immediately in the
-      // current window. The persisted value also drives next-boot
-      // detection (main.tsx applies it on settings load).
-      applyUiLocale(uiLocale);
-      // Single toast either way. With warnings, surface generic policy
-      // statements (no raw user text echoed back, no specific keyword
-      // disclosed) per kenji's personalization-prompt-contract.
-      const warnings = collectPersonalizationWarningCopy(result.warnings?.personalization ?? []);
-      if (warnings) {
-        if (personalizationMountedRef.current) {
-          toast.warning('已保存并做安全清理', warnings);
-        }
-      } else {
-        if (personalizationMountedRef.current) {
-          toast.success('个性化已保存');
-        }
+      await props.onUpdate({ personalization: patch });
+      if (!personalizationMountedRef.current || ticket !== persistTicketRef.current) return;
+      if (patch.uiLocale !== undefined) {
+        // PR-LANG-PREF-0: apply the chosen locale to <html> right after save
+        // so the change takes effect immediately in the current window. The
+        // persisted value also drives next-boot detection (main.tsx applies
+        // it on settings load).
+        applyUiLocale(patch.uiLocale);
       }
     } catch (error) {
-      if (personalizationMountedRef.current) {
+      if (personalizationMountedRef.current && ticket === persistTicketRef.current) {
         toast.error('保存失败', settingsActionErrorMessage(error));
       }
     } finally {
-      savingRef.current = false;
-      if (personalizationMountedRef.current) {
-        setSaving(false);
-      }
+      persistPendingCountRef.current = Math.max(0, persistPendingCountRef.current - 1);
     }
+  }
+
+  function flushDisplayName(nextValue: string) {
+    void persistPersonalization({ displayName: nextValue.trim().slice(0, 60) });
+  }
+
+  function persistLocale(next: UiLocalePreference) {
+    setUiLocale(next);
+    void persistPersonalization({ uiLocale: next });
+  }
+
+  // Tone autosave: debounce mid-typing so we don't hammer settings.update on
+  // every keystroke, then flush the pending value immediately on blur (blur
+  // wins — clears the timer and saves right away).
+  function scheduleToneSave(nextValue: string) {
+    if (toneDebounceRef.current) clearTimeout(toneDebounceRef.current);
+    toneDebounceRef.current = setTimeout(() => {
+      toneDebounceRef.current = null;
+      void persistPersonalization({ assistantTone: nextValue.trim().slice(0, 500) });
+    }, TONE_AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  function flushTone(nextValue: string) {
+    if (toneDebounceRef.current) {
+      clearTimeout(toneDebounceRef.current);
+      toneDebounceRef.current = null;
+    }
+    void persistPersonalization({ assistantTone: nextValue.trim().slice(0, 500) });
   }
 
   return (
@@ -141,11 +177,11 @@ export function PersonalizationSettingsPage(props: {
             type="text"
             value={displayName}
             onChange={(event) => setDisplayName(event.currentTarget.value)}
+            onBlur={(event) => flushDisplayName(event.currentTarget.value)}
             placeholder="例如：JK"
             maxLength={60}
             autoComplete="off"
             spellCheck={false}
-            disabled={saving}
             aria-label="显示名称"
           />
         </div>
@@ -159,7 +195,7 @@ export function PersonalizationSettingsPage(props: {
         <div className="settingsFormRow">
           <div>
             <strong>界面语言</strong>
-            <small>选择 Maka 界面的显示语言。保存后立即生效，重启后保持。</small>
+            <small>选择 Maka 界面的显示语言。切换后立即生效，重启后保持。</small>
           </div>
           <Segmented
             value={uiLocale}
@@ -168,9 +204,8 @@ export function PersonalizationSettingsPage(props: {
               ['zh', '中文'],
               ['en', 'English'],
             ]}
-            onChange={(next) => setUiLocale(next as UiLocalePreference)}
+            onChange={(next) => persistLocale(next as UiLocalePreference)}
             ariaLabel="界面语言"
-            disabled={saving}
           />
         </div>
 
@@ -179,52 +214,27 @@ export function PersonalizationSettingsPage(props: {
             <strong>助手语气偏好</strong>
             <small>
               最多 500 字，只影响回答的语气和风格。权限确认与安全规则不受它影响——
-              写"跳过确认"这类指令不会生效。
+              写"跳过确认"这类指令不会生效。改动会自动保存，下一次发送对话时模型会拿到新偏好。
             </small>
           </div>
           <Textarea
             value={assistantTone}
-            onChange={(event) => setAssistantTone(event.currentTarget.value)}
+            onChange={(event) => {
+              setAssistantTone(event.currentTarget.value);
+              scheduleToneSave(event.currentTarget.value);
+            }}
+            onBlur={(event) => flushTone(event.currentTarget.value)}
             placeholder="一句话告诉助手期望的语气，比如：技术严谨 / 偏简洁 / 不要 emoji / 多反问。"
             rows={4}
             maxLength={500}
             spellCheck={false}
-            disabled={saving}
             aria-label="助手语气偏好"
             className="min-h-21 w-full"
           />
-          <div className="settingsActionRow">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={saving}
-              aria-busy={saving}
-              aria-describedby={personalizationSaveHelpId}
-              data-pending={saving ? 'true' : undefined}
-              onClick={() => void save()}
-            >
-              {saving ? '保存中…' : '保存'}
-            </Button>
-            <p id={personalizationSaveHelpId} className="settingsHelpText">保存后立即生效，下一次发送对话时模型会拿到新偏好。</p>
-          </div>
         </div>
       </SettingsRows>
     </div>
   );
-}
-
-function collectPersonalizationWarningCopy(warnings: PersonalizationSettingsWarning[]): string | undefined {
-  if (warnings.length === 0) return undefined;
-  // Copy per kenji's personalization-prompt-contract: enum -> generic policy
-  // statement. Never quote, name, or echo the matched phrase / keyword;
-  // each line describes the action taken + the invariant that still holds.
-  const copy: Record<PersonalizationSettingsWarning, string> = {
-    'override-attempt':
-      '检测到可能尝试改变助手行为的内容，已按低优先级偏好处理；权限策略不受影响。',
-    'sensitive-pattern': '检测到疑似敏感凭据，已避免在提示或日志中回显原文。',
-    'control-chars': '已清理不可见控制字符，避免影响提示结构。',
-  };
-  return warnings.map((warning) => copy[warning]).join('\n');
 }
 
 /**
