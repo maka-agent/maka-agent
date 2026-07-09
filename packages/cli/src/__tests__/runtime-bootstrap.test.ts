@@ -170,7 +170,10 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(backendInput.contextBudget?.name, 'cli-default-history-budget');
         assert.equal(backendInput.contextBudget?.maxHistoryEstimatedTokens, 32_000);
         assert.equal(backendInput.contextBudget?.activeToolResultPrune?.enabled, true);
-        assert.equal(backendInput.contextBudget?.semanticCompact?.enabled, true);
+        // In-turn semantic compaction is stripped for the CLI: it interrupts the
+        // live reply with a compaction notice for small savings. History/turn
+        // compaction stays.
+        assert.equal(backendInput.contextBudget?.semanticCompact, undefined);
         assert.equal(backendInput.contextBudget?.historyCompact?.enabled, true);
         assert.equal(backendInput.contextBudget?.historyCompact?.mode, 'read_write');
         assert.equal(backendInput.contextBudget?.historyCompact?.highWaterRatio, 1);

@@ -109,10 +109,7 @@ export async function createMakaCliRuntimeContext(
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
-      contextBudget: buildDefaultContextBudgetPolicy(ready.connection, {
-        name: 'cli-default-history-budget',
-        modelId: ready.model,
-      }),
+      contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
         summarize: buildLlmHistorySummarizer({
@@ -158,6 +155,25 @@ export async function createMakaCliRuntimeContext(
     tools,
     close: () => shellRuns.terminateAll(),
   };
+}
+
+// The CLI keeps turn-boundary history compaction but disables *in-turn* semantic
+// compaction. Firing mid-turn, it interrupts the live reply with a
+// `Context compacted: semanticCompact` notice for small savings, which reads as
+// noise in an interactive session. Strip it from the default policy rather than
+// setting an env override, so the rest of the budget (history compact, tool-result
+// pruning) is untouched.
+function buildCliContextBudgetPolicy(
+  connection: Parameters<typeof buildDefaultContextBudgetPolicy>[0],
+  modelId: string,
+): ReturnType<typeof buildDefaultContextBudgetPolicy> {
+  const policy = buildDefaultContextBudgetPolicy(connection, {
+    name: 'cli-default-history-budget',
+    modelId,
+  });
+  if (!policy?.semanticCompact) return policy;
+  const { semanticCompact: _omitted, ...rest } = policy;
+  return rest;
 }
 
 export async function getOrCreateCliClaudeDeviceId(
