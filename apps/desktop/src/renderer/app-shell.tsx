@@ -53,6 +53,7 @@ function BrowserPanelFallback() {
   );
 }
 import { deriveChatHeaderAlert } from './chat-header-alert';
+import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -296,6 +297,9 @@ export function AppShell({
   const rendererMountedRef = useRef(true);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
+  // Active autonomous goal for the current session drives the header
+  // kill-switch pill (visible indicator + one-click clear).
+  const activeGoal = useSessionGoal(activeId);
   const activeLiveTurn = activeId ? liveTurnBySession[activeId] : undefined;
   const activeTextStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.text);
   const activeThinkingStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.thinking);
@@ -1565,6 +1569,13 @@ export function AppShell({
                 mode={navSelection.section}
                 connectionAlert={chatConnectionAlert}
                 eventStreamAlert={chatEventStreamAlert}
+                goalIndicator={activeGoal ? {
+                  condition: activeGoal.condition,
+                  status: activeGoal.status,
+                  iterations: activeGoal.iterations,
+                  maxIterations: activeGoal.maxIterations,
+                  onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
+                } : undefined}
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
                 onRetryMessages={activeId ? () => void retryMessages(activeId) : undefined}

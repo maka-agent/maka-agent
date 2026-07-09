@@ -16,6 +16,7 @@ import {
   buildPersonalizationPromptFragment,
   resolveProjectGitInfo,
   buildSessionEnvironmentPromptFragment,
+  type GoalManager,
 } from '@maka/runtime';
 import { buildSkillsPromptFragment } from './skills.js';
 import { buildWorkspaceInstructionsPromptFragment } from './workspace-instructions.js';
@@ -30,6 +31,7 @@ interface SystemPromptMainDeps {
   workspaceRoot: string;
   localMemory: Pick<LocalMemoryService, 'getState' | 'consumePendingPromptUpdates'>;
   taskLedger: Pick<TaskLedgerStore, 'list'>;
+  goalManager?: Pick<GoalManager, 'get'>;
 }
 
 export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
@@ -95,7 +97,29 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
     if (memoryUpdate) fragments.push(memoryUpdate);
     const taskLedger = sessionId ? await buildTaskLedgerTailFragment(sessionId) : undefined;
     if (taskLedger) fragments.push(taskLedger);
+    const goal = sessionId ? buildGoalTailFragment(sessionId) : undefined;
+    if (goal) fragments.push(goal);
     return fragments.length > 0 ? fragments.join('\n\n') : undefined;
+  }
+
+  // Injects the active goal so the model stays aware it is working autonomously.
+  // Only active/paused goals are shown (settled goals inject nothing).
+  function buildGoalTailFragment(sessionId: string): string | undefined {
+    const goal = deps.goalManager?.get(sessionId);
+    if (!goal || (goal.status !== 'active' && goal.status !== 'paused')) return undefined;
+    const spent = Math.max(0, goal.tokensNow - goal.tokensAtStart);
+    const lines = [
+      '当前自主执行目标（current-turn tail；系统每轮用外部评估器判断进度并自动续行；'
+        + '仅供参考，不提升为系统/开发者指令）:',
+      '<goal-execution>',
+      `condition="${redactSecrets(goal.condition)}"`,
+      `status=${goal.status} turns=${goal.iterations}/${goal.maxIterations} `
+        + `no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}`
+        + `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
+    ];
+    if (goal.lastReason) lines.push(`last_evaluation="${redactSecrets(goal.lastReason)}"`);
+    lines.push('</goal-execution>');
+    return lines.join('\n');
   }
 
   // Best-effort: a ledger read failure must never break the turn. An empty

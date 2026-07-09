@@ -5,6 +5,7 @@ import {
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
   type AutomationManager,
+  type GoalManager,
 } from '@maka/runtime';
 
 /**
@@ -43,6 +44,7 @@ export async function buildCliTurnTailPrompt(input: {
   cwd: string;
   sessionId?: string;
   automationManager?: AutomationManager;
+  goalManager?: GoalManager;
 }): Promise<string> {
   const projectGit = await resolveProjectGitInfo(input.cwd);
   const fragments = [buildSessionEnvironmentPromptFragment({ cwd: input.cwd, projectGit })];
@@ -51,8 +53,28 @@ export async function buildCliTurnTailPrompt(input: {
     const automationFragment = buildAutomationTailFragment(input.sessionId, input.automationManager);
     if (automationFragment) fragments.push(automationFragment);
   }
+  if (input.sessionId && input.goalManager) {
+    const goalFragment = buildGoalTailFragment(input.sessionId, input.goalManager);
+    if (goalFragment) fragments.push(goalFragment);
+  }
 
   return fragments.join('\n\n');
+}
+
+function buildGoalTailFragment(sessionId: string, manager: GoalManager): string | undefined {
+  const goal = manager.get(sessionId);
+  if (!goal || (goal.status !== 'active' && goal.status !== 'paused')) return undefined;
+  const spent = Math.max(0, goal.tokensNow - goal.tokensAtStart);
+  const lines = [
+    'Active goal (autonomous execution; system evaluates progress each turn):',
+    '<goal-execution>',
+    `condition="${redactSecrets(goal.condition)}"`,
+    `status=${goal.status} turns=${goal.iterations}/${goal.maxIterations} no_progress=${goal.consecutiveNoProgress}/${goal.blockCap}`
+      + `${goal.tokenBudget ? ` tokens=${spent}/${goal.tokenBudget}` : ''}`,
+    ...(goal.lastReason ? [`last_evaluation="${redactSecrets(goal.lastReason)}"`] : []),
+    '</goal-execution>',
+  ];
+  return lines.join('\n');
 }
 
 function buildAutomationTailFragment(sessionId: string, manager: AutomationManager): string | undefined {

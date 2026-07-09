@@ -68,6 +68,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
+import type { GoalState } from '@maka/runtime';
 import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
@@ -220,6 +221,14 @@ contextBridge.exposeInMainWorld('maka', {
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);
+    },
+  },
+  goal: {
+    get(sessionId: string): Promise<GoalState | null> {
+      return ipcRenderer.invoke('goal:get', sessionId);
+    },
+    clear(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('goal:clear', sessionId);
     },
   },
   connections: {

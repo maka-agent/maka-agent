@@ -99,6 +99,7 @@ export {
   SquarePen,
   Sun,
   SunMoon,
+  Target,
   Terminal,
   Timer,
   Trash2,

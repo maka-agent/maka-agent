@@ -14,6 +14,7 @@ import {
   Info,
   Loader2,
   RefreshCcw,
+  Target,
   Sparkles,
   Timer,
 } from './icons.js';
@@ -191,6 +192,19 @@ export function ChatView(props: {
    * from persisted messages/session state.
    */
   eventStreamAlert?: ChatHeaderAlert;
+  /**
+   * Active autonomous-goal indicator for the session, or undefined when no
+   * goal is running. Surfaces the loop (turn counter) with a one-click clear
+   * affordance so a token-burning goal is never invisible or unstoppable —
+   * this IS the desktop kill switch. `onClear` stops autonomous continuation.
+   */
+  goalIndicator?: {
+    condition: string;
+    status: string;
+    iterations: number;
+    maxIterations: number;
+    onClear: () => void;
+  };
   /** Error from loading the active session's persisted message log. */
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
@@ -604,6 +618,23 @@ export function ChatView(props: {
             <Sparkles size={12} aria-hidden="true" />
             <span>深度研究</span>
           </span>
+        )}
+        {props.goalIndicator && (
+          /* Goal kill-switch pill: an active autonomous loop must be visible and
+             stoppable. Reuses the mode-pill styling; clicking it clears the goal
+             (the shell confirms), so the user always has a one-click stop. */
+          <UiButton
+            type="button"
+            variant="quiet"
+            className="maka-chat-header-mode-pill"
+            data-mode="goal"
+            onClick={() => props.goalIndicator?.onClear()}
+            title={`自主执行目标进行中：「${props.goalIndicator.condition}」（第 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮，${props.goalIndicator.status}）。系统每轮后自动续行；点击可清除目标、停止续行。`}
+            aria-label={`清除自主执行目标（已进行 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮）`}
+          >
+            <Target size={12} aria-hidden="true" />
+            <span>目标 {props.goalIndicator.iterations}/{props.goalIndicator.maxIterations} · 清除</span>
+          </UiButton>
         )}
         {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
             composer left-controls. Header keeps the per-session status

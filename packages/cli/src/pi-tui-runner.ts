@@ -89,6 +89,12 @@ export interface MakaPiTuiInput {
     ownerSessionId: string;
     result: Extract<ToolResultContent, { kind: 'shell_run' }>;
   }>;
+  /**
+   * Called after each agent turn settles. Receives an `injectTurn` that runs a
+   * new turn rendered in the transcript — used for goal auto-continuation so
+   * continuation turns are visible and chain correctly.
+   */
+  onTurnComplete?: (injectTurn: (text: string) => void) => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -315,7 +321,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     runAgentTurn(prompt);
   };
 
-  // Runs one agent turn rendered in the transcript. Shared by user submits.
+  // Runs one agent turn rendered in the transcript, then lets the host decide
+  // whether to auto-continue (goal). Shared by user submits and goal injections.
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
@@ -327,6 +334,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
+    let turnOutcome = { aborted: false, errored: false };
     void submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -349,6 +357,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         shellRunElapsedTicker.sync();
         requestRender();
       },
+    }).then((outcome) => {
+      turnOutcome = outcome;
     }).finally(() => {
       busy = false;
       turnRunning = false;
@@ -357,6 +367,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       terminal.setProgress(false);
       attention.promptTurnEnded();
       requestRender();
+      // Do not auto-continue (goal) if teardown began (`closed`), the user
+      // interrupted the turn (double-Escape → driver.stop() → user_stop/abort),
+      // or it ended in error. An autonomous loop MUST halt on the Stop
+      // affordance and must not hammer a failing turn — mirrors the desktop
+      // `turnAborted` guard.
+      if (!closed && !turnOutcome.aborted && !turnOutcome.errored) {
+        input.onTurnComplete?.((text) => runAgentTurn(text));
+      }
     });
   }
 

@@ -108,6 +108,60 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(changes >= 2);
   });
 
+  // Goal kill-switch (B1): the turn outcome must distinguish a clean end from a
+  // user-stop / abort / error so the runner can skip goal auto-continuation and
+  // never re-inject after the user interrupts (or after a failing turn).
+  test('reports a clean turn as not aborted / not errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'end_turn' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.deepEqual(outcome, { aborted: false, errored: false });
+  });
+
+  test('reports a user_stop completion as aborted (Stop affordance)', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'user_stop' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.aborted, true);
+    assert.equal(outcome.errored, false);
+  });
+
+  test('reports an abort event as aborted', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'abort', reason: 'user_stop' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.aborted, true);
+  });
+
+  test('reports a stream error event as errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'error', recoverable: false, message: 'boom' })]);
+    let errorRaised = false;
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi', onError: () => { errorRaised = true; } });
+    assert.equal(outcome.errored, true);
+    assert.equal(errorRaised, true);
+  });
+
+  test('reports a complete{stopReason:error} finish as errored (non-throwing error, e.g. content-filter)', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'error' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.errored, true);
+    assert.equal(outcome.aborted, false);
+  });
+
+  test('reports a thrown sendPrompt as errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = {
+      async *sendPrompt(): AsyncIterable<SessionEvent> {
+        throw new Error('network down');
+      },
+    };
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.errored, true);
+    assert.equal(outcome.aborted, false);
+  });
+
   test('reports completed manual compact runs when there was nothing to compact', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([

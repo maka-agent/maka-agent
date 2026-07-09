@@ -156,6 +156,12 @@ declare global {
         setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
       };
+      goal: {
+        /** The session's current goal (null when none is set). */
+        get(sessionId: string): Promise<import('@maka/runtime').GoalState | null>;
+        /** Clear the active goal, stopping autonomous continuation. */
+        clear(sessionId: string): Promise<void>;
+      };
       connections: {
         list(): Promise<LlmConnection[]>;
         getDefault(): Promise<string | null>;

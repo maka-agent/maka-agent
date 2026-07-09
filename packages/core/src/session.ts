@@ -146,6 +146,7 @@ export type SessionChangedReason =
   | 'mode-change'
   | 'status-change'
   | 'turn-status-change'
+  | 'goal-change'
   | 'rebound';
 
 export interface SessionChangedEvent {
