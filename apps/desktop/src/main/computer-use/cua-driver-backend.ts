@@ -309,18 +309,17 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   // Cached backing scale (device px per logical point). The model's click
   // coordinate is in get_desktop_state DEVICE pixels; window bounds from
   // list_windows are in logical SCREEN POINTS, so we convert with this.
-  let scaleFactor: number | undefined;
+  let lastFrameWidthPx: number | undefined; // device width of the last capture
   async function getScale(signal: AbortSignal): Promise<number> {
-    if (scaleFactor && scaleFactor > 0) return scaleFactor;
-    try {
-      const r = await client.callTool('get_screen_size', {}, signal);
-      const sc = r?.structuredContent ?? {};
-      const sf = typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
-      scaleFactor = sf;
-      return sf;
-    } catch {
-      return 1;
-    }
+    const r = await client.callTool('get_screen_size', {}, signal);
+    const sc = r?.structuredContent ?? {};
+    const logicalW = typeof sc.width === 'number' && sc.width > 0 ? sc.width : 0;
+    // Prefer the TRUE ratio device/logical (screenshot px ÷ logical px). Do NOT
+    // trust get_screen_size.scale_factor: it was observed reporting 1 on a Retina
+    // display, which sent clicks off-screen. Fall back to scale_factor only when a
+    // frame width isn't known yet.
+    if (lastFrameWidthPx && logicalW) return lastFrameWidthPx / logicalW;
+    return typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
   }
 
   interface ResolvedWindow { pid: number; windowId: number; localX: number; localY: number }
@@ -391,6 +390,11 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             return { outcome: { ok: false, error: 'sensitivity_blocked', message: `frame ${byteLength}B exceeds cap` } };
           }
           const sc = r?.structuredContent ?? {};
+          // Remember the device frame width so getScale() can derive the true
+          // device/logical ratio (see getScale — scale_factor is unreliable).
+          if (typeof sc.screenshot_width === 'number' && sc.screenshot_width > 0) {
+            lastFrameWidthPx = sc.screenshot_width;
+          }
           const screenshot: CuScreenshot = {
             base64,
             mimeType,
