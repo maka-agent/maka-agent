@@ -5,7 +5,12 @@ import { tmpdir as osTmpdir } from 'node:os';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { ToolExecutionFacts } from '@maka/core/permission';
-import type { PermissionProfile } from '@maka/core/permission-profile';
+import {
+  canReadPath,
+  canWritePath,
+  type PermissionProfile,
+  type PermissionProfileMatchContext,
+} from '@maka/core/permission-profile';
 import {
   runProcessWithBoundedTail,
   runShellWithBoundedTail,
@@ -254,6 +259,53 @@ export interface SandboxedCommandWorkspaceExecutorOptions {
   runProcess?: WorkspaceCommandRunner;
 }
 
+export interface WorkspaceProfileEnforcementContext {
+  profile: PermissionProfile;
+  workspaceRoots: readonly string[];
+  pathContext?: Partial<Omit<PermissionProfileMatchContext, 'workspaceRoots'>>;
+}
+
+export type WorkspaceProfileEnforcementContextProvider =
+  () => WorkspaceProfileEnforcementContext | undefined;
+
+export type WorkspaceProfileOperation = 'read' | 'write' | 'search';
+
+export type WorkspaceProfilePermissionErrorReason =
+  | 'missing_context'
+  | 'missing_workspace_roots'
+  | 'read_denied'
+  | 'write_denied';
+
+export interface WorkspaceProfilePermissionErrorDetails {
+  operation: WorkspaceProfileOperation;
+  path: string;
+  reason: WorkspaceProfilePermissionErrorReason;
+  profileName?: string;
+  message?: string;
+}
+
+export class WorkspaceProfilePermissionError extends Error {
+  readonly code = 'WORKSPACE_PROFILE_PERMISSION_DENIED';
+  readonly operation: WorkspaceProfileOperation;
+  readonly path: string;
+  readonly reason: WorkspaceProfilePermissionErrorReason;
+  readonly profileName?: string;
+
+  constructor(details: WorkspaceProfilePermissionErrorDetails) {
+    super(details.message ?? defaultProfilePermissionErrorMessage(details));
+    this.name = 'WorkspaceProfilePermissionError';
+    this.operation = details.operation;
+    this.path = details.path;
+    this.reason = details.reason;
+    this.profileName = details.profileName;
+  }
+}
+
+export interface ProfileEnforcedWorkspaceExecutorOptions {
+  inner: WorkspaceExecutor;
+  getProfileContext: WorkspaceProfileEnforcementContextProvider;
+}
+
 export class LocalWorkspaceExecutor implements WorkspaceExecutor {
   readonly facts = LOCAL_WORKSPACE_EXECUTOR_FACTS;
 
@@ -439,6 +491,111 @@ export class SandboxedCommandWorkspaceExecutor implements WorkspaceExecutor {
   }
 }
 
+export class ProfileEnforcedWorkspaceExecutor implements WorkspaceExecutor {
+  readonly facts: WorkspaceExecutorFacts;
+  private readonly inner: WorkspaceExecutor;
+  private readonly getProfileContext: WorkspaceProfileEnforcementContextProvider;
+
+  constructor(options: ProfileEnforcedWorkspaceExecutorOptions) {
+    this.inner = options.inner;
+    this.facts = options.inner.facts;
+    this.getProfileContext = options.getProfileContext;
+  }
+
+  exec(input: WorkspaceExecInput): Promise<WorkspaceExecResult> {
+    return this.inner.exec(input);
+  }
+
+  async readFile(input: WorkspaceReadFileInput): Promise<WorkspaceReadFileResult> {
+    this.assertCanRead(input.path, 'read');
+    return await this.inner.readFile(input);
+  }
+
+  async writeFile(input: WorkspaceWriteFileInput): Promise<WorkspaceWriteFileResult> {
+    this.assertCanWrite(input.path, 'write');
+    return await this.inner.writeFile(input);
+  }
+
+  async resolveExistingPath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+    const result = await this.inner.resolveExistingPath(input);
+    this.assertCanRead(result.path, 'read');
+    return result;
+  }
+
+  async resolveWritablePath(input: WorkspaceResolvePathInput): Promise<WorkspaceResolvePathResult> {
+    const result = await this.inner.resolveWritablePath(input);
+    this.assertCanWrite(result.path, 'write');
+    return result;
+  }
+
+  writeLockKey(input: WorkspaceWriteLockKeyInput): Promise<WorkspaceWriteLockKeyResult> {
+    return this.inner.writeLockKey(input);
+  }
+
+  async globFiles(input: WorkspaceGlobInput): Promise<WorkspaceGlobResult> {
+    this.assertCanRead(input.cwd, 'search');
+    return await this.inner.globFiles(input);
+  }
+
+  async grepFiles(input: WorkspaceGrepInput): Promise<WorkspaceGrepResult> {
+    this.assertCanRead(input.path, 'search');
+    return await this.inner.grepFiles(input);
+  }
+
+  private assertCanRead(path: string, operation: 'read' | 'search'): void {
+    const { profile, matchContext } = this.requireProfileContext(operation, path);
+    if (canReadPath(profile, path, matchContext)) return;
+    throw new WorkspaceProfilePermissionError({
+      operation,
+      path,
+      reason: 'read_denied',
+      profileName: profileName(profile),
+    });
+  }
+
+  private assertCanWrite(path: string, operation: 'write'): void {
+    const { profile, matchContext } = this.requireProfileContext(operation, path);
+    if (canWritePath(profile, path, matchContext)) return;
+    throw new WorkspaceProfilePermissionError({
+      operation,
+      path,
+      reason: 'write_denied',
+      profileName: profileName(profile),
+    });
+  }
+
+  private requireProfileContext(
+    operation: WorkspaceProfileOperation,
+    path: string,
+  ): { profile: PermissionProfile; matchContext: PermissionProfileMatchContext } {
+    const context = this.getProfileContext();
+    if (!context) {
+      throw new WorkspaceProfilePermissionError({
+        operation,
+        path,
+        reason: 'missing_context',
+      });
+    }
+    if (!context.workspaceRoots || context.workspaceRoots.length === 0) {
+      throw new WorkspaceProfilePermissionError({
+        operation,
+        path,
+        reason: 'missing_workspace_roots',
+        profileName: profileName(context.profile),
+      });
+    }
+    return {
+      profile: context.profile,
+      matchContext: {
+        tmpdir: osTmpdir(),
+        slashTmp: '/tmp',
+        ...context.pathContext,
+        workspaceRoots: context.workspaceRoots,
+      },
+    };
+  }
+}
+
 export function createLocalWorkspaceExecutor(): WorkspaceExecutor {
   return new LocalWorkspaceExecutor();
 }
@@ -447,6 +604,23 @@ function defaultSandboxErrorMessage(reason: WorkspaceCommandSandboxErrorReason):
   if (reason === 'missing_context') return 'Sandbox context is required for command execution but was unavailable.';
   if (reason === 'missing_workspace_roots') return 'Sandbox workspace roots are required for command execution but were unavailable.';
   return `Sandbox command transform failed: ${reason}.`;
+}
+
+function defaultProfilePermissionErrorMessage(details: WorkspaceProfilePermissionErrorDetails): string {
+  if (details.reason === 'missing_context') {
+    return 'Permission profile context is required for workspace file access but was unavailable.';
+  }
+  if (details.reason === 'missing_workspace_roots') {
+    return 'Permission profile workspace roots are required for workspace file access but were unavailable.';
+  }
+  if (details.reason === 'read_denied') {
+    return `Permission profile denied ${details.operation} access to path: ${details.path}`;
+  }
+  return `Permission profile denied write access to path: ${details.path}`;
+}
+
+function profileName(profile: PermissionProfile): string | undefined {
+  return profile.name;
 }
 
 function shellEscape(arg: string): string {

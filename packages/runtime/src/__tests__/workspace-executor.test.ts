@@ -2,16 +2,22 @@ import { describe, test } from 'node:test';
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
+import {
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+} from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
   LocalWorkspaceExecutor,
+  ProfileEnforcedWorkspaceExecutor,
   SandboxedCommandWorkspaceExecutor,
   WorkspaceCommandSandboxError,
+  WorkspaceProfilePermissionError,
   type WorkspaceExecInput,
   type WorkspaceCommandSandboxContext,
   type WorkspaceExecutor,
+  type WorkspaceProfileEnforcementContext,
 } from '../workspace-executor.js';
 import type { BoundedProcessOptions } from '../shell-exec.js';
 import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox/index.js';
@@ -400,6 +406,248 @@ describe('SandboxedCommandWorkspaceExecutor exec', () => {
   });
 });
 
+describe('ProfileEnforcedWorkspaceExecutor file operations', () => {
+  test('fails closed when profile context is missing', async () => {
+    const executor = new ProfileEnforcedWorkspaceExecutor({
+      inner: fakeExecutor(),
+      getProfileContext: () => undefined,
+    });
+
+    const err = await captureError(() => executor.readFile({
+      cwd: '/workspace',
+      path: '/workspace/file.txt',
+    }));
+
+    expect(err instanceof WorkspaceProfilePermissionError).toBe(true);
+    expect((err as WorkspaceProfilePermissionError).code).toBe('WORKSPACE_PROFILE_PERMISSION_DENIED');
+    expect((err as WorkspaceProfilePermissionError).reason).toBe('missing_context');
+    expect((err as WorkspaceProfilePermissionError).operation).toBe('read');
+  });
+
+  test('fails closed when workspaceRoots are missing or empty', async () => {
+    const missing = await captureError(() => profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+    } as WorkspaceProfileEnforcementContext).readFile({
+      cwd: '/workspace',
+      path: '/workspace/file.txt',
+    }));
+    const empty = await captureError(() => profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [],
+    }).writeFile({
+      cwd: '/workspace',
+      path: '/workspace/file.txt',
+      content: 'x',
+    }));
+
+    expect((missing as WorkspaceProfilePermissionError).reason).toBe('missing_workspace_roots');
+    expect((missing as WorkspaceProfilePermissionError).operation).toBe('read');
+    expect((empty as WorkspaceProfilePermissionError).reason).toBe('missing_workspace_roots');
+    expect((empty as WorkspaceProfilePermissionError).operation).toBe('write');
+  });
+
+  test('allows read-only reads but denies writes', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'maka-profile-read-only-'));
+    const file = join(workspace, 'src.txt');
+    const writes: string[] = [];
+    const executor = profileExecutor({
+      profile: createReadOnlyPermissionProfile(),
+      workspaceRoots: [workspace],
+    }, fakeExecutor({
+      readFile: async () => ({ content: 'visible' }),
+      writeFile: async ({ path }) => {
+        writes.push(path);
+        return { ok: true, path, bytes: 1 };
+      },
+    }));
+
+    const read = await executor.readFile({ cwd: workspace, path: file });
+    const err = await captureError(() => executor.writeFile({
+      cwd: workspace,
+      path: join(workspace, 'out.txt'),
+      content: 'x',
+    }));
+
+    expect(read).toEqual({ content: 'visible' });
+    expect(err instanceof WorkspaceProfilePermissionError).toBe(true);
+    expect((err as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect(writes).toEqual([]);
+  });
+
+  test('allows workspace-write ordinary writes and denies protected metadata writes', async () => {
+    const workspace = await mkdtemp(join(tmpdir(), 'maka-profile-workspace-write-'));
+    const written: string[] = [];
+    const executor = profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [workspace],
+    }, fakeExecutor({
+      writeFile: async ({ path, content }) => {
+        written.push(path);
+        return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+      },
+    }));
+
+    const result = await executor.writeFile({
+      cwd: workspace,
+      path: join(workspace, 'out.txt'),
+      content: 'ok',
+    });
+    const err = await captureError(() => executor.writeFile({
+      cwd: workspace,
+      path: join(workspace, '.git', 'config'),
+      content: 'blocked',
+    }));
+
+    expect(result).toMatchObject({ ok: true, path: join(workspace, 'out.txt'), bytes: 2 });
+    expect((err as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect((err as WorkspaceProfilePermissionError).path).toBe(join(workspace, '.git', 'config'));
+    expect(written).toEqual([join(workspace, 'out.txt')]);
+  });
+
+  test('denies reads and writes outside workspace roots', async () => {
+    const workspace = '/workspace';
+    const outside = '/outside';
+    const executor = profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [workspace],
+    }, fakeExecutor({
+      readFile: async () => ({ content: 'outside' }),
+      writeFile: async ({ path }) => ({ ok: true, path, bytes: 1 }),
+    }));
+
+    const readErr = await captureError(() => executor.readFile({
+      cwd: workspace,
+      path: join(outside, 'secret.txt'),
+    }));
+    const writeErr = await captureError(() => executor.writeFile({
+      cwd: workspace,
+      path: join(outside, 'secret.txt'),
+      content: 'x',
+    }));
+
+    expect((readErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+    expect((readErr as WorkspaceProfilePermissionError).operation).toBe('read');
+    expect((writeErr as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect((writeErr as WorkspaceProfilePermissionError).operation).toBe('write');
+  });
+
+  test('checks resolved paths after inner realpath containment', async () => {
+    const workspace = '/workspace';
+    const outside = '/outside';
+    const calls: string[] = [];
+    const executor = profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [workspace],
+    }, fakeExecutor({
+      resolveExistingPath: async () => {
+        calls.push('resolveExistingPath');
+        return { path: join(outside, 'read.txt') };
+      },
+      resolveWritablePath: async () => {
+        calls.push('resolveWritablePath');
+        return { path: join(outside, 'write.txt') };
+      },
+    }));
+
+    const readErr = await captureError(() => executor.resolveExistingPath({
+      cwd: workspace,
+      path: 'read-link',
+      label: 'Read',
+    }));
+    const writeErr = await captureError(() => executor.resolveWritablePath({
+      cwd: workspace,
+      path: 'write-link',
+      label: 'Write',
+    }));
+
+    expect(calls).toEqual(['resolveExistingPath', 'resolveWritablePath']);
+    expect((readErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+    expect((readErr as WorkspaceProfilePermissionError).path).toBe(join(outside, 'read.txt'));
+    expect((writeErr as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect((writeErr as WorkspaceProfilePermissionError).path).toBe(join(outside, 'write.txt'));
+  });
+
+  test('checks Glob and Grep search roots for read access', async () => {
+    const workspace = '/workspace';
+    const outside = '/outside';
+    const calls: string[] = [];
+    const executor = profileExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [workspace],
+    }, fakeExecutor({
+      globFiles: async () => {
+        calls.push('globFiles');
+        return { files: ['src/a.ts'] };
+      },
+      grepFiles: async () => {
+        calls.push('grepFiles');
+        return { matches: ['src/a.ts:1:x'] };
+      },
+    }));
+
+    expect(await executor.globFiles({ cwd: workspace, pattern: '**/*.ts', limit: 200 })).toEqual({ files: ['src/a.ts'] });
+    expect(await executor.grepFiles({
+      cwd: workspace,
+      pattern: 'x',
+      path: workspace,
+      maxCountPerFile: 50,
+      limit: 200,
+      timeoutMs: 1_000,
+    })).toEqual({ matches: ['src/a.ts:1:x'] });
+    const globErr = await captureError(() => executor.globFiles({
+      cwd: outside,
+      pattern: '**/*.ts',
+      limit: 200,
+    }));
+    const grepErr = await captureError(() => executor.grepFiles({
+      cwd: workspace,
+      pattern: 'x',
+      path: outside,
+      maxCountPerFile: 50,
+      limit: 200,
+      timeoutMs: 1_000,
+    }));
+
+    expect(calls).toEqual(['globFiles', 'grepFiles']);
+    expect((globErr as WorkspaceProfilePermissionError).operation).toBe('search');
+    expect((globErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+    expect((grepErr as WorkspaceProfilePermissionError).operation).toBe('search');
+    expect((grepErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+  });
+
+  test('delegates exec and writeLockKey without requesting profile context', async () => {
+    const calls: string[] = [];
+    const executor = new ProfileEnforcedWorkspaceExecutor({
+      inner: fakeExecutor({
+        exec: async () => {
+          calls.push('exec');
+          return {
+            exitCode: 0,
+            stdout: 'ok',
+            stderr: '',
+            timedOut: false,
+            aborted: false,
+          };
+        },
+        writeLockKey: async () => {
+          calls.push('writeLockKey');
+          return { key: 'lock-key' };
+        },
+      }),
+      getProfileContext: () => {
+        throw new Error('exec and writeLockKey must not request profile context');
+      },
+    });
+
+    expect(await executor.exec({ command: 'echo ok', cwd: '/workspace', timeoutMs: 1_000 })).toMatchObject({
+      exitCode: 0,
+      stdout: 'ok',
+    });
+    expect(await executor.writeLockKey({ cwd: '/workspace', path: 'file.txt' })).toEqual({ key: 'lock-key' });
+    expect(calls).toEqual(['exec', 'writeLockKey']);
+  });
+});
+
 function executorWithContext(context: WorkspaceCommandSandboxContext): SandboxedCommandWorkspaceExecutor {
   return new SandboxedCommandWorkspaceExecutor({
     inner: fakeExecutor(),
@@ -413,6 +661,16 @@ function executorWithContext(context: WorkspaceCommandSandboxContext): Sandboxed
       timedOut: false,
       aborted: false,
     }),
+  });
+}
+
+function profileExecutor(
+  context: WorkspaceProfileEnforcementContext,
+  inner: WorkspaceExecutor = fakeExecutor(),
+): ProfileEnforcedWorkspaceExecutor {
+  return new ProfileEnforcedWorkspaceExecutor({
+    inner,
+    getProfileContext: () => context,
   });
 }
 

@@ -2,16 +2,22 @@ import { describe, test } from 'node:test';
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-profile';
+import {
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+} from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
 import type { ShellRunToolController } from '../shell-tools.js';
 import {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
+  ProfileEnforcedWorkspaceExecutor,
   SandboxedCommandWorkspaceExecutor,
+  WorkspaceProfilePermissionError,
   type WorkspaceExecInput,
   type WorkspaceExecutor,
   type WorkspaceExecutorFacts,
+  type WorkspaceProfileEnforcementContext,
 } from '../workspace-executor.js';
 import type { BoundedProcessOptions } from '../shell-exec.js';
 import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox/index.js';
@@ -600,6 +606,125 @@ describe('builtin read tools path containment', () => {
   });
 });
 
+describe('builtin file tools profile enforcement', () => {
+  test('Write is rejected under read-only profile', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-profile-tool-read-only-'));
+    const writes: string[] = [];
+    const write = buildBuiltinTools({
+      executor: profileEnforcedExecutor({
+        profile: createReadOnlyPermissionProfile(),
+        workspaceRoots: [root],
+      }, fakeExecutor({
+        resolveWritablePath: async ({ cwd, path }) => ({ path: join(cwd, path) }),
+        writeFile: async ({ path }) => {
+          writes.push(path);
+          return { ok: true, path, bytes: 1 };
+        },
+      })),
+    }).find((candidate) => candidate.name === 'Write');
+    if (!write) throw new Error('Write tool missing');
+
+    const err = await captureToolError(() => runTool(write, {
+      path: 'out.txt',
+      content: 'blocked',
+    }, root));
+
+    expect(err instanceof WorkspaceProfilePermissionError).toBe(true);
+    expect((err as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect(writes).toEqual([]);
+  });
+
+  test('Edit is rejected when workspace-write targets protected metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-profile-tool-metadata-'));
+    const writes: string[] = [];
+    const edit = buildBuiltinTools({
+      executor: profileEnforcedExecutor({
+        profile: createWorkspaceWritePermissionProfile(),
+        workspaceRoots: [root],
+      }, fakeExecutor({
+        resolveExistingPath: async ({ cwd, path }) => ({ path: join(cwd, path) }),
+        readFile: async () => ({ content: 'hello world\n' }),
+        writeFile: async ({ path }) => {
+          writes.push(path);
+          return { ok: true, path, bytes: 1 };
+        },
+      })),
+    }).find((candidate) => candidate.name === 'Edit');
+    if (!edit) throw new Error('Edit tool missing');
+
+    const err = await captureToolError(() => runTool(edit, {
+      path: '.git/config',
+      old_string: 'world',
+      new_string: 'Maka',
+    }, root));
+
+    expect(err instanceof WorkspaceProfilePermissionError).toBe(true);
+    expect((err as WorkspaceProfilePermissionError).reason).toBe('write_denied');
+    expect((err as WorkspaceProfilePermissionError).path).toBe(join(root, '.git', 'config'));
+    expect(writes).toEqual([]);
+  });
+
+  test('Read, Glob, and Grep reject search paths outside the active workspace roots', async () => {
+    const root = '/workspace';
+    const outside = '/outside';
+    const executor = profileEnforcedExecutor({
+      profile: createWorkspaceWritePermissionProfile(),
+      workspaceRoots: [root],
+    }, fakeExecutor({
+      resolveExistingPath: async ({ cwd, path }) => ({
+        path: path === 'outside' ? join(outside, 'secret.txt') : join(cwd, path),
+      }),
+      readFile: async () => ({ content: 'secret' }),
+      globFiles: async () => ({ files: ['secret.txt'] }),
+      grepFiles: async () => ({ matches: ['secret.txt:1:secret'] }),
+    }));
+    const tools = buildBuiltinTools({ executor });
+    const read = tools.find((candidate) => candidate.name === 'Read');
+    const glob = tools.find((candidate) => candidate.name === 'Glob');
+    const grep = tools.find((candidate) => candidate.name === 'Grep');
+    if (!read || !glob || !grep) throw new Error('file tools missing');
+
+    const readErr = await captureToolError(() => runTool(read, { path: 'outside' }, root));
+    const globErr = await captureToolError(() => runTool(glob, { pattern: '*.txt', cwd: 'outside' }, root));
+    const grepErr = await captureToolError(() => runTool(grep, { pattern: 'secret', path: 'outside' }, root));
+
+    expect((readErr as WorkspaceProfilePermissionError).operation).toBe('read');
+    expect((readErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+    expect((globErr as WorkspaceProfilePermissionError).operation).toBe('read');
+    expect((globErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+    expect((grepErr as WorkspaceProfilePermissionError).operation).toBe('read');
+    expect((grepErr as WorkspaceProfilePermissionError).reason).toBe('read_denied');
+  });
+
+  test('Edit matcher behavior is preserved under profile enforcement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-profile-tool-edit-'));
+    const writes: Array<{ path: string; content: string }> = [];
+    const edit = buildBuiltinTools({
+      executor: profileEnforcedExecutor({
+        profile: createWorkspaceWritePermissionProfile(),
+        workspaceRoots: [root],
+      }, fakeExecutor({
+        resolveExistingPath: async ({ cwd, path }) => ({ path: join(cwd, path) }),
+        readFile: async () => ({ content: 'hello world\n' }),
+        writeFile: async ({ path, content }) => {
+          writes.push({ path, content });
+          return { ok: true, path, bytes: Buffer.byteLength(content, 'utf8') };
+        },
+      })),
+    }).find((candidate) => candidate.name === 'Edit');
+    if (!edit) throw new Error('Edit tool missing');
+
+    const result = await runTool(edit, {
+      path: 'data.txt',
+      old_string: 'world',
+      new_string: 'Maka',
+    }, root);
+
+    expect(result).toMatchObject({ ok: true, replacements: 1 });
+    expect(writes).toEqual([{ path: join(root, 'data.txt'), content: 'hello Maka\n' }]);
+  });
+});
+
 describe('builtin write tools path containment', () => {
   test('Write can delegate path resolution to a remote executor when cwd is not on the host', async () => {
     const writes: Array<{ cwd: string; path: string; content: string }> = [];
@@ -796,6 +921,16 @@ function runTool(tool: ReturnType<typeof buildBuiltinTools>[number], args: unkno
   }));
 }
 
+function profileEnforcedExecutor(
+  context: WorkspaceProfileEnforcementContext,
+  inner: WorkspaceExecutor,
+): ProfileEnforcedWorkspaceExecutor {
+  return new ProfileEnforcedWorkspaceExecutor({
+    inner,
+    getProfileContext: () => context,
+  });
+}
+
 function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor {
   const base: WorkspaceExecutor = {
     facts: LOCAL_WORKSPACE_EXECUTOR_FACTS,
@@ -819,4 +954,14 @@ function fakeExecutor(overrides: Partial<WorkspaceExecutor>): WorkspaceExecutor 
     grepFiles: async () => ({ matches: [] }),
   };
   return Object.assign(base, overrides);
+}
+
+async function captureToolError(fn: () => Promise<unknown>): Promise<Error> {
+  try {
+    await fn();
+  } catch (error) {
+    if (error instanceof Error) return error;
+    throw new Error(String(error));
+  }
+  throw new Error('expected function to reject');
 }

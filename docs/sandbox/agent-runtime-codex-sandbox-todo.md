@@ -482,18 +482,18 @@ SandboxTransformResult
 
 任务：
 
-- [ ] 为 file tools 注入 active profile。
-- [ ] `Read` 检查 readable roots。
-- [ ] `Read` 检查 deny-read。
-- [ ] `Glob` / `Grep` 检查搜索根可读。
-- [ ] `Write` 检查 writable roots。
-- [ ] `Write` 阻止 protected metadata。
-- [ ] `Edit` 检查 writable roots。
-- [ ] `Edit` 阻止 protected metadata。
-- [ ] 保留 realpath containment。
-- [ ] 保留 symlink escape 防护。
-- [ ] 保留 file write lock。
-- [ ] 保留 Edit matcher 行为。
+- [x] 为 file tools 注入 active profile。
+- [x] `Read` 检查 readable roots。
+- [x] `Read` 检查 deny-read。
+- [x] `Glob` / `Grep` 检查搜索根可读。
+- [x] `Write` 检查 writable roots。
+- [x] `Write` 阻止 protected metadata。
+- [x] `Edit` 检查 writable roots。
+- [x] `Edit` 阻止 protected metadata。
+- [x] 保留 realpath containment。
+- [x] 保留 symlink escape 防护。
+- [x] 保留 file write lock。
+- [x] 保留 Edit matcher 行为。
 
 验收标准：
 
@@ -508,6 +508,28 @@ SandboxTransformResult
 - workspace-write 下写 `.git/config` 失败。
 - workspace 外 Read/Write 失败。
 - symlink escape 仍失败。
+
+> 具体方案：Phase 7 新增 `ProfileEnforcedWorkspaceExecutor` wrapper，包住 `inner: WorkspaceExecutor`。它不改变 `Read` / `Write` / `Edit` / `Glob` / `Grep` 的工具流程，只在 executor 边界执行 active `PermissionProfile` 判断。`builtin-tools.ts` 第一版尽量不改或只做极小调整；工具层仍负责 write lock、Edit matcher 和当前 tool result shape。
+>
+> `ProfileEnforcedWorkspaceExecutor` 使用动态 context：`getProfileContext() -> WorkspaceProfileEnforcementContext | undefined`。context 至少包含 `profile` 和非空 `workspaceRoots`，可选携带 `pathContext`：`root`、`tmpdir`、`slashTmp`、`minimalRoots`。`tmpdir` 和 `slashTmp` 默认使用 runtime 当前值：`os.tmpdir()` 和 `/tmp`。文件工具 enforcement 不依赖 `SandboxManager`，只依赖 core 的 `canReadPath()` / `canWritePath()`。
+>
+> Phase 7 采用 fail-closed：一旦使用 `ProfileEnforcedWorkspaceExecutor`，缺少 profile context、缺少 `workspaceRoots` 或 `workspaceRoots` 为空都直接拒绝，不回退到 inner executor。`danger-full-access` / unrestricted 也应该通过明确 profile 表达允许，而不是通过缺少 context 绕过。
+>
+> Phase 7 采用双层检查。`resolveExistingPath()` / `resolveWritablePath()` 在 inner realpath containment 和 symlink escape 防护之后做提前检查；`readFile()` / `writeFile()` / `globFiles()` / `grepFiles()` 在最终操作前再次检查。这样既能尽早给出清晰错误，也能防止未来调用方绕过 resolve 后直接调用读写/搜索方法。
+>
+> 方法映射：`resolveExistingPath()` 和 `readFile()` 做 read 检查；`resolveWritablePath()` 和 `writeFile()` 做 write 检查；`globFiles()` 检查 `cwd` 可读；`grepFiles()` 检查搜索根 `path` 可读；`writeLockKey()` 只委托 inner，不做 profile 检查；`exec()` 只委托 inner，不受 Phase 7 影响。
+>
+> Phase 7 新增结构化错误 `WorkspaceProfilePermissionError`，`code = 'WORKSPACE_PROFILE_PERMISSION_DENIED'`。字段包含 `operation: 'read' | 'write' | 'search'`、`path`、`reason: 'missing_context' | 'missing_workspace_roots' | 'read_denied' | 'write_denied'`、可选 `profileName`。protected metadata 第一版不单独扩展 reason，仍归入 `write_denied`。
+>
+> `Glob` / `Grep` 第一版只检查搜索根可读，不做结果级 profile filtering。当前 Maka profile 尚未引入复杂 deny-read 子路径或 deny-read glob；搜索根检查已能表达现阶段 read-only / workspace-write 的读边界。未来如果引入更细粒度 deny-read，需要重新设计搜索工具逐文件 enforcement，优先考虑 sandboxed helper，而不是只过滤 `rg` 输出。
+>
+> 测试策略：`workspace-executor.test.ts` 重点覆盖 wrapper 自身，包括 context 缺失 fail closed、read-only 写入拒绝、workspace-write 普通写入允许、protected metadata 写入拒绝、workspace 外读写拒绝、Glob/Grep 搜索根检查、`writeLockKey()` 和 `exec()` 委托 inner。`builtin-tools.test.ts` 做少量集成覆盖，确认 `buildBuiltinTools({ executor: profileEnforcedExecutor })` 下 file tools 走同一套 enforcement，同时保留 write lock 和 Edit matcher 行为。Phase 7 不做 macOS smoke，因为它是 Node 主进程内 profile enforcement，不是平台 sandbox backend。
+>
+> 实现结果：Phase 7 已在 `packages/runtime/src/workspace-executor.ts` 新增 `ProfileEnforcedWorkspaceExecutor`、`WorkspaceProfileEnforcementContext` 和 `WorkspaceProfilePermissionError`，并从 runtime barrel 导出。该 wrapper 覆盖 `resolveExistingPath()`、`resolveWritablePath()`、`readFile()`、`writeFile()`、`globFiles()`、`grepFiles()`，同时让 `exec()` 和 `writeLockKey()` 继续委托 inner executor。
+>
+> 实现结果：Phase 7 已覆盖 `workspace-executor.test.ts` 和 `builtin-tools.test.ts`。测试验证了 fail-closed、read-only 拒绝写入、workspace-write 允许普通写入、protected metadata 写入拒绝、workspace 外读写拒绝、Glob/Grep 搜索根检查，以及 file write lock / Edit matcher 行为不回退。
+>
+> 未实现内容：Phase 7 仍未把 `ProfileEnforcedWorkspaceExecutor` 接入 Maka 默认 session/runtime startup；仍未实现 background Bash sandbox；仍未实现 `Glob` / `Grep` 结果级过滤；仍未实现文件工具 OS sandboxed helper。默认接线和更强的文件工具 OS 兜底留给后续阶段。
 
 ## Phase 8: sandbox-aware PermissionEngine / policy
 

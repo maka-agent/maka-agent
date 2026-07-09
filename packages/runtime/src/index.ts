@@ -110,11 +110,14 @@ export type {
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
   LocalWorkspaceExecutor,
+  ProfileEnforcedWorkspaceExecutor,
   SandboxedCommandWorkspaceExecutor,
   WorkspaceCommandSandboxError,
+  WorkspaceProfilePermissionError,
   createLocalWorkspaceExecutor,
 } from './workspace-executor.js';
 export type {
+  ProfileEnforcedWorkspaceExecutorOptions,
   SandboxedCommandWorkspaceExecutorOptions,
   WorkspaceExecInput,
   WorkspaceExecResult,
@@ -141,6 +144,11 @@ export type {
   WorkspaceGrepResult,
   WorkspaceIsolationKind,
   WorkspaceNetworkMode,
+  WorkspaceProfileEnforcementContext,
+  WorkspaceProfileEnforcementContextProvider,
+  WorkspaceProfileOperation,
+  WorkspaceProfilePermissionErrorDetails,
+  WorkspaceProfilePermissionErrorReason,
   WorkspaceReadExecutor,
   WorkspaceReadFileInput,
   WorkspaceReadFileExecutor,
