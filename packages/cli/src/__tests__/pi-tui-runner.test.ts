@@ -2311,7 +2311,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('enables focus reporting and sets the initial terminal title', async () => {
+  test('enables focus reporting only after raw mode, so no stray ^[[I leaks on launch', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -2324,8 +2324,18 @@ describe('Maka Pi TUI runner', () => {
       terminal,
     });
 
-    await waitFor(() => terminal.output().includes('\x1b[?1004h'));
+    await waitFor(() => terminal.writes.includes('\x1b[?1004h'));
     assert.ok(terminal.titles.includes('Maka'));
+
+    // Enabling focus reporting before raw mode makes the terminal's focus-in
+    // reply (`\x1b[I`) echo onto the screen as `^[[I`. The enable must be written
+    // strictly after start() (raw mode on), never before.
+    assert.notEqual(terminal.startWriteIndex, null);
+    const focusEnableIndex = terminal.writes.indexOf('\x1b[?1004h');
+    assert.ok(
+      focusEnableIndex >= terminal.startWriteIndex!,
+      'focus reporting was enabled before raw mode; a stray ^[[I can leak on launch',
+    );
 
     terminal.input('\x03');
     await Promise.race([

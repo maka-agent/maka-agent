@@ -10,9 +10,14 @@ export class FakeTerminal implements Terminal {
   readonly writes: string[] = [];
   readonly titles: string[] = [];
   stopCalls = 0;
+  // Index into `writes` at the moment `start()` (raw mode) ran. Anything written
+  // before this went out while the terminal was still in cooked mode. Null until
+  // start() is called.
+  startWriteIndex: number | null = null;
   private onInput: ((data: string) => void) | null = null;
 
   start(onInput: (data: string) => void, _onResize: () => void): void {
+    this.startWriteIndex = this.writes.length;
     this.onInput = onInput;
   }
 
