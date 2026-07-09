@@ -135,7 +135,7 @@ export function UsageSettingsPage(props: {
           title={refreshing ? '正在刷新使用统计' : '刷新使用统计'}
           onClick={() => void refresh()}
         >
-          <RefreshCcw size={15} strokeWidth={1.75} aria-hidden="true" />
+          <RefreshCcw size={15} aria-hidden="true" />
         </Button>
       </div>
 

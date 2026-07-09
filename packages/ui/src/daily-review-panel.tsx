@@ -18,6 +18,7 @@ import {
   formatDailyReviewModelLabel,
 } from './daily-review-helpers.js';
 import { Button as UiButton } from './ui.js';
+import { Chip, type ChipProps } from './primitives/chip.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
@@ -48,6 +49,15 @@ const DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL: Record<DailyReviewArchive['trigger'], 
 };
 
 const EMPTY_MODEL_OPTIONS: ReadonlyArray<readonly [string, string]> = [];
+
+// Archive-status Chip tone. ok = generated cleanly (success), failed /
+// no_model = the run could not produce a report (destructive). no_data /
+// skipped are expected non-events and stay neutral (exception-only color).
+function dailyReviewArchiveChipTone(status: DailyReviewArchive['status']): ChipProps['variant'] {
+  if (status === 'ok') return 'success';
+  if (status === 'failed' || status === 'no_model') return 'destructive';
+  return 'neutral';
+}
 
 export function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
@@ -428,7 +438,7 @@ export function DailyReviewPanel(props: {
           {props.onCopyMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-copy min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('copy', async () => {
@@ -446,7 +456,7 @@ export function DailyReviewPanel(props: {
             {props.onAppendMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-append min-w-[5rem]"
                 onClick={() => void runDailyReviewAction('append', async () => {
@@ -464,7 +474,7 @@ export function DailyReviewPanel(props: {
             {props.onSaveMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-save min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('save', async () => {
@@ -638,9 +648,14 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
             {archive.modelKey ? ` · ${formatDailyReviewModelLabel(archive.modelKey)}` : ' · 默认对话模型'}
           </p>
         </div>
-        <span className="maka-daily-review-archive-status" data-status={archive.status}>
+        <Chip
+          size="sm"
+          variant={dailyReviewArchiveChipTone(archive.status)}
+          className="maka-daily-review-archive-status"
+          data-status={archive.status}
+        >
           {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}
-        </span>
+        </Chip>
       </header>
       {archive.errorMessage && (
         <p className="maka-daily-review-archive-error">{archive.errorMessage}</p>

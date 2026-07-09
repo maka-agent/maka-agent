@@ -285,7 +285,7 @@ function NeedsConnectionHero(props: {
             return (
               <li key={entry.type}>
                 <Item
-                  className="maka-firstrun-row px-3.5 py-2 rounded-none"
+                  className="maka-firstrun-row px-3.5 py-2"
                   render={
                     <button
                       type="button"
@@ -306,7 +306,7 @@ function NeedsConnectionHero(props: {
                     <ItemDescription>{display.description}</ItemDescription>
                   </ItemContent>
                   <ItemActions>
-                    <ChevronRight size={16} strokeWidth={1.9} aria-hidden="true" />
+                    <ChevronRight size={16} aria-hidden="true" />
                   </ItemActions>
                 </Item>
               </li>
@@ -323,7 +323,7 @@ function NeedsConnectionHero(props: {
         {props.onRefreshConnections && (
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             onClick={props.onRefreshConnections}
             disabled={props.refreshConnectionsPending === true}
             aria-busy={props.refreshConnectionsPending === true ? 'true' : undefined}
@@ -366,7 +366,7 @@ function NeedsDefaultConnectionHero(props: {
 }) {
   return (
     <SetupHero
-      icon={<SettingsIcon size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<SettingsIcon size={14} aria-hidden="true" />}
       eyebrow="选择默认模型连接"
       title="选一个连接作为默认。"
       body={
@@ -404,7 +404,7 @@ function NeedsConnectionCredentialsHero(props: {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
-      icon={<KeyRound size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<KeyRound size={14} aria-hidden="true" />}
       eyebrow="补齐凭据"
       title="这个连接还缺 API key。"
       body={
@@ -450,7 +450,7 @@ function NeedsDefaultModelHero(props: {
   const { name, isFallback } = connectionLabel(props.connectionSlug, props.connections);
   return (
     <SetupHero
-      icon={<Cpu size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<Cpu size={14} aria-hidden="true" />}
       eyebrow="选择默认模型"
       title="这个连接还没选默认模型。"
       body={
@@ -497,7 +497,7 @@ function BlockedHero(props: {
   void props.reason;
   return (
     <SetupHero
-      icon={<AlertCircle size={14} strokeWidth={2} aria-hidden="true" />}
+      icon={<AlertCircle size={14} aria-hidden="true" />}
       eyebrow="等待恢复模型连接"
       title="当前没有通过验证的模型连接。"
       body={
@@ -716,7 +716,7 @@ function ReadyEmptyHero(props: {
     <section className="maka-onboarding maka-onboarding-ready" aria-label={copy.ariaLabel}>
       <header>
         <span className="maka-onboarding-eyebrow">
-          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+          <Sparkles size={12} aria-hidden="true" />
           <span>{copy.eyebrow}</span>
         </span>
         <h1>{copy.headline}</h1>
@@ -771,7 +771,7 @@ function ReadyEmptyHero(props: {
           aria-label={quickChatBusy ? copy.submitPendingLabel : copy.submitIdleLabel}
           title={quickChatBusy ? copy.submitPendingLabel : copy.submitIdleLabel}
         >
-          <ArrowUp size={18} strokeWidth={2.2} aria-hidden="true" />
+          <ArrowUp size={18} aria-hidden="true" />
         </Button>
       </div>
 
@@ -786,7 +786,7 @@ function ReadyEmptyHero(props: {
                 <div key={suggestion.id} className="maka-first-run-task-suggestion-chip">
                   <Button
                     type="button"
-                    variant="ghost"
+                    variant="outline"
                     size="sm"
                     className="maka-first-run-task-suggestion"
                     onClick={() => prefillSuggestion(suggestion.prompt, suggestion.mode)}
@@ -823,7 +823,7 @@ function SkipButton(props: { onSkip: () => Promise<void> | void; label?: string 
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant="outline"
       onClick={onClick}
       disabled={pending}
       aria-busy={pending ? 'true' : undefined}
@@ -892,7 +892,7 @@ function SetupHero(props: SetupHeroProps) {
         {props.secondaryCta && (
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
             onClick={props.secondaryCta.onClick}
             disabled={props.secondaryCta.disabled === true}
             aria-busy={props.secondaryCta.busy === true ? 'true' : undefined}

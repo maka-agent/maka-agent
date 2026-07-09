@@ -82,7 +82,15 @@ describe('Open Gateway Settings endpoint contract', () => {
     assert.match(gatewayBlock, /disabled=\{gatewayCopyDisabled\}/);
     assert.match(gatewayBlock, /disabled=\{!gatewayDraft\.token \|\| gatewayCopyDisabled\}/);
     assert.match(gatewayBlock, /isCopyingGatewayAction\('base-url'\) \? '复制中…' : '复制地址'/);
-    assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制最近请求 curl'/);
+    // Round 11: the seven page-level curl buttons collapsed into per-endpoint
+    // row actions — each endpoint row carries its own 复制 curl button, so the
+    // busy label is the shared '复制 curl' form on the row.
+    assert.match(gatewayBlock, /isCopyingGatewayAction\('recent-requests-curl'\) \? '复制中…' : '复制 curl'/);
+    assert.doesNotMatch(
+      gatewayBlock,
+      /'复制最近请求 curl'|'复制总览 curl'/,
+      'curl copies live on their endpoint rows, not in a page-level button wall',
+    );
   });
 
   it('does not write Open Gateway copy feedback after the Settings page unmounts', () => {

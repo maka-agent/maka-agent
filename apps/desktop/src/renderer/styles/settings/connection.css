@@ -157,42 +157,33 @@
     font-size: var(--font-size-caption);
     line-height: var(--leading-normal);
   }
-.settingsAuthContractBadge,
-  .settingsAuthActionPill {
+.settingsAuthContractBadge {
     display: inline-flex;
     align-items: center;
     min-height: 20px;
-    /* Detail audit round 4: these are non-clickable guidance labels sitting
-       in the same row as a REAL button (测试凭据) — bare text next to a
-       button read as broken controls. A quiet filled label form makes the
-       affordance difference legible. */
+    /* Detail audit round 4: a non-clickable guidance label sitting in the
+       same row as a REAL button (测试凭据) — bare text next to a button read
+       as broken controls. A quiet filled label form makes the affordance
+       difference legible. (.settingsAuthActionPill migrated onto Chip.) */
     padding: var(--space-0-5) var(--space-2);
     border-radius: var(--radius-control);
     background: var(--foreground-5);
-    color: var(--muted-foreground);
+    color: var(--foreground-secondary);
     white-space: nowrap;
     font-size: var(--font-size-caption);
     font-weight: var(--font-weight-medium);
   }
-.settingsAuthContractBadge {
-    padding: var(--space-0-5) var(--space-2);
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-  }
-/* success-tone badges/pills fall through to the neutral base — the
-   label text (已验证 etc.) carries the meaning. */
-.settingsAuthContractBadge[data-tone="info"],
-  .settingsAuthActionPill[data-tone="info"] {
+/* success-tone badges fall through to the neutral base — the label text
+   (已验证 etc.) carries the meaning. */
+.settingsAuthContractBadge[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
   }
-.settingsAuthContractBadge[data-tone="warning"],
-  .settingsAuthActionPill[data-tone="warning"] {
+.settingsAuthContractBadge[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
   }
-.settingsAuthContractBadge[data-tone="destructive"],
-  .settingsAuthActionPill[data-tone="destructive"] {
+.settingsAuthContractBadge[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.14);
     color: var(--destructive);
   }
@@ -217,11 +208,9 @@
     gap: var(--space-2);
     margin-top: var(--space-1);
   }
-.settingsAuthActionPill {
-    padding: var(--space-0-5) var(--space-2);
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-  }
+/* .settingsAuthActionPill is now the Chip primitive (squared status label,
+   tone→alpha from chip.tsx). Only the preview-kind dashed-border affordance
+   remains as a bespoke rule layered on top of the Chip. */
 .settingsAuthActionPill[data-kind="preview"] {
     border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.30);
   }

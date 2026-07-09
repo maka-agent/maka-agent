@@ -16,37 +16,8 @@
      adds the inner sheen. */
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
 }
-.maka-search-modal-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  padding: var(--space-2) var(--space-3) var(--space-1-5);
-  border-bottom: var(--border-width-hairline) solid var(--border);
-}
-.maka-search-modal-title {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  color: var(--foreground);
-}
-.maka-search-modal-close {
-  width: var(--h-control-sm);
-  height: var(--h-control-sm);
-  border: 0;
-  background: transparent;
-  color: var(--foreground-secondary);
-  font-size: 1.0667em;
-  line-height: var(--leading-none);
-  border-radius: var(--radius-control);
-}
-.maka-search-modal-close:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-.maka-search-modal-close:focus-visible {
-  outline: var(--focus-ring-width) solid var(--ring);
-  outline-offset: var(--focus-ring-offset);
-}
+/* Header band: the shared DialogHeader primitive (@maka/ui) owns the title
+ * row + quiet icon-sm close button now — no search-modal-specific header CSS. */
 /* PR-UX-POLISH-1 commit 5: real search modal layout.
  * - input-row: text input + leading magnifier icon, sits below the
  *   header band.

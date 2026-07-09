@@ -553,6 +553,9 @@ export class AgentRun {
       ...this.lineage,
       ...(this.input.userInput.agentId ? { agentId: this.input.userInput.agentId } : {}),
       ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
+      ...(this.input.userInput.origin?.kind === 'automation'
+        ? { automationId: this.input.userInput.origin.automationId }
+        : {}),
     };
     try {
       await this.input.runStore.createRun(header);

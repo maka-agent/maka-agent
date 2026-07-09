@@ -39,7 +39,7 @@ export function EmptyState(props: EmptyStateProps) {
     <Empty className={className} data-empty-view={props.dataEmptyView}>
       <EmptyHeader>
         <EmptyMedia variant="icon" className="maka-empty-state-media">
-          <props.Icon className="maka-empty-state-icon size-6 text-muted-foreground" strokeWidth={1.5} />
+          <props.Icon className="maka-empty-state-icon size-6 text-muted-foreground" />
         </EmptyMedia>
         <EmptyTitle className="maka-empty-state-title">{props.title}</EmptyTitle>
         <EmptyDescription className="maka-empty-state-body">{props.body}</EmptyDescription>

@@ -160,6 +160,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   bootstrapSessions: () => Promise<void>;
   clearPendingTurnActionsForSession: (sessionId: string) => void;
   clearSessionRendererState: (sessionId: string) => void;
+  createSession: () => Promise<void> | void;
   handleConnectionEvent: (event: ConnectionEvent) => void;
   openSettings: () => void;
   pendingPermissionModeChangesRef: RefBox<Set<string>>;
@@ -251,6 +252,12 @@ export function useAppShellBootstrapSubscriptions(options: {
     if ((event.metaKey || event.ctrlKey) && event.key === ',') {
       event.preventDefault();
       options.openSettings();
+    }
+    // ⌘/Ctrl+N — new task, mirroring the sidebar 新任务 row (whose kbd hint
+    // advertises this). Plain N only: shift/alt combos stay free.
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'n' || event.key === 'N')) {
+      event.preventDefault();
+      void options.createSession();
     }
   });
   const markRendererMounted = useEffectEvent(() => {

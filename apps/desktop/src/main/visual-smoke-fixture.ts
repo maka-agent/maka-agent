@@ -51,6 +51,9 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-memory',
   'settings-daily-review',
   'settings-permissions',
+  'settings-voice',
+  'settings-gateway',
+  'settings-search',
   'module-skills',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
@@ -374,6 +377,12 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
     case 'settings-permissions':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'permissions' };
+    case 'settings-voice':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'voice' };
+    case 'settings-gateway':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'open-gateway' };
+    case 'settings-search':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'search' };
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
     case 'module-daily-review':

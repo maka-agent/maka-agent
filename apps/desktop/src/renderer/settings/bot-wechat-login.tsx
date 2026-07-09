@@ -212,7 +212,7 @@ export function WeChatScanLoginModal(props: {
             aria-label="关闭微信扫码登录"
             onClick={props.onClose}
           >
-            <X strokeWidth={1.75} aria-hidden="true" />
+            <X aria-hidden="true" />
           </Button>
         </header>
         <div className="settingsBotScanLoginBody">

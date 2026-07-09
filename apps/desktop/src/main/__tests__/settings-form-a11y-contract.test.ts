@@ -299,4 +299,23 @@ describe('Settings form accessibility labels', () => {
       'Settings active nav item must not draw the left green accent rail',
     );
   });
+
+  // Alignment-governance round (maintainer report: 每日回顾 switches sat
+  // mid-page while every other row control hugs the right rail). The
+  // original end-align rule was tag-qualified (`button[role="switch"]`)
+  // but Base UI renders the Switch root as a SPAN — the selector matched
+  // nothing and rotted silently for weeks. Two pins: the rule exists in
+  // tag-agnostic form, and no settings CSS ever tag-qualifies role
+  // selectors again (role is the contract; the rendered tag is not).
+  it('end-aligns settings row switches with a tag-agnostic role selector', async () => {
+    const styles = await readRendererContractCss();
+    const alignRule = styles.match(/\.settingsRow\s*>\s*\[role="switch"\]\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    assert.ok(alignRule, '.settingsRow > [role="switch"] rule must exist');
+    assert.match(alignRule, /justify-self:\s*end;/, 'settings row switches must end-align like every other row control');
+    assert.doesNotMatch(
+      styles,
+      /button\[role="switch"\]/,
+      'never tag-qualify role selectors — Base UI renders the Switch root as a span, so button[role="switch"] silently matches nothing',
+    );
+  });
 });

@@ -61,7 +61,10 @@
   flex-wrap: wrap;
 }
 
-.maka-panel-detail[data-agents-view="skills"] .maka-module-main-actions > .maka-button-ghost:not(.maka-skill-add-button) {
+/* Round 8b: the hidden utilities are outline now (text buttons wear an
+   edge; ghost is icon-only), so key the rule on .maka-button instead of
+   the retired .maka-button-ghost class. */
+.maka-panel-detail[data-agents-view="skills"] .maka-module-main-actions > .maka-button:not(.maka-skill-add-button) {
   display: none;
 }
 

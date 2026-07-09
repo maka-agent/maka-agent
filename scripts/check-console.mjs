@@ -82,6 +82,18 @@ const ALLOW = new Map([
     'scripts/check-console.mjs',
     'this script — explicit allow.',
   ],
+  [
+    'apps/desktop/src/main/automation-wiring.ts',
+    'best-effort sync warning when durable automation persistence fails.',
+  ],
+  [
+    'packages/storage/src/automation-store.ts',
+    'best-effort warning when automation store read/write fails.',
+  ],
+  [
+    'packages/cli/src/runtime-bootstrap.ts',
+    'best-effort warning when CLI durable automation persistence fails.',
+  ],
 ]);
 
 async function walk(root) {

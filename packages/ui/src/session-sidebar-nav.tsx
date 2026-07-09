@@ -1,5 +1,5 @@
 import type { PlanReminder } from '@maka/core';
-import { Clock, LineChart, Settings, Sparkles, SquarePen } from './icons.js';
+import { Blocks, CalendarCheck, Plus, Settings, Timer } from './icons.js';
 import type { NavSelection } from './nav-selection.js';
 import { Button as UiButton, cn } from './ui.js';
 import { cva } from 'class-variance-authority';
@@ -7,7 +7,7 @@ import { cva } from 'class-variance-authority';
 const navRowVariants = cva(
   [
     'min-h-[var(--h-control-lg)] gap-2 rounded-sm border-0 bg-transparent px-1.5 py-0.5',
-    'text-left text-sm text-[var(--foreground-secondary)]',
+    'text-left text-sm font-medium text-[var(--foreground-secondary)]',
     'transition-[background-color,color] duration-[var(--duration-base)] ease-[var(--ease-out-strong)]',
     'hover:bg-[var(--state-hover-bg)] hover:text-foreground',
     'data-[active=true]:bg-[var(--state-selected-bg)] data-[active=true]:font-semibold data-[active=true]:text-foreground data-[active=true]:shadow-none',
@@ -69,8 +69,9 @@ export function SessionSidebarNav(props: {
         type="button"
         onClick={props.onNew}
       >
-        <SquarePen className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <Plus className="maka-nav-icon" aria-hidden="true" />
         <span>新任务</span>
+        <kbd className="maka-nav-kbd" aria-hidden="true">⌘ N</kbd>
       </UiButton>
       <UiButton
         variant="quiet"
@@ -82,7 +83,7 @@ export function SessionSidebarNav(props: {
         type="button"
         onClick={() => selectModule('daily-review')}
       >
-        <LineChart className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <CalendarCheck className="maka-nav-icon" aria-hidden="true" />
         <span>{MODULE_NAV_LABEL['daily-review']}</span>
       </UiButton>
       <UiButton
@@ -95,7 +96,7 @@ export function SessionSidebarNav(props: {
         type="button"
         onClick={() => selectModule('skills')}
       >
-        <Sparkles className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <Blocks className="maka-nav-icon" aria-hidden="true" />
         <span>{MODULE_NAV_LABEL.skills}</span>
       </UiButton>
       <UiButton
@@ -108,7 +109,7 @@ export function SessionSidebarNav(props: {
         onClick={() => selectModule('automations')}
         aria-label={activePlanReminderCount > 0 ? `定时任务，${activePlanReminderCount} 个未完成提醒` : MODULE_NAV_LABEL.automations}
       >
-        <Clock className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <Timer className="maka-nav-icon" aria-hidden="true" />
         <span>{MODULE_NAV_LABEL.automations}</span>
         {activePlanReminderCount > 0 && (
           <small className="maka-nav-count" aria-hidden="true">{activePlanReminderCount}</small>
@@ -130,7 +131,7 @@ export function SessionSidebarFooter(props: { onOpenSettings(): void }) {
         aria-label="设置"
         title="设置"
       >
-        <Settings className="maka-nav-icon" strokeWidth={1.5} aria-hidden="true" />
+        <Settings className="maka-nav-icon" aria-hidden="true" />
         <span>设置</span>
       </UiButton>
     </footer>

@@ -34,6 +34,10 @@
   transition: background-color var(--duration-quick) var(--ease-out-strong);
 }
 
+/* Round 10: interactive fills in the seamless list are ROUNDED like every
+   other row surface in the app (sidebar nav, session list) — square
+   full-bleed bands broke the radius language. */
+.enabledProviderTrigger { border-radius: var(--radius-control); }
 .enabledProviderTrigger:hover { background: var(--state-hover-bg); }
 
 .enabledProviderName {
@@ -93,9 +97,14 @@
 .enabledRollup.is-idle,
 .enabledConnStatus.is-untested { color: var(--muted-foreground); }
 
+/* Connection-row harmonization: the expanded panel used to paint a
+   full-bleed 2% wash + top border from x=0 — an edge-to-edge band under
+   the logo column that read as a different component from the catalog
+   rows below. The panel is transparent now; the rounded row fills
+   (hover / selected) carry the state, inset from the edges like every
+   other row surface. */
 .enabledProviderPanel {
-  background: oklch(from var(--foreground) l c h / 0.02);
-  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+  padding-bottom: var(--space-1);
 }
 
 .enabledProviderPanel ul {
@@ -106,6 +115,10 @@
 
 .enabledProviderPanel li + li .enabledConnRow {
   border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+}
+
+.enabledConnRow {
+  border-radius: var(--radius-control);
 }
 
 .enabledConnRow[data-default="true"] {
@@ -156,6 +169,10 @@
   overflow: auto;
 }
 
+.providerCatalogRow {
+  border-radius: var(--radius-control);
+}
+
 .providerMarketGrid .providerCatalogRow + .providerCatalogRow,
 .providerOAuthGrid .providerCatalogRow + .providerCatalogRow {
   border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
@@ -172,16 +189,9 @@
 /* Gated providers carry a real trailing state badge in ItemActions (not an
  * absolute ::after), tinted by the gate reason. The row itself is a plain
  * div Item with no render prop, so it is inert — the provider-surface gate
- * never lets a gated provider read as clickable. */
-.providerCatalogRow[data-status="unavailable"] .providerCatalogBadge.is-state {
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
-}
-
-.providerCatalogRow[data-status="experimental"] .providerCatalogBadge.is-state {
-  background: oklch(from var(--warning) l c h / 0.14);
-  color: var(--warning-text);
-}
+ * never lets a gated provider read as clickable. The state badge is now the
+ * Chip primitive (info = unavailable, warning = experimental); tone→alpha
+ * lives in chip.tsx, so no bespoke .is-state tint rules remain here. */
 
 /* PR-UI-13 (@yuejing 2026-05-22): ProviderLogo size normalization.
  *

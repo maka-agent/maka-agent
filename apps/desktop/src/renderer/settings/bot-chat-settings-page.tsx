@@ -17,6 +17,7 @@ import {
   BOT_BRAND,
   BotBrandLogo as BotBrandMark,
   Button,
+  Chip,
   Input,
   RelativeTime,
   SettingsSelect,
@@ -167,10 +168,9 @@ function BotBrandLogo(props: {
  */
 function BotStatusPill(props: { tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive'; label: string }) {
   return (
-    <span className="settingsBotStatusPill" data-tone={props.tone}>
-      <span className="settingsBotStatusPillDot" aria-hidden="true" />
+    <Chip dot variant={props.tone} className="settingsBotStatusPill" data-tone={props.tone}>
       {props.label}
-    </span>
+    </Chip>
   );
 }
 

@@ -510,7 +510,7 @@ function OsPermissionRow(props: {
   return (
     <li className="settingsOsPermissionRow" data-state={snapshot.status}>
       <div className="settingsOsPermissionIcon" aria-hidden="true">
-        {Icon ? <Icon size={18} strokeWidth={1.6} /> : null}
+        {Icon ? <Icon size={18} /> : null}
       </div>
       <div className="settingsOsPermissionBody">
         <div className="settingsOsPermissionHeading">
@@ -537,10 +537,14 @@ function OsPermissionRow(props: {
           request flow for the permission), it still falls under the
           primary slot — no awkward "lonely secondary" state. */}
       <div className="settingsOsPermissionActions">
+        {/* Affordance honesty (round 8): ghost next to the primary read as a
+            plain text label — a clickable action sitting beside a real button
+            needs its own visible edge. Secondary keeps it quieter than
+            请求授权 without hiding that it's a button. */}
         {showOpenSettings && (
           <Button
             type="button"
-            variant={showRequest ? 'ghost' : 'default'}
+            variant={showRequest ? 'secondary' : 'default'}
             size="sm"
             onClick={props.onOpenSettings}
             disabled={busy}

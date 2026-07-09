@@ -51,7 +51,9 @@ describe('subagent UI contract', () => {
 
     assert.match(block, /<UiButton[\s\S]*className=\{cn\('maka-button', previewVariants\(\{ part: 'close' \}\)\)\}/);
     assert.match(block, /aria-label="关闭预览"/);
-    assert.match(block, /<X size=\{14\} strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
+    // Icon stroke governance round: per-call-site strokeWidth props were
+    // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).
+    assert.match(block, /<X size=\{14\} aria-hidden="true" \/>/);
     assert.match(block, /<span>关闭<\/span>/);
     assert.doesNotMatch(block, />Close</);
   });

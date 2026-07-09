@@ -253,7 +253,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
               disabled={statusRefreshPending}
               aria-busy={statusRefreshPending ? 'true' : undefined}
             >
-              <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+              <RefreshCcw size={12} aria-hidden="true" />
               <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
             </Button>
           </AlertAction>
@@ -273,7 +273,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
       aria-label={`接下来可以探索（待完成 ${remaining} 项）`}
     >
       <header className="maka-first-run-checklist-header">
-        <Sparkles size={16} strokeWidth={1.5} aria-hidden="true" />
+        <Sparkles size={16} aria-hidden="true" />
         <strong>接下来可以探索</strong>
         <span className="maka-first-run-checklist-count">{remaining} / {completableItems.length} 待完成</span>
       </header>
@@ -292,7 +292,7 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
               disabled={statusRefreshPending}
               aria-busy={statusRefreshPending ? 'true' : undefined}
             >
-              <RefreshCcw size={12} strokeWidth={1.75} aria-hidden="true" />
+              <RefreshCcw size={12} aria-hidden="true" />
               <span>{statusRefreshPending ? '刷新中…' : '重试'}</span>
             </Button>
           </AlertAction>
@@ -309,9 +309,9 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
             <Button type="button" variant="ghost" onClick={item.onClick} disabled={false}>
               <span className="maka-first-run-checklist-status" aria-hidden="true">
                 {item.done ? (
-                  <Check size={14} strokeWidth={2} />
+                  <Check size={14} />
                 ) : (
-                  <item.Icon size={14} strokeWidth={1.5} />
+                  <item.Icon size={14} />
                 )}
               </span>
               <span className="maka-first-run-checklist-copy">
@@ -320,7 +320,6 @@ export function FirstRunChecklist(props: FirstRunChecklistProps) {
               </span>
               <ArrowRight
                 size={14}
-                strokeWidth={1.5}
                 aria-hidden="true"
                 className="maka-first-run-checklist-arrow"
               />

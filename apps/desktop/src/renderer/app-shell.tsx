@@ -1072,6 +1072,7 @@ export function AppShell({
     bootstrapSessions,
     clearPendingTurnActionsForSession,
     clearSessionRendererState,
+    createSession,
     handleConnectionEvent,
     openSettings,
     pendingPermissionModeChangesRef,

@@ -188,7 +188,7 @@ export function SettingsSurface(props: {
             aria-label="返回应用"
             onClick={props.onClose}
           >
-            <ArrowLeft size={16} strokeWidth={1.85} aria-hidden="true" />
+            <ArrowLeft size={16} aria-hidden="true" />
             <span>返回应用</span>
           </Button>
           <nav aria-label="设置分组">
@@ -207,7 +207,7 @@ export function SettingsSurface(props: {
                     onClick={() => setSection(item.id)}
                   >
                     <span className="settingsNavGlyph" aria-hidden="true">
-                      <item.Icon size={16} strokeWidth={1.5} />
+                      <item.Icon size={16} />
                     </span>
                     <strong>{item.label}</strong>
                     {item.badge && (

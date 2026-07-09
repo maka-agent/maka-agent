@@ -46,7 +46,12 @@ describe('Bot settings UI contract', () => {
     assert.match(settings, /className="settingsBotConfigDocLink"[\s\S]*target="_blank"[\s\S]*rel="noopener noreferrer"[\s\S]*查看配置文档 →/, 'Configuration docs link must be visible and external-link safe');
     assert.doesNotMatch(settings, /iframe|webview|dangerouslySetInnerHTML/, 'Bot docs must not be embedded into the renderer');
     assert.match(styles, /\.settingsBotHero\s*\{[\s\S]*background:\s*color-mix/, 'Hero card must use a subtle brand-color tint');
-    assert.match(styles, /\.settingsBotStatusPill\b/, 'Hero current-state pill styling must be present');
+    // Round 1 convergence (#520 follow-up): the hero current-state pill is now
+    // the Chip primitive with a leading tone dot (was a hand-rolled
+    // .settingsBotStatusPill + .settingsBotStatusPillDot recipe). The dotted
+    // Chip carries the tone via its variant; the bespoke pill CSS is retired.
+    assert.match(settings, /<Chip\s+dot\s+variant=\{props\.tone\}\s+className="settingsBotStatusPill"/, 'Hero current-state pill must render a dotted Chip');
+    assert.doesNotMatch(styles, /\.settingsBotStatusPill\s*\{/, 'Hand-rolled hero pill CSS must be retired (Chip is the tone authority)');
   });
 
   it('names the selected platform runtime status grid', async () => {

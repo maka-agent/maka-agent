@@ -189,10 +189,10 @@ export function useToast(): ToastApi {
 }
 
 const VARIANT_ICON: Record<ToastVariant, ReactNode> = {
-  info: <Info size={16} strokeWidth={1.75} aria-hidden="true" />,
-  success: <CheckCircle2 size={16} strokeWidth={1.75} aria-hidden="true" />,
-  warning: <AlertTriangle size={16} strokeWidth={1.75} aria-hidden="true" />,
-  error: <AlertCircle size={16} strokeWidth={1.75} aria-hidden="true" />,
+  info: <Info size={16} aria-hidden="true" />,
+  success: <CheckCircle2 size={16} aria-hidden="true" />,
+  warning: <AlertTriangle size={16} aria-hidden="true" />,
+  error: <AlertCircle size={16} aria-hidden="true" />,
 };
 
 function ToastViewport() {
@@ -248,7 +248,7 @@ function ToastViewport() {
               aria-label="关闭通知"
               render={<Button type="button" variant="quiet" size="icon-sm" />}
             >
-              <X size={14} strokeWidth={1.75} aria-hidden="true" />
+              <X size={14} aria-hidden="true" />
             </BaseToast.Close>
           </BaseToast.Root>
         );

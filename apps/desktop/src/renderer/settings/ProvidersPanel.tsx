@@ -224,7 +224,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                             <span className="enabledStatusDot" aria-hidden="true" />
                             {rollupLabel}
                           </span>
-                          <ChevronRight className="enabledChevron" size={15} strokeWidth={2} aria-hidden="true" />
+                          <ChevronRight className="enabledChevron" size={15} aria-hidden="true" />
                         </span>
                       </PrimitiveAccordionTrigger>
                     </PrimitiveAccordionHeader>
@@ -233,7 +233,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                         {group.connections.map((connection) => (
                           <li key={connection.slug}>
                             <Item
-                              className="enabledConnRow py-2 pr-8 pl-12 rounded-none"
+                              className="enabledConnRow mx-2 py-2 pr-6 pl-10"
                               data-default={connection.slug === defaultSlug ? 'true' : undefined}
                               data-test-status={connection.lastTestStatus ?? 'untested'}
                               data-disabled={connection.enabled ? undefined : 'true'}

@@ -308,7 +308,7 @@ export function ModelChipStatic(props: { label: string; onOpenSettings?: () => v
         aria-label={`配置模型连接，当前 ${props.label}`}
         title="配置模型连接"
       >
-        <Settings size={12} strokeWidth={1.8} aria-hidden="true" />
+        <Settings size={12} aria-hidden="true" />
         <span className="maka-composer-model-chip-text">{props.label}</span>
       </UiButton>
     );

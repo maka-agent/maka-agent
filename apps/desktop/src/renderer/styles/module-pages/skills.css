@@ -1,11 +1,15 @@
+/* Round 10: the search field and the 添加 CTA share one header row —
+   they align on the SAME control height (36px, the default button) and
+   the SAME radius family (radius-control). Previously 32px/8px vs
+   36px/6px read as two misaligned controls. */
 .maka-skill-search {
   width: min(280px, 30vw);
-  height: 32px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
   border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--muted-foreground);
   padding: 0 var(--space-2-5);
@@ -590,38 +594,10 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   letter-spacing: var(--tracking-normal);
 }
 
-.maka-skill-library-runtime-label,
-.maka-skill-library-status-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100%;
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-pill);
-  background: oklch(from var(--info) l c h / 0.08);
-  color: var(--info-text);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-}
-
-/* Detail round 6: the runtime chip is exception-only (state_error) — the
-   enabled/disabled visual forms retired with the redundant chip. */
-.maka-skill-library-runtime-label[data-status="state_error"] {
-  background: oklch(from var(--warning) l c h / 0.10);
-  color: var(--warning-text);
-}
-
-.maka-skill-library-status-label[data-status="local_modified"],
-.maka-skill-library-status-label[data-status="metadata_error"],
-.maka-skill-library-status-label[data-status="source_missing"] {
-  background: oklch(from var(--warning) l c h / 0.10);
-  color: var(--warning-text);
-}
-
-.maka-skill-library-status-label[data-status="update_available"] {
-  background: oklch(from var(--success) l c h / 0.10);
-  color: var(--success-text);
-}
+/* .maka-skill-library-runtime-label / .maka-skill-library-status-label are now
+   rendered by the Chip primitive (squared status label, tone→alpha authority in
+   packages/ui/src/primitives/chip.tsx). The tone derivation lives in
+   skills-panel.tsx (skillStatusChipTone); no bespoke label CSS remains. */
 
 .maka-skill-library-open-button {
   justify-self: end;
