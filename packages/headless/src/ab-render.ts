@@ -5,6 +5,7 @@ import type {
   AbContextBudgetSummary,
   AbDecision,
   AbPairInvestigationRef,
+  AbTaskToolSummary,
   AbTokenCostSummary,
 } from './ab-types.js';
 
@@ -13,6 +14,7 @@ export function renderAbComparisonMarkdown(summary: AbComparisonSummary): string
   const activePruneSubsetLine = renderActivePruneSubsetLine(summary);
   const contextBudgetPolicyLine = renderContextBudgetPolicyLine(summary);
   const continuationLine = renderContinuationLine(summary);
+  const taskToolLine = renderTaskToolLine(summary);
   const investigationRefLines = renderInvestigationRefLines(summary);
   const lines = [
     '# A/B Comparison',
@@ -34,6 +36,7 @@ export function renderAbComparisonMarkdown(summary: AbComparisonSummary): string
     `- Infra outcomes: A infra_failed=${summary.baseline.infraFailed}, B infra_failed=${summary.candidate.infraFailed}; A plumbing_failed=${summary.baseline.plumbingFailed}, B plumbing_failed=${summary.candidate.plumbingFailed}`,
     ...(contextBudgetPolicyLine ? [contextBudgetPolicyLine] : []),
     ...(continuationLine ? [continuationLine] : []),
+    ...(taskToolLine ? [taskToolLine] : []),
     ...(contextBudgetLine ? [contextBudgetLine] : []),
     ...(activePruneSubsetLine ? [activePruneSubsetLine] : []),
     '',
@@ -109,6 +112,27 @@ function renderContinuationMetrics(summary: AbContinuationSummary): string {
     `max_turns=${summary.maxTurns ?? 'null'}`,
     `max_total_steps=${summary.maxTotalRuntimeSteps ?? 'null'}`,
   ].join(' ');
+}
+
+function renderTaskToolLine(summary: AbComparisonSummary): string | undefined {
+  if (!summary.baseline.taskTools && !summary.candidate.taskTools) return undefined;
+  return `- Task tools: A ${renderTaskToolMetrics(taskToolsOrZero(summary.baseline.taskTools))}, B ${renderTaskToolMetrics(taskToolsOrZero(summary.candidate.taskTools))}`;
+}
+
+function renderTaskToolMetrics(summary: AbTaskToolSummary): string {
+  return [
+    `activated=${summary.activatedAttempts}/${summary.attempts}`,
+    `todo_write=${summary.todoWriteCalls}`,
+  ].join(' ');
+}
+
+function taskToolsOrZero(summary: AbTaskToolSummary | undefined): AbTaskToolSummary {
+  return summary ?? {
+    attempts: 0,
+    activatedAttempts: 0,
+    activatedAttemptIds: [],
+    todoWriteCalls: 0,
+  };
 }
 
 function continuationOrZero(summary: AbContinuationSummary | undefined): AbContinuationSummary {

@@ -12,7 +12,6 @@ import {
   normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
-  normalizeRetryTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from '../permission-response-guard.js';
@@ -60,11 +59,7 @@ describe('permission response IPC boundary', () => {
     assert.doesNotMatch(handler, /runtime\.respondToPermission\(sessionId,\s*response\)/);
   });
 
-  it('normalizes turn action inputs before retry / regenerate / branch runtime calls', () => {
-    assert.deepEqual(
-      normalizeRetryTurnInput({ sourceTurnId: 'turn-1', turnId: 'retry-1', extra: true }),
-      { sourceTurnId: 'turn-1', turnId: 'retry-1' },
-    );
+  it('normalizes turn action inputs before regenerate / branch runtime calls', () => {
     assert.deepEqual(
       normalizeRegenerateTurnInput({ sourceTurnId: 'turn-2' }),
       { sourceTurnId: 'turn-2' },
@@ -76,8 +71,6 @@ describe('permission response IPC boundary', () => {
   });
 
   it('rejects malformed turn action inputs at the IPC boundary', () => {
-    assert.throws(() => normalizeRetryTurnInput(null), /retry turn input/);
-    assert.throws(() => normalizeRetryTurnInput({ sourceTurnId: '' }), /sourceTurnId/);
     assert.throws(() => normalizeRegenerateTurnInput({ sourceTurnId: 'turn-1', turnId: 1 }), /turnId/);
     assert.throws(() => normalizeBranchFromTurnInput({ sourceTurnId: 'turn-1', name: 1 }), /branch name/);
   });
@@ -85,12 +78,9 @@ describe('permission response IPC boundary', () => {
   it('routes turn actions through main-process normalizers', async () => {
     const mainPath = fileURLToPath(new URL('../../../src/main/main.ts', import.meta.url));
     const main = await readFile(mainPath, 'utf8');
-    const retryHandler = main.match(/ipcMain\.handle\('sessions:retryTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const regenerateHandler = main.match(/ipcMain\.handle\('sessions:regenerateTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
     const branchHandler = main.match(/ipcMain\.handle\('sessions:branchFromTurn'[\s\S]*?\n  \);/)?.[0] ?? '';
 
-    assert.match(retryHandler, /normalizeRetryTurnInput\(input\)/);
-    assert.doesNotMatch(retryHandler, /runtime\.retryTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(regenerateHandler, /normalizeRegenerateTurnInput\(input\)/);
     assert.doesNotMatch(regenerateHandler, /runtime\.regenerateTurn\(sessionId,\s*\{\s*\.\.\.input/);
     assert.match(branchHandler, /normalizeBranchFromTurnInput\(input\)/);
@@ -103,14 +93,14 @@ describe('permission response IPC boundary', () => {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
-        attachments: [{ kind: 'image' }],
+        attachmentItems: [{ approvalId: 'a', name: 'n' }],
         extra: true,
       }),
       {
         type: 'send',
         turnId: 'turn-1',
         text: 'hello',
-        attachments: [{ kind: 'image' }],
+        attachmentItems: [{ approvalId: 'a', name: 'n' }],
       },
     );
     assert.deepEqual(
@@ -434,12 +424,11 @@ describe('permission response IPC boundary', () => {
   it('keeps normal Composer first-send visible in the newly created session', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',
-      'app-shell-import-actions.ts',
       'model-connection-errors.ts',
       'app-shell.tsx',
     ]);
     const sendBlock = renderer.match(
-      /async function send\(text: string\): Promise<boolean> \{[\s\S]*?async function importTextFilePrompt/,
+      /async function send\(text: string[\s\S]*?\n  async function respondToPermission/,
     )?.[0] ?? '';
     const newSessionBranch = sendBlock.match(/if \(!initialSessionId\) \{[\s\S]*?return true;/)?.[0] ?? '';
     const existingSessionBranch = sendBlock.match(/const sessionId = initialSessionId;[\s\S]*?return true;/)?.[0] ?? '';
@@ -456,7 +445,7 @@ describe('permission response IPC boundary', () => {
     assert.match(sendBlock, /const turnId = crypto\.randomUUID\(\)/);
     assert.match(
       newSessionBranch,
-      /upsertSessionSummary\(session\)[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text \}\)[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
+      /upsertSessionSummary\(session\)[\s\S]*window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\)[\s\S]*setActiveId\(session\.id\)[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\)[\s\S]*\}[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*refreshMessagesUntilTurn\(session\.id, turnId\)[\s\S]*\}[\s\S]*refreshSessions\(\)/,
       'normal Composer first-send must switch/show the new user turn only while the empty-chat surface still owns the async continuation',
     );
     assert.doesNotMatch(
@@ -471,7 +460,7 @@ describe('permission response IPC boundary', () => {
     );
     assert.match(
       existingSessionBranch,
-      /showOptimisticUserMessage\(sessionId, turnId, text\)[\s\S]*window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text \}\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
+      /window\.maka\.sessions\.send\(sessionId, \{ type: 'send', turnId, text,[\s\S]*showOptimisticUserMessage\(sessionId, turnId, text, sendResult\.attachments\)[\s\S]*refreshMessagesUntilTurn\(sessionId, turnId\)/,
       'existing sessions should also show the user turn immediately before waiting for persisted storage',
     );
     assert.match(

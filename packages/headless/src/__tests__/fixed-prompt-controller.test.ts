@@ -1003,6 +1003,37 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('records task tool summary in completed task WAL events', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      const resultsJsonlPath = join(dir, 'results.jsonl');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const taskToolSummary = {
+        todoWriteCalls: 5,
+      };
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath,
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({ taskId: 'task-a', taskToolSummary }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      if (result.events[0]?.type === 'task_completed') {
+        assert.deepEqual(result.events[0].taskToolSummary, taskToolSummary);
+      }
+      const event = JSON.parse((await readFile(resultsJsonlPath, 'utf8')).trimEnd());
+      assert.deepEqual(event.taskToolSummary, taskToolSummary);
+    });
+  });
+
   test('classifies completed Harbor reward failures as benchmark failures', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1197,6 +1228,7 @@ function harborOutput(input: {
   contextBudgetPolicy?: HarborTaskRunOutput['cell']['contextBudgetPolicy'];
   contextBudgetSummary?: HarborTaskRunOutput['cell']['contextBudgetSummary'];
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
+  taskToolSummary?: HarborTaskRunOutput['cell']['taskToolSummary'];
   errorClass?: string;
 }): HarborTaskRunOutput {
   return {
@@ -1212,6 +1244,7 @@ function harborOutput(input: {
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),
       ...(input.continuationSummary ? { continuationSummary: input.continuationSummary } : {}),
+      ...(input.taskToolSummary ? { taskToolSummary: input.taskToolSummary } : {}),
       toolSummary: {
         providerVisibleToolCount: 0,
         actualToolCalls: 0,

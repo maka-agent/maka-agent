@@ -5,15 +5,11 @@
  * Two bug classes this guards:
  *
  * 1. Renderer-side shadow authority. An early draft had the renderer
- *    resolve the default locally and always send an explicit
- *    `permissionMode` to sessions:create -- which made main.ts's
- *    settings-backed fallback unreachable, and silently used a stale
- *    renderer copy of the setting (seeded 'ask', updated only after the
- *    mount-time settings IPC resolved) for e.g. the first send after a
- *    cold start. The contract now is: the renderer sends permissionMode
- *    ONLY when the user explicitly picked one in the composer; otherwise
- *    it omits the field and main.ts resolves the configured default as
- *    the single authority.
+ *    resolve the default locally or store a one-shot composer pick and send
+ *    an explicit `permissionMode` to sessions:create -- which made main.ts's
+ *    settings-backed fallback unreachable. The contract now is: composer
+ *    permission picks update the persisted chat default, and the renderer
+ *    always omits permissionMode when creating a session.
  *
  * 2. Settings-store coupling. The pre-feature fallback was a synchronous
  *    `'ask'` literal that could never fail. Reading the configured
@@ -29,13 +25,13 @@ import { readSettingsCombinedSource } from './settings-contract-source-helpers.j
 import { readMainTsSource } from './main-process-contract-source-helpers.js';
 
 describe('default permission mode contract', () => {
-  it('renderer omits permissionMode unless the user explicitly picked one', async () => {
+  it('renderer always omits permissionMode when creating sessions', async () => {
     const src = await readRendererShellSources(['app-shell-chat-actions.ts']);
 
-    assert.match(
+    assert.doesNotMatch(
       src,
       /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
-      'send() must spread permissionMode conditionally -- omitting it lets main.ts resolve the configured default as the single authority',
+      'send() must not shadow the persisted global default with renderer-only permission state',
     );
     assert.doesNotMatch(
       src,
@@ -139,11 +135,11 @@ describe('General settings page 默认权限模式 picker', () => {
     );
   });
 
-  it('renders the shared PermissionModeMenuPopup so options and hints cannot drift from the composer picker', async () => {
+  it('renders the shared PermissionModeSelect so options and hints cannot drift from the composer picker', async () => {
     const src = await readSettingsCombinedSource();
     assert.match(
       src,
-      /<PermissionModeMenuPopup\s+activeMode=\{props\.permissionMode\}/,
+      /<PermissionModeSelect\s+activeMode=\{props\.permissionMode\}/,
       '默认权限模式 must render the shared popup from @maka/ui (label + hint per option, same markup as the composer picker), not a bespoke copy',
     );
   });

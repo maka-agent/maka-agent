@@ -2,7 +2,7 @@
  * Contract for the session task-ledger primitive (model-facing slice, PR1).
  *
  * Locks the seams that a refactor could silently break:
- *   (a) main.ts wires TaskCreate/TaskUpdate into builtinTools and constructs
+ *   (a) main.ts wires task_create/task_update/task_list/task_get into builtinTools and constructs
  *       the per-session store, and threads sessionId into the turn tail.
  *   (b) the turn-tail injector exists and injects nothing for an empty ledger
  *       (zero cost when the model isn't tracking tasks) but renders when there
@@ -20,6 +20,8 @@ import { tmpdir } from 'node:os';
 import type { AppSettings, Task } from '@maka/core';
 import {
   TASK_CREATE_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
   buildTaskLedgerTools,
   type MakaToolContext,
@@ -62,9 +64,8 @@ describe('task ledger contract', () => {
   it('wires the store and tools to one shared task ledger the turn tail reads (behavior, not source text)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-task-ledger-wiring-'));
     const wiring = createMainTaskLedgerWiring(root);
-    // (a) TaskCreate/TaskUpdate are wired in.
-    assert.ok(wiring.tools.some((t) => t.name === TASK_CREATE_TOOL_NAME), 'TaskCreate must be wired');
-    assert.ok(wiring.tools.some((t) => t.name === TASK_UPDATE_TOOL_NAME), 'TaskUpdate must be wired');
+    // (a) snake_case task tools are wired in.
+    assert.deepEqual(wiring.tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME, TASK_LIST_TOOL_NAME, TASK_GET_TOOL_NAME]);
     // (b) store is real and empty for a fresh workspace.
     assert.deepEqual(await wiring.store.list('sess-1'), []);
     // (c) tools and the turn tail share ONE store through the real system prompt
@@ -80,7 +81,7 @@ describe('task ledger contract', () => {
       taskLedger: wiring.store,
     });
     const create = wiring.tools.find((t) => t.name === TASK_CREATE_TOOL_NAME);
-    assert.ok(create, 'TaskCreate tool must be present');
+    assert.ok(create, 'task_create tool must be present');
     await create.impl({ tasks: [{ subject: '通过装配建任务' }] }, fakeContext('sess-1'));
     const tail = await service.buildTurnTailPrompt(undefined, 'sess-1');
     assert.ok(tail, 'tail must render when the shared store has tasks');
@@ -103,6 +104,45 @@ describe('task ledger contract', () => {
     assert.match(tail, /<task-ledger>/);
     assert.match(tail, /写单元测试/);
     assert.match(tail, /仅供当前回复参考/);
+    assert.match(tail, /task_create\/task_update\/task_list\/task_get/);
+    assert.doesNotMatch(tail, /TaskCreate\/TaskUpdate/);
+  });
+
+  it('does not inject untrusted fallback tasks into the model-visible turn tail', async () => {
+    const tail = await makeService([
+      {
+        ...sampleTask,
+        id: 'safe-task',
+        subject: 'visible task',
+      },
+      {
+        ...sampleTask,
+        id: 'fallback-task',
+        subject: 'corrupt cache fallback',
+        resumeTrust: 'untrusted',
+      },
+    ]).buildTurnTailPrompt(undefined, 'sess-1');
+    assert.ok(tail);
+    assert.match(tail, /visible task/);
+    assert.doesNotMatch(tail, /corrupt cache fallback/);
+    assert.doesNotMatch(tail, /fallback-task/);
+    assert.doesNotMatch(tail, /resumeTrust=/);
+  });
+
+  it('does not register task tools when the feature flag is explicitly disabled', async () => {
+    const previous = process.env.MAKA_TASK_LEDGER_TOOLS;
+    process.env.MAKA_TASK_LEDGER_TOOLS = 'false';
+    try {
+      const root = await mkdtemp(join(tmpdir(), 'maka-task-ledger-disabled-'));
+      const wiring = createMainTaskLedgerWiring(root);
+      assert.deepEqual(wiring.tools, []);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.MAKA_TASK_LEDGER_TOOLS;
+      } else {
+        process.env.MAKA_TASK_LEDGER_TOOLS = previous;
+      }
+    }
   });
 
   it('redacts secret-like text in task subjects before injecting the tail', async () => {
@@ -161,11 +201,12 @@ describe('task ledger contract', () => {
     const tools = buildTaskLedgerTools({
       store: {
         list: async () => [],
+        get: async () => undefined,
         create: async () => ({ created: [], total: 0 }),
         update: async () => ({ updated: {} as Task, total: 0 }),
       },
     });
-    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
+    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME, TASK_LIST_TOOL_NAME, TASK_GET_TOOL_NAME]);
     for (const tool of tools) {
       assert.equal(tool.permissionRequired, false, `${tool.name} must not require permission`);
     }

@@ -47,6 +47,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-general',
   'settings-memory',
   'settings-daily-review',
+  'settings-permissions',
+  'settings-voice',
+  'settings-gateway',
+  'settings-search',
   'module-skills',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
@@ -357,6 +361,14 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'memory' };
     case 'settings-daily-review':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'daily-review' };
+    case 'settings-permissions':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'permissions' };
+    case 'settings-voice':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'voice' };
+    case 'settings-gateway':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'open-gateway' };
+    case 'settings-search':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'search' };
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
     case 'module-daily-review':
@@ -524,6 +536,78 @@ export async function seedVisualSmokeFixture(input: {
   }
   if (input.fixture.scenario === 'module-daily-review' || input.fixture.scenario === 'settings-daily-review') {
     await writeDailyReviewArchives(input.workspaceRoot, now);
+  }
+  if (input.fixture.scenario === 'module-skills') {
+    await seedSkillsMarketFixture(input.workspaceRoot);
+  }
+}
+
+/**
+ * Marketplace fixture: seeds a managed-source catalog (≥6 entries across
+ * categories with varied recency) plus a couple of workspace skills so the
+ * 市场 grid, category filter, sort, and the 内置/已安装 rows all render
+ * meaningfully in the CDP capture. Managed sources normally live in
+ * ~/.maka/skill-sources; the dev-gated MAKA_SKILL_SOURCES_ROOT override
+ * (resolveManagedSkillSourcesRoot) points both the seeder and the runtime
+ * IPC at a fixture-local dir so nothing touches the real home catalog.
+ */
+async function seedSkillsMarketFixture(workspaceRoot: string): Promise<void> {
+  const sourcesRoot = join(workspaceRoot, '.maka', 'skill-sources');
+  process.env.MAKA_SKILL_SOURCES_ROOT = sourcesRoot;
+  await mkdir(sourcesRoot, { recursive: true });
+
+  const sources: ReadonlyArray<{ id: string; name: string; description: string; category: string }> = [
+    { id: 'research-brief', name: '研究简报', category: '研究与分析', description: '把网页资料、引用和结论整理成结构化 brief，适合快速进入陌生领域。' },
+    { id: 'doc-review', name: '文档审阅', category: '文档与写作', description: '检查 DOCX / Markdown 的结构、语气和遗漏项，并输出可执行修改建议。' },
+    { id: 'meeting-followup', name: '会议跟进', category: '效率工具', description: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。' },
+    { id: 'release-checklist', name: '发布检查', category: 'DevOps与部署', description: '按发布前 checklist 扫描 diff、测试和文档，减少临门一脚的遗漏。' },
+    { id: 'data-analyst', name: '数据分析助手', category: '数据与AI', description: '读取 CSV / 表格，做透视、异常检测和趋势总结，产出可复述的结论。' },
+    { id: 'ui-audit', name: 'UI 走查', category: '设计与UI', description: '对照设计规范逐项走查间距、层级和状态色，列出需要修的细节。' },
+    { id: 'blog-outline', name: '博客提纲', category: '内容创作', description: '把零散想法整理成有节奏的文章提纲，附上每段的论据方向。' },
+  ];
+
+  // Stagger mtimes so 排序：最近 has a meaningful order (the last-written
+  // source is the most recent). Written newest-last on purpose.
+  for (const source of sources) {
+    const dir = join(sourcesRoot, source.id);
+    await mkdir(dir, { recursive: true });
+    const content = [
+      '---',
+      `name: ${source.name}`,
+      `description: ${source.description}`,
+      `category: ${source.category}`,
+      '---',
+      '',
+      `# ${source.name}`,
+      '',
+      source.description,
+      '',
+    ].join('\n');
+    await writeFile(join(dir, 'SKILL.md'), content, { encoding: 'utf8', mode: 0o600 });
+  }
+
+  // A couple of workspace skills so 已安装 is not empty and one managed
+  // source shows as installed in the grid. The bundled OfficeCLI skills
+  // (seeded separately after the fixture) populate the 内置 tab.
+  const workspaceSkills: ReadonlyArray<{ id: string; name: string; description: string }> = [
+    { id: 'meeting-followup', name: '会议跟进', description: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。' },
+    { id: 'daily-standup', name: '每日站会', description: '汇总昨日进展、今日计划和阻塞，生成简短的站会同步。' },
+  ];
+  for (const skill of workspaceSkills) {
+    const dir = join(workspaceRoot, 'skills', skill.id);
+    await mkdir(dir, { recursive: true });
+    const content = [
+      '---',
+      `name: ${skill.name}`,
+      `description: ${skill.description}`,
+      '---',
+      '',
+      `# ${skill.name}`,
+      '',
+      skill.description,
+      '',
+    ].join('\n');
+    await writeFile(join(dir, 'SKILL.md'), content, { encoding: 'utf8', mode: 0o600 });
   }
 }
 
@@ -910,9 +994,12 @@ function turnMessages(now: number): StoredMessage[] {
         kind: 'terminal',
         cwd: '/workspace/maka',
         cmd: 'npm test --workspaces --if-present',
+        status: 'completed',
         exitCode: 0,
         stdout: 'core 41 passing\nstorage 17 passing\nruntime 70 passing\ndesktop 74 passing\n',
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     },
     {
@@ -965,6 +1052,92 @@ function turnMessages(now: number): StoredMessage[] {
       output: 320,
       cacheRead: 180,
       costUsd: 0.0042,
+    },
+    // Streaming UI rework: a second, MULTI-STEP turn. Each step persists its own
+    // assistant row (thinking + text) plus tool_calls tagged with that row's id
+    // as `stepId`, so the turn timeline reconstructs the real per-step order —
+    // 深度思考 → answer text → tool trow — instead of one trailing tool group.
+    // Locks the capture for the new timeline (contrast the legacy stepless turn
+    // above, which renders tools-before-text).
+    ...multiStepTurnMessages(now),
+  ];
+}
+
+function multiStepTurnMessages(now: number): StoredMessage[] {
+  const turnId = 'turn-fixture-2';
+  const step1 = 'msg-assistant-2a';
+  const step2 = 'msg-assistant-2b';
+  return [
+    { type: 'user', id: 'msg-user-2', turnId, ts: now - 6 * 60_000, text: '确认 stream-fade 的环逻辑没有边界问题，然后跑一下单测。', origin: { kind: 'automation', automationId: 'auto-fixture-demo' } },
+    {
+      type: 'tool_call',
+      id: 'tool-read-fade',
+      turnId,
+      ts: now - 6 * 60_000 + 4_000,
+      toolName: 'Read',
+      displayName: '读取 stream-fade.ts',
+      intent: '读取淡入环实现，确认窗口滑动与上限',
+      stepId: step1,
+      args: { file_path: 'packages/ui/src/stream-fade.ts' },
+    },
+    {
+      type: 'tool_result',
+      id: 'tool-read-fade-result',
+      turnId,
+      ts: now - 6 * 60_000 + 4_600,
+      toolUseId: 'tool-read-fade',
+      isError: false,
+      durationMs: 560,
+      content: { kind: 'text', text: 'export function updateFadeRing(...) { /* prune + cap */ }' },
+    },
+    {
+      type: 'assistant',
+      id: step1,
+      turnId,
+      ts: now - 5 * 60_000,
+      text: '环逻辑没问题：增长记录批次、超窗剪枝、按上限截断，收缩时整体重置。接下来跑单测确认。',
+      thinking: { text: 'boundary 取最老存活批次的 start，age 用 now 减去覆盖该 offset 的批次时间，窗口滑动和上限都覆盖了，值得跑一遍测试坐实。' },
+      modelId: 'glm-5.1',
+    },
+    {
+      type: 'tool_call',
+      id: 'tool-run-fade-tests',
+      turnId,
+      ts: now - 5 * 60_000 + 3_000,
+      toolName: 'Bash',
+      displayName: '运行 stream-fade 单测',
+      intent: '执行 node --test 跑淡入环与 tokenizer 单测',
+      stepId: step2,
+      args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js', cwd: '/workspace/maka' },
+    },
+    {
+      type: 'tool_result',
+      id: 'tool-run-fade-tests-result',
+      turnId,
+      ts: now - 5 * 60_000 + 5_200,
+      toolUseId: 'tool-run-fade-tests',
+      isError: false,
+      durationMs: 1_930,
+      content: {
+        kind: 'terminal',
+        cwd: '/workspace/maka',
+        cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
+        status: 'completed',
+        exitCode: 0,
+        stdout: 'tests 13\npass 13\nfail 0\n',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    },
+    {
+      type: 'assistant',
+      id: step2,
+      turnId,
+      ts: now - 4 * 60_000,
+      text: '13 个单测全绿，窗口滑动、乱序快照取龄和上限都被覆盖。边界没有问题。',
+      thinking: { text: '测试覆盖窗口滑动、乱序 age 查询与上限三类，全过说明剪枝和 cap 的顺序对，可以收尾。' },
+      modelId: 'glm-5.1',
     },
   ];
 }
@@ -1262,7 +1435,7 @@ function turnControlSessions(now: number): Array<{ header: SessionHeader; messag
 /**
  * Primary-session message log covering every turn-control surface in
  * one fixture. The turn IDs are short, human-readable strings so the
- * lineage-badge copy (e.g. "重试自 turn turn-ret") stays stable across
+ * lineage-badge copy (e.g. "重新生成自 turn turn-ret") stays stable across
  * regenerations.
  *
  * Turns:
@@ -1370,7 +1543,7 @@ function turnControlPrimaryMessages(now: number): StoredMessage[] {
     partialOutputRetained: true,
   });
 
-  // 4. retry new (forward "重试自 turn-retry-origin" + reverse "已重试 → turn-retry-new")
+  // 4. retry new (forward "重新生成自 turn-retry-origin" + reverse "已重新生成 → turn-retry-new")
   cursor += tickUser;
   messages.push({
     type: 'user',

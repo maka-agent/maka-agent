@@ -171,10 +171,10 @@ function classesForOtherTiers(tier: Tier): string[] {
 
 const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/ui.tsx', name: 'buttonVariants', tier: 'control' },
-  { file: 'packages/ui/src/ui.tsx', name: 'inputClasses', tier: 'control' },
+  { file: 'packages/ui/src/primitives/input.tsx', name: 'inputClasses', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'SelectItem', tier: 'control' },
   { file: 'packages/ui/src/ui.tsx', name: 'Toggle', tier: 'control' },
-  { file: 'packages/ui/src/ui.tsx', name: 'badgeVariants', tier: 'pill' },
+  // #520 PR9: legacy ui.tsx badgeVariants retired onto primitives/badge.tsx.
   // DialogPopup/AlertDialogPopup were merged into createModalContent (PR6
   // review P3.1); the modal popup class now lives in MODAL_POPUP_CLASS.
   { file: 'packages/ui/src/ui.tsx', name: 'MODAL_POPUP_CLASS', tier: 'modal' },
@@ -370,7 +370,7 @@ describe('radius token governance (#406 gap 4)', () => {
     const SELECTOR_TIER: Record<string, string> = {
       '.maka-code': '--radius-surface',
       '.maka-skeleton-card': '--radius-surface',
-      '.maka-composer-inner': '--radius-modal',
+      '.composer .maka-composer-inner': '--radius-modal',
       '.settingsPermissionRefresh': '--radius-control',
       '.settingsCapabilityGuidanceActions code': '--radius-surface',
       '.settingsModal': '--radius-modal',
@@ -383,11 +383,9 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsHealthError': '--radius-surface',
       '.settingsHealthRefresh': '--radius-control',
       '.settingsBotHero': '--radius-surface',
-      '.settingsRows': '--radius-surface',
       '.settingsNotice': '--radius-surface',
       '.settingsAboutLogo': '--radius-surface',
       '.settingsAboutPrivacy': '--radius-surface',
-      '.settingsWechatQrClose': '--radius-control',
       '.settingsWechatQrFrame': '--radius-surface',
       '.settingsWechatQrState': '--radius-surface',
       '.providerUnavailableNotice': '--radius-surface',

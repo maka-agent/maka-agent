@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+import { buildShellSpawnPlan, detectShell } from '../shell-detect.js';
+
+const winEnv = (over: Record<string, string> = {}) => ({
+  Path: 'C:\\Windows\\System32;C:\\Users\\u\\bin',
+  ProgramFiles: 'C:\\Program Files',
+  SystemRoot: 'C:\\Windows',
+  ...over,
+});
+
+const existsIn = (...paths: string[]) => (p: string) => paths.includes(p);
+
+describe('detectShell', () => {
+  test('on win32 picks pwsh from PATH ahead of everything else', () => {
+    const plan = detectShell({
+      platform: 'win32',
+      env: winEnv(),
+      fileExists: existsIn(
+        'C:\\Users\\u\\bin\\pwsh.exe',
+        'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+      ),
+    });
+    assert.equal(plan.kind, 'pwsh');
+    assert.equal(plan.exe, 'C:\\Users\\u\\bin\\pwsh.exe');
+  });
+
+  test('on win32 finds pwsh at its default install location when not on PATH', () => {
+    const plan = detectShell({
+      platform: 'win32',
+      env: winEnv(),
+      fileExists: existsIn('C:\\Program Files\\PowerShell\\7\\pwsh.exe'),
+    });
+    assert.equal(plan.kind, 'pwsh');
+    assert.equal(plan.exe, 'C:\\Program Files\\PowerShell\\7\\pwsh.exe');
+  });
+
+  test('on win32 falls back to Windows PowerShell 5.1 when pwsh is absent', () => {
+    const plan = detectShell({
+      platform: 'win32',
+      env: winEnv(),
+      fileExists: existsIn('C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'),
+    });
+    assert.equal(plan.kind, 'powershell');
+    assert.equal(plan.exe, 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe');
+  });
+
+  test('on win32 falls back to cmd.exe when no PowerShell exists', () => {
+    const plan = detectShell({ platform: 'win32', env: winEnv(), fileExists: () => false });
+    assert.deepEqual(plan, { kind: 'cmd', displayName: 'cmd.exe' });
+  });
+
+  test('on POSIX platforms keeps the system default shell', () => {
+    const plan = detectShell({ platform: 'darwin', env: {}, fileExists: () => false });
+    assert.deepEqual(plan, { kind: 'posix', displayName: '/bin/sh' });
+  });
+});
+
+describe('buildShellSpawnPlan', () => {
+  test('spawns PowerShell explicitly with non-interactive flags and the command as one argument', () => {
+    const spawnPlan = buildShellSpawnPlan(
+      { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\Users\\u\\bin\\pwsh.exe' },
+      'Get-ChildItem -Name',
+    );
+    assert.equal(spawnPlan.file, 'C:\\Users\\u\\bin\\pwsh.exe');
+    assert.equal(spawnPlan.useShellOption, false);
+    assert.deepEqual(spawnPlan.args.slice(0, 4), ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command']);
+    assert.ok(spawnPlan.args[4]!.startsWith('Get-ChildItem -Name\n'), 'command comes first, verbatim');
+  });
+
+  test('appends an exit-code wrapper so native command exit codes survive -Command', () => {
+    // pwsh -Command maps the process exit code to 0/1 from $? — a native
+    // command exiting 42 comes back as 1. The wrapper re-raises $LASTEXITCODE,
+    // and only when the final statement actually failed, so a recovered
+    // failure (native exit 3, then a succeeding cmdlet) still exits 0.
+    const spawnPlan = buildShellSpawnPlan(
+      { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' },
+      'npm test',
+    );
+    assert.equal(
+      spawnPlan.args[4],
+      'npm test\n'
+      + '$__makaOk = $?\n'
+      + 'if (-not $__makaOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { exit $LASTEXITCODE } else { exit 1 } }',
+    );
+  });
+
+  test('keeps shell:true for the system default shells (posix and cmd)', () => {
+    for (const plan of [
+      { kind: 'posix', displayName: '/bin/sh' } as const,
+      { kind: 'cmd', displayName: 'cmd.exe' } as const,
+    ]) {
+      assert.deepEqual(buildShellSpawnPlan(plan, 'echo hi'), {
+        file: 'echo hi',
+        args: [],
+        useShellOption: true,
+      });
+    }
+  });
+});

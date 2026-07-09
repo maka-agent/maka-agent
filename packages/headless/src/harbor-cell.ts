@@ -20,6 +20,7 @@ import {
   PiAgentBackend,
   SessionManager,
   buildProviderOptions,
+  defaultShellPlan,
   getAIModel,
   getBuiltinPricing,
   runShellWithBoundedTail,
@@ -49,6 +50,10 @@ import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './is
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
+import {
+  createInMemoryTaskLedgerExperimentStore,
+  renderTaskLedgerExperimentReplay,
+} from './task-ledger-experiment.js';
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
@@ -68,6 +73,7 @@ export interface RunHarborCellInput {
   realBackendIsolation?: RealBackendIsolation;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   continuationPolicy?: HarborCellContinuationPolicy;
+  taskToolSummaryEnabled?: boolean;
   now?: () => number;
   newId?: () => string;
 }
@@ -125,6 +131,11 @@ export interface HarborCellContextBudgetBackendOptions {
   contextBudget?: ContextBudgetPolicy;
   archiveToolResult?: ToolResultArchiveRecorder;
   readToolResultArchive?: ToolResultArchiveReader;
+}
+
+export interface HarborCellTaskLedgerExperimentPolicy {
+  enabled: true;
+  replayMaxChars: number;
 }
 
 export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
@@ -192,6 +203,8 @@ export const HARBOR_CELL_CONTEXT_ENV_KEYS = [
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_TOKENS',
   'MAKA_CONTEXT_ARCHIVE_RETRIEVAL_MAX_BYTES',
   'MAKA_CONTEXT_TOOL_RESULT_ARCHIVE_DIR',
+  'MAKA_CONTEXT_TASK_TOOLS',
+  'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS',
 ] as const;
 
 export type HarborCellContextEnvKey = typeof HARBOR_CELL_CONTEXT_ENV_KEYS[number];
@@ -364,6 +377,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     runtimeEventsPath,
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...(continuationSummary ? { continuationSummary } : {}),
+    ...(input.taskToolSummaryEnabled !== undefined ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled } : {}),
   }));
   await writeFile(outputPath, `${JSON.stringify(output, null, 2)}\n`, 'utf8');
 
@@ -383,6 +397,8 @@ export async function runHarborCellFromEnv(
   const contextBudgetPolicy = buildHarborCellContextBudgetPolicySnapshot(resolvedEnv);
   const continuationPolicy = buildHarborCellContinuationPolicy(resolvedEnv);
   const economyTaskMode = economyTaskModeFromEnv(resolvedEnv.MAKA_ECONOMY_TASK_MODE);
+  const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(resolvedEnv);
+  const maxSteps = harborCellMaxStepsFromEnv(resolvedEnv);
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
@@ -409,6 +425,7 @@ export async function runHarborCellFromEnv(
         env: resolvedEnv,
         now,
         newId,
+        ...(maxSteps !== undefined ? { maxSteps } : {}),
       });
       break;
     }
@@ -459,6 +476,7 @@ export async function runHarborCellFromEnv(
     storageRoot,
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
+    ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),
     ...(registerBackends ? { registerBackends } : {}),
     ...(backendNeedsIsolation(backend)
       ? {
@@ -495,6 +513,10 @@ export function buildHarborCellContinuationPolicy(
     ) ?? maxTurns * HARBOR_CELL_DEFAULT_MAX_STEPS_PER_TURN,
     prompt: env.MAKA_HARBOR_CONTINUATION_PROMPT ?? HARBOR_CELL_DEFAULT_CONTINUATION_PROMPT,
   };
+}
+
+export function harborCellMaxStepsFromEnv(env: RunHarborCellEnv = process.env): number | undefined {
+  return positiveIntEnv(env.MAKA_MAX_STEPS, 'MAKA_MAX_STEPS');
 }
 
 function isToolCallStepCap(invocation: InvocationResult): boolean {
@@ -609,6 +631,10 @@ export function buildAiSdkCellBackendRegistration(input: {
     : getBuiltinPricing;
   const permissionEngine = new PermissionEngine({ newId: input.newId, now: input.now });
   const contextBudgetBackendOptions = buildHarborCellContextBudgetBackendOptions(input.env);
+  const taskLedgerExperimentPolicy = buildHarborCellTaskLedgerExperimentPolicy(input.env);
+  const taskLedgerExperimentStore = taskLedgerExperimentPolicy
+    ? createInMemoryTaskLedgerExperimentStore({ now: input.now, newId: input.newId })
+    : undefined;
   return (registry, context) => {
     if (!context.toolExecutor) {
       throw new Error('Harbor ai-sdk backend requires an isolated tool executor');
@@ -627,10 +653,21 @@ export function buildAiSdkCellBackendRegistration(input: {
           ...(context.heavyTaskEvidence ? { heavyTaskEvidence: context.heavyTaskEvidence } : {}),
           ...(context.heavyTaskProgress ? { heavyTaskProgress: context.heavyTaskProgress } : {}),
           ...(context.heavyTaskSelfCheck ? { heavyTaskSelfCheck: context.heavyTaskSelfCheck } : {}),
+          ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
+            ? { taskLedgerExperiment: { store: taskLedgerExperimentStore } }
+            : {}),
         }),
         toolAvailability: buildIsolatedHeadlessToolAvailability(),
-        providerOptions: buildProviderOptions(connection, input.model),
+        providerOptions: buildProviderOptions(connection, input.model, ctx.header.thinkingLevel),
         systemPrompt: harborCellSystemPrompt(context.config.systemPrompt),
+        ...(taskLedgerExperimentStore && taskLedgerExperimentPolicy
+          ? {
+              turnTailPrompt: async ({ sessionId }) =>
+                renderTaskLedgerExperimentReplay(await taskLedgerExperimentStore.list(sessionId), {
+                  maxChars: taskLedgerExperimentPolicy.replayMaxChars,
+                }),
+            }
+          : {}),
         lookupPricing,
         ...contextBudgetBackendOptions,
         ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
@@ -668,7 +705,7 @@ export function buildHarborCellContextBudgetBackendOptions(
     env.MAKA_HARBOR_CONTEXT_STALE_TOOL_RESULT_PRUNE ??
     env.MAKA_TOOL_RESULT_PRUNE,
     'MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE',
-  ) ?? false;
+  ) ?? true;
   const activePruneEnabled = booleanEnv(
     env.MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
     env.MAKA_HARBOR_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE ??
@@ -724,7 +761,9 @@ export function buildHarborCellContextBudgetBackendOptions(
     contextBudget.staleToolResultPrune = {
       enabled: true,
       ...(maxResultEstimatedTokens !== undefined ? { maxResultEstimatedTokens } : {}),
-      ...(minRecentTurnsFull !== undefined ? { minRecentTurnsFull } : {}),
+      // Explicit so the runtime protection window matches the policy snapshot
+      // and desktop default (2) instead of the runtime's internal ?? 1 fallback.
+      minRecentTurnsFull: minRecentTurnsFull ?? minRecentTurns ?? 2,
     };
   }
 
@@ -922,6 +961,18 @@ export function buildHarborCellContextBudgetBackendOptions(
       }
       return { ok: true, serializedResult: parsed.serializedResult };
     },
+  };
+}
+
+export function buildHarborCellTaskLedgerExperimentPolicy(
+  env: RunHarborCellEnv = process.env,
+): HarborCellTaskLedgerExperimentPolicy | undefined {
+  normalizeHarborCellContextEnv(env);
+  const enabled = booleanEnv(env.MAKA_CONTEXT_TASK_TOOLS, 'MAKA_CONTEXT_TASK_TOOLS') ?? false;
+  if (!enabled) return undefined;
+  return {
+    enabled: true,
+    replayMaxChars: positiveIntEnv(env.MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS, 'MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS') ?? 4_000,
   };
 }
 
@@ -1123,7 +1174,13 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
   // Terminal-Bench tasks build or test for longer than the 2-minute default, so
   // the floor is operator-configurable instead of a hard-coded failure source.
   const defaultTimeoutMs = numericEnv(env.MAKA_CELL_COMMAND_TIMEOUT_MS) ?? HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS;
+  // The shell this executor spawns in (PowerShell on Windows). Exposed as
+  // `shell` so buildIsolatedBashTool DECLARES the dialect to the model, and
+  // passed to runShellWithBoundedTail so the declaration matches execution —
+  // selection without declaration is the original Windows bug (shell-detect.ts).
+  const shell = defaultShellPlan();
   return {
+    shell,
     exec: async ({ command, cwd, timeoutMs, boundedTail }) => {
       if (boundedTail) {
         // Bash opted in: stream into a bounded tail (shared with the in-process
@@ -1135,11 +1192,14 @@ export function createHarborCellLocalToolExecutor(env: RunHarborCellEnv = proces
             cwd,
             env: childEnv,
             timeoutMs: timeoutMs ?? defaultTimeoutMs,
+            shell,
           });
           return {
             exitCode: result.timedOut ? 124 : result.exitCode,
             stdout: result.stdout,
             stderr: result.stderr,
+            stdoutTruncated: result.stdoutTruncated,
+            stderrTruncated: result.stderrTruncated,
           };
         } catch (error) {
           // runShellWithBoundedTail only rejects when the process cannot be

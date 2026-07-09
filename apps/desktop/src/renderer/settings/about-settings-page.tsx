@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Button, useToast } from '@maka/ui';
+import { Button, PageHeader, useToast } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 type AppInfo = Awaited<ReturnType<typeof window.maka.app.info>>;
 
@@ -47,11 +48,14 @@ export function AboutSettingsPage() {
 
   if (!info && !infoError) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载关于页">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '70%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '52%' }} />
-      </div>
+      <SettingsSkeletonStack
+        label="正在加载关于页"
+        lines={[
+          { width: '38%', size: 'lg' },
+          { width: '70%' },
+          { width: '52%' },
+        ]}
+      />
     );
   }
 
@@ -110,13 +114,16 @@ export function AboutSettingsPage() {
 
   return (
     <div className="settingsAboutPage">
-      <header className="settingsAboutHero">
-        <span className="settingsAboutLogo" aria-hidden="true">
-          <Sparkles size={26} strokeWidth={1.5} />
-        </span>
-        <div>
-          <div className="settingsAboutHeading">
-            <h2>Maka</h2>
+      <PageHeader
+        as_wrapper="div"
+        className="settingsAboutHero"
+        as="h2"
+        icon={<Sparkles size={26} />}
+        iconClassName="settingsAboutLogo"
+        headingRowClassName="settingsAboutHeading"
+        title="Maka"
+        badge={
+          <>
             <span className="settingsAboutVersion">v{info.appVersion}</span>
             <span className="settingsAboutChannel">
               {info.buildMode === 'dev'
@@ -125,10 +132,11 @@ export function AboutSettingsPage() {
                   : '本地开发版'
                 : '正式版'}
             </span>
-          </div>
-          <p className="settingsAboutTagline">本地优先的 AI 助手 · 桌面端运行环境</p>
-        </div>
-      </header>
+          </>
+        }
+        subtitle="本地优先的 AI 助手 · 桌面端运行环境"
+        subtitleClassName="settingsAboutTagline"
+      />
 
       <section className="settingsAboutPrivacy" aria-label="隐私与安全">
         <h3>本地优先 · 隐私默认</h3>
@@ -152,6 +160,7 @@ export function AboutSettingsPage() {
           title="工作区"
           detail="会话、设置和凭据全部留在本地这条路径下。"
           value={info.workspacePath}
+          mono
         />
         <SettingRow
           title="存储"

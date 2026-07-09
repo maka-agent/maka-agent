@@ -19,7 +19,7 @@ import {
 import {
   flowSupportsControl,
 } from '../agent-flow.js';
-import type { AgentBackend } from '../ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
 import { RuntimeRunner } from '../runtime-runner.js';
 import type { InvocationContext } from '../invocation-context.js';
 

@@ -1,9 +1,13 @@
 /**
- * Tests for the Turn footer action helper (PR109d-b).
+ * Tests for the Turn footer action helper.
  *
- * @kenji PR109d review gate #1: footer action enabled set must come
+ * @kenji review gate #1: footer action enabled set must come
  * exclusively from `TurnStatus` + lineage map — never from the turn's
  * text content or optimistic UI guesses. This matrix locks that down.
+ *
+ * #546: retry was merged into regenerate. The footer now has one
+ * "重新生成" action that re-runs the turn regardless of how the
+ * previous attempt ended (failed / aborted / completed).
  */
 
 import { strict as assert } from 'node:assert';
@@ -29,9 +33,9 @@ function enabledIds(input: TurnFooterContext): TurnFooterActionId[] {
 }
 
 describe('deriveTurnFooterActions', () => {
-  it('always returns the same 4 actions in fixed order', () => {
+  it('always returns the same 3 actions in fixed order', () => {
     const ids = deriveTurnFooterActions(ctx({})).map((a) => a.id);
-    assert.deepEqual(ids, ['retry', 'regenerate', 'branch', 'copy']);
+    assert.deepEqual(ids, ['regenerate', 'branch', 'copy']);
   });
 
   it('labels are Chinese', () => {
@@ -46,16 +50,16 @@ describe('deriveTurnFooterActions', () => {
       assert.deepEqual(enabledIds(ctx({ status: 'running' })), ['copy']);
     });
 
-    it('completed: regenerate + branch + copy enabled (retry disabled)', () => {
+    it('completed: regenerate + branch + copy enabled', () => {
       assert.deepEqual(enabledIds(ctx({ status: 'completed' })), ['regenerate', 'branch', 'copy']);
     });
 
-    it('failed: retry + branch + copy enabled (regenerate disabled)', () => {
-      assert.deepEqual(enabledIds(ctx({ status: 'failed' })), ['retry', 'branch', 'copy']);
+    it('failed: regenerate + branch + copy enabled (retry merged into regenerate)', () => {
+      assert.deepEqual(enabledIds(ctx({ status: 'failed' })), ['regenerate', 'branch', 'copy']);
     });
 
-    it('aborted: retry + branch + copy enabled (regenerate disabled)', () => {
-      assert.deepEqual(enabledIds(ctx({ status: 'aborted' })), ['retry', 'branch', 'copy']);
+    it('aborted: regenerate + branch + copy enabled (retry merged into regenerate)', () => {
+      assert.deepEqual(enabledIds(ctx({ status: 'aborted' })), ['regenerate', 'branch', 'copy']);
     });
   });
 
@@ -72,7 +76,6 @@ describe('deriveTurnFooterActions', () => {
     it('tooltips are Chinese only', () => {
       for (const action of deriveTurnFooterActions(ctx({}))) {
         assert.match(action.tooltip ?? '', /[一-鿿]/, `${action.id} tooltip should be Chinese`);
-        // Tooltips may reference 「分支」or other Chinese terms but no enum identifiers
         const TURN_STATUSES = new Set(['running', 'completed', 'aborted', 'failed']);
         for (const status of TURN_STATUSES) {
           assert.doesNotMatch(
@@ -89,22 +92,20 @@ describe('deriveTurnFooterActions', () => {
       assert.match(abortedBranch?.tooltip ?? '', /中断/);
     });
 
-    it('alreadyRetried changes the retry tooltip hint without disabling the button', () => {
-      const first = deriveTurnFooterActions(ctx({ status: 'failed' })).find((a) => a.id === 'retry');
-      const second = deriveTurnFooterActions(ctx({ status: 'failed', alreadyRetried: true })).find(
-        (a) => a.id === 'retry',
+    it('alreadyRegenerated changes the regenerate tooltip hint without disabling the button', () => {
+      const first = deriveTurnFooterActions(ctx({ status: 'completed' })).find((a) => a.id === 'regenerate');
+      const second = deriveTurnFooterActions(ctx({ status: 'completed', alreadyRegenerated: true })).find(
+        (a) => a.id === 'regenerate',
       );
       assert.equal(first?.enabled, true);
       assert.equal(second?.enabled, true);
       assert.notEqual(first?.tooltip, second?.tooltip);
-      assert.match(second?.tooltip ?? '', /已重试/);
+      assert.match(second?.tooltip ?? '', /已重新生成/);
     });
   });
 
   describe('matrix invariants (regression-proof)', () => {
     it('action enabled-state does NOT depend on hasContent (except for copy)', () => {
-      // hasContent is decoupled from status-based enablement. Changing
-      // it should only flip the `copy` slot.
       const withContent = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: true }));
       const noContent = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: false }));
       for (const action of withContent) {
@@ -126,16 +127,7 @@ describe('deriveTurnFooterActions', () => {
   });
 
   describe('pending mask (@kenji review: double-click guard)', () => {
-    it('pending retry returns enabled=false + "正在处理…" tooltip', () => {
-      const actions = deriveTurnFooterActions(
-        ctx({ status: 'failed', pendingActions: new Set(['retry']) }),
-      );
-      const retry = actions.find((a) => a.id === 'retry');
-      assert.equal(retry?.enabled, false);
-      assert.equal(retry?.tooltip, '正在处理…');
-    });
-
-    it('pending regenerate returns enabled=false + busy tooltip', () => {
+    it('pending regenerate returns enabled=false + "正在处理…" tooltip', () => {
       const actions = deriveTurnFooterActions(
         ctx({ status: 'completed', pendingActions: new Set(['regenerate']) }),
       );
@@ -155,7 +147,7 @@ describe('deriveTurnFooterActions', () => {
 
     it('pending on one action does NOT disable other actions', () => {
       const actions = deriveTurnFooterActions(
-        ctx({ status: 'failed', pendingActions: new Set(['retry']) }),
+        ctx({ status: 'completed', pendingActions: new Set(['regenerate']) }),
       );
       const branch = actions.find((a) => a.id === 'branch');
       assert.equal(branch?.enabled, true);
@@ -163,39 +155,34 @@ describe('deriveTurnFooterActions', () => {
     });
 
     it('pending labels preserved (screen readers still hear which action)', () => {
-      // @kenji: don't replace label with spinner-only — screen reader
-      // needs to know which action is processing.
       const actions = deriveTurnFooterActions(
-        ctx({ status: 'failed', pendingActions: new Set(['retry']) }),
+        ctx({ status: 'completed', pendingActions: new Set(['regenerate']) }),
       );
-      const retry = actions.find((a) => a.id === 'retry');
-      assert.equal(retry?.label, '重试'); // label stays
+      const regen = actions.find((a) => a.id === 'regenerate');
+      assert.equal(regen?.label, '重新生成');
     });
 
     it('empty pending set behaves identically to undefined', () => {
-      const baseline = deriveTurnFooterActions(ctx({ status: 'failed' }));
+      const baseline = deriveTurnFooterActions(ctx({ status: 'completed' }));
       const withEmpty = deriveTurnFooterActions(
-        ctx({ status: 'failed', pendingActions: new Set() }),
+        ctx({ status: 'completed', pendingActions: new Set() }),
       );
       assert.deepEqual(baseline, withEmpty);
     });
 
-    it('pending mask overrides the "alreadyRetried" hint (busy tooltip wins)', () => {
+    it('pending mask overrides the "alreadyRegenerated" hint (busy tooltip wins)', () => {
       const actions = deriveTurnFooterActions(
         ctx({
-          status: 'failed',
-          alreadyRetried: true,
-          pendingActions: new Set(['retry']),
+          status: 'completed',
+          alreadyRegenerated: true,
+          pendingActions: new Set(['regenerate']),
         }),
       );
-      const retry = actions.find((a) => a.id === 'retry');
-      assert.equal(retry?.tooltip, '正在处理…');
+      const regen = actions.find((a) => a.id === 'regenerate');
+      assert.equal(regen?.tooltip, '正在处理…');
     });
 
     it('copy is NOT affected by pending mask (it is in-component clipboard)', () => {
-      // The pending mask currently doesn't disable copy — clipboard
-      // writes are fast + idempotent. If we ever add a clipboard IPC
-      // that's slow, revisit.
       const actions = deriveTurnFooterActions(
         ctx({ status: 'completed', pendingActions: new Set(['copy']) }),
       );
@@ -204,14 +191,49 @@ describe('deriveTurnFooterActions', () => {
     });
   });
 
-  // Sanity: SessionStatus and TurnStatus are different enums; this
-  // test makes sure the file references the right one. Tied to the
-  // import path; if the helper accidentally imported SessionStatus
-  // instead, the import fails the test build.
+  describe('info action carries the meta summary (#546)', () => {
+    it('appends an info action whose tooltip is the meta summary, when provided', () => {
+      const actions = deriveTurnFooterActions(
+        ctx({ status: 'completed', metaSummary: 'gpt-5.5 · 4.9s · $0.0123' }),
+      );
+      const info = actions.find((a) => a.id === 'info');
+      assert.ok(info, 'info action should be present when metaSummary is set');
+      assert.equal(info?.tooltip, 'gpt-5.5 · 4.9s · $0.0123');
+    });
+
+    it('omits the info action when no meta summary is provided', () => {
+      const actions = deriveTurnFooterActions(ctx({ status: 'completed' }));
+      assert.equal(actions.find((a) => a.id === 'info'), undefined);
+    });
+
+    it('info action is always enabled (it is informational, not an operation)', () => {
+      const actions = deriveTurnFooterActions(
+        ctx({ status: 'running', metaSummary: 'gpt-5.5 · 进行中' }),
+      );
+      const info = actions.find((a) => a.id === 'info');
+      assert.equal(info?.enabled, true);
+    });
+  });
+
+  describe('copy action tooltip reflects enabled state (#546)', () => {
+    it('shows the copy affordance when there is content', () => {
+      const copy = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: true })).find(
+        (a) => a.id === 'copy',
+      );
+      assert.equal(copy?.enabled, true);
+      assert.equal(copy?.tooltip, '复制回答到剪贴板');
+    });
+
+    it('shows the disabled reason when there is no content', () => {
+      const copy = deriveTurnFooterActions(ctx({ status: 'completed', hasContent: false })).find(
+        (a) => a.id === 'copy',
+      );
+      assert.equal(copy?.enabled, false);
+      assert.equal(copy?.tooltip, '此回答尚无可复制的内容');
+    });
+  });
+
   it('SessionStatus and TurnStatus are kept distinct', () => {
-    // SessionStatus includes `active` / `running` / `blocked` etc.; the
-    // footer helper accepts TurnStatus which does NOT include those.
-    // No direct assertion here — type guard handled at compile time.
     assert.ok(SESSION_STATUSES.includes('active'));
     assert.ok(SESSION_STATUSES.includes('blocked'));
   });

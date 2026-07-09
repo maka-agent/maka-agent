@@ -43,7 +43,6 @@ import { renderSessionListPanel } from './session-list-render-helpers.js';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
 const SEARCH_MODAL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'search-modal.tsx');
-const MODAL_A11Y_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'modal-a11y.ts');
 const COMMAND_PALETTE_CONTENT_PATH = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'command-palette-content-search.ts');
 
 describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', () => {
@@ -116,7 +115,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
   it('returns focus to the sidebar Search trigger when the modal closes', async () => {
     const main = await readRendererShellCombinedSource();
-    const shellSearchButton = main.match(/className="maka-shell-topbar-button"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/UiButton>/)?.[0] ?? '';
+    const shellSearchButton = main.match(/className="maka-shell-topbar-button"[\s\S]*?data-maka-search-trigger="true"[\s\S]*?<\/TooltipTrigger>/)?.[0] ?? '';
     const closeSearchModal = main.match(/function closeSearchModal\(options\?: \{ restoreFocus\?: boolean \}\) \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
     assert.match(
@@ -228,56 +227,84 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
   });
 
-  it('search results support keyboard selection from the input', async () => {
+  it('search results use Base UI Autocomplete for listbox + keyboard selection (#520 PR8)', async () => {
     const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const styles = await readRendererContractCss();
 
-    assert.match(searchModal, /activeResultIndex/, 'SearchModal must track the active result index');
-    assert.match(searchModal, /aria-activedescendant=\{activeResultId\}/, 'Search input must expose the active result to assistive tech');
-    assert.match(searchModal, /className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite"/, 'Search modal body region must expose an accessible name');
-    assert.match(searchModal, /role="listbox" aria-label="搜索结果"/, 'Search results must expose a listbox for aria-activedescendant');
-    assert.match(searchModal, /role="option"[\s\S]*aria-selected=\{activeResultIndex === index\}/, 'Search result rows must expose selected option state');
-    assert.match(searchModal, /keyboardKey\(event, \['ArrowDown', 'Down'\]\)[\s\S]*moveActiveResult\(1,\s*\{ focusResult: true \}\)/, 'ArrowDown/Down must move focus to the next result');
-    assert.match(searchModal, /keyboardKey\(event, \['ArrowUp', 'Up'\]\)[\s\S]*moveActiveResult\(-1,\s*\{ focusResult: true \}\)/, 'ArrowUp/Up must move focus to the previous result');
-    assert.match(searchModal, /function jumpActiveResult\(index: number,\s*options\?: \{ focusResult\?: boolean \}\)/, 'SearchModal must support direct active-result jumps');
-    assert.match(searchModal, /keyboardKey\(event, \['Home'\]\)[\s\S]*jumpActiveResult\(0,\s*\{ focusResult: true \}\)/, 'Home must jump focus to the first result');
-    assert.match(searchModal, /keyboardKey\(event, \['End'\]\)[\s\S]*jumpActiveResult\(results\.length - 1,\s*\{ focusResult: true \}\)/, 'End must jump focus to the last result');
-    assert.match(searchModal, /function selectKeyboardResult\(\) \{[\s\S]*results\[activeResultIndex >= 0 \? activeResultIndex : 0\]/, 'Enter/Return must fall back to opening the first result when no row is active');
-    assert.match(searchModal, /const keyboardSelectionHandledRef = useRef\(false\)/, 'SearchModal must keep Enter keydown and keyup from double-activating the same result');
-    assert.match(searchModal, /keyboardSelectionHandledRef\.current = true;[\s\S]*selectKeyboardResult\(\)/, 'Enter/Return keydown must mark the selection handled before opening the result');
-    assert.match(searchModal, /onKeyUp=\{\(event\) => \{[\s\S]*keyboardSelectionHandledRef\.current\)[\s\S]*keyboardSelectionHandledRef\.current = false;[\s\S]*return;[\s\S]*keyboardKey\(event, \['Enter', 'Return'\]\) && showResults[\s\S]*selectKeyboardResult\(\)/, 'Search input keyup fallback must stay for Electron search-field quirks but skip Enter already handled on keydown');
-    assert.match(searchModal, /function handleResultKeyDown\(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult\)/, 'Focused search result rows must have their own keyboard handler');
-    assert.match(searchModal, /keyboardKey\(event, \['Enter', 'Return', 'Space', ' '\]\)[\s\S]*selectResult\(result\)/, 'Focused search result rows must activate on Enter, Return, or Space');
-    assert.match(searchModal, /tabIndex=\{-1\}/, 'Search result rows should be arrow-key focused, not extra tab stops');
-    assert.match(searchModal, /onKeyDown=\{\(event\) => handleResultKeyDown\(event, index, result\)\}/, 'Search result rows must wire the keyboard handler');
-    assert.match(searchModal, /data-active=\{activeResultIndex === index \? 'true' : undefined\}/, 'Active result must get a visible state hook');
-    assert.match(styles, /\.maka-search-modal-result\[data-active="true"\]:not\(\[disabled\]\)/, 'Active search result must have dedicated styling');
+    // #520 PR8: SearchModal converges onto Base UI Autocomplete instead of a
+    // hand-rolled roving-focus listbox. Autocomplete owns the listbox/option
+    // ARIA + ArrowUp/Down/Enter/Escape keyboard nav (activedescendant mode:
+    // input keeps focus, active item reflected via aria-activedescendant).
+    assert.match(
+      searchModal,
+      /import \{ Autocomplete \} from '@base-ui\/react\/autocomplete'/,
+      'SearchModal must consume Base UI Autocomplete for the result list',
+    );
+    assert.match(
+      searchModal,
+      /<Autocomplete\.Root[\s\S]*?inline[\s\S]*?\bopen\b[\s\S]*?mode="none"[\s\S]*?autoHighlight="always"[\s\S]*?\bkeepHighlight\b[\s\S]*?filter=\{null\}/,
+      'Autocomplete.Root must render `inline open` + keepHighlight: `inline open` so the list is treated as visible (Base UI docs); keepHighlight so pointer leave preserves the hovered highlight (hover item -> leave -> Enter runs that item, not the first — #562 P2); mode="none" (server-side IPC filtering, no local filter) + autoHighlight="always" so Enter on the first result works without an extra ArrowDown',
+    );
+    assert.match(
+      searchModal,
+      /<Autocomplete\.Root[\s\S]*?itemToStringValue=\{\(result\) => result\.title/,
+      'Autocomplete.Root must serialize object results via itemToStringValue — without it, item-press can write [object Object] back into the query',
+    );
+    assert.match(searchModal, /<Autocomplete\.Input/, 'Search input must be Autocomplete.Input');
+    assert.match(searchModal, /<Autocomplete\.List/, 'Results must render as Autocomplete.List (listbox)');
+    assert.match(
+      searchModal,
+      /<Autocomplete\.Item[\s\S]*?onClick=\{\(\) => selectResult\(result\)\}/,
+      'Each result must be Autocomplete.Item with onClick firing selectResult (pointer click or Enter on highlighted)',
+    );
+    // selectResult navigation contract is unchanged from the roving-focus era.
+    assert.match(
+      searchModal,
+      /props\.onNavigateToSession\(result\.target\.sessionId,\s*result\.target\.turnId\)/,
+      'selectResult must still pass sessionId + turnId to the shell navigation callback',
+    );
+    assert.match(
+      searchModal,
+      /props\.onClose\(\{ restoreFocus: false \}\)/,
+      'selectResult must still skip focus restore so the destination chat owns focus',
+    );
+    assert.match(
+      searchModal,
+      /className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite"/,
+      'Search modal body region must still expose an accessible name',
+    );
+    assert.match(
+      styles,
+      /\.maka-search-modal-result\[data-highlighted\]/,
+      'Highlighted (active) search result must have dedicated styling (Autocomplete data-highlighted replaces the old data-active)',
+    );
+    // P2-c: Home/End decision — accept Base UI ComboboxInput's input-cursor
+    // default. The old roving-focus jumpActiveResult (Home/End -> first/last)
+    // must not return.
+    assert.doesNotMatch(
+      searchModal,
+      /\bjumpActive\w*\(/,
+      'Home/End must NOT jump highlight — Base UI input-cursor default is the decided behavior (#562 P2-c)',
+    );
   });
 
   it('search input keeps focus after results load until the user navigates results', async () => {
     const searchModal = await readFile(SEARCH_MODAL_PATH, 'utf8');
-    const hook = await readFile(MODAL_A11Y_PATH, 'utf8');
 
     assert.match(
-      hook,
-      /initialFocusRef\?: RefObject<HTMLElement \| null>/,
-      'useModalA11y must allow a modal to nominate the correct initial focus target',
-    );
-    assert.match(
       searchModal,
-      /useModalA11y\(dialogRef,\s*props\.onClose,\s*inputRef,\s*\{\s*suppressFocusRestoreRef\s*\}\)/,
+      /initialFocus=\{inputRef\}/,
       'SearchModal must give initial modal focus to the search input, not the close button',
     );
     assert.match(
       searchModal,
-      /setResults\(response\);\s*setError\(null\);\s*setActiveResultIndex\(-1\);/m,
-      'Search results must not automatically move active-descendant focus onto the first result while the user is still typing',
+      /finalFocus=\{\(\) => \(suppressFocusRestoreRef\.current \? false : true\)\}/,
+      'SearchModal must skip Base UI focus restore when navigating to a result so the destination owns focus',
     );
-    assert.match(
-      searchModal,
-      /const next = activeResultIndex < 0\s*\?\s*\(delta > 0 \? 0 : results\.length - 1\)/,
-      'Arrow navigation should still select the first or last result from the input',
-    );
+    // #520 PR8: activedescendant mode keeps focus in the input; the active
+    // item is reflected via aria-activedescendant managed by Autocomplete.
+    // The old activeResultIndex / moveActiveResult / jumpActiveResult
+    // roving-focus machinery is gone.
   });
 
   it('search query has an explicit clear button because the native search cancel is hidden', async () => {
@@ -329,7 +356,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
 
     assert.match(searchModal, /function clearSearchState\(\) \{\s*ticketRef\.current \+= 1;\s*setResults\(\[\]\);/m, 'Shared clear state helper must invalidate in-flight search before clearing results');
     assert.match(searchModal, /function updateSearchQuery\(nextQuery: string\) \{[\s\S]*if \(nextQuery\.trim\(\)\.length === 0\) \{[\s\S]*clearSearchState\(\);[\s\S]*\}/, 'Typing/deleting to an empty query must synchronously invalidate in-flight search');
-    assert.match(searchModal, /onChange=\{\(event\) => updateSearchQuery\(event\.currentTarget\.value\)\}/, 'Search input changes must go through the synchronized update helper');
+    assert.match(searchModal, /onValueChange=\{\(next, details\) => \{[\s\S]*?details\.reason === 'item-press'[\s\S]*?updateSearchQuery\(next\)/, 'Autocomplete value changes must go through the synchronized update helper AND skip item-press reasons (selection must not write the result object back into the query)');
     assert.match(searchModal, /keyboardKey\(event, \['Escape'\]\) && query[\s\S]*clearSearchQuery\(\);/, 'Escape clear path must synchronously invalidate in-flight search');
     assert.match(
       searchModal,
@@ -424,16 +451,6 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     );
     assert.match(searchModal, /搜索服务需要刷新，请重试。/);
     assert.doesNotMatch(searchModal, /搜索暂时不可用，请稍后重试。/, 'Search modal fallback error should not read like a generic unavailable feature');
-  });
-
-  it('modal focus restoration does not steal focus during React StrictMode effect replay', async () => {
-    const hook = await readFile(MODAL_A11Y_PATH, 'utf8');
-
-    assert.match(
-      hook,
-      /queueMicrotask\(\(\) => \{\s*if \(suppressFocusRestoreRef\?\.current\) return;\s*if \(document\.contains\(container\)\) return;\s*if \(previouslyFocused && document\.contains\(previouslyFocused\)\)/m,
-      'StrictMode effect cleanup must not restore focus to the opener while the modal container is still mounted',
-    );
   });
 
   it('session time buckets use product labels without unfinished-state wording', async () => {

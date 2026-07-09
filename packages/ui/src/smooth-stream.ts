@@ -147,13 +147,25 @@ export interface FrameAdvanceInputs {
  * Pure: how many graphemes should this RAF tick advance? Clamps the
  * EMA into [minCps, maxCps], converts to graphemes for `dtMs`, and
  * never overshoots the available backlog. Always advances at least 1
- * when there is work to do.
+ * when there is work to do — INCLUDING when `dtMs <= 0`.
+ *
+ * The `dtMs <= 0` case is load-bearing, not theoretical: `dtMs` is
+ * "rAF callback timestamp minus wall-clock time at effect re-arm", and
+ * Chromium's rAF timestamps are vsync-aligned, so under main-thread
+ * pressure (an IPC delta burst re-rendering the whole chat) the
+ * timestamp lags the wall clock and `dtMs` clamps to 0 for every tick
+ * in the recovery window. Returning 0 here used to leave
+ * `displayedCount` unchanged, which meant the RAF effect (keyed on
+ * `displayedCount`/`rawLength`) never re-armed — the typewriter died
+ * with a full backlog and the bubble sat BLANK until stream end
+ * snapped the whole answer in at once. Advancing 1 grapheme keeps the
+ * single-owner RAF chain alive at the frame-rate floor until the
+ * timestamps normalize.
  */
 export function computeFrameAdvance(inputs: FrameAdvanceInputs): number {
   const { rawGraphemeCount, displayedGraphemeCount, emaCps, dtMs, minCps, maxCps } = inputs;
   const backlog = rawGraphemeCount - displayedGraphemeCount;
   if (backlog <= 0) return 0;
-  if (dtMs <= 0) return 0;
   const cps = Math.min(Math.max(emaCps, minCps), maxCps);
   const advance = Math.max(1, Math.floor((cps * dtMs) / 1000));
   return Math.min(advance, backlog);

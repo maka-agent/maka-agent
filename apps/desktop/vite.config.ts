@@ -21,6 +21,7 @@ export default defineConfig({
   base: './',
   plugins: [react(), tailwindcss()],
   resolve: {
+    dedupe: ['react', 'react-dom'],
     alias: [
       { find: '@maka/ui/icons', replacement: resolve(UI_SRC, 'icons.tsx') },
       { find: '@maka/ui/artifact-preview-registry', replacement: resolve(UI_SRC, 'artifact-preview-registry.ts') },
@@ -31,7 +32,11 @@ export default defineConfig({
     ],
   },
   build: {
-    outDir: '../../dist/renderer',
+    // Renderer bundle lives in dist-renderer (sibling of dist), separate from
+    // dist/renderer. dist/renderer holds tsc side-files that build:main emits
+    // for helpers imported by main/__tests__; emptyOutDir:true clears only
+    // dist-renderer, leaving those side-files intact. See check-stale-dist.mjs.
+    outDir: '../../dist-renderer',
     emptyOutDir: true,
   },
 });

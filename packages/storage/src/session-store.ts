@@ -89,6 +89,7 @@ class FileSessionStore implements SessionStore {
       connectionLocked: false,
       model: input.model ?? 'default',
       permissionMode: input.permissionMode,
+      ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       schemaVersion: 1,
     };
 
@@ -499,6 +500,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     llmConnectionSlug: header.llmConnectionSlug,
     model: header.model,
     permissionMode: header.permissionMode,
+    ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
   };
 }
 

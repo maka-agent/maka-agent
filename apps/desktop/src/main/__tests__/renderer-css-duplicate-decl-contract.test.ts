@@ -50,6 +50,36 @@ interface Duplicate {
   secondLine: number;
 }
 
+/** Strip `/* … *​/` comments from a line, tracking multi-line comment
+ *  state across lines. Unlike a per-line `.replace(/\/\*.*?\*\//g, '')`, this
+ *  correctly blanks the middle lines of a multi-line comment — e.g. a prose
+ *  comment line that happens to read `max-width: 100% downstream …` — which
+ *  the duplicate-decl scanner would otherwise mis-read as a declaration.
+ *  Required once hand-written rules with multi-line comments relocated from
+ *  maka-tokens.css into styles/ (#546 PR4). */
+function stripCommentsLine(line: string, state: { inBlock: boolean }): string {
+  let out = '';
+  let i = 0;
+  while (i < line.length) {
+    if (state.inBlock) {
+      const end = line.indexOf('*/', i);
+      if (end === -1) return out;
+      state.inBlock = false;
+      i = end + 2;
+    } else {
+      const start = line.indexOf('/*', i);
+      if (start === -1) {
+        out += line.slice(i);
+        return out;
+      }
+      out += line.slice(i, start);
+      i = start + 2;
+      state.inBlock = true;
+    }
+  }
+  return out;
+}
+
 function findDuplicates(file: string, content: string): Duplicate[] {
   const dupes: Duplicate[] = [];
   const lines = content.split('\n');
@@ -57,11 +87,13 @@ function findDuplicates(file: string, content: string): Duplicate[] {
   // declaration lines. Only the topmost block is the "rule" we care
   // about; outer `@media` / `@layer` blocks are wrappers.
   const stack: { selector: string; props: Record<string, number> }[] = [];
+  const commentState = { inBlock: false };
 
   for (let i = 0; i < lines.length; i++) {
     const lineNo = i + 1;
-    // Strip line comments so they don't confuse brace counting.
-    const line = lines[i]!.replace(/\/\*.*?\*\//g, '');
+    // Strip comments (tracking multi-line state) so they don't confuse
+    // brace counting or read as declarations.
+    const line = stripCommentsLine(lines[i]!, commentState);
     let buf = '';
     for (const ch of line) {
       if (ch === '{') {

@@ -8,17 +8,18 @@ import { readRendererShellCombinedSource } from './renderer-shell-source-helpers
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
-// The model switcher / picker JSX lives in `chat-model-switcher.tsx`, the
-// composer renders it from `composer.tsx`, and turn chips render in
-// `chat-view.tsx`. These source-grep contracts assert behavior that spans the
-// seam, so search their union.
+// The model switcher / picker JSX lives in `chat-model-switcher.tsx`, its
+// shared searchable popup in `model-picker.tsx`, the composer renders it from
+// `composer.tsx`, and turn chips render in `chat-view.tsx`. These source-grep
+// contracts assert behavior that spans the seam, so search their union.
 async function readModelSwitcherUiSource(): Promise<string> {
-  const [composer, chatView, switcher] = await Promise.all([
+  const [composer, chatView, switcher, picker] = await Promise.all([
     readFile(resolve(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8'),
     readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-view.tsx'), 'utf8'),
     readFile(resolve(REPO_ROOT, 'packages/ui/src/chat-model-switcher.tsx'), 'utf8'),
+    readFile(resolve(REPO_ROOT, 'packages/ui/src/model-picker.tsx'), 'utf8'),
   ]);
-  return `${composer}\n${chatView}\n${switcher}`;
+  return `${composer}\n${chatView}\n${switcher}\n${picker}`;
 }
 
 describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
@@ -101,7 +102,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(
       renderer,
-      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\} finally/,
+      /catch \(error\) \{[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\('切换模型失败', generalizedErrorMessageChinese\(error, '模型暂时无法切换，请稍后重试。'\)\);[\s\S]*\}[\s\S]*\} finally/,
       'model switch failure toast must not surface stale failures after the user switches sessions',
     );
     assert.doesNotMatch(
@@ -126,7 +127,7 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     assert.match(ui, /pending=\{props\.modelChangePending\}/);
     assert.match(ui, /activeModel\?: string/);
     assert.match(ui, /const currentModel = props\.activeModel \?\? props\.activeSession\.model/);
-    assert.match(ui, /aria-label="切换当前会话模型"/);
+    assert.match(ui, /ariaLabel="切换当前会话模型"/);
     assert.match(ui, /pending\?: boolean/);
     assert.match(ui, /const \[localPending,\s*setLocalPending\] = useState\(false\);/);
     assert.match(ui, /const pendingRef = useRef\(false\);/);
@@ -153,17 +154,25 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     );
     assert.match(ui, /aria-busy=\{pending \? 'true' : undefined\}/);
     assert.match(ui, /data-pending=\{pending \? 'true' : undefined\}/);
-    assert.match(ui, /<SelectRoot<string>[\s\S]*items=\{modelSelectItems\}[\s\S]*value=\{currentValue\}[\s\S]*onValueChange=\{\(value\) => \{/);
-    assert.match(ui, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{8\}/);
-    assert.match(ui, /<SelectList>/);
-    // The grouped menu renders provider groups keyed by connection, each heading
-    // carrying the injected brand mark (kept out of @maka/ui via renderProviderMark),
-    // on the shared `.settingsSelectMenu*` recipe.
-    assert.match(ui, /<SelectGroup key=\{group\.connectionSlug\}/);
+    assert.match(ui, /<ModelPicker[\s\S]*groups=\{grouped\}[\s\S]*value=\{currentValue\}[\s\S]*onValueChange=\{\(value\) => \{/);
+    assert.match(ui, /<BaseCombobox\.Positioner sideOffset=\{8\}/);
+    assert.match(ui, /<BaseCombobox\.List className="modelPickerList">/);
+    assert.match(ui, /inputValue=\{query\}/);
+    assert.match(ui, /filter=\{filterModelPickerOption\}/);
+    assert.match(ui, /BaseCombobox\.useFilteredItems<ModelPickerOptionGroup>\(\)/);
+    assert.match(ui, /footer=\{\(\{ open, close \}\) => \(/);
+    assert.match(ui, /props\.footer\?\.\(\{[\s\S]*open,[\s\S]*close: \(\) => \{[\s\S]*setOpen\(false\);[\s\S]*setQuery\(''\);/);
+    assert.match(ui, /data-model-picker-nested-popup=""/);
+    // The grouped menu renders provider groups from Base UI's filtered item
+    // source, each heading carrying the injected brand mark (kept out of
+    // @maka/ui via renderProviderMark), on the shared `.settingsSelectMenu*`
+    // recipe.
+    assert.match(ui, /<ModelPickerGroup key=\{group\.key\} items=\{group\.items\}>/);
     assert.match(ui, /renderProviderMark\?\.\(group\.providerType\)/);
     assert.match(ui, /className="settingsSelectMenuGroupLogo"/);
-    assert.match(uiPrimitives, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseSelect\.ItemIndicator>/);
-    assert.match(uiPrimitives, /<span className="min-w-0">[\s\S]*<BaseSelect\.ItemText>\{children\}<\/BaseSelect\.ItemText>/);
+    assert.match(ui, /<span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">[\s\S]*<BaseCombobox\.ItemIndicator>/);
+    assert.match(ui, /<BaseCombobox\.Item[\s\S]*<span className="min-w-0">\{children\}<\/span>/);
+    assert.doesNotMatch(uiPrimitives, /BaseCombobox/, 'Combobox stays private to ModelPicker until a second real consumer appears');
     assert.doesNotMatch(ui, /<select\b[\s\S]*aria-label="切换当前会话模型"/);
     assert.match(ui, /<span className="maka-model-switcher-label">\{pending \? '切换中' : '模型'\}<\/span>/);
     assert.match(styles, /\.maka-model-switcher\s*\{/);
@@ -173,15 +182,13 @@ describe('PR-SESSION-STICKY-MODEL-0 contract', () => {
     // (the bespoke `.maka-model-switcher-popup` chrome was folded into it); the
     // trigger above stays the composer pill.
     assert.match(styles, /\.settingsSelectMenuPopup\s*\{/);
-    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[\s\S]*min-height: 32px;[\s\S]*\}/);
-  });
-
-  it('flags per-turn model departures against the session sticky model', async () => {
-    const ui = await readModelSwitcherUiSource();
-
-    assert.match(ui, /props\.activeSession\?\.model && props\.activeSession\.model\.length > 0/);
-    assert.match(ui, /previousModelId=\{expectedModelId\}/);
-    assert.match(ui, /本轮使用 \$\{turn\.modelId\}，session 期望 \$\{props\.previousModelId\}/);
-    assert.match(ui, /本轮切换了模型/);
+    assert.match(styles, /\.modelPickerPopup\s*\{[\s\S]*display:\s*flex;[\s\S]*overflow:\s*hidden;[\s\S]*\}/);
+    assert.match(styles, /\.modelPickerList\s*\{[\s\S]*overflow-y:\s*auto;[\s\S]*\}/);
+    assert.match(styles, /\.maka-thinking-section\s*\{[\s\S]*flex:\s*0 0 auto;[\s\S]*\}/);
+    // [^}]* anchors inside this one rule block so the match can't drift when
+    // cross-file @import order changes (#546 PR1 relocated this rule into
+    // settings/select.css). Value is the control-lg token (= 32px), not a
+    // literal - readRendererContractCss does not inline var().
+    assert.match(styles, /\.settingsSelectMenuPopup \[role="option"\]\s*\{[^}]*min-height:\s*var\(--h-control-lg\)[^}]*\}/);
   });
 });

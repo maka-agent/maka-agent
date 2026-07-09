@@ -12,6 +12,7 @@
     "storybook": "storybook dev -p 6006 -c .storybook",
     "build-storybook": "storybook build -c .storybook --output-dir storybook-static",
     "build": "npm run build:main && npm run build:preload && npm run build:overlay && npm run build:renderer",
+    "build:test": "npm run build:main && npm run build:preload",
     "clean:main": "node ../../scripts/clean-paths.mjs dist/main tsconfig.main.tsbuildinfo",
     "build:main": "tsc -p tsconfig.main.json",
     "build:preload": "esbuild src/preload/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload/preload.cjs --external:electron",
@@ -19,8 +20,11 @@
     "build:renderer": "vite build",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.storybook.json --noEmit",
     "typecheck:stories": "tsc -p tsconfig.storybook.json --noEmit",
-    "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && node ../../scripts/check-console.mjs && node ../../scripts/check-a11y.mjs && node ../../scripts/check-copy.mjs",
+    "pretest": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run test:checks",
     "test": "npm run clean:main && npm run build:main && node --test \"dist/main/**/*.test.js\"",
+    "test:checks": "node ../../scripts/check-console.mjs && node ../../scripts/check-a11y.mjs && node ../../scripts/check-copy.mjs",
+    "test:dist": "npm run test:checks && node --test \"dist/main/**/*.test.js\"",
+    "e2e": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && playwright test --config e2e/playwright.config.ts",
     "screenshots": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/capture-screenshots.mjs --all",
     "screenshots:single": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/capture-screenshots.mjs --scenario",
     "smoke:real-window": "npm --workspace @maka/core run build && npm --workspace @maka/storage run build && npm --workspace @maka/runtime run build && npm --workspace @maka/ui run build && npm run build && node ../../scripts/desktop-real-window-smoke.mjs",
@@ -52,6 +56,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@storybook/react-vite": "^10.4.6",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.2.7",

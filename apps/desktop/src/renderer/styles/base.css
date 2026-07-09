@@ -67,12 +67,11 @@
     outline: none;
     box-shadow: none;
   }
-button,
-  textarea,
-  input,
-  select {
-    font: inherit;
-  }
+/* Form-control font inheritance is Tailwind preflight's job (`@layer base`:
+   button/input/select/textarea { font: inherit }). Do NOT re-declare it here:
+   an unlayered duplicate outranks every layered rule, which silently kills
+   all font utilities (text-*, font-*, leading-*) on form controls app-wide.
+   Locked by renderer-form-font-reset-contract.test.ts. */
 .maka-visually-hidden {
     position: absolute !important;
     width: 1px !important;

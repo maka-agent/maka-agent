@@ -61,6 +61,10 @@ describe('project context workspace picker', () => {
 
     assert.match(main, /resolveProjectRoot\(\[process\.cwd\(\), app\.getAppPath\(\)\]\)/);
     assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
+    assert.match(main, /function registerIpc\(\): void/);
+    assert.match(main, /const persistedProjectRootPromise = loadPersistedProjectRoot\(\)/);
+    assert.doesNotMatch(main, /async function registerIpc\(\): Promise<void>/);
+    assert.doesNotMatch(main, /void registerIpc\(\);/);
     assert.match(preload, /projectPath:\s*string;/);
     assert.match(preload, /projectGit:\s*\{ isGitRepo: boolean; branch\?: string \};/);
     assert.match(globalTypes, /projectPath:\s*string;/);
@@ -76,12 +80,28 @@ describe('project context workspace picker', () => {
 
     assert.match(main, /let selectedProjectRoot: string \| null = null;/);
     assert.match(main, /if \(selectedProjectRoot\) return selectedProjectRoot;/);
+    assert.match(main, /async function resolveExplicitProjectRoot\(projectPath: unknown\): Promise</);
     assert.match(main, /ipcMain\.handle\(\s*'app:selectProjectDirectory'/);
     assert.match(main, /mainWindowController\.showOpenDialog\(\{[\s\S]*title:\s*'选择工作目录'[\s\S]*properties:\s*\['openDirectory'\]/);
     assert.match(main, /dialog\.showOpenDialog\(mainWindow,\s*options\)/);
     assert.match(main, /const projectPath = await resolveProjectRoot\(\[selectedPath\]\)/);
     assert.match(main, /selectedProjectRoot = projectPath;/);
     assert.match(main, /projectGit:\s*await resolveProjectGitInfo\(projectPath\)/);
+    assert.match(
+      main,
+      /'app:resolveProjectGitInfo'[\s\S]*const explicitRoot = await resolveExplicitProjectRoot\(projectPath\);[\s\S]*if \(!explicitRoot\.ok\) return explicitRoot;/,
+      'explicit project git lookups must validate the supplied path instead of falling back to process.cwd()',
+    );
+    assert.match(
+      main,
+      /async function loadPersistedProjectRoot\(\): Promise<string \| null> \{[\s\S]*await stat\(parsed\.projectPath\)[\s\S]*return await resolveProjectRoot\(\[parsed\.projectPath\]\)/,
+      'restored last-project-path must be validated before it becomes currentProjectRoot',
+    );
+    assert.match(
+      main,
+      /if \(selectedProjectRoot\) return selectedProjectRoot;[\s\S]*const persistedProjectRoot = await persistedProjectRootPromise;[\s\S]*if \(persistedProjectRoot\) \{[\s\S]*selectedProjectRoot = persistedProjectRoot;[\s\S]*return persistedProjectRoot;/,
+      'currentProjectRoot must await the validated persisted project before falling back',
+    );
     assert.match(preload, /selectProjectDirectory\(\): Promise</);
     assert.match(preload, /ipcRenderer\.invoke\('app:selectProjectDirectory'\)/);
     assert.match(globalTypes, /selectProjectDirectory\(\): Promise</);
@@ -118,6 +138,27 @@ describe('project context workspace picker', () => {
     assert.doesNotMatch(workspacePickerBlock, /openProjectFolder\(\)|openWorkspaceFolder\(\)|openPath\(/);
   });
 
+  it('defaults new sessions to the main-owned current project root', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+    const chatActions = await readRepo('apps/desktop/src/renderer/app-shell-chat-actions.ts');
+
+    assert.match(main, /const cwd = input\?\.cwd \?\? \(await currentProjectRoot\(\)\)/);
+    assert.match(main, /handleQuickChatStart\(input, currentProjectRoot\)/);
+    assert.match(main, /cwd:\s*await getCurrentProjectRoot\(\)/);
+    assert.doesNotMatch(main, /const cwd = input\?\.cwd \?\? process\.cwd\(\)/);
+    assert.doesNotMatch(main, /cwd:\s*process\.cwd\(\)/);
+    assert.doesNotMatch(chatActions, /\.\.\.\(projectPath \? \{ cwd: projectPath \} : \{\}\)/);
+  });
+
+  it('resolves workspace instruction files under the selected project root', async () => {
+    const main = await readRepo('apps/desktop/src/main/main.ts');
+
+    assert.match(main, /ipcMain\.handle\('workspaceInstructions:getState', async \(\) => getWorkspaceInstructionsState\(await currentProjectRoot\(\)\)\)/);
+    assert.match(main, /resolveWorkspaceInstructionFileForOpen\(await currentProjectRoot\(\), typeof file === 'string' \? file : ''\)/);
+    assert.match(main, /createWorkspaceInstructionFile\(await currentProjectRoot\(\), typeof file === 'string' \? file : ''\)/);
+    assert.doesNotMatch(main, /workspaceInstructions:getState', \(\) => getWorkspaceInstructionsState\(process\.cwd\(\)\)/);
+  });
+
   it('opens project directory by allowlisted key, not renderer-supplied path', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
     const guard = await readRepo('apps/desktop/src/main/open-path-guard.ts');
@@ -138,14 +179,14 @@ describe('project context workspace picker', () => {
     assert.match(ui, /className="maka-composer-workspace-picker"/);
     assert.match(ui, /branch\?: string \| null;/);
     assert.match(ui, /pending\?: boolean;/);
-    assert.match(ui, /disabled=\{props\.workspacePicker\.pending === true\}/);
-    assert.match(ui, /aria-busy=\{props\.workspacePicker\.pending === true \? 'true' : undefined\}/);
+    assert.match(ui, /disabled=\{wp\.pending === true\}/);
+    assert.match(ui, /aria-busy=\{wp\.pending === true \? 'true' : undefined\}/);
     // WAWQAQ msg `28128c9e` (2026-06-20): the "选择工作目录" placeholder
     // is only rendered when no directory has been selected yet. Once
     // a label is set, the picker renders `.maka-composer-workspace-current`
     // alone — no more "选择工作目录 ai ▾" doubled string.
-    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{props\.workspacePicker\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
-    assert.match(ui, /当前分支 \$\{props\.workspacePicker\.branch\}/);
+    assert.match(ui, /\? <span className="maka-composer-workspace-current">\{wp\.label\}<\/span>[\s\S]*?: <span>选择工作目录<\/span>/);
+    assert.match(ui, /当前分支 \$\{wp\.branch\}/);
     // Workspace picker must track the shared chat/composer measure token,
     // not a bespoke hard-coded width, so future measure updates keep the
     // row aligned with the composer card automatically.

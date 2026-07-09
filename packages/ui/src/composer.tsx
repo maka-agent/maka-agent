@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { ArrowUp, ChevronDown, FileEdit, FolderOpen, Mic, Plus } from './icons.js';
+import { ArrowUp, Check, ChevronDown, FileEdit, FolderOpen, GitBranch, History, Plus } from './icons.js';
 import { ChatModelSwitcher, ModelChipStatic, NewChatModelPicker } from './chat-model-switcher.js';
 import { type UiLocale, detectUiLocale } from './locale-helpers.js';
 import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js';
@@ -24,11 +24,13 @@ import {
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
-import type { PermissionMode, ProviderType, SessionSummary } from '@maka/core';
-import { Button as UiButton, Textarea as UiTextarea } from './ui.js';
+import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
+import { Button as UiButton } from './ui.js';
+import { Textarea as UiTextarea } from './primitives/textarea.js';
+import { AttachmentFileCard } from './attachment-file-card.js';
 import { Kbd } from './primitives/kbd.js';
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
-import { PERMISSION_MODE_META, PermissionModeMenuPopup } from './permission-mode-menu.js';
+import { PermissionModeSelect } from './permission-mode-menu.js';
+import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -90,7 +92,7 @@ export interface ComposerHandle {
   focus(): void;
 }
 
-type ComposerImportActionId = 'file' | 'folder' | 'drop' | 'paste';
+type ComposerImportActionId = 'pick' | 'attach';
 
 export const Composer = forwardRef<
   ComposerHandle,
@@ -109,9 +111,10 @@ export const Composer = forwardRef<
     draftKey?: string;
     onSend(text: string): boolean | void | Promise<boolean | void>;
     onStop(): void | Promise<void>;
-    onImportTextFile?(): void | Promise<void>;
-    onImportFolderOutline?(): void | Promise<void>;
-    onImportDroppedTextFiles?(files: File[]): void | Promise<void>;
+    onPickAttachments?(): void | Promise<void>;
+    onAttachFilePaths?(files: File[]): void | Promise<void>;
+    pendingAttachments?: readonly { displayName: string; kind: AttachmentRef['kind']; mimeType?: string; size: number }[];
+    onRemoveAttachment?(index: number): void;
     modelLabel?: string;
     activeSession?: SessionSummary;
     activeConnectionLabel?: string;
@@ -123,6 +126,13 @@ export const Composer = forwardRef<
     renderProviderMark?(type: ProviderType): ReactNode;
     modelChangePending?: boolean;
     onModelChange?(input: { llmConnectionSlug: string; model: string }): void | Promise<void>;
+    /** Per-model thinking-level variants for the active model; empty/undefined hides the switcher. */
+    activeThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    activeThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
+    newChatThinkingLevels?: readonly import('@maka/core').ThinkingLevel[];
+    newChatThinkingLevel?: import('@maka/core').ThinkingLevel;
+    onNewChatThinkingLevelChange?(level: import('@maka/core').ThinkingLevel | undefined): void | Promise<void>;
     /**
      * Home / empty-state composer only (no active session yet): the model
      * the next new chat will start with, and the picker callback. When set,
@@ -141,7 +151,22 @@ export const Composer = forwardRef<
       label?: string;
       branch?: string | null;
       pending?: boolean;
+      recentWorkspaces?: string[];
       onOpen(): void;
+      onSelect(path: string): void;
+    };
+    /**
+     * Git branch picker for the workspace row, shown to the right of
+     * the folder indicator when the workspace is a git repository.
+     * Clicking the trigger opens a Menu listing local branches; selecting
+     * one fires `onSelect` to switch branches (handled in the shell).
+     */
+    branchPicker?: {
+      branch: string | null;
+      pending?: boolean;
+      branches: string[];
+      onOpen(): void;
+      onSelect(branch: string): void;
     };
     /**
      * PR-MOVE-PERMISSION-MODE (WAWQAQ 47fe0d0e + a667cf6c): the
@@ -407,8 +432,8 @@ export const Composer = forwardRef<
     saveCurrentDraft();
   }
 
-  function canAcceptDroppedTextFiles(): boolean {
-    return Boolean(props.onImportDroppedTextFiles && !props.disabled && !props.streaming && !pendingImportActionRef.current);
+  function canAcceptDroppedFiles(): boolean {
+    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !pendingImportActionRef.current);
   }
 
   function hasDraggedFiles(event: DragEvent<HTMLFormElement>): boolean {
@@ -420,7 +445,7 @@ export const Composer = forwardRef<
   }
 
   function onComposerDragOver(event: DragEvent<HTMLFormElement>) {
-    if (!canAcceptDroppedTextFiles() || !hasDraggedFiles(event)) return;
+    if (!canAcceptDroppedFiles() || !hasDraggedFiles(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'copy';
     setDragActive(true);
@@ -435,10 +460,10 @@ export const Composer = forwardRef<
     if (!hasDraggedFiles(event)) return;
     event.preventDefault();
     setDragActive(false);
-    if (!canAcceptDroppedTextFiles()) return;
+    if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.dataTransfer.files);
     if (files.length === 0) return;
-    void runImportAction('drop', () => props.onImportDroppedTextFiles?.(files));
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   function onTextareaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -458,11 +483,11 @@ export const Composer = forwardRef<
     const native = event.nativeEvent;
     if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
     if (!hasPastedFiles(event)) return;
-    if (!canAcceptDroppedTextFiles()) return;
+    if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
     event.preventDefault();
-    void runImportAction('paste', () => props.onImportDroppedTextFiles?.(files));
+    void runImportAction('attach', () => props.onAttachFilePaths?.(files));
   }
 
   useEffect(() => {
@@ -495,6 +520,7 @@ export const Composer = forwardRef<
       ref={formRef}
       className="maka-composer composer"
       data-drag-active={dragActive ? 'true' : undefined}
+      data-maka-file-drop-target={canAcceptDroppedFiles() ? 'true' : undefined}
       onDragOver={onComposerDragOver}
       onDragLeave={onComposerDragLeave}
       onDrop={onComposerDrop}
@@ -504,6 +530,19 @@ export const Composer = forwardRef<
         className="maka-composer-inner composerInner agents-parchment-paper-surface"
         data-streaming={props.streaming ? 'true' : undefined}
       >
+        {props.pendingAttachments && props.pendingAttachments.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 px-3 pt-2">
+            {props.pendingAttachments.map((attachment, index) => (
+              <AttachmentFileCard
+                key={`${attachment.displayName}-${index}`}
+                name={attachment.displayName}
+                kind={attachment.kind}
+                size={attachment.size}
+                onRemove={props.onRemoveAttachment ? () => props.onRemoveAttachment?.(index) : undefined}
+              />
+            ))}
+          </div>
+        ) : null}
         <UiTextarea
           ref={textareaRef}
           unstyled
@@ -526,50 +565,20 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && props.onImportTextFile && props.onImportFolderOutline ? (
-              <Menu>
-                <MenuTrigger
-                  className="maka-composer-tool-button maka-composer-context-plus"
-                  type="button"
-                  disabled={props.disabled || importActionBusy}
-                  aria-label={pendingImportAction ? '正在添加上下文' : '添加上下文'}
-                  aria-busy={pendingImportAction ? 'true' : undefined}
-                  data-pending={pendingImportAction ? 'true' : undefined}
-                  title={pendingImportAction ? '正在添加上下文' : '添加上下文'}
-                >
-                  <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
-                </MenuTrigger>
-                <MenuPopup className="maka-composer-context-menu" align="start">
-                  <MenuItem
-                    onClick={() => void runImportAction('file', props.onImportTextFile)}
-                    disabled={props.disabled || importActionBusy}
-                  >
-                    <FileEdit size={14} strokeWidth={1.75} aria-hidden="true" />
-                    导入文件内容
-                  </MenuItem>
-                  <MenuItem
-                    onClick={() => void runImportAction('folder', props.onImportFolderOutline)}
-                    disabled={props.disabled || importActionBusy}
-                  >
-                    <FolderOpen size={14} strokeWidth={1.75} aria-hidden="true" />
-                    导入文件夹目录
-                  </MenuItem>
-                </MenuPopup>
-              </Menu>
-            ) : !props.streaming && props.onImportTextFile ? (
+            {!props.streaming && props.onPickAttachments ? (
               <UiButton
                 variant="quiet"
                 size="icon-sm"
                 className="maka-composer-tool-button maka-composer-context-plus"
                 type="button"
                 disabled={props.disabled || importActionBusy}
-                onClick={() => void runImportAction('file', props.onImportTextFile)}
-                aria-label={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
-                aria-busy={pendingImportAction === 'file' ? 'true' : undefined}
-                data-pending={pendingImportAction === 'file' ? 'true' : undefined}
-                title={pendingImportAction === 'file' ? '正在添加上下文' : '添加上下文'}
+                onClick={() => void runImportAction('pick', props.onPickAttachments)}
+                aria-label={pendingImportAction === 'pick' ? '正在添加附件' : '添加附件'}
+                aria-busy={pendingImportAction === 'pick' ? 'true' : undefined}
+                data-pending={pendingImportAction === 'pick' ? 'true' : undefined}
+                title="添加附件"
               >
-                <Plus size={15} strokeWidth={1.85} aria-hidden="true" />
+                <Plus size={15} aria-hidden="true" />
               </UiButton>
             ) : null}
             {/* PR-MOVE-PERMISSION-MODE: the static "通用" role chip
@@ -581,54 +590,17 @@ export const Composer = forwardRef<
                 display because Deep Research sessions use it
                 internally but it's not a useful runtime toggle for
                 normal chat. */}
-            {props.onPermissionModeChange ? (() => {
-              const rawMode = props.permissionMode ?? 'ask';
-              const displayMode: PermissionMode = rawMode === 'explore' ? 'ask' : rawMode;
-              const meta = PERMISSION_MODE_META[displayMode];
-              const triggerDisabled = props.permissionModePending === true || Boolean(props.permissionModeDisabledReason);
-              return (
-                <Menu>
-                  {/* PR-COMPOSER-MODE-CHIP-PRIMITIVE-0 (round 15/30):
-                      LAST raw <button> in `components.tsx`. The
-                      permission mode chip (自动执行 ▾) is wrapped in
-                      a MenuTrigger render-prop. Kept the callback
-                      form (the menu library wants explicit
-                      triggerProps spread) but the button now flows
-                      through UiButton variant="quiet" size="nav" —
-                      the bespoke `.maka-composer-mode-chip` class
-                      still owns the chip's accent-tinted background,
-                      data-mode + data-tone state visuals, and tight
-                      composer-chrome density. */}
-                  <MenuTrigger
-                    render={(triggerProps) => (
-                      <UiButton
-                        {...triggerProps}
-                        variant="quiet"
-                        size="nav"
-                        type="button"
-                        className="maka-composer-mode-chip"
-                        data-mode={displayMode}
-                        data-tone={meta.tone}
-                        data-pending={props.permissionModePending ? 'true' : undefined}
-                        disabled={triggerDisabled}
-                        aria-label={`权限模式：${meta.label}`}
-                        title={props.permissionModeDisabledReason ?? meta.hint}
-                      >
-                        <span className="maka-composer-mode-chip-label">{meta.label}</span>
-                        <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
-                      </UiButton>
-                    )}
-                  />
-                  <PermissionModeMenuPopup
-                    activeMode={displayMode}
-                    onSelect={(mode) => {
-                      void props.onPermissionModeChange?.(mode);
-                    }}
-                    align="start"
-                  />
-                </Menu>
-              );
-            })() : null}
+            {props.onPermissionModeChange ? (
+              <PermissionModeSelect
+                activeMode={props.permissionMode ?? 'ask'}
+                onSelect={(mode) => {
+                  void props.onPermissionModeChange?.(mode);
+                }}
+                align="start"
+                disabled={props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
+                disabledReason={props.permissionModeDisabledReason}
+              />
+            ) : null}
           </div>
           <span className="maka-composer-status-slot">
             {props.disabled ? (
@@ -670,6 +642,9 @@ export const Composer = forwardRef<
                     disabledReason={modelSwitcherDisabledReason}
                     renderProviderMark={props.renderProviderMark}
                     onChange={props.onModelChange}
+                    thinkingLevels={props.activeThinkingLevels}
+                    thinkingLevel={props.activeThinkingLevel}
+                    onThinkingLevelChange={props.onThinkingLevelChange}
                   />
                 ) : props.onPickNewChatModel && (props.modelChoices?.length ?? 0) > 0 ? (
                   <NewChatModelPicker
@@ -682,21 +657,13 @@ export const Composer = forwardRef<
                     }
                     renderProviderMark={props.renderProviderMark}
                     onPick={props.onPickNewChatModel}
+                    thinkingLevels={props.newChatThinkingLevels}
+                    thinkingLevel={props.newChatThinkingLevel}
+                    onThinkingLevelChange={props.onNewChatThinkingLevelChange}
                   />
                 ) : (
                   <ModelChipStatic label={modelChipLabel} onOpenSettings={props.onOpenModelSettings} />
                 )}
-                <UiButton
-                  variant="quiet"
-                  size="icon-sm"
-                  className="maka-composer-tool-button maka-composer-mic-button"
-                  type="button"
-                  disabled
-                  aria-label="语音输入暂未启用"
-                  title="语音输入暂未启用"
-                >
-                  <Mic size={14} strokeWidth={1.75} aria-hidden="true" />
-                </UiButton>
               </>
             )}
             {props.streaming ? (
@@ -726,13 +693,15 @@ export const Composer = forwardRef<
                 data-pending={sendPending ? 'true' : undefined}
                 title={buttonCopy.sendLabel}
               >
-                <ArrowUp size={16} strokeWidth={2.1} aria-hidden="true" />
+                <ArrowUp size={16} aria-hidden="true" />
               </UiButton>
             )}
           </div>
         </div>
       </div>
-      {props.workspacePicker && (
+      {props.workspacePicker && (() => {
+        const wp = props.workspacePicker!;
+        return (
         <div className="maka-composer-workspace-row">
           {/* PR-COMPOSER-WORKSPACE-PICKER-PRIMITIVE-0 (round 9/30):
               the workspace picker badge was a raw `<button>`.
@@ -740,30 +709,121 @@ export const Composer = forwardRef<
               still owns the picker's inline-flex shape (icon +
               label + chevron) and the bespoke 3px accent
               focus-visible ring. */}
-          <UiButton
-            type="button"
-            variant="quiet"
-            className="maka-composer-workspace-picker"
-            disabled={props.workspacePicker.pending === true}
-            aria-busy={props.workspacePicker.pending === true ? 'true' : undefined}
-            onClick={props.workspacePicker.onOpen}
-            title={props.workspacePicker.branch ? `选择工作目录 · ${props.workspacePicker.branch}` : '选择工作目录'}
-            aria-label={props.workspacePicker.branch
-              ? `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}，当前分支 ${props.workspacePicker.branch}`
-              : `选择工作目录：${props.workspacePicker.label ?? '当前工作目录'}`}
-          >
-            <FolderOpen size={13} strokeWidth={1.7} aria-hidden="true" />
-            {/* WAWQAQ msg `28128c9e` (2026-06-20): when a directory has
-                been chosen, the label replaces the "选择工作目录"
-                placeholder rather than appearing next to it. The
-                placeholder is purely for the empty state. */}
-            {props.workspacePicker.label
-              ? <span className="maka-composer-workspace-current">{props.workspacePicker.label}</span>
-              : <span>选择工作目录</span>}
-            <ChevronDown size={12} strokeWidth={1.8} aria-hidden="true" />
-          </UiButton>
+          <Menu>
+            <MenuTrigger
+              render={({ onClick: menuToggleClick, ...triggerRest }) => (
+                <UiButton
+                  {...triggerRest}
+                  onClick={(e) => {
+                    menuToggleClick?.(e);
+                  }}
+                  type="button"
+                  variant="quiet"
+                  className="maka-composer-workspace-picker"
+                  disabled={wp.pending === true}
+                  aria-busy={wp.pending === true ? 'true' : undefined}
+                  title={wp.branch ? `选择工作目录 · ${wp.branch}` : '选择工作目录'}
+                  aria-label={wp.branch
+                    ? `选择工作目录：${wp.label ?? '当前工作目录'}，当前分支 ${wp.branch}`
+                    : `选择工作目录：${wp.label ?? '当前工作目录'}`}
+                >
+                  <FolderOpen size={13} aria-hidden="true" />
+                  {wp.label
+                    ? <span className="maka-composer-workspace-current">{wp.label}</span>
+                    : <span>选择工作目录</span>}
+                  <ChevronDown size={12} aria-hidden="true" />
+                </UiButton>
+              )}
+            />
+            <MenuPopup className="maka-composer-workspace-menu" align="start" side="top" sideOffset={6}>
+              {wp.recentWorkspaces && wp.recentWorkspaces.length > 0
+                ? (
+                  <>
+                    {wp.recentWorkspaces.map((wsp) => (
+                      <MenuItem key={wsp} onClick={() => { wp.onSelect(wsp); }}>
+                        <History size={13} aria-hidden="true" />
+                        <span>{basenameFromPath(wsp)}</span>
+                      </MenuItem>
+                    ))}
+                    <MenuSeparator />
+                    <MenuItem onClick={() => { wp.onOpen(); }}>
+                      <FolderOpen size={13} aria-hidden="true" />
+                      <span>选择其他目录...</span>
+                    </MenuItem>
+                  </>
+                )
+                : (
+                  <MenuItem onClick={() => { wp.onOpen(); }}>
+                    <FolderOpen size={13} aria-hidden="true" />
+                    <span>选择工作目录...</span>
+                  </MenuItem>
+                )}
+            </MenuPopup>
+          </Menu>
+          {props.branchPicker && (() => {
+            const bp = props.branchPicker!;
+            const triggerDisabled = bp.pending === true;
+            return (
+              <Menu>
+                <MenuTrigger
+                  render={({ onClick: menuToggleClick, ...triggerRest }) => (
+                    <UiButton
+                      {...triggerRest}
+                      onClick={(e) => {
+                        bp.onOpen();
+                        menuToggleClick?.(e);
+                      }}
+                      type="button"
+                      variant="quiet"
+                      className="maka-composer-branch-picker"
+                      disabled={triggerDisabled}
+                      aria-busy={triggerDisabled ? 'true' : undefined}
+                      title={bp.branch ? `分支：${bp.branch}` : '选择分支'}
+                      aria-label={bp.branch
+                        ? `切换分支：${bp.branch}`
+                        : '选择分支'}
+                    >
+                      <GitBranch size={13} aria-hidden="true" />
+                      <span className="maka-composer-branch-current">{bp.branch ?? '—'}</span>
+                      <ChevronDown size={12} aria-hidden="true" />
+                    </UiButton>
+                  )}
+                />
+                <MenuPopup className="maka-composer-branch-menu" align="start" side="top" sideOffset={6}>
+                  {bp.branches.length === 0 ? (
+                    <div className="maka-composer-branch-empty">无本地分支</div>
+                  ) : (
+                    bp.branches.map((b) => (
+                      <MenuItem
+                        key={b}
+                        data-active={b === bp.branch}
+                        onClick={() => {
+                          if (b === bp.branch) return;
+                          void bp.onSelect(b);
+                        }}
+                      >
+                        <GitBranch size={13} aria-hidden="true" />
+                        <span>{b}</span>
+                        {b === bp.branch && (
+                          <Check size={12} aria-hidden="true" className="maka-composer-branch-check" />
+                        )}
+                      </MenuItem>
+                    ))
+                  )}
+                </MenuPopup>
+              </Menu>
+            );
+          })()}
         </div>
-      )}
+      );
+    })()}
     </form>
   );
 });
+
+/** Extract the last path segment from a file system path (win32 / posix). */
+function basenameFromPath(value: string): string {
+  const trimmed = value.replace(/[\\/]+$/, '');
+  const name = trimmed.split(/[\\/]/).filter(Boolean).pop();
+  return name || trimmed || '当前项目';
+}

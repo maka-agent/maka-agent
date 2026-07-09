@@ -2,6 +2,9 @@ import type { PlanReminder, SessionSummary } from '@maka/core';
 import type { NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
+import { SettingsSegmented } from './primitives/settings-segmented.js';
+
+export type SessionViewMode = 'status' | 'project';
 
 export function SessionListPanel(props: {
   selection: NavSelection;
@@ -11,6 +14,8 @@ export function SessionListPanel(props: {
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
   statusGroups?: ReadonlyArray<SessionHistoryStatusGroup>;
+  viewMode?: SessionViewMode;
+  onViewModeChange?: (mode: SessionViewMode) => void;
   onSelectSession(sessionId: string): void;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
@@ -18,6 +23,12 @@ export function SessionListPanel(props: {
   rowActions?: SessionRowActions;
   sidebarCollapsed?: boolean;
 }) {
+  const {
+    viewMode = 'status',
+    onViewModeChange,
+    statusGroups,
+  } = props;
+
   return (
     <aside
       className="maka-session-panel agents-sidebar"
@@ -33,12 +44,28 @@ export function SessionListPanel(props: {
         onSelect={props.onSelect}
         onNew={props.onNew}
       />
+      {onViewModeChange && (
+        <div className="maka-view-mode-toggle">
+          {/* Shared segmented primitive — same control family as the
+              daily-review range tabs. The previous hand-rolled buttons
+              referenced tokens that don't exist in maka-tokens
+              (--surface-secondary etc.), rendering an invisible chrome. */}
+          <SettingsSegmented
+            value={viewMode}
+            options={[['status', '按状态'], ['project', '按项目']]}
+            onChange={(mode) => onViewModeChange(mode)}
+            ariaLabel="会话分组方式"
+            className="maka-view-mode-segmented"
+          />
+        </div>
+      )}
       <SessionHistoryList
         sessions={props.sessions}
         activeId={props.activeId}
         streamingSessionIds={props.streamingSessionIds}
         staleSessionIds={props.staleSessionIds}
-        statusGroups={props.statusGroups}
+        groupVariant={viewMode === 'project' ? 'project' : 'status'}
+        statusGroups={statusGroups}
         onSelectSession={props.onSelectSession}
         rowActions={props.rowActions}
       />

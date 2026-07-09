@@ -13,8 +13,9 @@
  *  - FakeBackend       — text-only stub for UI development
  */
 
-export { SessionManager, BackendRegistry, headerToSummary } from './session-manager.js';
+export { SessionManager, BackendRegistry, headerToSummary, changesBackendConfig } from './session-manager.js';
 export type {
+  CompactSessionInput,
   SessionManagerDeps,
   SessionStore,
   BackendFactory,
@@ -31,12 +32,14 @@ export { PermissionEngine, createDefaultPermissionEngineDeps } from './permissio
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
 
 export { AiSdkBackend } from './ai-sdk-backend.js';
+export type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type {
   AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
   AiSdkBackendInput,
   AppendMessageFn,
-  MakaTool,
-  MakaToolContext,
+  AttachmentByteReader,
   ModelFactory,
   ModelFactoryInput,
   RunTraceEvent,
@@ -66,15 +69,127 @@ export type {
 } from './pi-agent-backend.js';
 
 export { buildBuiltinTools } from './builtin-tools.js';
-export type { MakaTool as BuiltinMakaTool, MakaToolContext as BuiltinMakaToolContext } from './builtin-tools.js';
+export type {
+  BuildBuiltinToolsOptions,
+  MakaTool as BuiltinMakaTool,
+  MakaToolContext as BuiltinMakaToolContext,
+} from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
 export type { CuDispatchBackend, CuScreenshot, CuRunResult, CuOverlayHook, CuOverlayHookContext } from './computer-use-tools.js';
+export {
+  buildBackgroundBashTool,
+  buildForegroundBashTool,
+  buildLocalForegroundBashTool,
+  buildStopBackgroundTaskTool,
+  shapeTerminalResult,
+} from './shell-tools.js';
+export type {
+  BuildForegroundBashToolOptions,
+  ForegroundBashExecuteInput,
+  ForegroundBashResult,
+  ShellRunToolController,
+} from './shell-tools.js';
+export {
+  DEFAULT_BASH_YIELD_TIME_MS,
+  DEFAULT_BASH_TIMEOUT_MS,
+  DEFAULT_MAX_LIVE_SHELL_RUNS,
+  DEFAULT_SHELL_RUN_FLUSH_BYTES,
+  DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
+  MAX_BASH_YIELD_TIME_MS,
+  MAX_SHELL_RUN_TIMEOUT_MS,
+  MIN_BASH_YIELD_TIME_MS,
+  SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
+  SHELL_RUN_RESOURCE_PREFIX,
+  ShellRunProcessManager,
+  isShellRunResourceRef,
+  shellRunResourceRef,
+} from './shell-run-manager.js';
+export type {
+  ShellRunBashInput,
+  ShellRunProcessManagerInput,
+} from './shell-run-manager.js';
+export {
+  LOCAL_WORKSPACE_EXECUTOR_FACTS,
+  LocalWorkspaceExecutor,
+  createLocalWorkspaceExecutor,
+} from './workspace-executor.js';
+export type {
+  WorkspaceExecInput,
+  WorkspaceExecResult,
+  WorkspaceBashExecutor,
+  WorkspaceCommandExecutor,
+  WorkspaceEditExecutor,
+  WorkspaceExistingPathResolver,
+  WorkspaceExecutor,
+  WorkspaceExecutorFacts,
+  WorkspaceExecutorFactsProvider,
+  WorkspaceGlobExecutor,
+  WorkspaceGlobFilesExecutor,
+  WorkspaceGlobInput,
+  WorkspaceGlobResult,
+  WorkspaceGrepExecutor,
+  WorkspaceGrepFilesExecutor,
+  WorkspaceGrepInput,
+  WorkspaceGrepResult,
+  WorkspaceIsolationKind,
+  WorkspaceNetworkMode,
+  WorkspaceReadExecutor,
+  WorkspaceReadFileInput,
+  WorkspaceReadFileExecutor,
+  WorkspaceReadFileResult,
+  WorkspaceResolvePathInput,
+  WorkspaceResolvePathResult,
+  WorkspaceSecretMode,
+  WorkspaceSearchExecutor,
+  WorkspaceWritablePathResolver,
+  WorkspaceWriteExecutor,
+  WorkspaceWriteBackMode,
+  WorkspaceWriteFileInput,
+  WorkspaceWriteFileExecutor,
+  WorkspaceWriteFileResult,
+  WorkspaceWriteLockKeyInput,
+  WorkspaceWriteLockProvider,
+  WorkspaceWriteLockKeyResult,
+} from './workspace-executor.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
 export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
+export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
+export {
+  MACOS_SEATBELT_BASE_POLICY,
+  MACOS_SEATBELT_EXECUTABLE,
+  MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
+  MacosSeatbeltBackend,
+  SandboxManager,
+  buildSeatbeltPolicy,
+  createDefaultSandboxManager,
+  createSeatbeltExecArgs,
+  escapeSeatbeltRegex,
+} from './sandbox/index.js';
+export type {
+  BuildSeatbeltPolicyInput,
+  BuildSeatbeltPolicyResult,
+  CreateSeatbeltExecArgsInput,
+} from './sandbox/index.js';
+export type {
+  SandboxBackend,
+  SandboxCommand,
+  SandboxExecRequest,
+  SandboxPathContext,
+  SandboxPlatform,
+  SandboxSelectionInput,
+  SandboxSelectionReason,
+  SandboxSelectionResult,
+  SandboxTransformFailureReason,
+  SandboxTransformRequest,
+  SandboxTransformResult,
+  SandboxType,
+  SandboxablePreference,
+} from './sandbox/index.js';
 export {
   AGENT_CONTEXT_ISOLATED,
   AGENT_INVOCATION_FOREGROUND,
@@ -131,9 +246,14 @@ export {
   buildSubagentToolGroup,
 } from './subagent-tools.js';
 export {
+  LEGACY_TASK_CREATE_TOOL_NAME,
+  LEGACY_TASK_UPDATE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
   buildTaskLedgerTools,
+  isTaskLedgerToolsEnabled,
 } from './task-ledger-tools.js';
 export {
   deriveToolArtifactCandidates,
@@ -189,6 +309,23 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export type {
+  BuildDefaultContextBudgetPolicyOptions,
+  BuildManualCompactLookupPolicyOptions,
+} from './context-budget-policy.js';
+export {
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+} from './history-compact-artifacts.js';
+export type {
+  HistoryCompactArtifactStore,
+  PersistHistoryCompactBlocksDeps,
+} from './history-compact-artifacts.js';
+export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
+export type {
+  BuildLlmHistorySummarizerOptions,
+} from './history-compact-summarizer.js';
 export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
@@ -526,3 +663,21 @@ export {
 export type { ProjectGitInfo } from './system-prompt/project-context.js';
 export { buildSessionEnvironmentPromptFragment } from './system-prompt/session-environment-prompt.js';
 export type { SessionEnvironmentPromptInput } from './system-prompt/session-environment-prompt.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Unified Automation (Codex-style: heartbeat + cron, single tool).
+// ───────────────────────────────────────────────────────────────────────────
+export { AutomationManager, computeNextCronFire, computeJitter, matchesCronField } from './automation-state.js';
+export type {
+  AutomationDefinition,
+  AutomationKind,
+  AutomationSchedule,
+  AutomationStatus,
+  AutomationManagerDeps,
+} from './automation-state.js';
+export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
+export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
+export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
+export type { AutomationToolDeps } from './automation-tools.js';
+export { evaluateAutomationCanFire, HEARTBEAT_IDLE_STATUSES } from './automation-can-fire.js';
+export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './automation-can-fire.js';

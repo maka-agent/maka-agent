@@ -1,5 +1,6 @@
 export * from './session-store.js';
 export * from './agent-run-store.js';
+export * from './shell-run-store.js';
 export * from './connection-store.js';
 // Narrow public surface: only the typed store + the one-time migration. The
 // file lock and atomic writer stay internal so callers can't bypass the
@@ -19,3 +20,5 @@ export * from './telemetry-repo.js';
 export * from './artifact-store.js';
 export * from './plan-reminder-store.js';
 export * from './task-ledger-store.js';
+export * from './config-transfer.js';
+export * from './automation-store.js';

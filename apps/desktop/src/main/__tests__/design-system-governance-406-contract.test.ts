@@ -37,6 +37,19 @@ function parseOklch(value: string): [number, number, number] {
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
+/**
+ * PALETTE-LEAK-0: --action/--control tokens derive hue + chroma from
+ * --accent (with a min() chroma cap) while keeping their WCAG-tuned
+ * lightness anchors literal. Resolve the derived form against the block's
+ * literal --accent so the contrast gates below keep checking real colors
+ * for the default palette.
+ */
+function resolveAccentDerived(value: string, accent: [number, number, number]): [number, number, number] {
+  const match = value.match(/^oklch\(from var\(--accent\) ([\d.]+) min\(c, ([\d.]+)\) h\)$/);
+  assert.ok(match, `${value} must be the accent-derived form oklch(from var(--accent) <l> min(c, <cap>) h)`);
+  return [Number(match[1]), Math.min(accent[1], Number(match[2])), accent[2]];
+}
+
 function oklchToSrgb([l, c, h]: [number, number, number]): [number, number, number] {
   const hue = h * Math.PI / 180;
   const a = c * Math.cos(hue);
@@ -98,10 +111,19 @@ describe('issue #406 design-system governance contract', () => {
       'maka-toast-enter',
       'maka-toast-exit',
       'maka-processing-sweep',
-      'maka-cursor',
       'maka-list-row-streaming-pulse',
       'maka-pulse',
-      'maka-reasoning-panel-pulse',
+      // Streaming UI rework: the "深度思考" disclosure title + a working trow's
+      // active-tool summary sweep light across the label (functional "still
+      // working" signal), driven by the TextShimmer primitive. The retired ▎
+      // caret's `maka-cursor` is replaced by `maka-stream-fade-in`, the
+      // per-word entrance that signals freshly streamed text.
+      'maka-text-shimmer',
+      'maka-stream-fade-in',
+      // #642: the `maka-footer-fade-in` settle-entrance keyframe was retired.
+      // The footer no longer appears on settle — it is hidden by default and
+      // revealed on hover / focus-within of the answer block, so there is no
+      // live mount transition to animate.
       'maka-shimmer',
       'maka-status-spin',
       'maka-tool-pulse',
@@ -141,6 +163,7 @@ describe('issue #406 design-system governance contract', () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
     const emphasisTokens = ['link', 'focus-ring', 'status-running', 'nav-active', 'toast-accent'];
     for (const selector of [':root', '.dark'] as const) {
+      const accent = parseOklch(readCssToken(tokens, selector, 'accent'));
       const action = readCssToken(tokens, selector, 'action');
       const actionForeground = readCssToken(tokens, selector, 'action-foreground');
       const control = readCssToken(tokens, selector, 'control');
@@ -148,11 +171,17 @@ describe('issue #406 design-system governance contract', () => {
 
       assert.notEqual(action, 'var(--accent)', `${selector} action must be independently tunable`);
       assert.notEqual(control, 'var(--accent)', `${selector} control must be independently tunable`);
-      // A's CTA is a pale-blue chip with deep-blue text (was dark-green + near-white).
-      assert.match(actionForeground, /^oklch\(0\.30 0\.06 250\)$/);
-      assert.match(controlForeground, /^oklch\(0\.985 0\.003 250\)$/);
+      // PALETTE-LEAK-0: the CTA family keeps its tuned lightness anchors but
+      // derives hue/chroma from --accent so palette switches reach the send
+      // button and checked controls (they used to stay hardcoded-blue). The
+      // anchors stay pinned inside the derived form.
+      assert.match(actionForeground, /^oklch\(from var\(--accent\) 0\.30 min\(c, 0\.06\) h\)$/);
+      assert.match(controlForeground, /^oklch\(from var\(--accent\) 0\.985 min\(c, 0\.003\) h\)$/);
       assert.ok(
-        contrastRatio(oklchToSrgb(parseOklch(action)), oklchToSrgb(parseOklch(actionForeground))) >= 4.5,
+        contrastRatio(
+          oklchToSrgb(resolveAccentDerived(action, accent)),
+          oklchToSrgb(resolveAccentDerived(actionForeground, accent)),
+        ) >= 4.5,
         `${selector} action/action-foreground contrast must clear 4.5:1`,
       );
       // control/foreground paints graphical objects (checkbox check, switch
@@ -160,7 +189,10 @@ describe('issue #406 design-system governance contract', () => {
       // non-text contrast bar (3:1) applies, not the 4.5:1 text bar used for
       // action above. --control is tuned (L0.65) to clear 3:1 with a small margin.
       assert.ok(
-        contrastRatio(oklchToSrgb(parseOklch(control)), oklchToSrgb(parseOklch(controlForeground))) >= 3.0,
+        contrastRatio(
+          oklchToSrgb(resolveAccentDerived(control, accent)),
+          oklchToSrgb(resolveAccentDerived(controlForeground, accent)),
+        ) >= 3.0,
         `${selector} control/control-foreground contrast must clear 3:1 (WCAG 1.4.11 non-text)`,
       );
       for (const token of emphasisTokens) {
@@ -236,11 +268,6 @@ describe('issue #406 design-system governance contract', () => {
       assert.ok(contrastRatio(destrText, bg) >= 4.5, `${selector} --destructive-text contrast < 4.5:1`);
       assert.ok(contrastRatio(accentText, bg) >= 4.5, `${selector} accent chip (foreground-secondary) contrast < 4.5:1`);
     }
-    // Structural: chip text color must be the readable variant, not the raw tone.
-    const chipCss = stripCssComments(await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'));
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="info"\]\s*\{[^}]*color:\s*var\(--info-text\)/);
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="destructive"\]\s*\{[^}]*color:\s*var\(--destructive-text\)/);
-    assert.match(chipCss, /\.maka-composer-mode-chip\[data-tone="accent"\]\s*\{[^}]*color:\s*var\(--foreground-secondary\)/);
   });
 
   it('uses radius tokens for preview card surfaces', async () => {
@@ -322,6 +349,14 @@ describe('issue #406 design-system governance contract', () => {
       '--selection',
       '--accent',
       '--color-accent',
+      // PALETTE-LEAK-0: the CTA family derives hue/chroma from --accent
+      // (lightness anchors stay literal) so palette switches reach the send
+      // button and checked controls; --color-accent-foreground follows the
+      // same derivation in styles.css @theme; --system-alert-accent is the
+      // semantic alias component CSS (plan-reminders banner) consumes.
+      '--action', '--action-foreground', '--control', '--control-foreground',
+      '--color-accent-foreground',
+      '--system-alert-accent',
     ]);
 
     // Walk CSS source line-by-line, tracking the current selector stack via

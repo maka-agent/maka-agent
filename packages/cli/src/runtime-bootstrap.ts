@@ -3,25 +3,38 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   AiSdkBackend,
+  AutomationManager,
+  AutomationScheduler,
   BackendRegistry,
   PermissionEngine,
   SessionManager,
+  ShellRunProcessManager,
+  buildAutomationTool,
   buildBuiltinTools,
+  buildDefaultContextBudgetPolicy,
+  buildLlmHistorySummarizer,
   buildProviderOptions,
   buildSubscriptionModelFetch,
+  evaluateAutomationCanFire,
   getAIModel,
+  loadHistoryCompactBlocksFromArtifacts,
+  persistHistoryCompactBlocksToArtifacts,
+  type AutomationDefinition,
 } from '@maka/runtime';
 import { selectComputerUseBackend } from '@maka/computer-use';
 import {
   createAgentRunStore,
+  createArtifactStore,
+  createAutomationStore,
   createConnectionStore,
   createFileCredentialStore,
   createRuntimeEventStore,
   createSessionStore,
   createSettingsStore,
+  createShellRunStore,
 } from '@maka/storage';
-import type { ReadySessionTarget } from './connection-target.js';
-import { resolveDefaultSessionTarget } from './connection-target.js';
+import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
+import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
 
 export interface MakaCliRuntimeContext {
@@ -29,19 +42,25 @@ export interface MakaCliRuntimeContext {
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
+  /** Selectable models across every ready connection, for the `/model` picker. */
+  modelChoices: ModelChoice[];
   tools: ReturnType<typeof buildBuiltinTools>;
-  /**
-   * Release process-owned resources (e.g. the cua-driver child process when
-   * headless computer-use is enabled). Safe to call once, after the session
-   * ends. No-op when nothing needs disposal.
-   */
-  dispose: () => void;
+  automationManager: AutomationManager;
+  automationScheduler: AutomationScheduler;
+  close(): Promise<void>;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
   workspaceRoot: string;
   cwd: string;
   requestedModel?: string;
+  /**
+   * Optional cron executor. When provided, the Automation tool advertises the
+   * cron kind and cron fires spawn a fresh session + run via this callback
+   * (reviewer G1: a host derives cron support from the executor it passes in).
+   * Omitted by the default CLI (no multi-session surface) — heartbeat only.
+   */
+  automationCreateFreshRun?: (prompt: string, automationId: string) => Promise<import('@maka/runtime').AutomationFireResult>;
 }
 
 export interface GetOrCreateCliClaudeDeviceIdDeps {
@@ -60,6 +79,8 @@ export async function createMakaCliRuntimeContext(
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimeEventStore = createRuntimeEventStore(input.workspaceRoot);
+  const shellRunStore = createShellRunStore(input.workspaceRoot);
+  const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
@@ -68,9 +89,62 @@ export async function createMakaCliRuntimeContext(
     credentialStore,
     requestedModel: input.requestedModel,
   });
+  const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
-  const tools = buildBuiltinTools();
+  const shellRuns = new ShellRunProcessManager({
+    store: shellRunStore,
+    newId: randomUUID,
+    now: Date.now,
+  });
+  const tools = buildBuiltinTools({ shellRuns });
+  const automationManager = new AutomationManager({
+    generateId: () => randomUUID(),
+    now: () => Date.now(),
+  });
+  // Durable persistence is tied to cron capability. A cron-disabled host is
+  // heartbeat-only, and heartbeats are never durable — so it has NO durable
+  // automations of its own. Critically, the CLI shares the desktop's workspace
+  // (resolveMakaWorkspaceRoot reconstructs the Electron userData path), so its
+  // automations.json IS the desktop's. store.sync() is a full-file overwrite,
+  // so a heartbeat-only CLI writing its (empty) durable list would erase the
+  // desktop's crons, and loading+reconciling crons it can't run would mutate
+  // them. It therefore does neither — it leaves durable state entirely to the
+  // host that owns it. (Two cron-enabled hosts sharing a store is the separate,
+  // still-deferred leader-lock concern.)
+  const cronEnabled = input.automationCreateFreshRun !== undefined;
+  const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
+  // If the durable store fails to READ, we must not WRITE over it (a full sync
+  // would erase unread crons). Disable persistence loudly until restart.
+  let durableStoreReadable = true;
+  const syncAutomations = cronEnabled
+    ? (): void => {
+        if (!durableStoreReadable) return;
+        const durable = automationManager.listAll().filter(a => a.durable && (a.status === 'active' || a.status === 'paused'));
+        automationStore.sync(durable).catch(err => {
+          console.warn('[runtime-bootstrap] failed to persist durable automations:', err);
+        });
+      }
+    : (): void => { /* heartbeat-only host owns no durable automations; never overwrite the shared store */ };
+  const automationTool = buildAutomationTool({
+    automationManager,
+    onAutomationChange: syncAutomations,
+    cronEnabled,
+  });
+
+  const allTools = [...tools, automationTool];
+
+  // Load durable automations only on a host that can run them — a cron-disabled
+  // host must not adopt/reconcile crons it doesn't own (see above).
+  if (cronEnabled) {
+    try {
+      const saved = await automationStore.loadAll();
+      automationManager.registerAll(saved);
+    } catch (err) {
+      durableStoreReadable = false;
+      console.error('[runtime-bootstrap] durable automation store unreadable; persistence disabled to avoid data loss:', err);
+    }
+  }
 
   // Headless computer-use. The shared @maka/computer-use backend runs without an
   // overlay (the visual agent-cursor is Electron-only), so the CLI can drive the
@@ -83,13 +157,18 @@ export async function createMakaCliRuntimeContext(
   if (process.env.MAKA_CLI_COMPUTER_USE === '1') {
     const computerUse = selectComputerUseBackend();
     if (computerUse.tools.length > 0) {
-      tools.push(...computerUse.tools);
+      // Push onto allTools (the set handed to the backend). `tools` was already
+      // spread into allTools above, so pushing there would not reach dispatch.
+      allTools.push(...computerUse.tools);
       disposeComputerUse = () => computerUse.backend?.dispose?.();
     }
   }
 
   backends.register('ai-sdk', async (ctx) => {
-    const ready = await resolveDefaultSessionTarget({
+    // Resolve the session's own connection — not the global default — so a
+    // /model switch that rebinds the session to another provider actually runs
+    // on that provider (the desktop app resolves the backend the same way).
+    const ready = await resolveSessionTargetForSlug(ctx.header.llmConnectionSlug, {
       connectionStore,
       credentialStore,
       requestedModel: ctx.header.model,
@@ -115,13 +194,30 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools,
-      providerOptions: buildProviderOptions(ready.connection, ready.model),
+      tools: allTools,
+      providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
+      contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
+      loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
+      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+        summarize: buildLlmHistorySummarizer({
+          // Reuse the same connection/model the session already drives, so the
+          // summary stays consistent with the model that will consume it.
+          resolveModel: () =>
+            getAIModel({
+              connection: ready.connection,
+              apiKey: ready.apiKey,
+              modelId: ready.model,
+              fetch: modelFetch,
+            }),
+          maxOutputTokens: 4096,
+        }),
+      }),
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
       },
-      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd }),
+      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager }),
+      shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
     });
@@ -131,19 +227,115 @@ export async function createMakaCliRuntimeContext(
     store,
     runStore,
     runtimeEventStore,
+    shellRuns,
     backends,
     newId: randomUUID,
     now: Date.now,
   });
+  await runtime.recoverInterruptedSessions();
+
+  const automationScheduler = new AutomationScheduler({
+    automationManager,
+    canFire: (automation) => evaluateAutomationCanFire(automation, {
+      // The CLI has no incognito UI, but the setting is shared — honour it if set.
+      isIncognitoActive: async () => (await settingsStore.get()).privacy?.incognitoActive === true,
+      readSessionHeader: (sessionId) => store.readHeader(sessionId),
+      // Default idle set {active, done, waiting_for_user} — a session parked
+      // waiting for the user IS the wakeup's home scenario (#639): the
+      // heartbeat starts a turn in place of the user. It still never fires
+      // into a 'running' (mid-turn) session.
+      // Cron is disabled here (createFreshRun omitted); the scheduler ignores it.
+    }),
+    // Heartbeat: inject into the automation's session; resolve after the drain.
+    // The CLI has no multi-session UI, so cron (fresh-session) is disabled —
+    // createFreshRun is omitted, so the tool advertises heartbeat only.
+    injectTurn: async (sessionId, prompt, automationId) => {
+      const turnId = randomUUID();
+      const iterator = runtime.sendMessage(sessionId, {
+        turnId, text: prompt, origin: { kind: 'automation', automationId },
+      });
+      try {
+        for await (const _ of iterator) { /* drain */ }
+        return { runId: turnId, ok: true };
+      } catch (err) {
+        return { runId: turnId, ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+    createFreshRun: input.automationCreateFreshRun,
+    // unref() the tick timer: a background poll must never hold the CLI
+    // process open. Without this, any bootstrap consumer that exits without
+    // close() (a finished one-shot run, a test) hangs on the 5s tick forever.
+    setTimeout: (fn, ms) => {
+      const timer = setTimeout(fn, ms);
+      timer.unref?.();
+      return timer;
+    },
+    clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+    onStateChange: syncAutomations,
+  });
+
+  automationScheduler.start();
 
   return {
     workspaceRoot: input.workspaceRoot,
     cwd: input.cwd,
     runtime,
     target,
+    modelChoices,
     tools,
-    dispose: () => disposeComputerUse?.(),
+    automationManager,
+    automationScheduler,
+    close: async () => {
+      // Stop the automation scheduler's timer (else it keeps the process alive
+      // and ticks into a stopped session), then terminate background shell runs.
+      automationScheduler.dispose();
+      await shellRuns.terminateAll();
+      // Release the cua-driver child process when headless computer-use was on.
+      disposeComputerUse?.();
+    },
   };
+}
+
+// The CLI keeps turn-boundary history compaction but disables *in-turn* semantic
+// compaction by default. Firing mid-turn, it interrupts the live reply with a
+// `Context compacted: semanticCompact` notice for small savings, which reads as
+// noise in an interactive session. So we drop it from the default policy rather
+// than setting an env override, leaving the rest of the budget (history compact,
+// tool-result pruning) untouched.
+//
+// But only the *default* is off: if the user explicitly opts in via
+// `MAKA_CONTEXT_SEMANTIC_COMPACT` or `MAKA_CONTEXT_SEMANTIC_COMPACT_MODE`, honor
+// it so the path can still be exercised and debugged from the CLI.
+function buildCliContextBudgetPolicy(
+  connection: Parameters<typeof buildDefaultContextBudgetPolicy>[0],
+  modelId: string,
+  env: Record<string, string | undefined> = process.env,
+): ReturnType<typeof buildDefaultContextBudgetPolicy> {
+  const policy = buildDefaultContextBudgetPolicy(connection, {
+    name: 'cli-default-history-budget',
+    modelId,
+  });
+  if (!policy?.semanticCompact) return policy;
+  // buildDefaultContextBudgetPolicy already reflects env-off (policy would have
+  // no semanticCompact), so reaching here means default-on or an explicit opt-in.
+  // Keep it only for the explicit opt-in; otherwise apply the CLI default (off).
+  if (userOptedIntoSemanticCompact(env)) return policy;
+  const { semanticCompact: _omitted, ...rest } = policy;
+  return rest;
+}
+
+// True when the environment explicitly turns semantic compaction on — either a
+// truthy `MAKA_CONTEXT_SEMANTIC_COMPACT`, or a `MAKA_CONTEXT_SEMANTIC_COMPACT_MODE`
+// set to a mode other than `off`. Mirrors the spellings the runtime policy
+// accepts. An invalid boolean would already have thrown inside the default
+// policy build above, so this only classifies well-formed values.
+function userOptedIntoSemanticCompact(env: Record<string, string | undefined>): boolean {
+  const enable = env.MAKA_CONTEXT_SEMANTIC_COMPACT?.trim().toLowerCase();
+  if (enable === '1' || enable === 'true' || enable === 'yes' || enable === 'on' || enable === 'enabled') {
+    return true;
+  }
+  const mode = env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE?.trim().toLowerCase();
+  return mode === 'validate_only' || mode === 'prepare_step_dry_run' || mode === 'replace';
 }
 
 export async function getOrCreateCliClaudeDeviceId(

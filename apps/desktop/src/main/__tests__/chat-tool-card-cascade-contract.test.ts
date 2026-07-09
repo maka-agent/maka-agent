@@ -22,8 +22,10 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  *   2. the running status dot's `@keyframes maka-tool-pulse` ring frames — an
  *      animation can't be a leaf-literal and `getComputedStyle` reads a phase-
  *      dependent value, so the breath is pinned here + by the `chat.tsx` literal;
- *   3. native `<summary>` marker reset — re-keyed off the retired `.maka-tool`
- *      class onto the governed `[data-slot="tool"]` hook.
+ *   3. the `[data-slot="tool"]` base residue (opacity/transform/border-color
+ *      transition) — the native `<summary>` marker reset that used to live here is
+ *      gone after the disclosure → Collapsible migration (the trigger is a button
+ *      with no native marker).
  */
 describe('chat tool-card migration contract (#332 PR3b)', () => {
   it('retires the bespoke tool-card shell selectors (without touching error/preview/maka-code)', async () => {
@@ -43,7 +45,7 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       '.maka-tool-body',
       '.maka-tool-intent',
       '.maka-tool-count',
-      // the `<details>` card base + its status / open / summary selectors
+      // the retired native-disclosure card base + status/open selectors
       '.maka-tool {',
       '.maka-tool >',
       '.maka-tool[open]',
@@ -90,7 +92,7 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
     }
   });
 
-  it('keeps only the marker reset residue, re-keyed onto [data-slot="tool"]', async () => {
+  it('keeps the tool-card base residue on [data-slot="tool"]', async () => {
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
     assert.ok(
       !tokens.includes('.maka-tool {') && !tokens.includes('@starting-style {\n    .maka-tool'),
@@ -101,8 +103,6 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       '[data-slot="tool"] {',
       'transform: translateY(0)',
       'transition: border-color var(--duration-base) var(--ease-out-strong);',
-      '[data-slot="tool"] > summary::-webkit-details-marker { display: none; }',
-      "[data-slot=\"tool\"] > summary::marker { content: ''; }",
     ]) {
       assert.ok(
         tokens.includes(residue),
@@ -176,24 +176,50 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       );
     }
     // The open/collapsed divider — the one card surface that differs by state
-    // (the collapsed default has no bottom border). The computed-diff proves both
-    // states, but that harness is manual (no CI), so pin the `[open]>summary`
-    // literal here as the automated guard.
+    // (the collapsed default has no bottom border). Base UI puts
+    // `[data-panel-open]` directly on the Collapsible Trigger, so keep the border
+    // on the styled trigger/header part without adding a root group or crossing
+    // elements to read root state.
     assert.ok(
-      block.includes('[&[open]>summary]:[border-bottom:1px_solid_var(--border)]'),
-      'item must keep the `[open]>summary` divider literal (collapsed default has none)',
+      !rawSrc.includes('[open]>summary'),
+      'tool card source must not keep the old native details `[open]>summary` selector, even in comments',
+    );
+    assert.ok(
+      !rawSrc.includes('group-data-[open]/tool'),
+      'tool card source must not use a root group to read open state when Base UI Trigger exposes [data-panel-open]',
+    );
+    const itemStart = block.indexOf('item:');
+    const headerStart = block.indexOf('header:', itemStart);
+    const dotStart = block.indexOf('dot:', headerStart);
+    assert.ok(itemStart !== -1 && headerStart !== -1 && dotStart !== -1, 'toolVariants item/header/dot parts must stay parseable');
+    const itemBlock = block.slice(itemStart, headerStart);
+    const headerBlock = block.slice(headerStart, dotStart);
+    assert.ok(
+      !itemBlock.includes('group/tool'),
+      'tool card root must not add a named group for open state when Base UI Trigger exposes [data-panel-open]',
+    );
+    assert.ok(
+      !itemBlock.includes('border-bottom'),
+      'tool card root must not own the open-state divider; put the border on the trigger/header part',
+    );
+    assert.ok(
+      headerBlock.includes('data-[panel-open]:[border-bottom:1px_solid_var(--border)]'),
+      'tool card header must add the divider from Base UI Trigger [data-panel-open]',
     );
     // Anti-drift: pin the distinctive literals and ban the semantic-scale
     // forms they would be swapped for. Radius uses the `--radius-surface`
     // token per #406 gap 4. Spacing now uses the Tailwind scale (gap-2.5)
     // per #430 PR3 spacing converge — arbitrary px literals are banned.
-    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[12.5px]', 'gap-2.5', 'min-w-[22px]']) {
+    // Typography (text-*) converged onto the token scale by #546 PR0, so it
+    // is no longer pinned as a literal and text-xs/sm are allowed; only radius /
+    // spacing literals stay pinned and radius scale drift stays banned.
+    for (const literal of ['rounded-[var(--radius-surface)]', 'gap-2.5', 'min-w-[22px]']) {
       assert.ok(block.includes(literal), `toolVariants must keep the literal "${literal}"`);
     }
-    for (const scale of ['rounded-lg', 'rounded-xl', 'text-sm', 'text-xs']) {
+    for (const scale of ['rounded-lg', 'rounded-xl']) {
       assert.ok(
         !block.includes(scale),
-        `toolVariants must stay literal, not adopt the semantic-scale "${scale}"`,
+        `toolVariants must stay literal on radius, not adopt the semantic-scale "${scale}"`,
       );
     }
 

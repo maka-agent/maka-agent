@@ -10,8 +10,9 @@ import type {
   StoredMessage,
   ThemePalette,
   ThemePreference,
+  ThinkingLevel,
 } from '@maka/core';
-import { generalizedErrorMessageChinese, hasSettledInitialOnboarding } from '@maka/core';
+import { generalizedErrorMessageChinese, hasSettledInitialOnboarding, thinkingVariantsForModel, attachmentKindFromMimeType, guessMimeFromName } from '@maka/core';
 import {
   type ChatHeaderAlert,
   type ChatModelChoice,
@@ -22,6 +23,8 @@ import {
   MakaUriContext,
   type NavSelection,
   SessionListPanel,
+  type ManagedSkillSourceEntry,
+  type SessionViewMode,
   type SkillEntry,
   type TurnFooterActionMeta,
   useToast,
@@ -51,6 +54,7 @@ function BrowserPanelFallback() {
 }
 import { deriveChatHeaderAlert } from './chat-header-alert';
 import { deriveStaleSessionIds } from './stale-sessions';
+import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
   normalizeSessionSummaryForDisplay,
@@ -87,12 +91,12 @@ import { createAppShellProjectActions, type RendererAppInfo } from './app-shell-
 import { createAppShellSkillActions } from './app-shell-skill-actions';
 import { createAppShellSessionEventHandlers } from './app-shell-session-events';
 import { createAppShellVisualSmokeActions } from './app-shell-visual-smoke';
-import { createAppShellChatActions } from './app-shell-chat-actions';
+import { createAppShellChatActions, type PendingAttachment } from './app-shell-chat-actions';
+import { appendPending, clearPending, removePending, selectPending, type PendingByKey } from './app-shell-pending-attachments';
 import { createAppShellTurnActions } from './app-shell-turn-actions';
 import { createAppShellLayoutActions } from './app-shell-layout-actions';
 import { createAppShellQuickChatActions } from './app-shell-quick-chat-actions';
 import { createAppShellDailyReviewActions } from './app-shell-daily-review-actions';
-import { createAppShellImportActions } from './app-shell-import-actions';
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
@@ -105,11 +109,51 @@ import {
   useAppShellRefSync,
   useSessionEventHealthPolling,
 } from './app-shell-effects';
+import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+
+function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].slug !== b[i].slug || a[i].updatedAt !== b[i].updatedAt) return false;
+  }
+  return true;
+}
 
 type ComposerImportOwner = {
   sessionId: string | undefined;
   navSection: NavSelection['section'];
 };
+
+function approvalToPending(file: { approvalId: string; name: string; mimeType?: string; size: number }): PendingAttachment {
+  const mimeType = file.mimeType ?? guessMimeFromName(file.name);
+  return {
+    displayName: file.name,
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType, file.name),
+    size: file.size,
+    source: { type: 'approval', approvalId: file.approvalId, name: file.name },
+  };
+}
+
+function fileToPending(file: File): PendingAttachment {
+  const mimeType = file.type || undefined;
+  return {
+    displayName: file.name,
+    mimeType,
+    kind: attachmentKindFromMimeType(mimeType ?? '', file.name),
+    size: file.size,
+    source: { type: 'file', file },
+  };
+}
+
+/**
+ * Grace period before the committed-history fallback force-settles a draining
+ * assistant stream slot. Comfortably past the smoother's completion drain
+ * budget (600ms, smooth-stream.ts DEFAULT_COMPLETE_FLUSH_BUDGET_MS) so the
+ * primary `onStreamingSettled` signal always wins in the healthy path and the
+ * visible tail is never cut mid-typewriter.
+ */
+const SETTLE_FALLBACK_GRACE_MS = 1000;
 
 export function AppShell({
   initialOnboardingSnapshot = null,
@@ -141,6 +185,9 @@ export function AppShell({
     });
   }
   const [activeId, setActiveIdState] = useState<string | undefined>();
+  const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
+  const attachmentDraftKey = activeId ?? 'new-session';
+  const pendingAttachments = selectPending(pendingByKey, attachmentDraftKey);
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
@@ -153,6 +200,7 @@ export function AppShell({
   const {
     state: sessionUiState,
     streamingBySessionRef,
+    thinkingBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
@@ -202,8 +250,25 @@ export function AppShell({
   // which mode a session is created with.
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
-  const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(null);
+  // Persisted composer defaults seed the empty-state model, project path, and
+  // recent workspace history so the home view is populated before the async
+  // `app:info` round-trip completes on mount.
+  const persistedComposerDefaults = loadComposerDefaults();
+  const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(
+    persistedComposerDefaults?.model ?? null,
+  );
+  const [appInfo, setAppInfo] = useState<RendererAppInfo | null>(
+    persistedComposerDefaults?.projectPath
+      ? { projectPath: persistedComposerDefaults.projectPath, projectGit: { isGitRepo: false } }
+      : null,
+  );
+  const [branchList, setBranchList] = useState<{ branches: string[]; current?: string } | null>(null);
+  const [branchPending, setBranchPending] = useState(false);
+  const [recentProjectPaths, setRecentProjectPaths] = useState<string[]>(
+    persistedComposerDefaults?.recentProjectPaths ?? [],
+  );
   const [projectPickerPending, setProjectPickerPending] = useState(false);
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
@@ -211,11 +276,15 @@ export function AppShell({
   // modal; result selection below can also hand ChatView a turn anchor
   // so the hit is visible after session navigation.
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  // Funnel bridge: query handed from the palette's 查看全部结果 row into the
+  // search modal. Topbar opens reset it so a plain open starts blank.
+  const [searchModalInitialQuery, setSearchModalInitialQuery] = useState('');
   const [searchScrollTarget, setSearchScrollTarget] = useState<{
     sessionId: string;
     turnId: string;
     nonce: number;
   } | null>(null);
+  const [viewMode, setViewMode] = useState<SessionViewMode>('status');
   function closeSearchModal(options?: { restoreFocus?: boolean }) {
     setSearchModalOpen(false);
     if (options?.restoreFocus === false) return;
@@ -262,10 +331,13 @@ export function AppShell({
   // Running → Waiting → Blocked → Active → Review → Done → Archived);
   // `aborted` is dropped. Pinned (flagged) sessions float to the top
   // in their own group, preserving the PR48 pin-floats behavior.
+  const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   const sessionStatusGroups = useMemo(
-    () => deriveSessionStatusGroups(sessions, { pinFirst: true }),
-    [sessions],
+    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true }),
+    [visibleSessions],
   );
+  const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
+  const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
   const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
   const hasInFlightLiveTools = useMemo(() => hasInFlightToolActivity(liveTools), [liveTools]);
   const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
@@ -297,8 +369,7 @@ export function AppShell({
   // Null = follow the default connection; a pick overrides it (sticky until
   // changed) and is forwarded to sessions.create in `send()`. Renderer-only —
   // it never mutates the persisted Settings · 模型 default.
-  const [pendingNewChatModel, setPendingNewChatModel] = useState<{ llmConnectionSlug: string; model: string } | null>(null);
-  const [pendingNewChatPermissionMode, setPendingNewChatPermissionMode] = useState<PermissionMode | null>(null);
+  const [pendingNewChatThinkingLevel, setPendingNewChatThinkingLevel] = useState<ThinkingLevel | null>(null);
   // A pick only stays in effect while it is still an offered choice. If the user
   // later disables/removes that connection or model, fall back to the default so
   // the home chip never shows — nor sends — a model that no longer exists.
@@ -322,6 +393,30 @@ export function AppShell({
   const activeModelLabel = activeSession?.backend === 'fake'
     ? undefined
     : chatModelChoiceLabel(chatModelChoices, activeSession?.llmConnectionSlug, activeModel);
+  const activeThinkingLevels = useMemo(
+    () => (activeConnection && activeModel) ? thinkingVariantsForModel(activeConnection.providerType, activeModel) : [],
+    [activeConnection, activeModel],
+  );
+  // Only surface a stored level when the current model still supports it;
+  // if the model changed (setModel clears it) or the catalog reconfigured so
+  // the level is no longer offered, the chip falls back to 默认 instead of
+  // advertising a level the runtime would silently drop. The runtime's
+  // `buildProviderOptions` is the wire-level guard; this keeps the UI honest.
+  const activeThinkingLevel =
+    activeSession?.thinkingLevel && activeThinkingLevels.includes(activeSession.thinkingLevel)
+      ? activeSession.thinkingLevel
+      : undefined;
+  const newChatThinkingLevels = useMemo(
+    () => {
+      if (!newChatModel) return [];
+      const c = connections.find((entry) => entry.slug === newChatModel.llmConnectionSlug);
+      return c ? thinkingVariantsForModel(c.providerType, newChatModel.model) : [];
+    },
+    [newChatModel, connections],
+  );
+  const newChatThinkingLevel = pendingNewChatThinkingLevel && newChatThinkingLevels.includes(pendingNewChatThinkingLevel)
+    ? pendingNewChatThinkingLevel
+    : undefined;
   const newChatModelLabel = chatModelChoiceLabel(chatModelChoices, newChatModel?.llmConnectionSlug, newChatModel?.model);
 
   // Surface a credential-lifecycle alert directly in the chat header when
@@ -479,6 +574,7 @@ export function AppShell({
   const {
     setPermissionMode,
     setSessionModel,
+    setSessionThinkingLevel,
   } = createAppShellSessionSettingsActions({
     activeIdRef,
     connections,
@@ -486,8 +582,8 @@ export function AppShell({
     pendingSessionModelChangesRef,
     refreshSessions,
     sessionsRef,
+    setDefaultPermissionMode,
     setPendingPermissionModeBySession,
-    setPendingNewChatPermissionMode,
     setPendingSessionModelBySession,
     setSessions,
     toastApi,
@@ -567,6 +663,10 @@ export function AppShell({
   const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
     openSessionInChatRef.current(sessionId, turnId);
   }, []);
+  const paletteOnOpenSearchModal = useCallback((query: string) => {
+    setSearchModalInitialQuery(query);
+    setSearchModalOpen(true);
+  }, []);
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
@@ -626,12 +726,10 @@ export function AppShell({
     model: 'fake-model',
     // Transient placeholder while the real SessionSummary loads --
     // matches the configured default so the composer doesn't flash a
-    // hardcoded value before the real session data (or its own
-    // pendingNewChatPermissionMode fallback) supersedes it.
+    // hardcoded value before the real session data settles.
     permissionMode: defaultPermissionMode,
   } : undefined);
   const activeMessageLoading = Boolean(activeId && messageLoadPending);
-  const visibleSessions = useMemo(() => filterSessions(sessions, navSelection), [sessions, navSelection]);
   // PR110c: OnboardingState is now the single source of truth for
   // first-run UI. The renderer never re-derives provider readiness;
   // `useOnboardingSnapshot()` pulls the derived state from the main
@@ -757,25 +855,39 @@ export function AppShell({
   const {
     refreshAppInfo,
     selectProjectDirectory,
+    selectRecentProjectDirectory,
     openProjectFolder,
     openWorkspaceFolder,
     openSkillsFolder,
+    listGitBranches,
+    checkoutGitBranch,
   } = createAppShellProjectActions({
     projectPickerPendingRef,
     projectPickerRequestRef,
     rendererMountedRef,
     setAppInfo,
     setProjectPickerPending,
+    setBranchPending,
+    setBranchList,
+    setRecentProjectPaths,
+    recentProjectPaths,
     toastApi,
   });
 
   const {
     refreshSkills,
+    refreshManagedSkillSources,
     createSkillTemplate,
+    importManagedSkillSource,
+    installManagedSkill,
+    previewManagedSkillUpdate,
+    updateManagedSkill,
+    setSkillEnabled,
     openSkill,
   } = createAppShellSkillActions({
     isSkillsSurfaceActive,
     setSkills,
+    setManagedSkillSources,
     toastApi,
   });
 
@@ -816,9 +928,8 @@ export function AppShell({
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
-    pendingNewChatPermissionMode,
-    setPendingNewChatPermissionMode,
     validPendingNewChatModel,
+    pendingNewChatThinkingLevel: newChatThinkingLevel ?? null,
   });
 
   const { handleTurnFooterAction } = createAppShellTurnActions({
@@ -834,17 +945,35 @@ export function AppShell({
     upsertSessionSummary,
   });
 
-  const {
-    importDroppedTextFilesIntoComposer,
-    importDroppedTextFilesPrompt,
-    importFolderOutlineIntoComposer,
-    importTextFileIntoComposer,
-  } = createAppShellImportActions({
-    captureComposerImportOwner,
-    composerRef,
-    isComposerImportOwnerActive,
-    toastApi,
-  });
+  async function pickAttachments(): Promise<void> {
+    try {
+      const result = await window.maka.attachments.pickFiles();
+      if (!result.ok) return;
+      setPendingByKey((map) => appendPending(map, attachmentDraftKey, result.files.map(approvalToPending)));
+    } catch (error) {
+      toastApi.error('添加附件失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
+    }
+  }
+
+  async function attachFilePaths(files: File[]): Promise<void> {
+    if (files.length === 0) return;
+    setPendingByKey((map) => appendPending(map, attachmentDraftKey, files.map(fileToPending)));
+  }
+
+  function removeAttachment(index: number): void {
+    setPendingByKey((map) => removePending(map, attachmentDraftKey, index));
+  }
+
+  async function sendWithAttachments(text: string): Promise<boolean | void> {
+    if (text.trim() === '/compact') {
+      if (activeId) await window.maka.sessions.compact(activeId);
+      return true;
+    }
+    const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
+    const ok = await send(text, pending);
+    if (ok !== false) setPendingByKey((map) => clearPending(map, attachmentDraftKey));
+    return ok;
+  }
 
   const stop = createAppShellStopAction({
     activeIdRef,
@@ -866,14 +995,36 @@ export function AppShell({
     setThinkingTruncatedBySession,
     showModelSetupToast,
     streamingBySessionRef,
+    thinkingBySessionRef,
     toastApi,
+    notifyRunEnded: ({ kind, sessionId, body }) => {
+      const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
+      // Best-effort: swallow any main-side failure so a missed banner
+      // never surfaces as an unhandled promise rejection.
+      void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
+    },
   });
 
+  // Streaming-settle handoff, FALLBACK path only. The primary settle signal
+  // is the bubble's own `onStreamingSettled` (ChatView below): it fires once
+  // the smoother has DISPLAYED the final text (catchingUp === false), so the
+  // user watches the tail type out before the live section swaps for the
+  // committed turn. This effect used to settle immediately when the committed
+  // assistant message appeared in `messages` — which lands mid-drain and cut
+  // the visible tail, snapping the last characters in with the swap. It now
+  // waits out a grace period comfortably past the smoother's completion drain
+  // budget (600ms): in the normal path `onStreamingSettled` clears the slot
+  // first and the delayed settle no-ops on its phase guard. The fallback stays
+  // because a stuck slot would otherwise hide the committed answer forever
+  // (`streamingMessageId` suppresses it while draining).
   useEffect(() => {
     if (!activeId || !activeStreamingComplete || !activeStreamingMessageId) return;
     const committedAssistantArrived = messages.some((message) => message.type === 'assistant' && message.id === activeStreamingMessageId);
     if (!committedAssistantArrived) return;
-    void settleAssistantStreaming(activeId, activeStreamingMessageId);
+    const timer = window.setTimeout(() => {
+      void settleAssistantStreaming(activeId, activeStreamingMessageId);
+    }, SETTLE_FALLBACK_GRACE_MS);
+    return () => window.clearTimeout(timer);
   }, [activeId, activeStreamingComplete, activeStreamingMessageId, messages, settleAssistantStreaming]);
 
   const hasModalOpen = Boolean(activePermission) || helpOpen || paletteOpen || searchModalOpen;
@@ -897,6 +1048,7 @@ export function AppShell({
     bootstrapSessions,
     clearPendingTurnActionsForSession,
     clearSessionRendererState,
+    createSession,
     handleConnectionEvent,
     openSettings,
     pendingPermissionModeChangesRef,
@@ -912,6 +1064,7 @@ export function AppShell({
     refreshPlanReminders,
     refreshShellSettings,
     refreshSkills,
+    refreshManagedSkillSources,
     refreshSessions,
     rendererMountedRef,
     setActiveId,
@@ -1033,7 +1186,7 @@ export function AppShell({
         window.maka.connections.list(),
         window.maka.connections.getDefault(),
       ]);
-      setConnections(next);
+      setConnections((prev) => connectionsEqual(prev, next) ? prev : next);
       setDefaultConnection(nextDefault);
     } catch (error) {
       toastApi.error('刷新模型连接失败', generalizedErrorMessageChinese(error, '模型连接暂时无法刷新，请稍后重试。'));
@@ -1046,6 +1199,9 @@ export function AppShell({
     setSearchScrollTarget(null);
     setMessageLoadPending(false);
     setMessages([]);
+    // New-task affordances reset to the empty-state composer; move focus
+    // there so the user can start typing immediately.
+    window.requestAnimationFrame(() => composerRef.current?.focus());
   }
 
   function openPlanReminderForm() {
@@ -1220,7 +1376,10 @@ export function AppShell({
       >
         <AppShellTopbarActions
           sidebarCollapsed={sessionListCollapsed}
-          onOpenSearchModal={() => setSearchModalOpen(true)}
+          onOpenSearchModal={() => {
+            setSearchModalInitialQuery('');
+            setSearchModalOpen(true);
+          }}
           onCollapseSidebar={() => setSessionListCollapsed(true)}
           onExpandSidebar={() => setSessionListCollapsed(false)}
           onCreateSession={createSession}
@@ -1237,7 +1396,9 @@ export function AppShell({
             planReminders={planReminders}
             streamingSessionIds={streamingSessionIds}
             staleSessionIds={staleSessionIds}
-            statusGroups={sessionStatusGroups}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            statusGroups={sessionListGroups}
             onSelect={setNavSelection}
             onSelectSession={sessionListSelectSession}
             onOpenSettings={openSettings}
@@ -1325,10 +1486,17 @@ export function AppShell({
                 turnLineageBadgesByTurn={turnLineageBadgesByTurn}
                 onLineageBadgeClick={handleLineageBadgeClick}
                 skills={skills}
+                managedSkillSources={managedSkillSources}
                 onRefreshSkills={() => refreshSkills()}
+                onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
                 onOpenSkillsFolder={() => openSkillsFolder()}
+                onImportManagedSkillSource={() => importManagedSkillSource()}
+                onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
+                onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
+                onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}
                 planReminders={planReminders}
                 onRefreshPlanReminders={() => refreshPlanReminders({ shouldShowError: isAutomationsSurfaceActive })}
                 onCreatePlanReminder={(input) => createPlanReminder(input)}
@@ -1372,7 +1540,6 @@ export function AppShell({
                             toastApi.error('跳过失败', generalizedErrorMessageChinese(error, '请稍后重试。'));
                           }
                         }}
-                        onImportDroppedTextFiles={importDroppedTextFilesPrompt}
                       />
                       {onboardingState.kind === 'ready_empty' && (
                         <FirstRunChecklist
@@ -1406,12 +1573,13 @@ export function AppShell({
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
                 streaming={activeStreamingLive}
-                onSend={send}
+                onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
-                onImportTextFile={importTextFileIntoComposer}
-                onImportDroppedTextFiles={importDroppedTextFilesIntoComposer}
-                onImportFolderOutline={importFolderOutlineIntoComposer}
+                pendingAttachments={pendingAttachments}
+                onRemoveAttachment={removeAttachment}
+                onPickAttachments={pickAttachments}
+                onAttachFilePaths={attachFilePaths}
                 modelLabel={
                   activeModelLabel
                   ?? newChatModelLabel
@@ -1425,18 +1593,46 @@ export function AppShell({
                 renderProviderMark={(type) => <ProviderBrandMark type={type} />}
                 modelChangePending={activeId ? pendingSessionModelBySession[activeId] === true : false}
                 onModelChange={(input) => setSessionModel(input)}
+                activeThinkingLevels={activeThinkingLevels}
+                activeThinkingLevel={activeThinkingLevel}
+                onThinkingLevelChange={(level) => setSessionThinkingLevel(level)}
                 newChatModel={newChatModel}
-                onPickNewChatModel={(input) => setPendingNewChatModel(input)}
+                onPickNewChatModel={(input) => {
+                  setPendingNewChatModel(input);
+                  saveComposerDefaults({ model: input });
+                }}
+                newChatThinkingLevels={newChatThinkingLevels}
+                newChatThinkingLevel={newChatThinkingLevel}
+                onNewChatThinkingLevelChange={(level) => setPendingNewChatThinkingLevel(level ?? null)}
                 onOpenModelSettings={() => openSettingsSection('models')}
                 workspacePicker={{
                   label: appInfo ? basenameFromPath(appInfo.projectPath) : undefined,
                   branch: appInfo?.projectGit.branch,
                   pending: projectPickerPending,
+                  recentWorkspaces: recentProjectPaths,
                   onOpen: () => {
                     void selectProjectDirectory();
                   },
+                  onSelect: (path: string) => {
+                    void selectRecentProjectDirectory(path);
+                  },
                 }}
-                permissionMode={activeSessionForView?.permissionMode ?? pendingNewChatPermissionMode ?? defaultPermissionMode}
+                branchPicker={
+                  appInfo?.projectGit.isGitRepo
+                    ? {
+                        branch: appInfo.projectGit.branch ?? null,
+                        pending: branchPending,
+                        branches: branchList?.branches ?? [],
+                        onOpen: () => {
+                          void listGitBranches();
+                        },
+                        onSelect: (branch: string) => {
+                          void checkoutGitBranch(branch);
+                        },
+                      }
+                    : undefined
+                }
+                permissionMode={defaultPermissionMode}
                 permissionModePending={activeId ? pendingPermissionModeBySession[activeId] === true : false}
                 permissionModeDisabledReason={
                   activeId && pendingPermissionModeBySession[activeId] === true
@@ -1489,12 +1685,14 @@ export function AppShell({
         helpOpen={helpOpen}
         closeHelp={closeHelp}
         searchModalOpen={searchModalOpen}
+        searchModalInitialQuery={searchModalInitialQuery}
         closeSearchModal={closeSearchModal}
         searchModalDeps={searchModalDeps}
         searchModalOnNavigate={searchModalOnNavigate}
         paletteOpen={paletteOpen}
         closePalette={closePalette}
         paletteOnSelectSession={paletteOnSelectSession}
+        paletteOnOpenSearchModal={paletteOnOpenSearchModal}
         commandOptions={commandOptions}
       />
     </div>

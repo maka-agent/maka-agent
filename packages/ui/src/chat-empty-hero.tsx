@@ -144,7 +144,7 @@ export function EmptyChatHero(props: { onPromptSuggestion?(prompt: string): void
       <div className="maka-hero-visual" aria-hidden="true">
         <span className="maka-hero-bubble maka-hero-bubble-primary">{copy.primaryBubble}</span>
         <span className="maka-hero-avatar maka-hero-avatar-maka">
-          <Sparkles size={18} strokeWidth={1.8} />
+          <Sparkles size={18} />
         </span>
         <span className="maka-hero-avatar maka-hero-avatar-user">
           {label ? label.slice(0, 1).toUpperCase() : 'M'}
@@ -166,7 +166,7 @@ export function DeepResearchEmptyHero(props: { onPromptSuggestion?(prompt: strin
     <section className="maka-hero maka-hero-empty-chat maka-hero-deep-research" aria-label="深度研究空会话">
       <header>
         <span className="maka-hero-eyebrow">
-          <Sparkles size={12} strokeWidth={2} aria-hidden="true" />
+          <Sparkles size={12} aria-hidden="true" />
           <span>深度研究 · 只读探索</span>
         </span>
         <h1>先把项目读透，再决定怎么改。</h1>

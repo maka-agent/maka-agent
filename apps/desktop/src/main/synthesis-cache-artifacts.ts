@@ -106,13 +106,14 @@ export async function loadSynthesisCacheBlocksFromArtifacts(
       incrementSynthesisCacheCount(skippedReasonCounts, 'invalid_schema_version');
       continue;
     }
-    const estimatedTokens = parsed.estimatedTokens ?? estimateTokens(read.text.length, 4);
+    const block = parsed as SynthesisCacheBlock;
+    const estimatedTokens = block.estimatedTokens ?? estimateTokens(read.text.length, 4);
     if (estimatedTokens > maxEstimatedTokens) {
       incrementSynthesisCacheCount(skippedReasonCounts, 'max_total_tokens');
       continue;
     }
     blocks.push({
-      ...parsed,
+      ...block,
       estimatedTokens,
     });
   }

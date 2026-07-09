@@ -43,7 +43,11 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
   for (const tid of turnOrder) {
     const turnMessages = byTurn.get(tid) ?? [];
     const user = turnMessages.find((m) => m.type === 'user');
-    const assistant = turnMessages.find((m) => m.type === 'assistant');
+    // A turn holds one assistant message per model step; join their text in step
+    // order so the export carries the whole answer, not just the first step.
+    const assistantText = turnMessages
+      .flatMap((m) => (m.type === 'assistant' && m.text.length > 0 ? [m.text] : []))
+      .join('\n\n');
     const toolCalls = turnMessages.filter((m) => m.type === 'tool_call');
 
     if (user) {
@@ -67,13 +71,13 @@ export function renderConversationMarkdown(sessionName: string, messages: Stored
       lines.push('');
     }
 
-    if (assistant) {
+    if (assistantText.length > 0) {
       lines.push('## Maka');
       lines.push('');
       // Defensive: backend redacts at write-time, but the export landing
       // in the user's clipboard is a high-risk surface — paste destinations
       // are external. Second-layer redaction is cheap insurance.
-      lines.push(redactSecrets((assistant as { text: string }).text));
+      lines.push(redactSecrets(assistantText));
       lines.push('');
     }
   }

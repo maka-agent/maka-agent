@@ -41,7 +41,7 @@
  *    its onClick handler. The scan also requires every discovered button to
  *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
  *    can't bypass the value lock; the whitelist pins the exact value so a
- *    refactor can't shrink a real lock to the wrong value. Chat summary-chip / stream-count variant locks live in
+ *    refactor can't shrink a real lock to the wrong value. Chat stream-count variant locks live in
  *    the variant definition, so they're pinned by their literal declaration
  *    substrings.
  */
@@ -88,14 +88,14 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void reloadDraftFromDisk()}', minW: '4rem', note: '载入中… ↔ 重新载入 (settingsActionRow)' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onCopyReference?.(entry)}', minW: '4rem', note: '复制中… ↔ 复制引用 (记忆条目行)' },
   { file: 'apps/desktop/src/renderer/settings/memory-settings-page.tsx', onClick: 'onClick={() => void props.onStatusChange?.(entry', minW: '5rem', note: '归档到草稿/恢复到草稿 ↔ 归档/恢复 (draftDirty 5字最宽)' },
-  // open-gateway-settings-page.tsx — settingsActionRow copy buttons
+  // open-gateway-settings-page.tsx — 复制地址 + per-endpoint-row 复制 curl buttons (round 11)
   { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyBaseUrl()}', minW: '4rem', note: '复制中… ↔ 复制地址' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOverviewCurl()}', minW: '8rem', note: '复制总览 curl' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOpenApiCurl()}', minW: '9rem', note: '复制接口说明 curl' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copySessionStateCurl()}', minW: '9.5rem', note: '复制单会话状态 curl' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyEventStreamCurl()}', minW: '8.5rem', note: '复制事件流 curl' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentEventsCurl()}', minW: '9rem', note: '复制最近事件 curl' },
-  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentRequestsCurl()}', minW: '9rem', note: '复制最近请求 curl' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOverviewCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (总览)' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyOpenApiCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (接口说明)' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copySessionStateCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (单会话状态)' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyEventStreamCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (事件流)' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentEventsCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (最近事件)' },
+  { file: 'apps/desktop/src/renderer/settings/open-gateway-settings-page.tsx', onClick: 'onClick={() => void copyRecentRequestsCurl()}', minW: '5rem', note: '复制中… ↔ 复制 curl (最近请求)' },
   // daily-review-panel.tsx — quick-run + 复制/保存/粘到输入框 actions
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "triggerManualRun('daily')", minW: '6rem', note: '生成中… ↔ 生成每日回顾' },
   { file: 'packages/ui/src/daily-review-panel.tsx', onClick: "triggerManualRun('deep')", minW: '6rem', note: '生成中… ↔ 生成深度分析' },
@@ -108,12 +108,10 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];
 
-// Chat summary-chip / stream-count variant locks: the min-w-[Nrem]
+// Chat stream-count variant lock: the min-w-[Nrem]
 // declaration lives in the variant definition (chat.tsx), not at the call
 // site, so we pin the literal declaration substrings.
 const CHAT_VARIANT_LOCKS: Array<{ file: string; substr: string; note: string }> = [
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=tools]:min-w-[5rem]', note: 'summary-chip tools count (N 个工具)' },
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'data-[kind=duration]:min-w-[4rem]', note: 'summary-chip duration (进行中 ↔ 时长)' },
   { file: 'packages/ui/src/primitives/chat.tsx', substr: 'min-w-[5rem] [font-variant-numeric:tabular-nums]', note: 'streamVariants count (stdout/stderr/已脱敏 N)' },
 ];
 
@@ -175,7 +173,7 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
     }
   });
 
-  it('chat summary-chip / stream-count variants keep their min-w declarations', async () => {
+  it('chat stream-count variants keep their min-w declarations', async () => {
     const byFile = new Map<string, typeof CHAT_VARIANT_LOCKS>();
     for (const l of CHAT_VARIANT_LOCKS) {
       const arr = byFile.get(l.file) ?? [];

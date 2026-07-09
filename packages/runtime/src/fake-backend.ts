@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { BackendKind, SessionEvent, SessionHeader, StoredMessage } from '@maka/core';
-import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, BackendSendInput, PermissionDecision } from '@maka/core/backend-types';
 import type { SessionStore } from './session-manager.js';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -24,7 +23,9 @@ export class FakeBackend implements AgentBackend {
     this.stopped = false;
     const turnId = input.turnId;
     const messageId = randomUUID();
-    const text = `Fake backend received: ${input.text}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
+    const attNames = (input.attachments ?? []).map((a) => a.name);
+    const attLine = attNames.length > 0 ? `\nAttachments received: ${attNames.join(', ')}` : '';
+    const text = `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
     const chunks = text.match(/.{1,9}/g) ?? [text];
 
     for (const chunk of chunks) {

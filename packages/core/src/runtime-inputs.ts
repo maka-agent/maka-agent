@@ -7,6 +7,7 @@
 import type { AttachmentRef } from './events.js';
 import type { BackendKind, SessionBlockedReason, SessionStatus } from './session.js';
 import type { PermissionMode } from './permission.js';
+import type { ThinkingLevel } from './model-thinking.js';
 
 export interface CreateSessionInput {
   /** Absolute path to the session's working dir (project root). */
@@ -17,6 +18,8 @@ export interface CreateSessionInput {
   llmConnectionSlug: string;
   /** Falls back to the connection's defaultModel if omitted. */
   model?: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. */
+  thinkingLevel?: ThinkingLevel;
   permissionMode: PermissionMode;
   status?: SessionStatus;
   blockedReason?: SessionBlockedReason;
@@ -39,7 +42,13 @@ export interface UserMessageInput {
   regeneratedFromTurnId?: string;
   branchOfTurnId?: string;
   parentSessionId?: string;
+  /** What triggered this turn, when it is not a direct user message. Lets trace
+   *  distinguish an automation-triggered run from a hand-typed one. */
+  origin?: TurnOrigin;
 }
+
+/** Non-user trigger source for a turn (e.g. a scheduled automation fire). */
+export type TurnOrigin = { kind: 'automation'; automationId: string };
 
 export interface AgentSpec {
   id: string;
@@ -52,11 +61,6 @@ export interface ChildAgentTurnInput {
   parentRunId: string;
   spec: AgentSpec;
   prompt: string;
-}
-
-export interface RetryTurnInput {
-  sourceTurnId: string;
-  turnId?: string;
 }
 
 export interface RegenerateTurnInput {

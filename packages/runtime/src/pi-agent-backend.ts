@@ -13,7 +13,8 @@ import type { BackendSendInput, PermissionDecision } from '@maka/core/backend-ty
 import { redactSecrets } from '@maka/core/redaction';
 import type { ToolCategory } from '@maka/core/permission';
 
-import type { AgentBackend, AppendMessageFn } from './ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
+import type { AppendMessageFn } from './ai-sdk-backend.js';
 import { PermissionEngine } from './permission-engine.js';
 
 export interface PiAgentBackendInput {

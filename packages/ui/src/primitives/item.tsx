@@ -21,16 +21,21 @@ import type React from "react";
 
 export const itemVariants = cva(
   // Clickable affordances (`hover`, `cursor`, `:active`) only light up
-  // when the row is rendered as a button/anchor via `render`; a plain
-  // div Item stays inert.
+  // when the row is rendered as a button/anchor via `render` AND the row
+  // is interactive; a plain div Item, or an `interactive={false}` row,
+  // stays inert.
   // Row hover stays NEUTRAL (a faint foreground wash), not the brand
   // `accent` — in this theme `accent` maps to the brand color, and the
   // app reserves it for active/selected rows, keeping plain hover quiet.
-  "group/item relative flex w-full items-center rounded-md border border-transparent text-left text-sm outline-none transition-colors [a&,button&]:cursor-pointer [a&,button&]:hover:bg-foreground/4 [a&,button&]:data-pressed:bg-foreground/8 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64",
+  // hover 4% (--state-hover-bg) / pressed 8% / selected 6.5%
+  // (--state-selected-bg) — the same governed foreground-alpha state
+  // tiers the CSS list rows use, so a migrated row keeps its exact fills.
+  "group/item relative flex w-full items-center rounded-md border border-transparent text-left text-sm outline-none transition-colors data-selected:bg-[var(--state-selected-bg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64",
   {
     defaultVariants: {
       variant: "default",
       size: "default",
+      interactive: true,
     },
     variants: {
       variant: {
@@ -42,6 +47,15 @@ export const itemVariants = cva(
         default: "gap-3 px-2 py-1.5",
         sm: "gap-2 px-2 py-1",
       },
+      // `interactive` gates the hover/pressed washes. Default rows light up
+      // only when rendered as a button/anchor. `interactive={false}` is for
+      // inert geometry-only rows (e.g. a skills-library row whose click
+      // targets live outside the row): they borrow Item's media/content/
+      // actions layout without ever painting a hover fill.
+      interactive: {
+        true: "[a&,button&]:cursor-pointer [a&,button&]:hover:bg-foreground/4 [a&,button&]:data-pressed:bg-foreground/8",
+        false: "",
+      },
     },
   },
 );
@@ -49,18 +63,34 @@ export const itemVariants = cva(
 export interface ItemProps extends useRender.ComponentProps<"div"> {
   variant?: VariantProps<typeof itemVariants>["variant"];
   size?: VariantProps<typeof itemVariants>["size"];
+  /**
+   * Selected/active row — paints the 6.5% `--state-selected-bg` wash and
+   * exposes `data-selected` for CSS/contract hooks. Independent of hover:
+   * a selected row still lights hover when interactive.
+   */
+  selected?: boolean;
+  /**
+   * Inert geometry-only row — suppresses the hover/pressed washes even when
+   * rendered as a button/anchor. Use for rows whose surface must not react
+   * (skills library row, catalog gated row). Equivalent to
+   * `interactive={false}`.
+   */
+  interactive?: VariantProps<typeof itemVariants>["interactive"];
 }
 
 export function Item({
   className,
   variant,
   size,
+  selected,
+  interactive,
   render,
   ...props
 }: ItemProps): React.ReactElement {
   const defaultProps = {
-    className: cn(itemVariants({ className, size, variant })),
+    className: cn(itemVariants({ className, size, variant, interactive })),
     "data-slot": "item",
+    ...(selected ? { "data-selected": "" } : {}),
   };
   return useRender({
     defaultTagName: "div",

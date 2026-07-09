@@ -1,10 +1,12 @@
+import { Card } from '@maka/ui';
+
 export function MetricCard(props: { title: string; value: string; detail?: string }) {
   return (
-    <div className="settingsMetricCard">
+    <Card className="settingsMetricCard">
       <small>{props.title}</small>
       <strong>{props.value}</strong>
       {props.detail && <span>{props.detail}</span>}
-    </div>
+    </Card>
   );
 }
 

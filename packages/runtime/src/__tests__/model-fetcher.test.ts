@@ -97,6 +97,34 @@ describe('fetchProviderModels', () => {
     assert.deepEqual(models, [{ id: 'custom-live-model' }]);
   });
 
+  test('Google Gemini appends /models to a /v1beta base URL without doubling the version segment', async () => {
+    let observedPath = '';
+    let observedKey = '';
+    const server = await startJsonServer((request, response) => {
+      observedPath = request.url ?? '';
+      const url = new URL(request.url ?? '', 'http://test.local');
+      observedKey = url.searchParams.get('key') ?? '';
+      assert.equal(request.method, 'GET');
+      respondJson(response, 200, {
+        models: [
+          { name: 'models/gemini-2.5-flash' },
+          { name: 'models/gemini-2.0-flash' },
+        ],
+      });
+    });
+
+    const models = await fetchProviderModels(
+      { ...googleConnection(), baseUrl: `${server.url}/v1beta` },
+      'google-api-key',
+    );
+
+    // baseUrl already ends with /v1beta — the fetcher must append /models,
+    // not /v1beta/models (which would double the version segment and 404).
+    assert.equal(observedPath, '/v1beta/models?key=google-api-key');
+    assert.equal(observedKey, 'google-api-key');
+    assert.deepEqual(models, [{ id: 'gemini-2.5-flash' }, { id: 'gemini-2.0-flash' }]);
+  });
+
   test('Claude subscription model fetch uses OAuth bearer headers, not x-api-key', async () => {
     let observedAuth = '';
     let observedApiKey = '';
@@ -216,6 +244,18 @@ function zaiConnection(): LlmConnection {
     name: 'Z.ai',
     providerType: 'zai-coding-plan',
     defaultModel: 'glm-4.7',
+    enabled: true,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+}
+
+function googleConnection(): LlmConnection {
+  return {
+    slug: 'google',
+    name: 'Google Gemini',
+    providerType: 'google',
+    defaultModel: 'gemini-2.5-flash',
     enabled: true,
     createdAt: 1,
     updatedAt: 1,

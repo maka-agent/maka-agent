@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { PROVIDER_DEFAULTS, validateSlug, type ProviderType } from '@maka/core';
-import { Button, Input } from '@maka/ui';
+import { Button, Chip, Input } from '@maka/ui';
 import { buildCatalogRecommendedDefaultModel } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
 import {
@@ -83,7 +83,7 @@ export function AddProviderForm(props: {
             : isExperimental ? '账号登录暂未接入聊天发送' : `添加 ${display.name}`}</h3>
           <p>{display.description}</p>
         </div>
-        <span className="settingsBadge">{categoryLabel(defaults.category)}</span>
+        <Chip variant="neutral" size="sm">{categoryLabel(defaults.category)}</Chip>
       </header>
       {isExperimental && (
         <div className="providerUnavailableNotice">

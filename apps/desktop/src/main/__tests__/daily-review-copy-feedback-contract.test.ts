@@ -188,7 +188,7 @@ describe('Daily Review copy feedback contract', () => {
   it('guards Daily Review archive body loads against stale async responses', async () => {
     const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
     const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
-    const archiveLoadBlock = panelBlock.match(/useEffect\(\(\) => \{\s*const getArchive = props\.bridge\.getArchive;[\s\S]*?\}, \[archiveReloadToken, selectedArchiveId, props\.bridge\]\);/)?.[0] ?? '';
+    const archiveLoadBlock = panelBlock.match(/useEffect\(\(\) => \{\s*const getArchive = bridgeRef\.current\.getArchive;[\s\S]*?\}, \[archiveReloadToken, selectedArchiveId\]\);/)?.[0] ?? '';
     assert.ok(archiveLoadBlock, 'archive load effect not found in DailyReviewPanel');
 
     assert.match(panelBlock, /const archiveLoadRequestRef = useRef\(0\)/);
@@ -223,6 +223,46 @@ describe('Daily Review copy feedback contract', () => {
       archiveLoadBlock,
       /\.catch\(\(err: unknown\) => \{\s*if \(cancelled\) return;\s*if \(archiveLoadRequestRef\.current !== archiveRequestId\) return;\s*setSelectedArchive\(null\);/,
       'Older failed archive body loads must not clear or error the current selection',
+    );
+  });
+
+  it('decouples Daily Review data-fetching effects from the bridge object reference (PR-582 follow-up)', async () => {
+    const ui = await readFile(resolve(REPO_ROOT, 'packages/ui/src/daily-review-panel.tsx'), 'utf8');
+    const panelBlock = extractFunctionBlock(ui, 'DailyReviewPanel');
+
+    assert.match(
+      panelBlock,
+      /const bridgeRef = useRef\(props\.bridge\)/,
+      'DailyReviewPanel must track bridge via ref so effects survive bridge reference changes',
+    );
+    assert.match(
+      panelBlock,
+      /bridgeRef\.current = props\.bridge/,
+      'bridgeRef must be updated on every render so effects always use the latest bridge',
+    );
+
+    const fetchDayEffect = panelBlock.match(/useEffect\(\(\) => \{[\s\S]*?bridgeRef\.current\s*\n\s*\.fetchDay\([\s\S]*?\}, \[([^\]]*)\]\);/)?.[1] ?? '';
+    assert.ok(fetchDayEffect, 'fetchDay effect not found');
+    assert.doesNotMatch(
+      fetchDayEffect,
+      /props\.bridge/,
+      'fetchDay effect must not depend on props.bridge — use bridgeRef instead',
+    );
+
+    const listArchivesEffect = panelBlock.match(/useEffect\(\(\) => \{[\s\S]*?bridgeRef\.current\.listArchives[\s\S]*?\}, \[([^\]]*)\]\);/)?.[1] ?? '';
+    assert.ok(listArchivesEffect, 'listArchives effect not found');
+    assert.doesNotMatch(
+      listArchivesEffect,
+      /props\.bridge/,
+      'listArchives effect must not depend on props.bridge — use bridgeRef instead',
+    );
+
+    const getArchiveEffect = panelBlock.match(/useEffect\(\(\) => \{[\s\S]*?bridgeRef\.current\.getArchive[\s\S]*?\}, \[([^\]]*)\]\);/)?.[1] ?? '';
+    assert.ok(getArchiveEffect, 'getArchive effect not found');
+    assert.doesNotMatch(
+      getArchiveEffect,
+      /props\.bridge/,
+      'getArchive effect must not depend on props.bridge — use bridgeRef instead',
     );
   });
 

@@ -5,7 +5,6 @@ import {
   SelectGroup,
   SelectGroupLabel,
   SelectItem,
-  SelectList,
   SelectPortal,
   SelectPositioner,
   SelectPopup,
@@ -53,7 +52,7 @@ function SelectPopupFrame({ children }: { children: React.ReactNode }) {
     <SelectPortal>
       <SelectPositioner alignItemWithTrigger={false} sideOffset={8}>
         <SelectPopup>
-          <SelectList>{children}</SelectList>
+          {children}
         </SelectPopup>
       </SelectPositioner>
     </SelectPortal>

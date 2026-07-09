@@ -31,6 +31,7 @@ export type {
   AbortEvent,
   StorageRef,
   AttachmentRef,
+  AttachmentIngestItem,
 } from './events.js';
 export {
   TOOL_OUTPUT_DELTA_MAX_CHARS,
@@ -109,6 +110,14 @@ export {
   isTurnStatus,
 } from './session.js';
 
+// model-thinking.ts
+export type { ThinkingLevel } from './model-thinking.js';
+export {
+  THINKING_LEVELS,
+  isThinkingLevel,
+  thinkingVariantsForModel,
+} from './model-thinking.js';
+
 // agent-run.ts
 export type {
   AgentRunEvent,
@@ -119,6 +128,20 @@ export type {
   AgentRunStore,
 } from './agent-run.js';
 export { AGENT_RUN_STATUSES } from './agent-run.js';
+
+// shell-run.ts
+export type {
+  ShellRunRecord,
+  ShellRunStatus,
+  ShellRunStore,
+  ShellRunTerminalStatus,
+} from './shell-run.js';
+export {
+  SHELL_RUN_STATUSES,
+  SHELL_RUN_TERMINAL_STATUSES,
+  isShellRunStatus,
+  isTerminalShellRunStatus,
+} from './shell-run.js';
 
 // browser.ts
 export type {
@@ -150,6 +173,11 @@ export type {
   PermissionMode,
   ToolCategory,
   PolicyDecision,
+  ToolExecutionFacts,
+  ToolExecutionIsolation,
+  ToolExecutionNetwork,
+  ToolExecutionSecrets,
+  ToolExecutionWriteBack,
   PreToolUseInput,
   PreToolUseResult,
   PermissionRequest,
@@ -160,8 +188,8 @@ export {
   TOOL_CATEGORIES,
   PERMISSION_POLICY,
   BUILTIN_TOOL_CATEGORY,
-  SAFE_SHELL_PREFIXES,
   PRIVILEGED_SHELL_PREFIXES,
+  PRIVILEGED_SHELL_PATTERNS,
   FS_DESTRUCTIVE_PATTERNS,
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
@@ -169,6 +197,49 @@ export {
   isToolCategory,
   preToolUse,
 } from './permission.js';
+
+// permission-profile.ts
+export type {
+  PermissionProfile,
+  PermissionProfileDisabled,
+  PermissionProfileExternal,
+  PermissionProfileManaged,
+  PermissionProfileMatchContext,
+  PermissionProfileName,
+  FileSystemAccessMode,
+  FileSystemProtectedMetadataPolicy,
+  FileSystemSandboxEntry,
+  FileSystemSandboxKind,
+  FileSystemSandboxPolicy,
+  FileSystemSpecialPath,
+  NetworkSandboxKind,
+  NetworkSandboxPolicy,
+  ProtectedMetadataName,
+} from './permission-profile.js';
+export {
+  FILE_SYSTEM_ACCESS_MODES,
+  FILE_SYSTEM_SANDBOX_KINDS,
+  FILE_SYSTEM_SPECIAL_PATHS,
+  NETWORK_SANDBOX_KINDS,
+  PROTECTED_METADATA_NAMES,
+  canReadPath,
+  canWritePath,
+  createDangerFullAccessPermissionProfile,
+  createExternalPermissionProfile,
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+  isDeniedPath,
+  isProtectedMetadataPath,
+} from './permission-profile.js';
+
+// permission-profile-compiler.ts
+export type {
+  CompilePermissionProfileInput,
+  CompiledPermissionProfile,
+} from './permission-profile-compiler.js';
+export {
+  compilePermissionProfile,
+} from './permission-profile-compiler.js';
 
 // permission-request-health.ts
 export type {
@@ -219,7 +290,6 @@ export type {
   ChildAgentTurnInput,
   CreateSessionInput,
   RegenerateTurnInput,
-  RetryTurnInput,
   UserMessageInput,
   SessionListFilter,
 } from './runtime-inputs.js';
@@ -464,24 +534,46 @@ export {
 // task-ledger.ts (main agent session task tracking)
 export type {
   CreateTaskInput,
+  ResumeTrust,
   Task,
+  TaskLedgerEvent,
+  TaskLedgerEventRefs,
+  TaskLedgerEventType,
+  TaskLedgerListOptions,
+  TaskLedgerMutationContext,
   TaskLedgerNormalizeResult,
+  TaskLedgerProjection,
   TaskLedgerStore,
   TaskStatus,
   UpdateTaskInput,
 } from './task-ledger.js';
 export {
+  TASK_EVIDENCE_MAX_CHARS,
   TASK_ID_MAX_CHARS,
+  TASK_LEDGER_EVENT_TYPES,
   TASK_LEDGER_MAX_TASKS,
+  TASK_RESUME_TRUST_LEVELS,
   TASK_STATUSES,
   TASK_SUBJECT_MAX_CHARS,
+  canTransitionTaskStatus,
+  classifyTaskResumeTrust,
+  filterModelVisibleTaskLedgerTasks,
   isSafeTaskId,
+  isResumeTrust,
   isTaskStatus,
   normalizeCreateTaskInput,
+  normalizeResumeTrust,
+  normalizeTaskEvidenceText,
   normalizeTaskStatus,
   normalizeTaskSubject,
   normalizeUpdateTaskInput,
+  projectTaskLedgerEvents,
+  renderTaskLedgerDebugText,
   renderSafeTaskLedgerText,
+  taskLedgerEventTypeForCreate,
+  taskLedgerEventTypeForUpdate,
+  validateTaskEvidence,
+  validateTaskUpdate,
 } from './task-ledger.js';
 
 // memory.ts (PR-MEMORY-1) — core contract; no IPC/storage/embedding/UI.
@@ -609,7 +701,13 @@ export {
 } from './voice.js';
 
 // backend-types.ts
-export type { BackendSendInput, PermissionDecision } from './backend-types.js';
+export type {
+  BackendSendInput,
+  PermissionDecision,
+  AgentBackend,
+  BackendCompactHistoryInput,
+  BackendCompactHistoryResult,
+} from './backend-types.js';
 
 // llm-connections.ts
 export type {
@@ -636,6 +734,7 @@ export {
   effectiveBaseUrl,
   migrateConnectionV1ToV2,
   normalizeConnectionBaseUrl,
+  persistedBaseUrl,
   validateConnectionBaseUrl,
   validateSlug,
 } from './llm-connections.js';
@@ -650,6 +749,13 @@ export {
   isConnectionReady,
   isRealConnection,
 } from './connection-readiness.js';
+
+// connection-error-copy.ts — shared not-ready-connection fix copy
+export {
+  describeChatConfigurationReason,
+  parseNoRealConnectionError,
+} from './connection-error-copy.js';
+export type { ParsedNoRealConnectionError } from './connection-error-copy.js';
 
 // session-name.ts (PR-UI-IPC-2)
 export type { NormalizeSessionNameResult } from './session-name.js';
@@ -713,6 +819,9 @@ export {
   validateChatDefaultModel,
 } from './model-catalog.js';
 
+// model-metadata.ts
+export { resolveModelVisionSupport } from './model-metadata.js';
+
 // settings.ts
 export type {
   AppearanceSettings,
@@ -725,6 +834,7 @@ export type {
   ChatDefaultsSettings,
   NetworkProxySettings,
   NetworkSettings,
+  NotificationSettings,
   OpenGatewaySettings,
   OpenGatewayRuntimeStatus,
   PrivacySettings,
@@ -934,3 +1044,6 @@ export {
   isQuickChatMode,
   normalizeQuickChatMode,
 } from './explore-agent.js';
+
+// attachments.ts
+export { attachmentKindFromMimeType, guessMimeFromName, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENT_COUNT } from './attachments.js';

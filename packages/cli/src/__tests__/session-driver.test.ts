@@ -121,8 +121,93 @@ describe('Maka session driver', () => {
 
     assert.deepEqual(runtime.sessionUpdates, [{
       sessionId: 'session-1',
-      patch: { model: 'claude-opus-4-1' },
+      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
     }]);
+  });
+
+  test('switches connection and model together on an active session', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setModel('glm-5.2', 'zai');
+
+    // The connection rides in the same updateSession patch, so the next turn
+    // rebuilds the backend on the new provider.
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { model: 'glm-5.2', thinkingLevel: undefined, llmConnectionSlug: 'zai' },
+    }]);
+  });
+
+  test('a same-connection setModel does not churn the connection', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.setModel('claude-opus-4-1', 'anthropic');
+
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { model: 'claude-opus-4-1', thinkingLevel: undefined },
+    }]);
+  });
+
+  test('creates the next session on a connection chosen before any session exists', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await driver.setModel('glm-5.2', 'zai');
+    await collect(driver.sendPrompt('run tests'));
+
+    assert.equal(runtime.created[0]?.llmConnectionSlug, 'zai');
+    assert.equal(runtime.created[0]?.model, 'glm-5.2');
+  });
+
+  test('renames the active session through runtime updateSession', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await collect(driver.sendPrompt('run tests'));
+    await driver.renameSession('watcher 根目录事件风暴修复');
+
+    assert.deepEqual(runtime.sessionUpdates, [{
+      sessionId: 'session-1',
+      patch: { name: 'watcher 根目录事件风暴修复' },
+    }]);
+  });
+
+  test('rejects rename before a session starts', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+
+    await assert.rejects(driver.renameSession('too early'), /before a session starts/);
+    assert.deepEqual(runtime.sessionUpdates, []);
   });
 
   test('switches to an existing session for the next prompt', async () => {
@@ -308,6 +393,24 @@ describe('Maka session driver', () => {
     assert.match(runtime.sent[0]?.input.turnId ?? '', /^[0-9a-f-]{36}$/);
   });
 
+  test('compacts the active session through the runtime compact API', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: fixedIds('turn-1', 'turn-compact'),
+    });
+
+    await collect(driver.sendPrompt('hello'));
+    const events = await collect(driver.compactSession());
+
+    assert.deepEqual(runtime.compacted, [{ sessionId: 'session-1', input: { turnId: 'turn-compact' } }]);
+    assert.deepEqual(runtime.sent.map((item) => item.input.text), ['hello']);
+    assert.deepEqual(events.map((event) => event.type), ['complete']);
+  });
+
   test('routes permission responses to the active session', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -334,14 +437,172 @@ describe('Maka session driver', () => {
       },
     }]);
   });
+
+  test('lists rewind targets newest-first, one per prompted turn, excluding the latest', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', '  first question\nmore detail'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      storedUserMessage('user-2', 'turn-2', 'second question'),
+      storedAssistantMessage('assistant-2', 'turn-2', 'second answer'),
+      storedUserMessage('user-3', 'turn-3', 'third question'),
+    ]);
+
+    const targets = await driver.listRewindTargets();
+
+    // turn-3 is the latest → excluded. Remaining newest-first, label = first
+    // non-empty prompt line.
+    assert.deepEqual(targets, [
+      { turnId: 'turn-2', label: 'second question' },
+      { turnId: 'turn-1', label: 'first question' },
+    ]);
+  });
+
+  test('keeps the last prompted turn as a target when the head is a non-prompt turn (e.g. compact)', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('first question'));
+    // After /compact the conversation head is the compact turn (no user
+    // message). turn-2 is still a real, rewindable turn: rewinding to it
+    // discards the compact, so it must not be dropped as "the latest turn".
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'first question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      storedUserMessage('user-2', 'turn-2', 'second question'),
+      storedAssistantMessage('assistant-2', 'turn-2', 'second answer'),
+      storedContextCompactedNote('note-1', 'turn-compact'),
+    ]);
+
+    const targets = await driver.listRewindTargets();
+
+    assert.deepEqual(targets, [
+      { turnId: 'turn-2', label: 'second question' },
+      { turnId: 'turn-1', label: 'first question' },
+    ]);
+  });
+
+  test('keeps the only prompted turn as a target after a compact', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await collect(driver.sendPrompt('only question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'only question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
+      storedContextCompactedNote('note-1', 'turn-compact'),
+    ]);
+
+    assert.deepEqual(await driver.listRewindTargets(), [
+      { turnId: 'turn-1', label: 'only question' },
+    ]);
+  });
+
+  test('lists no rewind targets before a session starts or with a single turn', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    assert.deepEqual(await driver.listRewindTargets(), []);
+
+    await collect(driver.sendPrompt('only question'));
+    runtime.sessionMessages.set('session-1', [
+      storedUserMessage('user-1', 'turn-1', 'only question'),
+      storedAssistantMessage('assistant-1', 'turn-1', 'only answer'),
+    ]);
+    assert.deepEqual(await driver.listRewindTargets(), []);
+  });
+
+  test('rewinds by branching through the turn and switching onto the branch', async () => {
+    const repo = await mkdtemp(join(tmpdir(), 'maka-rewind-cwd-'));
+    try {
+      const runtime = new RecordingRuntime();
+      runtime.sessionSummaries = [sessionSummary({ id: 'session-1', cwd: repo })];
+      runtime.sessionMessages.set('session-1', [
+        storedUserMessage('user-1', 'turn-1', 'first question'),
+        storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+        storedUserMessage('user-2', 'turn-2', 'second question'),
+      ]);
+      const driver = createMakaSessionDriver({
+        runtime,
+        cwd: repo,
+        llmConnectionSlug: 'anthropic',
+        model: 'claude-sonnet-4-5',
+      });
+      await driver.switchSession('session-1');
+
+      const result = await driver.rewindToTurn('turn-1');
+
+      assert.deepEqual(runtime.branched, [{ sessionId: 'session-1', sourceTurnId: 'turn-1' }]);
+      assert.equal(result.summary.id, 'session-1-branch');
+      assert.equal(driver.getSessionId(), 'session-1-branch');
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects rewind before a session starts', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await assert.rejects(driver.rewindToTurn('turn-1'), /before a session starts/);
+    assert.deepEqual(runtime.branched, []);
+  });
+
+  test('startNewSession makes the next prompt create a fresh session, keeping settings', async () => {
+    const runtime = new RecordingRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+    });
+    await driver.setModel('claude-opus-4-1');
+    await collect(driver.sendPrompt('first'));
+    assert.equal(driver.getSessionId(), 'session-1');
+
+    driver.startNewSession();
+    assert.equal(driver.getSessionId(), null);
+
+    await collect(driver.sendPrompt('second'));
+    // A second createSession call — the prompt started a new session rather than
+    // reusing the old one — and it kept the current model.
+    assert.equal(runtime.created.length, 2);
+    assert.equal(runtime.created[1]?.model, 'claude-opus-4-1');
+    assert.equal(runtime.created[1]?.name, 'second');
+  });
 });
 
 class RecordingRuntime {
   readonly created: CreateSessionInput[] = [];
   readonly sent: Array<{ sessionId: string; input: UserMessageInput }> = [];
+  readonly compacted: Array<{ sessionId: string; input: { turnId?: string } }> = [];
   readonly permissionResponses: Array<{ sessionId: string; response: PermissionResponse }> = [];
   readonly permissionModes: Array<{ sessionId: string; mode: PermissionMode }> = [];
-  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string } }> = [];
+  readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
+  readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -381,6 +642,17 @@ class RecordingRuntime {
     };
   }
 
+  async *compactSession(sessionId: string, input: { turnId?: string } = {}): AsyncIterable<SessionEvent> {
+    this.compacted.push({ sessionId, input });
+    yield {
+      type: 'complete',
+      id: 'event-compact-complete',
+      turnId: input.turnId ?? 'turn-compact',
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
   async stopSession(_sessionId: string): Promise<void> {}
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
@@ -404,7 +676,7 @@ class RecordingRuntime {
     };
   }
 
-  async updateSession(sessionId: string, patch: { model?: string }): Promise<SessionSummary> {
+  async updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string }): Promise<SessionSummary> {
     this.sessionUpdates.push({ sessionId, patch });
     return {
       id: sessionId,
@@ -415,7 +687,7 @@ class RecordingRuntime {
       hasUnread: false,
       status: 'active',
       backend: 'ai-sdk',
-      llmConnectionSlug: 'anthropic',
+      llmConnectionSlug: patch.llmConnectionSlug ?? 'anthropic',
       model: patch.model ?? 'claude-sonnet-4-5',
       permissionMode: 'ask',
     };
@@ -428,11 +700,29 @@ class RecordingRuntime {
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
     return this.sessionMessages.get(sessionId) ?? [];
   }
+
+  async branchFromTurn(sessionId: string, input: { sourceTurnId: string; name?: string }): Promise<SessionSummary> {
+    this.branched.push({ sessionId, sourceTurnId: input.sourceTurnId });
+    // Model a branch by adding a new summary to the list switchSession reads.
+    const source = this.sessionSummaries.find((session) => session.id === sessionId);
+    const branch: SessionSummary = {
+      ...(source ?? sessionSummary({ id: sessionId })),
+      id: `${sessionId}-branch`,
+    };
+    this.sessionSummaries = [...this.sessionSummaries, branch];
+    this.sessionMessages.set(branch.id, this.sessionMessages.get(sessionId) ?? []);
+    return branch;
+  }
 }
 
 function nextId(prefix: string): () => string {
   let count = 0;
   return () => `${prefix}-${++count}`;
+}
+
+function fixedIds(...ids: string[]): () => string {
+  let index = 0;
+  return () => ids[index++] ?? ids[ids.length - 1] ?? 'id';
 }
 
 function sessionSummary(overrides: Partial<SessionSummary>): SessionSummary {
@@ -471,6 +761,16 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     ts: 2,
     text,
     modelId: 'claude-sonnet-4-5',
+  };
+}
+
+function storedContextCompactedNote(id: string, turnId: string): StoredMessage {
+  return {
+    type: 'system_note',
+    id,
+    turnId,
+    ts: 3,
+    kind: 'context_compacted',
   };
 }
 

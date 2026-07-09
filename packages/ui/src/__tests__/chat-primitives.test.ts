@@ -32,7 +32,7 @@ test('Bubble keeps its own data-slot/data-variant over conflicting props', () =>
 
 test('Marker keeps its own data-slot/data-variant but forwards the styling data-* hooks', () => {
   const el = Marker({
-    variant: 'summary-chip',
+    variant: 'footer-action',
     as: 'span',
     'data-slot': 'spoofed',
     'data-variant': 'aborted',
@@ -43,7 +43,7 @@ test('Marker keeps its own data-slot/data-variant but forwards the styling data-
   const props = el.props as Record<string, unknown>;
   assert.equal(el.type, 'span');
   assert.equal(props['data-slot'], 'marker');
-  assert.equal(props['data-variant'], 'summary-chip');
+  assert.equal(props['data-variant'], 'footer-action');
   assert.equal(props['data-kind'], 'model');
 });
 
@@ -53,6 +53,10 @@ test('markerVariants resolves a leaf shell string the UiButton call sites can ap
   const footerAction = markerVariants({ variant: 'footer-action' });
   assert.match(footerAction, /min-h-\[28px\]/);
   assert.match(footerAction, /data-\[copy-feedback=copied\]:text-\[color:var\(--link\)\]/);
+  // PR5 CHAT-MESSAGE-TIME-0: footer-action stays at the caption tier
+  // (text-xs aliases --font-size-caption, 11px), aligned with the inline
+  // message timestamp — both read as quiet meta, one step below the UI tier.
+  assert.match(footerAction, /text-xs/);
   const lineageBadge = markerVariants({ variant: 'lineage-badge' });
   assert.match(lineageBadge, /rounded-\[var\(--radius-pill\)\]/);
   assert.match(lineageBadge, /data-\[direction=forward\]:/);
@@ -91,7 +95,7 @@ test('footer-action merge drops the UiButton base shell so the retired footer pi
     'py-1',
     'rounded-[var(--radius-surface)]',
     'text-[color:var(--muted-foreground)]',
-    'text-[12px]',
+    'text-xs', // #546 PR0: text-[12px] -> text-xs (typography onto token scale)
   ]) {
     assert.ok(merged.includes(win), `footer pixel "${win}" must survive the merge`);
   }
@@ -121,7 +125,7 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
     'py-[1px]',
     'rounded-[var(--radius-pill)]',
     'text-[color:var(--muted-foreground)]',
-    'text-[9px]',
+    'text-xs', // #546 PR0: text-[9px] -> text-xs (typography onto token scale)
   ]) {
     assert.ok(merged.includes(win), `lineage pixel "${win}" must survive the merge`);
   }
@@ -219,8 +223,10 @@ test('toolVariants stays literal and emits the single-backslash waiting_permissi
   const dot = toolVariants({ part: 'dot' });
   for (const cls of [item, dot]) {
     assert.ok(
-      !cls.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'rounded-xl', 'text-sm', 'text-xs', 'bg-primary'].includes(u)),
-      'tool shell must stay literal, not the semantic scale / a recolor',
+      // Typography (text-*) converged onto the scale by #546 PR0, so text-xs/sm
+      // are allowed here; only radius scale + recolor drift stays banned.
+      !cls.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'rounded-xl', 'bg-primary'].includes(u)),
+      'tool shell must stay literal on radius, not the semantic scale / a recolor',
     );
   }
   // exactly one backslash before the underscore (source == runtime via String.raw)

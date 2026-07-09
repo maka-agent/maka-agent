@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { AppSettings, UpdateAppSettingsResult, UsageRange, UsageStats } from '@maka/core';
 import { Button, Input, SettingsSegmented as Segmented, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
+import { RefreshCcw } from '@maka/ui/icons';
 import { MetricCard } from './settings-metric-card';
 import { settingsActionErrorMessage } from './settings-error-copy';
 
@@ -119,14 +120,22 @@ export function UsageSettingsPage(props: {
           ]}
           onChange={(value) => void setRange(value as UsageRange)}
         />
+        {/* Detail audit: 刷新 was a primary --action chip glued to the
+            segmented — two control styles fighting in one row for a
+            low-frequency utility. Same quiet icon form as the automations
+            page refresh (one action, one shape everywhere). */}
         <Button
           type="button"
+          variant="quiet"
+          size="icon-sm"
           disabled={refreshing}
           aria-busy={refreshing}
           data-pending={refreshing ? 'true' : undefined}
+          aria-label={refreshing ? '正在刷新使用统计' : '刷新使用统计'}
+          title={refreshing ? '正在刷新使用统计' : '刷新使用统计'}
           onClick={() => void refresh()}
         >
-          {refreshing ? '刷新中…' : '刷新'}
+          <RefreshCcw size={15} aria-hidden="true" />
         </Button>
       </div>
 
@@ -258,21 +267,30 @@ function usageRequestStatusLabel(status: UsageStats['logs'][number]['status']) {
 }
 
 function SimpleStatsTable(props: { ariaLabel: string; headers: string[]; rows: Array<Array<ReactNode>>; empty?: string }) {
+  // Local table styles reproduce the retired Table primitive (now removed — a
+  // single consumer did not justify a public primitive). Values are inline so
+  // the stats surface stays self-contained until a second HTML <table> consumer
+  // appears, at which point this can lift back to packages/ui.
+  const headClass = "border-b border-border px-[var(--space-2)] py-[var(--space-1)] text-left align-middle font-semibold text-foreground-secondary [font-variant-numeric:tabular-nums]";
+  const cellClass = "border-b border-border px-[var(--space-2)] py-[var(--space-1)] text-left align-middle text-foreground-secondary [font-variant-numeric:tabular-nums]";
   return (
-    <table className="settingsStatsTable" aria-label={props.ariaLabel}>
+    <table
+      aria-label={props.ariaLabel}
+      className="w-full border-collapse overflow-hidden rounded-[var(--radius-surface)] border border-border text-[length:var(--font-size-caption)]"
+    >
       <thead>
-        <tr>{props.headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr>
+        <tr>{props.headers.map((header) => <th key={header} scope="col" className={headClass}>{header}</th>)}</tr>
       </thead>
       <tbody>
         {props.rows.length === 0 ? (
-          <tr><td colSpan={props.headers.length}>{props.empty ?? '暂无请求记录'}</td></tr>
+          <tr><td colSpan={props.headers.length} className={cellClass}>{props.empty ?? '暂无请求记录'}</td></tr>
         ) : props.rows.map((row, rowIndex) => (
           <tr key={rowIndex}>
             {row.map((cell, cellIndex) => (
               cellIndex === 0 ? (
-                <th key={cellIndex} scope="row">{cell}</th>
+                <th key={cellIndex} scope="row" className={headClass}>{cell}</th>
               ) : (
-                <td key={cellIndex}>{cell}</td>
+                <td key={cellIndex} className={cellClass}>{cell}</td>
               )
             ))}
           </tr>

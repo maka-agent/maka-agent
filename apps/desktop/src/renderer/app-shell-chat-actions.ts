@@ -1,7 +1,16 @@
-import type { PermissionMode, PermissionResponse, SessionSummary, StoredMessage } from '@maka/core';
+import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
+import { preflightAttachmentItems } from './attachment-preflight.js';
+
+export type PendingAttachment = {
+  displayName: string;
+  mimeType?: string;
+  kind: import('@maka/core').AttachmentRef['kind'];
+  size: number;
+  source: { type: 'approval'; approvalId: string; name: string } | { type: 'file'; file: File };
+};
 import {
   isNoRealConnectionError,
   noRealConnectionReasonFromError,
@@ -27,7 +36,7 @@ type PendingNewChatModel = {
   model: string;
 } | null;
 
-type PendingNewChatPermissionMode = PermissionMode | null;
+type PendingNewChatThinkingLevel = ThinkingLevel | null;
 
 type ToastApi = {
   error(title: string, description?: string): void;
@@ -71,10 +80,18 @@ async function readMessagesForRefresh(
 }
 
 export interface AppShellChatActions {
-  send(text: string): Promise<boolean>;
+  send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean>;
   respondToPermission(response: PermissionResponse): Promise<void>;
   refreshMessages(sessionId: string, options?: RefreshMessagesOptions): Promise<boolean>;
   retryMessages(sessionId: string): Promise<void>;
+}
+
+function toIngestItems(pending: readonly PendingAttachment[]): RendererIngestInput[] {
+  return pending.map((p) =>
+    p.source.type === 'approval'
+      ? { approvalId: p.source.approvalId, name: p.source.name, ...(p.mimeType ? { mimeType: p.mimeType } : {}) }
+      : { file: p.source.file },
+  );
 }
 
 export function createAppShellChatActions(deps: {
@@ -102,9 +119,8 @@ export function createAppShellChatActions(deps: {
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
-  pendingNewChatPermissionMode: PendingNewChatPermissionMode;
-  setPendingNewChatPermissionMode: (mode: PendingNewChatPermissionMode) => void;
   validPendingNewChatModel: PendingNewChatModel;
+  pendingNewChatThinkingLevel: PendingNewChatThinkingLevel;
 }): AppShellChatActions {
   const {
     activeIdRef,
@@ -123,18 +139,22 @@ export function createAppShellChatActions(deps: {
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
-    pendingNewChatPermissionMode,
-    setPendingNewChatPermissionMode,
     validPendingNewChatModel,
+    pendingNewChatThinkingLevel,
   } = deps;
 
-  function optimisticUserMessage(turnId: string, text: string): StoredMessage {
+  function optimisticUserMessage(
+    turnId: string,
+    text: string,
+    attachments: readonly import('@maka/core').AttachmentRef[] = [],
+  ): StoredMessage {
     return {
       type: 'user',
       id: `optimistic-user-${turnId}`,
       turnId,
       ts: Date.now(),
       text,
+      ...(attachments.length > 0 ? { attachments: [...attachments] } : {}),
     };
   }
 
@@ -142,6 +162,7 @@ export function createAppShellChatActions(deps: {
     sessionId: string,
     turnId: string,
     text: string,
+    attachments: readonly import('@maka/core').AttachmentRef[] = [],
     options: { replaceCurrentMessages?: boolean } = {},
   ): void {
     if (activeIdRef.current !== sessionId) return;
@@ -153,7 +174,7 @@ export function createAppShellChatActions(deps: {
     });
     setMessages((current) => {
       if (current.some((message) => message.type === 'user' && message.turnId === turnId)) return current;
-      const next = optimisticUserMessage(turnId, text);
+      const next = optimisticUserMessage(turnId, text, attachments);
       return options.replaceCurrentMessages ? [next] : [...current, next];
     });
   }
@@ -163,7 +184,7 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
-  async function send(text: string): Promise<boolean> {
+  async function send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean> {
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
@@ -171,29 +192,26 @@ export function createAppShellChatActions(deps: {
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
+        if (pending && pending.length > 0) preflightAttachmentItems(pending);
         const session = await window.maka.sessions.create({
-          // Only send permissionMode when the user explicitly picked one in
-          // the composer. Omitting it lets main.ts's sessions:create resolve
-          // the configured chatDefaults.permissionMode as the single
-          // authority — a renderer-side copy of the default can be stale
-          // (e.g. before the mount-time settings load resolves on a cold
-          // start), which would silently override the configured setting.
-          ...(pendingNewChatPermissionMode ? { permissionMode: pendingNewChatPermissionMode } : {}),
+          // Omit permissionMode so main.ts's sessions:create resolves the
+          // configured chatDefaults.permissionMode as the single authority.
           name: text.slice(0, 42) || '新建对话',
           ...(validPendingNewChatModel
             ? { llmConnectionSlug: validPendingNewChatModel.llmConnectionSlug, model: validPendingNewChatModel.model }
             : {}),
+          ...(pendingNewChatThinkingLevel ? { thinkingLevel: pendingNewChatThinkingLevel } : {}),
         });
-        setPendingNewChatPermissionMode(null);
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
+        const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
+        const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
           setNavSelection({ section: 'sessions', filter: 'chats' });
           setActiveId(session.id);
-          showOptimisticUserMessage(session.id, turnId, text, { replaceCurrentMessages: true });
+          showOptimisticUserMessage(session.id, turnId, text, sendResult.attachments, { replaceCurrentMessages: true });
         }
-        await window.maka.sessions.send(session.id, { type: 'send', turnId, text });
         if (activeIdRef.current === session.id) {
           await refreshMessagesUntilTurn(session.id, turnId);
         }
@@ -203,8 +221,9 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
-      showOptimisticUserMessage(sessionId, turnId, text);
-      await window.maka.sessions.send(sessionId, { type: 'send', turnId, text });
+      const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
+      const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
+      showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
       await refreshMessagesUntilTurn(sessionId, turnId);
       return true;
     } catch (error) {

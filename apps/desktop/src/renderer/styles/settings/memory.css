@@ -1,0 +1,512 @@
+/* Settings → Memory (MEMORY.md editor, entry groups, prompt preview).
+   Relocated from tool-stream.css (+ meta row from connection.css) — issue #546 PR1. */
+/* ────────────────────────────────────────────────────────────────
+   PR-MEMORY-MD-MVP-0: Settings → 记忆.
+   Transparent local MEMORY.md surface. Editor is intentionally plain
+   textarea chrome; no rich text, no hidden extraction.
+   ──────────────────────────────────────────────────────────────── */
+.settingsMemoryPreview {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+.settingsMemoryPreview strong {
+    font-size: var(--font-size-ui);
+    color: var(--foreground);
+  }
+.settingsMemoryPreview small {
+    font-size: var(--font-size-caption);
+    color: var(--muted-foreground);
+  }
+.settingsMemoryPreview p {
+    margin: 0;
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+.settingsMemoryPromptPreview {
+    display: grid;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+.settingsMemoryPromptPreview[data-active="true"] {
+    border-color: var(--border-strong);
+    background: var(--state-selected-bg);
+  }
+.settingsMemoryPromptPreviewHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+.settingsMemoryPromptPreviewHeader strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+.settingsMemoryPromptPreviewHeader div {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2-5);
+  }
+.settingsMemoryPromptPreviewHeader span {
+    flex-shrink: 0;
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-caption);
+  }
+.settingsMemoryPromptPreview[data-active="true"] .settingsMemoryPromptPreviewHeader span {
+    color: var(--foreground);
+  }
+.settingsMemoryPromptPreview small {
+    color: var(--muted-foreground);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-snug);
+  }
+.settingsMemoryPromptPreviewBudget {
+    font-family: var(--font-mono);
+    color: var(--foreground-secondary);
+  }
+.settingsMemoryPromptPreview pre {
+    max-height: 220px;
+    margin: 0;
+    padding: var(--space-2-5);
+    overflow: auto;
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-control);
+    background: var(--background);
+    color: var(--foreground-secondary);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+.settingsMemoryPromptPreview p {
+    margin: 0;
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+  }
+.settingsMemoryEntryPreviewNotice {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
+    border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.34);
+    border-radius: var(--radius-surface);
+    background: oklch(from var(--warning) l c h / 0.08);
+  }
+.settingsMemoryEntryPreviewNotice strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+.settingsMemoryEntryPreviewNotice small {
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-snug);
+  }
+.settingsMemorySaveSummary {
+    display: grid;
+    gap: var(--space-0-5);
+    padding: var(--space-2) var(--space-2-5);
+    border: var(--border-width-hairline) solid var(--border);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+.settingsMemorySaveSummary strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+.settingsMemorySaveSummary small {
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+  }
+.settingsMemorySaveSummaryTime {
+    color: var(--muted-foreground);
+    font-size: var(--font-size-caption);
+  }
+.settingsMemoryBackupState {
+    color: var(--foreground-secondary);
+  }
+.settingsMemoryBackupState[data-empty="true"] {
+    color: var(--muted-foreground);
+  }
+.settingsMemoryBackupList {
+    display: grid;
+    gap: var(--space-1-5);
+    padding: var(--space-2) var(--space-2-5);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+.settingsMemoryBackupList strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+/* PR-MEMORY-BACKUP-LIST-A11Y-0 (round 16/30): selector
+     targeted the old `<div role="list">`. Container is now a
+     semantic `<ul>` (`.settingsMemoryBackupCandidates`); reset
+     the UA's bullet + padding-left so the flex-wrap layout stays
+     the same as before. */
+.settingsMemoryBackupCandidates {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1-5);
+  }
+.settingsMemoryBackupCandidates > li {
+    margin: 0;
+    padding: 0;
+  }
+.settingsMemoryBackupList small {
+    color: var(--muted-foreground);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-snug);
+  }
+.settingsMemoryBackupCandidate {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5);
+    padding: var(--space-0-5) var(--space-1-5);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-pill);
+    background: var(--background);
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-caption);
+  }
+
+.settingsMemoryEntryGroups {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+.settingsMemoryEntryGroup {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+.settingsMemoryEntryGroup[data-archived="true"] {
+    opacity: var(--opacity-muted);
+  }
+
+.settingsMemoryEntryGroupHeader {
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    font-size: var(--font-size-ui);
+    color: var(--foreground-secondary);
+  }
+
+.settingsMemoryEntryGroupHeader strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+
+.settingsMemoryEntryDraftNotice {
+    margin: 0;
+    padding: var(--space-1-5) var(--space-2);
+    border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.30);
+    border-radius: var(--radius-surface);
+    background: oklch(from var(--warning) l c h / 0.08);
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+  }
+
+.settingsMemoryEntryList {
+    /* PR-MEMORY-ENTRY-LIST-A11Y-0 (round 18/30): switched from
+       `<div role="list">` to semantic `<ul>`. Reset the UA's
+       bullet + padding-left so the grouped-card border + radius
+       stays the same. */
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0;
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    overflow: hidden;
+    background: var(--foreground-2);
+  }
+
+.settingsMemoryEntryList > li {
+    margin: 0;
+    padding: 0;
+  }
+
+.settingsMemoryEntryCard {
+    display: grid;
+    gap: var(--space-0-5);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: var(--border-width-hairline) solid var(--foreground-8);
+  }
+
+/* PR-MEMORY-ENTRY-DIVIDER-FIX-0 (WAWQAQ msg `610c0e5a`): after
+     PR-MEMORY-ENTRY-LIST-A11Y-0 wrapped each card in `<li>`, the
+     prior `.settingsMemoryEntryCard:last-child` selector matched
+     EVERY card (each is the sole child of its `<li>`), so every
+     between-card divider disappeared. Target the last `<li>` in
+     the list instead. */
+
+.settingsMemoryEntryList > li:last-child .settingsMemoryEntryCard {
+    border-bottom: 0;
+  }
+
+.settingsMemoryEntryCard strong {
+    font-size: var(--font-size-ui);
+    color: var(--foreground);
+  }
+
+.settingsMemoryEntryCard small {
+    font-size: var(--font-size-caption);
+    color: var(--muted-foreground);
+  }
+
+.settingsMemoryEntryFacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-2-5);
+  }
+
+.settingsMemoryEntryFacts span {
+    min-width: 0;
+  }
+
+.settingsMemoryPromptScope {
+    width: max-content;
+    max-width: 100%;
+    padding: var(--space-0-5) var(--space-1-5);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-control);
+    background: var(--foreground-5);
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-caption);
+    line-height: var(--leading-snug);
+  }
+
+.settingsMemoryPromptScope[data-active="true"] {
+    border-color: var(--border-strong);
+    background: var(--state-selected-bg);
+    color: var(--foreground-secondary);
+  }
+
+.settingsMemoryDirtyState[data-dirty="true"] {
+    color: var(--warning-text, var(--info-text));
+    font-weight: var(--font-weight-semibold);
+  }
+
+.settingsMemoryEntryCard p,
+  .settingsMemoryEntryEmpty {
+    margin: 0;
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+.settingsMemoryEntryActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settingsMemoryFilter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settingsMemoryFilter input {
+  width: 100%;
+  border: var(--border-width-hairline) solid var(--foreground-10);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  padding: var(--space-2) var(--space-2);
+}
+
+.settingsMemoryFilter small {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.settingsMemoryFilter input:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.settingsMemoryFilterEmpty,
+  .settingsMemoryListEmpty {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2-5) var(--space-3);
+    border: var(--border-width-hairline) solid var(--foreground-10);
+    border-radius: var(--radius-surface);
+    background: var(--foreground-3);
+  }
+
+.settingsMemoryFilterEmpty strong,
+  .settingsMemoryListEmpty strong {
+    color: var(--foreground);
+    font-size: var(--font-size-ui);
+  }
+
+.settingsMemoryFilterEmpty small,
+  .settingsMemoryListEmpty small {
+    color: var(--foreground-secondary);
+    font-size: var(--font-size-ui);
+    line-height: var(--leading-normal);
+  }
+
+.settingsMemoryManualAdd {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3);
+  border: var(--border-width-hairline) solid var(--foreground-10);
+  border-radius: var(--radius-surface);
+  background: var(--foreground-2);
+}
+
+.settingsMemoryManualAddHeader {
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.settingsMemoryManualAddHeader strong {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+}
+
+.settingsMemoryManualAddHeader small {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+}
+
+.settingsMemoryManualAddGrid {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settingsMemoryManualAddGrid input,
+.settingsMemoryManualAddGrid textarea {
+  width: 100%;
+  border: var(--border-width-hairline) solid var(--foreground-10);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  padding: var(--space-2) var(--space-2);
+}
+
+.settingsMemoryManualAddGrid textarea {
+  resize: vertical;
+  min-height: 74px;
+}
+
+.settingsMemoryManualAddGrid input:focus-visible,
+.settingsMemoryManualAddGrid textarea:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.settingsMemoryDraftWarning {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2-5) var(--space-3);
+  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.38);
+  border-radius: var(--radius-surface);
+  background: oklch(from var(--warning) l c h / 0.09);
+}
+
+.settingsMemoryDraftWarning strong {
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+}
+
+.settingsMemoryDraftWarning small {
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-snug);
+}
+
+.settingsMemoryEditor {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.settingsMemoryEditor > span {
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.settingsMemoryEditor textarea {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: var(--space-4);
+  background: var(--background-elevated, var(--background));
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  letter-spacing: var(--tracking-normal);
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.settingsMemoryEditor textarea:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.settingsMemoryEditor textarea:disabled {
+  opacity: var(--opacity-muted);
+  cursor: not-allowed;
+}
+
+/* Memory page meta row — relocated from connection.css — issue #546 PR1. */
+/* Memory page meta row: the absolute MEMORY.md path used to render
+     full-width mono text that shoved the sibling status words into a
+     cramped vertical stack. Give the path its own full row with
+     head-side ellipsis (RTL trick keeps the meaningful .../MEMORY.md
+     tail visible; title= carries the full path on hover). */
+.settingsMemoryMeta {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+    /* Detail audit round 2: the hairline alone still read as orphaned
+       fragments floating between two cards (user screenshot). A quiet
+       filled strip gives the path + status words a real container. */
+    padding: var(--space-1-5) var(--space-2-5);
+    border-radius: var(--radius-control);
+    background: var(--foreground-3);
+  }
+.settingsMemoryPath {
+    /* The component already shortens the path for display
+       (displayMemoryPath); this is just the safety net so an
+       unexpectedly long tail can never shove the status words into a
+       cramped stack again. */
+    flex: 1 1 100%;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }

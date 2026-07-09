@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { encodeIngestItems } from '../main/attachment-ingest-payload.js';
 import type {
   ConnectionEvent,
   ConnectionTestResult,
@@ -21,6 +22,7 @@ import type {
   SessionListFilter,
   SessionSummary,
   StoredMessage,
+  ThinkingLevel,
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -35,7 +37,6 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
-  RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -67,11 +68,13 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
+  AttachmentRef,
   OnboardingMilestone,
   OnboardingMilestoneId,
   OnboardingState,
@@ -103,6 +106,10 @@ type LocalMemoryMutationResult =
   | { ok: true; state: LocalMemoryState; entry?: LocalMemoryEntryPreview; proposal?: LocalMemoryEntryPreview }
   | { ok: false; state: LocalMemoryState; reason: string; message: string };
 
+type RendererIngestInput =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { file: File };
+
 export type WorkspaceInstructionFileStatus =
   | 'available'
   | 'missing'
@@ -124,14 +131,6 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 contextBridge.exposeInMainWorld('maka', {
   sessions: {
     list(filter?: SessionListFilter): Promise<SessionSummary[]> {
@@ -140,8 +139,20 @@ contextBridge.exposeInMainWorld('maka', {
     create(input?: Partial<CreateSessionInput>): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:create', input);
     },
-    send(sessionId: string, command: SessionCommand): Promise<void> {
+    async send(
+      sessionId: string,
+      command:
+        | SessionCommand
+        | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+    ): Promise<{ turnId: string; attachments: AttachmentRef[] }> {
+      if (command.type === 'send' && 'attachmentItems' in command && command.attachmentItems) {
+        const encoded = await encodeIngestItems(command.attachmentItems as RendererIngestInput[]);
+        return ipcRenderer.invoke('sessions:send', sessionId, { ...command, attachmentItems: encoded });
+      }
       return ipcRenderer.invoke('sessions:send', sessionId, command);
+    },
+    compact(sessionId: string): Promise<void> {
+      return ipcRenderer.invoke('sessions:compact', sessionId);
     },
     stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void> {
       return ipcRenderer.invoke('sessions:stop', sessionId, input);
@@ -151,9 +162,6 @@ contextBridge.exposeInMainWorld('maka', {
     },
     listTurns(sessionId: string): Promise<TurnRecord[]> {
       return ipcRenderer.invoke('sessions:listTurns', sessionId);
-    },
-    retryTurn(sessionId: string, input: RetryTurnInput): Promise<void> {
-      return ipcRenderer.invoke('sessions:retryTurn', sessionId, input);
     },
     regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void> {
       return ipcRenderer.invoke('sessions:regenerateTurn', sessionId, input);
@@ -206,6 +214,9 @@ contextBridge.exposeInMainWorld('maka', {
     },
     setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary> {
       return ipcRenderer.invoke('sessions:setModel', sessionId, input);
+    },
+    setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary> {
+      return ipcRenderer.invoke('sessions:setThinkingLevel', sessionId, level ?? undefined);
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);
@@ -368,15 +379,18 @@ contextBridge.exposeInMainWorld('maka', {
       return ipcRenderer.invoke('workspaceInstructions:createFile', file);
     },
   },
-  context: {
-    importTextFile(): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importTextFile');
+  attachments: {
+    pickFiles(): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > {
+      return ipcRenderer.invoke('attachments:pickFiles');
     },
-    importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult> {
-      return ipcRenderer.invoke('context:importDroppedTextFiles', files);
-    },
-    importFolderOutline(): Promise<FolderOutlineImportResult> {
-      return ipcRenderer.invoke('context:importFolderOutline');
+    readBytes(sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > {
+      return ipcRenderer.invoke('attachments:readBytes', sessionId, relativePath);
     },
   },
   search: {
@@ -587,6 +601,11 @@ contextBridge.exposeInMainWorld('maka', {
     update(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult> {
       return ipcRenderer.invoke('settings:update', patch);
     },
+    subscribeExternalChanged(handler: () => void): () => void {
+      const listener = () => handler();
+      ipcRenderer.on('settings:externalChanged', listener);
+      return () => ipcRenderer.off('settings:externalChanged', listener);
+    },
     testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult> {
       return ipcRenderer.invoke('settings:testNetworkProxy', input);
     },
@@ -629,6 +648,20 @@ contextBridge.exposeInMainWorld('maka', {
           return ipcRenderer.invoke('settings:bots:wechat:pollQrcodeStatus', qrToken);
         },
       },
+    },
+  },
+  notifications: {
+    // Fire-and-forget signal that an agent turn reached a terminal
+    // state. `title` is the session name, `body` the start of the reply
+    // (or the error message); main sanitizes both and falls back to
+    // generic copy when blank. Main gates on the product toggle + window
+    // focus before raising a native OS notification.
+    runEnded(payload: {
+      kind: 'completed' | 'errored';
+      title?: string;
+      body?: string;
+    }): Promise<void> {
+      return ipcRenderer.invoke('notifications:runEnded', payload);
     },
   },
   usage: {
@@ -727,6 +760,34 @@ contextBridge.exposeInMainWorld('maka', {
     setTitleBarOverlayTheme(isDark: boolean): Promise<void> {
       return ipcRenderer.invoke('window:setTitleBarOverlayTheme', isDark);
     },
+    // PR-SHOW-AFTER-FIRST-COMMIT: tell main the renderer finished its first
+    // React commit so the hidden window can be revealed. Fire-and-forget.
+    notifyRendererReady(): Promise<void> {
+      return ipcRenderer.invoke('window:notifyRendererReady');
+    },
+  },
+  config: {
+    export(input: { categories: ConfigCategory[] }): Promise<
+      | { ok: false; reason: 'no_categories' | 'canceled' }
+      | { ok: true; path: string; includedData: ConfigCategory[] }
+    > {
+      return ipcRenderer.invoke('config:export', input);
+    },
+    import(input: { strategy: 'skip' | 'overwrite' }): Promise<
+      | { ok: false; reason: 'canceled' | 'not_json' | 'malformed' | 'unsupported_version'; message?: string }
+      | {
+          ok: true;
+          includedData: ConfigCategory[];
+          result: {
+            connections?: { created: number; overwritten: number; skipped: number };
+            settings?: { applied: boolean };
+            credentials?: { applied: number; skipped: number };
+            memory?: { applied: boolean };
+          };
+        }
+    > {
+      return ipcRenderer.invoke('config:import', input);
+    },
   },
   app: {
     info(): Promise<{
@@ -761,6 +822,35 @@ contextBridge.exposeInMainWorld('maka', {
       | { ok: false; reason: 'cancelled' | 'missing-selection' }
     > {
       return ipcRenderer.invoke('app:selectProjectDirectory');
+    },
+    selectProjectRoot(projectPath: string): Promise<
+      | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > {
+      return ipcRenderer.invoke('app:selectProjectRoot', projectPath);
+    },
+    resolveProjectGitInfo(projectPath: string): Promise<
+      | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > {
+      return ipcRenderer.invoke('app:resolveProjectGitInfo', projectPath);
+    },
+    listGitBranches(): Promise<{
+      ok: boolean;
+      branches?: string[];
+      current?: string;
+      reason?: string;
+      message?: string;
+    }> {
+      return ipcRenderer.invoke('app:listGitBranches');
+    },
+    checkoutGitBranch(branch: string): Promise<{
+      ok: boolean;
+      branch?: string;
+      reason?: string;
+      message?: string;
+    }> {
+      return ipcRenderer.invoke('app:checkoutGitBranch', branch);
     },
     openArtifactPath(
       artifactId: string,
@@ -819,6 +909,47 @@ contextBridge.exposeInMainWorld('maka', {
   skills: {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
+    },
+    sources: {
+      list(): Promise<ManagedSkillSourceEntry[]> {
+        return ipcRenderer.invoke('skills:sources:list');
+      },
+      importLocalFile(): Promise<
+        | { ok: true; source: ManagedSkillSourceEntry }
+        | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' }
+      > {
+        return ipcRenderer.invoke('skills:sources:importLocalFile');
+      },
+    },
+    installManaged(sourceId: string): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:installManaged', sourceId);
+    },
+    details(skillId: string): Promise<
+      | { ok: true; details: SkillGovernanceDetails }
+      | { ok: false; reason: 'not_found' | 'invalid_id' }
+    > {
+      return ipcRenderer.invoke('skills:details', skillId);
+    },
+    previewUpdate(skillId: string): Promise<
+      | { ok: true; preview: ManagedSkillUpdatePreview }
+      | { ok: false; reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed' }
+    > {
+      return ipcRenderer.invoke('skills:previewUpdate', skillId);
+    },
+    updateManaged(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:updateManaged', skillId, options);
+    },
+    setEnabled(skillId: string, enabled: boolean): Promise<
+      | { ok: true; skill: SkillEntry }
+      | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
+    > {
+      return ipcRenderer.invoke('skills:setEnabled', skillId, enabled);
     },
     createStarter(): Promise<
       | { ok: true; skill: SkillEntry; filePath: string }

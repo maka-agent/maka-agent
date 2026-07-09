@@ -35,12 +35,12 @@ describe('General settings configurable contract', () => {
       'General page must not re-introduce the read-only 新对话模式 row — permission mode is per-session in the composer.',
     );
     // The 默认模型 row was: `<SettingRow ... value={props.defaultSlug ?? '未设置'} />`.
-    // Block the SettingRow shape specifically; the new real control is a
-    // `<SettingsSelect>` inside `<GeneralDefaultsCard>`.
+    // Block the SettingRow shape specifically; the new real control is the
+    // shared searchable `<ModelPicker>` inside `<GeneralDefaultsCard>`.
     assert.doesNotMatch(
       src,
       /<SettingRow\s+title="默认模型"[\s\S]*?value=\{props\.defaultSlug/,
-      'General page 默认模型 row must use the real <SettingsSelect> inside <GeneralDefaultsCard>, not a read-only <SettingRow>.',
+      'General page 默认模型 row must use the real <ModelPicker> inside <GeneralDefaultsCard>, not a read-only <SettingRow>.',
     );
   });
 
@@ -57,19 +57,21 @@ describe('General settings configurable contract', () => {
       /<GeneralDefaultsCard\s+connections=\{props\.connections\}\s+defaultSlug=\{props\.defaultSlug\}\s+onRefresh=\{props\.onRefreshConnections\}/,
       '<GeneralDefaultsCard> must be mounted by the General-page render branch with connections / defaultSlug / onRefresh wired through',
     );
-    // The actual select + persistence must use the shared SettingsSelect
-    // and the model-level default IPC. The old connection-only selector used
-    // `connection.name`, which can embed OAuth account email; default-model
-    // choices are now grouped from safe model catalog choices.
+    // The actual picker + persistence must use the shared searchable
+    // ModelPicker (also behind the composer's model switcher, so the two
+    // surfaces can't drift) and the model-level default IPC. The old
+    // connection-only selector used `connection.name`, which can embed OAuth
+    // account email; default-model choices are grouped from safe model
+    // catalog choices, with '未设置' as the pinned empty row.
     assert.match(
       src,
-      /<SettingsSelect[\s\S]*ariaLabel="默认模型"[\s\S]*optionGroups=\{optionGroups\}[\s\S]*onChange=/,
-      'GeneralDefaultsCard must use the shared <SettingsSelect> primitive (not a custom dropdown) so the popup layering, keyboard nav, and chrome match the rest of Settings',
+      /<ModelPicker[\s\S]*pinnedItem=\{\{ value: '', label: '未设置' \}\}[\s\S]*ariaLabel="默认模型"[\s\S]*onValueChange=/,
+      'GeneralDefaultsCard must use the shared <ModelPicker> (same popup as the composer model switcher) so the two surfaces cannot drift',
     );
     assert.match(
       src,
       /buildCatalogChatModelChoices\(props\.connections\)[\s\S]*modelMenuGroups\(modelChoices\)[\s\S]*modelChoiceValue\(choice\.connectionSlug, choice\.model\)/,
-      'GeneralDefaultsCard must flatten safe model catalog choices into grouped connection/model options',
+      'GeneralDefaultsCard must derive grouped connection/model choices from the safe model catalog',
     );
     assert.doesNotMatch(
       src,

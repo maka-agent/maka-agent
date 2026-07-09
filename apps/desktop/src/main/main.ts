@@ -1,7 +1,8 @@
 import { app, ipcMain, nativeImage, safeStorage, screen, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { startConfigFileWatcher, type ConfigFileWatcher } from './config-file-watcher.js';
 import { release as osRelease, arch as osArch } from 'node:os';
 import {
   generalizedErrorMessage,
@@ -12,6 +13,10 @@ import {
   healthSignalFromConnection,
   healthSignalFromConnectionRuntime,
   isPermissionMode,
+  isDeepResearchSession,
+  isThinkingLevel,
+  thinkingVariantsForModel,
+  resolveModelVisionSupport,
   DEEP_RESEARCH_SESSION_LABEL,
   botDisplayLabel,
   humanizeBotStatusReason,
@@ -28,6 +33,7 @@ import type {
   SessionEvent,
   SessionHeader,
   SessionListFilter,
+  ThinkingLevel,
   StoredMessage,
   SettingsTestResult,
   UpdateAppSettingsResult,
@@ -44,7 +50,6 @@ import {
   normalizeBranchFromTurnInput,
   normalizePermissionResponse,
   normalizeRegenerateTurnInput,
-  normalizeRetryTurnInput,
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from './permission-response-guard.js';
@@ -53,7 +58,7 @@ import { CodexSubscriptionService } from './oauth/codex-subscription-service.js'
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import type { PricingConfig } from '@maka/core/usage-stats/types';
+import type { LlmCallRecord, PricingConfig, ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type {
   TestProxyInput,
   TestProxyResult,
@@ -80,8 +85,12 @@ import {
   getWechatBridgeQrCode,
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
+  ShellRunProcessManager,
 } from '@maka/runtime';
 import type {
+  BotIncomingMessage,
+  BotStatus,
+  MakaTool,
   ToolAvailabilityConfig,
   ToolArtifactRecorderInput,
   ToolResultArchiveReaderInput,
@@ -90,8 +99,18 @@ import type {
 } from '@maka/runtime';
 import { testProxyConnection } from '@maka/runtime/network/proxy-test';
 import { fetchWeChatQrcode, pollWeChatQrcodeStatus } from './wechat-scan-login.js';
-import type { LlmConnection } from '@maka/core/llm-connections';
-import { createAgentRunStore, createArtifactStore, createConnectionStore, createPlanReminderStore, createRuntimeEventStore, createSessionStore, createSettingsStore, createTelemetryRepo } from '@maka/storage';
+import type { LlmConnection, ProviderType } from '@maka/core/llm-connections';
+import {
+  createAgentRunStore,
+  createArtifactStore,
+  createConnectionStore,
+  createPlanReminderStore,
+  createRuntimeEventStore,
+  createSessionStore,
+  createSettingsStore,
+  createShellRunStore,
+  createTelemetryRepo,
+} from '@maka/storage';
 import {
   ensureSessionCanSendOrRebind,
   errorCode,
@@ -108,6 +127,7 @@ import { handleQuickChatStart as runQuickChatStart, type QuickChatResult } from 
 import { probeOfficeCli } from './officecli-probe.js';
 import { resolveOpenPath, type OpenPathResult } from './open-path-guard.js';
 import { resolveProjectGitInfo, resolveProjectRoot } from '@maka/runtime';
+import { listLocalBranches, checkoutBranch } from './git-branch.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
 import { botTestErrorMessage, buildSettingsUpdateResult, maskAppSettings, preserveSensitivePlaceholders, toSettingsTestResult } from './settings-ipc-helpers.js';
 import {
@@ -132,25 +152,17 @@ import {
 import { resolveBuildInfo } from './build-info.js';
 import { OpenGatewayService } from './open-gateway.js';
 import { LocalMemoryService } from './local-memory-service.js';
-import {
-  createAttachmentApprovalRegistry,
-  validateRendererAttachments,
-  type AttachmentValidationFailureReason,
-} from './attachment-approval.js';
-import {
-  readFolderOutlinesForPromptImport,
-  readDroppedTextFilesForPromptImport,
-  readTextFilesForPromptImport,
-  type DroppedTextFilePayload,
-  type FolderOutlineImportFailureReason,
-  type TextFileImportFailureReason,
-} from './text-file-import.js';
+import { createAttachmentApprovalRegistry } from './attachment-approval.js';
+import { createAttachmentByteReader } from './attachment-reader.js';
+import { resizeImageForAttachment } from './attachment-resize-native.js';
+import { resolveSessionSend } from './session-send-resolve.js';
 import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
+  buildLlmHistorySummarizer,
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
-} from './history-compact-artifacts.js';
+} from '@maka/runtime';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
   persistSynthesisCacheBlocksToArtifacts,
@@ -164,9 +176,10 @@ import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
-import { buildContextBudgetPolicy } from './context-budget-policy.js';
+import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
+import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -178,11 +191,32 @@ import { registerMemoryIpc } from './memory-ipc-main.js';
 import { registerSubscriptionIpc } from './subscription-ipc-main.js';
 import { registerBrowserIpc } from './browser-ipc-main.js';
 import { registerConnectionsIpc } from './connections-ipc-main.js';
+import { registerConfigIpc } from './config-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
+import { registerNotificationsIpc } from './notifications-ipc-main.js';
+
+// E2E switches must never fire in a packaged build, and must never run against
+// the real user data: a stray MAKA_E2E on a build/dev machine would otherwise
+// swap in the fake backend or hide the window. app.isPackaged is true for
+// asar-packaged builds; MAKA_E2E_USER_DATA_DIR must also be set, so the fake
+// backend can't write test sessions into a real profile if someone sets only
+// MAKA_E2E.
+const isE2e =
+  !app.isPackaged &&
+  process.env.MAKA_E2E === '1' &&
+  !!process.env.MAKA_E2E_USER_DATA_DIR;
+
+// E2E isolation: redirect userData BEFORE the single-instance lock so the
+// lock judges the throwaway dir, not the real user data — otherwise a
+// developer with Maka open makes the E2E process exit as a "second instance".
+// Gated by isE2e (not just the dir env) so a packaged build ignores it.
+if (isE2e && process.env.MAKA_E2E_USER_DATA_DIR) {
+  app.setPath('userData', process.env.MAKA_E2E_USER_DATA_DIR);
+}
 
 // Electron does not enforce single-instance by default. Must run before any
 // workspace/store setup below -- a losing second process exits immediately,
@@ -220,9 +254,11 @@ try {
   throw error;
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', visualSmokeFixture?.workspaceName ?? 'default');
+let configWatcher: ConfigFileWatcher | undefined;
 const store = createSessionStore(workspaceRoot);
 const runStore = createAgentRunStore(workspaceRoot);
 const runtimeEventStore = createRuntimeEventStore(workspaceRoot);
+const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
 const telemetryRepo = createTelemetryRepo(workspaceRoot);
@@ -303,6 +339,60 @@ const planReminderStore = createPlanReminderStore(workspaceRoot);
 const taskLedgerWiring = createMainTaskLedgerWiring(workspaceRoot);
 const taskLedgerStore = taskLedgerWiring.store;
 
+// Unified Automation — single "Automation" tool for heartbeat + cron.
+// Deps are resolved lazily since runtime/store aren't ready at this point.
+const automationWiring = createMainAutomationWiring({
+  workspaceRoot,
+  async canFire(automation): Promise<boolean> {
+    // Kind-aware fire gate (see evaluateAutomationCanFire): incognito blocks all;
+    // cron is never gated on its creator session; heartbeat needs an idle session.
+    return evaluateAutomationCanFire(automation, {
+      isIncognitoActive: async () => (await getWorkspacePrivacyContext()).incognitoActive,
+      readSessionHeader: (sessionId) => store.readHeader(sessionId),
+    });
+  },
+  // Heartbeat: inject into the automation's own session; resolve after the stream.
+  async injectTurn(sessionId: string, prompt: string, automationId: string) {
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(sessionId, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    const r = await streamEvents(sessionId, iterator, turnId);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+  },
+  // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
+  // run the prompt there, so each fire is a first-class session + run.
+  async createFreshRun(prompt: string, automationId: string) {
+    const slug = await connectionStore.getDefault();
+    const { connection, model } = await getReadyConnection(slug, undefined);
+    const cwd = await resolveCurrentProjectRoot();
+    const session = await runtime.createSession({
+      cwd,
+      backend: 'ai-sdk',
+      llmConnectionSlug: connection.slug,
+      model,
+      permissionMode: 'explore',
+      name: `Automation: ${prompt.slice(0, 32)}`,
+      labels: ['automation', 'cron'],
+    });
+    emitSessionsChanged('created', session.id);
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(session.id, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    const r = await streamEvents(session.id, iterator, turnId);
+    // Archive the fresh cron session after its run finalizes so recurring crons
+    // do not accumulate an unbounded pile of active sessions. The session (with
+    // its run/trace) is preserved under the archive, labelled automation/cron.
+    await runtime.archive(session.id).catch(() => {});
+    emitSessionsChanged('archived', session.id);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+  },
+});
+
+// Load durable automations from disk on startup (fire-and-forget; errors are logged inside).
+void automationWiring.loadDurableAutomations();
+
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
   return { incognitoActive: settings.privacy.incognitoActive === true };
@@ -320,10 +410,15 @@ const systemPromptService = createSystemPromptMainService({
   localMemory,
   taskLedger: taskLedgerStore,
 });
+// Window is created hidden for E2E and visual-smoke runs so it never steals
+// focus. Derived from the same isE2e gate as userData/fake-backend so the
+// hidden-window switch stays in lockstep with the rest of the E2E isolation.
+const startHidden = Boolean(visualSmokeFixture) || isE2e;
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
   settingsStore,
+  startHidden,
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
 // create one if all windows were closed while the app (macOS: still in the
@@ -363,6 +458,11 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+const shellRuns = new ShellRunProcessManager({
+  store: shellRunStore,
+  newId: randomUUID,
+  now: Date.now,
+});
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
 // per-turn prompt and loaded on demand via `load_tools`, keeping their schemas
@@ -370,12 +470,12 @@ const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now
 // Kill-switch: set MAKA_DISABLE_DEFERRED_TOOLS to any value to turn economy off
 // and advertise every tool every turn (legacy behavior).
 const economyEnabled = !process.env.MAKA_DISABLE_DEFERRED_TOOLS;
-const riveTools = [buildRiveWorkflowTool()];
-const officeTools = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
+const riveTools: MakaTool[] = [buildRiveWorkflowTool()];
+const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentEditTool()];
 // Embedded-browser observe→act tools. They drive the conversation's own
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
-const browserTools = buildBrowserTools();
+const browserTools: MakaTool[] = buildBrowserTools();
 // Computer-use dispatch: pick + construct a host backend (cua-driver default,
 // ax-helper via MAKA_CU_BACKEND). Fails closed off macOS / missing binary →
 // zero tools, so the `computer` capability group stays unavailable and the
@@ -400,8 +500,8 @@ const computerUse = selectComputerUseBackend({
 });
 const computerUseTools = computerUse.tools;
 console.log(`[cu-startup] backend=${computerUse.backendId} tools=${computerUseTools.length}`);
-const agentTools = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
-const deferredTools = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
+const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
+const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
 const toolAvailability: ToolAvailabilityConfig = {
   economy: economyEnabled,
   groups: [
@@ -414,8 +514,12 @@ const toolAvailability: ToolAvailabilityConfig = {
     buildSubagentToolGroup(),
   ],
 };
-const builtinTools = [
-  ...buildBuiltinTools().filter((tool) => tool.name !== 'Edit'),
+const webSearchTool = buildWebSearchAgentTool({
+  settingsStore,
+  getPrivacyContext: getWorkspacePrivacyContext,
+});
+const builtinTools: MakaTool[] = [
+  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -428,18 +532,22 @@ const builtinTools = [
   // over settingsStore so the renderer never sees the API key; the
   // permission engine routes it through the `web_read` policy which
   // prompts the user in explore / ask modes.
-  buildWebSearchAgentTool({
-    settingsStore,
-    getPrivacyContext: getWorkspacePrivacyContext,
-  }),
+  webSearchTool,
   // Session task ledger: model manages a flat task list; the current list is
   // re-injected each turn tail. Pure local state, so no permission gate.
   ...taskLedgerWiring.tools,
+  // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
+  ...automationWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
-const childAgentTools = buildChildAgentTools(builtinTools);
+// Child agents stay file-only for local reads; parent runtime refs such as
+// maka://runtime/background-tasks/<id> are not part of their tool surface.
+const childAgentTools = buildChildAgentTools([
+  ...buildBuiltinTools().filter((tool: MakaTool) => tool.name !== 'Edit'),
+  webSearchTool,
+]);
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -447,8 +555,13 @@ let lookupPricing = buildPricingLookup();
 // same readiness during reconnect attempts).
 const previousBotReadiness = new Map<BotProvider, BotReadinessState>();
 let botIncoming: ReturnType<typeof createBotIncomingMainService>;
+// botIncoming is wired at module load, before registerIpc() defines the
+// current-project-root resolver. registerIpc reassigns this once the resolver
+// exists; until then the launch directory is the safe fallback. Unifying
+// project-root resolution is tracked as a follow-up.
+let resolveCurrentProjectRoot: () => Promise<string> = async () => process.cwd();
 const botRegistry = new BotRegistry({
-  onIncomingMessage: (message) => {
+  onIncomingMessage: (message: BotIncomingMessage) => {
     // Only log incoming bot messages in dev — production stdout leaking
     // platform + chatId is operational noise at best and a small privacy
     // signal at worst (which bridges are connected, with what frequency).
@@ -457,7 +570,7 @@ const botRegistry = new BotRegistry({
     }
     void botIncoming.handleBotIncomingMessage(message);
   },
-  onStatusChange: (status) => {
+  onStatusChange: (status: BotStatus) => {
     safeSendToRenderer('settings:bots:statusChanged', status);
     // PR-BOT-LASTERROR-FROM-SEND-0: persist send-path failure reasons
     // to settings so they survive a Settings page close/reopen. The
@@ -595,10 +708,15 @@ function isInsideOrSamePath(root: string, target: string): boolean {
   return rel !== '' && !rel.startsWith('..') && rel !== '..' && !rel.includes(`..${sep}`) && !rel.startsWith(sep);
 }
 
+function modelSupportsVision(connection: LlmConnection, model: string): boolean {
+  return resolveModelVisionSupport(connection.providerType, connection.models, model);
+}
+
 backends.register('ai-sdk', async (ctx) => {
   const { connection, apiKey, model } = await getReadyConnection(ctx.header.llmConnectionSlug, ctx.header.model);
   const modelFetch = buildSubscriptionModelFetch(connection, ctx.sessionId, model);
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
+  const supportsVision = modelSupportsVision(connection, model);
 
   return new AiSdkBackend({
     sessionId: ctx.sessionId,
@@ -614,16 +732,20 @@ backends.register('ai-sdk', async (ctx) => {
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),
     readChildAgentOutput: (input) => runtime.readChildAgentOutput(ctx.sessionId, input),
-    providerOptions: buildProviderOptions(connection, model),
-    contextBudget: buildContextBudgetPolicy(connection),
+    providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
+    contextBudget: buildDefaultContextBudgetPolicy(connection, {
+      name: 'desktop-default-history-budget',
+      modelId: model,
+    }),
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
+    shellRunContextSummary: ctx.shellRunContextSummary,
     lookupPricing,
-    recordLlmCall: (event) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
-    recordToolInvocation: (event) =>
+    recordLlmCall: (event: LlmCallRecord) => recordLlmCall({ repo: telemetryRepo, lookupPricing }, event),
+    recordToolInvocation: (event: ToolInvocationRecord) =>
       recordToolInvocation(
         { repo: telemetryRepo },
         // PR-AGENT-WEB-SEARCH-TOOL-0: scrub the query out of the
@@ -634,11 +756,20 @@ backends.register('ai-sdk', async (ctx) => {
           ? { ...event, argsSummary: undefined }
           : event,
       ),
-    recordToolArtifacts: (event) => persistToolArtifacts(ctx.header.cwd, event),
-    archiveToolResult: (event) => persistArchivedToolResult(event),
-    readToolResultArchive: (event) => readArchivedToolResult(event),
+    recordToolArtifacts: (event: ToolArtifactRecorderInput) => persistToolArtifacts(ctx.header.cwd, event),
+    archiveToolResult: (event: ToolResultArchiveRecorderInput) => persistArchivedToolResult(event),
+    readToolResultArchive: (event: ToolResultArchiveReaderInput) => readArchivedToolResult(event),
+    readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
+    supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
     writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
+      summarize: buildLlmHistorySummarizer({
+        // Reuse the same connection/model the session already drives, so the
+        // summary stays consistent with the model that will consume it.
+        resolveModel: () =>
+          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+        maxOutputTokens: 4096,
+      }),
       onArtifactCreated: (artifact) => {
         safeSendToRenderer('artifacts:changed', {
           reason: 'created',
@@ -683,10 +814,22 @@ backends.register('fake', (ctx) =>
   new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
 );
 
+// E2E: also route 'ai-sdk' (requested by sessions:create and quickChat:start)
+// through the deterministic fake backend, so no session-creation path can
+// escape the E2E seam and hit a real provider. Registered after the real
+// ai-sdk factory to override it (BackendRegistry uses last-write-wins).
+// Production builds never set MAKA_E2E.
+if (isE2e) {
+  backends.register('ai-sdk', (ctx) =>
+    new FakeBackend({ sessionId: ctx.sessionId, header: ctx.header, store: ctx.store, appendMessage: ctx.appendMessage }),
+  );
+}
+
 const runtime = new SessionManager({
   store,
   runStore,
   runtimeEventStore,
+  shellRuns,
   backends,
   childTools: childAgentTools,
   listArtifactsForTurn: async (sessionId, turnId) =>
@@ -707,7 +850,7 @@ const dailyReview = createDailyReviewMainService({
 botIncoming = createBotIncomingMainService({
   runtime,
   botRegistry,
-  cwd: () => process.cwd(),
+  getCurrentProjectRoot: () => resolveCurrentProjectRoot(),
   getDefaultConnectionSlug: () => connectionStore.getDefault(),
   getReadyConnection,
   readSessionHeader: (sessionId) => store.readHeader(sessionId),
@@ -763,54 +906,7 @@ function workspaceInstructionCreateFailureCopy(reason: WorkspaceInstructionCreat
   }
 }
 
-function textFileImportFailureCopy(reason: TextFileImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选文件不存在或不是普通文件。';
-    case 'too-large':
-      return '文件过大；请先截取需要讨论的部分。';
-    case 'binary':
-      return '这个文件不像纯文本，已取消导入。';
-    case 'too-many-files':
-      return '一次最多导入 5 个文件。';
-    case 'office-file':
-      return 'Office 文档请用导入文件按钮选择；拖放或粘贴拿不到可授权的本地路径。';
-    case 'unsupported-type':
-      return '只支持直接导入文本文件和 Office 文档。';
-    case 'read-failed':
-      return '读取文件失败。';
-    case 'officecli_missing':
-      return '本机未检测到 officecli，暂时无法导入 Office 文档内容。';
-    case 'officecli_timeout':
-      return 'Office 文档内容导入超时。';
-    case 'officecli_failed':
-      return 'Office 文档内容导入失败。';
-  }
-}
 
-function folderOutlineImportFailureCopy(reason: FolderOutlineImportFailureReason): string {
-  switch (reason) {
-    case 'missing':
-      return '所选位置不存在或不是文件夹。';
-    case 'read-failed':
-      return '读取文件夹目录失败。';
-    case 'too-many-folders':
-      return '一次最多导入 3 个文件夹目录。';
-    case 'empty':
-      return '这个文件夹里没有可导入的文件目录。';
-  }
-}
-
-function attachmentValidationFailureCopy(reason: AttachmentValidationFailureReason): string {
-  switch (reason) {
-    case 'too_many_attachments':
-      return '一次最多发送 8 个附件。';
-    case 'unapproved_external_path':
-      return '附件来源已过期，请重新选择文件后再发送。';
-    case 'invalid_attachment':
-      return '附件信息无效，请重新选择文件后再发送。';
-  }
-}
 
 function proxyTestFailureMessage(result: TestProxyResult): string {
   const raw = redactSecrets(result.error ?? '').trim();
@@ -826,15 +922,67 @@ function proxyTestFailureMessage(result: TestProxyResult): string {
 }
 
 function registerIpc(): void {
+  const LAST_PROJECT_PATH_FILE = join(workspaceRoot, 'last-project-path.json');
+
   let selectedProjectRoot: string | null = null;
+
+  async function loadPersistedProjectRoot(): Promise<string | null> {
+    try {
+      const raw = await readFile(LAST_PROJECT_PATH_FILE, 'utf8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (typeof parsed.projectPath === 'string' && parsed.projectPath) {
+        await stat(parsed.projectPath);
+        return await resolveProjectRoot([parsed.projectPath]);
+      }
+    } catch {
+      // File missing, invalid, or points at a deleted directory.
+    }
+    return null;
+  }
+  const persistedProjectRootPromise = loadPersistedProjectRoot();
+
+  async function saveLastProjectPath(projectPath: string): Promise<void> {
+    try {
+      await writeFile(LAST_PROJECT_PATH_FILE, JSON.stringify({ projectPath }), 'utf8');
+    } catch {
+      // Best-effort; failure should not block the selection.
+    }
+  }
 
   async function currentProjectRoot(): Promise<string> {
     if (selectedProjectRoot) return selectedProjectRoot;
+    const persistedProjectRoot = await persistedProjectRootPromise;
+    if (persistedProjectRoot) {
+      selectedProjectRoot = persistedProjectRoot;
+      return persistedProjectRoot;
+    }
     return resolveProjectRoot([process.cwd(), app.getAppPath()]);
+  }
+  resolveCurrentProjectRoot = currentProjectRoot;
+
+  async function resolveExplicitProjectRoot(projectPath: unknown): Promise<
+    | { ok: true; projectPath: string }
+    | { ok: false; reason: 'invalid-path' | 'not-found' }
+  > {
+    if (typeof projectPath !== 'string' || !projectPath) {
+      return { ok: false, reason: 'invalid-path' };
+    }
+    try {
+      await stat(projectPath);
+    } catch {
+      return { ok: false, reason: 'not-found' };
+    }
+    return { ok: true, projectPath: await resolveProjectRoot([projectPath]) };
   }
 
   ipcMain.handle('window:setTitlebarControlsVisible', (event, visible: unknown): void => {
     mainWindowController.setTitlebarControlsVisible(event.sender, visible);
+  });
+  // PR-SHOW-AFTER-FIRST-COMMIT: the renderer signals its first React commit so
+  // the hidden window (main-window.ts show: false) is revealed only once real
+  // content can paint. Idempotent + visual-smoke-safe inside the controller.
+  ipcMain.handle('window:notifyRendererReady', (): void => {
+    mainWindowController.notifyRendererReady();
   });
   ipcMain.handle('window:setThemeSource', (event, themePref: unknown): void => {
     mainWindowController.setThemeSource(event.sender, themePref);
@@ -884,6 +1032,7 @@ function registerIpc(): void {
       if (!selectedPath) return { ok: false, reason: 'missing-selection' };
       const projectPath = await resolveProjectRoot([selectedPath]);
       selectedProjectRoot = projectPath;
+      void saveLastProjectPath(projectPath);
       return {
         ok: true,
         projectPath,
@@ -891,12 +1040,65 @@ function registerIpc(): void {
       };
     },
   );
+  ipcMain.handle(
+    'app:selectProjectRoot',
+    async (_event, projectPath: unknown): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > => {
+      const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+      if (!explicitRoot.ok) return explicitRoot;
+      const resolved = explicitRoot.projectPath;
+      selectedProjectRoot = resolved;
+      void saveLastProjectPath(resolved);
+      return {
+        ok: true,
+        projectPath: resolved,
+        projectGit: await resolveProjectGitInfo(resolved),
+      };
+    },
+  );
+  ipcMain.handle(
+    'app:resolveProjectGitInfo',
+    async (
+      _event,
+      projectPath: unknown,
+    ): Promise<
+      | { ok: true; projectPath: string; projectGit: Awaited<ReturnType<typeof resolveProjectGitInfo>> }
+      | { ok: false; reason: 'invalid-path' | 'not-found' }
+    > => {
+      if (projectPath !== undefined) {
+        const explicitRoot = await resolveExplicitProjectRoot(projectPath);
+        if (!explicitRoot.ok) return explicitRoot;
+        const resolved = explicitRoot.projectPath;
+        return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
+      }
+      const resolved = await currentProjectRoot();
+      return { ok: true, projectPath: resolved, projectGit: await resolveProjectGitInfo(resolved) };
+    },
+  );
+  ipcMain.handle('app:listGitBranches', async () => {
+    const projectPath = await currentProjectRoot();
+    return listLocalBranches(projectPath);
+  });
+  ipcMain.handle(
+    'app:checkoutGitBranch',
+    async (_event, branch: unknown): Promise<{ ok: boolean; branch?: string; reason?: string; message?: string }> => {
+      if (typeof branch !== 'string' || !branch) {
+        return { ok: false, reason: 'failed', message: '无效的分支名' };
+      }
+      const projectPath = await currentProjectRoot();
+      return checkoutBranch(projectPath, branch);
+    },
+  );
   registerMemoryIpc({ localMemory });
-  ipcMain.handle('workspaceInstructions:getState', () => getWorkspaceInstructionsState(process.cwd()));
+  registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
+  registerNotificationsIpc({ settingsStore, mainWindowController });
+  ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',
     async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const resolved = await resolveWorkspaceInstructionFileForOpen(process.cwd(), typeof file === 'string' ? file : '');
+      const resolved = await resolveWorkspaceInstructionFileForOpen(await currentProjectRoot(), typeof file === 'string' ? file : '');
       if (!resolved.ok) return { ok: false, message: workspaceInstructionOpenFailureCopy(resolved.reason) };
       const error = await shell.openPath(resolved.path);
       return error ? { ok: false, message: workspaceInstructionOpenFailureCopy('open-failed') } : { ok: true };
@@ -905,81 +1107,9 @@ function registerIpc(): void {
   ipcMain.handle(
     'workspaceInstructions:createFile',
     async (_event, file: unknown): Promise<{ ok: true } | { ok: false; message: string }> => {
-      const created = await createWorkspaceInstructionFile(process.cwd(), typeof file === 'string' ? file : '');
+      const created = await createWorkspaceInstructionFile(await currentProjectRoot(), typeof file === 'string' ? file : '');
       if (!created.ok) return { ok: false, message: workspaceInstructionCreateFailureCopy(created.reason) };
       return { ok: true };
-    },
-  );
-  ipcMain.handle(
-    'context:importTextFile',
-    async (): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const textFileFilters = [
-        { name: 'Text', extensions: ['txt', 'text', 'md', 'markdown', 'mdx', 'json', 'jsonl', 'csv', 'tsv', 'log', 'yaml', 'yml', 'toml', 'xml', 'html', 'htm', 'css', 'scss', 'sass', 'js', 'mjs', 'cjs', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cc', 'cpp', 'h', 'hh', 'hpp', 'sh', 'zsh', 'sql', 'ini', 'conf', 'env'] },
-        { name: 'Office', extensions: ['docx', 'xlsx', 'pptx'] },
-        { name: 'All Files', extensions: ['*'] },
-      ];
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件内容',
-        properties: ['openFile', 'multiSelections'],
-        filters: textFileFilters,
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readTextFilesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importDroppedTextFiles',
-    async (_event, payloads: unknown): Promise<
-      | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: TextFileImportFailureReason; message: string }
-    > => {
-      const safePayloads: DroppedTextFilePayload[] = Array.isArray(payloads)
-        ? payloads.map((payload) => {
-            const value = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
-            return {
-              name: typeof value.name === 'string' ? value.name : '',
-              size: typeof value.size === 'number' ? value.size : 0,
-              type: typeof value.type === 'string' ? value.type : '',
-              text: typeof value.text === 'string' ? value.text : '',
-            };
-          })
-        : [];
-      const imported = readDroppedTextFilesForPromptImport(safePayloads);
-      if (!imported.ok) {
-        return { ...imported, message: textFileImportFailureCopy(imported.reason) };
-      }
-      return imported;
-    },
-  );
-  ipcMain.handle(
-    'context:importFolderOutline',
-    async (): Promise<
-      | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-      | { ok: false; reason: 'cancelled'; message: string }
-      | { ok: false; reason: FolderOutlineImportFailureReason; message: string }
-    > => {
-      const result = await mainWindowController.showOpenDialog({
-        title: '导入文件夹目录',
-        properties: ['openDirectory', 'multiSelections'],
-      });
-      if (result.canceled || !result.filePaths[0]) {
-        return { ok: false, reason: 'cancelled', message: '已取消导入。' };
-      }
-      const imported = await readFolderOutlinesForPromptImport(result.filePaths);
-      if (!imported.ok) {
-        return { ...imported, message: folderOutlineImportFailureCopy(imported.reason) };
-      }
-      return imported;
     },
   );
   registerWorkspaceResourcesIpc({
@@ -1050,7 +1180,7 @@ function registerIpc(): void {
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
-    const cwd = input?.cwd ?? process.cwd();
+    const cwd = input?.cwd ?? (await currentProjectRoot());
     if (input?.backend === 'fake') {
       if (!canCreateFakeSessionFromRenderer()) {
         throw new Error('FakeBackend sessions are only available in development.');
@@ -1070,12 +1200,14 @@ function registerIpc(): void {
 
     const requestedSlug = input?.llmConnectionSlug ?? (await connectionStore.getDefault());
     const { connection, model } = await getReadyConnection(requestedSlug, input?.model);
+    const thinkingLevel = normalizeSupportedSessionThinkingLevel(input?.thinkingLevel, connection.providerType, model);
 
     const session = await runtime.createSession({
       cwd,
       backend: 'ai-sdk',
       llmConnectionSlug: connection.slug,
       model,
+      ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode: input?.permissionMode ?? (await resolveDefaultPermissionMode(() => settingsStore.get())),
       name: input?.name ?? 'New Chat',
       labels: input?.labels,
@@ -1169,27 +1301,61 @@ function registerIpc(): void {
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
-    await ensureSessionCanSend(sessionId);
-    const attachments = validateRendererAttachments(sendCommand.attachments, {
+    const { turnId, attachments } = await resolveSessionSend({
+      sessionId,
       senderId: event.sender.id,
+      command: sendCommand,
+      ensureCanSend: ensureSessionCanSend,
+      readHeader: (id) => store.readHeader(id),
       approvals: attachmentApprovals,
+      stat: async (path) => ({ size: (await stat(path)).size }),
+      artifactStore,
+      resizeImage: resizeImageForAttachment,
     });
-    if (!attachments.ok) {
-      throw new Error(attachmentValidationFailureCopy(attachments.reason));
-    }
-    const turnId = sendCommand.turnId || randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId,
       text: sendCommand.text,
-      attachments: attachments.attachments,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
     void streamEvents(sessionId, iterator, turnId);
+    return { turnId, attachments };
   });
-  ipcMain.handle('sessions:retryTurn', async (_event, sessionId: string, input: unknown) => {
+  ipcMain.handle(
+    'attachments:pickFiles',
+    async (event): Promise<
+      | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+      | { ok: false; reason: 'cancelled' }
+    > => {
+      const result = await mainWindowController.showOpenDialog({
+        title: '添加附件',
+        properties: ['openFile', 'multiSelections'],
+      });
+      if (result.canceled || !result.filePaths[0]) return { ok: false, reason: 'cancelled' };
+      const chosen = await Promise.all(
+        result.filePaths.map(async (path) => ({ path, name: basename(path), size: (await stat(path)).size })),
+      );
+      // Paths stay in main; the renderer only gets one-shot opaque tokens.
+      return { ok: true, files: attachmentApprovals.issueApprovals(event.sender.id, chosen) };
+    },
+  );
+  ipcMain.handle(
+    'attachments:readBytes',
+    async (_event, sessionId: string, relativePath: string): Promise<
+      | { ok: true; base64: string; mimeType: string }
+      | { ok: false; reason: string }
+    > => {
+      // Session-scoped read: only attachments filed under this session.
+      const record = await artifactStore.get(relativePath).catch(() => null);
+      if (!record || record.sessionId !== sessionId) return { ok: false, reason: 'not_found' };
+      const result = await artifactStore.readBinary(relativePath);
+      if (!result.ok) return result;
+      return { ok: true, base64: result.base64, mimeType: result.mimeType };
+    },
+  );
+  ipcMain.handle('sessions:compact', async (_event, sessionId: string) => {
     await ensureSessionCanSend(sessionId);
-    const normalized = normalizeRetryTurnInput(input);
-    const turnId = normalized.turnId ?? randomUUID();
-    void streamEvents(sessionId, runtime.retryTurn(sessionId, { ...normalized, turnId }), turnId);
+    const turnId = randomUUID();
+    void streamEvents(sessionId, runtime.compactSession(sessionId, { turnId }), turnId);
   });
   ipcMain.handle('sessions:regenerateTurn', async (_event, sessionId: string, input: unknown) => {
     await ensureSessionCanSend(sessionId);
@@ -1207,6 +1373,8 @@ function registerIpc(): void {
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
+    // Stop any automation loops (polling heartbeats) tied to the session.
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
   ipcMain.handle('sessions:unarchive', async (_event, sessionId: string) => {
@@ -1244,6 +1412,8 @@ function registerIpc(): void {
       backend: 'ai-sdk',
       llmConnectionSlug: ready.connection.slug,
       model: ready.model,
+      // Switching model clears the per-model thinking variant (see model-thinking.ts).
+      thinkingLevel: undefined,
       connectionLocked: true,
       status: 'active',
       blockedReason: undefined,
@@ -1255,12 +1425,31 @@ function registerIpc(): void {
     });
     return next;
   });
+  ipcMain.handle('sessions:setThinkingLevel', async (_event, sessionId: string, input: unknown) => {
+    const header = await store.readHeader(sessionId);
+    if (header.status === 'running') {
+      throw new Error('当前对话正在运行，等结束后再切换思考级别。');
+    }
+    if (header.status === 'waiting_for_user') {
+      throw new Error('当前有工具调用正在等待确认，处理后再切换思考级别。');
+    }
+    const connection = await connectionStore.get(header.llmConnectionSlug);
+    if (!connection) {
+      throw new Error(`Unknown connection: ${header.llmConnectionSlug}`);
+    }
+    const nextThinkingLevel = normalizeSupportedSessionThinkingLevel(input, connection.providerType, header.model);
+    const next = await runtime.updateSession(sessionId, nextThinkingLevel === undefined ? { thinkingLevel: undefined } : { thinkingLevel: nextThinkingLevel });
+    emitSessionsChanged('updated', sessionId);
+    return next;
+  });
   ipcMain.handle('sessions:remove', async (_event, sessionId: string) => {
     await runtime.remove(sessionId);
     // Drop the conversation's browser connection and destroy its view (no-op
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
     await releaseBrowserSession(sessionId);
+    // Stop any automation loops (polling heartbeats) tied to the session.
+    automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
   });
 
@@ -1293,7 +1482,7 @@ function registerIpc(): void {
   // surfaces (connectionSlug / model) will land in PR110c/d when the
   // model-picker UI is ready.
   ipcMain.handle('quickChat:start', async (_event, input: unknown) => {
-    return handleQuickChatStart(input);
+    return handleQuickChatStart(input, currentProjectRoot);
   });
 
   ipcMain.handle('permissions:getSnapshot', () => buildPermissionSnapshot());
@@ -1471,20 +1660,64 @@ async function applySettingsRuntimeEffects(settings: AppSettings, patch: UpdateA
     const status = await openGateway.sync(settings.openGateway);
     safeSendToRenderer('gateway:statusChanged', status);
   }
+  if (patch.chatDefaults?.permissionMode) {
+    await syncDefaultPermissionModeToSessions(settings.chatDefaults.permissionMode);
+  }
+}
+
+async function syncDefaultPermissionModeToSessions(mode: Exclude<PermissionMode, 'explore'>): Promise<void> {
+  const sessions = await runtime.listSessions();
+  await Promise.all(sessions.map(async (session) => {
+    if (session.permissionMode === mode) return;
+    if (isDeepResearchSession(session.labels)) return;
+    if (session.status === 'running' || session.status === 'waiting_for_user') return;
+    try {
+      await runtime.setPermissionMode(session.id, mode);
+      emitSessionsChanged('mode-change', session.id);
+    } catch {
+      // Best effort: the persisted global default is still the authority for
+      // new sessions; busy sessions can be reconciled on a later change.
+    }
+  }));
+}
+
+async function handleExternalSettingsChange(): Promise<void> {
+  try {
+    const settings = await settingsStore.get();
+    const fullPatch: UpdateAppSettingsInput = {
+      network: settings.network,
+      botChat: settings.botChat,
+      openGateway: settings.openGateway,
+    };
+    await applySettingsRuntimeEffects(settings, fullPatch);
+  } catch (error) {
+    console.error('[config-watcher] failed to apply external settings change:', error);
+  }
+  // Always notify renderer, even on partial failure above
+  safeSendToRenderer('settings:externalChanged', { ts: Date.now() });
 }
 
 async function streamEvents(
   sessionId: string,
   iterator: AsyncIterable<SessionEvent>,
   fallbackTurnId?: string,
-): Promise<void> {
+): Promise<{ turnId: string; ok: boolean; error?: string }> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
+  let turnAborted = false;
+  let turnError: string | undefined;
+  const turnId = fallbackTurnId ?? randomUUID();
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
+      }
+      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+        turnAborted = true;
+      }
+      if (event.type === 'error') {
+        turnError = event.message ?? event.reason ?? 'turn error';
       }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
@@ -1501,6 +1734,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
+    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
     const event = {
       type: 'error',
@@ -1521,6 +1755,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
+    return { turnId, ok: false, error: errorMessage(error) };
   }
 }
 
@@ -1580,13 +1815,32 @@ function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
 }
 
+function normalizeSupportedSessionThinkingLevel(
+  input: unknown,
+  providerType: ProviderType,
+  model: string,
+): ThinkingLevel | undefined {
+  const thinkingLevel = input === undefined || input === null ? undefined : input;
+  if (thinkingLevel === undefined) return undefined;
+  if (!isThinkingLevel(thinkingLevel)) {
+    throw new Error(`Invalid thinking level: ${String(input)}`);
+  }
+  if (!thinkingVariantsForModel(providerType, model).includes(thinkingLevel)) {
+    throw new Error(`当前模型不支持思考级别：${thinkingLevel}`);
+  }
+  return thinkingLevel;
+}
+
 /**
  * PR110b: Quick Chat entry — thin adapter over the extracted helper.
  * The discriminated-union logic + readiness gating lives in
  * `./quick-chat.ts` so it can be unit-tested without spinning up an
  * Electron app.
  */
-async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult> {
+async function handleQuickChatStart(
+  rawInput: unknown,
+  getCurrentProjectRoot: () => Promise<string>,
+): Promise<QuickChatResult> {
   return runQuickChatStart(rawInput, {
     getOnboardingState: async () => (await onboardingService.getSnapshot()).state,
     createSession: async (input) => {
@@ -1605,7 +1859,7 @@ async function handleQuickChatStart(rawInput: unknown): Promise<QuickChatResult>
           : resolveDefaultPermissionMode(() => settingsStore.get()),
       ]);
       return runtime.createSession({
-        cwd: process.cwd(),
+        cwd: await getCurrentProjectRoot(),
         backend: 'ai-sdk',
         llmConnectionSlug: ready.connection.slug,
         model: ready.model,
@@ -1734,11 +1988,11 @@ app.whenReady().then(async () => {
   // builds get the icon via .app bundle Info.plist; this covers the
   // dev path.
   if (process.platform === 'darwin' && app.dock) {
-    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
+    if (process.env.MAKA_VISUAL_SMOKE_FIXTURE || isE2e) {
       // PR-VISUAL-SMOKE-HEADLESS: hide the dock icon so the spawned
       // Electron runs as an accessory app — no dock bounce, and it
       // never becomes frontmost / steals focus from the developer's
-      // active window during a capture run.
+      // active window during a capture run or an E2E run.
       app.dock.hide();
     } else {
       try {
@@ -1878,20 +2132,49 @@ async function runBackgroundStartup(): Promise<void> {
   await openGateway.sync(settings.openGateway);
   await planReminders.refreshTimers();
   dailyReview.startScheduler();
+  configWatcher = startConfigFileWatcher(workspaceRoot, {
+    onConnectionsChanged: () => emitConnectionListChanged(),
+    onSettingsChanged: () => void handleExternalSettingsChange(),
+  });
+  automationWiring.scheduler.start();
 }
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let beforeQuitCleanupComplete = false;
+let beforeQuitCleanupStarted = false;
+
+app.on('before-quit', (event) => {
+  if (beforeQuitCleanupComplete) return;
+  event.preventDefault();
+  if (beforeQuitCleanupStarted) return;
+  beforeQuitCleanupStarted = true;
+  void runBeforeQuitCleanup().finally(() => {
+    beforeQuitCleanupComplete = true;
+    app.quit();
+  });
+});
+
+async function runBeforeQuitCleanup(): Promise<void> {
+  automationWiring.scheduler.dispose();
+  configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
-  void botRegistry.stopAll();
-  void openGateway.stop();
-  void mainWindowController.disposeBrowserViews();
+  // Computer-use teardown: kill the cua-driver child + tear down the Maka-owned
+  // agent-cursor overlay window (both synchronous, main-process-owned).
   computerUse.backend?.dispose?.();
   computerUseOverlay.destroyAll();
-});
+  const results = await Promise.allSettled([
+    botRegistry.stopAll(),
+    openGateway.stop(),
+    Promise.resolve(mainWindowController.disposeBrowserViews()),
+    shellRuns.terminateAll(),
+  ]);
+  for (const result of results) {
+    if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
+  }
+}
 
 app.on('activate', focusOrCreateMainWindow);

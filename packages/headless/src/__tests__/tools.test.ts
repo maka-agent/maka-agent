@@ -11,6 +11,10 @@ import {
   ToolAvailabilityRuntime,
 } from '@maka/runtime';
 import { createHeavyTaskEvidenceRecorder } from '../heavy-task-evidence.js';
+import {
+  createInMemoryTaskLedgerExperimentStore,
+  TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES,
+} from '../task-ledger-experiment.js';
 import { createInMemoryTaskRunStore } from '../task-run-store.js';
 import { buildIsolatedBashTool, buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools } from '../tools.js';
 import type { IsolatedToolExecutor } from '../isolation.js';
@@ -49,10 +53,36 @@ describe('isolated headless tools', () => {
       kind: 'terminal',
       cwd: '/workspace',
       cmd: 'npm test',
+      status: 'failed',
       exitCode: 7,
       stdout: 'out\n',
       stderr: 'err\n',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     });
+  });
+
+  test('Bash declares the executor shell dialect to the model, and stays silent on POSIX', () => {
+    // Selection without declaration is the original Windows bug (shell-detect.ts):
+    // createHarborCellLocalToolExecutor runs PowerShell on Windows, so the
+    // isolated Bash description must tell the model that dialect.
+    const pwshBash = buildIsolatedBashTool({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:/pwsh.exe' },
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    assert.match(pwshBash.description, /PowerShell 7 \(pwsh\)/);
+    assert.match(pwshBash.description, /write PowerShell syntax, not cmd or bash syntax/);
+
+    // No shell (POSIX / remote container): the historical description is the
+    // contract; no dialect sentence is added.
+    const posixBash = buildIsolatedBashTool({
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    });
+    assert.doesNotMatch(posixBash.description, /PowerShell|cmd syntax/);
   });
 
   test('Bash leaves the default timeout to the isolated executor', async () => {
@@ -101,6 +131,22 @@ describe('isolated headless tools', () => {
     assert.ok(result.stdout.includes('truncated'));
     assert.ok(!result.stdout.includes('line1\n'));
     assert.ok(result.stdout.length < big.length);
+  });
+
+  test('Bash preserves retained-tail truncation flags from the isolated executor', async () => {
+    const bash = buildIsolatedBashTool({
+      async exec() {
+        return { exitCode: 0, stdout: 'tail', stderr: '', stdoutTruncated: true, stderrTruncated: false };
+      },
+    });
+
+    const result = await bash.impl(
+      { command: 'noisy' },
+      toolCtx('/workspace'),
+    ) as { stdoutTruncated: boolean; stderrTruncated: boolean };
+
+    assert.equal(result.stdoutTruncated, true);
+    assert.equal(result.stderrTruncated, false);
   });
 
   test('Bash delegates cleanup commands to the isolated executor', async () => {
@@ -177,9 +223,28 @@ describe('isolated headless tools', () => {
     assert.ok(!names.includes('todo_update'));
     assert.ok(!names.includes('self_check_plan_submit'));
     assert.ok(!names.includes('self_check_submit'));
+    assert.ok(!names.some((name) => name.startsWith('task_')));
     assert.equal(names.filter((name) => name === 'Bash').length, 1);
     assert.deepEqual(buildChildAgentTools(tools).map((tool) => tool.name), ['Read', 'Glob', 'Grep']);
     assert.ok(!buildChildAgentTools(tools).some((tool) => ['Bash', 'Write', 'Edit'].includes(tool.name)));
+  });
+
+  test('task experiment tools are included only when a task ledger store is enabled', () => {
+    const tools = buildIsolatedHeadlessTools({
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    }, {
+      taskLedgerExperiment: {
+        store: createInMemoryTaskLedgerExperimentStore({ now: () => 1, newId: () => 'task-1' }),
+      },
+    });
+
+    const names = tools.map((tool) => tool.name);
+    for (const taskToolName of TASK_LEDGER_EXPERIMENT_TODO_TOOL_NAMES) {
+      assert.ok(names.includes(taskToolName));
+    }
+    assert.ok(!names.some((name) => name.startsWith('task_')));
   });
 
   test('progress and self-check tools are included only when heavy-task recorders are enabled', () => {

@@ -12,8 +12,7 @@ import type {
 } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionEvent } from '@maka/core/events';
-import type { BackendSendInput } from '@maka/core/backend-types';
-import type { AgentBackend } from './ai-sdk-backend.js';
+import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
@@ -86,6 +85,12 @@ export interface AgentRunBeginResult {
   initialRuntimeEvent: RuntimeEvent;
 }
 
+export interface AgentRunOperationBeginResult {
+  backend: AgentBackend;
+  runtimeContext: RuntimeEvent[];
+  startedAt: number;
+}
+
 interface PriorRuntimeContext {
   events: RuntimeEvent[];
   runs: AgentRunHeader[];
@@ -142,6 +147,10 @@ export class AgentRun {
   stop(source: StopSessionInput['source'] | undefined): void {
     this.stopped = true;
     this.abortSource = normalizeStopSessionSource(source);
+  }
+
+  isStopped(): boolean {
+    return this.stopped;
   }
 
   recordRunTrace(event: RunTraceEvent): void {
@@ -285,6 +294,7 @@ export class AgentRun {
         ts: userMessageTs,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
+        ...(this.input.userInput.origin ? { origin: this.input.userInput.origin } : {}),
       };
       await this.input.store.appendMessage(this.sessionId, userMsg);
       await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage);
@@ -325,6 +335,33 @@ export class AgentRun {
     };
   }
 
+  async beginOperation(): Promise<AgentRunOperationBeginResult> {
+    await this.createRunRecord();
+
+    const startedAt = this.input.now();
+    this.lastTs = startedAt;
+    if (this.recordsSessionMessages()) {
+      await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage, { ts: startedAt });
+    }
+
+    if (!this.header.connectionLocked) {
+      this.header = await this.input.hooks.updateHeader(this.sessionId, { connectionLocked: true });
+    }
+
+    this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
+    this.input.hooks.registerRun(this.active, this);
+    await this.markRunStarted(startedAt);
+
+    await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, startedAt);
+
+    const priorRuntimeContext = await this.buildPriorRuntimeContext();
+    return {
+      backend: this.active.backend,
+      runtimeContext: priorRuntimeContext?.events ?? [],
+      startedAt,
+    };
+  }
+
   private buildInitialRuntimeEvent(id: string, ts: number): RuntimeEvent {
     return buildInitialUserRuntimeEvent({
       id,
@@ -336,6 +373,13 @@ export class AgentRun {
       text: this.input.userInput.text,
       ...(this.input.userInput.attachments !== undefined ? { attachments: this.input.userInput.attachments } : {}),
     });
+  }
+
+  async recordStoredSessionEvent(ev: SessionEvent): Promise<void> {
+    if (!this.recordsSessionMessages()) return;
+    if (ev.type === 'token_usage') {
+      await this.input.store.appendMessage(this.sessionId, { ...ev } satisfies StoredMessage);
+    }
   }
 
   async recordSessionEvent(ev: SessionEvent): Promise<void> {
@@ -510,6 +554,9 @@ export class AgentRun {
       ...this.lineage,
       ...(this.input.userInput.agentId ? { agentId: this.input.userInput.agentId } : {}),
       ...(this.input.userInput.agentName ? { agentName: this.input.userInput.agentName } : {}),
+      ...(this.input.userInput.origin?.kind === 'automation'
+        ? { automationId: this.input.userInput.origin.automationId }
+        : {}),
     };
     try {
       await this.input.runStore.createRun(header);

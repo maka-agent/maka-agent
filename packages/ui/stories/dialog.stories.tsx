@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { DialogClose, DialogContent, DialogRoot, Button, Input, Label, Textarea } from '../src/ui.js';
+import { DialogClose, DialogContent, DialogRoot, Button, Label } from '../src/ui.js';
+import { Input } from '../src/primitives/input.js';
+import { Textarea } from '../src/primitives/textarea.js';
 
 const meta = {
   title: 'Primitives/Dialog',

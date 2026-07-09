@@ -2,11 +2,11 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import {
   FieldDescription,
   FieldRoot,
-  Input,
   Label,
   Separator,
-  Textarea,
 } from '../src/ui.js';
+import { Input } from '../src/primitives/input.js';
+import { Textarea } from '../src/primitives/textarea.js';
 
 const meta = {
   title: 'Primitives/Form Controls',

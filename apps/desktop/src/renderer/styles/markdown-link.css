@@ -15,6 +15,12 @@
      The internal/external variants share a base treatment; the broken
      variant uses a dashed destructive underline so users can tell it
      isn't actionable.
+
+     Imported via `@import ... layer(components)` (styles.css) like the prose
+     layer it decorates: unlayered, `.maka-markdown-link-external`'s
+     text-decoration would beat the layered `.maka-prose a
+     { text-decoration: none }` and external prose links paint two underlines
+     (#618 item 1). The renderer-style-layer-cascade contract locks this.
   ============================================================================= */
 .maka-markdown-link {
     text-underline-offset: 2px;

@@ -153,6 +153,44 @@ describe('Harbor adapter contract', () => {
     }
   });
 
+  test('Terminal-Bench sample task-run configs tag Maka metadata with the selected dataset', async (t: TestContext) => {
+    const jobName = `maka-sample-dataset-contract-${Date.now()}`;
+    const scriptPath = resolve(repoRoot, 'terminal-bench-smoke/run-terminal-bench-sample.sh');
+    const result = spawnSync('bash', [
+      scriptPath,
+      '--profile',
+      'maka-heavy',
+      '--job-name',
+      jobName,
+      '--dry-run',
+    ], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        HARBOR_BIN: process.execPath,
+      },
+    });
+    if (result.error && 'code' in result.error && result.error.code === 'ENOENT') {
+      t.skip('bash is not available');
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+
+    const configPath = result.stdout.match(/Generated Harbor config: (.+)/)?.[1]?.trim();
+    assert.ok(configPath, result.stdout);
+    try {
+      const config = JSON.parse(await readFile(configPath, 'utf8'));
+      const dataset = config.datasets[0];
+      const agentEnv = config.agents[0].env;
+      assert.equal(dataset.name, 'terminal-bench-sample');
+      assert.equal(dataset.version, '2.0');
+      assert.equal(agentEnv.MAKA_BENCHMARK_DATASET, dataset.name);
+    } finally {
+      rmSync(configPath, { force: true });
+    }
+  });
+
   test('run-prompt-optimization.mjs wires the headless run API with a key file, not a raw key', async () => {
     const source = await readRepoFile('packages/headless/harbor/run-prompt-optimization.mjs');
     assert.match(source, /runPromptOptimizationRun/);

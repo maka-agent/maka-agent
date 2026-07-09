@@ -1,157 +1,72 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { join, resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
-import {
-  createAttachmentApprovalRegistry,
-  normalizeExternalAttachmentPath,
-  validateRendererAttachments,
-} from '../attachment-approval.js';
+import { resolve } from 'node:path';
+import { createAttachmentApprovalRegistry } from '../attachment-approval.js';
 
-describe('attachment path approval registry', () => {
-  it('approves external paths per renderer sender and expires them by TTL', () => {
-    let now = 1_000;
-    const approvals = createAttachmentApprovalRegistry({
-      now: () => now,
-      ttlMs: 500,
+describe('attachment approval registry (approvalId-based)', () => {
+  it('issues opaque approval ids that never expose the path to the renderer', () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const issued = approvals.issueApprovals(1, [
+      { path: '/tmp/report.png', name: 'report.png', mimeType: 'image/png', size: 1024 },
+    ]);
+    assert.equal(issued.length, 1);
+    assert.ok(issued[0].approvalId);
+    assert.equal('path' in issued[0], false);
+    assert.equal(issued[0].name, 'report.png');
+    assert.equal(issued[0].mimeType, 'image/png');
+    assert.equal(issued[0].size, 1024);
+  });
+
+  it('consumes an approval only once for the issuing sender', () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const [issued] = approvals.issueApprovals(1, [
+      { path: '/tmp/a.txt', name: 'a.txt', size: 10 },
+    ]);
+    assert.deepEqual(approvals.consumeApproval(1, issued.approvalId), {
+      path: resolve('/tmp/a.txt'),
+      name: 'a.txt',
+      size: 10,
     });
-    const path = resolve('/tmp/report.png');
+    // one-shot: a second consume is rejected
+    assert.equal(approvals.consumeApproval(1, issued.approvalId), null);
+  });
 
-    approvals.approvePaths(1, path);
-    assert.equal(approvals.isApproved(1, path), true);
-    assert.equal(approvals.isApproved(2, path), false);
+  it('rejects an approval from a different sender without consuming it', () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const [issued] = approvals.issueApprovals(1, [
+      { path: '/tmp/a.txt', name: 'a.txt', size: 10 },
+    ]);
+    assert.equal(approvals.consumeApproval(2, issued.approvalId), null);
+    // the rightful sender can still consume it
+    assert.ok(approvals.consumeApproval(1, issued.approvalId));
+  });
 
+  it('expires unconsumed approvals by TTL', () => {
+    let now = 1_000;
+    const approvals = createAttachmentApprovalRegistry({ now: () => now, ttlMs: 500 });
+    const [issued] = approvals.issueApprovals(1, [{ path: '/tmp/a.txt', name: 'a.txt', size: 10 }]);
     now += 501;
-    assert.equal(approvals.isApproved(1, path), false);
+    assert.equal(approvals.consumeApproval(1, issued.approvalId), null);
   });
 
-  it('caps approvals by removing the oldest entries first', () => {
+  it('caps approvals by evicting the oldest entry first', () => {
     let now = 1_000;
-    const approvals = createAttachmentApprovalRegistry({
-      now: () => now,
-      maxEntries: 2,
-    });
-
-    approvals.approvePaths(1, '/tmp/a.txt');
+    const approvals = createAttachmentApprovalRegistry({ now: () => now, maxEntries: 2 });
+    const [a] = approvals.issueApprovals(1, [{ path: '/tmp/a.txt', name: 'a', size: 1 }]);
     now += 1;
-    approvals.approvePaths(1, '/tmp/b.txt');
+    approvals.issueApprovals(1, [{ path: '/tmp/b.txt', name: 'b', size: 1 }]);
     now += 1;
-    approvals.approvePaths(1, '/tmp/c.txt');
-
+    approvals.issueApprovals(1, [{ path: '/tmp/c.txt', name: 'c', size: 1 }]);
     assert.equal(approvals.size(), 2);
-    assert.equal(approvals.isApproved(1, '/tmp/a.txt'), false);
-    assert.equal(approvals.isApproved(1, '/tmp/b.txt'), true);
-    assert.equal(approvals.isApproved(1, '/tmp/c.txt'), true);
+    assert.equal(approvals.consumeApproval(1, a.approvalId), null);
   });
 
-  it('normalizes external paths without accepting empty or nul-containing values', () => {
-    assert.equal(normalizeExternalAttachmentPath('/tmp/report.png'), resolve('/tmp/report.png'));
-    assert.equal(normalizeExternalAttachmentPath(''), null);
-    assert.equal(normalizeExternalAttachmentPath('/tmp/a\0b'), null);
-    assert.equal(normalizeExternalAttachmentPath(null), null);
+  it('clears only the named sender on clearSender', () => {
+    const approvals = createAttachmentApprovalRegistry();
+    const [a] = approvals.issueApprovals(1, [{ path: '/tmp/a.txt', name: 'a', size: 1 }]);
+    const [b] = approvals.issueApprovals(2, [{ path: '/tmp/b.txt', name: 'b', size: 1 }]);
+    approvals.clearSender(1);
+    assert.equal(approvals.consumeApproval(1, a.approvalId), null);
+    assert.ok(approvals.consumeApproval(2, b.approvalId));
   });
 });
-
-describe('renderer attachment validation', () => {
-  it('rejects unapproved external file refs before they reach runtime or storage', () => {
-    const approvals = createAttachmentApprovalRegistry();
-    const result = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'external_file', absolutePath: '/private/tmp/secret.png' },
-      }),
-    ], { senderId: 1, approvals });
-
-    assert.deepEqual(result, { ok: false, reason: 'unapproved_external_path' });
-  });
-
-  it('accepts approved external file refs only for the sender that chose the file', () => {
-    const approvals = createAttachmentApprovalRegistry();
-    approvals.approvePaths(1, '/private/tmp/report.png');
-
-    const approved = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'external_file', absolutePath: '/private/tmp/report.png' },
-      }),
-    ], { senderId: 1, approvals });
-    const otherSender = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'external_file', absolutePath: '/private/tmp/report.png' },
-      }),
-    ], { senderId: 2, approvals });
-
-    assert.equal(approved.ok, true);
-    if (approved.ok) {
-      assert.equal(approved.attachments?.[0]?.ref.kind, 'external_file');
-      assert.equal(
-        approved.attachments?.[0]?.ref.kind === 'external_file'
-          ? approved.attachments[0].ref.absolutePath
-          : '',
-        resolve('/private/tmp/report.png'),
-      );
-    }
-    assert.deepEqual(otherSender, { ok: false, reason: 'unapproved_external_path' });
-  });
-
-  it('accepts safe session/workspace relative refs and rejects path escapes', () => {
-    const approvals = createAttachmentApprovalRegistry();
-    const valid = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: 'uploads/report.png' },
-      }),
-      attachment({
-        ref: { kind: 'workspace_file', relativePath: 'notes/context.md' },
-      }),
-    ], { senderId: 1, approvals });
-    const traversal = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'workspace_file', relativePath: '../secret.md' },
-      }),
-    ], { senderId: 1, approvals });
-    const absolute = validateRendererAttachments([
-      attachment({
-        ref: { kind: 'session_file', sessionId: 'session-1', relativePath: join('/tmp', 'secret.md') },
-      }),
-    ], { senderId: 1, approvals });
-
-    assert.equal(valid.ok, true);
-    assert.deepEqual(traversal, { ok: false, reason: 'invalid_attachment' });
-    assert.deepEqual(absolute, { ok: false, reason: 'invalid_attachment' });
-  });
-
-  it('rejects malformed and excessive renderer attachment arrays', () => {
-    const approvals = createAttachmentApprovalRegistry();
-    assert.deepEqual(validateRendererAttachments('not-array', { senderId: 1, approvals }), {
-      ok: false,
-      reason: 'invalid_attachment',
-    });
-    assert.deepEqual(
-      validateRendererAttachments(Array.from({ length: 9 }, () => attachment()), { senderId: 1, approvals }),
-      { ok: false, reason: 'too_many_attachments' },
-    );
-    assert.deepEqual(
-      validateRendererAttachments([attachment({ bytes: 51 * 1024 * 1024 })], { senderId: 1, approvals }),
-      { ok: false, reason: 'invalid_attachment' },
-    );
-  });
-
-  it('wires sessions:send through the attachment approval gate', async () => {
-    const source = await readFile(join(process.cwd(), 'src/main/main.ts'), 'utf8');
-
-    assert.match(source, /const attachmentApprovals = createAttachmentApprovalRegistry\(\)/);
-    assert.match(source, /validateRendererAttachments\(sendCommand\.attachments/);
-    assert.match(source, /senderId: event\.sender\.id/);
-    assert.match(source, /attachments: attachments\.attachments/);
-    assert.doesNotMatch(source, /attachments: command\.attachments/);
-  });
-});
-
-function attachment(patch: Record<string, unknown> = {}): Record<string, unknown> {
-  return {
-    kind: 'image',
-    name: 'report.png',
-    mimeType: 'image/png',
-    bytes: 1024,
-    ref: { kind: 'workspace_file', relativePath: 'uploads/report.png' },
-    ...patch,
-  };
-}

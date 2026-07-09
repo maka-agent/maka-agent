@@ -12,7 +12,7 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory } from '@maka/core/permission';
+import type { ToolCategory, ToolExecutionFacts } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -59,6 +59,8 @@ export interface MakaTool<P = any, R = unknown> {
   displayName?: string;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
+  /** Optional trusted facts about the executor that runs this tool. */
+  executionFacts?: ToolExecutionFacts;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
   /**
@@ -75,6 +77,7 @@ export interface MakaTool<P = any, R = unknown> {
 
 export interface MakaToolContext {
   sessionId: string;
+  runId?: string;
   turnId: string;
   /** Session working directory. */
   cwd: string;
@@ -133,6 +136,13 @@ export interface ToolRuntimeInput {
   now: () => number;
   getPermissionPauseTarget: () => { pause(): void; resume(): void } | null;
   getCurrentRunId?: () => string | undefined;
+  /**
+   * Id of the assistant step currently streaming, stamped onto each tool call's
+   * `tool_start` event so model replay can group a step's reasoning + tool calls
+   * into one provider assistant message. Undefined leaves the step unpaired
+   * (legacy per-turn behavior).
+   */
+  getCurrentStepId?: () => string | undefined;
   spawnChildAgent?: (input: {
     parentRunId: string;
     spec: AgentSpec;
@@ -258,6 +268,7 @@ export class ToolRuntime {
     const toolIntent = describeToolIntent(tool, args);
     const trace = this.input.getRunTrace?.() ?? null;
 
+    const stepId = this.input.getCurrentStepId?.();
     const callMsg: ToolCallMessage = {
       type: 'tool_call',
       id: toolUseId,
@@ -267,6 +278,9 @@ export class ToolRuntime {
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       args,
+      // Persist the same step id the tool_start event carries so the UI
+      // timeline and post-restart backfill can pair this call with its step.
+      ...(stepId !== undefined ? { stepId } : {}),
     };
     await this.input.appendMessage(callMsg);
     const startEv: ToolStartEvent = {
@@ -279,6 +293,7 @@ export class ToolRuntime {
       args,
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
+      ...(stepId !== undefined ? { stepId } : {}),
     };
     queue.push(startEv);
     trace?.emit('tool', 'tool_started', 'Tool execution started', {
@@ -342,6 +357,7 @@ export class ToolRuntime {
         toolName: tool.name,
         args,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
+        ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         mode: this.input.header.permissionMode,
       });
 
@@ -482,9 +498,11 @@ export class ToolRuntime {
       const pauseTarget = this.input.getPermissionPauseTarget();
       pauseTarget?.pause();
       try {
+        const runId = this.input.getCurrentRunId?.();
         const result = await tool.impl(args as never, {
           sessionId: this.input.sessionId,
           turnId,
+          ...(runId ? { runId } : {}),
           cwd: this.input.header.cwd,
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
@@ -802,7 +820,13 @@ function coerceTerminalFailure(
   err: unknown,
 ): { content: Extract<ToolResultContent, { kind: 'terminal' }>; message: string } | null {
   if (tool.name !== 'Bash' || !err || typeof err !== 'object') return null;
-  const error = err as { code?: unknown; stdout?: unknown; stderr?: unknown };
+  const error = err as {
+    code?: unknown;
+    stdout?: unknown;
+    stderr?: unknown;
+    stdoutTruncated?: unknown;
+    stderrTruncated?: unknown;
+  };
   if (typeof error.code !== 'number') return null;
   const command = args && typeof args === 'object' && typeof (args as { command?: unknown }).command === 'string'
     ? (args as { command: string }).command
@@ -814,9 +838,12 @@ function coerceTerminalFailure(
       kind: 'terminal',
       cwd,
       cmd: redactSecrets(command),
+      status: error.code === 124 ? 'timed_out' : error.code === 130 ? 'cancelled' : 'failed',
       exitCode: error.code,
       stdout,
       stderr,
+      stdoutTruncated: error.stdoutTruncated === true,
+      stderrTruncated: error.stderrTruncated === true,
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the
@@ -851,12 +878,17 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
   if (content.kind === 'office_document' && content.ok === false) {
     return content.reason === 'officecli_aborted' ? 'aborted' : 'error';
   }
-  // Headless Bash returns a terminal result instead of throwing, so a non-zero
-  // exit must be classified here — otherwise it counts as success and the
-  // loop-gate never sees a repeated failing command (and history/telemetry
-  // mis-report the failure). This is the one classification point shared by the
-  // isError flag, telemetry status, and the loop-gate failure streak.
-  if (content.kind === 'terminal') return content.exitCode === 0 ? 'success' : 'error';
+  // Bash returns terminal facts instead of throwing for ordinary shell failure.
+  // The explicit status is the shared classification point for isError,
+  // telemetry, and loop-gate failure streaks.
+  if (content.kind === 'terminal') {
+    if (content.status === 'completed') return 'success';
+    if (content.status === 'cancelled') return 'aborted';
+    return 'error';
+  }
+  // All other structured results are successful tool executions. That includes
+  // ShellRun observations: their embedded process status stays model-visible,
+  // but reading or returning the observation itself succeeded.
   return 'success';
 }
 

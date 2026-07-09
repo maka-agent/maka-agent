@@ -1,6 +1,6 @@
 import { ChevronRight } from '@maka/ui/icons';
 import { PROVIDER_DEFAULTS, type ProviderType } from '@maka/core';
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@maka/ui';
+import { Chip, Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './provider-display';
 import { isWiredOAuthProvider } from './provider-panel-shared';
 
@@ -14,7 +14,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
   if (disabled) {
     return (
       <Item
-        className="providerCatalogRow rounded-none"
+        className="providerCatalogRow"
         data-provider={props.type}
         data-status={disabledStatus}
         data-disabled="true"
@@ -29,9 +29,17 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
           <ItemDescription className="providerCatalogDesc">{display.description}</ItemDescription>
         </ItemContent>
         <ItemActions>
-          <span className="providerCatalogBadge is-state" aria-hidden="true">
+          {/* Gated-provider state label — experimental (warning) / unavailable
+              (info). Migrated onto the squared Chip primitive (tone→alpha
+              authority); the row itself stays inert. */}
+          <Chip
+            size="sm"
+            variant={disabledStatus === 'experimental' ? 'warning' : 'info'}
+            className="providerCatalogStateBadge"
+            aria-hidden="true"
+          >
             {disabledStatus === 'experimental' ? '实验' : '未开放'}
-          </span>
+          </Chip>
         </ItemActions>
       </Item>
     );
@@ -39,7 +47,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
 
   return (
     <Item
-      className="providerCatalogRow rounded-none"
+      className="providerCatalogRow"
       data-provider={props.type}
       data-status="ready"
       aria-label={providerCatalogAriaLabel(display, props.count)}
@@ -58,7 +66,7 @@ export function ProviderCatalogCard(props: { type: ProviderType; count: number; 
       </ItemContent>
       <ItemActions className="providerCatalogActions">
         {display.badge && <span className="providerCatalogBadge">{display.badge}</span>}
-        <ChevronRight className="providerCatalogChevron" size={15} strokeWidth={2} aria-hidden="true" />
+        <ChevronRight className="providerCatalogChevron" size={15} aria-hidden="true" />
       </ItemActions>
     </Item>
   );

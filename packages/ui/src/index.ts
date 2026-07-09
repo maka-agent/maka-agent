@@ -4,6 +4,7 @@ export * from './chat-empty-hero.js';
 export * from './chat-model-helpers.js';
 export * from './clipboard-feedback.js';
 export * from './components.js';
+export type { SessionHistoryStatusGroup } from './session-history-list.js';
 export * from './composer-helpers.js';
 export * from './input-history.js';
 export * from './daily-review-helpers.js';
@@ -11,6 +12,7 @@ export * from './locale-helpers.js';
 export * from './markdown.js';
 export * from './maka-uri.js';
 export * from './materialize.js';
+export * from './model-picker.js';
 export * from './permission-queue.js';
 export * from './redact.js';
 export * from './overlay-scroll-area.js';
@@ -29,6 +31,7 @@ export * from './utils.js';
 export * from './bot-brand.js';
 export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
+export * from './primitives/card.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / a
 // single-consumer dot that the chat call sites apply via relative import, so
@@ -43,6 +46,7 @@ export * from './primitives/alert.js';
 // cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the
 // promotion condition the off-barrel convention named, so the export is the rule.
 export { Bubble, Marker, Message, previewVariants } from './primitives/chat.js';
+export { formatTurnDuration } from './chat-display-helpers.js';
 export type {
   BubbleProps,
   MarkerProps,
@@ -54,12 +58,29 @@ export * from './primitives/item.js';
 export * from './primitives/spinner.js';
 export * from './primitives/kbd.js';
 export * from './primitives/menu.js';
+export * from './primitives/dialog-header.js';
 export * from './primitives/choice-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';
 export * from './primitives/settings-switch.js';
+export * from './primitives/input.js';
+export * from './primitives/textarea.js';
 export * from './primitives/input-group.js';
 export * from './primitives/toolbar.js';
+export {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsiblePanel,
+} from './primitives/collapsible.js';
+export {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from './primitives/tooltip.js';
+export {
+  NumberField,
+  NumberFieldInput,
+} from './primitives/number-field.js';
 export {
   Tabs as PrimitiveTabs,
   TabsList as PrimitiveTabsList,
@@ -76,13 +97,51 @@ export {
   AccordionPanel as PrimitiveAccordionPanel,
   AccordionPrimitive as PrimitiveAccordionPrimitive,
 } from './primitives/accordion.js';
-// PR-USE-SHADCN-BASE-UI-BADGE: the canonical shadcn/base-ui Badge primitive
-// (variants: default / destructive / error / info / outline / secondary /
-// success / warning). Aliased to PrimitiveBadge so it doesn't collide with
-// the legacy `Badge` exported from `ui.tsx`; consumers can pick the version
-// they want by import name.
+// PR-USE-SHADCN-BASE-UI-BADGE: the canonical pill Badge primitive. #520 PR9
+// collapsed the legacy ui.tsx Badge onto this one. Badge is the pill emphasis
+// marker (health/permission center). Variants: default / destructive / error
+// / info / outline / secondary / success / warning.
+export { Badge, badgeVariants } from './primitives/badge.js';
+export type { BadgeProps } from './primitives/badge.js';
+// PR-USE-SHADCN-BASE-UI-CHIP: squared compact status label. #520 PR9 collapsed
+// .settingsBadge + .settingsConnectionBadge CSS chips onto this one. Chip is
+// the squared (radius-control) counterpart to pill Badge, for dense settings
+// status rows. Variants mirror StatusTone: neutral / info / success / warning
+// / destructive.
+export { Chip, chipVariants } from './primitives/chip.js';
+export type { ChipProps } from './primitives/chip.js';
+// PageHeader — the shared page-header shell (convergence round 3). One shell
+// for the module hero (as='h2': 技能 / 定时任务) and the settings intros
+// (as='h3': permission / health / voice / about). Wrapper class + per-slot
+// CSS stay at the call site; the primitive converges STRUCTURE only.
+export { PageHeader } from './primitives/page-header.js';
+export type { PageHeaderProps } from './primitives/page-header.js';
+// Streaming UI rework: Codex-style tool "trow" grouping helpers. Pure bucketing
+// + summary used by the timeline tool renderer (ToolTrow) and unit-tested.
 export {
-  Badge as PrimitiveBadge,
-  badgeVariants as primitiveBadgeVariants,
-} from './primitives/badge.js';
-export type { BadgeProps as PrimitiveBadgeProps } from './primitives/badge.js';
+  summarizeTrowTools,
+  trowActivityKind,
+  activeTrowTool,
+  isTrowRunning,
+  trowNeedsAttention,
+  type TrowActivityKind,
+} from './tool-activity/trow-summary.js';
+// Streaming UI rework: per-word fade-in for streamed text (replaces the ▎
+// caret). Pure append-record ring + tokenizer are unit-tested; the hook feeds
+// markdown-body's rehype pass.
+export {
+  useStreamFade,
+  tokenizeFade,
+  streamFadeRehypePlugin,
+  updateFadeRing,
+  createFadeRing,
+  fadeBoundary,
+  fadeAgeAt,
+  FADE_MS,
+  MAX_FADE_BATCHES,
+  type StreamFade,
+  type FadeToken,
+  type FadeRingState,
+  type FadeBatch,
+  type HastNode,
+} from './stream-fade.js';

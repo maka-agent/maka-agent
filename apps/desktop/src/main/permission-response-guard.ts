@@ -2,7 +2,6 @@ import type {
   BranchFromTurnInput,
   PermissionResponse,
   RegenerateTurnInput,
-  RetryTurnInput,
 } from '@maka/core';
 
 const MAX_PERMISSION_REQUEST_ID_LENGTH = 128;
@@ -14,7 +13,7 @@ interface NormalizedSendSessionCommand {
   type: 'send';
   turnId?: string;
   text: string;
-  attachments?: unknown;
+  attachmentItems?: unknown;
 }
 type NormalizedStopSessionInput = { source?: 'stop_button' };
 
@@ -40,14 +39,6 @@ export function normalizePermissionResponse(input: unknown): PermissionResponse 
     requestId: value.requestId,
     decision: value.decision,
     ...(value.rememberForTurn !== undefined ? { rememberForTurn: value.rememberForTurn } : {}),
-  };
-}
-
-export function normalizeRetryTurnInput(input: unknown): RetryTurnInput {
-  const value = requireObject(input, 'Invalid retry turn input');
-  return {
-    sourceTurnId: normalizeRequiredString(value.sourceTurnId, 'Invalid retry turn sourceTurnId', MAX_TURN_ID_LENGTH),
-    ...normalizeOptionalTurnId(value.turnId),
   };
 }
 
@@ -82,7 +73,7 @@ export function normalizeSessionSendCommand(input: unknown): NormalizedSendSessi
     type: 'send',
     ...normalizeOptionalSendTurnId(value.turnId),
     text: normalizeRequiredString(value.text, 'Invalid send text', MAX_SESSION_SEND_TEXT_LENGTH),
-    ...(value.attachments !== undefined ? { attachments: value.attachments } : {}),
+    ...(value.attachmentItems !== undefined ? { attachmentItems: value.attachmentItems } : {}),
   };
 }
 

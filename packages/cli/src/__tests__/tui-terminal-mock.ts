@@ -8,10 +8,16 @@ export class FakeTerminal implements Terminal {
   readonly kittyProtocolActive = false;
   readonly progressStates: boolean[] = [];
   readonly writes: string[] = [];
+  readonly titles: string[] = [];
   stopCalls = 0;
+  // Index into `writes` at the moment `start()` (raw mode) ran. Anything written
+  // before this went out while the terminal was still in cooked mode. Null until
+  // start() is called.
+  startWriteIndex: number | null = null;
   private onInput: ((data: string) => void) | null = null;
 
   start(onInput: (data: string) => void, _onResize: () => void): void {
+    this.startWriteIndex = this.writes.length;
     this.onInput = onInput;
   }
 
@@ -32,7 +38,10 @@ export class FakeTerminal implements Terminal {
   clearLine(): void {}
   clearFromCursor(): void {}
   clearScreen(): void {}
-  setTitle(_title: string): void {}
+
+  setTitle(title: string): void {
+    this.titles.push(title);
+  }
 
   setProgress(active: boolean): void {
     this.progressStates.push(active);

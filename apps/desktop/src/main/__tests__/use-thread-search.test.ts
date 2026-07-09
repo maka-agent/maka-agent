@@ -629,3 +629,28 @@ describe('disabled flag on status tiles (xuan fd675604)', () => {
     assert.equal(closeCalled, 1);
   });
 });
+
+describe('search funnel bridge (palette → search modal)', () => {
+  const hit = { target: { kind: 'thread', sessionId: 's1', turnId: 't1' }, snippet: 'x' };
+  it('appends the 查看全部结果 bridge row after hits when the callback is wired', () => {
+    const opened: string[] = [];
+    const commands = buildContentSearchCommands(
+      { kind: 'results', query: 'deploy', hits: [hit] } as never,
+      () => undefined,
+      (query) => opened.push(query),
+    );
+    const bridge = commands.at(-1);
+    assert.equal(bridge?.id, 'thread-search:open-modal');
+    assert.match(bridge?.label ?? '', /查看全部结果/);
+    bridge?.run();
+    assert.deepEqual(opened, ['deploy']);
+  });
+
+  it('renders no bridge row without the callback (portable palette)', () => {
+    const commands = buildContentSearchCommands(
+      { kind: 'results', query: 'deploy', hits: [hit] } as never,
+      () => undefined,
+    );
+    assert.equal(commands.some((command) => command.id === 'thread-search:open-modal'), false);
+  });
+});

@@ -29,11 +29,12 @@
  */
 
 import { createContext, lazy, Suspense, type ReactNode } from 'react';
+import type { StreamFade } from './stream-fade.js';
 
 // Heavy pipeline — parsed on first `<Markdown>` mount, not at app boot.
 const MarkdownBody = lazy(() => import('./markdown-body.js').then((m) => ({ default: m.MarkdownBody })));
 
-export function Markdown(props: { text: string }) {
+export function Markdown(props: { text: string; streamFade?: StreamFade }) {
   return (
     <Suspense
       // Plain-text fallback so message content is visible immediately while
@@ -45,7 +46,7 @@ export function Markdown(props: { text: string }) {
         </div>
       }
     >
-      <MarkdownBody text={props.text} />
+      <MarkdownBody text={props.text} streamFade={props.streamFade} />
     </Suspense>
   );
 }

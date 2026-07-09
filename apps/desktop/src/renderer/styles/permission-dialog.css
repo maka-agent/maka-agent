@@ -1,0 +1,219 @@
+/* Runtime permission dialog — dialog shell, per-reason iconography, per-tool summary, diff + raw-json display. Composer permission block merged in from composer.css (was misplaced there); diff/raw from settings/form.css (PR1). — issue #546 PR3. */
+/* PR30 Permission dialog: per-reason iconography + per-tool summary block */
+.permissionDialog {
+  width: min(480px, calc(100vw - 48px));
+}
+
+.maka-permission-header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-2);
+}
+
+.maka-permission-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+}
+
+.permissionDialog[data-tone="caution"] .maka-permission-icon {
+  background: oklch(from var(--info) l c h / 0.14);
+  color: var(--info-text);
+}
+
+.permissionDialog[data-tone="destructive"] .maka-permission-icon {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.permissionDialog[data-tone="destructive"] {
+  border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.32);
+}
+
+.maka-permission-tool {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--foreground-5);
+  color: var(--foreground-secondary);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-permission-age {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.maka-permission-age[data-status="stale"] {
+  color: var(--warning-text);
+}
+
+.maka-permission-age[data-status="expired"] {
+  color: var(--destructive-text);
+}
+
+.maka-permission-body {
+  display: grid;
+  gap: var(--space-2-5);
+}
+
+.maka-permission-summary {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.maka-permission-line {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.maka-permission-path {
+  margin: 0;
+}
+
+.maka-permission-path code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--foreground-5);
+  color: var(--foreground);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
+}
+
+.maka-permission-command,
+.maka-permission-preview {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.maka-permission-meta {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+}
+
+.maka-permission-hint {
+  border-radius: var(--radius-control);
+  background: oklch(from var(--info) l c h / 0.10);
+  color: var(--info-text);
+  padding: var(--space-1-5) var(--space-2-5);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-snug);
+}
+
+/* Single-line emphasis under the "记住本轮" checkbox when the action is
+ * destructive. Keeps the dialog body readable but draws an extra beat
+ * before the user clicks 我已确认，允许. */
+.maka-permission-danger-note {
+  margin: 0;
+  color: var(--destructive);
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-normal);
+  font-weight: var(--font-weight-semibold);
+}
+
+
+.maka-permission-stale-note {
+  margin: 0;
+  border-radius: var(--radius-control);
+  padding: var(--space-1-5) var(--space-2-5);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-snug);
+  color: var(--warning-text);
+  background: oklch(from var(--warning) l c h / 0.10);
+  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.20);
+}
+
+.maka-permission-stale-note[data-status="expired"] {
+  color: var(--destructive-text);
+  background: oklch(from var(--destructive) l c h / 0.10);
+  border-color: oklch(from var(--destructive) l c h / 0.24);
+}
+
+.maka-permission-diff {
+  display: grid;
+  gap: var(--space-1-5);
+}
+
+.maka-permission-diff > div {
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.maka-permission-diff-tag {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-control);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--tracking-normal);
+  text-transform: none;
+}
+
+.maka-permission-diff-tag[data-side="old"] {
+  background: oklch(from var(--destructive) l c h / 0.10);
+  color: var(--destructive-text);
+}
+
+.maka-permission-diff-tag[data-side="new"] {
+  background: oklch(from var(--success) l c h / 0.10);
+  color: var(--success-text);
+}
+
+.maka-permission-raw {
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--foreground-2);
+}
+
+.maka-permission-raw [data-slot="collapsible-trigger"] {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-1) var(--space-2-5);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+}
+
+/* Rotating disclosure triangle (same recipe as .maka-turn-thinking):
+   without it the bordered trigger row read as a text input, not a
+   collapsible section. */
+.maka-permission-raw [data-slot="collapsible-trigger"]::before {
+  content: '';
+  flex-shrink: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 4px 0 4px 5px;
+  border-color: transparent transparent transparent currentColor;
+  transition: transform var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open]::before {
+  transform: rotate(90deg);
+}
+
+.maka-permission-raw [data-slot="collapsible-trigger"][data-panel-open] {
+  border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-permission-raw .maka-code {
+  margin: 0;
+  border: 0;
+  border-radius: 0 0 var(--radius-control) var(--radius-control);
+  background: var(--foreground-2);
+  max-height: 180px;
+  overflow: auto;
+}

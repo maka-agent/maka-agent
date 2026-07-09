@@ -20,13 +20,19 @@
  * 3. Tailwind `--leading-*` aliases in `styles.css` `@theme inline` map to
  *    `var(--leading-*)` so TSX `leading-*` utilities stay single-sourced
  *    with hand-written CSS — same inline-bridge pattern as `--text-*`.
+ *
+ * 4. `--text-{xs,sm,base}--line-height` pairs in `styles.css` `@theme inline`
+ *    pin the paired line-height of bare `text-*` utilities to the leading
+ *    scale (#546). Without the pins, `text-xs`/`text-sm` carry Tailwind's
+ *    stock ratios (1.333/1.4286) — off-tier values invariant 1 can't see
+ *    because they never appear as a `line-height:` declaration in our CSS.
  */
 
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments, findFontShorthandOffenders, assertCustomPropPinnedOnce } from './css-test-helpers.js';
+import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, readRendererTsxFiles, stripCssComments, findFontShorthandOffenders, assertCustomPropPinnedOnce } from './css-test-helpers.js';
 
 const STYLES_FILE = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'styles.css');
 
@@ -118,6 +124,33 @@ describe('PR-LEADING-CONVERGE-0 contract', () => {
     assertCustomPropPinnedOnce(styles, '--leading-snug', 'var(--leading-snug)', 'styles.css');
     assertCustomPropPinnedOnce(styles, '--leading-normal', 'var(--leading-normal)', 'styles.css');
   });
+
+  it('--text-*--line-height pairs are declared exactly once pinned to the leading scale in @theme inline', async () => {
+    const styles = await readFile(STYLES_FILE, 'utf8');
+    assertCustomPropPinnedOnce(styles, '--text-xs--line-height', 'var(--leading-snug)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--text-sm--line-height', 'var(--leading-snug)', 'styles.css');
+    assertCustomPropPinnedOnce(styles, '--text-base--line-height', 'var(--leading-normal)', 'styles.css');
+  });
+
+  // Closes the CSS-only blind spot (#546 PR0): arbitrary `leading-[1.45]` /
+  // `leading-[1.6]` utilities in className strings bypass the leading token
+  // scale the CSS scanner locks. Named scales (leading-none/tight/snug/normal)
+  // don't match `leading-[<digit>]` and stay allowed. NOTE: literal className
+  // text only — clsx/cva maps, template strings, and inline `style={{}}` are
+  // NOT caught (honest scope, see css-test-helpers readRendererTsxFiles).
+  // `leading-[1.45]` / `leading-[1.6]` (unitless) and Tailwind's font-size slash
+  // modifier (`text-xs/[1.45]` emits line-height: 1.45 with no leading-[..]
+  // token) bypass the leading scale. `leading-[12px]` / `leading-[16px]` are
+  // deliberate px centering on fixed-height icon buttons (not ratios) — they
+  // stay allowed, same exception #546 recorded for the old chat.tsx sites.
+  it('TSX className strings use no arbitrary unitless leading-[..] or slash line-height utilities', async () => {
+    const re = /leading-\[\d+(?:\.\d+)?\]|text-[^'"\s/]*\/\[[\d.]+\]/g;
+    const offenders: string[] = [];
+    for (const { relPath, source } of await readRendererTsxFiles()) {
+      for (const m of source.matchAll(re)) offenders.push(`${relPath}: ${m[0]}`);
+    }
+    assert.deepEqual(offenders, [], `Arbitrary leading-[..] line-height offenders (use leading-none/tight/snug/normal or leading-[var(--leading-*)]):\n  ${offenders.join('\n  ')}`);
+  });
 });
 
 describe('leading whitelist negative cases', () => {
@@ -153,6 +186,17 @@ describe('leading whitelist negative cases', () => {
   it('accepts font: inherit and font: initial', () => {
     assert.deepEqual(findCssOffenders('font: inherit', 'test'), []);
     assert.deepEqual(findCssOffenders('font: initial', 'test'), []);
+  });
+
+  it('TSX line-height regex catches slash modifier and unitless leading-[..], allows px centering', () => {
+    const re = /leading-\[\d+(?:\.\d+)?\]|text-[^'"\s/]*\/\[[\d.]+\]/g;
+    const catch_ = (s: string) => (s.match(re) ?? []).length > 0;
+    assert.ok(catch_('leading-[1.45]'), 'unitless leading must be caught');
+    assert.ok(catch_('text-xs/[1.45]'), 'slash line-height modifier must be caught');
+    assert.ok(catch_('text-sm/[1.5]'), 'slash modifier on named scale must be caught');
+    assert.ok(!catch_('leading-[12px]'), 'px icon centering must pass');
+    assert.ok(!catch_('leading-[16px]'), 'px icon centering must pass');
+    assert.ok(!catch_('text-xs'), 'plain named scale must pass');
   });
 
 });

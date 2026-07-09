@@ -1,42 +1,320 @@
-/* Reference's round send button is an off-black pill gradient with a 1px
-   inner top highlight — a tiny physical sheen, not flat pure #000 (banned
-   per design-taste rules). Uses oklch off-black (charcoal) so the button
-   reads as premium machined hardware. */
+/* Composer — outer container, controls, pickers, tool buttons, send/workspace/branch/streaming. Composer block merged in from tool-output.css (was misplaced there) — issue #546 PR3. Runtime permission dialog moved to permission-dialog.css. */
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3) var(--space-6) var(--space-4);
+  /* PR-GRAY-CARD-LIFT-5 (WAWQAQ msg `d4277aba` round 3): the composer
+     outer used to paint a vertical white-fade over `--background`,
+     designed for the older parchment shell where the page bg was
+     warm-white. Now that `--background` itself is pure white and the
+     shell is a visibly gray `--surface-canvas`, the composer outer
+     painted itself white-on-white, defeating the gray-plate / white-
+     card lift. Switch to transparent so the gray plate shows around
+     the composer card. */
+  background: transparent;
+}
+
+.maka-composer-streaming-hint .maka-shortcut-kbd {
+  font-size: var(--font-size-caption);
+  padding: 1px var(--space-1);
+  background: var(--foreground-3);
+  border: var(--border-width-hairline) solid var(--border);
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-0-5);
+  border-top: 0;
+}
+
+.maka-composer-left-controls,
+.maka-composer-right-controls {
+  display: flex;
+  align-items: center;
+  /* PR-REFERENCE-PIXEL-8 (WAWQAQ msg `f79de85f` round 8): reference implementation's
+     bundle uses gap values centered on 4-8px (extracted from
+     `globals-UfMzAdiO.css` — 4px is the most common gap, 12px never
+     appears as a toolbar gap). Maka's 12px composer toolbar gap
+     read as too loose vs reference implementation's tighter density. 8px keeps
+     individual controls separable while pulling them into one
+     coherent toolbar group. */
+  gap: var(--space-1-5);
+}
+
+.maka-composer-left-controls {
+  flex: 0 0 auto;
+}
+
+.maka-composer-right-controls {
+  flex: 0 0 auto;
+  justify-content: flex-end;
+}
+
+.maka-composer-status-slot {
+  min-width: 0;
+  flex: 1 1 auto;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  text-align: center;
+}
+
+/* Unified composer picker trigger — permission Select ([data-slot="select-trigger"])
+   + both model pickers (active .maka-model-switcher-trigger, empty-state
+   .maka-composer-model-chip) share ONE quiet-chip geometry so the two
+   controls read identical at rest and on hover. */
+.maka-composer-left-controls [data-slot="select-trigger"],
+.maka-composer-right-controls .maka-model-switcher-trigger,
+.maka-composer-model-chip {
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border: var(--border-width-hairline) solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
+}
+.maka-composer-left-controls [data-slot="select-trigger"]:hover,
+.maka-composer-right-controls .maka-model-switcher-trigger:hover:not(:disabled):not([data-disabled]),
+.maka-composer-model-chip:hover {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+  border-color: transparent;
+}
+
+.maka-composer-model-chip {
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher {
+  margin: 0;
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher-trigger {
+  min-width: 100px;
+  max-width: min(180px, 28vw);
+}
+.maka-composer-right-controls .maka-model-switcher-label {
+  display: none;
+}
+.maka-composer-right-controls .maka-model-switcher-value {
+  max-width: 128px;
+  color: inherit;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+}
+
+.maka-composer-model-chip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-model-status {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--destructive);
+  flex: 0 0 auto;
+}
+
+.maka-composer-tool-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--foreground-secondary);
+  transition:
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.maka-composer-context-plus {
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: transparent;
+}
+
+.maka-composer-tool-button:hover:not(:disabled) {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
+  transform: scale(var(--scale-hover));
+}
+
+.maka-composer-tool-button:active:not(:disabled) {
+  background: var(--state-selected-bg);
+}
+
+.maka-composer-tool-button:disabled {
+  opacity: var(--opacity-disabled);
+  cursor: not-allowed;
+}
+
+
+/* ============================================================================
+   Composer container + input field — single source
+   ----------------------------------------------------------------------------
+   The composer card (`.maka-composer-inner`) + its textarea + placeholder
+   used to be triplicated across maka-tokens.css (@layer components),
+   styles/tool-output.css, and reference-shell.css — three definitions of the
+   same selector fighting by specificity/layer, plus a duplicated textarea
+   font. Consolidated here as one definition per selector (pinned by
+   composer-container-single-source-contract).
+
+   Rest / textarea / placeholder values are the exact computed winners — no
+   visual change for those. One deliberate change: tool-output's
+   `.composer .maka-composer-inner::before { content: none }` shared specificity
+   (0,2,1) with — and was imported after — the streaming top-sweep that used to
+   live in chat-header.css (`.maka-composer-inner[data-streaming="true"]::before`),
+   so it was silently suppressing that deliberate streaming indicator. Removing
+   the reset restores the sweep; the matching `::after` reset had no competing
+   rule and was genuinely dead.
+
+   #546 PR2 relocated that streaming top-sweep here so all `.maka-composer-inner`
+   chrome (rest / focus / streaming state) is in one file; see the
+   `[data-streaming="true"]` block below the card chrome. */
+
+/* The composer card — a calm parchment surface: hairline border + 1px ring
+   at rest, single accent ring on focus. The shared `.agents-parchment-paper-
+   surface` base (reference-shell.css) resets border/bg/box-shadow; this rule
+   re-establishes the composer's own chrome on top of it. */
+.composer .maka-composer-inner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  width: min(var(--maka-chat-measure), 100%);
+  max-width: var(--maka-chat-measure);
+  margin: 0 auto;
+  margin-inline: auto;
+  box-sizing: border-box;
+  border: var(--border-width-hairline) solid var(--color-border-tertiary);
+  border-radius: var(--radius-modal);
+  padding: var(--space-2-5) var(--space-3) var(--space-2);
+  background-color: var(--agents-content-area-bg);
+  /* Ring alpha is a token so dark mode can strengthen the edge without a
+     second rest rule (composer-container-single-source-contract). In dark
+     the composer and pane share the same bg, and 3.5% of the near-white
+     foreground vanished — the card lost its outline (designer audit P1-6). */
+  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
+  transition:
+    border-color var(--duration-emphasized) var(--ease-out-strong),
+    box-shadow var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.composer .maka-composer-inner:focus-within {
+  border-color: oklch(from var(--focus-ring) l c h / 0.45);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
+}
+
+/* D6 spectrum #2 (Command Input processing): while the assistant is
+   streaming, a slow top-edge light sweep on the composer shell keeps
+   "working" visible at the exact place the user's attention returns
+   to. 1px line, foreground-derived, infinite = functional status.
+   Relocated from chat-header.css (#546 PR2) so the card's own rest /
+   focus / streaming states live together. */
+.maka-composer-inner[data-streaming="true"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.maka-composer-inner[data-streaming="true"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    oklch(from var(--status-running) l c h / 0.55) 50%,
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: maka-processing-sweep 2.2s var(--ease-in-out-strong) infinite;
+  pointer-events: none;
+}
+
+@keyframes maka-processing-sweep {
+  0%   { background-position: 180% 0; }
+  100% { background-position: -80% 0; }
+}
+
+/* The textarea owns no chrome (the card does). It auto-resizes from
+   --h-composer-min up to 240px (capped in @maka/ui), then scrolls. Font is
+   set explicitly on the element AND its placeholder so neither relies on the
+   fragile `[font: inherit]` chain from the bare-field reset. */
+.composer .maka-composer-textarea {
+  display: block;
+  width: 100%;
+  appearance: none;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-default);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-normal);
+  min-height: var(--h-composer-min);
+  max-height: 240px;
+}
+
+.composer .maka-composer-textarea::placeholder {
+  color: var(--muted-foreground);
+  font-family: var(--font-default);
+  font-size: var(--font-size-base);
+  line-height: var(--leading-normal);
+  transition: opacity var(--duration-emphasized) var(--ease-out-strong);
+}
+
+.composer .maka-composer-textarea:focus::placeholder {
+  opacity: var(--opacity-disabled);
+}
+
+/* Composer send button — flat solid action fill. #546: dropped the gradient
+   + inner sheen + drop shadow (the "machined hardware" look read heavy next
+   to the calm parchment container). Flat --action with darken on hover/press
+   keeps it the clear primary CTA without the weight. */
 .maka-composer-send-button {
   width: var(--h-control-lg);
   height: var(--h-control-lg);
   border-radius: var(--radius-pill);
-  background: linear-gradient(
-    oklch(from var(--action) calc(l - 0.10) c h),
-    oklch(from var(--action) calc(l - 0.20) c h)
-  );
+  background: var(--action);
   color: var(--action-foreground);
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.18),
-    0 8px 18px -14px oklch(from var(--action) l c h / 0.5);
-  transition:
-    background var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-emphasized) var(--ease-out-strong),
-    box-shadow var(--duration-emphasized) var(--ease-out-strong);
+  transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-/* PR-FE-BUG-HUNT-7: send button is a primary CTA so it gets a hair
-   more travel than the tool buttons, but still inside the global
-   tactile press range. 1.06→1.03 hover. */
 .maka-composer-send-button:hover:not(:disabled) {
-  background: linear-gradient(
-    oklch(from var(--action) calc(l - 0.05) c h),
-    oklch(from var(--action) calc(l - 0.15) c h)
-  );
+  background: oklch(from var(--action) calc(l - 0.08) c h);
   color: var(--action-foreground);
-  transform: scale(var(--scale-hover));
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.18),
-    0 10px 22px -14px oklch(from var(--action) l c h / 0.55);
 }
 
 .maka-composer-send-button:active:not(:disabled) {
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.10);
+  background: oklch(from var(--action) calc(l - 0.14) c h);
 }
 
 .maka-composer-send-button:disabled {
@@ -53,6 +331,7 @@
   width: min(var(--maka-chat-measure), 100%);
   display: flex;
   justify-content: flex-start;
+  gap: var(--space-1);
   box-sizing: border-box;
   margin: var(--space-2) auto 0;
 }
@@ -71,7 +350,7 @@
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   line-height: var(--leading-tight);
   text-align: left;
   transition: color var(--duration-quick) var(--ease-out-strong);
@@ -97,6 +376,77 @@
   max-width: 180px;
   overflow: hidden;
   color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-branch-picker {
+  -webkit-app-region: no-drag;
+  appearance: none;
+  min-width: 0;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1-5);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-tight);
+  text-align: left;
+  transition: color var(--duration-quick) var(--ease-out-strong);
+}
+
+.maka-composer-branch-picker:hover {
+  color: var(--foreground-secondary);
+  background: var(--state-hover-bg);
+}
+
+.maka-composer-branch-picker:focus-visible {
+  outline: none;
+  border-radius: var(--radius-control);
+  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.14);
+}
+
+.maka-composer-branch-picker svg {
+  flex: 0 0 auto;
+}
+
+.maka-composer-branch-current {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.maka-composer-branch-empty {
+  padding: var(--space-2) var(--space-2);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  text-align: center;
+}
+
+.maka-composer-branch-check {
+  margin-left: auto;
+}
+
+/* Workspace directory picker menu — mirrors the branch menu layout.
+   Shows recently opened directories at the top with a separator before
+   the "选择其他目录..." option. */
+.maka-composer-workspace-menu {
+  min-width: 200px;
+}
+.maka-composer-workspace-menu [data-slot="menu-item"] svg {
+  flex: 0 0 auto;
+}
+.maka-composer-workspace-menu [data-slot="menu-item"] span {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -225,125 +575,3 @@
   font-size: var(--font-size-ui);
 }
 
-/* PR30 Permission dialog: per-reason iconography + per-tool summary block */
-.permissionDialog {
-  width: min(480px, calc(100vw - 48px));
-}
-
-.maka-permission-header {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  align-items: start;
-  gap: var(--space-2);
-}
-
-.maka-permission-icon {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--radius-control);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-}
-
-.permissionDialog[data-tone="caution"] .maka-permission-icon {
-  background: oklch(from var(--info) l c h / 0.14);
-  color: var(--info-text);
-}
-
-.permissionDialog[data-tone="destructive"] .maka-permission-icon {
-  background: oklch(from var(--destructive) l c h / 0.10);
-  color: var(--destructive-text);
-}
-
-.permissionDialog[data-tone="destructive"] {
-  border: var(--border-width-hairline) solid oklch(from var(--destructive) l c h / 0.32);
-}
-
-.maka-permission-tool {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
-}
-
-.maka-permission-age {
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  white-space: nowrap;
-}
-
-.maka-permission-age[data-status="stale"] {
-  color: var(--warning-text);
-}
-
-.maka-permission-age[data-status="expired"] {
-  color: var(--destructive-text);
-}
-
-.maka-permission-body {
-  display: grid;
-  gap: var(--space-2-5);
-}
-
-.maka-permission-summary {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.maka-permission-line {
-  margin: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-}
-
-.maka-permission-path {
-  margin: 0;
-}
-
-.maka-permission-path code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-caption);
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground);
-  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.03);
-}
-
-.maka-permission-command,
-.maka-permission-preview {
-  margin: 0;
-  max-height: 180px;
-  overflow: auto;
-}
-
-.maka-permission-meta {
-  margin: 0;
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-}
-
-.maka-permission-hint {
-  border-radius: var(--radius-control);
-  background: oklch(from var(--info) l c h / 0.10);
-  color: var(--info-text);
-  padding: var(--space-1-5) var(--space-2-5);
-  font-size: var(--font-size-caption);
-  line-height: var(--leading-snug);
-}
-
-/* Single-line emphasis under the "记住本轮" checkbox when the action is
- * destructive. Keeps the dialog body readable but draws an extra beat
- * before the user clicks 我已确认，允许. */
-.maka-permission-danger-note {
-  margin: 0;
-  color: var(--destructive);
-  font-size: var(--font-size-ui);
-  line-height: var(--leading-normal);
-  font-weight: var(--font-weight-semibold);
-}

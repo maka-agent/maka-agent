@@ -53,8 +53,6 @@ const TABULAR_NUMS_SELECTORS = [
   '.maka-first-run-checklist-count',
   '.settingsQuotaRow',
   // settings numeric surfaces
-  '.settingsStatsTable th',
-  '.settingsStatsTable td',
   '.settingsMetricCard',
   '.settingsUsageRecordCount',
   '.settingsHealthSummaryTile strong',

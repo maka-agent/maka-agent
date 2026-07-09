@@ -7,9 +7,10 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, PrimitiveBadge, RelativeTime } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 /**
  * PR-UI-9 — Health Center read-only page. Consumes `window.maka.health.getSnapshot()`
@@ -91,12 +92,7 @@ export function HealthCenterPage() {
 
   if (loading) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载健康快照">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
-      </div>
+      <SettingsSkeletonStack label="正在加载健康快照" />
     );
   }
 
@@ -121,29 +117,33 @@ export function HealthCenterPage() {
 
   return (
     <div className="settingsHealthPage">
-      <header className="settingsHealthIntro">
-        <div>
-          <h3>健康中心</h3>
-          <p>
+      <PageHeader
+        className="settingsHealthIntro"
+        as="h3"
+        title="健康中心"
+        subtitle={
+          <>
             按层级（配置 · 验证 · 权限 · 功能 · 操作审批 · 记忆 · 运行态 · 存储）展示当前快照。
             <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于验证层；发送通路以运行态探测结果为准。
-          </p>
-        </div>
-        <div className="settingsHealthMeta">
-          <PrimitiveBadge variant="info">只读快照</PrimitiveBadge>
-          <small>
-            最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
-          </small>
-          <Button
-            type="button"
-            className="settingsHealthRefresh"
-            variant="secondary"
-            onClick={() => setRefreshTick((tick) => tick + 1)}
-          >
-            刷新
-          </Button>
-        </div>
-      </header>
+          </>
+        }
+        meta={
+          <div className="settingsHealthMeta">
+            <Badge variant="info">只读快照</Badge>
+            <small>
+              最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
+            </small>
+            <Button
+              type="button"
+              className="settingsHealthRefresh"
+              variant="secondary"
+              onClick={() => setRefreshTick((tick) => tick + 1)}
+            >
+              刷新
+            </Button>
+          </div>
+        }
+      />
 
       {/* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): fifth
           application of the ARIA list semantics fix. Was
@@ -163,14 +163,14 @@ export function HealthCenterPage() {
       {(blocksSendCount > 0 || blocksCapabilityCount > 0) && (
         <div className="settingsHealthBlockers" role="status">
           {blocksSendCount > 0 && (
-            <PrimitiveBadge variant="destructive">
+            <Badge variant="destructive">
               {blocksSendCount} 条健康信号会阻塞发送
-            </PrimitiveBadge>
+            </Badge>
           )}
           {blocksCapabilityCount > 0 && (
-            <PrimitiveBadge variant="warning">
+            <Badge variant="warning">
               {blocksCapabilityCount} 条健康信号会阻塞能力
-            </PrimitiveBadge>
+            </Badge>
           )}
         </div>
       )}
@@ -225,7 +225,7 @@ function HealthSignalRow(props: { signal: HealthSignal }) {
           <strong>{signal.label}</strong>
           <small className="settingsHealthSignalScope">{HEALTH_SCOPE_LABEL[signal.scope]}</small>
         </div>
-        <PrimitiveBadge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</PrimitiveBadge>
+        <Badge variant={statusBadgeVariant(statusCopy.tone)}>{statusCopy.label}</Badge>
       </div>
       <p className="settingsHealthSignalMessage">{signal.message}</p>
       {signal.detail && <small className="settingsHealthSignalDetail">{signal.detail}</small>}

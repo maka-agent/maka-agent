@@ -1,4 +1,5 @@
 import type { ProjectGitInfo } from './project-context.js';
+import { defaultShellPlan } from '../shell-detect.js';
 
 /**
  * Per-turn environment tail fragment (cwd / git repo / branch / platform /
@@ -12,6 +13,8 @@ export interface SessionEnvironmentPromptInput {
   cwd: string;
   projectGit: ProjectGitInfo;
   platform?: NodeJS.Platform;
+  /** Display name of the shell running Bash commands. Defaults to the detected process shell. */
+  shell?: string;
   now?: Date;
 }
 
@@ -29,6 +32,7 @@ export function buildSessionEnvironmentPromptFragment(input: SessionEnvironmentP
   }
   lines.push(
     `  Platform: ${platform}`,
+    `  Shell: ${sanitizePromptLine(input.shell ?? defaultShellPlan().displayName)}`,
     `  Today's date: ${today}`,
     '</env>',
   );

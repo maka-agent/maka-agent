@@ -3,6 +3,7 @@ import type { DailyReviewConfig, DailyReviewMode, LlmConnection } from '@maka/co
 import { Alert, AlertDescription, Button, Input, SettingsSelect, SettingsSwitch as Switch, useToast } from '@maka/ui';
 import { buildCatalogDailyReviewModelOptions } from '../model-catalog-choices';
 import { settingsActionErrorMessage } from './settings-error-copy';
+import { SettingsRows } from './settings-rows';
 
 /**
  * PR-DAILY-REVIEW-MVP-0 follow-up: Settings → 每日回顾 is no longer
@@ -141,15 +142,15 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
 
   return (
     <section className="settingsFeatureStatusPage" aria-label="每日回顾">
-      <header className="settingsFeatureStatusBanner" role="status">
-        <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
-        <strong>每日回顾</strong>
-        <span>
-          {hasConfigIpc
-            ? '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。'
-            : '当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。'}
-        </span>
-      </header>
+      {/* Detail audit: the always-on feature banner repeated the page
+          subtitle — report by exception instead: only the not-wired
+          fallback state warrants a banner. */}
+      {!hasConfigIpc && (
+        <header className="settingsFeatureStatusBanner" role="status">
+          <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
+          <span>当前版本仅本地数字聚合，定时生成 / LLM 摘要尚未连接到后端。</span>
+        </header>
+      )}
 
       {loadError ? (
         <Alert variant="error" className="settingsSurfaceAlert">
@@ -157,7 +158,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
         </Alert>
       ) : null}
 
-      <div className="settingsRows">
+      <SettingsRows>
         <div className="settingsRow">
           <div>
             <strong>启用每日回顾</strong>
@@ -275,7 +276,7 @@ export function DailyReviewSettingsPage(props: { connections: readonly LlmConnec
             onChange={() => undefined}
           />
         </div>
-      </div>
+      </SettingsRows>
 
       {(props.onOpenDailyReview || hasRunOnceIpc) && (
         <div className="settingsPageFooterActions" role="toolbar" aria-label="每日回顾操作">

@@ -1,11 +1,16 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
-import { TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerStore } from '@maka/core/task-ledger';
+import { TASK_EVIDENCE_MAX_CHARS, TASK_LEDGER_MAX_TASKS, TASK_SUBJECT_MAX_CHARS, type Task, type TaskLedgerListOptions, type TaskLedgerMutationContext, type TaskLedgerStore } from '@maka/core/task-ledger';
 import {
+  LEGACY_TASK_CREATE_TOOL_NAME,
+  LEGACY_TASK_UPDATE_TOOL_NAME,
   TASK_CREATE_TOOL_NAME,
+  TASK_GET_TOOL_NAME,
+  TASK_LIST_TOOL_NAME,
   TASK_UPDATE_TOOL_NAME,
   buildTaskLedgerTools,
+  isTaskLedgerToolsEnabled,
 } from '../task-ledger-tools.js';
 import type { MakaTool, MakaToolContext } from '../tool-runtime.js';
 
@@ -13,15 +18,36 @@ const SESSION_ID = 'sess-1';
 
 class FakeTaskLedgerStore implements TaskLedgerStore {
   private tasks: Task[] = [];
-  public createCalls: Array<{ sessionId: string; drafts: unknown }> = [];
-  public updateCalls: Array<{ sessionId: string; id: string; patch: unknown }> = [];
+  public createCalls: Array<{ sessionId: string; drafts: unknown; context?: TaskLedgerMutationContext }> = [];
+  public updateCalls: Array<{ sessionId: string; id: string; patch: unknown; context?: TaskLedgerMutationContext }> = [];
 
-  async list(): Promise<Task[]> {
-    return this.tasks.map((t) => ({ ...t }));
+  seed(tasks: Task[]): void {
+    this.tasks = tasks.map((task) => ({ ...task }));
   }
 
-  async create(sessionId: string, drafts: unknown): Promise<{ created: Task[]; total: number }> {
-    this.createCalls.push({ sessionId, drafts });
+  async list(_sessionId: string, options?: TaskLedgerListOptions): Promise<Task[]> {
+    return this.tasks.map((t) => ({
+      ...t,
+      ...(options?.classifyResumeTrust === true && t.status === 'in_progress' ? { resumeTrust: 'stale' as const } : {}),
+    }));
+  }
+
+  async get(_sessionId: string, id: string, options?: TaskLedgerListOptions): Promise<Task | undefined> {
+    const task = this.tasks.find((t) => t.id === id);
+    return task
+      ? {
+        ...task,
+        ...(options?.classifyResumeTrust === true && task.status === 'in_progress' ? { resumeTrust: 'stale' as const } : {}),
+      }
+      : undefined;
+  }
+
+  async create(
+    sessionId: string,
+    drafts: unknown,
+    context?: TaskLedgerMutationContext,
+  ): Promise<{ created: Task[]; total: number }> {
+    this.createCalls.push({ sessionId, drafts, context });
     const now = Date.now();
     const created = (drafts as Array<{ subject: string }>).map((d, i) => ({
       id: `id-${this.tasks.length + i}`,
@@ -34,8 +60,13 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
     return { created, total: this.tasks.length };
   }
 
-  async update(sessionId: string, id: string, patch: unknown): Promise<{ updated: Task; total: number }> {
-    this.updateCalls.push({ sessionId, id, patch });
+  async update(
+    sessionId: string,
+    id: string,
+    patch: unknown,
+    context?: TaskLedgerMutationContext,
+  ): Promise<{ updated: Task; total: number }> {
+    this.updateCalls.push({ sessionId, id, patch, context });
     const task = this.tasks.find((t) => t.id === id);
     if (!task) throw new Error(`No such task: ${id}`);
     Object.assign(task, patch, { updatedAt: Date.now() });
@@ -43,10 +74,11 @@ class FakeTaskLedgerStore implements TaskLedgerStore {
   }
 }
 
-function fakeContext(sessionId: string): MakaToolContext {
+function fakeContext(sessionId: string, runId?: string): MakaToolContext {
   return {
     sessionId,
     turnId: 'turn-1',
+    ...(runId ? { runId } : {}),
     cwd: '/tmp',
     toolCallId: 'call-1',
     abortSignal: new AbortController().signal,
@@ -61,15 +93,35 @@ function findTool(tools: MakaTool[], name: string): MakaTool {
 }
 
 describe('task ledger tools', () => {
-  test('builds exactly TaskCreate and TaskUpdate, both local (no permission gate)', () => {
+  test('builds snake_case task tools by default, all local (no permission gate)', () => {
     const tools = buildTaskLedgerTools({ store: new FakeTaskLedgerStore() });
-    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME]);
+    assert.deepEqual(tools.map((t) => t.name), [TASK_CREATE_TOOL_NAME, TASK_UPDATE_TOOL_NAME, TASK_LIST_TOOL_NAME, TASK_GET_TOOL_NAME]);
     for (const tool of tools) {
       assert.equal(tool.permissionRequired, false, `${tool.name} must not require permission`);
     }
   });
 
-  test('TaskCreate schema rejects a batch larger than the ledger cap and accepts the cap boundary', () => {
+  test('can include PascalCase legacy aliases behind an explicit option', () => {
+    const tools = buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }, { includeLegacyAliases: true });
+    assert.deepEqual(tools.map((t) => t.name), [
+      TASK_CREATE_TOOL_NAME,
+      TASK_UPDATE_TOOL_NAME,
+      TASK_LIST_TOOL_NAME,
+      TASK_GET_TOOL_NAME,
+      LEGACY_TASK_CREATE_TOOL_NAME,
+      LEGACY_TASK_UPDATE_TOOL_NAME,
+    ]);
+  });
+
+  test('task tool feature flag defaults on and can be disabled explicitly', () => {
+    assert.equal(isTaskLedgerToolsEnabled({}), true);
+    assert.equal(isTaskLedgerToolsEnabled({ MAKA_TASK_LEDGER_TOOLS: 'false' }), false);
+    assert.equal(isTaskLedgerToolsEnabled({ MAKA_TASK_LEDGER_TOOLS: '0' }), false);
+    assert.equal(isTaskLedgerToolsEnabled({ MAKA_TASK_LEDGER_TOOLS: 'off' }), false);
+    assert.equal(isTaskLedgerToolsEnabled({ MAKA_TASK_LEDGER_TOOLS: 'true' }), true);
+  });
+
+  test('task_create schema rejects a batch larger than the ledger cap and accepts the cap boundary', () => {
     const create = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_CREATE_TOOL_NAME);
     const params = create.parameters as z.ZodType;
     const atCap = { tasks: Array.from({ length: TASK_LEDGER_MAX_TASKS }, () => ({ subject: 'x' })) };
@@ -78,31 +130,36 @@ describe('task ledger tools', () => {
     assert.equal(params.safeParse(overCap).success, false, `${TASK_LEDGER_MAX_TASKS + 1} tasks must be rejected at the schema`);
   });
 
-  test('TaskUpdate schema rejects ids that are not stable tokens and accepts UUID-shaped / simple ids', () => {
+  test('task_update schema rejects ids that are not stable tokens and accepts UUID-shaped / simple ids', () => {
     const update = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_UPDATE_TOOL_NAME);
     const params = update.parameters as z.ZodType;
     const reject = ['a<task-ledger/>b', 'abc\ndef', 'a b', 'X'.repeat(5000), '', 'ghp_abcdefghijklmnopqrstuvwxyz', 'sk-abcdefghi', 'a'.repeat(40)];
     for (const id of reject) {
-      assert.equal(params.safeParse({ id, status: 'completed' }).success, false, `id ${JSON.stringify(id)} must be rejected`);
+      assert.equal(params.safeParse({ id, status: 'completed', completionEvidence: 'done' }).success, false, `id ${JSON.stringify(id)} must be rejected`);
     }
     const accept = ['123e4567-e89b-12d3-a456-426614174000', 'good-id_1:2'];
     for (const id of accept) {
-      assert.equal(params.safeParse({ id, status: 'completed' }).success, true, `id ${id} must pass`);
+      assert.equal(params.safeParse({ id, status: 'completed', completionEvidence: 'done' }).success, true, `id ${id} must pass`);
     }
   });
 
-  test('TaskCreate forwards drafts to the store using ctx.sessionId and renders the returned ledger', async () => {
+  test('task_create forwards drafts to the store using ctx.sessionId and renders the returned ledger', async () => {
     const store = new FakeTaskLedgerStore();
     const create = findTool(buildTaskLedgerTools({ store }), TASK_CREATE_TOOL_NAME);
-    const result = await create.impl({ tasks: [{ subject: '写测试' }, { subject: '实现' }] }, fakeContext(SESSION_ID));
+    const result = await create.impl({ tasks: [{ subject: '写测试' }, { subject: '实现' }] }, fakeContext(SESSION_ID, 'run-1'));
     assert.equal(store.createCalls.length, 1);
     assert.equal(store.createCalls[0]?.sessionId, SESSION_ID);
+    assert.deepEqual(store.createCalls[0], {
+      sessionId: SESSION_ID,
+      drafts: [{ subject: '写测试' }, { subject: '实现' }],
+      context: { runId: 'run-1', turnId: 'turn-1', toolCallId: 'call-1', source: 'tool', actor: 'main_agent' },
+    });
     assert.match(String(result), /写测试/);
     assert.match(String(result), /实现/);
     assert.match(String(result), /pending/);
   });
 
-  test('TaskUpdate forwards only provided fields and renders the returned ledger', async () => {
+  test('task_update forwards only provided fields and renders the returned ledger', async () => {
     const store = new FakeTaskLedgerStore();
     const tools = buildTaskLedgerTools({ store });
     const create = findTool(tools, TASK_CREATE_TOOL_NAME);
@@ -114,7 +171,7 @@ describe('task ledger tools', () => {
     assert.match(String(result), /in_progress/);
   });
 
-  test('TaskCreate result shows only the created tasks (with ids) and total, not the pre-existing ledger', async () => {
+  test('task_create result shows only the created tasks (with ids) and total, not the pre-existing ledger', async () => {
     const store = new FakeTaskLedgerStore();
     const tools = buildTaskLedgerTools({ store });
     const create = findTool(tools, TASK_CREATE_TOOL_NAME);
@@ -125,22 +182,22 @@ describe('task ledger tools', () => {
     assert.match(result, /ledger total: 2/, 'result must include the ledger total');
     assert.equal(result.includes('pre-existing'), false, 'result must not replay the pre-existing ledger');
     // the new task's id is present so the model can update it next
-    const all = await store.list();
+    const all = await store.list(SESSION_ID);
     const newId = all.find((t) => t.subject === 'new-task')?.id;
     assert.ok(newId, 'new task must have been created');
     assert.equal(result.includes(newId), true, 'result must include the new task id');
   });
 
-  test('TaskUpdate result shows only the updated task and total, not the rest of the ledger', async () => {
+  test('task_update result shows only the updated task and total, not the rest of the ledger', async () => {
     const store = new FakeTaskLedgerStore();
     const tools = buildTaskLedgerTools({ store });
     const create = findTool(tools, TASK_CREATE_TOOL_NAME);
     const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
     await create.impl({ tasks: [{ subject: 'keep-1' }, { subject: 'keep-2' }, { subject: 'target' }] }, fakeContext(SESSION_ID));
-    const all = await store.list();
+    const all = await store.list(SESSION_ID);
     const target = all.find((t) => t.subject === 'target');
     assert.ok(target);
-    const result = String(await update.impl({ id: target.id, status: 'completed' }, fakeContext(SESSION_ID)));
+    const result = String(await update.impl({ id: target.id, status: 'completed', completionEvidence: 'verified done' }, fakeContext(SESSION_ID)));
     assert.match(result, /target/, 'result must include the updated task subject');
     assert.match(result, /ledger total: 3/, 'result must include the ledger total');
     assert.equal(result.includes('keep-1'), false, 'result must not replay unrelated tasks');
@@ -189,7 +246,7 @@ describe('task ledger tools', () => {
     );
   });
 
-  test('TaskCreate schema enforces non-empty array, non-blank subjects, and the subject length cap', () => {
+  test('task_create schema enforces non-empty array, non-blank subjects, and the subject length cap', () => {
     const create = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_CREATE_TOOL_NAME);
     const schema = create.parameters as z.ZodTypeAny;
     assert.equal(schema.safeParse({ tasks: [{ subject: 'ok' }] }).success, true);
@@ -201,14 +258,125 @@ describe('task ledger tools', () => {
     assert.equal(schema.safeParse({}).success, false);
   });
 
-  test('TaskUpdate schema requires id and at least one of status/subject, with the same subject cap', () => {
+  test('task_update schema requires id and at least one of status/subject, with the same subject cap', () => {
     const update = findTool(buildTaskLedgerTools({ store: new FakeTaskLedgerStore() }), TASK_UPDATE_TOOL_NAME);
     const schema = update.parameters as z.ZodTypeAny;
-    assert.equal(schema.safeParse({ id: 'x', status: 'completed' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x', status: 'completed', completionEvidence: 'done' }).success, true);
     assert.equal(schema.safeParse({ id: 'x', subject: 'new' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x', status: 'blocked', blockedReason: 'waiting' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x', status: 'failed', failureReason: 'cannot proceed' }).success, true);
+    assert.equal(schema.safeParse({ id: 'x', status: 'in_progress', explicitReopen: true }).success, true);
     assert.equal(schema.safeParse({ id: 'x' }).success, false);
-    assert.equal(schema.safeParse({ status: 'completed' }).success, false);
+    assert.equal(schema.safeParse({ status: 'completed', completionEvidence: 'done' }).success, false);
     assert.equal(schema.safeParse({ id: 'x', status: 'bogus' }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', status: 'completed' }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', status: 'blocked' }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', status: 'failed' }).success, false);
     assert.equal(schema.safeParse({ id: 'x', subject: 'x'.repeat(TASK_SUBJECT_MAX_CHARS + 1) }).success, false);
+    assert.equal(schema.safeParse({ id: 'x', completionEvidence: 'x'.repeat(TASK_EVIDENCE_MAX_CHARS + 1) }).success, false);
+  });
+
+  test('task_update forwards evidence fields to the store', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: '原始' }] }, fakeContext(SESSION_ID));
+
+    const result = await update.impl({
+      id: 'id-0',
+      status: 'blocked',
+      blockedReason: 'waiting for approval',
+    }, fakeContext(SESSION_ID, 'run-2'));
+    assert.deepEqual(store.updateCalls.at(-1)?.patch, { status: 'blocked', blockedReason: 'waiting for approval' });
+    assert.deepEqual(store.updateCalls.at(-1)?.context, {
+      turnId: 'turn-1',
+      runId: 'run-2',
+      toolCallId: 'call-1',
+      source: 'tool',
+      actor: 'main_agent',
+    });
+    assert.match(String(result), /blockedReason/);
+  });
+
+  test('task_update forwards explicitReopen without requiring evidence', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: 'reopen' }] }, fakeContext(SESSION_ID));
+
+    await update.impl({
+      id: 'id-0',
+      status: 'in_progress',
+      explicitReopen: true,
+    }, fakeContext(SESSION_ID, 'run-3'));
+
+    assert.deepEqual(store.updateCalls.at(-1)?.patch, { status: 'in_progress', explicitReopen: true });
+    assert.deepEqual(store.updateCalls.at(-1)?.context, {
+      runId: 'run-3',
+      turnId: 'turn-1',
+      toolCallId: 'call-1',
+      source: 'tool',
+      actor: 'main_agent',
+    });
+  });
+
+  test('task_list and task_get return compact task summaries', async () => {
+    const store = new FakeTaskLedgerStore();
+    const tools = buildTaskLedgerTools({ store });
+    const create = findTool(tools, TASK_CREATE_TOOL_NAME);
+    const update = findTool(tools, TASK_UPDATE_TOOL_NAME);
+    const list = findTool(tools, TASK_LIST_TOOL_NAME);
+    const get = findTool(tools, TASK_GET_TOOL_NAME);
+    await create.impl({ tasks: [{ subject: 'first' }, { subject: 'second' }] }, fakeContext(SESSION_ID));
+    await update.impl({ id: 'id-1', status: 'in_progress' }, fakeContext(SESSION_ID));
+
+    const listResult = String(await list.impl({}, fakeContext(SESSION_ID)));
+    assert.match(listResult, /Task ledger total: 2/);
+    assert.match(listResult, /first/);
+    assert.match(listResult, /second/);
+    assert.equal(listResult.includes('resumeTrust='), false);
+
+    const getResult = String(await get.impl({ id: 'id-1' }, fakeContext(SESSION_ID)));
+    assert.match(getResult, /second/);
+    assert.equal(getResult.includes('first'), false);
+    assert.equal(getResult.includes('resumeTrust='), false);
+    assert.equal(await get.impl({ id: 'missing' }, fakeContext(SESSION_ID)), 'No such task: missing');
+  });
+
+  test('task_list and task_get hide untrusted fallback tasks from model-visible output', async () => {
+    const store = new FakeTaskLedgerStore();
+    store.seed([
+      {
+        id: 'safe-task',
+        subject: 'visible task',
+        status: 'pending',
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      {
+        id: 'fallback-task',
+        subject: 'corrupt cache fallback',
+        status: 'pending',
+        createdAt: 2,
+        updatedAt: 2,
+        resumeTrust: 'untrusted',
+      },
+    ]);
+    const tools = buildTaskLedgerTools({ store });
+    const list = findTool(tools, TASK_LIST_TOOL_NAME);
+    const get = findTool(tools, TASK_GET_TOOL_NAME);
+
+    const listResult = String(await list.impl({}, fakeContext(SESSION_ID)));
+    assert.match(listResult, /visible task/);
+    assert.equal(listResult.includes('corrupt cache fallback'), false);
+    assert.equal(listResult.includes('fallback-task'), false);
+    assert.equal(listResult.includes('resumeTrust='), false);
+
+    assert.equal(
+      await get.impl({ id: 'fallback-task' }, fakeContext(SESSION_ID)),
+      'No such task: fallback-task',
+    );
   });
 });

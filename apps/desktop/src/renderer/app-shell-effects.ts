@@ -160,6 +160,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   bootstrapSessions: () => Promise<void>;
   clearPendingTurnActionsForSession: (sessionId: string) => void;
   clearSessionRendererState: (sessionId: string) => void;
+  createSession: () => Promise<void> | void;
   handleConnectionEvent: (event: ConnectionEvent) => void;
   openSettings: () => void;
   pendingPermissionModeChangesRef: RefBox<Set<string>>;
@@ -175,6 +176,7 @@ export function useAppShellBootstrapSubscriptions(options: {
   refreshPlanReminders: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshShellSettings: () => Promise<void>;
   refreshSkills: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
+  refreshManagedSkillSources: (options?: { shouldShowError?: () => boolean }) => Promise<void>;
   refreshSessions: () => Promise<SessionSummary[]>;
   rendererMountedRef: RefBox<boolean>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -187,6 +189,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     void options.refreshAppInfo();
     void options.refreshMemoryActive('载入本地记忆状态失败');
     void options.refreshSkills();
+    void options.refreshManagedSkillSources();
     void options.refreshPlanReminders();
     void options.applyVisualSmokeFixture();
   });
@@ -250,6 +253,12 @@ export function useAppShellBootstrapSubscriptions(options: {
       event.preventDefault();
       options.openSettings();
     }
+    // ⌘/Ctrl+N — new task, mirroring the sidebar 新任务 row (whose kbd hint
+    // advertises this). Plain N only: shift/alt combos stay free.
+    if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && (event.key === 'n' || event.key === 'N')) {
+      event.preventDefault();
+      void options.createSession();
+    }
   });
   const markRendererMounted = useEffectEvent(() => {
     options.rendererMountedRef.current = true;
@@ -277,6 +286,10 @@ export function useAppShellBootstrapSubscriptions(options: {
     // Non-critical: defer to next frame so the first paint isn't blocked.
     requestAnimationFrame(runDeferredStartupRefreshes);
     const unsubscribeConnections = window.maka.connections.subscribeEvents(handleConnectionSubscriptionEvent);
+    const unsubscribeSettingsExternal = window.maka.settings.subscribeExternalChanged(() => {
+      void options.refreshShellSettings();
+      void options.refreshConnections();
+    });
     const unsubscribeSessionChanges = window.maka.sessions.subscribeChanges(handleSessionChange);
     const unsubscribeOpenSettings = window.maka.appWindow.subscribeOpenSettings(handleOpenSettings);
     const unsubscribePlanChanges = window.maka.plans.subscribeChanges(handlePlanChange);
@@ -286,6 +299,7 @@ export function useAppShellBootstrapSubscriptions(options: {
     return () => {
       cleanupPendingRefs();
       unsubscribeConnections();
+      unsubscribeSettingsExternal();
       unsubscribeSessionChanges();
       unsubscribeOpenSettings();
       unsubscribePlanChanges();

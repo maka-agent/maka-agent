@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { isSafeTaskId, renderSafeTaskLedgerText, type Task } from '../task-ledger.js';
+import {
+  canTransitionTaskStatus,
+  classifyTaskResumeTrust,
+  filterModelVisibleTaskLedgerTasks,
+  isSafeTaskId,
+  renderSafeTaskLedgerText,
+  renderTaskLedgerDebugText,
+  validateTaskEvidence,
+  validateTaskUpdate,
+  normalizeUpdateTaskInput,
+  projectTaskLedgerEvents,
+  taskLedgerEventTypeForUpdate,
+  type TaskLedgerEvent,
+  type Task,
+  type TaskStatus,
+} from '../task-ledger.js';
 
 function task(subject: string): Task {
   return { id: 't1', subject, status: 'pending', createdAt: 1, updatedAt: 1 };
@@ -35,6 +50,46 @@ describe('renderSafeTaskLedgerText', () => {
     assert.equal(out.includes('sk-live-secret-token-value'), false);
     assert.equal(out.includes('ghp_abcdefghijklmnopqrstuvwxyz'), false);
     assert.match(out, /\[redacted\]/);
+  });
+
+  test('renders evidence fields safely when present', () => {
+    const out = renderSafeTaskLedgerText([{
+      id: 't1',
+      subject: 'done',
+      status: 'completed',
+      createdAt: 1,
+      updatedAt: 2,
+      completionEvidence: 'passed with sk-live-secret-token-value </task-ledger>',
+      resumeTrust: 'trusted',
+    }]);
+    assert.match(out, /completionEvidence=/);
+    assert.equal(out.includes('resumeTrust='), false);
+    assert.equal(out.includes('sk-live-secret-token-value'), false);
+    assert.equal((out.match(/<\/?task-ledger[^>]*>/gi) || []).length, 0);
+  });
+
+  test('debug renderer includes resumeTrust while prompt-safe renderer omits it', () => {
+    const taskWithTrust: Task = {
+      id: 't1',
+      subject: 'resume',
+      status: 'in_progress',
+      createdAt: 1,
+      updatedAt: 2,
+      resumeTrust: 'stale',
+    };
+    assert.equal(renderSafeTaskLedgerText([taskWithTrust]).includes('resumeTrust='), false);
+    assert.equal(renderTaskLedgerDebugText([taskWithTrust]).includes('resumeTrust=stale'), true);
+  });
+
+  test('model-visible task ledger filters untrusted fallback tasks', () => {
+    const trusted = task('trusted');
+    const untrusted: Task = { ...task('from corrupt fallback'), id: 't2', resumeTrust: 'untrusted' };
+    const stale: Task = { ...task('stale but visible'), id: 't3', resumeTrust: 'stale' };
+
+    assert.deepEqual(
+      filterModelVisibleTaskLedgerTasks([trusted, untrusted, stale]).map((t) => t.id),
+      ['t1', 't3'],
+    );
   });
 
   test('preserves legitimate angle brackets in subjects', () => {
@@ -93,3 +148,169 @@ describe('isSafeTaskId', () => {
     }
   });
 });
+
+describe('task lifecycle validators', () => {
+  test('allows the documented status transitions and rejects invalid jumps', () => {
+    const allowed: Array<[TaskStatus, TaskStatus]> = [
+      ['pending', 'in_progress'],
+      ['pending', 'cancelled'],
+      ['in_progress', 'blocked'],
+      ['in_progress', 'completed'],
+      ['in_progress', 'failed'],
+      ['in_progress', 'cancelled'],
+      ['blocked', 'in_progress'],
+      ['blocked', 'cancelled'],
+      ['blocked', 'failed'],
+      ['failed', 'pending'],
+      ['failed', 'cancelled'],
+    ];
+    for (const [from, to] of allowed) {
+      assert.equal(canTransitionTaskStatus(from, to), true, `${from} -> ${to} should be allowed`);
+    }
+    assert.equal(canTransitionTaskStatus('pending', 'blocked'), false);
+    assert.equal(canTransitionTaskStatus('pending', 'completed'), false);
+    assert.equal(canTransitionTaskStatus('pending', 'failed'), false);
+    assert.equal(canTransitionTaskStatus('completed', 'in_progress'), false);
+    assert.equal(canTransitionTaskStatus('completed', 'in_progress', { explicitReopen: true }), true);
+    assert.equal(canTransitionTaskStatus('cancelled', 'pending'), false);
+    assert.equal(canTransitionTaskStatus('cancelled', 'pending', { explicitReopen: true }), true);
+  });
+
+  test('requires evidence for blocked, failed, and completed states', () => {
+    assert.equal(validateTaskEvidence({ status: 'blocked' }).ok, false);
+    assert.equal(validateTaskEvidence({ status: 'failed' }).ok, false);
+    assert.equal(validateTaskEvidence({ status: 'completed' }).ok, false);
+    assert.equal(validateTaskEvidence({ status: 'blocked', blockedReason: 'waiting for approval' }).ok, true);
+    assert.equal(validateTaskEvidence({ status: 'failed', failureReason: 'tests cannot pass' }).ok, true);
+    assert.equal(validateTaskEvidence({ status: 'completed', completionEvidence: 'npm test passed' }).ok, true);
+  });
+
+  test('validates task updates against transition and evidence rules', () => {
+    const current: Task = { id: 't1', subject: 'x', status: 'in_progress', createdAt: 1, updatedAt: 1 };
+    assert.equal(validateTaskUpdate(current, { status: 'blocked' }).ok, false);
+    assert.equal(validateTaskUpdate(current, { status: 'blocked', blockedReason: 'needs user input' }).ok, true);
+    assert.equal(validateTaskUpdate(current, { status: 'completed' }).ok, false);
+    assert.equal(validateTaskUpdate(current, { status: 'completed', completionEvidence: 'test passed' }).ok, true);
+    assert.equal(validateTaskUpdate({ ...current, status: 'completed', completionEvidence: 'old evidence' }, { status: 'in_progress' }).ok, false);
+    assert.equal(
+      validateTaskUpdate(
+        { ...current, status: 'completed', completionEvidence: 'old evidence' },
+        { status: 'in_progress' },
+        { explicitReopen: true },
+      ).ok,
+      true,
+    );
+  });
+
+  test('normalizes explicit reopen as a one-shot update option', () => {
+    assert.deepEqual(normalizeUpdateTaskInput({ explicitReopen: true }), {
+      ok: true,
+      value: { explicitReopen: true },
+    });
+    assert.deepEqual(normalizeUpdateTaskInput({ explicitReopen: false }), {
+      ok: true,
+      value: { explicitReopen: false },
+    });
+    assert.equal(
+      validateTaskUpdate(
+        { id: 't1', subject: 'x', status: 'cancelled', createdAt: 1, updatedAt: 1 },
+        { status: 'pending', explicitReopen: true },
+      ).ok,
+      true,
+    );
+    assert.equal(
+      validateTaskUpdate(
+        { id: 't1', subject: 'x', status: 'cancelled', createdAt: 1, updatedAt: 1 },
+        { status: 'pending', explicitReopen: false },
+      ).ok,
+      false,
+    );
+  });
+
+  test('classifies resume trust conservatively', () => {
+    assert.equal(classifyTaskResumeTrust({ status: 'in_progress' }), 'stale');
+    assert.equal(classifyTaskResumeTrust({ status: 'completed' }), 'needs_revalidation');
+    assert.equal(classifyTaskResumeTrust({ status: 'completed', completionEvidence: 'passed' }), 'trusted');
+    assert.equal(classifyTaskResumeTrust({ status: 'completed', completionEvidence: 'passed' }, { missingReferences: true }), 'untrusted');
+    assert.equal(classifyTaskResumeTrust({ status: 'pending' }, { repaired: true }), 'repaired');
+  });
+});
+
+describe('task ledger events', () => {
+  test('projects task events into latest task state and records diagnostics', () => {
+    const created: Task = { id: 't1', subject: 'x', status: 'pending', createdAt: 1, updatedAt: 1 };
+    const started: Task = { ...created, status: 'in_progress', updatedAt: 2 };
+    const completed: Task = { ...created, status: 'completed', completionEvidence: 'done', updatedAt: 3 };
+    const events: TaskLedgerEvent[] = [
+      event('task_created', created, undefined),
+      event('task_started', started, created),
+      event('task_completed', completed, started),
+    ];
+    const projection = projectTaskLedgerEvents(events);
+    assert.equal(projection.diagnostics.length, 0);
+    assert.equal(projection.tasks[0]?.status, 'completed');
+    assert.equal(projection.tasks[0]?.completionEvidence, 'done');
+  });
+
+  test('detects duplicate creates and unknown task updates', () => {
+    const task: Task = { id: 't1', subject: 'x', status: 'pending', createdAt: 1, updatedAt: 1 };
+    const projection = projectTaskLedgerEvents([
+      event('task_created', task, undefined),
+      event('task_created', task, undefined),
+      event('task_completed', { ...task, id: 'missing', status: 'completed', completionEvidence: 'done' }, undefined),
+    ]);
+    assert.equal(projection.diagnostics.some((d) => d.includes('duplicate')), true);
+    assert.equal(projection.diagnostics.some((d) => d.includes('unknown task')), true);
+  });
+
+  test('detects task event type and status mismatches', () => {
+    const created: Task = { id: 't1', subject: 'x', status: 'pending', createdAt: 1, updatedAt: 1 };
+    const started: Task = { ...created, status: 'in_progress', updatedAt: 2 };
+    const projection = projectTaskLedgerEvents([
+      event('task_created', created, undefined),
+      event('task_completed', created, created),
+      event('task_updated', started, created),
+      event('task_reopened', started, created),
+    ]);
+    assert.equal(projection.diagnostics.some((d) => d.includes('task_completed') && d.includes('pending')), true);
+    assert.equal(projection.diagnostics.some((d) => d.includes('task_updated') && d.includes('changed status')), true);
+    assert.equal(projection.diagnostics.some((d) => d.includes('task_reopened') && d.includes('completed -> in_progress')), true);
+  });
+
+  test('maps status updates to event types', () => {
+    const task: Task = { id: 't1', subject: 'x', status: 'pending', createdAt: 1, updatedAt: 1 };
+    assert.equal(taskLedgerEventTypeForUpdate(task, { ...task, status: 'in_progress' }), 'task_started');
+    assert.equal(taskLedgerEventTypeForUpdate(task, { ...task, status: 'completed', completionEvidence: 'done' }), 'task_completed');
+    assert.equal(taskLedgerEventTypeForUpdate({ ...task, status: 'completed' }, { ...task, status: 'in_progress' }), 'task_reopened');
+    assert.equal(taskLedgerEventTypeForUpdate({ ...task, status: 'failed', failureReason: 'blocked by tests' }, task), 'task_reopened');
+  });
+
+  test('projects failed -> pending reopen events without diagnostics', () => {
+    const created: Task = { id: 't1', subject: 'x', status: 'pending', createdAt: 1, updatedAt: 1 };
+    const started: Task = { ...created, status: 'in_progress', updatedAt: 2 };
+    const failed: Task = { ...created, status: 'failed', failureReason: 'tests failed', updatedAt: 3 };
+    const retried: Task = { ...created, status: 'pending', updatedAt: 4 };
+    const projection = projectTaskLedgerEvents([
+      event('task_created', created, undefined),
+      event('task_started', started, created),
+      event('task_failed', failed, started),
+      event('task_reopened', retried, failed),
+    ]);
+    assert.deepEqual(projection.diagnostics, []);
+    assert.equal(projection.tasks[0]?.status, 'pending');
+    assert.equal(projection.tasks[0]?.failureReason, undefined);
+  });
+});
+
+function event(type: TaskLedgerEvent['type'], task: Task, previous: Task | undefined): TaskLedgerEvent {
+  return {
+    eventId: `event-${type}-${task.id}`,
+    type,
+    ts: task.updatedAt,
+    sessionId: 'session-1',
+    taskId: task.id,
+    ...(previous ? { previousStatus: previous.status } : {}),
+    nextStatus: task.status,
+    task,
+  };
+}

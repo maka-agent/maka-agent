@@ -33,7 +33,7 @@ const pairs = [
   { pkg: '@maka/ui', src: 'packages/ui/src', dist: 'packages/ui/dist' },
   { pkg: '@maka/desktop:main', src: 'apps/desktop/src/main', dist: 'apps/desktop/dist/main' },
   { pkg: '@maka/desktop:preload', src: 'apps/desktop/src/preload', dist: 'apps/desktop/dist/preload' },
-  { pkg: '@maka/desktop:renderer', src: 'apps/desktop/src/renderer', dist: 'apps/desktop/dist/renderer' },
+  { pkg: '@maka/desktop:renderer', src: 'apps/desktop/src/renderer', dist: 'apps/desktop/dist-renderer' },
 ];
 
 function walkMaxMtime(dir, predicate) {

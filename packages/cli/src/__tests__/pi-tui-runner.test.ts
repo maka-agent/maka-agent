@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage } from '@maka/core';
-import type { MakaSessionDriver, MakaSessionSwitchResult } from '../session-driver.js';
+import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
+import type { MakaSessionDriver, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
+import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
 import { arrangeAutocompleteAboveEditor } from '../tui-autocomplete-layout.js';
 import {
   assertBottomPickerPlacement,
@@ -118,7 +119,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('toggles the latest tool detail with Ctrl-O', async () => {
+  test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
     const run = runMakaPiTui({
@@ -136,11 +137,125 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('n');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('Ctrl+O expand'));
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
     assert.equal(terminal.output().includes('expanded-tail'), false);
 
     terminal.input('\x0f');
-    await waitFor(() => terminal.output().includes('expanded-tail'));
+    // Expanding the 31-line result overflows the viewport; the transcript is not
+    // windowed, so its head line `expanded-tail` scrolls into the terminal's own
+    // scrollback. The cumulative write stream is what was drawn, so it records the
+    // expanded content even once it has scrolled above the fold.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('expanded-tail'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ToolOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.output().includes('(Ctrl+O)'));
+
+    // Kitty keyboard protocol terminals (Ghostty/Kitty) send one event for the
+    // key press and another for the release. The release must not undo the
+    // toggle, or expansion only lasts while the key is physically held.
+    terminal.input('\x1b[111;5u');
+    terminal.input('\x1b[111;5:3u');
+
+    // The compact-only (Ctrl+O) hint leaving the screen proves the card is
+    // still expanded after the release event.
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'));
+    await delay(20);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('(Ctrl+O)'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not treat a kitty Escape press+release as a double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // One physical Esc keypress arrives as a press + release pair under the
+    // kitty protocol; it must count as a single Escape, not an interrupt.
+    terminal.input('\x1b[27u');
+    terminal.input('\x1b[27;1:3u');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    // A real second press still interrupts the running turn.
+    terminal.input('\x1b[27u');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('toggles thinking visibility with Ctrl-T', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new ThinkingOutputDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('思考（Ctrl+T 展开）'));
+    assert.equal(plainTerminalOutput(terminal.output()).includes('secret reasoning tail'), false);
+
+    terminal.input('\x14');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('secret reasoning tail'));
+
+    terminal.input('\x14');
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('secret reasoning tail'));
 
     terminal.input('\x03');
     await Promise.race([
@@ -243,6 +358,48 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('flows a transcript taller than the viewport into scrollback, untruncated and un-paged', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new LongTranscriptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('fill');
+    terminal.input('\r');
+    // The whole 40-line reply is drawn — head and tail both reach the terminal,
+    // so nothing is capped to one screen the way the old windowing did.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('filler line 40'));
+    const cumulative = plainTerminalOutput(terminal.output());
+    assert.ok(cumulative.includes('filler line 1'), 'the head of a tall reply must still be written out');
+
+    // No in-app pager: the removed scroll indicator and its PgUp/PgDn hint never
+    // appear. History is scrolled through the terminal's own scrollback instead.
+    assert.doesNotMatch(cumulative, /PgUp|PgDn|\d+ more/);
+
+    // The visible screen follows the tail: the last reply line and the status
+    // line are on screen (status pinned to the bottom row), while the scrolled-off
+    // head is not — it now lives in the terminal's native scrollback.
+    const screen = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
+    assert.ok(screen.some((line) => line.includes('filler line 40')), 'the live tail should be on screen');
+    assert.equal(screen.some((line) => line.includes('filler line 1')), false, 'the head should have scrolled off');
+    assert.equal(screen[terminal.rows - 1]?.includes('Maka deepseek-v4-flash deepseek ask /repo'), true);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('does not close the main TUI on Escape', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -325,6 +482,9 @@ describe('Maka Pi TUI runner', () => {
     assert.ok(exitIndex < modelIndex);
     assert.ok(modelIndex < permissionsIndex);
     assert.ok(permissionsIndex < sessionIndex);
+    // The whole menu is visible at once — including the last command
+    // alphabetically — so new commands don't push older ones below the fold.
+    assert.ok(output.indexOf('/thinking') > sessionIndex);
 
     terminal.input('\x03');
     await Promise.race([
@@ -443,7 +603,10 @@ describe('Maka Pi TUI runner', () => {
 
     terminal.input('s');
 
-    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/s'));
+    await waitFor(() => {
+      const output = plainTerminalOutput(terminal.screenOutput());
+      return output.includes('/session') && !output.includes('/model');
+    });
     const afterLines = plainTerminalOutput(terminal.screenOutput()).split(/\r?\n/);
     const afterRows = inputSurfaceRows(afterLines);
     const afterSessionRow = afterLines.findIndex((line) => line.includes('/session'));
@@ -519,6 +682,41 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.stopCalls, 1);
   });
 
+  test('handles /compact through the runtime compact API and progress loader', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredCompactDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    for (const char of '/compact') terminal.input(char);
+    terminal.input('\r');
+
+    await waitFor(() => driver.compactCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Compacting context'));
+
+    assert.deepEqual(driver.prompts, []);
+    assert.equal(terminal.progressStates.at(-1), true);
+
+    driver.releaseCompact();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Context compacted'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -571,6 +769,126 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => terminal.output().includes('Permission mode: execute'));
 
     assert.deepEqual(driver.permissionModes, ['execute']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /thinking high without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking high');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, ['high']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /thinking off when the current model exposes a real off wire', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking off');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, ['off']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects unsupported /thinking levels with usage instead of sending an update', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking off');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Usage: /thinking default|minimal|low|medium|high'));
+    assert.deepEqual(driver.thinkingLevelUpdates, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /thinking default by clearing the override', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/thinking default');
+    terminal.input('\r');
+
+    await waitFor(() => driver.thinkingLevelUpdates.length === 1);
+    assert.deepEqual(driver.thinkingLevelUpdates, [undefined]);
     assert.deepEqual(driver.prompts, []);
 
     terminal.input('\x03');
@@ -692,6 +1010,109 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('switches connection and model together from a cross-connection /model', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'gpt-5.5',
+      connectionSlug: 'openai',
+      providerType: 'openai',
+      modelChoices: [
+        { connectionSlug: 'openai', connectionName: 'OpenAI', providerType: 'openai', model: 'gpt-5.5', isDefaultConnection: true },
+        { connectionSlug: 'zai', connectionName: 'Z.ai', providerType: 'openai', model: 'glm-5.2', isDefaultConnection: false },
+      ],
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Select Model'));
+    await waitFor(() => terminal.output().includes('glm-5.2'));
+    // The picker opens on the current model (gpt-5.5); move down to the choice on
+    // the other connection and select it.
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+
+    assert.deepEqual(driver.models, ['glm-5.2']);
+    assert.deepEqual(driver.modelConnections, ['zai']);
+    // The status line now reflects both the new model and the new connection.
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka glm-5.2 zai ask /repo'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('handles /rename without sending a prompt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename PR 946 修复');
+    terminal.input('\r');
+
+    await waitFor(() => driver.renames.length === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Session renamed to "PR 946 修复"'));
+
+    assert.deepEqual(driver.renames, ['PR 946 修复']);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rejects /rename without a new name', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rename');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Usage: /rename <new name>'));
+    assert.deepEqual(driver.renames, []);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('handles /session without sending a prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([fakeSessionSummary('session-2', '/repo')]);
@@ -740,7 +1161,8 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
 
     await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
-    await waitFor(() => terminal.output().includes('session-2'));
+    // The picker labels rows by human name, not the raw session id.
+    await waitFor(() => terminal.output().includes('Existing chat'));
     const titleLine = latestPlainLineContaining(terminal.output(), 'Resume Session (Current Folder)');
     assert.equal(titleLine.startsWith('Resume Session (Current Folder)'), true);
     assert.equal(visibleWidth(titleLine), terminal.columns);
@@ -806,8 +1228,8 @@ describe('Maka Pi TUI runner', () => {
   test('shows only current-cwd sessions in the session picker', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([
-      fakeSessionSummary('session-current', '/repo'),
-      fakeSessionSummary('session-other', '/elsewhere'),
+      fakeSessionSummary('session-current', '/repo', 'Current chat'),
+      fakeSessionSummary('session-other', '/elsewhere', 'Other chat'),
     ]);
     const run = runMakaPiTui({
       title: 'Maka',
@@ -822,11 +1244,161 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('/session');
     terminal.input('\r');
 
-    await waitFor(() => terminal.output().includes('session-current'));
+    await waitFor(() => terminal.output().includes('Current chat'));
     const output = plainTerminalOutput(terminal.output());
-    assert.equal(output.includes('session-other'), false);
+    assert.equal(output.includes('Other chat'), false);
 
     terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('the session picker scrolls through every session rather than capping', async () => {
+    const terminal = new FakeTerminal();
+    const sessions = Array.from({ length: 12 }, (_, i) => fakeSessionSummary(`session-${i}`, '/repo', `chat ${i}`));
+    const driver = new SlashCommandDriver(sessions);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    // All 12 are in the list (not sliced to 10): the scroll indicator counts the
+    // full total, so the window shows "(1/12)".
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('/12)'));
+    // And the 12th is genuinely reachable: scrolling down brings it into view,
+    // even though it starts below the visible window.
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('chat 11'), false);
+    for (let i = 0; i < 11; i += 1) terminal.input('\x1b[B');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('chat 11'));
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('the session picker disambiguates same-named sessions by short id', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver([
+      fakeSessionSummary('aaaa1111-2222-3333', '/repo', 'Same name'),
+      fakeSessionSummary('bbbb4444-5555-6666', '/repo', 'Same name'),
+    ]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+
+    await waitFor(() => terminal.output().includes('Resume Session (Current Folder)'));
+    // Same label on both rows, but the short id in the description tells them apart.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('aaaa1111'));
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('bbbb4444'));
+
+    terminal.input('\x1b');
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('/help lists commands and keybindings', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/help');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Commands'));
+    const out = plainTerminalOutput(terminal.output());
+    // Commands are derived from the registry, so a representative one shows up.
+    assert.ok(out.includes('/rewind'));
+    assert.ok(out.includes('Rewind to an earlier turn'));
+    assert.ok(out.includes('/new'));
+    // Keybindings — the whole reason /help exists (they are otherwise hidden).
+    assert.ok(out.includes('Keybindings'));
+    assert.ok(out.includes('Ctrl+O'));
+    assert.ok(out.includes('Esc Esc'));
+    // Scrolling is the terminal's own now; the removed PgUp/PgDn pager must not
+    // be advertised as a working keybinding.
+    assert.ok(out.includes('terminal or trackpad'));
+    assert.equal(out.includes('PageUp'), false);
+    assert.deepEqual(driver.prompts, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('/new clears the transcript and starts a fresh session', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('remember this');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('remember this'));
+
+    terminal.input('/new');
+    terminal.input('\r');
+
+    await waitFor(() => driver.startNewSessionCalls === 1);
+    // /new empties the transcript, so it opens on the same welcome block as a
+    // cold start rather than a one-off notice — that block is the "fresh session"
+    // cue and a notice would suppress it.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('输入消息开始对话，或用斜杠命令：'));
+    // The previous turn is gone from the visible transcript.
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('remember this'));
+
     terminal.input('\x03');
     await Promise.race([
       run,
@@ -947,6 +1519,378 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('interrupts the running turn on double Escape', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Stopped: user_stop'));
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    // Idle double Escape opens the rewind picker, never a stop: the session is
+    // between turns. This fake exposes no rewind targets, so it only shows a
+    // notice, but the contract under test is that stopSession is not fired again.
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(20);
+    assert.equal(driver.stopCalls, 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('opens a rewind picker from /rewind and branches on select', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver(
+      [
+        { turnId: 'turn-2', label: 'second question' },
+        { turnId: 'turn-1', label: 'first question' },
+      ],
+      [
+        storedUserMessage('user-1', 'turn-1', 'first question'),
+        storedAssistantMessage('assistant-1', 'turn-1', 'first answer'),
+      ],
+    );
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rewind');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('second question'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('first question'));
+
+    // The picker lists targets newest-first, so the default selection is turn-2.
+    terminal.input('\r');
+    await waitFor(() => driver.rewound.length === 1);
+    assert.deepEqual(driver.rewound, ['turn-2']);
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('已回退到选定轮次'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('first answer'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('reports when /rewind has no earlier turns', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/rewind');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('没有可回退的轮次'));
+    assert.equal(plainTerminalOutput(terminal.output()).includes('回到选定轮次'), false);
+    assert.deepEqual(driver.rewound, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('idle double Escape opens the rewind picker; a single Escape does not', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first question' }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+
+    // A single Escape falls through to the editor: no picker yet.
+    terminal.input('\x1b');
+    await delay(40);
+    assert.equal(plainTerminalOutput(terminal.output()).includes('回到选定轮次'), false);
+
+    // A second Escape within the window completes the gesture and opens the picker.
+    terminal.input('\x1b');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
+
+    // Cancel the picker so Ctrl-C reaches the runner rather than the overlay.
+    terminal.input('\x1b');
+    await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('回到选定轮次'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not open the rewind picker while the editor has a draft', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first question' }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+
+    // While a draft is present, Escape belongs to the editor (clear input), not
+    // the rewind gesture. Two Escapes must not open the picker.
+    terminal.input('draft in progress');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(40);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('回到选定轮次'), false);
+    assert.deepEqual(driver.rewound, []);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('a non-Escape key between two Escapes does not open the rewind picker', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RewindDriver([{ turnId: 'turn-1', label: 'first question' }]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Maka claude-sonnet-4-5 claude-subscription ask /repo'));
+
+    // The editor stays neutral (empty) throughout, but a left-arrow between the
+    // two Escapes breaks the gesture: the two Escapes must be consecutive.
+    terminal.input('\x1b');
+    await delay(20);
+    terminal.input('\x1b[D');
+    await delay(20);
+    terminal.input('\x1b');
+    await delay(40);
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('回到选定轮次'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('interrupts at most once while the stop is still settling', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The turn has not ended yet (runtime stop is still settling). Further
+    // double-Escapes must be swallowed, not fire a second stopSession that
+    // would append a duplicate abort note to the session log.
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(30);
+    assert.equal(driver.stopCalls, 1);
+
+    driver.endTurn();
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not stop again when Ctrl-C exits mid-interrupt', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlowStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The interrupt is issued but the runtime stop has not settled and the turn
+    // is still parked. Quitting with Ctrl-C must reuse that in-flight stop, not
+    // fire a second stopSession through close() that appends a duplicate abort.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+
+    assert.equal(driver.stopCalls, 1);
+  });
+
+  test('does not stop again when Esc arrives after Ctrl-C started closing', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+
+    // Quit first: close() flips `closed`, then parks awaiting a slow runtime stop.
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+
+    // The TUI is half-closed but its input listener is still live. A double
+    // Escape in this window must not slip a second stopSession past close().
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await delay(30);
+    assert.equal(driver.stopCalls, 1);
+
+    // Releasing the parked stop lets close() finish shutting the TUI down.
+    driver.releaseStop();
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('keeps Escape as permission deny while a permission prompt is pending', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await delay(20);
+
+    terminal.input('\x1b');
+    terminal.input('\x1b');
+    await waitFor(() => driver.permissionResponses.length >= 1);
+
+    // Both Escapes route to the permission prompt, never to turn interruption.
+    assert.equal(driver.permissionResponses[0]?.decision, 'deny');
+    assert.equal(driver.stopCalls, 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
   test('clears the permission prompt when the turn errors', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionThenErrorDriver();
@@ -983,7 +1927,244 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('enables focus reporting only after raw mode, so no stray ^[[I leaks on launch', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    await waitFor(() => terminal.writes.includes('\x1b[?1004h'));
+    assert.ok(terminal.titles.includes('Maka'));
+
+    // Enabling focus reporting before raw mode makes the terminal's focus-in
+    // reply (`\x1b[I`) echo onto the screen as `^[[I`. The enable must be written
+    // strictly after start() (raw mode on), never before.
+    assert.notEqual(terminal.startWriteIndex, null);
+    const focusEnableIndex = terminal.writes.indexOf('\x1b[?1004h');
+    assert.ok(
+      focusEnableIndex >= terminal.startWriteIndex!,
+      'focus reporting was enabled before raw mode; a stray ^[[I can leak on launch',
+    );
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rings the bell and marks the title when a long turn ends unfocused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      // Zero threshold: every completed turn counts as long, so the test drives
+      // the ring path without waiting real seconds.
+      attentionLongTurnThresholdMs: 0,
+      terminal,
+    });
+
+    // Report the terminal as backgrounded, then run a turn to completion.
+    terminal.input('\x1b[O');
+    terminal.input('go');
+    terminal.input('\r');
+
+    await waitFor(() => driver.prompts.length === 1);
+    await waitFor(() => bellCount(terminal) === 1);
+    assert.ok(
+      terminal.titles.includes(`${BUSY_SPINNER_FRAMES[0]} Maka`),
+      'title marks busy during the turn',
+    );
+    assert.ok(terminal.titles.includes('★ Maka'), 'title marks attention after the unfocused finish');
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not ring when a short turn ends unfocused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      // Default (large) threshold: the immediate-complete turn is far too short.
+      terminal,
+    });
+
+    terminal.input('\x1b[O');
+    terminal.input('go');
+    terminal.input('\r');
+
+    await waitFor(() => driver.prompts.length === 1);
+    await delay(30);
+    assert.equal(bellCount(terminal), 0);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('does not ring when a long turn ends while still focused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      attentionLongTurnThresholdMs: 0,
+      terminal,
+    });
+
+    // No blur report: the terminal is assumed focused, so a finished turn is
+    // silent — the user is watching it.
+    terminal.input('go');
+    terminal.input('\r');
+
+    await waitFor(() => driver.prompts.length === 1);
+    await delay(30);
+    assert.equal(bellCount(terminal), 0);
+    assert.equal(terminal.titles.includes('★ Maka'), false);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rings when a permission prompt appears unfocused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('\x1b[O');
+    terminal.input('run');
+    terminal.input('\r');
+
+    await waitFor(() => driver.permissionRequests === 1);
+    await waitFor(() => bellCount(terminal) >= 1);
+    assert.ok(terminal.titles.includes('★ Maka'));
+
+    // Answer so the parked turn can finish and the TUI closes cleanly.
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('rings when a short turn fails unfocused', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new QuickErrorDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      // Default (large) threshold: the ring must come from the error path, not
+      // from turn duration — the turn fails immediately.
+      terminal,
+    });
+
+    terminal.input('\x1b[O');
+    terminal.input('go');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('turn failed'));
+    await waitFor(() => bellCount(terminal) === 1);
+    assert.ok(terminal.titles.includes('★ Maka'));
+
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+  });
+
+  test('clears the busy title marker when Ctrl-C exits mid-turn', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new InterruptibleTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.titles.includes(`${BUSY_SPINNER_FRAMES[0]} Maka`));
+
+    // Quit while the turn is still parked: close() must reset the title so the
+    // shell tab is not left marked busy after Maka exits.
+    terminal.input('\x03');
+    await Promise.race([
+      run,
+      delay(50).then(() => {
+        throw new Error('TUI did not close after Ctrl-C');
+      }),
+    ]);
+    assert.equal(terminal.titles.at(-1), 'Maka');
+  });
+
 });
+
+/** Count the standalone BEL bytes the attention layer wrote. */
+function bellCount(terminal: FakeTerminal): number {
+  return terminal.writes.filter((write) => write === '\x07').length;
+}
 
 class RejectingStopDriver implements MakaSessionDriver {
   stopCalls = 0;
@@ -993,6 +2174,7 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async *sendPrompt(_prompt: string): AsyncIterable<never> {}
+  async *compactSession(): AsyncIterable<never> {}
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
@@ -1000,12 +2182,21 @@ class RejectingStopDriver implements MakaSessionDriver {
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
   }
@@ -1014,11 +2205,14 @@ class RejectingStopDriver implements MakaSessionDriver {
 class PermissionPromptDriver implements MakaSessionDriver {
   readonly permissionResponses: PermissionResponse[] = [];
   permissionRequests = 0;
+  stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     this.permissionRequests += 1;
@@ -1056,18 +2250,255 @@ class PermissionPromptDriver implements MakaSessionDriver {
     };
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
     this.continueAfterPermission?.();
   }
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class InterruptibleTurnDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    // The turn parks like a real long-running provider call until stop() aborts it.
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class SlowStopDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  // stop() records the request but leaves the turn parked, mimicking a runtime
+  // stopSession that has not finished aborting yet.
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+
+  endTurn(): void {
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class HangingStopDriver implements MakaSessionDriver {
+  stopCalls = 0;
+  private releaseTurn: (() => void) | null = null;
+  private releaseStopFns: Array<() => void> = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    await new Promise<void>((resolve) => {
+      this.releaseTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  // stop() parks until releaseStop(), mimicking a runtime whose stopSession has
+  // not finished aborting. close() awaits this while the input listener is still
+  // live, which is the window the Ctrl-C-then-Escape regression exercises.
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.releaseStopFns.push(resolve);
+    });
+  }
+
+  releaseStop(): void {
+    for (const resolve of this.releaseStopFns) resolve();
+    this.releaseStopFns = [];
+  }
+
+  endTurn(): void {
+    this.releaseTurn?.();
+    this.releaseTurn = null;
+  }
+
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class ThinkingOutputDriver implements MakaSessionDriver {
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'thinking_delta',
+      id: 'event-thinking',
+      turnId: 'turn-1',
+      ts: 1,
+      messageId: 'message-1',
+      text: 'secret reasoning tail',
+    };
+    yield {
+      type: 'text_complete',
+      id: 'event-text',
+      turnId: 'turn-1',
+      ts: 2,
+      messageId: 'message-1',
+      text: 'visible answer',
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-1',
+      ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
   }
@@ -1077,6 +2508,8 @@ class ToolOutputDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
@@ -1099,9 +2532,14 @@ class ToolOutputDriver implements MakaSessionDriver {
         kind: 'terminal',
         cwd: '/repo',
         cmd: 'npm test',
+        status: 'completed',
         exitCode: 0,
-        stdout: `${'x'.repeat(900)}\nexpanded-tail`,
+        // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
+        // hides it; expanding reveals the full output including this head line.
+        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
         stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
       },
     };
     yield {
@@ -1115,11 +2553,20 @@ class ToolOutputDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
   }
@@ -1128,8 +2575,12 @@ class ToolOutputDriver implements MakaSessionDriver {
 class SlashCommandDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
+  readonly modelConnections: Array<string | undefined> = [];
   readonly permissionModes: PermissionMode[] = [];
+  readonly thinkingLevelUpdates: Array<ThinkingLevel | undefined> = [];
   readonly sessionIds: string[] = [];
+  readonly renames: string[] = [];
+  startNewSessionCalls = 0;
   private sessionId = 'session-1';
 
   constructor(
@@ -1152,13 +2603,30 @@ class SlashCommandDriver implements MakaSessionDriver {
     };
   }
 
+  async *compactSession(): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'complete',
+      id: 'event-compact-complete',
+      turnId: 'turn-compact',
+      ts: 1,
+      stopReason: 'end_turn',
+    };
+  }
+
   async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
-  async setModel(model: string): Promise<void> {
+  async setModel(model: string, connectionSlug?: string): Promise<void> {
     this.models.push(model);
+    this.modelConnections.push(connectionSlug);
+  }
+  async renameSession(name: string): Promise<void> {
+    this.renames.push(name);
   }
   async setPermissionMode(mode: PermissionMode): Promise<void> {
     this.permissionModes.push(mode);
+  }
+  async setThinkingLevel(level: ThinkingLevel | undefined): Promise<void> {
+    this.thinkingLevelUpdates.push(level);
   }
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     this.sessionIds.push(sessionId);
@@ -1166,6 +2634,16 @@ class SlashCommandDriver implements MakaSessionDriver {
     const summary = this.sessions.find((session) => session.id === sessionId);
     const nextSummary = summary ?? fakeSessionSummary(sessionId);
     return switchResult(nextSummary, [...(this.sessionMessages.get(nextSummary.id) ?? [])]);
+  }
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(_turnId: string): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {
+    this.startNewSessionCalls += 1;
+    this.sessionId = 'session-new';
   }
   getSessionId(): string {
     return this.sessionId;
@@ -1193,6 +2671,55 @@ class LongTranscriptDriver extends SlashCommandDriver {
   }
 }
 
+class DeferredCompactDriver extends SlashCommandDriver {
+  compactCalls = 0;
+  private resolveCompact: (() => void) | null = null;
+
+  override async *compactSession(): AsyncIterable<SessionEvent> {
+    this.compactCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveCompact = resolve;
+    });
+    yield {
+      type: 'token_usage',
+      id: 'event-token-usage',
+      turnId: 'turn-compact',
+      ts: 1,
+      input: 0,
+      output: 0,
+      contextBudget: {
+        enabled: true,
+        policyName: 'unit-budget',
+        estimatedTokensBefore: 1000,
+        estimatedTokensAfter: 400,
+        keptTurns: 1,
+        droppedTurns: 2,
+        keptEvents: 2,
+        droppedEvents: 4,
+        compactionDecisions: [{
+          stage: 'priorReplay',
+          sourceKind: 'runtimeEvents',
+          decision: 'replaced',
+          boundaryKind: 'historyCompact',
+          estimatedTokensSaved: 600,
+        }],
+      },
+    };
+    yield {
+      type: 'complete',
+      id: 'event-complete',
+      turnId: 'turn-compact',
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  releaseCompact(): void {
+    this.resolveCompact?.();
+    this.resolveCompact = null;
+  }
+}
+
 class DeferredControlDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
@@ -1201,6 +2728,8 @@ class DeferredControlDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
@@ -1228,11 +2757,20 @@ class DeferredControlDriver implements MakaSessionDriver {
     this.resolveSetModel = null;
   }
 
+  async renameSession(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
   }
@@ -1244,6 +2782,8 @@ class RejectingPermissionDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
@@ -1269,12 +2809,21 @@ class RejectingPermissionDriver implements MakaSessionDriver {
     throw new Error('permission response rejected');
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
   }
@@ -1305,6 +2854,8 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
+
+  async *compactSession(): AsyncIterable<never> {}
 
   async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
     yield {
@@ -1343,14 +2894,88 @@ class PermissionThenErrorDriver implements MakaSessionDriver {
     this.respondCalls += 1;
   }
 
+  async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
   async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
   async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
     return switchResult(fakeSessionSummary(sessionId));
   }
 
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
+  }
+}
+
+class QuickErrorDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
+
+  async listSessions(): Promise<SessionSummary[]> {
+    return [];
+  }
+
+  async *compactSession(): AsyncIterable<never> {}
+
+  async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    // The turn fails immediately, so its duration never crosses the long-turn
+    // threshold — the attention ring must come from the error, not the timer.
+    yield {
+      type: 'error',
+      id: 'event-error',
+      turnId: 'turn-1',
+      ts: 1,
+      message: 'turn failed',
+      recoverable: false,
+    };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_response: PermissionResponse): Promise<void> {}
+  async renameSession(): Promise<void> {}
+  async setModel(): Promise<void> {}
+  async setPermissionMode(): Promise<void> {}
+  async setThinkingLevel(): Promise<void> {}
+  async switchSession(sessionId: string): Promise<MakaSessionSwitchResult> {
+    return switchResult(fakeSessionSummary(sessionId));
+  }
+
+  async listRewindTargets(): Promise<RewindTarget[]> {
+    return [];
+  }
+  async rewindToTurn(): Promise<MakaSessionSwitchResult> {
+    throw new Error('rewind not supported in this fake');
+  }
+  startNewSession(): void {}
+  getSessionId(): string {
+    return 'session-1';
+  }
+}
+
+class RewindDriver extends SlashCommandDriver {
+  readonly rewound: string[] = [];
+
+  constructor(
+    private readonly targets: RewindTarget[],
+    private readonly branchMessages: readonly StoredMessage[] = [],
+  ) {
+    super();
+  }
+
+  override async listRewindTargets(): Promise<RewindTarget[]> {
+    return this.targets;
+  }
+
+  override async rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult> {
+    this.rewound.push(turnId);
+    return switchResult(fakeSessionSummary('session-branch'), [...this.branchMessages]);
   }
 }
 
@@ -1358,11 +2983,11 @@ function switchResult(summary: SessionSummary, messages: StoredMessage[] = []): 
   return { summary, messages };
 }
 
-function fakeSessionSummary(sessionId: string, cwd = '/repo'): SessionSummary {
+function fakeSessionSummary(sessionId: string, cwd = '/repo', name = 'Existing chat'): SessionSummary {
   return {
     id: sessionId,
     cwd,
-    name: 'Existing chat',
+    name,
     isFlagged: false,
     isArchived: false,
     labels: [],
@@ -1395,4 +3020,3 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     modelId: 'claude-sonnet-4-5',
   };
 }
-

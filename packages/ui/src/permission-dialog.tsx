@@ -3,7 +3,9 @@ import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
 import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, MousePointer2, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
-import { Badge, Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
+import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
+import { Button as UiButton, Checkbox, AlertDialogContent, AlertDialogRoot } from './ui.js';
+import { Badge } from './primitives/badge.js';
 import { redactSecrets } from './redact.js';
 import { formatRedactedJson } from './tool-format.js';
 
@@ -109,7 +111,7 @@ export function PermissionDialog(props: {
       >
         <div className="maka-modal-header maka-permission-header">
           <span className="maka-permission-icon" aria-hidden="true">
-            <preset.Icon size={20} strokeWidth={1.75} />
+            <preset.Icon size={20} />
           </span>
           <div>
             <h2 className="maka-modal-title" id="permissionTitle">需要确认权限</h2>
@@ -129,10 +131,12 @@ export function PermissionDialog(props: {
           {props.request.hint && (
             <div className="maka-permission-hint" role="note">{props.request.hint}</div>
           )}
-          <details className="maka-permission-raw">
-            <summary>查看完整参数</summary>
-            <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
-          </details>
+          <Collapsible className="maka-permission-raw">
+            <CollapsibleTrigger>查看完整参数</CollapsibleTrigger>
+            <CollapsiblePanel>
+              <pre className="maka-code">{formatRedactedJson(props.request.args)}</pre>
+            </CollapsiblePanel>
+          </Collapsible>
           <label className="permissionRemember">
             <Checkbox
               checked={rememberForTurn}
@@ -166,10 +170,28 @@ export function PermissionDialog(props: {
           )}
         </div>
         <div className="maka-modal-footer permissionActions">
-          <UiButton className="maka-button" variant="ghost" type="button" disabled={responsePending} onClick={() => submit('deny')}>拒绝</UiButton>
+          {/* Designer audit P2-16: for destructive requests the confirm used
+              to be the dialog's ONLY solid colored button — muscle memory
+              clicks the brightest control, which is exactly wrong for an
+              irreversible action. Danger side drops to a red OUTLINE (still
+              unmistakably destructive, no longer the visual magnet) and the
+              safe side (拒绝) rises from ghost to secondary so both options
+              read as equally pressable. Non-destructive requests keep the
+              plain primary confirm. */}
           <UiButton
             className="maka-button"
-            variant={isDestructive ? 'destructive' : 'default'}
+            variant={isDestructive ? 'secondary' : 'ghost'}
+            type="button"
+            disabled={responsePending}
+            onClick={() => submit('deny')}
+          >
+            拒绝
+          </UiButton>
+          <UiButton
+            className={isDestructive
+              ? 'maka-button border border-[oklch(from_var(--destructive)_l_c_h_/_0.55)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.08)] text-[color:var(--destructive)] hover:bg-[oklch(from_var(--destructive)_l_c_h_/_0.14)] active:bg-[oklch(from_var(--destructive)_l_c_h_/_0.18)]'
+              : 'maka-button'}
+            variant={isDestructive ? 'outline' : 'default'}
             type="button"
             disabled={responsePending}
             onClick={() => submit('allow')}
@@ -186,7 +208,7 @@ export function PermissionDialog(props: {
  * One-line summary for a browser_* action. Names the concrete action (open /
  * read / click / type) so the prompt reads as a real browser step, not an opaque
  * tool call — reinforcing that a browser grant spans reads AND acts. The typed
- * text and full args stay in the raw `<details>` block below.
+ * text and full args stay in the raw Collapsible block below.
  */
 function renderBrowserSummary(toolName: string, args: Record<string, unknown>): ReactNode {
   const ref = typeof args.ref === 'string' ? args.ref : '';
@@ -212,7 +234,7 @@ function renderBrowserSummary(toolName: string, args: Record<string, unknown>): 
 /**
  * Per-tool human-readable summary of what the request will do, used at the
  * top of the permission dialog body. Falls back to undefined if we can't
- * recognize the tool — the raw args `<details>` block is always available.
+ * recognize the tool — the raw args Collapsible block is always available.
  */
 function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | undefined {
   const args = (request.args ?? {}) as Record<string, unknown>;

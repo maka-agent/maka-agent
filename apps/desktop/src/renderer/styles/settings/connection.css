@@ -8,10 +8,8 @@
     background: var(--foreground-2);
     box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.03);
   }
-.settingsConnectionRow[data-status="verified"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-    background: oklch(from var(--success) l c h / 0.04);
-  }
+/* Status-color restraint: verified is the expected state — default
+   card chrome; color is reserved for exception states below. */
 .settingsConnectionRow[data-status="needs_reauth"] {
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.06);
@@ -34,10 +32,7 @@
     border-color: oklch(from var(--info) l c h / 0.30);
     background: oklch(from var(--info) l c h / 0.04);
   }
-.settingsConnectionRow[data-status="authenticated"] {
-    border-color: oklch(from var(--success) l c h / 0.24);
-    background: oklch(from var(--success) l c h / 0.04);
-  }
+/* authenticated: expected state, default card chrome (see above). */
 .settingsConnectionRow[data-status="refresh_failed"],
   .settingsConnectionRow[data-status="quota_unavailable"] {
     border-color: oklch(from var(--warning, var(--info)) l c h / 0.30);
@@ -126,37 +121,10 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-caption);
   }
-.settingsConnectionBadge {
-    display: inline-flex;
-    align-items: center;
-    min-height: 20px;
-    padding: var(--space-0-5) var(--space-2);
-    border-radius: var(--radius-control);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-normal);
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-    white-space: nowrap;
-  }
-.settingsConnectionBadge[data-tone="success"] {
-    background: oklch(from var(--success) l c h / 0.12);
-    color: var(--success);
-  }
-.settingsConnectionBadge[data-tone="info"] {
-    background: oklch(from var(--info) l c h / 0.14);
-    color: var(--info-text);
-  }
-.settingsConnectionBadge[data-tone="warning"] {
-    background: oklch(from var(--info) l c h / 0.18);
-    color: var(--info-text);
-    font-weight: var(--font-weight-bold);
-  }
-.settingsConnectionBadge[data-tone="destructive"] {
-    background: oklch(from var(--destructive) l c h / 0.15);
-    color: var(--destructive);
-    font-weight: var(--font-weight-bold);
-  }
+/* #520 PR9: .settingsConnectionBadge + data-tone retired onto the Chip
+   primitive (packages/ui/src/primitives/chip.tsx); variants mirror StatusTone
+   directly, so settings callers pass the tone without statusBadgeVariant. The
+   warning tone no longer misuses --info. */
 .settingsConnectionDetail {
     margin: 0;
     color: var(--foreground-secondary);
@@ -189,38 +157,33 @@
     font-size: var(--font-size-caption);
     line-height: var(--leading-normal);
   }
-.settingsAuthContractBadge,
-  .settingsAuthActionPill {
+.settingsAuthContractBadge {
     display: inline-flex;
     align-items: center;
     min-height: 20px;
-    border-radius: var(--radius-control);
-    white-space: nowrap;
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-semibold);
-  }
-.settingsAuthContractBadge {
+    /* Detail audit round 4: a non-clickable guidance label sitting in the
+       same row as a REAL button (测试凭据) — bare text next to a button read
+       as broken controls. A quiet filled label form makes the affordance
+       difference legible. (.settingsAuthActionPill migrated onto Chip.) */
     padding: var(--space-0-5) var(--space-2);
+    border-radius: var(--radius-control);
     background: var(--foreground-5);
     color: var(--foreground-secondary);
+    white-space: nowrap;
+    font-size: var(--font-size-caption);
+    font-weight: var(--font-weight-medium);
   }
-.settingsAuthContractBadge[data-tone="success"],
-  .settingsAuthActionPill[data-tone="success"] {
-    background: oklch(from var(--success) l c h / 0.12);
-    color: var(--success);
-  }
-.settingsAuthContractBadge[data-tone="info"],
-  .settingsAuthActionPill[data-tone="info"] {
+/* success-tone badges fall through to the neutral base — the label text
+   (已验证 etc.) carries the meaning. */
+.settingsAuthContractBadge[data-tone="info"] {
     background: oklch(from var(--info) l c h / 0.14);
     color: var(--info-text);
   }
-.settingsAuthContractBadge[data-tone="warning"],
-  .settingsAuthActionPill[data-tone="warning"] {
+.settingsAuthContractBadge[data-tone="warning"] {
     background: oklch(from var(--info) l c h / 0.18);
     color: var(--info-text);
   }
-.settingsAuthContractBadge[data-tone="destructive"],
-  .settingsAuthActionPill[data-tone="destructive"] {
+.settingsAuthContractBadge[data-tone="destructive"] {
     background: oklch(from var(--destructive) l c h / 0.14);
     color: var(--destructive);
   }
@@ -237,16 +200,6 @@
     align-items: center;
     gap: var(--space-1-5);
   }
-.settingsInlineTextButton {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: var(--link);
-    font: inherit;
-  }
-.settingsInlineTextButton:hover {
-    text-decoration: underline;
-  }
 .settingsConnectionActions {
     display: flex;
     flex-wrap: wrap;
@@ -255,11 +208,9 @@
     gap: var(--space-2);
     margin-top: var(--space-1);
   }
-.settingsAuthActionPill {
-    padding: var(--space-0-5) var(--space-2);
-    background: var(--foreground-5);
-    color: var(--foreground-secondary);
-  }
+/* .settingsAuthActionPill is now the Chip primitive (squared status label,
+   tone→alpha from chip.tsx). Only the preview-kind dashed-border affordance
+   remains as a bespoke rule layered on top of the Chip. */
 .settingsAuthActionPill[data-kind="preview"] {
     border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.30);
   }
@@ -291,29 +242,4 @@
 .settingsSurface[data-modal="true"] .providersPanel {
     min-height: 480px;
     grid-template-columns: minmax(190px, 0.7fr) minmax(250px, 1fr);
-  }
-/* Memory page meta row: the absolute MEMORY.md path used to render
-     full-width mono text that shoved the sibling status words into a
-     cramped vertical stack. Give the path its own full row with
-     head-side ellipsis (RTL trick keeps the meaningful .../MEMORY.md
-     tail visible; title= carries the full path on hover). */
-.settingsMemoryMeta {
-    flex-wrap: wrap;
-    row-gap: var(--space-1);
-    /* Anchor the strip: it floated unboxed between two cards and read
-       as orphaned fragments. A hairline + breathing room marks it as
-       the editor's status footnote (divider over a nested card). */
-    padding: var(--space-1-5) var(--space-0-5) 0;
-    border-top: var(--border-width-hairline) solid var(--foreground-10);
-  }
-.settingsMemoryPath {
-    /* The component already shortens the path for display
-       (displayMemoryPath); this is just the safety net so an
-       unexpectedly long tail can never shove the status words into a
-       cramped stack again. */
-    flex: 1 1 100%;
-    min-width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
   }

@@ -4,13 +4,14 @@ import { z } from 'zod';
 import type { SessionEvent } from '@maka/core/events';
 import type { SessionHeader } from '@maka/core/session';
 import type { StoredMessage } from '@maka/core/session';
+import type { ToolExecutionFacts } from '@maka/core/permission';
 
 import {
   ToolRuntime,
   formatDeferredNotLoadedText,
   type MakaTool,
 } from '../tool-runtime.js';
-import { PermissionEngine } from '../permission-engine.js';
+import { PermissionEngine, type EvaluateInput } from '../permission-engine.js';
 
 // The execute-boundary guard rejects a *gated* tool whose name is absent from
 // the current step's active snapshot — before permission eval and before the
@@ -45,17 +46,20 @@ interface Harness {
   appended: StoredMessage[];
   pushed: SessionEvent[];
   evaluateCalls: string[];
+  evaluateInputs: EvaluateInput[];
 }
 
 function makeHarness(): Harness {
   const appended: StoredMessage[] = [];
   const pushed: SessionEvent[] = [];
   const evaluateCalls: string[] = [];
+  const evaluateInputs: EvaluateInput[] = [];
   const engine = new PermissionEngine({ newId: () => 'perm', now: () => 1 });
   const realEvaluate = engine.evaluate.bind(engine);
   // Spy: record whether the guard let execution reach permission evaluation.
-  engine.evaluate = ((input: Parameters<typeof realEvaluate>[0]) => {
+  engine.evaluate = ((input: EvaluateInput) => {
     evaluateCalls.push(input.toolName);
+    evaluateInputs.push(input);
     return realEvaluate(input);
   }) as typeof engine.evaluate;
   let n = 0;
@@ -70,7 +74,7 @@ function makeHarness(): Harness {
     now: () => 1,
     getPermissionPauseTarget: () => null,
   });
-  return { runtime, appended, pushed, evaluateCalls };
+  return { runtime, appended, pushed, evaluateCalls, evaluateInputs };
 }
 
 function tool(name: string, implCalls: string[]): MakaTool {
@@ -88,6 +92,26 @@ function run(h: Harness, t: MakaTool) {
 }
 
 describe('tool-availability execute-boundary guard', () => {
+  test('passes tool execution facts into permission evaluation', async () => {
+    const h = makeHarness();
+    const implCalls: string[] = [];
+    const facts: ToolExecutionFacts = {
+      isolation: 'container',
+      writesAffectHost: false,
+      writeBack: 'diff_review',
+      network: 'sandbox',
+      secrets: 'brokered',
+    };
+    const t = tool('CustomFactsTool', implCalls);
+    t.executionFacts = facts;
+
+    await run(h, t);
+
+    assert.equal(h.evaluateInputs.length, 1);
+    assert.equal(h.evaluateInputs[0]?.executionFacts, facts);
+    assert.deepEqual(implCalls, ['CustomFactsTool']);
+  });
+
   test('rejects a gated tool absent from the step snapshot — no impl, no permission eval', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];

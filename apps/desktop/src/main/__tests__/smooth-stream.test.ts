@@ -132,7 +132,14 @@ describe('computeFrameAdvance', () => {
     );
   });
 
-  it('returns 0 when dt is non-positive', () => {
+  // Regression lock (streaming UI rework, blank-bubble freeze): rAF timestamps
+  // are vsync-aligned and lag the wall clock under IPC delta bursts, so dtMs
+  // clamps to 0 for every tick in the recovery window. Returning 0 left
+  // displayedCount unchanged → the RAF effect never re-armed → the typewriter
+  // died with a full backlog and the answer snapped in at stream end. With
+  // backlog present, a non-positive dt must still advance 1 to keep the
+  // single-owner RAF chain alive.
+  it('advances 1 (not 0) when dt is non-positive but backlog remains — keeps the RAF chain alive', () => {
     assert.equal(
       computeFrameAdvance({
         rawGraphemeCount: 100,
@@ -142,7 +149,7 @@ describe('computeFrameAdvance', () => {
         minCps: 30,
         maxCps: 400,
       }),
-      0,
+      1,
     );
     assert.equal(
       computeFrameAdvance({
@@ -150,6 +157,18 @@ describe('computeFrameAdvance', () => {
         displayedGraphemeCount: 0,
         emaCps: 60,
         dtMs: -10,
+        minCps: 30,
+        maxCps: 400,
+      }),
+      1,
+    );
+    // …but never invents work: zero backlog still returns 0.
+    assert.equal(
+      computeFrameAdvance({
+        rawGraphemeCount: 10,
+        displayedGraphemeCount: 10,
+        emaCps: 60,
+        dtMs: 0,
         minCps: 30,
         maxCps: 400,
       }),

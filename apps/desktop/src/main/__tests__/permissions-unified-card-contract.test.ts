@@ -89,13 +89,19 @@ describe('PR-PERMISSIONS-UNIFIED-CARD-0 contract (#309)', () => {
       'open-settings button must render before request button so primary anchors the right edge',
     );
 
-    // When both are shown, open-settings collapses to variant=ghost; when
-    // alone (no `请求授权`) it returns to variant=default so the row
-    // still has a primary CTA.
+    // Affordance honesty (round 8, maintainer report): ghost beside the
+    // primary read as a plain text label. When both are shown, open-settings
+    // is a BORDERED secondary; when alone it returns to variant=default so
+    // the row still has a primary CTA. Never ghost in this row.
     assert.match(
       actionsBlock,
-      /variant=\{showRequest \? 'ghost' : 'default'\}/,
-      'open-settings button must be ghost when paired with request, default when alone',
+      /variant=\{showRequest \? 'secondary' : 'default'\}/,
+      'open-settings button must be bordered secondary when paired with request, default when alone',
+    );
+    assert.doesNotMatch(
+      actionsBlock,
+      /'ghost'/,
+      'no ghost variant in the OS-permission actions row — a clickable beside a real button needs a visible edge',
     );
 
     // Request button does not pass a `variant` prop — it defaults to the

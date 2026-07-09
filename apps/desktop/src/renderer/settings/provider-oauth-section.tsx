@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from '@maka/ui/icons';
 import {
   generalizedErrorMessageChinese,
@@ -7,6 +7,7 @@ import {
   type SubscriptionAccountState,
 } from '@maka/core';
 import {
+  Chip,
   Button,
   Item,
   ItemActions,
@@ -16,11 +17,11 @@ import {
   ItemTitle,
   RelativeTime,
   Textarea,
-  useModalA11y,
   useToast,
 } from '@maka/ui';
+import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
-import { useProviderSheetBackgroundInert } from './provider-config-sheet';
+import { ProviderSheet } from './provider-config-sheet';
 
 type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
 type OAuthServiceId = OAuthCardId;
@@ -169,7 +170,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
           return (
             <Item
               key={card.id}
-              className="providerCatalogRow providerOAuthCard rounded-none"
+              className="providerCatalogRow providerOAuthCard"
               data-card-id={card.id}
               data-provider={card.providerType}
               data-status="ready"
@@ -187,7 +188,7 @@ export function ModelOAuthSection(props: { onConnectionsChanged(): Promise<void>
               </ItemContent>
               <ItemActions className="providerCatalogActions">
                 <span className="providerCatalogBadge providerOAuthCardBadge">{liveBadge}</span>
-                <ChevronRight className="providerCatalogChevron" size={15} strokeWidth={2} aria-hidden="true" />
+                <ChevronRight className="providerCatalogChevron" size={15} aria-hidden="true" />
               </ItemActions>
             </Item>
           );
@@ -232,20 +233,8 @@ function providerOAuthAriaLabel(card: ModelOAuthCard, badge: string, description
  * account-state snapshots returned by getAccountState().
  */
 function ClaudeSubscriptionModal(props: { onClose(): void }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  useModalA11y(dialogRef, props.onClose);
-  useProviderSheetBackgroundInert(dialogRef);
   return (
-    <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
-      <section
-        ref={dialogRef as RefObject<HTMLDivElement>}
-        className="providerConfigSheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Claude Code 登录"
-        data-subscription="claude"
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <ProviderSheet onClose={props.onClose} ariaLabel="Claude Code 登录" dataSubscription="claude">
         <header className="providerConfigHeader">
           <div>
             <h3>Claude Code</h3>
@@ -261,15 +250,11 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
           </Button>
         </header>
         <ClaudeSubscriptionCard />
-      </section>
-    </div>
-  );
+      </ProviderSheet>
+    );
 }
 
 function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  useModalA11y(dialogRef, props.onClose);
-  useProviderSheetBackgroundInert(dialogRef);
   const toast = useToast();
   const bridge = pickSubscriptionBridge(props.serviceId);
   const [state, setState] = useState<SubscriptionSnapshot | null>(null);
@@ -416,16 +401,7 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
   const actionBusy = pendingAction !== null;
 
   return (
-    <div className="providerConfigOverlay" role="presentation" onMouseDown={props.onClose}>
-      <section
-        ref={dialogRef as RefObject<HTMLDivElement>}
-        className="providerConfigSheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${display.name} 登录`}
-        data-subscription={props.serviceId}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
+    <ProviderSheet onClose={props.onClose} ariaLabel={`${display.name} 登录`} dataSubscription={props.serviceId}>
         <header className="providerConfigHeader">
           <div>
             <h3>{display.name}</h3>
@@ -471,9 +447,8 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             )}
           </div>
         </div>
-      </section>
-    </div>
-  );
+      </ProviderSheet>
+    );
 }
 
 type BrowserSubscriptionPendingAction = 'login' | 'logout';
@@ -707,7 +682,7 @@ function ClaudeSubscriptionCard() {
             </div>
             <small>无法确认 Claude OAuth 是否可用。没有登录动作会被执行。</small>
           </div>
-          <span className="settingsConnectionBadge" data-tone="destructive">读取失败</span>
+          <Chip variant="destructive">读取失败</Chip>
         </div>
         <small className="settingsErrorText" role="alert">
           Claude 登录开关读取失败：{experimentalGateError}
@@ -887,7 +862,7 @@ function ClaudeSubscriptionCard() {
   }
 
   // Closed-state render mapping per the runtime state enum.
-  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'muted', detail: '' };
+  const presentation = state ? presentSubscriptionState(state) : { label: '加载中…', tone: 'neutral' as const, detail: '' };
   const canStartClaudeLogin =
     state?.runtimeState === 'not_logged_in' ||
     state?.runtimeState === 'refresh_failed' ||
@@ -909,9 +884,9 @@ function ClaudeSubscriptionCard() {
             {state?.profile?.email ? ` · ${state.profile.email}` : ''}
           </small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <Chip variant={presentation.tone}>
           {presentation.label}
-        </span>
+        </Chip>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       {pasteError && !authRequestId && (
@@ -1021,14 +996,14 @@ type ClaudeSubscriptionPendingAction = 'login' | 'submit' | 'cancel' | 'logout' 
 
 interface SubscriptionStatePresentation {
   label: string;
-  tone: string;
+  tone: StatusTone;
   detail: string;
 }
 
 function presentSubscriptionState(state: SubscriptionAccountState): SubscriptionStatePresentation {
   switch (state.runtimeState) {
     case 'not_logged_in':
-      return { label: '未登录', tone: 'muted', detail: '使用 Claude 订阅配额前需要先登录。' };
+      return { label: '未登录', tone: 'neutral', detail: '使用 Claude 订阅配额前需要先登录。' };
     case 'authorizing':
       return { label: '登录中…', tone: 'info', detail: '请在弹出的浏览器窗口完成登录并粘贴授权码。' };
     case 'authenticated':
@@ -1064,6 +1039,6 @@ function presentSubscriptionState(state: SubscriptionAccountState): Subscription
         detail: subscriptionResultMessage(state.errorMessage, '订阅端点拒绝了请求，可能需要重新登录。'),
       };
     default:
-      return { label: '未知状态', tone: 'muted', detail: '' };
+      return { label: '未知状态', tone: 'neutral', detail: '' };
   }
 }

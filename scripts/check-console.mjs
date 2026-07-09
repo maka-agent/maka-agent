@@ -75,8 +75,24 @@ const ALLOW = new Map([
     'Harbor CLI subcommand prints usage and command failures to stderr by design.',
   ],
   [
+    'apps/desktop/src/main/config-file-watcher.ts',
+    'Watcher startup failure and runtime error diagnostics; non-fatal, no secrets.',
+  ],
+  [
     'scripts/check-console.mjs',
     'this script — explicit allow.',
+  ],
+  [
+    'apps/desktop/src/main/automation-wiring.ts',
+    'best-effort sync warning when durable automation persistence fails.',
+  ],
+  [
+    'packages/storage/src/automation-store.ts',
+    'best-effort warning when automation store read/write fails.',
+  ],
+  [
+    'packages/cli/src/runtime-bootstrap.ts',
+    'best-effort warning when CLI durable automation persistence fails.',
   ],
 ]);
 

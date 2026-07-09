@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ComponentProps, ReactNode } from 'react';
 import type { SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, Composer } from '../src/components.js';
+import type { TurnFooterActionMeta } from '../src/chat-view.js';
 import type { ChatModelChoice } from '../src/chat-model-helpers.js';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
@@ -104,10 +105,22 @@ const baseChatProps: ChatViewProps = {
   onPromptSuggestion: noop,
 };
 
+// #546: default footer actions shown on every turn in the story so the
+// redesigned icon-only footer (regenerate / branch / copy / info) is
+// visible without each story wiring it up by hand.
+const DEFAULT_FOOTER_ACTIONS: ReadonlyArray<TurnFooterActionMeta> = [
+  { id: 'regenerate', label: '重新生成', enabled: true, tooltip: '让模型重新生成本轮回答' },
+  { id: 'branch', label: '分支', enabled: true, tooltip: '基于此回答的上下文分支出新对话' },
+  { id: 'copy', label: '复制', enabled: true, tooltip: '复制回答到剪贴板' },
+  { id: 'info', label: '详情', enabled: true, tooltip: 'claude-sonnet-4-5 · 4.9s · $0.0123' },
+];
+
 const baseComposerProps: ComposerProps = {
   draftKey: 'storybook-chat-surface',
   onSend: noop,
   onStop: noop,
+  onPickAttachments: noop,
+  onAttachFilePaths: noop,
   modelLabel: 'Claude Sonnet 4.5',
   activeSession: session(),
   activeConnectionLabel: 'Anthropic',
@@ -116,11 +129,12 @@ const baseComposerProps: ComposerProps = {
   modelChoices,
   permissionMode: 'ask',
   onPermissionModeChange: noop,
-  workspacePicker: {
-    label: 'maka-agent',
-    branch: 'codex/storybook-chat-surface',
-    onOpen: noop,
-  },
+	  workspacePicker: {
+	    label: 'maka-agent',
+	    branch: 'codex/storybook-chat-surface',
+	    onOpen: noop,
+	    onSelect: noop,
+	  },
 };
 
 function SurfaceFrame(props: { children: ReactNode; narrow?: boolean }) {
@@ -149,6 +163,10 @@ function ChatSurface(props: {
   composer?: Partial<ComposerProps>;
   narrow?: boolean;
 }) {
+  const messages = props.chat?.messages ?? baseChatProps.messages;
+  const turnFooterActionsByTurn = Object.fromEntries(
+    [...new Set(messages.map((m) => m.turnId))].map((id) => [id, DEFAULT_FOOTER_ACTIONS]),
+  );
   return (
     <SurfaceFrame narrow={props.narrow}>
       <div
@@ -160,7 +178,7 @@ function ChatSurface(props: {
           background: 'var(--background)',
         }}
       >
-        <ChatView {...baseChatProps} {...props.chat} />
+        <ChatView {...baseChatProps} turnFooterActionsByTurn={turnFooterActionsByTurn} {...props.chat} />
         <div style={{ padding: '0 24px 24px' }}>
           <Composer {...baseComposerProps} {...props.composer} />
         </div>
@@ -225,9 +243,12 @@ const toolConversation: StoredMessage[] = [
       kind: 'terminal',
       cwd: '/workspace/maka-agent',
       cmd: 'npm run -w @maka/desktop build-storybook',
+      status: 'completed',
       exitCode: 0,
       stdout: 'storybook v10.4.6\ninfo => Output directory: apps/desktop/storybook-static\n',
       stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
     },
   },
   assistant(
@@ -272,6 +293,92 @@ const longMessages: StoredMessage[] = [
     33,
     '不用。失败、截断、overlay preview 等细分工具状态属于 ToolActivity storyboard。Chat surface 这里只需要证明工具活动能嵌入对话。',
   ),
+];
+
+// Multi-step reasoning turn (streaming UI rework): two think->say->call steps
+// in a single turn. Each step persists an assistant row (thinking + text) plus
+// tool_calls tagged with that row's id as `stepId`, so the turn timeline
+// reconstructs the real order — 深度思考 → answer text → tool trow — per step,
+// instead of lumping every tool into one trailing group.
+const multiStepConversation: StoredMessage[] = [
+  user('msg-user-multistep', 'turn-multistep', 12, '看一下 stream-fade 的环逻辑有没有边界问题，然后跑一下单测。'),
+  {
+    type: 'tool_call',
+    id: 'tool-read-stream-fade',
+    turnId: 'turn-multistep',
+    ts: NOW - 11 * 60_000,
+    toolName: 'Read',
+    displayName: '读取 stream-fade.ts',
+    intent: '读取淡入环的实现，确认窗口滑动与上限',
+    stepId: 'msg-assistant-step-1',
+    args: { file_path: 'packages/ui/src/stream-fade.ts' },
+  },
+  {
+    type: 'tool_result',
+    id: 'tool-read-stream-fade-result',
+    turnId: 'turn-multistep',
+    ts: NOW - 11 * 60_000 + 900,
+    toolUseId: 'tool-read-stream-fade',
+    isError: false,
+    durationMs: 640,
+    content: {
+      kind: 'text',
+      text: 'export function updateFadeRing(...) { /* prune + cap */ }',
+    },
+  },
+  {
+    type: 'assistant',
+    id: 'msg-assistant-step-1',
+    turnId: 'turn-multistep',
+    ts: NOW - 10 * 60_000,
+    text: '环逻辑没问题：增长记录批次、超窗剪枝、再按上限截断，收缩时整体重置。接下来我跑一下单测确认。',
+    thinking: {
+      text: '先读实现，确认 boundary 取的是最老存活批次的 start，age 用 now 减去覆盖该 offset 的批次时间。看起来窗口滑动和上限都覆盖了，值得跑一遍测试坐实。',
+    },
+    modelId: 'claude-sonnet-4-5',
+  },
+  {
+    type: 'tool_call',
+    id: 'tool-run-tests',
+    turnId: 'turn-multistep',
+    ts: NOW - 10 * 60_000 + 500,
+    toolName: 'Bash',
+    displayName: '运行 stream-fade 单测',
+    intent: '执行 node --test 跑淡入环与 tokenizer 的单测',
+    stepId: 'msg-assistant-step-2',
+    args: { cmd: 'node --test dist/main/__tests__/stream-fade.test.js' },
+  },
+  {
+    type: 'tool_result',
+    id: 'tool-run-tests-result',
+    turnId: 'turn-multistep',
+    ts: NOW - 9 * 60_000,
+    toolUseId: 'tool-run-tests',
+    isError: false,
+    durationMs: 1930,
+    content: {
+      kind: 'terminal',
+      cwd: '/workspace/maka-agent/apps/desktop',
+      cmd: 'node --test dist/main/__tests__/stream-fade.test.js',
+      status: 'completed',
+      exitCode: 0,
+      stdout: 'tests 13\npass 13\nfail 0\n',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    },
+  },
+  {
+    type: 'assistant',
+    id: 'msg-assistant-step-2',
+    turnId: 'turn-multistep',
+    ts: NOW - 8 * 60_000,
+    text: '13 个单测全绿，环的窗口滑动、乱序快照取龄和上限都被覆盖。边界没有问题。',
+    thinking: {
+      text: '测试包含窗口滑动、乱序 age 查询与上限三类，全过说明剪枝和 cap 的顺序是对的，可以收尾。',
+    },
+    modelId: 'claude-sonnet-4-5',
+  },
 ];
 
 export const EmptyChat: Story = {
@@ -320,6 +427,16 @@ export const WithToolActivity: Story = {
     <ChatSurface
       chat={{
         messages: toolConversation,
+      }}
+    />
+  ),
+};
+
+export const MultiStepReasoning: Story = {
+  render: () => (
+    <ChatSurface
+      chat={{
+        messages: multiStepConversation,
       }}
     />
   ),
@@ -389,9 +506,8 @@ export const ImportActions: Story = {
         activeConnectionLabel: undefined,
         activeModel: undefined,
         activeModelLabel: undefined,
-        onImportTextFile: noop,
-        onImportFolderOutline: noop,
-        onImportDroppedTextFiles: noop,
+        onPickAttachments: noop,
+        onAttachFilePaths: noop,
         newChatModel: {
           llmConnectionSlug: 'anthropic-main',
           model: 'claude-sonnet-4-5',

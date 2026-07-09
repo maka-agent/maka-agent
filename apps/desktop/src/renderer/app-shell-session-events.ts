@@ -48,7 +48,14 @@ export function createAppShellSessionEventHandlers(options: {
   setThinkingTruncatedBySession: StateUpdater<Record<string, boolean>>;
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
+  thinkingBySessionRef: RefBox<Record<string, string>>;
   toastApi: ToastApi;
+  /** Report a terminal turn to the main process, which decides whether
+   * to raise an OS notification (gated on a product toggle + window
+   * focus). `body` is the start of the reply (completed) or the error
+   * message (errored); the session name is resolved by the caller from
+   * `sessionId`. Optional so headless/test callers can omit it. */
+  notifyRunEnded?: (payload: { kind: 'completed' | 'errored'; sessionId: string; body?: string }) => void;
 }): AppShellSessionEventHandlers {
   const {
     activeIdRef,
@@ -61,7 +68,9 @@ export function createAppShellSessionEventHandlers(options: {
     setThinkingTruncatedBySession,
     showModelSetupToast,
     streamingBySessionRef,
+    thinkingBySessionRef,
     toastApi,
+    notifyRunEnded,
   } = options;
 
   function clearThinking(sessionId: string) {
@@ -94,11 +103,71 @@ export function createAppShellSessionEventHandlers(options: {
     clearThinking(sessionId);
   }
 
+  /**
+   * #642 review P2-A: the deferred textless clear (refresh-before-clear) must not
+   * clobber a NEWER turn's live buffer if the async refresh resolves after the
+   * user has already started the next turn. Unlike the text path's
+   * `clearSettledAssistantStreamSlot` (guarded by messageId + draining phase), the
+   * textless path has no draining slot, so we snapshot the turn's identity at
+   * schedule time and clear only the parts that are still this turn's:
+   *  - the streaming slot, only if its messageId still matches the snapshot (a
+   *    newer text step sets a different messageId), and
+   *  - the thinking buffer, only if it is still byte-identical to the snapshot (a
+   *    newer thinking step appends/replaces the string, so any change means the
+   *    reasoning on screen is no longer this turn's).
+   * The plain `clearStreaming` above is unguarded and stays the right choice for
+   * synchronous callers (abort / error), which run before any next turn exists.
+   */
+  function clearStreamingIfCurrent(
+    sessionId: string,
+    held: { messageId?: string; slot?: AssistantStreamSlot; thinking?: string },
+  ) {
+    setStreamingBySession((current) => {
+      const prev = current[sessionId];
+      if (!prev || (prev.text === '' && prev.truncated === false)) return current;
+      const stillOurs = held.messageId !== undefined
+        ? prev.messageId === held.messageId
+        : prev === held.slot;
+      if (!stillOurs) return current;
+      return { ...current, [sessionId]: { text: '', truncated: false, phase: 'streaming' } };
+    });
+    let clearedThinking = false;
+    setThinkingBySession((current) => {
+      const prev = current[sessionId];
+      if (!prev || prev !== held.thinking) return current;
+      clearedThinking = true;
+      return { ...current, [sessionId]: '' };
+    });
+    if (clearedThinking) {
+      setThinkingTruncatedBySession((current) => {
+        if (!current[sessionId]) return current;
+        const next = { ...current };
+        delete next[sessionId];
+        return next;
+      });
+    }
+  }
+
   function drainAssistantStreaming(sessionId: string, text: string, messageId?: string) {
     const applied = applyAssistantComplete(text);
     if (!applied.text) {
-      clearStreaming(sessionId);
-      void refreshMessages(sessionId);
+      // #642 refresh-before-clear: a textless / thinking-only turn has no answer
+      // bubble to hold the tail turn's assistant block open, so clearing the
+      // live buffer first would drop the live 深度思考 for a frame before the
+      // committed message lands — an unmount gap on the now-shared single node.
+      // Refresh the committed message in FIRST (gated on `messageId` when the
+      // runtime gave one), THEN clear, so the block stays mounted across the
+      // swap. (Text turns get this via the draining→settle handshake instead.)
+      // Snapshot this turn's live identity now so the async clear can't wipe a
+      // newer turn that started before the refresh resolved (review P2-A).
+      const held = {
+        messageId,
+        slot: streamingBySessionRef.current[sessionId],
+        thinking: thinkingBySessionRef.current[sessionId],
+      };
+      void refreshMessages(sessionId, messageId ? { requiredAssistantMessageId: messageId } : undefined)
+        .catch(() => false)
+        .finally(() => clearStreamingIfCurrent(sessionId, held));
       return;
     }
     setStreamingBySession((current) => drainAssistantStreamSlot(current, sessionId, applied, messageId));
@@ -288,9 +357,18 @@ export function createAppShellSessionEventHandlers(options: {
         // racing a committed-message refresh.
         setStreamingBySession((current) => {
           const prevSlot = current[sessionId];
-          const prevText = prevSlot?.text ?? '';
+          // Per-step guard: each model step streams under its own messageId. When
+          // the id changes (a new step began, or a prior step's slot is still
+          // draining), start this step's bubble fresh instead of appending onto
+          // the previous step's text — otherwise the next step's answer would
+          // flicker duplicated onto the last one.
+          const sameMessage =
+            prevSlot === undefined
+            || prevSlot.messageId === undefined
+            || prevSlot.messageId === event.messageId;
+          const prevText = sameMessage ? (prevSlot?.text ?? '') : '';
           const applied = applyAssistantDelta(prevText, event.text);
-          const nextTruncated = (prevSlot?.truncated ?? false) || applied.truncated;
+          const nextTruncated = (sameMessage ? (prevSlot?.truncated ?? false) : false) || applied.truncated;
           // Avoid a re-render when nothing materially changed (e.g.
           // a non-string `event.text` defensively dropped by the
           // helper, no truncated change).
@@ -378,6 +456,11 @@ export function createAppShellSessionEventHandlers(options: {
           intent: event.intent,
           status: 'pending',
           args: event.args,
+          // Carry the step id (streaming UI rework) so the turn timeline can
+          // order this in-flight tool after the matching step's thinking/text
+          // instead of lumping every live tool into a single trailing group.
+          // Optional: legacy providers / degraded history emit no stepId.
+          ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         });
         break;
       case 'tool_output_delta':
@@ -438,6 +521,7 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         markInFlightToolsInterrupted(sessionId);
+        notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
         void refreshSessions();
         void refreshMessages(sessionId);
         break;
@@ -450,6 +534,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'complete':
         let refreshMessagesOptions: RefreshMessagesOptions | undefined;
+        let heldTextless: { messageId?: string; slot?: AssistantStreamSlot; thinking?: string } | undefined;
         if (event.stopReason !== 'permission_handoff') {
           const slot = streamingBySessionRef.current[sessionId];
           if (slot?.text) {
@@ -459,7 +544,18 @@ export function createAppShellSessionEventHandlers(options: {
               refreshMessagesOptions = { requiredAssistantMessageId: slot.messageId };
             }
           } else {
-            clearStreaming(sessionId);
+            // #642 refresh-before-clear (mirrors drainAssistantStreaming): hold
+            // the tail turn's live 深度思考 mounted until the committed message
+            // lands via the refresh below, so a textless / thinking-only turn
+            // doesn't drop its assistant block for a frame (unmount gap on the
+            // shared single node). Snapshot this turn's identity so the deferred
+            // clear can't wipe a newer turn's buffer (review P2-A); cleared once
+            // the refresh resolves.
+            heldTextless = {
+              messageId: slot?.messageId,
+              slot,
+              thinking: thinkingBySessionRef.current[sessionId],
+            };
           }
           // PR-PERMISSION-UI-CLEANUP-0: parallel the `abort` branch
           // above — drop any stranded permission request for this
@@ -468,9 +564,29 @@ export function createAppShellSessionEventHandlers(options: {
           // permission overlay was mounted would leave the overlay
           // stuck on screen until the user manually switches away.
           setPermissionBySession((current) => clearPermissions(current, sessionId));
+          // Notify "completed" ONLY for a genuine successful end. Use an
+          // allowlist, not `!== permission_handoff`: `error` is emitted as
+          // `error` then `complete(stopReason='error')`, so treating any
+          // non-handoff complete as success would double-fire a misleading
+          // “回答已生成” after the error banner. `user_stop` (user is present)
+          // and `plan_handoff` (a pause) are likewise not turn ends.
+          // `slot.text` holds the streamed reply, which main trims into the body.
+          if (event.stopReason === 'end_turn' || event.stopReason === 'max_tokens') {
+            notifyRunEnded?.({ kind: 'completed', sessionId, body: slot?.text });
+          }
         }
         void refreshSessions();
-        void refreshMessages(sessionId, refreshMessagesOptions);
+        {
+          const refreshed = refreshMessages(sessionId, refreshMessagesOptions);
+          void refreshed.catch(() => false);
+          // #642: clear the held live buffer only AFTER the committed message
+          // has been refreshed in (textless / thinking-only completion), and only
+          // if this turn's buffer is still current (review P2-A).
+          if (heldTextless) {
+            const held = heldTextless;
+            void refreshed.finally(() => clearStreamingIfCurrent(sessionId, held));
+          }
+        }
         break;
       default:
         break;

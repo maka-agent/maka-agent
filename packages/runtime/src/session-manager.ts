@@ -16,8 +16,8 @@
 
 import type {
   SessionEvent,
-  TextDeltaEvent,
   CompleteEvent,
+  TextDeltaEvent,
   ErrorEvent,
   AbortEvent,
   PermissionDecisionAckEvent,
@@ -41,7 +41,6 @@ import type {
   CreateSessionInput,
   BranchFromTurnInput,
   RegenerateTurnInput,
-  RetryTurnInput,
   UserMessageInput,
   SessionListFilter,
 } from '@maka/core/runtime-inputs';
@@ -63,8 +62,10 @@ import {
   terminalRunStatusFromRuntimeEvent,
 } from './terminal-run-commit.js';
 
-import type { AgentBackend, MakaTool } from './ai-sdk-backend.js';
+import type { AgentBackend } from '@maka/core/backend-types';
+import type { MakaTool } from './tool-runtime.js';
 import type { RunTraceRecorder } from './run-trace.js';
+import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 import type { AgentRunLineage } from './agent-run.js';
@@ -87,6 +88,10 @@ import {
 
 export interface StopSessionInput {
   source?: 'stop_button';
+}
+
+export interface CompactSessionInput {
+  turnId?: string;
 }
 
 export interface SpawnChildAgentInput {
@@ -203,6 +208,7 @@ export interface BackendFactoryContext {
   recordRunTrace?: RunTraceRecorder;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
+  shellRunContextSummary?: () => Promise<string | undefined>;
 }
 
 export type BackendFactory = (ctx: BackendFactoryContext) => AgentBackend | Promise<AgentBackend>;
@@ -241,6 +247,7 @@ export interface SessionManagerDeps {
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
+  shellRuns?: ShellRunProcessManager;
 }
 
 export class SessionManager {
@@ -292,9 +299,13 @@ export class SessionManager {
   async recoverInterruptedSessions(): Promise<string[]> {
     const interrupted = (await this.deps.store.list())
       .filter((session) => session.status !== 'archived');
-    const recovered: string[] = [];
+    const recovered = new Set<string>();
     for (const session of interrupted) {
       if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
+      if (this.deps.shellRuns) {
+        const recoveredShellRuns = await this.deps.shellRuns.recoverOrphanedSession(session.id).catch(() => 0);
+        if (recoveredShellRuns > 0) recovered.add(session.id);
+      }
       let messages: StoredMessage[] = [];
       let messagesReadable = true;
       try {
@@ -308,10 +319,10 @@ export class SessionManager {
         if (runRecovery?.hasLedger) {
           if (runRecovery.recovered) {
             await this.updateStatus(session.id, 'active').catch(() => {});
-            recovered.push(session.id);
+            recovered.add(session.id);
           } else if (!messagesReadable && (session.status === 'running' || session.status === 'waiting_for_user')) {
             await this.updateStatus(session.id, 'active').catch(() => {});
-            recovered.push(session.id);
+            recovered.add(session.id);
           }
           continue;
         }
@@ -324,7 +335,7 @@ export class SessionManager {
           // flight, so we never stomp a live run's status.
           if (this.runtimeKernel.hasActiveRuns(session.id)) continue;
           await this.updateStatus(session.id, 'active').catch(() => {});
-          recovered.push(session.id);
+          recovered.add(session.id);
         }
         continue;
       }
@@ -340,14 +351,14 @@ export class SessionManager {
         // Same double-check as above: a message sent mid-recovery owns
         // the session status now (its own transitions will settle it).
         if (this.runtimeKernel.hasActiveRuns(session.id)) {
-          recovered.push(session.id);
+          recovered.add(session.id);
           continue;
         }
         await this.updateStatus(session.id, 'active').catch(() => {});
       }
-      recovered.push(session.id);
+      recovered.add(session.id);
     }
-    return recovered;
+    return [...recovered];
   }
 
   async updateSession(
@@ -372,6 +383,7 @@ export class SessionManager {
   }
 
   async archive(sessionId: string): Promise<void> {
+    await this.deps.shellRuns?.terminateSession(sessionId);
     await this.deps.store.archive(sessionId);
     await this.runtimeKernel.disposeBackend(sessionId);
   }
@@ -442,6 +454,7 @@ export class SessionManager {
   }
 
   async remove(sessionId: string): Promise<void> {
+    await this.deps.shellRuns?.terminateSession(sessionId);
     await this.runtimeKernel.disposeBackend(sessionId);
     await this.deps.store.remove(sessionId);
   }
@@ -463,6 +476,13 @@ export class SessionManager {
     input: UserMessageInput,
   ): AsyncIterable<SessionEvent> {
     yield* this.runtimeKernel.startTurn(sessionId, input);
+  }
+
+  async *compactSession(
+    sessionId: string,
+    input: CompactSessionInput = {},
+  ): AsyncIterable<SessionEvent> {
+    yield* this.runtimeKernel.compactSession(sessionId, input);
   }
 
   async *startChildTurn(
@@ -599,26 +619,14 @@ export class SessionManager {
     await this.runtimeKernel.stopSession(sessionId, input);
   }
 
-  async *retryTurn(
-    sessionId: string,
-    input: RetryTurnInput,
-  ): AsyncIterable<SessionEvent> {
-    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['failed', 'aborted'], 'retry');
-    const user = await this.requireUserMessageForTurn(sessionId, source.turnId);
-    yield* this.sendMessage(sessionId, {
-      turnId: input.turnId ?? this.deps.newId(),
-      text: user.text,
-      ...(user.attachments ? { attachments: user.attachments } : {}),
-      parentTurnId: source.turnId,
-      retriedFromTurnId: source.turnId,
-    });
-  }
-
   async *regenerateTurn(
     sessionId: string,
     input: RegenerateTurnInput,
   ): AsyncIterable<SessionEvent> {
-    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['completed'], 'regenerate');
+    // retry semantics merged into regenerate (#546): regenerate now accepts
+    // failed/aborted turns too, not just completed — one action re-runs the
+    // turn regardless of how the previous attempt ended.
+    const source = await this.requireTurnForAction(sessionId, input.sourceTurnId, ['failed', 'aborted', 'completed'], 'regenerate');
     const user = await this.requireUserMessageForTurn(sessionId, source.turnId);
     yield* this.sendMessage(sessionId, {
       turnId: input.turnId ?? this.deps.newId(),
@@ -643,6 +651,7 @@ export class SessionManager {
       backend: header.backend,
       llmConnectionSlug: header.llmConnectionSlug,
       model: header.model,
+      thinkingLevel: header.thinkingLevel,
       permissionMode: header.permissionMode,
       name: input.name ?? `${header.name} · 分支`,
       labels: header.labels,
@@ -1002,14 +1011,15 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
   };
+  if (h.thinkingLevel !== undefined) summary.thinkingLevel = h.thinkingLevel;
   if (h.lastMessageAt !== undefined) {
     summary.lastMessageAt = h.lastMessageAt;
   }
   return summary;
 }
 
-function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
-  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch;
+export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
+  return 'backend' in patch || 'llmConnectionSlug' in patch || 'model' in patch || 'thinkingLevel' in patch;
 }
 
 function agentRunStatusForSpawnResult(status: AgentRunHeader['status']): SpawnChildAgentResult['status'] {

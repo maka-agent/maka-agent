@@ -10,6 +10,7 @@
  */
 
 import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
+import type { ShellRunStatus, ShellRunTerminalStatus } from './shell-run.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -19,6 +20,7 @@ import type {
 
 export const TOOL_OUTPUT_STREAMS = ['stdout', 'stderr'] as const;
 export const TOOL_OUTPUT_DELTA_MAX_CHARS = 8192;
+type TerminalToolResultStatus = Exclude<ShellRunTerminalStatus, 'orphaned'>;
 
 // ============================================================================
 // Storage refs (shared by attachments, image tool results, etc.)
@@ -100,6 +102,14 @@ export interface ToolStartEvent extends BaseEvent {
   args: unknown;
   displayName?: string;
   intent?: string;
+  /**
+   * Id of the assistant step this tool call belongs to (equals the step's
+   * AssistantMessage id / the step's text+thinking messageId). Lets model
+   * replay group a step's reasoning + text + tool calls into one provider
+   * assistant message. Absent on legacy events; consumers treat a missing
+   * stepId as un-pairable (degraded, per-turn) history.
+   */
+  stepId?: string;
 }
 
 export type ToolOutputStream = typeof TOOL_OUTPUT_STREAMS[number];
@@ -161,9 +171,32 @@ export type ToolResultContent =
       kind: 'terminal';
       cwd: string;
       cmd: string;
+      status: TerminalToolResultStatus;
       exitCode: number;
       stdout: string;
       stderr: string;
+      stdoutTruncated: boolean;
+      stderrTruncated: boolean;
+    }
+  | {
+      kind: 'shell_run';
+      ref: string;
+      status: ShellRunStatus;
+      cwd: string;
+      cmd: string;
+      startedAt: number;
+      updatedAt: number;
+      completedAt?: number;
+      exitCode?: number;
+      failureMessage?: string;
+      stdout: string;
+      stderr: string;
+      stdoutTruncated: boolean;
+      stderrTruncated: boolean;
+      timeoutMs?: number;
+      observedAt?: number;
+      orphanedReason?: string;
+      cancelled?: boolean;
     }
   | { kind: 'image'; mimeType: string; ref: StorageRef }
   | { kind: 'summary'; original: string; summarized: string; reason: 'too_large' }
@@ -421,12 +454,16 @@ export interface AbortEvent extends BaseEvent {
  * its fields, so there is exactly ONE shape for a permission decision in
  * the codebase.
  */
+export type AttachmentIngestItem =
+  | { approvalId: string; name: string; mimeType?: string }
+  | { name: string; mimeType?: string; base64: string };
+
 export type SessionCommand =
   | {
       type: 'send';
       turnId: string;
       text: string;
-      attachments?: AttachmentRef[];
+      attachmentItems?: AttachmentIngestItem[];
     }
   | { type: 'stop' }
   | { type: 'permission_response'; response: PermissionResponse }

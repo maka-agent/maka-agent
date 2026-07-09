@@ -101,6 +101,8 @@ export interface SessionHeader {
   connectionLocked: boolean;
   /** Sticky session default model id, captured when the session is created. */
   model: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
+  thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
 
   /** Forward-compatible schema versioning. V0.1 only writes 1. */
@@ -128,6 +130,8 @@ export interface SessionSummary {
   llmConnectionSlug: string;
   /** Sticky session default model id for renderer/header display. */
   model: string;
+  /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
+  thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
 }
 
@@ -174,6 +178,9 @@ export interface UserMessage {
   ts: number;
   text: string;
   attachments?: AttachmentRef[];
+  /** Non-user trigger source (automation fire). Lets the chat mark turns the
+   *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
+  origin?: { kind: 'automation'; automationId: string };
 }
 
 export interface AssistantMessage {
@@ -201,6 +208,15 @@ export interface ToolCallMessage {
   displayName?: string;
   intent?: string;
   args: unknown;
+  /**
+   * Assistant step this call belongs to (equals the step's AssistantMessage
+   * id, stamped from the same source as ToolStartEvent.stepId). Optional for
+   * legacy rows written before per-step persistence. First consumer is the UI
+   * timeline (materializeTurns), which orders a step's thinking/text ahead of
+   * the tools whose stepId matches that step; the backfill path also reads it
+   * to re-pair tools with their step after a restart.
+   */
+  stepId?: string;
 }
 
 export interface ToolResultMessage {
@@ -302,6 +318,7 @@ export interface SystemNoteMessage {
     | 'session_resume'
     | 'mode_change'
     | 'model_change'
+    | 'context_compacted'
     | 'error'
     | 'abort';
   /** Shape depends on `kind`. */

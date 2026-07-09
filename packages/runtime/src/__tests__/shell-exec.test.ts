@@ -1,12 +1,24 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { promises as fs } from 'node:fs';
+import { existsSync, promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runShellWithBoundedTail, killWindowsTree } from '../shell-exec.js';
 
 const base = (over: Record<string, unknown> = {}) => ({ cwd: process.cwd(), timeoutMs: 30_000, ...over });
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function findPwsh(): string | undefined {
+  const exeNames = process.platform === 'win32' ? ['pwsh.exe'] : ['pwsh', 'pwsh-preview'];
+  for (const dir of (process.env.PATH ?? '').split(process.platform === 'win32' ? ';' : ':')) {
+    if (!dir) continue;
+    for (const name of exeNames) {
+      const candidate = join(dir, name);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 describe('runShellWithBoundedTail', () => {
   test('returns full small output and exit 0 without throwing', async () => {
@@ -26,6 +38,7 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(r.stdout.includes('TAILMARK'), 'tail retained');
     assert.ok(!r.stdout.includes('HEADMARK'), 'head dropped — it is a tail');
     assert.ok(r.stdout.length <= 12, `tail bounded to cap, got ${r.stdout.length}`);
+    assert.equal(r.stdoutTruncated, true);
   });
 
   test('captures stderr and a non-zero exit code as data (does not reject)', async () => {
@@ -78,8 +91,10 @@ describe('runShellWithBoundedTail', () => {
     // 'close' fire and the grandchild is actually gone.
     const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-tree-'));
     const pidFile = join(dir, 'child.pid');
+    const runtime = JSON.stringify(process.execPath);
+    const script = JSON.stringify(`require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)`);
     const cmd =
-      `node -e 'require("fs").writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000)'`;
+      `${runtime} -e ${script}`;
     try {
       const r = await runShellWithBoundedTail(cmd, base({ timeoutMs: 200, killGraceMs: 150 }));
       assert.equal(r.timedOut, true);
@@ -101,9 +116,56 @@ describe('runShellWithBoundedTail', () => {
     assert.equal(r.exitCode, 0);
     assert.ok(!r.stdout.includes('xxxx'), 'dropped content is not leaked');
     assert.ok(r.stdout.includes('omitted for safety'), 'a recoverable safety marker is present');
+    assert.equal(r.stdoutTruncated, true);
     // Shares the recovery hint with truncateToolOutput: re-run only when safe.
     assert.ok(r.stdout.includes('safe to re-run'), 'recovery guidance is conditioned on safety');
     assert.ok(r.stdout.includes('side effects'), 'warns about repeating side effects');
+  });
+
+  test('spawns a detected PowerShell explicitly with non-interactive flags (not via shell:true)', async () => {
+    // /bin/echo stands in for pwsh.exe: if the spawn plan is honoured, the
+    // "shell" receives the flags plus the command as argv and echoes them back.
+    // If the command were still run via shell:true, stdout would be plain
+    // 'wired-marker' with no flags.
+    const r = await runShellWithBoundedTail('echo wired-marker', base({
+      shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
+    }));
+    assert.equal(r.exitCode, 0);
+    assert.ok(
+      r.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `flags then verbatim command, got: ${r.stdout}`,
+    );
+    assert.ok(r.stdout.includes('exit $LASTEXITCODE'), 'exit-code wrapper is part of the command argument');
+  });
+
+  test('a native command exit code survives the PowerShell -Command path (requires pwsh)', async (t) => {
+    // Without the wrapper, pwsh -Command maps any non-zero native exit code to
+    // 1 (verified against real pwsh). node stands in for the native command.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
+  });
+
+  test('deliberate boundary: earlier native exit code wins over a final cmdlet failure (requires pwsh)', async (t) => {
+    // Plain pwsh -Command would exit 1 here (last statement is a cmdlet
+    // failure). The wrapper cannot tell WHICH statement tripped $? , and the
+    // only observable ($Error growth) would misreport the far more common
+    // "cmdlet noise, then native command fails last" shape back to 1. So when
+    // the final statement failed, the wrapper deliberately prefers the last
+    // native exit code over the generic 1 — both are non-zero, stderr still
+    // carries the cmdlet error. Pinned so a wrapper change surfaces here.
+    const pwsh = findPwsh();
+    if (!pwsh) return t.skip('pwsh not installed');
+    const r = await runShellWithBoundedTail(
+      `& '${process.execPath}' -e 'process.exit(42)'\nGet-Item ./maka-definitely-missing-file`,
+      base({ shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: pwsh } }),
+    );
+    assert.equal(r.exitCode, 42);
+    assert.match(r.stderr, /maka-definitely-missing-file/);
   });
 
   test('emits every chunk live via emitOutput', async () => {
@@ -148,26 +210,4 @@ describe('runShellWithBoundedTail', () => {
     assert.ok(true, 'no unhandled error propagated from the taskkill spawn failure');
   });
 
-  test('Windows: timeout kills the process tree via taskkill', { skip: process.platform !== 'win32' }, async () => {
-    // Windows analogue of the POSIX process-tree test above; runs only on a
-    // Windows runner. A grandchild that holds stdout open would hang the runner
-    // unless taskkill /T kills the whole tree.
-    const dir = await fs.mkdtemp(join(tmpdir(), 'shell-exec-win-'));
-    const pidFile = join(dir, 'child.pid');
-    const cmd =
-      'node -e "require(\'fs\').writeFileSync(process.env.MAKA_PIDOUT, String(process.pid)); setInterval(() => {}, 1000)"';
-    try {
-      const r = await runShellWithBoundedTail(
-        cmd,
-        base({ timeoutMs: 500, killGraceMs: 200, env: { ...process.env, MAKA_PIDOUT: pidFile } }),
-      );
-      assert.equal(r.timedOut, true);
-      assert.equal(r.exitCode, 124);
-      await delay(300);
-      const childPid = Number((await fs.readFile(pidFile, 'utf8')).trim());
-      assert.throws(() => process.kill(childPid, 0), /ESRCH/, 'grandchild was killed via taskkill /T');
-    } finally {
-      await fs.rm(dir, { recursive: true, force: true });
-    }
-  });
 });

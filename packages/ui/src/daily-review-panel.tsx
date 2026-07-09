@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays } from './icons.js';
 import { SettingsSelect } from './primitives/settings-select.js';
 import type {
@@ -15,8 +15,11 @@ import {
   formatDailyReviewArchiveGeneratedAt,
   formatDailyReviewArchiveTitle,
   formatDailyReviewMarkdown,
+  formatDailyReviewModelLabel,
 } from './daily-review-helpers.js';
 import { Button as UiButton } from './ui.js';
+import { Item, ItemContent } from './primitives/item.js';
+import { Chip, type ChipProps } from './primitives/chip.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
@@ -46,6 +49,17 @@ const DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL: Record<DailyReviewArchive['trigger'], 
   manual: '手动',
 };
 
+const EMPTY_MODEL_OPTIONS: ReadonlyArray<readonly [string, string]> = [];
+
+// Archive-status Chip tone. ok = generated cleanly (success), failed /
+// no_model = the run could not produce a report (destructive). no_data /
+// skipped are expected non-events and stay neutral (exception-only color).
+function dailyReviewArchiveChipTone(status: DailyReviewArchive['status']): ChipProps['variant'] {
+  if (status === 'ok') return 'success';
+  if (status === 'failed' || status === 'no_model') return 'destructive';
+  return 'neutral';
+}
+
 export function DailyReviewPanel(props: {
   bridge: DailyReviewBridge;
   onSelectSession?: (sessionId: string) => void;
@@ -70,12 +84,19 @@ export function DailyReviewPanel(props: {
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveReloadToken, setArchiveReloadToken] = useState(0);
-  const modelOptions = props.bridge.modelOptions ?? [];
+  const modelOptions = useMemo(() => props.bridge.modelOptions ?? EMPTY_MODEL_OPTIONS, [props.bridge.modelOptions]);
   const [selectedModelKey, setSelectedModelKey] = useState<string>(modelOptions[0]?.[0] ?? '');
   const dailyReviewMountedRef = useRef(true);
   const summaryScopeKeyRef = useRef<string | null>(null);
   const pendingDailyReviewActionRef = useRef<string | null>(null);
   const archiveLoadRequestRef = useRef(0);
+  // PR-582-FOLLOWUP: bridge methods (fetchDay, listArchives, getArchive)
+  // are thin IPC wrappers that don't depend on the connections array.
+  // Track the latest bridge via ref so effects don't re-fire when the
+  // bridge object is recreated due to an unrelated connections change
+  // (e.g. updatedAt timestamp bump from a provider status refresh).
+  const bridgeRef = useRef(props.bridge);
+  bridgeRef.current = props.bridge;
   const currentSummaryScopeKey = dailyReviewScopeKey(offsetDays, range);
   const visibleSummary = summaryScopeKey === currentSummaryScopeKey ? summary : null;
   const canLoadArchives = Boolean(props.bridge.listArchives && props.bridge.getArchive);
@@ -102,7 +123,7 @@ export function DailyReviewPanel(props: {
     const scopeKey = dailyReviewScopeKey(offsetDays, range);
     setLoading(true);
     setError(null);
-    props.bridge
+    bridgeRef.current
       .fetchDay(offsetDays, range)
       .then((next) => {
         if (cancelled) return;
@@ -124,10 +145,10 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [offsetDays, range, reloadToken, props.bridge]);
+  }, [offsetDays, range, reloadToken]);
 
   useEffect(() => {
-    const listArchives = props.bridge.listArchives;
+    const listArchives = bridgeRef.current.listArchives;
     if (!listArchives) {
       setArchives([]);
       setSelectedArchiveId(null);
@@ -152,10 +173,10 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken, props.bridge]);
+  }, [archiveReloadToken]);
 
   useEffect(() => {
-    const getArchive = props.bridge.getArchive;
+    const getArchive = bridgeRef.current.getArchive;
     if (!getArchive || !selectedArchiveId) {
       archiveLoadRequestRef.current += 1;
       setSelectedArchive(null);
@@ -185,7 +206,7 @@ export function DailyReviewPanel(props: {
     return () => {
       cancelled = true;
     };
-  }, [archiveReloadToken, selectedArchiveId, props.bridge]);
+  }, [archiveReloadToken, selectedArchiveId]);
 
   useEffect(() => {
     if (modelOptions.length === 0) {
@@ -264,7 +285,21 @@ export function DailyReviewPanel(props: {
           day/week/month tabs and the date stepper — now lives in ONE
           header bar instead of the tabs floating mid-page above the
           stats they control. */}
+      {/* Designer audit P2-10: the range tabs sat at the far right while
+          the stepper sat at the far left — two time controls that read as
+          unrelated widgets. They now form ONE cluster: pick the range,
+          then step through it; the stepper steps by the selected span. */}
       <header className="maka-daily-review-header">
+        <SettingsSegmented
+          value={String(range)}
+          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
+          onChange={(v) => {
+            setRange(Number(v) as DailyReviewRange);
+            setOffsetDays(0);
+          }}
+          ariaLabel="时间范围切换"
+          className="maka-daily-review-range-tabs"
+        />
         <div className="maka-daily-review-header-time">
           <UiButton
             type="button"
@@ -289,23 +324,7 @@ export function DailyReviewPanel(props: {
             ›
           </UiButton>
         </div>
-        <SettingsSegmented
-          value={String(range)}
-          options={[['1', '今日'], ['7', '本周'], ['30', '本月']]}
-          onChange={(v) => {
-            setRange(Number(v) as DailyReviewRange);
-            setOffsetDays(0);
-          }}
-          ariaLabel="时间范围切换"
-          className="maka-daily-review-range-tabs"
-        />
       </header>
-      <section className="maka-daily-review-info" aria-label="每日回顾说明">
-        <p className="maka-daily-review-info-hint">
-          自动汇总本机对话历史，生成<strong>对话摘要</strong>与<strong>遗漏提醒</strong>；
-          <strong>深度分析</strong>覆盖更长周期的趋势与调研。可在设置中开启<strong>定时执行</strong>。
-        </p>
-      </section>
       {canManualRun && (
         <div className="maka-daily-review-quick-runs" aria-label="手动触发回顾">
           {modelOptions.length > 0 && (
@@ -386,20 +405,38 @@ export function DailyReviewPanel(props: {
               <ul className="maka-daily-review-archive-list" aria-label="回顾报告历史">
                 {archives.map((archive) => (
                   <li key={archive.id}>
-                    <UiButton
-                      type="button"
-                      variant="quiet"
+                    {/* Archive row now speaks the shared Item row language:
+                        hover 4% / selected 6.5% come from the primitive
+                        (selected → --state-selected-bg), ItemContent stacks
+                        the title over the meta line. The row class keeps only
+                        geometry (padding, radius, selected border). */}
+                    <Item
                       className="maka-daily-review-archive-row"
-                      data-active={selectedArchiveId === archive.id ? 'true' : undefined}
-                      onClick={() => chooseDailyReviewArchive(archive.id)}
+                      selected={selectedArchiveId === archive.id}
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => chooseDailyReviewArchive(archive.id)}
+                        />
+                      }
                     >
-                      <span className="maka-daily-review-archive-row-title">
-                        {formatDailyReviewArchiveTitle(archive)}
-                      </span>
-                      <span className="maka-daily-review-archive-row-meta">
-                        {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]} · {archive.totals.sessionCount} 对话 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
-                      </span>
-                    </UiButton>
+                      <ItemContent>
+                        {/* Plain span (not ItemTitle): the row title relies on
+                            block-level text-overflow ellipsis, which ItemTitle's
+                            flex layout would defeat. */}
+                        <span className="maka-daily-review-archive-row-title">
+                          {formatDailyReviewArchiveTitle(archive)}
+                        </span>
+                        {/* Designer audit P2-11: the row used to repeat the
+                            detail card's entire header (status + timestamp).
+                            The list only needs to identify the report; status
+                            and generation time live in the detail. */}
+                        <span className="maka-daily-review-archive-row-meta">
+                          {archive.totals.sessionCount} 对话
+                          {archive.status !== 'ok' ? ` · ${DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}` : ''}
+                        </span>
+                      </ItemContent>
+                    </Item>
                   </li>
                 ))}
               </ul>
@@ -415,7 +452,7 @@ export function DailyReviewPanel(props: {
           {props.onCopyMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-copy min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('copy', async () => {
@@ -433,7 +470,7 @@ export function DailyReviewPanel(props: {
             {props.onAppendMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-append min-w-[5rem]"
                 onClick={() => void runDailyReviewAction('append', async () => {
@@ -451,7 +488,7 @@ export function DailyReviewPanel(props: {
             {props.onSaveMarkdown && (
               <UiButton
                 type="button"
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 className="maka-daily-review-save min-w-[4rem]"
                 onClick={() => void runDailyReviewAction('save', async () => {
@@ -502,12 +539,22 @@ export function DailyReviewPanel(props: {
           <div className="maka-skeleton maka-skeleton-line" style={{ width: '75%' }} />
         </div>
       ) : visibleSummary.totals.sessionCount === 0 && visibleSummary.totals.requestCount === 0 ? (
-        <EmptyState
-          Icon={CalendarDays}
-          title={emptyActivityTitle}
-          body={emptyActivityBody}
-          extraClassName="maka-daily-review-summary-empty"
-        />
+        // When saved reports already fill the page, a second full-height
+        // empty card below them read as a broken half-loaded section
+        // (designer audit P0-4). Collapse to a one-line note in that case;
+        // keep the full empty state only when it is the page's sole content.
+        canLoadArchives && archives.length > 0 ? (
+          <p className="maka-daily-review-activity-note" role="status">
+            {emptyActivityTitle} · {emptyActivityBody}
+          </p>
+        ) : (
+          <EmptyState
+            Icon={CalendarDays}
+            title={emptyActivityTitle}
+            body={emptyActivityBody}
+            extraClassName="maka-daily-review-summary-empty"
+          />
+        )
       ) : (
         <>
           <section className="maka-daily-review-totals" aria-label={`${dayLabel}总览`}>
@@ -612,12 +659,17 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
           <h4>{formatDailyReviewArchiveTitle(archive)}</h4>
           <p>
             {DAILY_REVIEW_ARCHIVE_TRIGGER_LABEL[archive.trigger]}生成 · {formatDailyReviewArchiveGeneratedAt(archive.generatedAt)}
-            {archive.modelKey ? ` · ${archive.modelKey}` : ' · 默认对话模型'}
+            {archive.modelKey ? ` · ${formatDailyReviewModelLabel(archive.modelKey)}` : ' · 默认对话模型'}
           </p>
         </div>
-        <span className="maka-daily-review-archive-status" data-status={archive.status}>
+        <Chip
+          size="sm"
+          variant={dailyReviewArchiveChipTone(archive.status)}
+          className="maka-daily-review-archive-status"
+          data-status={archive.status}
+        >
           {DAILY_REVIEW_ARCHIVE_STATUS_LABEL[archive.status]}
-        </span>
+        </Chip>
       </header>
       {archive.errorMessage && (
         <p className="maka-daily-review-archive-error">{archive.errorMessage}</p>

@@ -20,6 +20,7 @@ import type {
   SessionListFilter,
   SessionSummary,
   StoredMessage,
+  ThinkingLevel,
   UpdateConnectionInput,
   UpdateAppSettingsInput,
   UpdateAppSettingsResult,
@@ -34,7 +35,6 @@ import type {
   BranchFromTurnInput,
   CapabilitySnapshotCollection,
   RegenerateTurnInput,
-  RetryTurnInput,
   TurnRecord,
   PermissionSnapshot,
   OpenGatewayRuntimeStatus,
@@ -68,7 +68,8 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { SkillEntry } from '@maka/ui';
+import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
   OnboardingMilestoneId,
@@ -116,25 +117,25 @@ export interface WorkspaceInstructionsState {
   promptCharLimit: number;
 }
 
-export type TextFileImportResult =
-  | { ok: true; name: string; bytes: number; files: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'too-large' | 'binary' | 'too-many-files' | 'office-file' | 'unsupported-type' | 'read-failed' | 'officecli_missing' | 'officecli_timeout' | 'officecli_failed'; message: string };
-
-export type FolderOutlineImportResult =
-  | { ok: true; name: string; folders: number; entries: number; truncated: boolean; prompt: string }
-  | { ok: false; reason: 'cancelled' | 'missing' | 'read-failed' | 'too-many-folders' | 'empty'; message: string };
-
 declare global {
+  type RendererIngestInput =
+    | { approvalId: string; name: string; mimeType?: string }
+    | { file: File };
   interface Window {
     maka: {
       sessions: {
         list(filter?: SessionListFilter): Promise<SessionSummary[]>;
         create(input?: Partial<CreateSessionInput>): Promise<SessionSummary>;
-        send(sessionId: string, command: SessionCommand): Promise<void>;
+        send(
+          sessionId: string,
+          command:
+            | SessionCommand
+            | { type: 'send'; turnId: string; text: string; attachmentItems?: RendererIngestInput[] },
+        ): Promise<{ turnId: string; attachments: import('@maka/core').AttachmentRef[] }>;
         stop(sessionId: string, input?: { source?: 'stop_button' }): Promise<void>;
         readMessages(sessionId: string): Promise<StoredMessage[]>;
         listTurns(sessionId: string): Promise<TurnRecord[]>;
-        retryTurn(sessionId: string, input: RetryTurnInput): Promise<void>;
+        compact(sessionId: string): Promise<void>;
         regenerateTurn(sessionId: string, input: RegenerateTurnInput): Promise<void>;
         branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
         respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
@@ -152,6 +153,7 @@ declare global {
         rename(sessionId: string, name: string): Promise<void>;
         setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
         setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
+        setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
       };
       connections: {
@@ -170,6 +172,7 @@ declare global {
       settings: {
         get(): Promise<AppSettings>;
         update(patch: UpdateAppSettingsInput): Promise<UpdateAppSettingsResult>;
+        subscribeExternalChanged(handler: () => void): () => void;
         testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult>;
         testBotChannel(provider: BotProvider): Promise<SettingsTestResult>;
         usageStats(range?: UsageRange): Promise<UsageStats>;
@@ -190,6 +193,18 @@ declare global {
             >>;
           };
         };
+      };
+      notifications: {
+        /** Fire-and-forget: report that an agent turn reached a terminal
+         * state. `title` is the session name, `body` the start of the
+         * reply (or error message); main sanitizes + falls back to
+         * generic copy. Main gates on the product toggle + window focus
+         * before raising a native OS notification. */
+        runEnded(payload: {
+          kind: 'completed' | 'errored';
+          title?: string;
+          body?: string;
+        }): Promise<void>;
       };
       onboarding: {
         getSnapshot(): Promise<OnboardingSnapshot>;
@@ -240,10 +255,15 @@ declare global {
         openFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
         createFile(file: string): Promise<{ ok: true } | { ok: false; message: string }>;
       };
-      context: {
-        importTextFile(): Promise<TextFileImportResult>;
-        importDroppedTextFiles(files: Array<{ name: string; size: number; type?: string; text: string }>): Promise<TextFileImportResult>;
-        importFolderOutline(): Promise<FolderOutlineImportResult>;
+      attachments: {
+        pickFiles(): Promise<
+          | { ok: true; files: { approvalId: string; name: string; mimeType?: string; size: number }[] }
+          | { ok: false; reason: 'cancelled' }
+        >;
+        readBytes(sessionId: string, relativePath: string): Promise<
+          | { ok: true; base64: string; mimeType: string }
+          | { ok: false; reason: string }
+        >;
       };
       search: {
         thread(
@@ -399,6 +419,28 @@ declare global {
         // PR-WINDOW-TITLEBAR-0: re-sync the native Windows titleBarOverlay
         // color/symbolColor to the current app theme. No-op on non-Windows.
         setTitleBarOverlayTheme(isDark: boolean): Promise<void>;
+        // PR-SHOW-AFTER-FIRST-COMMIT: signal main after the first React commit
+        // so the hidden window is revealed (see main-window.ts).
+        notifyRendererReady(): Promise<void>;
+      };
+      config: {
+        export(input: { categories: ConfigCategory[] }): Promise<
+          | { ok: false; reason: 'no_categories' | 'canceled' }
+          | { ok: true; path: string; includedData: ConfigCategory[] }
+        >;
+        import(input: { strategy: 'skip' | 'overwrite' }): Promise<
+          | { ok: false; reason: 'canceled' | 'not_json' | 'malformed' | 'unsupported_version'; message?: string }
+          | {
+              ok: true;
+              includedData: ConfigCategory[];
+              result: {
+                connections?: { created: number; overwritten: number; skipped: number };
+                settings?: { applied: boolean };
+                credentials?: { applied: number; skipped: number };
+                memory?: { applied: boolean };
+              };
+            }
+        >;
       };
       app: {
         info(): Promise<{
@@ -433,6 +475,27 @@ declare global {
           | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
           | { ok: false; reason: 'cancelled' | 'missing-selection' }
         >;
+        selectProjectRoot(projectPath: string): Promise<
+          | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+          | { ok: false; reason: 'invalid-path' | 'not-found' }
+        >;
+        resolveProjectGitInfo(projectPath: string): Promise<
+          | { ok: true; projectPath: string; projectGit: { isGitRepo: boolean; branch?: string } }
+          | { ok: false; reason: 'invalid-path' | 'not-found' }
+        >;
+        listGitBranches(): Promise<{
+          ok: boolean;
+          branches?: string[];
+          current?: string;
+          reason?: string;
+          message?: string;
+        }>;
+        checkoutGitBranch(branch: string): Promise<{
+          ok: boolean;
+          branch?: string;
+          reason?: string;
+          message?: string;
+        }>;
         openArtifactPath(
           artifactId: string,
         ): Promise<
@@ -473,6 +536,33 @@ declare global {
       };
       skills: {
         list(): Promise<SkillEntry[]>;
+        sources: {
+          list(): Promise<ManagedSkillSourceEntry[]>;
+          importLocalFile(): Promise<
+            | { ok: true; source: ManagedSkillSourceEntry }
+            | { ok: false; reason: 'cancelled' | 'invalid_skill' | 'already_exists' | 'blocked_path' | 'write_failed' }
+          >;
+        };
+        installManaged(sourceId: string): Promise<
+          | { ok: true; skill: SkillEntry }
+          | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+        >;
+        details(skillId: string): Promise<
+          | { ok: true; details: SkillGovernanceDetails }
+          | { ok: false; reason: 'not_found' | 'invalid_id' }
+        >;
+        previewUpdate(skillId: string): Promise<
+          | { ok: true; preview: ManagedSkillUpdatePreview }
+          | { ok: false; reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed' }
+        >;
+        updateManaged(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): Promise<
+          | { ok: true; skill: SkillEntry }
+          | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
+        >;
+        setEnabled(skillId: string, enabled: boolean): Promise<
+          | { ok: true; skill: SkillEntry }
+          | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' }
+        >;
         createStarter(): Promise<
           | { ok: true; skill: SkillEntry; filePath: string }
           | { ok: false; reason: 'blocked_path' | 'already_exists' | 'write_failed' }

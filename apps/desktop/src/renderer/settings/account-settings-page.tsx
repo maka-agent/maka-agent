@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ConnectionTestResult, LlmConnection } from '@maka/core';
 import { deriveProviderAuthContractFromConnection, generalizedErrorMessageChinese } from '@maka/core';
 import { PROVIDER_DEFAULTS } from '@maka/core/llm-connections';
-import { Button, RelativeTime, useToast } from '@maka/ui';
+import { Button, Chip, RelativeTime, useToast } from '@maka/ui';
 import {
   deriveAccountAuthActions,
   presentAccountAuthState,
@@ -277,9 +277,9 @@ function AccountConnectionRow(props: {
           </div>
           <small>{subtitle}</small>
         </div>
-        <span className="settingsConnectionBadge" data-tone={presentation.tone}>
+        <Chip variant={presentation.tone}>
           {presentation.label}
-        </span>
+        </Chip>
       </div>
       <p className="settingsConnectionDetail">{presentation.detail}</p>
       <div className="settingsAuthContract" data-state={authContractState}>
@@ -336,14 +336,19 @@ function AccountAuthActionView(props: {
       </Button>
     );
   }
+  // Non-interactive guidance label sitting next to the real 测试凭据 button.
+  // Migrated onto the squared Chip primitive (tone→alpha authority); the
+  // AccountAuthTone union (neutral/info/success/warning/destructive) maps 1:1
+  // to Chip variants. The preview-kind dashed-border affordance stays in CSS.
   return (
-    <span
+    <Chip
+      variant={props.action.tone}
       className="settingsAuthActionPill"
       data-kind={props.action.kind}
       data-tone={props.action.tone}
       title={props.action.detail}
     >
       {props.action.label}
-    </span>
+    </Chip>
   );
 }

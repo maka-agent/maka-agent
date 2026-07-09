@@ -1,11 +1,23 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { z } from 'zod';
 import type { MakaTool } from '@maka/runtime';
+import {
+  readManagedSkillSource,
+  resolveManagedSkillSourcesRoot,
+} from './managed-skill-sources.js';
 
 export type SkillSourceType = 'workspace' | 'bundled' | 'managed' | 'unknown';
 export type SkillValidationStatus = 'ok' | 'missing_lock' | 'modified' | 'metadata_error';
+export type SkillRuntimeStatus = 'enabled' | 'disabled' | 'state_error';
+export type ManagedSkillUpdateStatus =
+  | 'not_managed'
+  | 'source_missing'
+  | 'up_to_date'
+  | 'update_available'
+  | 'local_modified'
+  | 'metadata_error';
 export type SkillValidationCode =
   | 'missing_lock'
   | 'modified'
@@ -31,6 +43,11 @@ export interface InstalledSkill {
   validationStatus: SkillValidationStatus;
   validationCodes: SkillValidationCode[];
   validationMessages?: string[];
+  managedSourceId?: string;
+  managedUpdateStatus?: ManagedSkillUpdateStatus;
+  sourceContentSha256?: string;
+  enabled: boolean;
+  runtimeStatus: SkillRuntimeStatus;
 }
 
 export interface SkillEntry {
@@ -39,9 +56,46 @@ export interface SkillEntry {
   description: string;
   path: string;
   declaredTools: string[];
-  sourceType: 'workspace' | 'bundled' | 'unknown';
+  sourceType: 'workspace' | 'bundled' | 'managed' | 'unknown';
   userModified: boolean;
   validationStatus: SkillValidationStatus;
+  managedUpdateStatus?: ManagedSkillUpdateStatus;
+  enabled: boolean;
+  runtimeStatus: SkillRuntimeStatus;
+}
+
+export interface SkillGovernanceDetails {
+  id: string;
+  name: string;
+  description: string;
+  path: string;
+  declaredTools: string[];
+  sourceType: SkillSourceType;
+  userModified: boolean;
+  validationStatus: SkillValidationStatus;
+  enabled: boolean;
+  runtimeStatus: SkillRuntimeStatus;
+  validationCodes: SkillValidationCode[];
+  validationMessages: string[];
+  managedSourceId?: string;
+  managedUpdateStatus?: ManagedSkillUpdateStatus;
+  hasManagedBaseline: boolean;
+  sourceAvailable?: boolean;
+  sourceChanged?: boolean;
+}
+
+export interface ManagedSkillUpdatePreview {
+  skill: SkillGovernanceDetails;
+  currentContent: string;
+  sourceContent: string;
+  baselineContent?: string;
+  expectedCurrentSha256: string;
+  expectedSourceSha256: string;
+  summary: {
+    currentLineCount: number;
+    sourceLineCount: number;
+    changedLineCount: number;
+  };
 }
 
 export type CreateStarterSkillResult =
@@ -65,10 +119,45 @@ export interface LoadedSkillInstructions {
 
 export type LoadSkillInstructionsResult =
   | { ok: true; skill: LoadedSkillInstructions }
-  | { ok: false; reason: 'invalid_name' | 'not_found'; availableSkills: Array<Pick<InstalledSkill, 'id' | 'name' | 'description'>> };
+  | { ok: false; reason: 'invalid_name' | 'not_found' | 'disabled'; availableSkills: Array<Pick<InstalledSkill, 'id' | 'name' | 'description'>> };
+
+export type SetSkillEnabledResult =
+  | { ok: true; skill: SkillEntry }
+  | { ok: false; reason: 'not_found' | 'blocked_path' | 'state_error' | 'write_failed' };
 
 interface SkillDefinition extends InstalledSkill {
   content: string;
+}
+
+interface SkillLockFile {
+  schemaVersion: 1;
+  id: string;
+  sourceType: 'bundled' | 'managed';
+  sourceName?: string;
+  sourceVersion?: string;
+  contentSha256: string;
+  installedAt: string;
+  sourceId?: string;
+  sourceContentSha256?: string;
+}
+
+interface SkillStateFile {
+  schemaVersion: 1;
+  skills: Record<string, { enabled: boolean; updatedAt?: string }>;
+}
+
+type SkillRuntimeStateReadResult =
+  | { ok: true; states: Map<string, boolean> }
+  | { ok: false; reason: 'blocked_path' | 'read_failed' | 'invalid_json' };
+
+interface SkillReadOptions {
+  managedSourceRoot?: string;
+}
+
+interface ManagedSkillUpdateOptions {
+  force?: boolean;
+  expectedCurrentSha256?: string;
+  expectedSourceSha256?: string;
 }
 
 export const MAX_SKILLS_IN_PROMPT = 12;
@@ -104,8 +193,8 @@ const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string> = {
  * `allowed-tools` is intentionally surfaced as "declared/requested" - never
  * granted. PermissionEngine remains the only authority over tool calls.
  */
-export async function listInstalledSkills(root: string): Promise<InstalledSkill[]> {
-  const definitions = await readInstalledSkillDefinitions(root);
+export async function listInstalledSkills(root: string, options: SkillReadOptions = {}): Promise<InstalledSkill[]> {
+  const definitions = await readInstalledSkillDefinitions(root, options);
   return definitions.map(({ content: _content, ...skill }) => skill);
 }
 
@@ -120,9 +209,14 @@ export function toSkillEntry(skill: InstalledSkill): SkillEntry {
     description: skill.description,
     path: skill.path,
     declaredTools: skill.declaredTools,
-    sourceType: skill.sourceType === 'bundled' || skill.sourceType === 'unknown' ? skill.sourceType : 'workspace',
+    sourceType: skill.sourceType === 'bundled' || skill.sourceType === 'managed' || skill.sourceType === 'unknown'
+      ? skill.sourceType
+      : 'workspace',
     userModified: skill.userModified,
     validationStatus: skill.validationStatus,
+    enabled: skill.enabled,
+    runtimeStatus: skill.runtimeStatus,
+    ...(skill.sourceType === 'managed' && skill.managedUpdateStatus ? { managedUpdateStatus: skill.managedUpdateStatus } : {}),
   };
 }
 
@@ -230,7 +324,7 @@ async function writeBundledSkillLock(skillDir: string, id: string, body: string)
     }
   }
 
-  const lock = {
+  return writeSkillLock(skillDir, {
     schemaVersion: 1,
     id,
     sourceType: 'bundled',
@@ -238,7 +332,11 @@ async function writeBundledSkillLock(skillDir: string, id: string, body: string)
     sourceVersion: BUNDLED_OFFICE_SKILL_SOURCE_VERSION,
     contentSha256,
     installedAt: new Date().toISOString(),
-  };
+  });
+}
+
+async function writeSkillLock(skillDir: string, lock: SkillLockFile): Promise<boolean> {
+  const lockPath = join(skillDir, 'skill.lock.json');
   const tempPath = join(skillDir, `.skill.lock.json.${process.pid}.${Date.now()}.tmp`);
   try {
     await writeFile(tempPath, `${JSON.stringify(lock, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -263,6 +361,66 @@ async function readExistingRegularFile(path: string): Promise<{ kind: 'missing' 
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' };
     return { kind: 'blocked' };
+  }
+}
+
+async function readContainedRegularFile(rootDir: string, filePath: string): Promise<{ ok: true; bytes: Buffer } | { ok: false }> {
+  try {
+    const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false };
+    const fileReal = await realpath(filePath);
+    if (!isContainedPath(rootReal, fileReal)) return { ok: false };
+    return { ok: true, bytes: await readFile(filePath) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function readContainedRegularTextFile(rootDir: string, filePath: string): Promise<
+  | { ok: true; content: string; sha256: string }
+  | { ok: false; reason: 'blocked_path' | 'read_failed' }
+> {
+  try {
+    const [rootReal, fileStat] = await Promise.all([realpath(rootDir), lstat(filePath)]);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const fileReal = await realpath(filePath);
+    if (!isContainedPath(rootReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    const content = await readFile(filePath, 'utf8');
+    return { ok: true, content, sha256: `sha256:${sha256(content)}` };
+  } catch {
+    return { ok: false, reason: 'read_failed' };
+  }
+}
+
+async function writeContainedRegularTextFile(rootDir: string, filePath: string, content: string): Promise<boolean> {
+  const tempPath = join(rootDir, `.maka-write.${process.pid}.${Date.now()}.tmp`);
+  try {
+    const rootReal = await realpath(rootDir);
+    const existing = await lstat(filePath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (existing !== null && (!existing.isFile() || existing.isSymbolicLink())) return false;
+    if (existing !== null) {
+      const fileReal = await realpath(filePath);
+      if (!isContainedPath(rootReal, fileReal)) return false;
+    }
+    await writeFile(tempPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    const tempStat = await lstat(tempPath);
+    if (!tempStat.isFile() || tempStat.isSymbolicLink()) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    const tempReal = await realpath(tempPath);
+    if (!isContainedPath(rootReal, tempReal)) {
+      await unlink(tempPath).catch(() => {});
+      return false;
+    }
+    await rename(tempPath, filePath);
+    return true;
+  } catch {
+    await unlink(tempPath).catch(() => {});
+    return false;
   }
 }
 
@@ -329,6 +487,8 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
           userModified: false,
           validationStatus: 'missing_lock',
           validationCodes: ['missing_lock'],
+          enabled: true,
+          runtimeStatus: 'enabled',
         },
       };
     } catch (error) {
@@ -338,6 +498,502 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
   }
 
   return { ok: false, reason: 'already_exists' };
+}
+
+export async function installManagedSkill(
+  root: string,
+  sourceId: string,
+  sourceRoot = resolveManagedSkillSourcesRoot(),
+): Promise<
+  | { ok: true; skill: InstalledSkill }
+  | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+> {
+  if (!isSafeSkillId(sourceId)) return { ok: false, reason: 'not_found' };
+  const source = await readManagedSkillSource(sourceRoot, sourceId);
+  if (!source.ok) {
+    if (source.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
+    return { ok: false, reason: 'not_found' };
+  }
+
+  const skillsDir = join(root, 'skills');
+  let skillsReal: string;
+  try {
+    await mkdir(skillsDir, { recursive: true, mode: 0o700 });
+    const skillsStat = await lstat(skillsDir);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const rootReal = await realpath(root);
+    skillsReal = await realpath(skillsDir);
+    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+  } catch {
+    return { ok: false, reason: 'write_failed' };
+  }
+
+  const skillDir = join(skillsDir, sourceId);
+  const skillFile = join(skillDir, 'SKILL.md');
+  let createdSkillDir = false;
+  try {
+    await mkdir(skillDir, { mode: 0o700 });
+    createdSkillDir = true;
+    const skillReal = await realpath(skillDir);
+    if (!isContainedPath(skillsReal, skillReal)) {
+      if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'blocked_path' };
+    }
+    await writeFile(skillFile, source.content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    if (!await writeSkillLock(skillDir, managedSkillLock(sourceId, source.contentSha256, source.contentSha256))) {
+      if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'write_failed' };
+    }
+    if (!await writeManagedSkillBaseline(skillDir, source.content)) {
+      if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'write_failed' };
+    }
+    const installed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
+    const skill = installed.find((candidate) => candidate.id === sourceId);
+    if (!skill) {
+      if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+      return { ok: false, reason: 'write_failed' };
+    }
+    return { ok: true, skill };
+  } catch (error) {
+    if (createdSkillDir) await rm(skillDir, { recursive: true, force: true }).catch(() => {});
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return { ok: false, reason: 'already_exists' };
+    return { ok: false, reason: 'write_failed' };
+  }
+}
+
+export async function updateManagedSkill(
+  root: string,
+  skillId: string,
+  sourceRoot = resolveManagedSkillSourcesRoot(),
+  options: ManagedSkillUpdateOptions = {},
+): Promise<
+  | { ok: true; skill: InstalledSkill }
+  | { ok: false; reason: 'not_managed' | 'source_missing' | 'local_modified' | 'metadata_error' | 'blocked_path' | 'write_failed' }
+> {
+  if (!isSafeSkillId(skillId)) return { ok: false, reason: 'not_managed' };
+  const updateTarget = await resolveSkillFileUpdateTarget(root, skillId);
+  if (!updateTarget.ok && updateTarget.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
+  const installed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
+  const skill = installed.find((candidate) => candidate.id === skillId);
+  if (!skill) return { ok: false, reason: 'not_managed' };
+  if (skill.validationStatus === 'metadata_error' || skill.managedUpdateStatus === 'metadata_error') {
+    return { ok: false, reason: 'metadata_error' };
+  }
+  if (skill.sourceType !== 'managed' || !skill.managedSourceId) return { ok: false, reason: 'not_managed' };
+  if (skill.managedUpdateStatus === 'local_modified' && !options.force) return { ok: false, reason: 'local_modified' };
+  if (skill.managedUpdateStatus === 'source_missing') return { ok: false, reason: 'source_missing' };
+
+  const source = await readManagedSkillSource(sourceRoot, skill.managedSourceId);
+  if (!source.ok) {
+    if (source.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
+    return { ok: false, reason: 'source_missing' };
+  }
+
+  const skillDir = join(root, 'skills', skillId);
+  const skillFile = join(skillDir, 'SKILL.md');
+  const lockFile = join(skillDir, 'skill.lock.json');
+  try {
+    const [skillsReal, skillReal, current, currentLock] = await Promise.all([
+      realpath(join(root, 'skills')),
+      realpath(skillDir),
+      readContainedRegularTextFile(skillDir, skillFile),
+      readContainedRegularTextFile(skillDir, lockFile),
+    ]);
+    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+    if (!current.ok) return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'write_failed' };
+    if (!currentLock.ok) return { ok: false, reason: currentLock.reason === 'blocked_path' ? 'blocked_path' : 'write_failed' };
+
+    const hasExpectedHashes = options.expectedCurrentSha256 !== undefined || options.expectedSourceSha256 !== undefined;
+    if (options.force || hasExpectedHashes) {
+      if (
+        !isSha256(options.expectedCurrentSha256) ||
+        !isSha256(options.expectedSourceSha256) ||
+        current.sha256.toLowerCase() !== options.expectedCurrentSha256.toLowerCase() ||
+        source.contentSha256.toLowerCase() !== options.expectedSourceSha256.toLowerCase()
+      ) {
+        return { ok: false, reason: 'local_modified' };
+      }
+    }
+    const previousBaseline = await readManagedSkillBaseline(skillDir);
+    const restorePrevious = async () => {
+      await writeContainedRegularTextFile(skillDir, skillFile, current.content).catch(() => {});
+      await writeContainedRegularTextFile(skillDir, lockFile, currentLock.content).catch(() => {});
+      if (previousBaseline !== undefined) {
+        await writeManagedSkillBaseline(skillDir, previousBaseline).catch(() => {});
+      } else {
+        await removeManagedSkillBaseline(skillDir).catch(() => {});
+      }
+    };
+
+    if (!await writeContainedRegularTextFile(skillDir, skillFile, source.content)) {
+      return { ok: false, reason: 'write_failed' };
+    }
+    if (!await writeSkillLock(skillDir, managedSkillLock(skillId, source.contentSha256, source.contentSha256, skill.managedSourceId))) {
+      await restorePrevious();
+      return { ok: false, reason: 'write_failed' };
+    }
+    if (!await writeManagedSkillBaseline(skillDir, source.content)) {
+      await restorePrevious();
+      return { ok: false, reason: 'write_failed' };
+    }
+    const refreshed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
+    const updated = refreshed.find((candidate) => candidate.id === skillId);
+    if (!updated) {
+      await restorePrevious();
+      return { ok: false, reason: 'write_failed' };
+    }
+    return { ok: true, skill: updated };
+  } catch {
+    return { ok: false, reason: 'write_failed' };
+  }
+}
+
+async function resolveSkillFileUpdateTarget(root: string, skillId: string): Promise<
+  | { ok: true }
+  | { ok: false; reason: 'missing' | 'blocked_path' }
+> {
+  const skillsDir = join(root, 'skills');
+  const skillDir = join(skillsDir, skillId);
+  const skillFile = join(skillDir, 'SKILL.md');
+  try {
+    const [rootReal, skillsStat] = await Promise.all([realpath(root), lstat(skillsDir)]);
+    if (!skillsStat.isDirectory() || skillsStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const skillsReal = await realpath(skillsDir);
+    if (!isContainedPath(rootReal, skillsReal)) return { ok: false, reason: 'blocked_path' };
+
+    const skillStat = await lstat(skillDir);
+    if (!skillStat.isDirectory() || skillStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const skillReal = await realpath(skillDir);
+    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+
+    const fileStat = await lstat(skillFile);
+    if (!fileStat.isFile() || fileStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const fileReal = await realpath(skillFile);
+    if (!isContainedPath(skillReal, fileReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'missing' };
+  }
+}
+
+export async function getSkillGovernanceDetails(
+  root: string,
+  skillId: string,
+  sourceRoot = resolveManagedSkillSourcesRoot(),
+): Promise<
+  | { ok: true; details: SkillGovernanceDetails }
+  | { ok: false; reason: 'not_found' | 'invalid_id' }
+> {
+  if (!isSafeSkillId(skillId)) return { ok: false, reason: 'invalid_id' };
+  const installed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
+  const skill = installed.find((candidate) => candidate.id === skillId);
+  if (!skill) return { ok: false, reason: 'not_found' };
+  return { ok: true, details: await toSkillGovernanceDetails(skill, sourceRoot) };
+}
+
+export async function previewManagedSkillUpdate(
+  root: string,
+  skillId: string,
+  sourceRoot = resolveManagedSkillSourcesRoot(),
+): Promise<
+  | { ok: true; preview: ManagedSkillUpdatePreview }
+  | { ok: false; reason: 'not_managed' | 'source_missing' | 'metadata_error' | 'blocked_path' | 'read_failed' }
+> {
+  if (!isSafeSkillId(skillId)) return { ok: false, reason: 'not_managed' };
+  const updateTarget = await resolveSkillFileUpdateTarget(root, skillId);
+  if (!updateTarget.ok && updateTarget.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
+  const installed = await listInstalledSkills(root, { managedSourceRoot: sourceRoot });
+  const skill = installed.find((candidate) => candidate.id === skillId);
+  if (!skill || skill.sourceType !== 'managed' || !skill.managedSourceId) return { ok: false, reason: 'not_managed' };
+  if (skill.validationStatus === 'metadata_error' || skill.managedUpdateStatus === 'metadata_error') {
+    return { ok: false, reason: 'metadata_error' };
+  }
+  if (skill.managedUpdateStatus === 'source_missing') return { ok: false, reason: 'source_missing' };
+
+  const source = await readManagedSkillSource(sourceRoot, skill.managedSourceId);
+  if (!source.ok) {
+    if (source.reason === 'blocked_path') return { ok: false, reason: 'blocked_path' };
+    return { ok: false, reason: 'source_missing' };
+  }
+
+  const skillDir = join(root, 'skills', skillId);
+  const skillFile = join(skillDir, 'SKILL.md');
+  try {
+    const [skillsReal, skillReal, current] = await Promise.all([
+      realpath(join(root, 'skills')),
+      realpath(skillDir),
+      readContainedRegularTextFile(skillDir, skillFile),
+    ]);
+    if (!isContainedPath(skillsReal, skillReal)) return { ok: false, reason: 'blocked_path' };
+    if (!current.ok) return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'read_failed' };
+    const baselineContent = await readManagedSkillBaseline(skillDir);
+    return {
+      ok: true,
+      preview: {
+        skill: await toSkillGovernanceDetails(skill, sourceRoot),
+        currentContent: current.content,
+        sourceContent: source.content,
+        ...(baselineContent !== undefined ? { baselineContent } : {}),
+        expectedCurrentSha256: current.sha256,
+        expectedSourceSha256: source.contentSha256,
+        summary: diffSummary(current.content, source.content),
+      },
+    };
+  } catch {
+    return { ok: false, reason: 'read_failed' };
+  }
+}
+
+async function toSkillGovernanceDetails(skill: InstalledSkill, sourceRoot: string): Promise<SkillGovernanceDetails> {
+  const baselineContent = skill.sourceType === 'managed'
+    ? await readManagedSkillBaseline(skill.path)
+    : undefined;
+  let sourceAvailable: boolean | undefined;
+  let sourceChanged: boolean | undefined;
+  if (skill.sourceType === 'managed' && skill.managedSourceId) {
+    const source = await readManagedSkillSource(sourceRoot, skill.managedSourceId);
+    sourceAvailable = source.ok;
+    sourceChanged = source.ok && skill.sourceContentSha256 !== undefined
+      ? source.contentSha256.toLowerCase() !== skill.sourceContentSha256.toLowerCase()
+      : undefined;
+  }
+  return {
+    id: skill.id,
+    name: skill.name,
+    description: skill.description,
+    path: skill.path,
+    declaredTools: skill.declaredTools,
+    sourceType: skill.sourceType,
+    userModified: skill.userModified,
+    validationStatus: skill.validationStatus,
+    enabled: skill.enabled,
+    runtimeStatus: skill.runtimeStatus,
+    validationCodes: skill.validationCodes,
+    validationMessages: skill.validationMessages ?? [],
+    ...(skill.managedSourceId ? { managedSourceId: skill.managedSourceId } : {}),
+    ...(skill.managedUpdateStatus ? { managedUpdateStatus: skill.managedUpdateStatus } : {}),
+    hasManagedBaseline: baselineContent !== undefined,
+    ...(sourceAvailable !== undefined ? { sourceAvailable } : {}),
+    ...(sourceChanged !== undefined ? { sourceChanged } : {}),
+  };
+}
+
+async function writeManagedSkillBaseline(skillDir: string, content: string): Promise<boolean> {
+  try {
+    const metadataDir = join(skillDir, '.maka');
+    await mkdir(metadataDir, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    const baselineDir = join(metadataDir, 'baseline');
+    await mkdir(baselineDir, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+
+    const resolved = await resolveManagedSkillBaselineDir(skillDir);
+    if (!resolved.ok) return false;
+    return writeContainedRegularTextFile(resolved.baselineDir, join(resolved.baselineDir, 'SKILL.md'), content);
+  } catch {
+    return false;
+  }
+}
+
+async function readManagedSkillBaseline(skillDir: string): Promise<string | undefined> {
+  const resolved = await resolveManagedSkillBaselineDir(skillDir);
+  if (!resolved.ok) return undefined;
+  const baselineFile = join(resolved.baselineDir, 'SKILL.md');
+  const baseline = await readContainedRegularTextFile(resolved.baselineDir, baselineFile);
+  return baseline.ok ? baseline.content : undefined;
+}
+
+async function removeManagedSkillBaseline(skillDir: string): Promise<void> {
+  const resolved = await resolveManagedSkillBaselineDir(skillDir);
+  if (!resolved.ok) return;
+  const baselineFile = join(resolved.baselineDir, 'SKILL.md');
+  const [baselineReal, fileStat] = await Promise.all([
+    realpath(resolved.baselineDir),
+    lstat(baselineFile).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }),
+  ]);
+  if (fileStat === null) return;
+  if (!fileStat.isFile() || fileStat.isSymbolicLink()) return;
+  const fileReal = await realpath(baselineFile);
+  if (!isContainedPath(baselineReal, fileReal)) return;
+  await unlink(baselineFile);
+}
+
+async function resolveManagedSkillBaselineDir(skillDir: string): Promise<
+  | { ok: true; baselineDir: string }
+  | { ok: false }
+> {
+  try {
+    const metadataDir = join(skillDir, '.maka');
+    const baselineDir = join(metadataDir, 'baseline');
+    const [skillReal, metadataStat, baselineStat] = await Promise.all([
+      realpath(skillDir),
+      lstat(metadataDir),
+      lstat(baselineDir),
+    ]);
+    if (
+      !metadataStat.isDirectory() ||
+      metadataStat.isSymbolicLink() ||
+      !baselineStat.isDirectory() ||
+      baselineStat.isSymbolicLink()
+    ) {
+      return { ok: false };
+    }
+    const [metadataReal, baselineReal] = await Promise.all([realpath(metadataDir), realpath(baselineDir)]);
+    if (!isContainedPath(skillReal, metadataReal) || !isContainedPath(metadataReal, baselineReal)) return { ok: false };
+    return { ok: true, baselineDir };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function readSkillRuntimeState(root: string): Promise<SkillRuntimeStateReadResult> {
+  const metadataDir = join(root, '.maka');
+  const stateFile = join(metadataDir, 'skills-state.json');
+  try {
+    const rootReal = await realpath(root);
+    const metadataStat = await lstat(metadataDir).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (metadataStat === null) return { ok: true, states: new Map() };
+    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const metadataReal = await realpath(metadataDir);
+    if (!isContainedPath(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
+
+    const stateStat = await lstat(stateFile).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (stateStat === null) return { ok: true, states: new Map() };
+    if (!stateStat.isFile() || stateStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const stateReal = await realpath(stateFile);
+    if (!isContainedPath(metadataReal, stateReal)) return { ok: false, reason: 'blocked_path' };
+
+    const parsed = JSON.parse(await readFile(stateFile, 'utf8')) as unknown;
+    if (!isRecord(parsed) || parsed.schemaVersion !== 1 || !isRecord(parsed.skills)) {
+      return { ok: false, reason: 'invalid_json' };
+    }
+    const states = new Map<string, boolean>();
+    for (const [id, value] of Object.entries(parsed.skills)) {
+      if (!isSafeSkillId(id) || !isRecord(value) || typeof value.enabled !== 'boolean') {
+        return { ok: false, reason: 'invalid_json' };
+      }
+      states.set(id, value.enabled);
+    }
+    return { ok: true, states };
+  } catch (error) {
+    if (error instanceof SyntaxError) return { ok: false, reason: 'invalid_json' };
+    return { ok: false, reason: 'read_failed' };
+  }
+}
+
+async function resolveSkillRuntimeStateDirForWrite(root: string): Promise<
+  | { ok: true; metadataDir: string }
+  | { ok: false; reason: 'blocked_path' | 'write_failed' }
+> {
+  const metadataDir = join(root, '.maka');
+  try {
+    const rootReal = await realpath(root);
+    await mkdir(metadataDir, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'EEXIST') throw error;
+    });
+    const metadataStat = await lstat(metadataDir);
+    if (!metadataStat.isDirectory() || metadataStat.isSymbolicLink()) return { ok: false, reason: 'blocked_path' };
+    const metadataReal = await realpath(metadataDir);
+    if (!isContainedPath(rootReal, metadataReal)) return { ok: false, reason: 'blocked_path' };
+    return { ok: true, metadataDir };
+  } catch {
+    return { ok: false, reason: 'write_failed' };
+  }
+}
+
+async function writeSkillRuntimeState(root: string, states: Map<string, boolean>): Promise<
+  | { ok: true }
+  | { ok: false; reason: 'blocked_path' | 'write_failed' }
+> {
+  const resolved = await resolveSkillRuntimeStateDirForWrite(root);
+  if (!resolved.ok) return resolved;
+  const sortedStates = [...states.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const file: SkillStateFile = {
+    schemaVersion: 1,
+    skills: Object.fromEntries(sortedStates.map(([id, enabled]) => [id, { enabled, updatedAt: new Date().toISOString() }])),
+  };
+  const ok = await writeContainedRegularTextFile(
+    resolved.metadataDir,
+    join(resolved.metadataDir, 'skills-state.json'),
+    `${JSON.stringify(file, null, 2)}\n`,
+  );
+  return ok ? { ok: true } : { ok: false, reason: 'write_failed' };
+}
+
+export async function setSkillEnabled(root: string, skillId: string, enabled: boolean): Promise<SetSkillEnabledResult> {
+  if (!isSafeSkillId(skillId)) return { ok: false, reason: 'not_found' };
+  const openPath = await resolveSkillOpenPath(root, skillId, 'file');
+  if (!openPath.ok) {
+    return { ok: false, reason: openPath.reason === 'blocked_path' ? 'blocked_path' : 'not_found' };
+  }
+
+  const current = await readSkillRuntimeState(root);
+  if (!current.ok) {
+    return { ok: false, reason: current.reason === 'blocked_path' ? 'blocked_path' : 'state_error' };
+  }
+  current.states.set(skillId, enabled);
+  const written = await writeSkillRuntimeState(root, current.states);
+  if (!written.ok) return written;
+
+  const refreshed = await listSkillEntries(root);
+  const skill = refreshed.find((candidate) => candidate.id === skillId);
+  if (!skill) return { ok: false, reason: 'not_found' };
+  return { ok: true, skill };
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^sha256:[a-f0-9]{64}$/i.test(value);
+}
+
+function diffSummary(currentContent: string, sourceContent: string): ManagedSkillUpdatePreview['summary'] {
+  const currentLines = splitLines(currentContent);
+  const sourceLines = splitLines(sourceContent);
+  const max = Math.max(currentLines.length, sourceLines.length);
+  let changedLineCount = 0;
+  for (let index = 0; index < max; index += 1) {
+    if (currentLines[index] !== sourceLines[index]) changedLineCount += 1;
+  }
+  return {
+    currentLineCount: currentLines.length,
+    sourceLineCount: sourceLines.length,
+    changedLineCount,
+  };
+}
+
+function splitLines(content: string): string[] {
+  if (content.length === 0) return [];
+  return content.replace(/\r\n/g, '\n').split('\n');
+}
+
+function managedSkillLock(
+  id: string,
+  contentSha256: string,
+  sourceContentSha256: string,
+  sourceId = id,
+): SkillLockFile {
+  return {
+    schemaVersion: 1,
+    id,
+    sourceType: 'managed',
+    sourceName: 'local-library',
+    sourceVersion: '1',
+    contentSha256,
+    installedAt: new Date().toISOString(),
+    sourceId,
+    sourceContentSha256,
+  };
 }
 
 export async function resolveSkillOpenPath(
@@ -376,7 +1032,7 @@ export async function resolveSkillOpenPath(
 }
 
 export async function buildSkillsPromptFragment(root: string): Promise<string | undefined> {
-  const skills = await readInstalledSkillDefinitions(root);
+  const skills = (await readInstalledSkillDefinitions(root)).filter((skill) => skill.enabled);
   if (skills.length === 0) return undefined;
 
   // External-reference-style lazy skill loading: keep the always-on system prompt to a
@@ -416,7 +1072,8 @@ export async function buildSkillsPromptFragment(root: string): Promise<string | 
 export async function loadSkillInstructions(root: string, name: string): Promise<LoadSkillInstructionsResult> {
   const raw = typeof name === 'string' ? name.trim() : '';
   const skills = await readInstalledSkillDefinitions(root);
-  const availableSkills = skills.map((skill) => ({
+  const enabledSkills = skills.filter((skill) => skill.enabled);
+  const availableSkills = enabledSkills.map((skill) => ({
     id: skill.id,
     name: skill.name,
     description: skill.description,
@@ -426,26 +1083,35 @@ export async function loadSkillInstructions(root: string, name: string): Promise
   }
 
   const normalized = raw.toLowerCase();
-  const skill = skills.find((candidate) =>
+  const skill = enabledSkills.find((candidate) =>
     candidate.id.toLowerCase() === normalized ||
     candidate.name.toLowerCase() === normalized
   );
-  if (!skill) return { ok: false, reason: 'not_found', availableSkills };
+  if (skill) {
+    const cleaned = cleanPromptText(skill.content).trim();
+    const instructions = truncateCodepoints(cleaned || '(empty)', MAX_SKILL_TOOL_BODY_CHARS);
+    return {
+      ok: true,
+      skill: {
+        id: skill.id,
+        name: skill.name,
+        description: skill.description,
+        declaredTools: skill.declaredTools,
+        relativePath: `skills/${skill.id}/SKILL.md`,
+        instructions,
+        truncated: Array.from(cleaned || '(empty)').length > MAX_SKILL_TOOL_BODY_CHARS,
+      },
+    };
+  }
 
-  const cleaned = cleanPromptText(skill.content).trim();
-  const instructions = truncateCodepoints(cleaned || '(empty)', MAX_SKILL_TOOL_BODY_CHARS);
-  return {
-    ok: true,
-    skill: {
-      id: skill.id,
-      name: skill.name,
-      description: skill.description,
-      declaredTools: skill.declaredTools,
-      relativePath: `skills/${skill.id}/SKILL.md`,
-      instructions,
-      truncated: Array.from(cleaned || '(empty)').length > MAX_SKILL_TOOL_BODY_CHARS,
-    },
-  };
+  const disabledSkill = skills.find((candidate) =>
+    !candidate.enabled &&
+    (candidate.id.toLowerCase() === normalized ||
+      candidate.name.toLowerCase() === normalized)
+  );
+  if (disabledSkill) return { ok: false, reason: 'disabled', availableSkills };
+
+  return { ok: false, reason: 'not_found', availableSkills };
 }
 
 export function buildSkillAgentTool(root: string): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
@@ -462,10 +1128,15 @@ export function buildSkillAgentTool(root: string): MakaTool<{ name: string }, Lo
   };
 }
 
-async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinition[]> {
+async function readInstalledSkillDefinitions(root: string, options: SkillReadOptions = {}): Promise<SkillDefinition[]> {
   const dir = join(root, 'skills');
   let entries: import('node:fs').Dirent[];
+  const runtimeState = await readSkillRuntimeState(root);
   try {
+    const [rootReal, dirStat] = await Promise.all([realpath(root), lstat(dir)]);
+    if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return [];
+    const dirReal = await realpath(dir);
+    if (!isContainedPath(rootReal, dirReal)) return [];
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
     return [];
@@ -477,10 +1148,15 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
     const skillPath = join(dir, entry.name);
     const skillFile = join(skillPath, 'SKILL.md');
     try {
-      const bytes = await readFile(skillFile);
+      const read = await readContainedRegularFile(skillPath, skillFile);
+      if (!read.ok) continue;
+      const bytes = read.bytes;
       const text = bytes.toString('utf8');
       const { name, description, allowedTools } = parseSkillFrontMatter(text);
-      const status = await readSkillLockStatus(skillPath, entry.name, `sha256:${sha256Buffer(bytes)}`);
+      const status = await readSkillLockStatus(skillPath, entry.name, `sha256:${sha256Buffer(bytes)}`, options);
+      const runtimeStatus = runtimeState.ok
+        ? runtimeState.states.get(entry.name) === false ? 'disabled' : 'enabled'
+        : 'state_error';
       out.push({
         id: entry.name,
         name: name ?? entry.name,
@@ -488,6 +1164,8 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
         path: skillPath,
         declaredTools: allowedTools,
         content: stripFrontMatter(text).trim(),
+        enabled: runtimeStatus === 'enabled',
+        runtimeStatus,
         ...status,
       });
     } catch {
@@ -498,7 +1176,7 @@ async function readInstalledSkillDefinitions(root: string): Promise<SkillDefinit
   return out;
 }
 
-async function readSkillLockStatus(skillPath: string, id: string, currentHash: string): Promise<Pick<
+async function readSkillLockStatus(skillPath: string, id: string, currentHash: string, options: SkillReadOptions = {}): Promise<Pick<
   InstalledSkill,
   | 'sourceType'
   | 'sourceName'
@@ -509,6 +1187,9 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
   | 'validationStatus'
   | 'validationCodes'
   | 'validationMessages'
+  | 'managedSourceId'
+  | 'managedUpdateStatus'
+  | 'sourceContentSha256'
 >> {
   const lockPath = join(skillPath, 'skill.lock.json');
   let lockStat: Awaited<ReturnType<typeof lstat>>;
@@ -520,6 +1201,7 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
       userModified: false,
       validationStatus: 'missing_lock',
       validationCodes: ['missing_lock'],
+      managedUpdateStatus: 'not_managed',
     };
   }
 
@@ -543,11 +1225,17 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
   if (typeof parsed.contentSha256 !== 'string' || !/^sha256:[a-f0-9]{64}$/i.test(parsed.contentSha256)) {
     return metadataError(['invalid_hash'], 'Skill lock hash is invalid.');
   }
-  if (!isTrustedSkillLockSource(parsed, id)) {
+  if (parsed.sourceType === 'bundled' && !isTrustedBundledSkillLockSource(parsed, id)) {
     return metadataError(['unsupported_schema'], 'Skill lock source is not trusted in this Maka version.');
   }
 
   const userModified = parsed.contentSha256.toLowerCase() !== currentHash.toLowerCase();
+  const managed = parsed.sourceType === 'managed'
+    ? await managedStatusForLock(parsed, userModified, options.managedSourceRoot)
+    : { managedUpdateStatus: 'not_managed' as const };
+  if (managed.managedUpdateStatus === 'metadata_error') {
+    return metadataError(['unsupported_schema'], 'Managed skill lock source metadata is invalid.');
+  }
   return {
     sourceType: parsed.sourceType,
     ...(typeof parsed.sourceName === 'string' && parsed.sourceName ? { sourceName: parsed.sourceName } : {}),
@@ -557,10 +1245,50 @@ async function readSkillLockStatus(skillPath: string, id: string, currentHash: s
     userModified,
     validationStatus: userModified ? 'modified' : 'ok',
     validationCodes: userModified ? ['modified'] : [],
+    ...managed,
   };
 }
 
-function isTrustedSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
+async function managedStatusForLock(
+  lock: Record<string, unknown>,
+  userModified: boolean,
+  managedSourceRoot = resolveManagedSkillSourcesRoot(),
+): Promise<Pick<InstalledSkill, 'managedSourceId' | 'managedUpdateStatus' | 'sourceContentSha256'>> {
+  if (lock.sourceName !== 'local-library' || lock.sourceVersion !== '1') {
+    return { managedUpdateStatus: 'metadata_error' };
+  }
+  const sourceId = typeof lock.sourceId === 'string' && isSafeSkillId(lock.sourceId) ? lock.sourceId : undefined;
+  const sourceContentSha256 = typeof lock.sourceContentSha256 === 'string' && /^sha256:[a-f0-9]{64}$/i.test(lock.sourceContentSha256)
+    ? lock.sourceContentSha256
+    : undefined;
+  if (!sourceId || !sourceContentSha256) {
+    return {
+      ...(sourceId ? { managedSourceId: sourceId } : {}),
+      managedUpdateStatus: 'metadata_error',
+      ...(sourceContentSha256 ? { sourceContentSha256 } : {}),
+    };
+  }
+  if (
+    typeof lock.contentSha256 !== 'string' ||
+    lock.contentSha256.toLowerCase() !== sourceContentSha256.toLowerCase()
+  ) {
+    return { managedSourceId: sourceId, managedUpdateStatus: 'metadata_error', sourceContentSha256 };
+  }
+  if (userModified) {
+    return { managedSourceId: sourceId, managedUpdateStatus: 'local_modified', sourceContentSha256 };
+  }
+  const source = await readManagedSkillSource(managedSourceRoot, sourceId);
+  if (!source.ok) {
+    return { managedSourceId: sourceId, managedUpdateStatus: 'source_missing', sourceContentSha256 };
+  }
+  return {
+    managedSourceId: sourceId,
+    managedUpdateStatus: source.contentSha256 === sourceContentSha256 ? 'up_to_date' : 'update_available',
+    sourceContentSha256,
+  };
+}
+
+function isTrustedBundledSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
   const expectedHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id);
   return lock.sourceType === 'bundled' &&
     BUNDLED_OFFICE_SKILL_IDS.has(id) &&
@@ -573,7 +1301,7 @@ function isTrustedSkillLockSource(lock: Record<string, unknown>, id: string): bo
 
 function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<
   InstalledSkill,
-  'sourceType' | 'userModified' | 'validationStatus' | 'validationCodes' | 'validationMessages'
+  'sourceType' | 'userModified' | 'validationStatus' | 'validationCodes' | 'validationMessages' | 'managedUpdateStatus'
 > {
   return {
     sourceType: 'unknown',
@@ -581,6 +1309,7 @@ function metadataError(validationCodes: SkillValidationCode[], message: string):
     validationStatus: 'metadata_error',
     validationCodes,
     validationMessages: [message],
+    managedUpdateStatus: 'metadata_error',
   };
 }
 

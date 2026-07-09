@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { PersonalizationSettingsPage } from './appearance-settings-page';
 import type {
   AppSettings,
   ChatDefaultPermissionMode,
@@ -11,10 +12,10 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import {
   Button,
   Input,
-  Menu,
-  MenuTrigger,
-  PERMISSION_MODE_META,
-  PermissionModeMenuPopup,
+  NumberField,
+  NumberFieldInput,
+  ModelPicker,
+  PermissionModeSelect,
   SettingsSelect,
   SettingsSwitch as Switch,
   modelChoiceValue,
@@ -22,7 +23,6 @@ import {
   parseModelChoiceValue,
   useToast,
 } from '@maka/ui';
-import { ChevronDown } from '@maka/ui/icons';
 import { ProviderLogo } from './ProvidersPanel';
 import { buildCatalogChatModelChoices } from '../model-catalog-choices';
 import { PasswordInput } from './password-input';
@@ -39,6 +39,10 @@ export function GeneralSettingsPage(props: {
   const toast = useToast();
   return (
     <div className="settingsStructuredPage">
+      {/* Designer audit P2-13: identity fields (显示名称/界面语言/语气偏好)
+          moved here from the 外观 page — they configure who you are to the
+          app, not how the app looks. The component keeps its save flow. */}
+      <PersonalizationSettingsPage settings={props.settings} onUpdate={props.onUpdate} />
       <SettingsRows>
         <div className="settingsFormRow">
           <div>
@@ -51,6 +55,21 @@ export function GeneralSettingsPage(props: {
             onChange={(incognitoActive) => {
               props.onUpdate({ privacy: { incognitoActive } }).catch((error: unknown) => {
                 toast.error('隐身模式切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
+              });
+            }}
+          />
+        </div>
+        <div className="settingsFormRow">
+          <div>
+            <strong>完成时发送系统通知</strong>
+            <small>当窗口不在前台时，一轮回答生成完成或出错后发送桌面通知；窗口聚焦时不打扰。需系统已授予通知权限。</small>
+          </div>
+          <Switch
+            ariaLabel="完成时发送系统通知"
+            checked={props.settings.notifications.runComplete}
+            onChange={(runComplete) => {
+              props.onUpdate({ notifications: { runComplete } }).catch((error: unknown) => {
+                toast.error('通知设置切换失败', generalizedErrorMessageChinese(error, '设置未生效，请稍后重试'));
               });
             }}
           />
@@ -86,10 +105,9 @@ export function GeneralSettingsPage(props: {
  * a second picker right below 默认模型, backed by
  * `settings.chatDefaults.permissionMode` (persisted via the generic
  * `settings.update` patch, unlike the model picker's dedicated
- * `connections.setDefaultModel` IPC). Reuses `PERMISSION_MODE_META` from
- * `@maka/ui` so the labels/hints can never drift from the composer picker
- * (see PR-DEFAULT-PERMISSION-MODE-1 below for why it's a `<Menu>`, not a
- * `<SettingsSelect>`).
+ * `connections.setDefaultModel` IPC). Renders the shared
+ * `PermissionModeSelect` (Base UI Select) so labels, hints, and markup
+ * can't drift from the composer picker.
  */
 function GeneralDefaultsCard(props: {
   connections: readonly LlmConnection[];
@@ -115,29 +133,18 @@ function GeneralDefaultsCard(props: {
   }, []);
 
   const modelChoices = useMemo(() => buildCatalogChatModelChoices(props.connections), [props.connections]);
-  const optionGroups = useMemo(() => {
-    return modelMenuGroups(modelChoices).map((group) => ({
-      label: group.heading,
-      icon: <ProviderLogo type={group.providerType} compact />,
-      options: group.choices.map((choice) => [
-        modelChoiceValue(choice.connectionSlug, choice.model),
-        choice.label,
-      ] as const),
-    }));
-  }, [modelChoices]);
-  const options = useMemo<ReadonlyArray<readonly [string, string]>>(() => {
-    return [
-      ['', '未设置'],
-      ...optionGroups.flatMap((group) => group.options),
-    ];
-  }, [optionGroups]);
+  const modelGroups = useMemo(() => modelMenuGroups(modelChoices), [modelChoices]);
   const selectedValue = useMemo(() => {
     if (!props.defaultSlug) return '';
     const connection = props.connections.find((candidate) => candidate.slug === props.defaultSlug);
     if (!connection?.defaultModel) return '';
     const value = modelChoiceValue(connection.slug, connection.defaultModel);
-    return options.some(([candidate]) => candidate === value) ? value : '';
-  }, [options, props.connections, props.defaultSlug]);
+    return modelChoices.some((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === value) ? value : '';
+  }, [modelChoices, props.connections, props.defaultSlug]);
+  const selectedLabel = useMemo(() => {
+    if (!selectedValue) return '未设置';
+    return modelChoices.find((choice) => modelChoiceValue(choice.connectionSlug, choice.model) === selectedValue)?.label ?? '未设置';
+  }, [modelChoices, selectedValue]);
 
   async function persistDefault(nextValue: string) {
     if (savingRef.current) return;
@@ -188,18 +195,25 @@ function GeneralDefaultsCard(props: {
       <div className="settingsRow" data-control-width="select">
         <div>
           <strong>默认模型</strong>
-          <small>新对话默认使用的具体模型；按连接分组，不显示 OAuth 账号邮箱。</small>
+          <small>新对话默认使用的模型。</small>
         </div>
-        <SettingsSelect
+        {/* Shared searchable picker with the composer's model switcher
+            (ModelPicker in @maka/ui) so the grouped list, provider marks,
+            and search behavior can't drift between the two surfaces. */}
+        <ModelPicker
+          groups={modelGroups}
           value={selectedValue}
+          pinnedItem={{ value: '', label: '未设置' }}
+          renderProviderMark={(type) => <ProviderLogo type={type} compact />}
           ariaLabel="默认模型"
-          options={options}
-          optionGroups={optionGroups}
           disabled={saving}
-          onChange={(value) => {
+          triggerClassName="settingsSelectTrigger max-w-[320px] w-full"
+          onValueChange={(value) => {
             void persistDefault(value);
           }}
-        />
+        >
+          <span className="settingsSelectMenuOption">{selectedLabel}</span>
+        </ModelPicker>
       </div>
       <div className="settingsRow" data-control-width="select">
         <div>
@@ -208,34 +222,19 @@ function GeneralDefaultsCard(props: {
               hint — the shared popup already shows every option's hint). */}
           <small>新对话默认使用的权限模式；可在对话内随时切换，仅影响新建对话的初始值。</small>
         </div>
-        {/* Shared popup with the composer's picker (PermissionModeMenuPopup)
-            so every option shows its label + hint before picking, and the
-            two surfaces can't drift. Only the trigger differs: a
-            select-style outline button here vs. the composer's tinted chip. */}
-        <Menu>
-          <MenuTrigger
-            render={(triggerProps) => (
-              <Button
-                {...triggerProps}
-                type="button"
-                variant="outline"
-                className="settingsSelectTrigger max-w-[320px] w-full justify-between"
-                disabled={savingPermissionMode}
-                aria-label="默认权限模式"
-              >
-                <span>{PERMISSION_MODE_META[props.permissionMode].label}</span>
-                <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
-              </Button>
-            )}
-          />
-          <PermissionModeMenuPopup
-            activeMode={props.permissionMode}
-            onSelect={(mode) => {
-              void persistPermissionMode(mode);
-            }}
-            align="end"
-          />
-        </Menu>
+        {/* Shared Base UI Select picker with the composer (PermissionModeSelect)
+            — same component, so option markup can't drift between the two
+            surfaces. Every option shows its label + hint before picking. */}
+        <PermissionModeSelect
+          activeMode={props.permissionMode}
+          onSelect={(mode) => {
+            void persistPermissionMode(mode);
+          }}
+          align="end"
+          disabled={savingPermissionMode}
+          ariaLabel="默认权限模式"
+          className="settingsSelectTrigger max-w-[320px] w-full justify-between"
+        />
       </div>
     </SettingsRows>
   );
@@ -358,7 +357,9 @@ function NetworkProxySection(props: {
             </label>
             <label>
               <span>端口</span>
-              <Input value={String(proxyDraft.port || '')} onChange={(event) => void updateProxy({ port: Number(event.currentTarget.value) || 0 })} placeholder="7890" aria-label="代理端口" />
+              <NumberField value={proxyDraft.port || null} format={{ useGrouping: false }} onValueChange={(v) => void updateProxy({ port: v ?? 0 })}>
+                <NumberFieldInput placeholder="7890" aria-label="代理端口" />
+              </NumberField>
             </label>
           </div>
 

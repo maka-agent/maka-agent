@@ -63,12 +63,11 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
   });
 
   it('does not reintroduce decorative preview-card mount animation', async () => {
-    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    assert.ok(!tokens.includes('@keyframes maka-tool-card-enter'));
-    const toolOutput = stripCssComments(
-      await readFile(resolve(RENDERER_STYLES_DIR, 'tool-output.css'), 'utf8'),
-    );
-    assert.ok(!toolOutput.includes('@keyframes maka-tool-card-enter'));
+    // tool-output.css was deleted (#546 PR4 — its message-row residue moved
+    // to chat-message.css), so scan the whole renderer tree for the retired
+    // keyframe instead of a file that no longer exists.
+    const css = stripCssComments(await readAllRendererCss());
+    assert.ok(!css.includes('@keyframes maka-tool-card-enter'), 'preview-card mount animation must stay retired (#406 gap 3)');
   });
 
   it('pins the preview escape literals + guards against scale drift in chat.tsx', async () => {
@@ -102,16 +101,18 @@ describe('chat preview-surface migration contract (#332 PR4)', () => {
       'overlay base + card kind must both use arbitrary white-space so the kind wins by tailwind-merge',
     );
 
-    // Anti-drift: the literalize vehicle stays arbitrary-value (immune to a later
-    // scale/token re-tuning silently shifting pixels). Pin distinctive literals and
-    // ban the semantic-scale forms they would be swapped for.
-    for (const literal of ['rounded-[var(--radius-surface)]', 'text-[11.5px]', 'max-h-[180px]']) {
+    // Anti-drift: the literalize vehicle stays arbitrary-value for radius /
+    // geometry (immune to a later scale re-tuning silently shifting pixels).
+    // Typography is exempt — #546 PR0 converged text-* / leading-* onto the
+    // token scale (text-xs/sm), so typography literals are no longer pinned
+    // and text-xs/sm are allowed here; only radius scale drift is still banned.
+    for (const literal of ['rounded-[var(--radius-surface)]', 'max-h-[180px]']) {
       assert.ok(block.includes(literal), `previewVariants must keep the literal "${literal}"`);
     }
-    for (const scale of ['rounded-lg', 'rounded-md', 'text-sm', 'text-xs']) {
+    for (const scale of ['rounded-lg', 'rounded-md']) {
       assert.ok(
         !block.includes(scale),
-        `previewVariants must stay literal, not adopt the semantic-scale "${scale}"`,
+        `previewVariants must stay literal on radius, not adopt the semantic-scale "${scale}"`,
       );
     }
   });

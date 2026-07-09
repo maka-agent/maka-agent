@@ -88,12 +88,17 @@ export function createAppShellSessionUiStateController(
 ) {
   let currentState = initialState;
   const streamingBySessionRef = { current: currentState.streamingBySession };
+  // Live thinking has no per-turn identity in state (it's a plain string buffer),
+  // so a deferred #642 textless refresh-before-clear needs a synchronous snapshot
+  // of it at schedule time to avoid wiping a newer turn's reasoning (review P2-A).
+  const thinkingBySessionRef = { current: currentState.thinkingBySession };
   const sessionEventHealthBySessionRef = { current: currentState.sessionEventHealthBySession };
 
   function replaceState(next: AppShellSessionUiState): void {
     if (next === currentState) return;
     currentState = next;
     streamingBySessionRef.current = next.streamingBySession;
+    thinkingBySessionRef.current = next.thinkingBySession;
     sessionEventHealthBySessionRef.current = next.sessionEventHealthBySession;
     onChange(next);
   }
@@ -115,6 +120,7 @@ export function createAppShellSessionUiStateController(
   return {
     getState: () => currentState,
     streamingBySessionRef,
+    thinkingBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession: createMapSetter('messageLoadErrorBySession'),
     setMessageRetryPendingBySession: createMapSetter('messageRetryPendingBySession'),
@@ -149,6 +155,7 @@ export function useAppShellSessionUiState() {
   return {
     state: controller.getState(),
     streamingBySessionRef: controller.streamingBySessionRef,
+    thinkingBySessionRef: controller.thinkingBySessionRef,
     sessionEventHealthBySessionRef: controller.sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession: controller.setMessageLoadErrorBySession,
     setMessageRetryPendingBySession: controller.setMessageRetryPendingBySession,

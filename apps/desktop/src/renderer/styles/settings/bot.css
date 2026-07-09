@@ -186,37 +186,17 @@
 .settingsBotConfigDocLink:hover {
     text-decoration: underline;
   }
-.settingsBotStatusPill {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-1-5);
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--foreground) 5%, transparent);
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: var(--tracking-normal);
-  }
-.settingsBotStatusPillDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-  }
-.settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--status-running); }
-.settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
-.settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
-.settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
-.settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
-.settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
-.settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
+/* .settingsBotStatusPill is now the Chip primitive with dot (squared status
+   label + leading tone dot). tone→alpha and the 6px currentColor dot come from
+   chip.tsx; the "● 已连接" affordance is preserved by the Chip `dot` prop. */
 .settingsHelpText {
     margin: 0;
   }
 .settingsBotStatusGrid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* Detail audit: fixed 4 columns orphaned the 5th status card onto its
+       own row. Auto-fit keeps one balanced row and degrades gracefully. */
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: var(--space-2);
     margin: 0;
   }
@@ -359,7 +339,6 @@
   display: grid;
   align-content: center;
   gap: var(--space-0-5);
-  border-radius: var(--radius-surface);
   background: var(--foreground-5);
   padding: var(--space-1-5) var(--space-2-5);
 }
@@ -374,50 +353,9 @@
   font-size: var(--font-size-ui);
 }
 
-.settingsStatsTable {
-  width: 100%;
-  border-collapse: collapse;
-  overflow: hidden;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
-  font-size: var(--font-size-caption);
-}
-
-.settingsStatsTable th,
-.settingsStatsTable td {
-  font-variant-numeric: tabular-nums;
-  border-bottom: var(--border-width-hairline) solid var(--border);
-  color: var(--foreground-secondary);
-  padding: var(--space-1) var(--space-2);
-  text-align: left;
-}
-
-.settingsStatsTable th {
-  color: var(--foreground-secondary);
-  font-weight: var(--font-weight-semibold);
-}
-
-.settingsCloseButton {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-  line-height: var(--leading-none);
-}
-
-.settingsCloseButton svg {
-  width: 14px;
-  height: 14px;
-}
-
-.settingsCloseButton:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
+/* #520 PR9: .settingsStatsTable retired onto the local native
+   SimpleStatsTable in usage-settings-page.tsx (inline Tailwind classes,
+   no public primitive — a single HTML <table> consumer did not justify one). */
 
 .settingsRow {
   display: grid;
@@ -432,16 +370,19 @@
   transition: background var(--duration-base) var(--ease-out-strong);
 }
 
-.settingsBadge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 18px;
-  border-radius: var(--radius-control);
-  background: var(--foreground-5);
-  color: var(--foreground-secondary);
-  padding: 0 var(--space-1-5);
-  font-size: var(--font-size-caption);
+/* Detail audit + alignment-governance round: bare Switch controls sat at
+   the value column's START (x≈mid-page) while inputs/selects hug the right
+   rail. The original fix tag-qualified the selector with a button prefix, but
+   Base UI renders the Switch root as a SPAN — the selector matched nothing
+   and rotted silently. Tag-AGNOSTIC by rule: role is the contract, the
+   rendered tag never is. */
+.settingsRow > [role="switch"] {
+  justify-self: end;
 }
+
+/* #520 PR9: .settingsBadge retired onto the Chip primitive variant="neutral"
+   (packages/ui/src/primitives/chip.tsx, size="sm"). Generic settings labels
+   stay squared (radius-control), not pill Badge. */
 
 /* PR-SETTINGS-GROUPED-CARD-0 (WAWQAQ msg `1abecd66`): same grouped-
    card pattern as `.settingsStructuredPage` — outer card + hairline
@@ -450,7 +391,6 @@
   display: grid;
   gap: 0;
   border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.08);
-  border-radius: var(--radius-surface);
   overflow: hidden;
 }
 

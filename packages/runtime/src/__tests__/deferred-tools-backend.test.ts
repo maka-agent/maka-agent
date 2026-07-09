@@ -7,7 +7,8 @@ import type { LlmConnection, SessionHeader } from '@maka/core';
 import type { LlmCallRecord } from '@maka/core/usage-stats/types';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 
-import { AiSdkBackend, type MakaTool } from '../ai-sdk-backend.js';
+import { AiSdkBackend } from '../ai-sdk-backend.js';
+import type { MakaTool } from '../tool-runtime.js';
 import { PermissionEngine } from '../permission-engine.js';
 import {
   ToolAvailabilityRuntime,

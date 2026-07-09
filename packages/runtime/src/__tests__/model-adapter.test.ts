@@ -17,6 +17,7 @@ describe('ModelAdapter stream and error normalization', () => {
     const callbacks = {
       text: '',
       thinking: '',
+      signature: undefined as string | undefined,
       onText(text: string) {
         this.text += text;
       },
@@ -26,8 +27,8 @@ describe('ModelAdapter stream and error normalization', () => {
       onThinking(text: string) {
         this.thinking += text;
       },
-      onThinkingComplete(text: string) {
-        this.thinking = text;
+      onThinkingSignature(signature: string) {
+        this.signature = signature;
       },
     };
     const push = queue.push.bind(queue);
@@ -73,6 +74,97 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(error?.reason, 'rate_limit');
     assert.equal(error?.code, '429');
     assert.equal(error?.message, 'Rate limit exceeded');
+  });
+
+  test('treats AI SDK v6 step boundaries (start-step / finish-step) as no-ops', () => {
+    const events: SessionEvent[] = [];
+    const queue = new AsyncEventQueue<SessionEvent>();
+    const adapter = newAdapter();
+    const callbacks = {
+      textCalls: 0,
+      thinkingCalls: 0,
+      signatureCalls: 0,
+      onText() { this.textCalls += 1; },
+      onTextComplete() {},
+      onThinking() { this.thinkingCalls += 1; },
+      onThinkingSignature() { this.signatureCalls += 1; },
+    };
+    const push = queue.push.bind(queue);
+    queue.push = (event: SessionEvent) => {
+      events.push(event);
+      push(event);
+    };
+
+    // The backend owns step accounting (count + per-step AssistantMessage flush
+    // + messageId rotation), so the adapter must not emit events or touch the
+    // text/thinking callbacks for step-boundary chunks.
+    const chunks: AiSdkStreamChunk[] = [
+      { type: 'start-step' } as AiSdkStreamChunk,
+      { type: 'text-delta', text: 'one' },
+      { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } } as AiSdkStreamChunk,
+      { type: 'start-step' } as AiSdkStreamChunk,
+      { type: 'text-delta', text: 'two' },
+      { type: 'finish-step', finishReason: { unified: 'stop', raw: 'stop' } } as AiSdkStreamChunk,
+    ];
+    for (const chunk of chunks) {
+      adapter.handleStreamChunk(chunk, 'turn-1', 'assistant-1', queue, callbacks);
+    }
+
+    // Only the two text deltas produce events / callbacks; boundaries are inert.
+    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'text_delta']);
+    assert.equal(callbacks.textCalls, 2);
+    assert.equal(callbacks.thinkingCalls, 0);
+    assert.equal(callbacks.signatureCalls, 0);
+  });
+
+  test('captures the Anthropic reasoning signature without emitting an empty thinking delta', () => {
+    const events: SessionEvent[] = [];
+    const queue = new AsyncEventQueue<SessionEvent>();
+    const adapter = newAdapter();
+    const callbacks = {
+      thinking: '',
+      signature: undefined as string | undefined,
+      onText() {},
+      onTextComplete() {},
+      onThinking(text: string) {
+        this.thinking += text;
+      },
+      onThinkingSignature(signature: string) {
+        this.signature = signature;
+      },
+    };
+    const push = queue.push.bind(queue);
+    queue.push = (event: SessionEvent) => {
+      events.push(event);
+      push(event);
+    };
+
+    // Mirrors the @ai-sdk/anthropic stream shape: reasoning text deltas, then a
+    // standalone signature-only delta with empty text, then reasoning-end.
+    const chunks: AiSdkStreamChunk[] = [
+      { type: 'reasoning-start' } as AiSdkStreamChunk,
+      { type: 'reasoning-delta', delta: 'weigh ' },
+      { type: 'reasoning-delta', delta: 'options' },
+      { type: 'reasoning-delta', delta: '', providerMetadata: { anthropic: { signature: 'sig-xyz' } } },
+      { type: 'reasoning-end' } as AiSdkStreamChunk,
+    ];
+    for (const chunk of chunks) {
+      adapter.handleStreamChunk(chunk, 'turn-1', 'assistant-1', queue, callbacks);
+    }
+
+    assert.equal(callbacks.thinking, 'weigh options');
+    assert.equal(callbacks.signature, 'sig-xyz');
+    // The empty signature-carrier delta must not become a thinking_delta event.
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['thinking_delta', 'thinking_delta'],
+    );
+    assert.deepEqual(
+      events
+        .filter((event) => event.type === 'thinking_delta')
+        .map((event) => event.text),
+      ['weigh ', 'options'],
+    );
   });
 
   test('classifies provider errors and maps finish reasons through adapter-owned helpers', () => {

@@ -398,15 +398,16 @@ Fixture scenario: `turn-narrative`.
 - The user message, the tool activity panel, and the assistant
   answer are visually grouped as **one turn block** (`<section
   class="maka-turn">`), not three free-floating items.
-- Below the user message, a summary chip strip shows the model id
-  (e.g. `claude-sonnet-4-5`), tool count (`1 个工具`), duration
-  (`X.X s`), and tokens (`N → N tok`).
+- Turn meta (model id e.g. `claude-sonnet-4-5`, duration `X.X s`, cost
+  `$X.XXXX`) lives in the footer's info-action tooltip, shown on hover
+  (#546 removed the top summary chip strip).
 - If the model supplied thinking, a collapsed `<details>` block
   *"查看思考过程 — 模型推理草稿，不是最终答案"* appears above the
   assistant answer; expanding it shows the reasoning with its own
   "复制思考过程" button.
-- For an in-progress turn (user sent, assistant hasn't landed),
-  the duration chip reads *"进行中"*, not a ticking ms count.
+- For an in-progress turn (user sent, assistant hasn't landed), no
+  duration is shown — the footer info tooltip omits the duration line
+  until the assistant turn lands.
 
 **Fail signals.**
 - Tool activity at the very bottom of the chat instead of inside its
@@ -797,14 +798,12 @@ Repeat with `turn-control-branch-visible` and `turn-control-branch-orphan`.
   inline marker "(已中断)" beside the assistant text; partial output is
   preserved (the user can still read what was generated before abort).
 - **S3 — lineage badges scroll.**
-  - *Forward (descendant top):* on `turn-retry-new` the badge reads
-    "重试自 turn turn-ret" and clicking it scrolls `turn-retry-origin`
+  - *Forward (descendant top):* on `turn-regen-new` the badge reads
+    "重新生成自 turn turn-regen" and clicking it scrolls `turn-regen-origin`
     into the center of the viewport.
-  - *Reverse (origin footer):* on `turn-retry-origin` the badge reads
-    "已重试 → turn turn-ret" and clicking it scrolls `turn-retry-new`
+  - *Reverse (origin footer):* on `turn-regen-origin` the badge reads
+    "已重新生成 → turn turn-regen" and clicking it scrolls `turn-regen-new`
     into the center of the viewport.
-  - The same pair exists for regenerate (`turn-regen-origin` ↔
-    `turn-regen-new`) with "重新生成自" / "已重新生成 →".
 - **S4 — branch banner positive vs negative.**
   - In `turn-control-branch-visible`, the chat header shows
     `分自 ${primary.name}`. The banner is a clickable button that

@@ -37,6 +37,21 @@ export function formatAbsoluteTimestamp(ts: number): string {
   return createAbsoluteTimeFormat().format(new Date(ts));
 }
 
+function createClockTimeFormat(): Intl.DateTimeFormat {
+  if (typeof Intl === 'undefined' || typeof Intl.DateTimeFormat !== 'function') {
+    return { format: (d: Date) => d.toISOString().slice(11, 16) } as unknown as Intl.DateTimeFormat;
+  }
+  return new Intl.DateTimeFormat(
+    detectUiLocale() === 'en' ? 'en' : 'zh-CN',
+    { hour: '2-digit', minute: '2-digit', hour12: false },
+  );
+}
+
+/** Wall-clock `HH:mm` (24-hour), for the always-absolute user-message time. */
+export function formatClockTime(ts: number): string {
+  return createClockTimeFormat().format(new Date(ts));
+}
+
 export function formatTurnDuration(ms: number): string {
   // Same shape as tool-activity's formatDuration — the turn meta chip
   // and tool cards sit stacked in one view;「1 m 0 s」vs「8.2s」read as

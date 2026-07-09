@@ -1,0 +1,105 @@
+/* Codex-style prompt navigation rail: one tick per user prompt, pinned to the
+   right edge of the chat scroll shell. Low-key by default, brightens on hover;
+   each tick jumps to that prompt and the active turn's tick stays highlighted.
+   The tick bar draws in `currentColor` so active/hover just shift the neutral
+   text color (muted -> primary) — no brand rail, no hover-surface background. */
+.maka-prompt-rail {
+  position: absolute;
+  top: var(--space-8);
+  bottom: var(--space-8);
+  right: var(--space-1);
+  z-index: var(--z-panel-action);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  opacity: var(--opacity-muted);
+  transition: opacity var(--duration-base) var(--ease-out-strong);
+  -webkit-app-region: no-drag;
+}
+
+.maka-prompt-rail:hover {
+  opacity: 1;
+}
+
+.maka-prompt-rail-tick {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: var(--space-0-5) 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  transition: color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-prompt-rail-tick:hover,
+.maka-prompt-rail-tick[data-active="true"] {
+  color: var(--foreground);
+}
+
+.maka-prompt-rail-tick::after {
+  content: "";
+  width: 14px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  transition: width var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-prompt-rail-tick:hover::after {
+  width: 20px;
+}
+
+.maka-prompt-rail-tick[data-active="true"]::after {
+  width: 22px;
+}
+
+.maka-prompt-rail-preview {
+  position: absolute;
+  right: calc(100% + var(--space-2));
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  width: max-content;
+  max-width: 280px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  border: var(--border-width-hairline) solid var(--border);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  font-size: var(--font-size-caption);
+  text-align: left;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-prompt-rail-preview-prompt {
+  min-width: 0;
+  color: var(--foreground);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.maka-prompt-rail-preview-reply {
+  color: var(--muted-foreground);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.maka-prompt-rail-tick:hover .maka-prompt-rail-preview,
+.maka-prompt-rail-tick:focus-visible .maka-prompt-rail-preview {
+  opacity: 1;
+}

@@ -55,7 +55,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger',
       'PrimitiveAccordion', 'PrimitiveAccordionItem', 'PrimitiveAccordionTrigger', 'PrimitiveAccordionPanel',
       'Item', 'ItemContent', 'ItemTitle', 'ItemActions',
-      'Input', 'RelativeTime', 'Textarea', 'useToast', 'useModalA11y',
+      'Input', 'RelativeTime', 'Textarea', 'useToast',
     ]) {
       assert.ok(
         uiImports.includes(name),
@@ -287,8 +287,18 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(overlay, /className="providerConfigSheetClose"/);
     assert.match(overlay, /aria-label="关闭模型配置"/);
-    assert.match(overlay, /<X strokeWidth=\{1\.75\} aria-hidden="true" \/>/);
-    assert.match(styles, /\.providerConfigSheet\s*\{[\s\S]*position:\s*relative;/);
+    // Icon stroke governance round: per-call-site strokeWidth props were
+    // deleted so lucide glyphs ride one governed weight (svg.lucide CSS rule).
+    assert.match(overlay, /<X aria-hidden="true" \/>/);
+    assert.match(styles, /\.providerConfigOverlay\s*\{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
+    assert.doesNotMatch(
+      styles,
+      /\.providerConfigOverlay\s*\{[^}]*justify-content:\s*flex-end;/,
+      'Base UI renders Backdrop and Popup as siblings; overlay flex must not be treated as sheet layout',
+    );
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*position:\s*absolute;/);
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*inset:\s*var\(--space-3\)\s+var\(--space-3\)\s+var\(--space-3\)\s+auto;/);
+    assert.match(styles, /\.providerConfigSheet\s*\{[^}]*width:\s*min\(430px,\s*calc\(100%\s*-\s*\(var\(--space-3\)\s*\*\s*2\)\)\);/);
     assert.match(styles, /\.providerConfigSheetClose\s*\{[\s\S]*position:\s*absolute;[\s\S]*right:\s*14px;/);
     // The close button reuses the governed quiet icon Button, so its rest /
     // hover / focus states come from the component, not hand-written CSS. The
@@ -300,39 +310,37 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('provider config sheets hide the blurred Settings background from accessibility', async () => {
+  it('provider config sheets route through Base UI Dialog nested in the settings surface', async () => {
     const src = await readProviderSettingsCombinedSource();
-    const hook = src.match(/function useProviderSheetBackgroundInert[\s\S]*?function ProviderCatalogCard/)?.[0] ?? '';
 
+    // ProviderSheet wraps Base UI Dialog so the nested modal layer handles
+    // focus trap / Esc / aria-hidden on the settings nav, replacing the old
+    // useModalA11y + useProviderSheetBackgroundInert DOM walker.
+    assert.match(src, /export function ProviderSheet/, 'ProviderSheet primitive must exist');
+    assert.match(src, /BaseDialog\.Root/, 'uses Base UI Dialog.Root');
+    assert.match(src, /BaseDialog\.Portal/, 'uses Dialog.Portal');
+    assert.match(src, /BaseDialog\.Backdrop/, 'uses Dialog.Backdrop');
+    assert.match(src, /BaseDialog\.Popup/, 'uses Dialog.Popup');
     assert.match(
       src,
-      /useProviderSheetBackgroundInert\(dialogRef\)/,
-      'every provider config / OAuth sheet must activate the background inert hook',
+      /querySelector<HTMLElement>\('\.settingsSurface'\)/,
+      'Portal container must be the settings surface (nested visual: scrim covers the surface, not the viewport)',
     );
     assert.match(
-      hook,
-      /dialog\.closest\('\.settingsSurface'\)/,
-      'nested provider sheets must scope background hiding to the Settings modal surface',
+      src,
+      /Backdrop[\s\S]{0,80}forceRender/,
+      'nested backdrop must forceRender (Base UI skips nested backdrops by default; provider sheets want the scrim)',
     );
-    assert.match(
-      hook,
-      /sibling\.setAttribute\('aria-hidden', 'true'\)/,
-      'blurred Settings background siblings must be hidden from assistive tech',
+    assert.match(src, /<ProviderSheet/, 'provider/OAuth sheets must render via ProviderSheet');
+    assert.doesNotMatch(
+      src,
+      /\buseProviderSheetBackgroundInert\(/,
+      'useProviderSheetBackgroundInert removed (Base UI nested modal handles aria-hidden)',
     );
-    assert.match(
-      hook,
-      /sibling\.inert = true/,
-      'blurred Settings background siblings must be inert while the sheet is open',
-    );
-    assert.match(
-      hook,
-      /data-provider-sheet-background-hidden/,
-      'the hidden background state should be observable for regression tests',
-    );
-    assert.match(
-      hook,
-      /item\.element\.inert = item\.inert/,
-      'background inert state must be restored when the sheet closes',
+    assert.doesNotMatch(
+      src,
+      /import[^}]*\buseModalA11y\b/,
+      'useModalA11y removed from provider sheets (Base UI Dialog owns focus/Esc)',
     );
   });
 
@@ -494,7 +502,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       section,
-      /className="providerCatalogRow providerOAuthCard rounded-none"/,
+      /className="providerCatalogRow providerOAuthCard"/,
       'OAuth tab rows must reuse the same governed provider catalog row chrome as 国内 / 海外 / 本地 rows',
     );
     assert.match(

@@ -32,12 +32,20 @@ export function buildCatalogChatModelChoices(connections: readonly LlmConnection
   const choices: ChatModelChoice[] = [];
   for (const connection of connections) {
     if (!isModelConsumerConnection(connection)) continue;
+    // Only non-OAuth connections get their user-chosen name surfaced in the
+    // menu heading — see `ChatModelChoice.connectionName`. OAuth providers'
+    // `connection.name` embeds the account email, so this stays undefined
+    // for them and the menu falls back to the provider label.
+    const connectionName = PROVIDER_DEFAULTS[connection.providerType].authKind === 'oauth_token'
+      ? undefined
+      : connection.name;
     for (const entry of selectableCatalogEntries(connection)) {
       choices.push({
         connectionSlug: connection.slug,
         providerType: connection.providerType,
         model: entry.id,
         label: modelDisplayLabel(entry),
+        connectionName,
       });
     }
   }

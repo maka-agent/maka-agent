@@ -37,6 +37,7 @@ import {
   buildModelHistoryFromRuntimeEvents,
   buildRuntimeEventModelReplayPlan,
   buildTextModelMessagesFromRuntimeEvents,
+  collectToolActivityTurnIds,
   type ModelHistoryEntry,
 } from '../model-history.js';
 
@@ -902,7 +903,7 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
     ]);
   });
 
-  test('runtime replay plan diagnoses unsigned thinking without flattening it into text', () => {
+  test('runtime replay plan skips unsigned thinking instead of flattening or blocking it', () => {
     const events: RuntimeEvent[] = [
       ev({
         role: 'model',
@@ -914,8 +915,134 @@ describe('buildModelHistoryFromRuntimeEvents', () => {
 
     const plan = buildRuntimeEventModelReplayPlan(events);
 
-    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsigned_thinking');
+    // Unsigned thinking is skipped from native items and never claims the
+    // 'thinking' semantic kind, but is recorded non-blockingly for observability.
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('unsigned_thinking_skipped');
+    expect(plan.items.map((item) => item.kind)).toEqual(['text']);
+    expect(plan.semanticKinds).not.toContain('thinking');
     expect(plan.textMessages).toEqual([{ role: 'assistant', content: 'answer' }]);
+  });
+
+  test('unsigned thinking does not downgrade native tool replay for the rest of the history', () => {
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'do it' } }),
+      // Non-Anthropic reasoning: thinking persisted with no signature.
+      ev({ role: 'model', author: 'agent', content: { kind: 'thinking', text: 'reason without a signature' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'contents', isError: false },
+      }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    // The tool call/result remain native; the unsigned thinking is simply omitted.
+    expect(plan.hasProviderNativeSemantics).toBe(true);
+    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result']);
+    expect(plan.semanticKinds).not.toContain('thinking');
+    // No blocking diagnostic classes present (only the non-blocking skip note).
+    const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(codes).toContain('unsigned_thinking_skipped');
+    expect(codes).not.toContain('unsupported_role');
+    expect(codes).not.toContain('unsupported_content');
+    expect(codes).not.toContain('unmatched_tool_result');
+    expect(codes).not.toContain('tool_id_mismatch');
+  });
+
+  test('signed thinking still enters native replay items with its signature', () => {
+    const events: RuntimeEvent[] = [
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'signed reasoning', signature: 'sig-9' },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'answer' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items.map((item) => item.kind)).toEqual(['thinking', 'text']);
+    const thinking = plan.items.find((item) => item.kind === 'thinking');
+    expect(thinking && thinking.kind === 'thinking' ? thinking.signature : undefined).toBe('sig-9');
+    expect(plan.semanticKinds).toContain('thinking');
+    const pureCodes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(pureCodes).not.toContain('unsigned_thinking_skipped');
+    // Boundary: the tool-turn skip must NOT swallow a pure-reasoning turn.
+    expect(pureCodes).not.toContain('signed_thinking_in_tool_turn_skipped');
+  });
+
+  test('signed thinking in a tool-calling turn is skipped from replay, tool calls stay native', () => {
+    // Anthropic tool turn as the backend emits it: the turn's reasoning is a
+    // single end-of-turn thinking_complete pushed AFTER the tool events, so the
+    // signed thinking lands last in ledger order. Materialization can only
+    // render it as a standalone assistant reasoning message; after the tool
+    // result that drops the leading thinking block Anthropic requires on the
+    // tool-use assistant message AND leaves an orphan thinking block — a 400.
+    // Skip it from replay (it stays in the read-model for the UI). Removing the
+    // skip re-adds a 'thinking' item after 'tool_result' and fails this test.
+    const events: RuntimeEvent[] = [
+      ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'read package' } }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: { path: 'package.json' } },
+      }),
+      ev({
+        role: 'tool',
+        author: 'tool',
+        content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'contents', isError: false },
+      }),
+      ev({
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'signed reasoning about the tool result', signature: 'sig-tool' },
+      }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'here is the answer' } }),
+    ];
+
+    const plan = buildRuntimeEventModelReplayPlan(events);
+
+    expect(plan.items.map((item) => item.kind)).toEqual(['text', 'tool_call', 'tool_result', 'text']);
+    expect(plan.semanticKinds).not.toContain('thinking');
+    expect(plan.hasProviderNativeSemantics).toBe(true);
+    const codes = plan.diagnostics.map((diagnostic) => diagnostic.code);
+    expect(codes).toContain('signed_thinking_in_tool_turn_skipped');
+    // Non-blocking: the tool call/result still replay provider-native.
+    expect(codes).not.toContain('unsupported_role');
+    expect(codes).not.toContain('unsupported_content');
+    expect(codes).not.toContain('unmatched_tool_result');
+    expect(codes).not.toContain('tool_id_mismatch');
+  });
+
+  test('a budget/search slice still skips a tool-turn signed thinking via full-ledger tool ids', () => {
+    // Full prior ledger: a tool turn (tool_call, tool_result, signed thinking).
+    const fullLedger: RuntimeEvent[] = [
+      ev({ role: 'model', author: 'agent', content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} } }),
+      ev({ role: 'tool', author: 'tool', content: { kind: 'function_response', id: 'tool-1', name: 'Read', result: 'x', isError: false } }),
+      ev({ role: 'model', author: 'agent', content: { kind: 'thinking', text: 'reasoning about the tool result', signature: 'sig-slice' } }),
+    ];
+    // history-search / budget pruning kept ONLY the query-matched signed
+    // thinking; the same turn's tool_call/tool_result were dropped from replay.
+    const slice = [fullLedger[2]!];
+
+    // Scanning only the slice looks like a pure-reasoning turn — the latent hole
+    // the full-ledger ids close: the thinking would otherwise replay native.
+    const naive = buildRuntimeEventModelReplayPlan(slice);
+    expect(naive.items.map((item) => item.kind)).toEqual(['thinking']);
+
+    // Seeding the tool-turn ids from the full ledger restores the skip.
+    const plan = buildRuntimeEventModelReplayPlan(slice, {
+      toolActivityTurnIds: collectToolActivityTurnIds(fullLedger),
+    });
+    expect(plan.items.map((item) => item.kind)).toEqual([]);
+    expect(plan.semanticKinds).not.toContain('thinking');
+    expect(plan.diagnostics.map((diagnostic) => diagnostic.code)).toContain('signed_thinking_in_tool_turn_skipped');
   });
 
   test('terminal RuntimeEvents are diagnostic-only for replay semantics', () => {

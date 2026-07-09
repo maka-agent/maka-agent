@@ -18,6 +18,36 @@ import { cn } from './utils.js';
 
 export { cn } from './utils.js';
 
+// === Base UI style-hook convention (#520 PR5 item 23) =========================
+// Every Base UI wrapper in this file exposes `data-slot="<name>"` so CSS can
+// target `[data-slot="..."]` (a stable hook that survives className drift);
+// the shared primitives in `./primitives/` already do this (accordion / alert /
+// badge / …), and new wrappers (Collapsible / Tooltip / NumberField / …) follow
+// the same rule. Hand-written native elements (the legacy `Input` / `Textarea`
+// below, and `Badge`) are out of this rule until they retire onto a Base UI
+// primitive.
+//
+// Boolean state hooks adopt Base UI's NATIVE attribute-presence form —
+// `[data-active]`, `[data-open]`, `[data-checked]`, `[data-selected]`,
+// `[data-pressed]`, `[data-highlighted]`, `[data-disabled]` — NOT the
+// attribute-value form `[data-active="true"]`. Maka's renderer CSS has zero
+// state-attribute selectors today, so adopting Base UI's form breaks nothing
+// and avoids maintaining an override layer. Per-component map:
+//   Tabs        data-active                 (primitives/tabs.tsx)
+//   Select      data-[highlighted] / data-[selected]
+//   Checkbox    data-[checked] / data-[disabled]
+//   Switch      data-[checked] / data-[disabled]
+//   Toggle      data-[pressed] / data-[disabled]
+//   Radio       data-[checked] / data-[disabled]
+//   Dialog      data-[open]                 (open state on the root)
+//   Tooltip / Popover  data-[open]
+//   Progress    (no boolean state)
+// CSS var hooks whitelisted for theming: `--anchor-*` (popups),
+// `--available-*` (popup max-height), `--active-tab-*` (Tabs indicator).
+// `className(state)` function form: deferred — add only when a migration in
+// this PR actually needs state-based classes; do not pre-design it.
+// ===========================================================================
+
 // PR-UIBUTTON-NAV-SIZE-0 (round 12/30): refactored so each
 // `size` variant owns its h-* / px-* / text-* utilities.
 // Previously these were baked into the base layer, which meant
@@ -78,72 +108,17 @@ export const Button = forwardRef<HTMLElement, ButtonProps>(function Button(
     <BaseButton
       ref={ref}
       className={cn(buttonVariants({ variant, size }), className)}
+      data-slot="button"
       {...props}
     />
   );
 });
 
-export const badgeVariants = cva(
-  'inline-flex items-center gap-1 rounded-[var(--radius-pill)] border px-2 py-0.5 text-xs font-medium tabular-nums',
-  {
-    variants: {
-      variant: {
-        default: 'border-transparent bg-accent/10 text-accent',
-        secondary: 'border-border bg-secondary text-secondary-foreground',
-        success: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700',
-        warning: 'border-amber-500/25 bg-amber-500/10 text-amber-800',
-        destructive: 'border-destructive/25 bg-destructive/10 text-destructive',
-        muted: 'border-border bg-muted text-foreground-secondary',
-      },
-    },
-    defaultVariants: {
-      variant: 'default',
-    },
-  },
-);
-
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof badgeVariants> {}
-
-export function Badge({ className, variant, ...props }: BadgeProps) {
-  return <span className={cn(badgeVariants({ variant }), className)} {...props} />;
-}
-
-const inputClasses = [
-  'flex min-h-9 w-full rounded-sm border border-input bg-[oklch(from_var(--foreground)_l_c_h_/_0.02)] px-3 py-2 text-sm text-foreground shadow-sm',
-  'placeholder:text-foreground-secondary/70',
-  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
-  'disabled:cursor-not-allowed disabled:opacity-50',
-].join(' ');
-
-const bareFieldClasses = [
-  'appearance-none rounded-none border-0 bg-transparent p-0 text-inherit shadow-none outline-none [font:inherit]',
-  'focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0',
-  'disabled:cursor-not-allowed disabled:opacity-60',
-].join(' ');
-
-export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
-  unstyled?: boolean;
-};
-
-export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { className, unstyled = false, ...props },
-  ref,
-) {
-  return <input ref={ref} className={cn(unstyled ? bareFieldClasses : inputClasses, className)} {...props} data-maka-field-chrome={unstyled ? 'none' : undefined} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
-});
-
-export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> & {
-  unstyled?: boolean;
-};
-
-export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { className, unstyled = false, ...props },
-  ref,
-) {
-  return <textarea ref={ref} className={cn(unstyled ? bareFieldClasses : [inputClasses, 'min-h-24 resize-y leading-6'], className)} {...props} data-maka-field-chrome={unstyled ? 'none' : undefined} />; // a11y-allow: generic wrapper; callers must provide label or aria-label
-});
+// #520 item 22: Input, Textarea, inputClasses, bareFieldClasses retired onto
+// packages/ui/src/primitives/input.tsx + primitives/textarea.tsx (Base UI
+// Input + ported chrome, single element, no span wrapper). Re-exported from
+// the barrel via index.ts; number-field imports inputClasses/bareFieldClasses
+// from primitives/input.js.
 
 export const Separator = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSeparator>>(function Separator(
   { className, orientation = 'horizontal', ...props },
@@ -158,6 +133,7 @@ export const Separator = forwardRef<HTMLDivElement, React.ComponentPropsWithoutR
         orientation === 'horizontal' ? 'h-px w-full' : 'h-full w-px',
         className,
       )}
+      data-slot="separator"
       {...props}
     />
   );
@@ -177,10 +153,11 @@ export const Checkbox = forwardRef<
         'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
+      data-slot="checkbox"
       {...props}
     >
       <BaseCheckbox.Indicator className="grid place-items-center">
-        <Check size={11} strokeWidth={3} aria-hidden="true" />
+        <Check size={11} aria-hidden="true" />
       </BaseCheckbox.Indicator>
     </BaseCheckbox.Root>
   );
@@ -206,27 +183,33 @@ const MODAL_POPUP_CLASS =
   'fixed left-1/2 top-1/2 z-50 grid max-h-[85dvh] w-[min(92vw,640px)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-popover text-popover-foreground shadow-maka-panel';
 
 type ModalContentProps = React.ComponentPropsWithoutRef<typeof BaseDialog.Popup> & { showClose?: boolean };
+type ModalSlotPrefix = 'dialog' | 'alert-dialog';
+
+type ModalBackdropProps = { className?: string; 'data-slot'?: string };
+type ModalCloseProps = { className?: string; 'aria-label'?: string; 'data-slot'?: string; children?: React.ReactNode };
 
 function createModalContent(primitives: {
   Portal: React.ComponentType<{ children?: React.ReactNode }>;
-  Backdrop: React.ComponentType<{ className?: string }>;
+  Backdrop: React.ComponentType<ModalBackdropProps>;
   Popup: React.ForwardRefExoticComponent<React.ComponentPropsWithoutRef<typeof BaseDialog.Popup> & React.RefAttributes<HTMLDivElement>>;
-  Close: React.ComponentType<{ className?: string; 'aria-label'?: string; children?: React.ReactNode }>;
+  Close: React.ComponentType<ModalCloseProps>;
   defaultShowClose: boolean;
+  slotPrefix: ModalSlotPrefix;
 }) {
   return forwardRef<HTMLDivElement, ModalContentProps>(function ModalContent(
     { className, children, showClose = primitives.defaultShowClose, ...props },
     ref,
   ) {
-    const { Portal, Backdrop, Popup, Close } = primitives;
+    const { Portal, Backdrop, Popup, Close, slotPrefix } = primitives;
     return (
       <Portal>
-        <Backdrop className={MODAL_BACKDROP_CLASS} />
-        <Popup ref={ref} className={cn(MODAL_POPUP_CLASS, className)} {...props}>
+        <Backdrop className={MODAL_BACKDROP_CLASS} data-slot={`${slotPrefix}-backdrop`} />
+        <Popup ref={ref} className={cn(MODAL_POPUP_CLASS, className)} data-slot={`${slotPrefix}-popup`} {...props}>
           {showClose && (
             <Close
               className={cn(buttonVariants({ variant: 'quiet', size: 'icon-sm' }), 'absolute right-3 top-3')}
               aria-label="关闭"
+              data-slot={`${slotPrefix}-close`}
             >
               <X aria-hidden="true" />
             </Close>
@@ -244,6 +227,7 @@ export const DialogContent = createModalContent({
   Popup: BaseDialog.Popup,
   Close: BaseDialog.Close,
   defaultShowClose: true,
+  slotPrefix: 'dialog',
 });
 
 // AlertDialog — the alert variant locks modal + disables pointer dismissal,
@@ -256,6 +240,7 @@ export const AlertDialogContent = createModalContent({
   Popup: BaseAlertDialog.Popup,
   Close: BaseAlertDialog.Close,
   defaultShowClose: false,
+  slotPrefix: 'alert-dialog',
 });
 
 // Tabs: re-export the shared tab spec primitive (#499 P0-3). The tab spec
@@ -276,11 +261,12 @@ export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsW
     <BaseSelect.Trigger
       ref={ref}
       className={cn(buttonVariants({ variant: 'outline' }), 'justify-between', className)}
+      data-slot="select-trigger"
       {...props}
     >
       {children}
       <BaseSelect.Icon>
-        <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />
+        <ChevronDown size={14} aria-hidden="true" />
       </BaseSelect.Icon>
     </BaseSelect.Trigger>
   );
@@ -289,12 +275,6 @@ export const SelectTrigger = forwardRef<HTMLButtonElement, React.ComponentPropsW
 export const SelectValue = BaseSelect.Value;
 export const SelectPortal = BaseSelect.Portal;
 export const SelectPositioner = BaseSelect.Positioner;
-export const SelectList = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.List>>(function SelectList(
-  { className, ...props },
-  ref,
-) {
-  return <BaseSelect.List ref={ref} className={cn('max-h-[var(--available-height)] overflow-y-auto py-1', className)} {...props} />;
-});
 export const SelectPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Popup>>(function SelectPopup(
   { className, ...props },
   ref,
@@ -306,25 +286,25 @@ export const SelectPopup = forwardRef<HTMLDivElement, React.ComponentPropsWithou
   // read as "can't select". Pin the popup to `--z-overlay` (300)
   // so it always floats above the modal it was triggered from
   // (WAWQAQ msg `d3ea9a33` 2026-06-26).
-  return <BaseSelect.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-md bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} {...props} />;
+  return <BaseSelect.Popup ref={ref} className={cn('z-[var(--z-overlay)] min-w-40 rounded-md bg-popover p-1 text-popover-foreground shadow-maka-panel', className)} data-slot="select-popup" {...props} />;
 });
 export const SelectGroup = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Group>>(function SelectGroup(
   { className, ...props },
   ref,
 ) {
-  return <BaseSelect.Group ref={ref} className={cn('py-1', className)} {...props} />;
+  return <BaseSelect.Group ref={ref} className={cn('py-1', className)} data-slot="select-group" {...props} />;
 });
 export const SelectGroupLabel = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.GroupLabel>>(function SelectGroupLabel(
   { className, ...props },
   ref,
 ) {
-  return <BaseSelect.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-foreground-secondary', className)} {...props} />;
+  return <BaseSelect.GroupLabel ref={ref} className={cn('px-2 py-1 text-xs font-medium text-foreground-secondary', className)} data-slot="select-group-label" {...props} />;
 });
 export const SelectSeparator = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Separator>>(function SelectSeparator(
   { className, ...props },
   ref,
 ) {
-  return <BaseSelect.Separator ref={ref} className={cn('my-1 h-px bg-border', className)} {...props} />;
+  return <BaseSelect.Separator ref={ref} className={cn('my-1 h-px bg-border', className)} data-slot="select-separator" {...props} />;
 });
 
 export const SelectItem = forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<typeof BaseSelect.Item>>(function SelectItem(
@@ -335,11 +315,12 @@ export const SelectItem = forwardRef<HTMLDivElement, React.ComponentPropsWithout
     <BaseSelect.Item
       ref={ref}
       className={cn('grid cursor-default grid-cols-[1rem_1fr] items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-muted data-[selected]:text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50', className)}
+      data-slot="select-item"
       {...props}
     >
       <span className="flex h-4 w-4 items-center justify-center" aria-hidden="true">
         <BaseSelect.ItemIndicator>
-          <Check size={13} strokeWidth={2} aria-hidden="true" />
+          <Check size={13} aria-hidden="true" />
         </BaseSelect.ItemIndicator>
       </span>
       <span className="min-w-0">
@@ -360,13 +341,13 @@ export const FieldDescription = forwardRef<HTMLParagraphElement, React.Component
   { className, ...props },
   ref,
 ) {
-  return <BaseField.Description ref={ref} className={cn('text-xs text-foreground-secondary', className)} {...props} />;
+  return <BaseField.Description ref={ref} className={cn('text-xs text-foreground-secondary', className)} data-slot="field-description" {...props} />;
 });
 export const Label = forwardRef<HTMLLabelElement, React.ComponentPropsWithoutRef<typeof BaseField.Label>>(function Label(
   { className, ...props },
   ref,
 ) {
-  return <BaseField.Label ref={ref} className={cn('text-sm font-medium text-foreground', className)} {...props} />;
+  return <BaseField.Label ref={ref} className={cn('text-sm font-medium text-foreground', className)} data-slot="label" {...props} />;
 });
 
 // =============================================================
@@ -386,9 +367,16 @@ export const Switch = forwardRef<
         'data-[checked]:bg-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
+      data-slot="switch"
       {...props}
     >
-      <BaseSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background shadow transition-transform data-[checked]:translate-x-[1.125rem]" />
+      {/* Checked travel MUST stay on the px-based spacing scale (translate-x-4
+          = 16px): track w-9 (36px) − 2×1px border − 16px thumb − 2px inset = 16,
+          giving symmetric 2px insets. The previous rem arbitrary value
+          (translate-x-[1.125rem]) silently shrank to 14.625px under the app's
+          13px root font — spacing utilities are px-calc'd, rem values are not —
+          leaving the thumb 4.4px short of the right edge. */}
+      <BaseSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background shadow transition-transform data-[checked]:translate-x-4" />
     </BaseSwitch.Root>
   );
 });
@@ -411,6 +399,7 @@ export const Toggle = forwardRef<
         'data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
         className,
       )}
+      data-slot="toggle"
       {...props}
     />
   );
@@ -424,6 +413,7 @@ export const ToggleGroup = forwardRef<
     <BaseToggleGroup
       ref={ref}
       className={cn('inline-flex items-center gap-1 rounded-md bg-muted p-1', className)}
+      data-slot="toggle-group"
       {...props}
     />
   );
@@ -437,7 +427,7 @@ export const RadioGroup = forwardRef<
   HTMLDivElement,
   React.ComponentPropsWithoutRef<typeof BaseRadioGroup>
 >(function RadioGroup({ className, ...props }, ref) {
-  return <BaseRadioGroup ref={ref} className={cn('grid gap-2', className)} {...props} />;
+  return <BaseRadioGroup ref={ref} className={cn('grid gap-2', className)} data-slot="radio-group" {...props} />;
 });
 
 export const Radio = forwardRef<
@@ -453,6 +443,7 @@ export const Radio = forwardRef<
         'data-[checked]:border-control data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',
         className,
       )}
+      data-slot="radio"
       {...props}
     >
       <BaseRadio.Indicator className="grid place-items-center">
@@ -474,6 +465,7 @@ export const Progress = forwardRef<
     <BaseProgress.Root
       ref={ref}
       className={cn('relative h-2 w-full overflow-hidden rounded-full bg-muted', className)}
+      data-slot="progress"
       {...props}
     >
       <BaseProgress.Track className="absolute inset-0 overflow-hidden">

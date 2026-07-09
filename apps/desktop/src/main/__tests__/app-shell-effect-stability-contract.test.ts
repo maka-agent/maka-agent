@@ -186,6 +186,7 @@ function BootstrapSubscriptionProbe(props: {
     bootstrapSessions: async () => {},
     clearPendingTurnActionsForSession: () => {},
     clearSessionRendererState: () => {},
+    createSession: () => {},
     handleConnectionEvent: props.onConnectionEvent,
     openSettings: () => {},
     pendingPermissionModeChangesRef: props.refs.pendingPermissionModeChangesRef,
@@ -201,6 +202,7 @@ function BootstrapSubscriptionProbe(props: {
     refreshPlanReminders: async () => {},
     refreshShellSettings: async () => {},
     refreshSkills: async () => {},
+    refreshManagedSkillSources: async () => {},
     refreshSessions: async () => [],
     rendererMountedRef: props.refs.rendererMountedRef,
     setActiveId: () => {},
@@ -334,6 +336,10 @@ function installFakeMaka(captured: CapturedSubscriptions): void {
         captured.activeSessionEvent = callback;
         return noop;
       },
+    },
+    settings: {
+      get: async () => ({}),
+      subscribeExternalChanged: () => noop,
     },
   } as unknown as RendererWindow['maka'];
 }

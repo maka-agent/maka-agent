@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
+import { Autocomplete } from '@base-ui/react/autocomplete';
 import { Search, X } from './icons.js';
+import { DialogHeader } from './primitives/dialog-header.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
-import { DialogClose, DialogContent, DialogRoot, Button as UiButton } from './ui.js';
-import { useModalA11y } from './modal-a11y.js';
+import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
@@ -27,6 +28,17 @@ import { useModalA11y } from './modal-a11y.js';
  * "hooks before early return" class of bug entirely — there's no
  * way for a future hook addition to drift past a stale return
  * statement.
+ *
+ * #520 PR8: the result list converges onto Base UI Autocomplete
+ * (`inline` + `mode="none"` + `autoHighlight="always"` + `filter={null}`).
+ * Autocomplete owns the listbox/option ARIA structure and the
+ * ArrowUp/Down/Enter/Escape keyboard navigation in activedescendant
+ * mode (input keeps focus, the active item is reflected via
+ * aria-activedescendant). Server-side IPC filtering is preserved by
+ * `filter={null}` + `mode="none"` (Autocomplete does not re-filter
+ * the IPC results locally). The previous hand-rolled roving-focus
+ * machinery (activeResultIndex / moveActiveResult / jumpActiveResult
+ * / keyboardSelectionHandledRef) is gone.
  *
  * Gate per kenji `7c320898`:
  *   - role="dialog" / aria-modal="true" / explicit title.
@@ -62,6 +74,9 @@ interface SearchModalCloseOptions {
 
 export function SearchModal(props: {
   onClose(options?: SearchModalCloseOptions): void;
+  /** Seed query for the funnel bridge (palette 查看全部结果 → modal).
+   *  Read once on mount; the modal owns the state afterwards. */
+  initialQuery?: string;
   /**
    * Navigate to a session (optionally scrolling to a specific turn).
    * Provided by the application shell so the modal stays portable —
@@ -83,8 +98,6 @@ export function SearchModal(props: {
    */
   deps?: SearchModalDeps;
 }) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-
   // PR-UX-POLISH-1 commit 5 (kenji `2844f64f` SEARCH gate):
   //   - `query` is local state ONLY (no localStorage / no IPC echo).
   //   - `results` is the most recent successful response; older
@@ -97,19 +110,15 @@ export function SearchModal(props: {
   //   - `pending` reflects whether ANY IPC call is in flight. We do
   //     NOT show a spinner if the query is empty (avoids flashing
   //     loading state during typing).
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(props.initialQuery ?? '');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
   const [pending, setPending] = useState(false);
-  const [activeResultIndex, setActiveResultIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const resultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const ticketRef = useRef(0);
   const searchMountedRef = useRef(true);
-  const keyboardSelectionHandledRef = useRef(false);
   const searchThread = props.deps?.searchThread;
   const suppressFocusRestoreRef = useRef(false);
-  useModalA11y(dialogRef, props.onClose, inputRef, { suppressFocusRestoreRef });
 
   useEffect(() => {
     searchMountedRef.current = true;
@@ -129,7 +138,6 @@ export function SearchModal(props: {
       setResults([]);
       setError(null);
       setPending(false);
-      setActiveResultIndex(-1);
       return;
     }
     const ticket = ++ticketRef.current;
@@ -146,11 +154,9 @@ export function SearchModal(props: {
         if (Array.isArray(response)) {
           setResults(response);
           setError(null);
-          setActiveResultIndex(-1);
         } else {
           setResults([]);
           setError({ reason: response.reason, message: response.message });
-          setActiveResultIndex(-1);
         }
       } catch (err) {
         if (!searchMountedRef.current) return;
@@ -162,7 +168,6 @@ export function SearchModal(props: {
           reason: 'provider_error',
           message: searchModalThrownErrorMessage(err),
         });
-        setActiveResultIndex(-1);
       } finally {
         if (searchMountedRef.current && ticket === ticketRef.current) setPending(false);
       }
@@ -170,24 +175,14 @@ export function SearchModal(props: {
     return () => window.clearTimeout(handle);
   }, [query, searchThread]);
 
-  useEffect(() => {
-    if (activeResultIndex < 0) return;
-    resultRefs.current[activeResultIndex]?.scrollIntoView({ block: 'nearest' });
-  }, [activeResultIndex]);
-
   function selectResult(result: SearchResult) {
     if (!props.onNavigateToSession) return;
     if (result.target?.kind !== 'thread') return;
     props.onNavigateToSession(result.target.sessionId, result.target.turnId);
-    // Navigating away owns focus now — stop the a11y hook's unmount
-    // cleanup from yanking focus back to the sidebar search trigger.
+    // Navigating away owns focus now — tell DialogContent.finalFocus to
+    // skip its restore so Base UI doesn't yank focus back to the search trigger.
     suppressFocusRestoreRef.current = true;
     props.onClose({ restoreFocus: false });
-  }
-
-  function selectKeyboardResult() {
-    if (!showResults) return;
-    selectResult(results[activeResultIndex >= 0 ? activeResultIndex : 0]!);
   }
 
   function clearSearchState() {
@@ -195,7 +190,6 @@ export function SearchModal(props: {
     setResults([]);
     setError(null);
     setPending(false);
-    setActiveResultIndex(-1);
   }
 
   function updateSearchQuery(nextQuery: string) {
@@ -211,73 +205,14 @@ export function SearchModal(props: {
     inputRef.current?.focus();
   }
 
-  function focusSearchResult(index: number) {
-    window.requestAnimationFrame(() => {
-      resultRefs.current[index]?.focus({ preventScroll: true });
-    });
-  }
-
-  function moveActiveResult(delta: 1 | -1, options?: { focusResult?: boolean }) {
-    if (results.length === 0) return;
-    const next = activeResultIndex < 0
-      ? (delta > 0 ? 0 : results.length - 1)
-      : (activeResultIndex + delta + results.length) % results.length;
-    setActiveResultIndex(next);
-    if (options?.focusResult) focusSearchResult(next);
-  }
-
-  function jumpActiveResult(index: number, options?: { focusResult?: boolean }) {
-    if (results.length === 0) return;
-    const next = Math.max(0, Math.min(results.length - 1, index));
-    setActiveResultIndex(next);
-    if (options?.focusResult) focusSearchResult(next);
-  }
-
   function keyboardKey(event: KeyboardEvent, keys: string[]) {
     return keys.includes(event.key) || keys.includes(event.code);
-  }
-
-  function handleResultKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number, result: SearchResult) {
-    if (keyboardKey(event, ['Enter', 'Return', 'Space', ' '])) {
-      event.preventDefault();
-      selectResult(result);
-      return;
-    }
-    if (keyboardKey(event, ['ArrowDown', 'Down'])) {
-      event.preventDefault();
-      moveActiveResult(1, { focusResult: true });
-      return;
-    }
-    if (keyboardKey(event, ['ArrowUp', 'Up'])) {
-      event.preventDefault();
-      moveActiveResult(-1, { focusResult: true });
-      return;
-    }
-    if (keyboardKey(event, ['Home'])) {
-      event.preventDefault();
-      jumpActiveResult(0, { focusResult: true });
-      return;
-    }
-    if (keyboardKey(event, ['End'])) {
-      event.preventDefault();
-      jumpActiveResult(results.length - 1, { focusResult: true });
-      return;
-    }
-    if (keyboardKey(event, ['Escape'])) {
-      event.preventDefault();
-      props.onClose();
-      return;
-    }
-    if (index !== activeResultIndex) {
-      setActiveResultIndex(index);
-    }
   }
 
   const incognitoBlocked = error?.reason === 'incognito_active';
   const trimmed = query.trim();
   const showResults = !error && trimmed.length > 0 && !pending && results.length > 0;
   const showEmpty = !error && trimmed.length > 0 && !pending && results.length === 0;
-  const activeResultId = showResults && activeResultIndex >= 0 ? `maka-search-modal-result-${activeResultIndex}` : undefined;
   const resultsTruncated = showResults && results.some((result) => result.truncated === true);
 
   return (
@@ -288,156 +223,142 @@ export function SearchModal(props: {
       }}
     >
       <DialogContent
-        ref={dialogRef}
         className="maka-modal maka-search-modal w-[min(92vw,640px)] p-0"
         aria-labelledby="maka-search-modal-title"
         showClose={false}
+        initialFocus={inputRef}
+        finalFocus={() => (suppressFocusRestoreRef.current ? false : true)}
       >
-        <header className="maka-search-modal-header">
-          <h2 id="maka-search-modal-title" className="maka-search-modal-title">搜索</h2>
-          <DialogClose
-            render={<UiButton variant="quiet" size="icon-sm" />}
-            type="button"
-            className="maka-search-modal-close"
-            onClick={() => props.onClose()}
-            aria-label="关闭搜索"
-          >
-            <X size={16} strokeWidth={1.8} aria-hidden="true" />
-          </DialogClose>
-        </header>
-        <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
-          <InputGroupAddon>
-            <Search size={16} strokeWidth={1.75} aria-hidden="true" className="maka-search-modal-input-icon" />
-          </InputGroupAddon>
-          <InputGroupInput
-            ref={inputRef}
-            type="search"
-            className="maka-search-modal-input"
-            placeholder="搜索会话标题和内容…"
-            aria-label="搜索会话标题和内容"
-            aria-controls={showResults ? 'maka-search-modal-results' : undefined}
-            aria-activedescendant={activeResultId}
-            value={query}
-            onChange={(event) => updateSearchQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (keyboardKey(event, ['Escape']) && query) {
-                event.preventDefault();
-                clearSearchQuery();
-                return;
-              }
-              if (keyboardKey(event, ['ArrowDown', 'Down']) && showResults) {
-                event.preventDefault();
-                moveActiveResult(1, { focusResult: true });
-                return;
-              }
-              if (keyboardKey(event, ['ArrowUp', 'Up']) && showResults) {
-                event.preventDefault();
-                moveActiveResult(-1, { focusResult: true });
-                return;
-              }
-              if (keyboardKey(event, ['Home']) && showResults) {
-                event.preventDefault();
-                jumpActiveResult(0, { focusResult: true });
-                return;
-              }
-              if (keyboardKey(event, ['End']) && showResults) {
-                event.preventDefault();
-                jumpActiveResult(results.length - 1, { focusResult: true });
-                return;
-              }
-              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
-                event.preventDefault();
-                keyboardSelectionHandledRef.current = true;
-                selectKeyboardResult();
-              }
-            }}
-            onKeyUp={(event) => {
-              if (keyboardKey(event, ['Enter', 'Return']) && keyboardSelectionHandledRef.current) {
-                if (showResults) event.preventDefault();
-                keyboardSelectionHandledRef.current = false;
-                return;
-              }
-              if (keyboardKey(event, ['Enter', 'Return']) && showResults) {
-                event.preventDefault();
-                selectKeyboardResult();
-              }
-            }}
-            autoComplete="off"
-            spellCheck={false}
-          />
-          {query.length > 0 && (
-            <InputGroupAddon align="inline-end">
-              <UiButton
-                variant="quiet"
-                size="icon-sm"
-                type="button"
-                className="maka-search-modal-clear"
-                aria-label="清空搜索"
-                onClick={clearSearchQuery}
-              >
-                <X size={14} strokeWidth={1.8} aria-hidden="true" />
-              </UiButton>
+        <DialogHeader
+          icon={<Search aria-hidden="true" />}
+          title="搜索"
+          titleId="maka-search-modal-title"
+          onClose={() => props.onClose()}
+        />
+        {/*
+          #520 PR8: Autocomplete owns the listbox/option ARIA + ArrowUp/Down/
+          Enter/Escape keyboard nav (activedescendant mode). `inline` keeps the
+          list in the modal body (no floating popup). `mode="none"` + `filter={null}`
+          preserve server-side IPC filtering — Autocomplete does not re-filter the
+          IPC results locally. `autoHighlight="always"` so Enter on the first result
+          works without an extra ArrowDown.
+        */}
+        <Autocomplete.Root
+          inline
+          open
+          mode="none"
+          autoHighlight="always"
+          keepHighlight
+          filter={null}
+          value={query}
+          onValueChange={(next, details) => {
+            // item-press (click / Enter on highlighted) is a selection, not
+            // input — never write the result object back into the query.
+            if (details.reason === 'item-press') return;
+            updateSearchQuery(next);
+          }}
+          itemToStringValue={(result) => result.title ?? ''}
+          items={results}
+        >
+          <InputGroup className="maka-search-modal-input-row" aria-label="搜索会话">
+            <InputGroupAddon>
+              <Search size={16} aria-hidden="true" className="maka-search-modal-input-icon" />
             </InputGroupAddon>
-          )}
-        </InputGroup>
-        <div className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite">
-          {!searchThread && (
-            <p className="maka-search-modal-placeholder">
-              当前环境无法连接搜索后端，请稍后重试。
-            </p>
-          )}
-          {searchThread && incognitoBlocked && (
-            <div className="maka-search-modal-state" data-tone="info">
-              <p>隐私模式已关闭搜索。</p>
-              <p className="maka-search-modal-state-detail">
-                关闭隐私模式后可以继续按关键词查找历史对话。
+            <Autocomplete.Input
+              render={
+                <InputGroupInput
+                  ref={inputRef}
+                  type="search"
+                  className="maka-search-modal-input"
+                  placeholder="搜索会话标题和内容…"
+                  aria-label="搜索会话标题和内容"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onKeyDown={(event) => {
+                    // Escape with a query clears it; Escape without a query
+                    // bubbles to DialogRoot.onOpenChange and closes the modal.
+                    // Autocomplete's own Escape handler only fires when the
+                    // popup is mounted, which the inline list is not, so there
+                    // is no conflict here.
+                    if (keyboardKey(event, ['Escape']) && query) {
+                      event.preventDefault();
+                      clearSearchQuery();
+                    }
+                  }}
+                />
+              }
+            />
+            {query.length > 0 && (
+              <InputGroupAddon align="inline-end">
+                <UiButton
+                  variant="quiet"
+                  size="icon-sm"
+                  type="button"
+                  className="maka-search-modal-clear"
+                  aria-label="清空搜索"
+                  onClick={clearSearchQuery}
+                >
+                  <X size={14} aria-hidden="true" />
+                </UiButton>
+              </InputGroupAddon>
+            )}
+          </InputGroup>
+          <div className="maka-search-modal-body" role="region" aria-label="搜索状态和结果" aria-live="polite">
+            {!searchThread && (
+              <p className="maka-search-modal-placeholder">
+                当前环境无法连接搜索后端，请稍后重试。
               </p>
-            </div>
-          )}
-          {searchThread && !incognitoBlocked && error && (
-            <div className="maka-search-modal-state" data-tone="warning">
-              <p>搜索暂时无法完成。</p>
-              <p className="maka-search-modal-state-detail">{error.message}</p>
-            </div>
-          )}
-          {searchThread && !error && trimmed.length === 0 && (
-            <p className="maka-search-modal-placeholder">
-              开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。
-            </p>
-          )}
-          {searchThread && pending && trimmed.length > 0 && (
-            <p className="maka-search-modal-placeholder" aria-live="polite">
-              正在搜索…
-            </p>
-          )}
-          {showEmpty && (
-            <p className="maka-search-modal-placeholder">
-              没有匹配的会话标题或内容。换个关键词试试。
-            </p>
-          )}
-          {showResults && (
-            <>
-              <div className="maka-search-modal-result-summary" aria-live="polite">
-                <span>找到 {results.length} 条匹配</span>
-                {resultsTruncated && <span>结果较多，已显示前 {results.length} 条</span>}
+            )}
+            {searchThread && incognitoBlocked && (
+              <div className="maka-search-modal-state" data-tone="info">
+                <p>隐私模式已关闭搜索。</p>
+                <p className="maka-search-modal-state-detail">
+                  关闭隐私模式后可以继续按关键词查找历史对话。
+                </p>
               </div>
-              <ul id="maka-search-modal-results" className="maka-search-modal-results" role="listbox" aria-label="搜索结果">
-                {results.map((result, index) => (
-                  <li key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}>
-                    <UiButton
-                      variant="ghost"
-                      ref={(node) => { resultRefs.current[index] = node as HTMLButtonElement | null; }}
-                      id={`maka-search-modal-result-${index}`}
-                      type="button"
-                      role="option"
-                      aria-selected={activeResultIndex === index}
-                      tabIndex={-1}
-                      className="maka-search-modal-result"
-                      data-active={activeResultIndex === index ? 'true' : undefined}
+            )}
+            {searchThread && !incognitoBlocked && error && (
+              <div className="maka-search-modal-state" data-tone="warning">
+                <p>搜索暂时无法完成。</p>
+                <p className="maka-search-modal-state-detail">{error.message}</p>
+              </div>
+            )}
+            {searchThread && !error && trimmed.length === 0 && (
+              <p className="maka-search-modal-placeholder">
+                开始输入以按关键词查找历史对话。结果只包含会话标题和内容文本，不进入网络。
+              </p>
+            )}
+            {searchThread && pending && trimmed.length > 0 && (
+              <p className="maka-search-modal-placeholder" aria-live="polite">
+                正在搜索…
+              </p>
+            )}
+            {showEmpty && (
+              <p className="maka-search-modal-placeholder">
+                没有匹配的会话标题或内容。换个关键词试试。
+              </p>
+            )}
+            {showResults && (
+              <>
+                <div className="maka-search-modal-result-summary" aria-live="polite">
+                  <span>找到 {results.length} 条匹配</span>
+                  {resultsTruncated && <span>结果较多，已显示前 {results.length} 条</span>}
+                </div>
+                {/*
+                  Autocomplete.List renders a <div role="listbox">; Autocomplete.Item
+                  renders a <div role="option">. Autocomplete.Item fires onClick for
+                  both pointer click and Enter on the highlighted item, so selectResult
+                  covers both paths. aria-activedescendant on the input is managed by
+                  Autocomplete — no manual wiring.
+                */}
+                <Autocomplete.List className="maka-search-modal-results" aria-label="搜索结果">
+                  {results.map((result, index) => (
+                    <Autocomplete.Item
+                      key={`${result.target?.kind === 'thread' ? result.target.sessionId : index}-${index}`}
+                      value={result}
+                      index={index}
                       onClick={() => selectResult(result)}
-                      onKeyDown={(event) => handleResultKeyDown(event, index, result)}
-                      onFocus={() => setActiveResultIndex(index)}
-                      onMouseEnter={() => setActiveResultIndex(index)}
+                      className="maka-search-modal-result"
                       disabled={!props.onNavigateToSession || result.target?.kind !== 'thread'}
                     >
                       <div className="maka-search-modal-result-title">{result.title}</div>
@@ -449,13 +370,13 @@ export function SearchModal(props: {
                         // per kenji SEARCH gate (no path / no URL exposure).
                         <div className="maka-search-modal-result-snippet">{renderSearchSnippet(result.snippet, trimmed)}</div>
                       )}
-                    </UiButton>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
+                    </Autocomplete.Item>
+                  ))}
+                </Autocomplete.List>
+              </>
+            )}
+          </div>
+        </Autocomplete.Root>
       </DialogContent>
     </DialogRoot>
   );

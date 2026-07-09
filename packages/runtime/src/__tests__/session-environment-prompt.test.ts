@@ -46,3 +46,25 @@ describe('session environment prompt date', () => {
     assert.match(prompt, /Today's date: 2026-05-29/);
   });
 });
+describe('session environment prompt shell line', () => {
+  it('declares the executing shell inside the env block', async () => {
+    const { buildSessionEnvironmentPromptFragment } = await import('../system-prompt/session-environment-prompt.js');
+    const prompt = buildSessionEnvironmentPromptFragment({
+      cwd: '/repo',
+      projectGit: { isGitRepo: true, branch: 'main' },
+      platform: 'win32',
+      shell: 'PowerShell 7 (pwsh)',
+    });
+    assert.match(prompt, /  Shell: PowerShell 7 \(pwsh\)\n/);
+  });
+
+  it('defaults the shell line to the detected process shell', async () => {
+    const { buildSessionEnvironmentPromptFragment } = await import('../system-prompt/session-environment-prompt.js');
+    const { defaultShellPlan } = await import('../shell-detect.js');
+    const prompt = buildSessionEnvironmentPromptFragment({
+      cwd: '/repo',
+      projectGit: { isGitRepo: false },
+    });
+    assert.ok(prompt.includes(`  Shell: ${defaultShellPlan().displayName}`));
+  });
+});

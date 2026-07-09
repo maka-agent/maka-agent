@@ -1,10 +1,18 @@
 import type { ReactNode } from 'react';
+import { Card } from '@maka/ui';
 
-export function SettingsRows(props: { children: ReactNode }) {
-  return <div className="settingsRows">{props.children}</div>;
+export function SettingsRows({ className, children }: { className?: string; children: ReactNode }) {
+  return (
+    <Card className={className ? `settingsRows ${className}` : 'settingsRows'}>
+      {children}
+    </Card>
+  );
 }
 
-export function SettingRow(props: { title: string; detail: string; value: string; mono?: boolean }) {
+export function SettingRow(props: { title: string; detail: string; value: string; mono?: boolean; action?: ReactNode }) {
+  const value = (
+    <span data-mono={props.mono ? 'true' : undefined}>{props.value}</span>
+  );
   return (
     <div className="settingsRow">
       <div>
@@ -12,8 +20,18 @@ export function SettingRow(props: { title: string; detail: string; value: string
         <small>{props.detail}</small>
       </div>
       {/* mono: filesystem paths / identifiers — right-aligned proportional
-          text wraps into a ragged multi-line block for long values. */}
-      <span data-mono={props.mono ? 'true' : undefined}>{props.value}</span>
+          text wraps into a ragged multi-line block for long values.
+          action: an optional per-row control (e.g. copy-curl on gateway
+          endpoint rows) so row-scoped actions live ON the row instead of
+          piling into a page-level button wall. */}
+      {props.action ? (
+        <span className="settingsRowValueGroup">
+          {value}
+          {props.action}
+        </span>
+      ) : (
+        value
+      )}
     </div>
   );
 }

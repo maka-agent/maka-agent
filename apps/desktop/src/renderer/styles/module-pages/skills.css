@@ -1,11 +1,15 @@
+/* Round 10: the search field and the 添加 CTA share one header row —
+   they align on the SAME control height (36px, the default button) and
+   the SAME radius family (radius-control). Previously 32px/8px vs
+   36px/6px read as two misaligned controls. */
 .maka-skill-search {
   width: min(280px, 30vw);
-  height: 32px;
+  height: 36px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1-5);
   border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-surface);
+  border-radius: var(--radius-control);
   background: var(--background);
   color: var(--muted-foreground);
   padding: 0 var(--space-2-5);
@@ -30,23 +34,11 @@
   box-shadow: 0 0 0 2px oklch(from var(--foreground) l c h / 0.055);
 }
 
+/* Detail round 6: the add CTA rides UiButton variant="default" untouched —
+   the former ghost re-skin here (hardcoded black-gradient pill) was a
+   theme-leak + radius-family violation. Only the icon/label gap remains. */
 .maka-skill-add-button {
   gap: var(--space-1);
-  border-color: oklch(0.19 0 0);
-  border-radius: var(--radius-pill);
-  background: linear-gradient(oklch(0.32 0 0), oklch(0.19 0 0));
-  box-shadow:
-    inset 0 1px 0 oklch(1 0 0 / 0.15),
-    0 1px 2px oklch(0.1 0 0 / 0.10);
-  color: oklch(1 0 0);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-}
-
-.maka-skill-add-button:hover {
-  border-color: oklch(0.24 0 0);
-  background: linear-gradient(oklch(0.36 0 0), oklch(0.24 0 0));
-  color: oklch(1 0 0);
 }
 
 /* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Skills page
@@ -83,22 +75,22 @@
   justify-content: space-between;
   gap: var(--space-6);
   overflow: hidden;
-  border: var(--border-width-hairline) solid oklch(88% 0.035 224 / 0.72);
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.88 min(c, 0.035) h / 0.72);
   border-radius: var(--radius-surface);
   background:
     radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
-    linear-gradient(100deg, oklch(92.5% 0.035 222) 0%, oklch(93.5% 0.045 205) 56%, oklch(88.8% 0.052 199) 100%);
+    linear-gradient(100deg, oklch(from var(--brand-deep) 0.925 min(c, 0.035) h) 0%, oklch(from var(--brand-deep) 0.935 min(c, 0.045) h) 56%, oklch(from var(--brand-deep) 0.888 min(c, 0.052) h) 100%);
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.65);
   padding: var(--space-6) var(--space-8);
 }
 
-/* The banner's light-blue gradient background is theme-independent, so
-   its copy must be too: with var(--foreground) the title rendered as
-   near-white on the pale gradient in dark mode (unreadable ghost text).
-   Pin the copy to fixed inks that match the 200-224 hue background. */
+/* Banner wash + inks derive their hue from --accent (owner decision:
+   the old fixed 199-224 teal read as residual brand-green after the
+   accent moved to logo blue). Lightness stays pinned on both sides so
+   dark mode keeps readable ink-on-pale-wash contrast. */
 .maka-skill-featured-banner h3 {
   margin: 0;
-  color: oklch(0.26 0.025 224);
+  color: oklch(from var(--brand-deep) 0.26 min(c, 0.025) h);
   font-size: 1.2em;
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
@@ -107,7 +99,7 @@
 .maka-skill-featured-banner p {
   max-width: 540px;
   margin: var(--space-2-5) 0 0;
-  color: oklch(0.42 0.02 220);
+  color: oklch(from var(--brand-deep) 0.42 min(c, 0.02) h);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
 }
@@ -139,24 +131,24 @@
   /* Fixed inks: these floating cards stay white in both themes (they
      sit on the theme-independent banner), so their border/copy must
      not follow --foreground or they wash out in dark mode. */
-  border: var(--border-width-hairline) solid oklch(0.2 0.01 224 / 0.09);
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.2 min(c, 0.01) h / 0.09);
   border-radius: var(--radius-control);
   background: linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96));
-  color: oklch(0.44 0.015 220);
+  color: oklch(from var(--brand-deep) 0.44 min(c, 0.015) h);
   box-shadow:
-    0 12px 24px -20px oklch(0.2 0.02 224 / 0.4),
-    0 1px 2px oklch(0.2 0.02 224 / 0.08);
+    0 12px 24px -20px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.4),
+    0 1px 2px oklch(from var(--brand-deep) 0.2 min(c, 0.02) h / 0.08);
 }
 
 .maka-skill-featured-art strong {
-color: oklch(0.34 0.02 224);
+color: oklch(from var(--brand-deep) 0.34 min(c, 0.02) h);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
 }
 
 .maka-skill-featured-art small {
-color: oklch(0.55 0.015 220);
+color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
@@ -166,7 +158,7 @@ color: oklch(0.55 0.015 220);
   left: 14px;
   top: 12px;
   transform: rotate(-14deg);
-  color: oklch(64% 0.15 154);
+  color: oklch(from var(--brand-deep) 0.64 min(c, 0.15) h);
 }
 
 .maka-skill-featured-art span:nth-child(2) {
@@ -199,6 +191,24 @@ color: oklch(0.55 0.015 220);
   justify-content: space-between;
   gap: var(--space-4);
   border-bottom: var(--border-width-hairline) solid var(--border);
+}
+
+/* Marketplace launch: category + sort dropdowns ride the tab row's right
+   edge (market tab only). Two quiet SettingsSelect triggers sized down to
+   the tab-row rhythm; the SettingsSelect trigger chrome itself is owned by
+   its own stylesheet — here we only constrain width + height. */
+.maka-skill-market-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.maka-skill-market-select {
+  min-width: 0;
+  width: auto;
+  height: var(--h-control-sm);
+  min-height: var(--h-control-sm);
 }
 
 .maka-skill-tabs {
@@ -237,26 +247,20 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-filter-actions {
-  display: inline-flex;
+  min-width: 0;
+  display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding-bottom: var(--space-1-5);
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 .maka-skill-filter-pill {
-  /* Rendered as a static <span> since the filter/sort controls are not
-     wired yet (was a disabled UiButton that promised interactivity). */
-  display: inline-flex;
-  align-items: center;
-  height: 28px;
-  border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
-  background: var(--background);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
+  min-width: 0;
+  min-height: var(--h-control-sm);
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
-  padding: 0 var(--space-3);
-  opacity: 1;
+  padding: 0 var(--space-2-5);
 }
 
 .maka-skill-market {
@@ -280,7 +284,9 @@ color: oklch(0.55 0.015 220);
 
 .maka-skill-market-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Marketplace grid: 3 columns on wide, collapsing to 2/1 via auto-fit as
+     the panel narrows (panel max-width 900px → ~2 cols; narrow → 1). */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--space-3);
 }
 
@@ -310,15 +316,36 @@ color: oklch(0.55 0.015 220);
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
+  gap: var(--space-2-5);
+}
+
+.maka-skill-market-card-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: var(--space-0-5);
 }
 
 .maka-skill-market-card h3 {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
+}
+
+/* Slug caption: soft monospace, matching the library row's id treatment. */
+.maka-skill-market-card-title small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-normal);
 }
 
 .maka-skill-market-card small,
@@ -326,6 +353,31 @@ color: oklch(0.55 0.015 220);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
+}
+
+/* + install: quiet icon button anchored top-right of the card head; only
+   this element acts, keeping the card body an honest inert surface. */
+.maka-skill-market-install-button {
+  flex: 0 0 auto;
+  width: var(--h-control-sm);
+  min-width: var(--h-control-sm);
+  height: var(--h-control-sm);
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--muted-foreground);
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-skill-market-card:hover .maka-skill-market-install-button:not(:disabled),
+.maka-skill-market-install-button:not(:disabled):hover {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-skill-market-category {
+  justify-self: start;
 }
 
 .maka-skill-market-card p {
@@ -470,7 +522,7 @@ color: oklch(0.55 0.015 220);
   padding: 0;
   list-style: none;
   min-height: 0;
-  overflow: visible;
+  overflow: hidden;
   display: grid;
   align-content: start;
   gap: 0;
@@ -480,33 +532,40 @@ color: oklch(0.55 0.015 220);
 }
 
 .maka-skill-library-item {
+  --maka-skill-library-action-size: var(--h-control-sm);
   min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--space-3);
+  transition: background-color var(--duration-base) var(--ease-out-strong);
 }
 
 .maka-skill-library-item + .maka-skill-library-item {
   border-top: var(--border-width-hairline) solid var(--foreground-8);
 }
 
-/* Justified: this row is a shared `UiButton variant="ghost"` but the surface
-   owns its own grid layout, height, and wrapping rules. Keep these
-   `!important` overrides until the primitive exposes a layout-bare variant
-   for the skill library surface. */
 .maka-skill-library-row {
-  appearance: none;
+  --maka-skill-library-icon-size: calc(var(--space-8) + var(--space-0-5));
+  --maka-skill-library-copy-min-inline: calc((var(--space-16) * 3) - var(--space-3));
+  --maka-skill-library-status-min-inline: calc(var(--space-16) + var(--space-2));
   width: 100%;
-  height: auto !important;
-  min-height: 58px;
+  min-height: calc(var(--maka-skill-library-icon-size) + (var(--space-3) * 2));
   display: grid;
-  grid-template-columns: 34px minmax(180px, 1fr) minmax(72px, max-content) 40px 36px;
+  grid-template-columns:
+    var(--maka-skill-library-icon-size)
+    minmax(var(--maka-skill-library-copy-min-inline), 1fr)
+    minmax(var(--maka-skill-library-status-min-inline), max-content);
   align-items: center;
-  justify-content: stretch !important;
+  justify-content: stretch;
   gap: var(--space-2-5);
   padding: var(--space-2-5) var(--space-3);
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--foreground);
-  white-space: normal !important;
+  white-space: normal;
   text-align: left;
   transition: background-color var(--duration-base) var(--ease-out-strong);
 }
@@ -515,25 +574,17 @@ color: oklch(0.55 0.015 220);
    NEUTRAL gray (#efefef ≈ foreground/0.06), never tinted with the brand color.
    The purple-tinted row hover read as "themed"; neutral reads calmer/native.
    See notes/近期 UI study §1.4, §4. */
-.maka-skill-library-row:hover {
+.maka-skill-library-item:hover,
+.maka-skill-library-item:focus-within {
   background: var(--state-hover-bg);
-}
-
-.maka-skill-library-row:active {
-  background: var(--state-selected-bg);
-}
-
-.maka-skill-library-row:focus-visible {
-  outline: var(--focus-ring-width) solid oklch(from var(--focus-ring) l c h / 0.35);
-  outline-offset: var(--focus-ring-offset);
 }
 
 /* PR-UI-PIXEL-1: skill rows are anchored by a reference-style icon tile —
    a 38px rounded white square with a hairline + ultra-soft shadow holding the
    glyph (study §3.2), instead of the previous flat 20px chip. */
 .maka-skill-library-status {
-  width: 34px;
-  height: 34px;
+  width: var(--maka-skill-library-icon-size);
+  height: var(--maka-skill-library-icon-size);
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-surface);
@@ -546,8 +597,8 @@ color: oklch(0.55 0.015 220);
 
 /* PR-UI-PIXEL-1: tile stays white on hover (reference keeps icon tiles
    neutral); only the glyph deepens. */
-.maka-skill-library-row:hover .maka-skill-library-status,
-.maka-skill-library-row:focus-visible .maka-skill-library-status {
+.maka-skill-library-item:hover .maka-skill-library-status,
+.maka-skill-library-item:focus-within .maka-skill-library-status {
   background: var(--background);
   color: var(--foreground);
 }
@@ -609,50 +660,126 @@ color: oklch(0.55 0.015 220);
   letter-spacing: var(--tracking-normal);
 }
 
-.maka-skill-library-action {
+/* .maka-skill-library-runtime-label / .maka-skill-library-status-label are now
+   rendered by the Chip primitive (squared status label, tone→alpha authority in
+   packages/ui/src/primitives/chip.tsx). The tone derivation lives in
+   skills-panel.tsx (skillStatusChipTone); no bespoke label CSS remains. */
+
+.maka-skill-library-open-button {
   justify-self: end;
-  min-width: 40px;
-  padding: var(--space-0-5) var(--space-2);
+  width: var(--maka-skill-library-action-size);
+  min-width: var(--maka-skill-library-action-size);
+  height: var(--maka-skill-library-action-size);
+  padding: 0;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-control);
   background: var(--background);
   color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  text-align: center;
   transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
 }
 
-.maka-skill-library-row:hover .maka-skill-library-action,
-.maka-skill-library-row:focus-visible .maka-skill-library-action {
+.maka-skill-library-item:hover .maka-skill-library-open-button,
+.maka-skill-library-item:focus-within .maka-skill-library-open-button {
   background: var(--state-hover-bg);
   color: var(--foreground);
 }
 
-.maka-skill-library-switch {
-  position: relative;
+.maka-skill-library-runtime-switch {
   justify-self: end;
-  width: 34px;
-  height: 18px;
-  border-radius: var(--radius-pill);
-  background: var(--control);
-  box-shadow: inset 0 0 0 1px oklch(from var(--foreground) l c h / 0.05);
 }
 
-.maka-skill-library-switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 18px;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius-pill);
-  background: var(--background);
-  box-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.22);
+.maka-skill-library-item > .maka-skill-market-install {
+  justify-self: end;
 }
 
 .maka-skill-installed-empty {
   align-self: stretch;
+}
+
+.maka-skill-governance-review {
+  --maka-skill-diff-preview-max-block: calc(var(--space-16) * 4);
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  border: var(--border-width-hairline) solid var(--foreground-8);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  padding: var(--space-3);
+}
+
+.maka-skill-governance-summary {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.maka-skill-governance-summary span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--foreground) l c h / 0.05);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  padding: var(--space-0-5) var(--space-2);
+}
+
+.maka-skill-governance-warning {
+  margin: 0;
+  border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.22);
+  border-radius: var(--radius-control);
+  background: oklch(from var(--warning) l c h / 0.08);
+  color: var(--foreground-secondary);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+  padding: var(--space-2);
+}
+
+.maka-skill-diff-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.maka-skill-diff-grid > div {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.maka-skill-diff-grid span {
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+}
+
+.maka-skill-diff-grid pre {
+  min-width: 0;
+  max-height: var(--maka-skill-diff-preview-max-block);
+  overflow: auto;
+  margin: 0;
+  border: var(--border-width-hairline) solid var(--foreground-8);
+  border-radius: var(--radius-control);
+  background: var(--foreground-2);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  line-height: var(--leading-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: var(--space-2);
+}
+
+.maka-skill-governance-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-1);
 }
 
 @media (max-width: 820px) {
@@ -664,8 +791,13 @@ color: oklch(0.55 0.015 220);
     grid-template-columns: minmax(0, 1fr);
   }
 
-.maka-skill-library-row {
-    grid-template-columns: 38px minmax(0, 1fr) max-content;
+  .maka-skill-library-item {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+  }
+
+  .maka-skill-library-row {
+    --maka-skill-library-icon-size: calc(var(--space-8) + var(--space-1-5));
+    grid-template-columns: var(--maka-skill-library-icon-size) minmax(0, 1fr);
     gap: var(--space-1-5);
   }
 
@@ -675,13 +807,14 @@ color: oklch(0.55 0.015 220);
     white-space: normal;
   }
 
-  .maka-skill-library-action {
-    grid-column: 2;
+  .maka-skill-library-item > .maka-skill-market-install {
+    grid-column: 1 / -1;
     justify-self: start;
+    margin-left: var(--space-3);
+    margin-bottom: var(--space-2-5);
   }
 
-  .maka-skill-library-switch {
-    grid-column: 3;
-    grid-row: 1;
+  .maka-skill-diff-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

@@ -62,7 +62,6 @@ export const SkillsFocusHealthy: Story = {
   render: () => (
     <StripFrame>
       <CapabilityAuditStrip
-        focus="skills"
         report={report({
           sourceCount: 3,
           readySourceCount: 3,
@@ -80,7 +79,6 @@ export const AutomationsFocusHealthy: Story = {
   render: () => (
     <StripFrame>
       <CapabilityAuditStrip
-        focus="automations"
         report={report({
           sourceCount: 2,
           readySourceCount: 2,
@@ -97,7 +95,6 @@ export const WithRisks: Story = {
   render: () => (
     <StripFrame>
       <CapabilityAuditStrip
-        focus="skills"
         report={report({
           sourceCount: 4,
           readySourceCount: 2,
@@ -121,7 +118,7 @@ export const WithRisks: Story = {
 export const Empty: Story = {
   render: () => (
     <StripFrame>
-      <CapabilityAuditStrip focus="skills" report={report({})} />
+      <CapabilityAuditStrip report={report({})} />
     </StripFrame>
   ),
 };

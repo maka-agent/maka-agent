@@ -140,18 +140,54 @@
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border: var(--border-width-hairline) solid oklch(from var(--success) l c h / 0.24);
+  /* Detail audit: this card family (关于 privacy card + 数据 import/export)
+     wore --success green as SECTION EMPHASIS — a non-status use that read
+     as residual brand-green after the blue rebrand. Brand family instead. */
+  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) l c h / 0.22);
   border-radius: var(--radius-surface);
-  background: oklch(from var(--success) l c h / 0.04);
+  background: oklch(from var(--brand-deep) l c h / 0.04);
 }
 
 .settingsAboutPrivacy h3 {
   margin: 0;
-  color: var(--success);
+  color: oklch(from var(--brand-deep) calc(l - 0.12) c h);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-bold);
   letter-spacing: var(--tracking-wider);
   text-transform: uppercase;
+}
+
+.settingsConfigCategoryList {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.settingsConfigCategoryItem {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.settingsConfigCategoryItem small {
+  display: block;
+  color: var(--muted-foreground);
+}
+
+.settingsConfigCategoryItem small[data-tone="destructive"] {
+  margin-top: var(--space-1);
+  color: var(--destructive);
+}
+
+.settingsConfigStrategy {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2-5);
+}
+
+.settingsConfigStrategy > .settingsHelpText {
+  white-space: nowrap;
 }
 
 .settingsAboutPrivacy ul {
@@ -333,12 +369,12 @@
    palette's brand identity even when the current page is on a
    different palette. */
 .settingsPaletteSwatch-default          { background: oklch(0.70 0.135 250); }
-.settingsPaletteSwatch-onedark          { background: oklch(0.60 0.14 250); }
+.settingsPaletteSwatch-onedark          { background: oklch(0.62 0.13 237); }
 .settingsPaletteSwatch-catppuccin-mocha { background: oklch(0.65 0.18 330); }
 .settingsPaletteSwatch-tokyo-night      { background: oklch(0.55 0.16 215); }
 .settingsPaletteSwatch-nord             { background: oklch(0.62 0.12 215); }
 .settingsPaletteSwatch-coral            { background: oklch(0.68 0.18 25); }
-.settingsPaletteSwatch-azure            { background: oklch(0.58 0.18 252); }
+.settingsPaletteSwatch-azure            { background: oklch(0.55 0.12 195); }
 .settingsPaletteSwatch-forest           { background: oklch(0.50 0.12 152); }
 .settingsPaletteSwatch-dusk             { background: oklch(0.55 0.18 305); }
 .settingsPaletteSwatch-sand             { background: oklch(0.62 0.14 55); }
@@ -415,31 +451,10 @@
   gap: var(--space-3);
   margin-top: var(--space-2);
 }
-.settingsBotAction {
-  appearance: none;
-  min-width: 110px;
-  min-height: 36px;
-  padding: 0 var(--space-6);
-  border: var(--border-width-hairline) solid oklch(from var(--accent) l c h / 0.45);
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--accent);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-  transition: background var(--duration-quick) var(--ease-out-strong), border-color var(--duration-quick) var(--ease-out-strong), color var(--duration-quick) var(--ease-out-strong);
-}
-.settingsBotAction:hover {
-  background: oklch(from var(--accent) l c h / 0.08);
-}
-.settingsBotAction:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.22);
-}
-.settingsBotAction[disabled] {
-  opacity: var(--opacity-disabled);
-  cursor: not-allowed;
-}
-
+/* Detail audit: the .settingsBotAction pill re-skin (radius-pill + raw
+   accent chrome smuggled through this file's governance allowlist) was
+   removed — the buttons render as standard UiButton secondary chips like
+   every other settings action. */
 /* Inline hint after a field label — mirrors "(国内网络必填)" /
    "(仅用于 Bot 鉴权)" in the reference. */
 .settingsFieldHint {
@@ -483,16 +498,6 @@
   flex-direction: column;
   gap: var(--space-3);
   box-shadow: var(--shadow-minimal);
-}
-.settingsBotScanLoginHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.settingsBotScanLoginHeader h3 {
-  margin: 0;
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
 }
 .settingsBotScanLoginBody {
   display: flex;
@@ -565,17 +570,6 @@
   border-left: var(--border-width-thick) solid var(--border);
 }
 
-.settingsWechatQrBackdrop {
-  position: fixed;
-  inset: 0;
-  z-index: calc(var(--z-modal) + 1);
-  display: grid;
-  place-items: center;
-  background: oklch(0.34 0.004 286 / 0.34);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
 .settingsWechatQrModal {
   width: min(360px, calc(100vw - 40px));
   display: grid;
@@ -589,19 +583,6 @@
   padding: var(--space-4);
 }
 
-.settingsWechatQrHeader {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-3);
-}
-
-.settingsWechatQrHeader h3 {
-  margin: 0 0 var(--space-1);
-  font-size: 1.0667em;
-  font-weight: var(--font-weight-semibold);
-}
-
-.settingsWechatQrHeader p,
 .settingsWechatQrCaption {
   margin: 0;
   color: var(--muted-foreground);
@@ -609,23 +590,6 @@
   line-height: var(--leading-normal);
 }
 
-.settingsWechatQrClose {
-  width: 30px;
-  height: 30px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: var(--radius-control);
-  background: transparent;
-  color: var(--muted-foreground);
-}
-
-.settingsWechatQrClose:hover {
-  background: var(--state-hover-bg);
-  color: var(--foreground);
-}
-
-.settingsWechatQrClose:focus-visible,
 .settingsWechatQrSecondary:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px oklch(from var(--accent) l c h / 0.24);

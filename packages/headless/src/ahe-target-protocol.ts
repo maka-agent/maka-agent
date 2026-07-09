@@ -214,7 +214,7 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
     editable: true,
     sourceRefs: [
       { path: 'apps/desktop/src/main/system-prompt-main.ts' },
-      { path: 'apps/desktop/src/main/session-environment-prompt.ts' },
+      { path: 'packages/runtime/src/system-prompt/session-environment-prompt.ts' },
       { path: 'apps/desktop/src/main/workspace-instructions.ts' },
     ],
   },
@@ -253,7 +253,7 @@ export const MAKA_AHE_CURRENT_COMPONENTS: readonly MakaAheTargetComponent[] = [
       { path: 'packages/runtime/src/context-budget.ts' },
       { path: 'packages/runtime/src/active-full-compact.ts' },
       { path: 'packages/runtime/src/semantic-compact.ts' },
-      { path: 'apps/desktop/src/main/context-budget-policy.ts' },
+      { path: 'packages/runtime/src/context-budget-policy.ts' },
     ],
   },
   {

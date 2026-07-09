@@ -257,7 +257,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: var(--border-width-hairline) dashed oklch(from var(--info) l c h / 0.32);
+  border: var(--border-width-hairline) solid oklch(from var(--info) l c h / 0.32);
   border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.06);
   color: var(--foreground-secondary);
@@ -565,19 +565,6 @@
    (cards carry their own L padding internally), and bump the heading
    to 12/2px tracking so it reads as a real sub-section break rather
    than a hairline. */
-.settingsSectionHeading {
-  margin: var(--space-6) var(--space-0-5) var(--space-2-5);
-  color: var(--muted-foreground);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-widest);
-  text-transform: uppercase;
-}
-.settingsStructuredPage > .settingsSectionHeading:first-child {
-  margin-top: 0;
-}
-
-
 .settingsEmptyState {
   min-height: 240px;
   display: grid;
@@ -603,6 +590,18 @@
   border-radius: 0;
   background: transparent;
   transition: background var(--duration-base) var(--ease-out-strong);
+}
+
+/* Detail audit round 3: vertical variant for full-width controls (the
+   personalization tone textarea) living inside the shared card rows. */
+.settingsFormRow[data-orient="vertical"] {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.settingsFormRow[data-orient="vertical"] .settingsActionRow {
+  margin: 0;
 }
 
 .settingsFormRow:last-child {
@@ -651,48 +650,39 @@
   .settingsField textarea {
     transition: none !important;
   }
-  .settingsFormRow [role="switch"] > span,
-  .settingsField [role="switch"] > span {
+  .settingsModal [role="switch"] > span {
     transition: none;
   }
 }
 
-/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15, WAWQAQ msg `f7e9d166`):
-   the BaseSwitch shared adapter renders at `h-5 w-9` (20×36px) with a
-   16×16 thumb — too small inside the now-roomy settings rows.
-   Reference toggles inside Settings are noticeably larger and the
-   on-state is a more saturated green. Scope the bigger size to
-   settings rows only so the Switch primitive stays compact in chat /
-   sidebar usage. The thumb translate offset (`1.125rem` for h-5)
-   no longer reaches the right side at h-6.5, so we override it with
-   a calc that scales with the new track width. */
-.settingsFormRow [role="switch"],
-.settingsField [role="switch"] {
+/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15) + switch-geometry round 8:
+   the BaseSwitch shared adapter renders at 36×20 with a 16×16 thumb —
+   too small inside the roomy settings rows. ONE scope for the bigger
+   size: every switch inside the settings modal (`.settingsModal`), so
+   pages that aren't built from settingsFormRow/settingsField (数据
+   导入导出's category list, ad-hoc rows) can't fall back to the compact
+   scale and split the app into two switch sizes.
+   Geometry: 46px track − 2×1px border − 22px thumb − 2px inset = 20px
+   checked travel — SYMMETRIC 2px insets on both sides (the old 22px
+   value parked the thumb flush against the right border while the
+   unchecked side kept a 2px gap).
+   The overrides write the `translate:` property (not `transform:`)
+   because Tailwind v4's translate-x utilities emit `translate:` — a
+   `transform` override would stack additively instead of replacing. */
+.settingsModal [role="switch"] {
   height: 26px;
   width: 46px;
   border-radius: var(--radius-pill);
 }
 
-.settingsFormRow [role="switch"] > span,
-.settingsField [role="switch"] > span {
+.settingsModal [role="switch"] > span {
   height: 22px;
   width: 22px;
-  /* WAWQAQ msg `b45dc33d` 2026-06-25: Settings Switch thumbs ("白点")
-     were escaping the track to the right. Root cause: Tailwind v4's
-     `translate-x-0.5` / `translate-x-[1.125rem]` utilities applied on
-     <BaseSwitch.Thumb> in `packages/ui/src/ui.tsx:464` emit the
-     `translate:` CSS property, not `transform:`. The previous overrides
-     here set `transform: translateX(...)`, which is an INDEPENDENT
-     property — both stacked additively, pushing the thumb 2-18px past
-     the right edge of the 46px track at h-6.5 settings scale.
-     Fix: override the same `translate:` property so the value wins by
-     specificity instead of compounding. */
   translate: 2px 0;
 }
 
-.settingsFormRow [role="switch"][data-checked] > span,
-.settingsField [role="switch"][data-checked] > span {
-  translate: 22px 0;
+.settingsModal [role="switch"][data-checked] > span {
+  translate: 20px 0;
 }
 
 .settingsFormRow strong,
@@ -700,7 +690,7 @@
 .settingsFormGrid label span {
   display: block;
   color: var(--foreground);
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-heading);
   font-weight: var(--font-weight-medium);
   line-height: var(--leading-snug);
 }
@@ -710,8 +700,7 @@
   display: block;
   margin-top: var(--space-1-5);
   color: var(--muted-foreground);
-  /* Hint is the most-read body text on the page; use the base scale so
-     it clears the 14px legibility floor. */
+  /* Hint is the most-read body text on the page; body tier (13). */
   font-size: var(--font-size-base);
   line-height: var(--leading-normal);
 }

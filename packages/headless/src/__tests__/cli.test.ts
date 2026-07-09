@@ -213,6 +213,7 @@ describe('maka-headless CLI', () => {
       assert.equal(taskRunJson.policy.economyTask.triggerSource, 'config');
       assert.equal(taskRunJson.verifier.kind, 'terminal_bench');
       assert.equal(taskRunJson.verifier.benchmark.instanceId, 'tb-real-backend');
+      assert.equal(taskRunJson.verifier.benchmark.dataset, 'terminal-bench/terminal-bench-2-1');
       assert.equal(taskRunJson.verifier.benchmark.pendingExternalHarborVerifier, true);
       assert.equal(taskRunJson.verifier.authority.authoritative, false);
       assert.equal(taskRunJson.verifier.authority.label, 'external Harbor verifier pending');
@@ -224,6 +225,40 @@ describe('maka-headless CLI', () => {
       const resultJson = await readFile(join(outDir, 'exports', 'harbor-run-1', 'result.json'), 'utf8');
       assert.doesNotMatch(resultJson, /verificationPlaceholder/);
       assert.doesNotMatch(resultJson, /unsupported local benchmark placeholder/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('harbor run task-run honors an explicit benchmark dataset override', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-headless-harbor-cli-'));
+    try {
+      const fixture = join(dir, 'fixture');
+      const outDir = join(dir, 'out');
+      await mkdir(fixture, { recursive: true });
+
+      const result = await runCli([
+        'harbor',
+        'run',
+        '--backend',
+        'fake',
+        '--isolation',
+        'none',
+        '--instruction',
+        'solve it',
+        '--workdir',
+        fixture,
+        '--task-id',
+        'tb-custom-dataset',
+        '--task-run-id',
+        'harbor-run-custom-dataset',
+        '--out',
+        outDir,
+      ], { env: { MAKA_BENCHMARK_DATASET: 'terminal-bench/custom' } });
+      assert.equal(result.code, 0, result.stderr);
+
+      const taskRunJson = JSON.parse(await readFile(join(outDir, 'exports', 'harbor-run-custom-dataset', 'task-run.json'), 'utf8'));
+      assert.equal(taskRunJson.verifier.benchmark.dataset, 'terminal-bench/custom');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

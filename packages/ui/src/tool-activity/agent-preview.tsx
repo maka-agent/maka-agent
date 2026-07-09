@@ -151,7 +151,7 @@ export function ExploreAgentPreview(props: {
               data-copied={summaryCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={summaryCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {summaryCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {summaryCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{summaryCopy.label}</span>
             </UiButton>
           </div>
@@ -172,7 +172,7 @@ export function ExploreAgentPreview(props: {
               data-copy-error={continuationCopy.phase === 'failed' ? 'true' : undefined}
               title="复制一段可继续只读探索的提示"
             >
-              {continuationCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {continuationCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{continuationCopy.label}</span>
             </UiButton>
           </div>
@@ -242,7 +242,7 @@ export function ExploreAgentPreview(props: {
               data-copied={processCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={processCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {processCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {processCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{processCopy.label}</span>
             </UiButton>
           </div>
@@ -272,7 +272,7 @@ export function ExploreAgentPreview(props: {
               data-copied={evidenceCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={evidenceCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {evidenceCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {evidenceCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{evidenceCopy.label}</span>
             </UiButton>
           </div>
@@ -309,7 +309,7 @@ export function ExploreAgentPreview(props: {
               data-copied={reportCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={reportCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {reportCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {reportCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{reportCopy.label}</span>
             </UiButton>
           </div>
@@ -339,7 +339,7 @@ export function ExploreAgentPreview(props: {
               data-copied={candidateCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={candidateCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {candidateCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {candidateCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{candidateCopy.label}</span>
             </UiButton>
           </div>
@@ -373,7 +373,7 @@ export function ExploreAgentPreview(props: {
               data-copied={matchesCopy.phase === 'copied' ? 'true' : 'false'}
               data-copy-error={matchesCopy.phase === 'failed' ? 'true' : undefined}
             >
-              {matchesCopy.phase === 'copied' ? <Check size={13} strokeWidth={2} aria-hidden="true" /> : <Copy size={13} strokeWidth={1.75} aria-hidden="true" />}
+              {matchesCopy.phase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
               <span>{matchesCopy.label}</span>
             </UiButton>
           </div>

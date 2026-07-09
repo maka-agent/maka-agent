@@ -19,9 +19,11 @@
 .maka-daily-review-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    /* P2-10: range picker + stepper are one time-control cluster on the
+       left (was space-between, which split them to opposite corners). */
+    justify-content: flex-start;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: var(--space-3);
     padding: var(--space-0-5) var(--space-0-5) var(--space-1-5);
     border-bottom: var(--border-width-hairline) solid var(--foreground-10);
   }
@@ -36,24 +38,6 @@
 /* PR-DAILY-REVIEW-FULL-0: info banner explaining the feature, plus a
    manual-trigger row. Banner uses the page-card recipe with a softer
    tint so it reads as supporting context, not a primary surface. */
-/* Unboxed: the old two-paragraph banner card pushed real content
-   below the fold; the explanation is now a single quiet hint line. */
-.maka-daily-review-info {
-    display: grid;
-    gap: var(--space-1);
-    padding: 0 var(--space-0-5);
-  }
-.maka-daily-review-info-hint {
-    margin: 0;
-    font-size: var(--font-size-caption);
-    line-height: var(--leading-normal);
-    color: var(--muted-foreground);
-  }
-.maka-daily-review-info-hint strong {
-    font-weight: var(--font-weight-semibold);
-    color: var(--foreground-secondary);
-  }
-
 .maka-daily-review-quick-runs {
   /* WAWQAQ msg `3871e56b` 2026-06-25: "按钮的位置也不对。按道理一般都
      是在右边，现在都是直接靠近文本的。"
@@ -128,28 +112,18 @@
     padding: 0;
   }
 
+/* Migrated onto the Item primitive (round 2): hover 4% / selected 6.5%
+   fills + the stacked title-over-meta column now come from Item +
+   ItemContent, so this rule keeps only geometry (padding, radius) and the
+   selected-state border accent. `data-selected` is Item's selected hook. */
 .maka-daily-review-archive-row {
-  appearance: none;
   border: var(--border-width-hairline) solid transparent;
   border-radius: var(--radius-control);
-  background: transparent;
-  color: inherit;
-  display: grid;
-  gap: 1px;
   min-width: 0;
   padding: var(--space-1-5) var(--space-2);
-  text-align: left;
-  transition:
-    background var(--duration-quick) var(--ease-out-strong),
-    border-color var(--duration-quick) var(--ease-out-strong);
 }
 
-.maka-daily-review-archive-row:hover {
-  background: var(--state-hover-bg);
-}
-
-.maka-daily-review-archive-row[data-active="true"] {
-  background: var(--state-selected-bg);
+.maka-daily-review-archive-row[data-selected] {
   border-color: var(--border-strong);
 }
 
@@ -214,26 +188,12 @@
     overflow-wrap: anywhere;
   }
 
+/* .maka-daily-review-archive-status is now the Chip primitive (squared status
+   label); tone→alpha from chip.tsx, ok/failed/no_model mapping from
+   dailyReviewArchiveChipTone in daily-review-panel.tsx. The status Chip keeps
+   flex:none so it never shrinks against the archive header title. */
 .maka-daily-review-archive-status {
     flex: none;
-    border: var(--border-width-hairline) solid var(--foreground-10);
-    border-radius: var(--radius-pill);
-    color: var(--muted-foreground);
-    font-size: var(--font-size-caption);
-    line-height: var(--leading-none);
-    padding: var(--space-1) var(--space-1-5);
-    white-space: nowrap;
-  }
-
-.maka-daily-review-archive-status[data-status="ok"] {
-    border-color: oklch(from var(--success, var(--status-running)) l c h / 0.26);
-    color: var(--success, var(--status-running));
-  }
-
-.maka-daily-review-archive-status[data-status="failed"],
-  .maka-daily-review-archive-status[data-status="no_model"] {
-    border-color: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.30);
-    color: var(--destructive, var(--warning, var(--foreground)));
   }
 
 .maka-daily-review-archive-error {
@@ -532,4 +492,27 @@
   transform: none;
   min-height: 120px;
   align-content: center;
+}
+
+/* Designer audit P0-4: one-line stand-in for the full empty-state card when
+   saved reports already occupy the page — a second full-height empty card
+   below them read as a broken section. */
+.maka-daily-review-activity-note {
+  margin: 0;
+  padding: var(--space-2) var(--space-1);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-ui);
+}
+
+/* Daily-review sidebar panel body. Relocated from tool-stream.css — issue #546 PR1. */
+/* ────────────────────────────────────────────────────────────────
+   PR-DAILY-REVIEW-MVP-0: 每日回顾 sidebar panel.
+   ──────────────────────────────────────────────────────────────── */
+.maka-daily-review-panel {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5) var(--space-5);
 }

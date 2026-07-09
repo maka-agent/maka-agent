@@ -53,12 +53,9 @@ export function createAppShellTurnActions(deps: {
     // retry/regenerate IPC returns after starting the stream asynchronously.
     if (!addPendingTurnAction(key)) return;
     try {
-      if (actionId === 'retry') {
-        await window.maka.sessions.retryTurn(sessionId, { sourceTurnId: turnId });
-        if (activeIdRef.current === sessionId) toastApi.info('已发起重试', '正在生成新的一轮回答');
-      } else if (actionId === 'regenerate') {
+      if (actionId === 'regenerate') {
         await window.maka.sessions.regenerateTurn(sessionId, { sourceTurnId: turnId });
-        if (activeIdRef.current === sessionId) toastApi.info('已发起重新生成', '保留旧回答，生成新的并行回答');
+        if (activeIdRef.current === sessionId) toastApi.info('已发起重新生成', '正在生成新的一轮回答');
       } else if (actionId === 'branch') {
         const newSession = await window.maka.sessions.branchFromTurn(sessionId, { sourceTurnId: turnId });
         upsertSessionSummary(newSession);

@@ -84,7 +84,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'general', label: '通用', Icon: SettingsIcon, enabled: true, group: '通用',
     description: '隐身、启动、对话默认与网络代理等系统偏好。' },
   { id: 'appearance', label: '外观', Icon: Palette, enabled: true, group: '通用',
-    description: '主题、配色、字体面板与个性化身份。' },
+    description: '主题与配色。' },
   // Group 2: AI 与集成 — models, usage, memory, daily-review, voice+gateway, bots, search
   { id: 'models', label: '模型', Icon: Cpu, enabled: true, group: 'AI 与集成',
     description: '模型连接、API key 与 OAuth 订阅管理。' },
@@ -93,7 +93,7 @@ export const SETTINGS_NAV: SettingsNavItem[] = [
   { id: 'memory', label: '记忆', Icon: Brain, enabled: true, group: 'AI 与集成',
     description: '本地 MEMORY.md、项目指令文件与上下文注入开关。' },
   { id: 'daily-review', label: '每日回顾', Icon: CalendarDays, enabled: true, group: 'AI 与集成',
-    description: '当天对话、模型与工具用量汇总。' },
+    description: '每天自动分析本机对话，生成摘要、遗漏提醒和建议。模型按需消耗。' },
   { id: 'voice', label: '语音', Icon: Mic, enabled: true, group: 'AI 与集成',
     description: '语音转写、麦克风权限与本地音频管线设置。' },
   { id: 'open-gateway', label: '开放网关', Icon: Network, enabled: true, group: 'AI 与集成',

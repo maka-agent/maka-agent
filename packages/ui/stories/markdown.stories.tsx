@@ -179,6 +179,30 @@ export const LinkRouting: Story = {
   ),
 };
 
+// Tables shrink-wrap to content and only scroll when wider than the prose
+// measure — this story pins the over-wide branch (frameless horizontal
+// scroller) next to the narrow tables in the stories above.
+export const WideTable: Story = {
+  render: () => (
+    <ProseFrame>
+      <Bubble variant="assistant" className="maka-bubble-with-actions">
+        <Markdown
+          text={[
+            '列多且内容长的表格会在正文宽度内横向滚动：',
+            '',
+            '| 会话 ID | 连接 | 模型 | 状态 | 最近一条消息时间 | 输入 tokens | 输出 tokens | 费用（USD） |',
+            '| --- | --- | --- | --- | --- | --- | --- | --- |',
+            '| visual-smoke-turn-control-primary | zai-live | glm-5.1 | waiting_for_user | 2026-07-07 18:42:11 | 125,032 | 32,480 | 0.4210 |',
+            '| visual-smoke-turn-control-branch-visible | zai-live | glm-5 | running | 2026-07-07 18:40:02 | 98,771 | 21,006 | 0.2988 |',
+            '',
+            '表格后的正文保持正常段落间距。',
+          ].join('\n')}
+        />
+      </Bubble>
+    </ProseFrame>
+  ),
+};
+
 export const LongFormArticle: Story = {
   render: () => (
     <ProseFrame width={680}>
@@ -210,6 +234,20 @@ export const LongFormArticle: Story = {
             '## 验证',
             '',
             '写完后跑一次 `npm run build-storybook`，确认所有 story 编译通过；再视情况补回归截图。',
+            '',
+            '### 截图基线怎么补',
+            '',
+            '新 story 落地后跑一遍采集脚本，把首轮产物当作基线入库。',
+            '',
+            '#### 已知噪声',
+            '',
+            '字体渲染在不同 GPU 下有亚像素差异，比对时用容差阈值。',
+            '',
+            // hr; `***` instead of triple-dash so the storybook-baseline token
+            // scan doesn't read the quoted literal as a custom-property token.
+            '***',
+            '',
+            '以上是全部范围；有疑问先在 issue 里讨论再动手。',
           ].join('\n')}
         />
       </Bubble>

@@ -1,5 +1,5 @@
 import { deriveTurnRecords } from '@maka/core';
-import type { StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
+import type { AttachmentRef, StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 
 export interface ChatItem {
   id: string;
@@ -7,6 +7,10 @@ export interface ChatItem {
   text: string;
   /** Wall-clock timestamp of the source StoredMessage; surfaced for hover meta. */
   ts?: number;
+  /** User-message attachments projected from StoredMessage; absent on assistant/system rows. */
+  attachments?: AttachmentRef[];
+  /** Present when the turn was fired by an automation, not hand-typed. */
+  automationOrigin?: { automationId: string };
 }
 
 /**
@@ -29,6 +33,14 @@ export interface ToolActivityItem {
   toolName: string;
   displayName?: string;
   intent?: string;
+  /**
+   * Assistant step this tool belongs to (equals the step's AssistantMessage
+   * id). Populated from the persisted `tool_call.stepId`, or from the live
+   * `ToolStartEvent.stepId` for in-flight tools. The turn timeline uses it to
+   * place a step's tools after that step's thinking/text; absent means a
+   * legacy call with no step association.
+   */
+  stepId?: string;
   status: 'pending' | 'waiting_permission' | 'running' | 'completed' | 'errored' | 'interrupted';
   args: unknown;
   result?: ToolResultContent;
@@ -64,10 +76,11 @@ export interface ToolActivityItem {
 // stays in the JSONL audit trail but is hidden from the chat surface so
 // the conversation reads like a conversation, not a debug log.
 const VISIBLE_SYSTEM_NOTES = new Set<string>([
-  // Reserved for future user-relevant notices, e.g. 'turn_aborted'.
+  'context_compacted',
 ]);
 
 const SYSTEM_NOTE_LABELS: Record<string, string> = {
+  context_compacted: 'Context compacted to keep this session within the model window.',
   mode_change: 'Permission mode changed',
   turn_aborted: 'Turn aborted',
 };
@@ -75,7 +88,15 @@ const SYSTEM_NOTE_LABELS: Record<string, string> = {
 export function materializeChat(messages: StoredMessage[]): ChatItem[] {
   const items: ChatItem[] = [];
   for (const message of messages) {
-    if (message.type === 'user') items.push({ id: message.id, role: 'user', text: message.text, ts: message.ts });
+    if (message.type === 'user') {
+      items.push({
+        id: message.id,
+        role: 'user',
+        text: message.text,
+        ts: message.ts,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+      });
+    }
     if (message.type === 'assistant') items.push({ id: message.id, role: 'assistant', text: message.text, ts: message.ts });
     if (message.type === 'system_note' && VISIBLE_SYSTEM_NOTES.has(message.kind)) {
       items.push({
@@ -100,6 +121,7 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
         toolName: call.toolName,
         displayName: call.displayName,
         intent: call.intent,
+        ...(call.stepId !== undefined ? { stepId: call.stepId } : {}),
         status: result ? materializeToolResultStatus(result) : 'interrupted',
         args: call.args,
         result: result?.content,
@@ -156,6 +178,25 @@ function mergeLiveOverPersisted(persisted: ToolActivityItem, live: ToolActivityI
 }
 
 /**
+ * One entry on a turn's render timeline — the interleaved thinking / answer /
+ * tool sequence in the order the model actually produced it. This is the
+ * rendering source of truth (see `TurnViewModel.timeline`); the aggregate
+ * `assistant` / `assistantThinking` fields are kept only for older consumers
+ * (copy, export, prompt rail).
+ *
+ * - `thinking`: one reasoning block (a step's thinking; adjacent blocks are
+ *   pre-merged with `\n\n`). Rendered as a collapsed "深度思考" disclosure.
+ * - `text`: one assistant answer segment (a step's text). `ts` is the source
+ *   step's wall-clock for hover meta.
+ * - `tools`: one contiguous group of tool activity, rendered as a single
+ *   Codex-style trow. Adjacent groups are pre-merged.
+ */
+export type TurnTimelineItem =
+  | { kind: 'thinking'; text: string; messageId: string }
+  | { kind: 'text'; text: string; messageId: string; ts?: number }
+  | { kind: 'tools'; items: ToolActivityItem[] };
+
+/**
  * A single conversational turn — typically one user message, the assistant's
  * tool calls (if any), and the assistant's final answer. Derived as a
  * read-only projection from `messages` + live tools (no storage changes
@@ -187,6 +228,12 @@ export interface TurnViewModel {
    * user wants to verify the chain of reasoning.
    */
   assistantThinking?: string;
+  /**
+   * Interleaved thinking / answer / tool sequence in production order — the
+   * rendering source of truth for the turn body. Built from the per-step
+   * assistant rows and each step's paired tools (see buildTurnTimeline).
+   */
+  timeline: TurnTimelineItem[];
   /** System notes inside this turn that survive the VISIBLE_SYSTEM_NOTES gate. */
   notes: ChatItem[];
   /** Wall-clock ts of the earliest message in this turn — used for sorting. */
@@ -222,6 +269,9 @@ export function materializeTurns(
   const order: string[] = [];
   const byId = new Map<string, TurnViewModel>();
   const looseTurnId = '__loose';
+  // Storage-ordered messages per turn — the raw sequence the timeline pass
+  // replays to interleave a step's thinking/text with its paired tools.
+  const messagesByTurn = new Map<string, StoredMessage[]>();
 
   function ensureTurn(turnId: string, startedAt: number): TurnViewModel {
     let turn = byId.get(turnId);
@@ -241,6 +291,7 @@ export function materializeTurns(
         partialOutputRetained: record?.partialOutputRetained ?? false,
         tools: [],
         notes: [],
+        timeline: [],
         startedAt,
       };
       byId.set(turnId, turn);
@@ -257,21 +308,46 @@ export function materializeTurns(
     const turnId = (message as { turnId?: string }).turnId ?? looseTurnId;
     const ts = (message as { ts?: number }).ts ?? 0;
     const turn = ensureTurn(turnId, ts);
+    const turnMessageList = messagesByTurn.get(turnId);
+    if (turnMessageList) turnMessageList.push(message);
+    else messagesByTurn.set(turnId, [message]);
     if (message.type === 'user') {
-      turn.user = { id: message.id, role: 'user', text: message.text, ts: message.ts };
+      turn.user = {
+        id: message.id,
+        role: 'user',
+        text: message.text,
+        ts: message.ts,
+        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+        ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),
+      };
     } else if (message.type === 'assistant') {
-      turn.assistant = { id: message.id, role: 'assistant', text: message.text, ts: message.ts };
+      // A turn now holds one AssistantMessage per model step. Concatenate their
+      // text (and thinking) in step order so the turn reads as one answer; keep
+      // the first step's id as the stable anchor, and advance ts to the latest
+      // step so durationMs measures to the turn's final assistant message.
+      const priorText = turn.assistant?.text ?? '';
+      const mergedText = message.text.length > 0
+        ? (priorText.length > 0 ? `${priorText}\n\n${message.text}` : message.text)
+        : priorText;
+      turn.assistant = {
+        id: turn.assistant?.id ?? message.id,
+        role: 'assistant',
+        text: mergedText,
+        ts: message.ts,
+      };
       turn.modelId = message.modelId;
       if (message.thinking?.text) {
-        turn.assistantThinking = message.thinking.text;
+        turn.assistantThinking = turn.assistantThinking
+          ? `${turn.assistantThinking}\n\n${message.thinking.text}`
+          : message.thinking.text;
       }
       // Time-to-answer measured from the earliest message in this turn (usually
-      // the user's send) to the assistant message ts. Tool runs are inside
-      // this window, so the same metric captures both LLM latency and tool
-      // wall-time. We only compute this once the assistant message lands, so
-      // a streaming turn stays at undefined ("进行中" per kenji's PR82
-      // review) instead of ticking up against the current clock and forcing
-      // visible re-renders.
+      // the user's send) to the turn's final assistant message ts. Tool runs are
+      // inside this window, so the same metric captures both LLM latency and tool
+      // wall-time. We only compute this once an assistant message lands, so a
+      // streaming turn stays at undefined ("进行中" per kenji's PR82 review)
+      // instead of ticking up against the current clock and forcing visible
+      // re-renders. Recomputed as each step lands, so it ends at the last step.
       if (message.ts !== undefined && message.ts >= turn.startedAt) {
         turn.durationMs = message.ts - turn.startedAt;
       }
@@ -303,21 +379,126 @@ export function materializeTurns(
   // active turn so they still surface in the right turn.
   const persistedTools = materializeTools(messages);
   const liveById = new Map(liveTools.map((tool) => [tool.toolUseId, tool]));
+  // toolItemByUseId feeds the timeline pass: the fully merged (persisted+live)
+  // item keyed by toolUseId, so replaying tool_call rows in storage order
+  // yields the same ToolActivityItem the tools list holds. liveOnlyByTurn
+  // collects in-flight tools with no persisted call yet — appended to the
+  // owning turn's timeline tail.
+  const toolItemByUseId = new Map<string, ToolActivityItem>();
+  const liveOnlyByTurn = new Map<string, ToolActivityItem[]>();
   for (const tool of persistedTools) {
     const live = liveById.get(tool.toolUseId);
     const merged = live ? mergeLiveOverPersisted(tool, live) : tool;
     const turnId = turnsByMsg.get(tool.toolUseId) ?? order[order.length - 1] ?? looseTurnId;
     const turn = ensureTurn(turnId, Date.now());
     turn.tools.push(merged);
+    toolItemByUseId.set(merged.toolUseId, merged);
     liveById.delete(tool.toolUseId);
   }
   for (const liveOnly of liveById.values()) {
     const turnId = order[order.length - 1] ?? looseTurnId;
     const turn = ensureTurn(turnId, Date.now());
     turn.tools.push(liveOnly);
+    toolItemByUseId.set(liveOnly.toolUseId, liveOnly);
+    const bucket = liveOnlyByTurn.get(turnId);
+    if (bucket) bucket.push(liveOnly);
+    else liveOnlyByTurn.set(turnId, [liveOnly]);
+  }
+
+  // Third pass: rebuild each turn's render timeline from its storage-ordered
+  // messages, interleaving a step's thinking/text with its paired tools.
+  for (const turnId of order) {
+    const turn = byId.get(turnId)!;
+    turn.timeline = buildTurnTimeline(
+      messagesByTurn.get(turnId) ?? [],
+      toolItemByUseId,
+      liveOnlyByTurn.get(turnId) ?? [],
+    );
   }
 
   return order.map((turnId) => byId.get(turnId)!);
+}
+
+/**
+ * Rebuild a turn's render timeline from its storage-ordered messages.
+ *
+ * Ledger order within a turn is tool_call(s) -> tool_result(s) ->
+ * assistant(step) -> next step's tools -> ... . Walking that sequence:
+ *
+ *  - tool_call rows buffer their (merged) ToolActivityItem into `pending`,
+ *    tagged by the item's stepId.
+ *  - an assistant row (id === a step's messageId) flushes the buffer around
+ *    its own thinking/text: earlier-step orphan tools -> thinking -> legacy
+ *    tools (no stepId) -> text -> this step's tools. Step order is
+ *    think->say->call, so thinking and text precede the tools whose stepId
+ *    matches this row; legacy tools (no stepId, pre-per-step persistence)
+ *    keep the old tools-then-summary reading and sit before the text. Tools
+ *    whose stepId matches no assistant row are orphans of a pure-tool step
+ *    (which persists no assistant message); ledger append order guarantees
+ *    they ran BEFORE this row landed, so they flush ahead of this step's
+ *    content — parking them past the text would invert the common
+ *    "call tools, then summarize next step" turn into answer-then-tools.
+ *  - leftover buffered tools (abort / pure-tool turn with no assistant row)
+ *    flush as a trailing tools group, then any live-only in-flight tools.
+ *
+ * Empty text/thinking produce no item. Adjacent thinking blocks merge with
+ * a blank line; adjacent tools groups merge into one trow.
+ */
+function buildTurnTimeline(
+  turnMessages: readonly StoredMessage[],
+  toolItemByUseId: ReadonlyMap<string, ToolActivityItem>,
+  liveOnly: readonly ToolActivityItem[],
+): TurnTimelineItem[] {
+  const raw: TurnTimelineItem[] = [];
+  let pending: ToolActivityItem[] = [];
+  const flushTools = (items: ToolActivityItem[]): void => {
+    if (items.length > 0) raw.push({ kind: 'tools', items });
+  };
+  for (const message of turnMessages) {
+    if (message.type === 'tool_call') {
+      const item = toolItemByUseId.get(message.id);
+      if (item) pending.push(item);
+    } else if (message.type === 'assistant') {
+      const rowId = message.id;
+      const legacy = pending.filter((tool) => tool.stepId === undefined);
+      const matched = pending.filter((tool) => tool.stepId === rowId);
+      // stepId set but not this row's: orphans of an earlier pure-tool step
+      // (no assistant row carries their stepId). A later step's tools cannot
+      // be pending here — the ledger appends them after this assistant row —
+      // so these ran earlier and must render before this step's content.
+      const orphaned = pending.filter((tool) => tool.stepId !== undefined && tool.stepId !== rowId);
+      pending = [];
+      flushTools(orphaned);
+      if (message.thinking?.text) {
+        raw.push({ kind: 'thinking', text: message.thinking.text, messageId: rowId });
+      }
+      flushTools(legacy);
+      if (message.text.length > 0) {
+        raw.push({ kind: 'text', text: message.text, messageId: rowId, ts: message.ts });
+      }
+      flushTools(matched);
+    }
+  }
+  flushTools(pending);
+  flushTools([...liveOnly]);
+  return mergeAdjacentTimeline(raw);
+}
+
+function mergeAdjacentTimeline(items: readonly TurnTimelineItem[]): TurnTimelineItem[] {
+  const out: TurnTimelineItem[] = [];
+  for (const item of items) {
+    const last = out[out.length - 1];
+    if (item.kind === 'thinking' && last?.kind === 'thinking') {
+      last.text = `${last.text}\n\n${item.text}`;
+    } else if (item.kind === 'tools' && last?.kind === 'tools') {
+      last.items = [...last.items, ...item.items];
+    } else if (item.kind === 'tools') {
+      out.push({ kind: 'tools', items: [...item.items] });
+    } else {
+      out.push({ ...item });
+    }
+  }
+  return out;
 }
 
 export interface TurnLineageTarget {

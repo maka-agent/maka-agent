@@ -94,3 +94,17 @@ export function formatDailyReviewMarkdown(
   }
   return lines.join('\n');
 }
+
+/**
+ * Archive headers used to print the raw internal model key
+ * (`<connectionSlug>::<modelId>`, e.g. `zai-live::glm-4.5`) — an
+ * implementation detail leaking into UI copy (designer audit P1-8).
+ * Show just the model id; the connection is not something the reader
+ * needs to decode a report.
+ */
+export function formatDailyReviewModelLabel(modelKey: string): string {
+  const separatorIndex = modelKey.lastIndexOf('::');
+  if (separatorIndex === -1) return modelKey;
+  const modelId = modelKey.slice(separatorIndex + 2).trim();
+  return modelId.length > 0 ? modelId : modelKey;
+}

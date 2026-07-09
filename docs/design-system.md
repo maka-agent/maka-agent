@@ -441,26 +441,16 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
   - 5 态：default / hover (button) / focus / active — 同 Button；
     disabled / loading / error 不适用
 
-### 3.8 TurnView + TurnSummary（`components.tsx:1237` + `:1174`）
+### 3.8 TurnView + footer info tooltip（`chat-view.tsx`）
 
 - **职责**：把"user → tools → assistant"渲染为一个 visual unit (`<section
-  class="maka-turn">`)。TurnSummary 是 chip strip：model · tools · duration ·
-  tokens。
-- **token**：chip 走 `.maka-turn-summary-chip` recipe；`data-kind="tools"`
-  着色为 accent；`data-state="in-progress"` 用 in-progress accent fill。
-- **ARIA**：summary chip 是普通 span；不打 button role（不可交互）；duration
-  chip 用 `font-variant-numeric: tabular-nums`。
-- **关键不变量**（`materialize.ts:158-160`）：
-  - `durationMs` 仅在 assistant message 落地后赋值，否则保持 undefined → UI
-    渲染 **"进行中"** 字符串（不要把 Date.now() - startedAt 显式 tick）。
-  - `tokens.costUsd` 仅当 > 0 时显示 tooltip；从不渲染 `$0.0000`。
-- **5 态**：
-  - default：完成态，chip 灰底
-  - hover：chip 不响应 hover；title 提供 tooltip（model id 用 mono）
-  - focus：N/A（不可交互）
-  - active：N/A
-  - in-progress：duration chip swap 为 "进行中"，accent fill；不显示
-    duration 数字
+  class="maka-turn">`)。turn 的 meta（model · duration · cost）落在 footer
+  的 info action tooltip——#546 删除了顶部 TurnSummary chip strip，meta 收进
+  tooltip，tooltip 只在 hover 时出现。
+- **关键不变量**（`materialize.ts`）：
+  - `durationMs` 仅在 assistant message 落地后赋值，否则保持 undefined →
+    info tooltip 不含 duration 项。
+  - `tokens.costUsd` 仅当 > 0 时进 tooltip；从不渲染 `$0.0000`。
 
 ### 3.9 ToolActivity（`components.tsx:1524`）
 
@@ -1334,22 +1324,20 @@ interface TurnRecord {
 
 Lineage 只写正向字段。旧 turn immutable：除自身 `running →
 completed/aborted/failed` 的状态变化外，未来 sibling 出现不会回写旧 turn。
-UI 需要 "已重试 →" / "已重新生成 →" 时，从当前 turn list derive 反向 map
+UI 需要 "已重新生成 →" 时，从当前 turn list derive 反向 map
 via `deriveTurnLineageMap()`（PR109d）。
 
 **操作清单**（UI 触发 → core/runtime 处理）：
 
 | 操作 | UI 文案 | 触发位置 | 适用 turn.status | 行为 | 旧 turn 处理 |
 |---|---|---|---|---|---|
-| `retry` | 「重试」 | turn footer hover | `failed` / `aborted` | sibling turn 复用同 user message + 写 `retriedFromTurnId` | immutable，自身 status 不变 |
-| `regenerate` | 「重新生成」 | assistant message footer hover | `completed` | sibling turn 复用同 user message + 写 `regeneratedFromTurnId` | immutable |
+| `regenerate` | 「重新生成」 | assistant message footer | `failed` / `aborted` / `completed` | sibling turn 复用同 user message + 写 `regeneratedFromTurnId`（legacy retry 的 `retriedFromTurnId` 在 badge 层 fallback 读） | immutable |
 | `branch-from-turn` | 「分支」 | turn header context menu | 任意（含 `aborted`） | 新 session via `sessions:branchFromTurn` + `branchOfTurnId` + `parentSessionId` + 复制至该 turn boundary（aborted 起点复制到中断前最后可用 boundary） | 原 session 不变；artifacts v1 只复制引用，不复制 bytes |
 | `cancel` | 「取消」 | streaming 中的 Composer Stop / Esc | `running` | turn → `aborted`；session → `aborted`；partial output 保留 | n/a — turn 自身 status 转 |
 | `checkpoint-before-tools` | n/a (自动) | 自动（destructive tool 前） | n/a | snapshot workspace；失败阻止 tool | n/a |
 
 **IPC / projection（PR109c locked）**：
 - `sessions:listTurns(sessionId) -> TurnRecord[]`
-- `sessions:retryTurn(sessionId, { sourceTurnId, turnId? })`
 - `sessions:regenerateTurn(sessionId, { sourceTurnId, turnId? })`
 - `sessions:branchFromTurn(sessionId, { sourceTurnId, name? }) -> SessionSummary`
 - `SessionChangedReason` 新增 `turn-status-change`（独立于 session-level
@@ -1358,22 +1346,22 @@ via `deriveTurnLineageMap()`（PR109d）。
   `deriveTurnLineageMap(turns)` 在 PR109d 加入 `materialize-turns.ts`，
   只 derive 反向 UI 链接，不持久化反向字段
 
-**UI 表现** (PR109d 接口约定):
+**UI 表现**（#546 接口约定）:
 
-- **Turn footer hover actions** (`↻ 重试 / 🌿 分支 / 📋 复制`)：根据 turn.status
-  动态决定 enabled set
-  - `running`：仅显示 `📋 复制`（其他 action 长任务结束后再露）
-  - `completed`：`🔁 重新生成 / 🌿 分支 / 📋 复制`
-  - `failed` / `aborted`：`↻ 重试 / 🌿 分支 / 📋 复制`
+- **Turn footer actions**（icon-only：`🔁 重新生成 / 🌿 分支 / 📋 复制 / ℹ 详情`）：
+  根据 turn.status 动态决定 enabled set
+  - `running`：仅 `📋 复制`（其他 action 长任务结束后再露）
+  - `completed` / `failed` / `aborted`：`🔁 重新生成 / 🌿 分支 / 📋 复制`，
+    外加 `ℹ 详情`（hover tooltip：model · duration · cost）
 - **Aborted turn 视觉**：assistant message body 前缀灰色斜体 "(已中断)"；
   turn header 显示 muted `Ban` icon
 - **Failed turn 视觉**：使用 PR58 的 AlertOctagon 红色 banner + copy-error
   按钮，文案走 generalizedErrorMessage
 - **Lineage badges**：
-  - 新 turn 顶部 small badge「重试自 turn ${shortId}」/「重新生成自
-    turn ${shortId}」点击 scroll 到原 turn
-  - 旧 turn footer 通过 UI-side derive 显示「已重试 → turn ${shortId}」/
-    「已重新生成 → turn ${shortId}」点击 scroll 到新 turn
+  - 新 turn 顶部 small badge「重新生成自 turn ${shortId}」点击 scroll 到原 turn
+  - 旧 turn footer 通过 UI-side derive 显示「已重新生成 → turn ${shortId}」
+    点击 scroll 到新 turn（legacy retry 的 retriedFromTurnId 在 badge 层
+    fallback 读，统一显示为「重新生成」语义）
   - branched session sidebar 顶部 banner「分自 ${parentSessionName}」+
     点击跳回 parent
 - **Branch 复制语义**：aborted 起点的 branch 文案明示「从中断前分支」
@@ -1383,18 +1371,18 @@ via `deriveTurnLineageMap()`（PR109d）。
 
 **Gate**：
 - core/storage/runtime tests (PR109c) 锁 turn 状态机：cancel 写 aborted
-  且 partial 保留；retry/regenerate 创建新 sibling 不覆盖旧 turn；
+  且 partial 保留；regenerate 创建新 sibling 不覆盖旧 turn；
   branch 复制至 turn boundary + aborted 起点 fallback 到中断前 boundary
 - node:test 锁 UI lineage derive helper：`deriveTurnLineageMap(turns)`
-  返回正确的 `retriedTo` / `regeneratedTo` 反向映射；旧 turn 无
-  retried-to 时不影响
+  返回正确的 `regeneratedTo` 反向映射（含 legacy `retriedTo` fallback）；
+  旧 turn 无 regenerated-to 时不影响
 - node:test 锁 footer action × turn.status enabled matrix
 - fixture scenario `turn-control-history`（PR109d）：seed 一个含 5 turn
   的 session 覆盖每个状态（running × 1, completed × 2, aborted × 1,
-  failed × 1）+ 1 retry sibling + 1 regenerate sibling，让截图覆盖所有
+  failed × 1）+ 1 regenerate sibling（含 1 legacy retried sibling 测 fallback），让截图覆盖所有
   footer 状态
 - smoke Path 15（PR109d）：从 active session cancel → 验 aborted 出现 +
-  「(已中断)」prefix + retry button 可用；点 retry → 新 turn 出现 +
+  「(已中断)」prefix + regenerate button 可用；点 regenerate → 新 turn 出现 +
   badge 链接；点 regenerate completed → sibling 出现，原 assistant
   仍可见
 

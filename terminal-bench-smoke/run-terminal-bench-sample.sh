@@ -32,11 +32,18 @@ Profiles:
   maka-heavy-prune
                Maka heavy-task bridge with autonomous prior-attempt runtime replay
                and stale tool-result archive pruning enabled
+  maka-prune-default
+               Post-#621 default prune pipeline with continuation (stale A/B B arm,
+               retrieval A/B A arm)
+  maka-stale-off
+               maka-prune-default with stale prune explicitly off (stale A/B A arm)
+  maka-retrieval-on
+               maka-prune-default plus eager archive retrieval (retrieval A/B B arm)
   opencode     OpenCode Harbor wrapper
   oracle       Harbor oracle agent for cheap wrapper/dataset smoke tests
 
 Options:
-  --profile NAME              Run profile: maka-basic, maka-heavy, maka-heavy-prune, opencode, oracle
+  --profile NAME              Run profile: maka-basic, maka-heavy, maka-heavy-prune, maka-prune-default, maka-stale-off, maka-retrieval-on, opencode, oracle
   --compare                   Run comparison profiles sequentially (default: maka-basic,opencode)
   --compare-profiles LIST     Comma-separated profiles for --compare
   --task PATTERN              Harbor task pattern (default: *sqlite-with-gcov)
@@ -187,6 +194,8 @@ function retryConfig() {
 }
 
 const taskPattern = env('TASK_PATTERN') || defaults.taskPattern || '*sqlite-with-gcov';
+const datasetName = env('DATASET_NAME') || (defaults.dataset && defaults.dataset.name) || 'terminal-bench-sample';
+const datasetVersion = env('DATASET_VERSION') || (defaults.dataset && defaults.dataset.version) || '2.0';
 const nTasksRaw = env('N_TASKS');
 const nTasks = nTasksRaw ? Number(nTasksRaw) : null;
 if (nTasksRaw && (!Number.isInteger(nTasks) || nTasks <= 0)) {
@@ -217,6 +226,9 @@ const maxSteps = env('MAX_STEPS');
 if (maxSteps) agentEnv.MAKA_MAX_STEPS = maxSteps;
 const agentTimeoutSec = env('AGENT_TIMEOUT_SEC');
 if (agentTimeoutSec) agentEnv.MAKA_HARBOR_AGENT_TIMEOUT_SEC = agentTimeoutSec;
+if (profileName.startsWith('maka-') && !agentEnv.MAKA_BENCHMARK_DATASET) {
+  agentEnv.MAKA_BENCHMARK_DATASET = env('MAKA_BENCHMARK_DATASET') || datasetName;
+}
 
 const extraInstructionPaths = Object.prototype.hasOwnProperty.call(profile, 'extraInstructionPaths')
   ? profile.extraInstructionPaths
@@ -278,8 +290,8 @@ const config = {
   datasets: [
     {
       path: null,
-      name: env('DATASET_NAME') || (defaults.dataset && defaults.dataset.name) || 'terminal-bench-sample',
-      version: env('DATASET_VERSION') || (defaults.dataset && defaults.dataset.version) || '2.0',
+      name: datasetName,
+      version: datasetVersion,
       ref: null,
       registry_url: null,
       registry_path: null,

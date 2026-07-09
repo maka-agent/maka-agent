@@ -42,8 +42,12 @@ describe('Settings form accessibility labels', () => {
   it('keeps Settings secondary surfaces close to reference implementation card geometry', async () => {
     const styles = await readRendererContractCss();
     const connectionRow = styles.match(/\.settingsConnectionRow\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const connectionBadge = styles.match(/\.settingsConnectionBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
-    const settingsBadge = styles.match(/\.settingsBadge\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    // #520 PR9: .settingsConnectionBadge / .settingsBadge CSS chips retired
+    // onto the squared Chip primitive. The "compact squared, not pill" intent
+    // now lives on Chip's cva base (rounded-[var(--radius-control)]).
+    const chipPrimitive = await readRepo('packages/ui/src/primitives/chip.tsx');
+    const connectionBadge = chipPrimitive;
+    const settingsBadge = chipPrimitive;
     const authContract = styles.match(/\.settingsAuthContract\s*\{[\s\S]*?\}/)?.[0] ?? '';
     // PR-DELETE-ORPHAN-CSS: `.providerEmpty` / `.providerCard` were
     // orphan classes (no TSX consumer); the comma-grouped rule
@@ -92,13 +96,13 @@ describe('Settings form accessibility labels', () => {
     assert.match(providerCatalogBadge, /border-radius:\s*var\(--radius-control\);/, 'Provider catalog badges (category / preview / login) should use compact squared target-layout style corners, not pills');
     assert.match(modelTableChip, /border-radius:\s*var\(--radius-control\);/, 'Settings model capability chips should use compact squared target-layout style corners, not pills');
     assert.match(modelTableDefaultBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings model default badge should use compact squared target-layout style corners, not pills');
-    assert.match(connectionBadge, /border-radius:\s*var\(--radius-control\);/, 'Settings status badges should use compact squared target-layout style corners, not pills');
-    assert.match(settingsBadge, /border-radius:\s*var\(--radius-control\);/, 'Generic Settings badges should use compact squared target-layout style corners, not pills');
+    assert.match(connectionBadge, /rounded-\[var\(--radius-control\)\]/, 'Settings status badges (Chip primitive) should use compact squared target-layout style corners, not pills');
+    assert.match(settingsBadge, /rounded-\[var\(--radius-control\)\]/, 'Generic Settings badges (Chip primitive) should use compact squared target-layout style corners, not pills');
     assert.doesNotMatch(providerCatalogBadge, /border-radius:\s*var\(--radius-pill\);/, 'Provider catalog badges must not regress to pill-shaped chrome');
     assert.doesNotMatch(modelTableChip, /border-radius:\s*var\(--radius-pill\);/, 'Settings model capability chips must not regress to pill-shaped chrome');
     assert.doesNotMatch(modelTableDefaultBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings model default badge must not regress to pill-shaped chrome');
-    assert.doesNotMatch(connectionBadge, /border-radius:\s*var\(--radius-pill\);/, 'Settings connection badges must not regress to pill-shaped chrome');
-    assert.doesNotMatch(settingsBadge, /border-radius:\s*var\(--radius-pill\);/, 'Generic Settings badges must not regress to pill-shaped chrome');
+    assert.doesNotMatch(connectionBadge, /rounded-\[var\(--radius-pill\)\]/, 'Settings connection badges (Chip primitive) must not regress to pill-shaped chrome');
+    assert.doesNotMatch(settingsBadge, /rounded-\[var\(--radius-pill\)\]/, 'Generic Settings badges (Chip primitive) must not regress to pill-shaped chrome');
     assert.match(settingsRow, /display:\s*grid;/, 'Settings rows should use a stable label/value grid instead of flex auto sizing');
     assert.match(settingsRow, /grid-template-columns:\s*minmax\(150px,\s*0\.36fr\)\s+minmax\(0,\s*1fr\);/, 'Settings rows need a protected label column and shrinkable value column');
     assert.match(settingsRowValue, /overflow-wrap:\s*anywhere;/, 'Long Settings values such as workspace paths should wrap in the value column');
@@ -119,15 +123,15 @@ describe('Settings form accessibility labels', () => {
     // ProvidersPanel sources its UI from the shared @maka/ui primitives;
     // tolerant of single- vs multi-line import formatting.
     const providersPanelUiImports = providersPanel.match(/import \{[^}]*\} from '@maka\/ui';/g)?.join('\n') ?? '';
-    for (const name of ['Button', 'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger', 'Input', 'RelativeTime', 'Textarea', 'useToast', 'useModalA11y']) {
+    for (const name of ['Button', 'PrimitiveTabs', 'PrimitiveTabsList', 'PrimitiveTabsTrigger', 'Input', 'RelativeTime', 'Textarea', 'useToast']) {
       assert.ok(providersPanelUiImports.includes(name), `Providers provider files should import ${name} from @maka/ui`);
     }
     assert.match(settingsSelect, /export function SettingsSelect<T extends string>/);
     assert.match(settingsSelect, /<SelectPositioner alignItemWithTrigger=\{false\} sideOffset=\{6\} className="settingsSelectPositioner">/);
     assert.match(
       styles,
-      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-dropdown\);[\s\S]*\}/,
-      'SettingsSelect popups must stack above full-page Settings rows so visible options are clickable.',
+      /\.settingsSelectPositioner\s*\{[\s\S]*z-index:\s*var\(--z-overlay\);[\s\S]*\}/,
+      'SettingsSelect popups must share the overlay layer so visible options stay clickable above Settings rows, modals, and the Composer.',
     );
 
     // ThemeSettingsPage uses native <button> on purpose for the radio-card
@@ -293,6 +297,25 @@ describe('Settings form accessibility labels', () => {
       activeRule,
       /inset\s+\d+px\s+0\s+0\s+var\(--accent\)|border-left|border-inline-start/,
       'Settings active nav item must not draw the left green accent rail',
+    );
+  });
+
+  // Alignment-governance round (maintainer report: 每日回顾 switches sat
+  // mid-page while every other row control hugs the right rail). The
+  // original end-align rule was tag-qualified (`button[role="switch"]`)
+  // but Base UI renders the Switch root as a SPAN — the selector matched
+  // nothing and rotted silently for weeks. Two pins: the rule exists in
+  // tag-agnostic form, and no settings CSS ever tag-qualifies role
+  // selectors again (role is the contract; the rendered tag is not).
+  it('end-aligns settings row switches with a tag-agnostic role selector', async () => {
+    const styles = await readRendererContractCss();
+    const alignRule = styles.match(/\.settingsRow\s*>\s*\[role="switch"\]\s*\{[\s\S]*?\}/)?.[0] ?? '';
+    assert.ok(alignRule, '.settingsRow > [role="switch"] rule must exist');
+    assert.match(alignRule, /justify-self:\s*end;/, 'settings row switches must end-align like every other row control');
+    assert.doesNotMatch(
+      styles,
+      /button\[role="switch"\]/,
+      'never tag-qualify role selectors — Base UI renders the Switch root as a span, so button[role="switch"] silently matches nothing',
     );
   });
 });

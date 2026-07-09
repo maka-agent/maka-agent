@@ -403,6 +403,7 @@ describe('ModelCatalogEntry', () => {
       reasoning: true,
       functionCalling: true,
       imageGeneration: true,
+      vision: true,
     });
     assert.equal(validateChatDefaultModel(input).ok, true);
   });

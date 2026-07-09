@@ -7,7 +7,15 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import { PermissionEngine, type PermissionEngineDeps } from '../permission-engine.js';
-import type { PermissionResponse } from '@maka/core/permission';
+import type { PermissionResponse, ToolExecutionFacts } from '@maka/core/permission';
+
+const LOCAL_EXECUTION_FACTS: ToolExecutionFacts = {
+  isolation: 'none',
+  writesAffectHost: true,
+  writeBack: 'direct',
+  network: 'host',
+  secrets: 'host_env',
+};
 
 function makeEngine(): { engine: PermissionEngine; deps: TestDeps } {
   const deps = new TestDeps();
@@ -81,6 +89,7 @@ describe('PermissionEngine.evaluate — allow path', () => {
     });
     expect(r3.kind).toBe('prompt');
   });
+
 });
 
 describe('PermissionEngine.evaluate — block path', () => {
@@ -121,6 +130,28 @@ describe('PermissionEngine.evaluate — block path', () => {
 });
 
 describe('PermissionEngine.evaluate — prompt path', () => {
+  test('execution facts are accepted but do not (yet) downgrade host-local shell to allow', () => {
+    // executionFacts is plumbed for forward-compat: a future sandbox-aware
+    // policy may auto-allow unsafe shell inside an isolated worktree. On the
+    // HOST (isolation: 'none') execute mode is fail-closed, so an unrecognized
+    // command prompts regardless of the facts being present.
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute',
+      executionFacts: LOCAL_EXECUTION_FACTS,
+    });
+    expect(r.kind).toBe('prompt');
+    if (r.kind === 'prompt') {
+      expect(r.event.category).toBe('shell_unsafe');
+    }
+  });
+
   test('emits PermissionRequestEvent with stable requestId', () => {
     const { engine, deps: _deps } = makeEngine();
     engine.beginTurn('t1');

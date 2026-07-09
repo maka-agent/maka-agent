@@ -18,9 +18,10 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, PrimitiveBadge, RelativeTime, useToast } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
+import { SettingsSkeletonStack } from './settings-skeleton';
 
 /**
  * PR-UI-8 — Permission Center read-only page. Consumes `window.maka.permissions.getSnapshot()`
@@ -91,7 +92,9 @@ const OS_PERMISSION_STATE_COPY: Record<OsPermissionState, { label: string; tone:
   unknown: { label: '无法读取状态', tone: 'neutral' },
   not_determined: { label: '等待授权', tone: 'warning' },
   denied: { label: '已拒绝', tone: 'destructive' },
-  granted: { label: '已授权', tone: 'success' },
+  // Status-color restraint: granted is the expected state — neutral badge;
+  // color is reserved for the states that need the user's attention.
+  granted: { label: '已授权', tone: 'neutral' },
 };
 
 const OFFICECLI_INSTALL_COMMAND = 'curl -fsSL https://raw.githubusercontent.com/iOfficeAI/OfficeCLI/main/install.sh | bash';
@@ -173,12 +176,7 @@ export function PermissionCenterPage() {
 
   if (loading) {
     return (
-      <div className="maka-skeleton-stack" aria-busy="true" aria-label="正在加载权限快照">
-        <div className="maka-skeleton maka-skeleton-line" data-size="lg" style={{ width: '38%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '72%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '60%' }} />
-        <div className="maka-skeleton maka-skeleton-line" style={{ width: '80%' }} />
-      </div>
+      <SettingsSkeletonStack label="正在加载权限快照" />
     );
   }
 
@@ -201,28 +199,27 @@ export function PermissionCenterPage() {
 
   return (
     <div className="settingsPermissionPage">
-      <header className="settingsPermissionIntro">
-        <div>
-          <h3>权限与能力</h3>
-          <p>
-            查看 Maka 需要的系统权限和当前授权状态，
-            直接从这里前往「系统设置 → 隐私与安全性」完成授权或撤销，不必自己翻菜单。
-          </p>
-        </div>
-        <div className="settingsPermissionMeta">
-          <small>
-            最近读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
-          </small>
-          <Button
-            type="button"
-            className="settingsPermissionRefresh"
-            variant="secondary"
-            onClick={() => setRefreshTick((tick) => tick + 1)}
-          >
-            重新检测
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        className="settingsPermissionIntro"
+        as="h3"
+        title="权限与能力"
+        subtitle="查看 Maka 需要的系统权限和当前授权状态，直接从这里前往「系统设置 → 隐私与安全性」完成授权或撤销，不必自己翻菜单。"
+        meta={
+          <div className="settingsPermissionMeta">
+            <small>
+              最近读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
+            </small>
+            <Button
+              type="button"
+              className="settingsPermissionRefresh"
+              variant="secondary"
+              onClick={() => setRefreshTick((tick) => tick + 1)}
+            >
+              重新检测
+            </Button>
+          </div>
+        }
+      />
 
       <section className="settingsPermissionSummary" aria-label="权限概览">
         <PermissionSummaryTile label="已授权" value={counts.granted} tone="success" />
@@ -287,8 +284,11 @@ function PermissionSummaryTile(props: {
   value: number;
   tone: 'success' | 'warning' | 'destructive' | 'neutral';
 }) {
+  // A zero count is not an exception — the tone only paints when there is
+  // actually something to look at (0 已拒绝 in red read as a false alarm).
+  const effectiveTone = props.value > 0 ? props.tone : 'neutral';
   return (
-    <div className="settingsPermissionSummaryTile" data-tone={props.tone}>
+    <div className="settingsPermissionSummaryTile" data-tone={effectiveTone} data-empty={props.value === 0}>
       <span className="settingsPermissionSummaryValue">{props.value}</span>
       <span className="settingsPermissionSummaryLabel">{props.label}</span>
     </div>
@@ -385,7 +385,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
           <strong>{capability.label}</strong>
           <small className="settingsCapabilityId">{prettyCapabilityId(capability.id)}</small>
         </div>
-        <PrimitiveBadge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</PrimitiveBadge>
+        <Badge variant={statusBadgeVariant(readinessCopy.tone)}>{readinessCopy.label}</Badge>
       </div>
       <p className="settingsCapabilityDetail">{readinessCopy.detail}</p>
       <dl className="settingsCapabilityLayers" aria-label={`${capability.label}能力状态明细`}>
@@ -509,12 +509,12 @@ function OsPermissionRow(props: {
   return (
     <li className="settingsOsPermissionRow" data-state={snapshot.status}>
       <div className="settingsOsPermissionIcon" aria-hidden="true">
-        {Icon ? <Icon size={18} strokeWidth={1.6} /> : null}
+        {Icon ? <Icon size={18} /> : null}
       </div>
       <div className="settingsOsPermissionBody">
         <div className="settingsOsPermissionHeading">
           <strong>{label}</strong>
-          <PrimitiveBadge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</PrimitiveBadge>
+          <Badge variant={statusBadgeVariant(stateCopy.tone)}>{stateCopy.label}</Badge>
         </div>
         <small className="settingsOsPermissionPurpose">{purpose}</small>
         {impact ? (
@@ -536,10 +536,14 @@ function OsPermissionRow(props: {
           request flow for the permission), it still falls under the
           primary slot — no awkward "lonely secondary" state. */}
       <div className="settingsOsPermissionActions">
+        {/* Affordance honesty (round 8): ghost next to the primary read as a
+            plain text label — a clickable action sitting beside a real button
+            needs its own visible edge. Secondary keeps it quieter than
+            请求授权 without hiding that it's a button. */}
         {showOpenSettings && (
           <Button
             type="button"
-            variant={showRequest ? 'ghost' : 'default'}
+            variant={showRequest ? 'secondary' : 'default'}
             size="sm"
             onClick={props.onOpenSettings}
             disabled={busy}

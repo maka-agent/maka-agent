@@ -353,6 +353,38 @@ describe('theme palette settings contract (PR-UI-D1, @kenji msg 68bf2b13)', () =
   });
 });
 
+describe('run-completion notification settings contract', () => {
+  test('createDefaultSettings enables run-complete notifications by default', () => {
+    const defaults = createDefaultSettings();
+    expect(defaults.notifications.runComplete).toBe(true);
+  });
+
+  test('migration: settings.json without a notifications section defaults to enabled', () => {
+    const legacy = { appearance: { theme: 'dark' as const } };
+    const normalized = normalizeSettings(legacy);
+    expect(normalized.notifications.runComplete).toBe(true);
+  });
+
+  test('mergeSettings carries the toggle through the patch surface', () => {
+    const current = createDefaultSettings();
+    const patched = mergeSettings(current, { notifications: { runComplete: false } });
+    expect(patched.notifications.runComplete).toBe(false);
+  });
+
+  test('fail-closed: a non-boolean runComplete normalizes back to enabled', () => {
+    for (const bad of [1, 0, 'yes', null, {}, []]) {
+      const malformed = { notifications: { runComplete: bad } };
+      const normalized = normalizeSettings(malformed);
+      expect(normalized.notifications.runComplete).toBe(true);
+    }
+  });
+
+  test('a valid disabled toggle survives normalize untouched', () => {
+    const normalized = normalizeSettings({ notifications: { runComplete: false } });
+    expect(normalized.notifications.runComplete).toBe(false);
+  });
+});
+
 describe('fixed toast position settings contract', () => {
   test('createDefaultSettings does not persist a toastPosition setting', () => {
     const defaults = createDefaultSettings();

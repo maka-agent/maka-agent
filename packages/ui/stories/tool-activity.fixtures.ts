@@ -9,21 +9,27 @@ const terminalResult = {
   kind: 'terminal',
   cwd: '/Users/yuhan/workspace/oss/maka-agent',
   cmd: 'npm run -w @maka/desktop build-storybook',
+  status: 'completed',
   exitCode: 0,
   stdout: longStdout,
   stderr: 'storybook build completed with a large output preview\n',
+  stdoutTruncated: false,
+  stderrTruncated: false,
 } satisfies ToolResultContent;
 
 const terminalFailureResult = {
   kind: 'terminal',
   cwd: '/Users/yuhan/workspace/oss/maka-agent',
   cmd: 'npm run -w @maka/headless test',
+  status: 'failed',
   exitCode: 1,
   stdout: 'running headless tests\n',
   stderr: [
     'Error: expected verifier to receive task-run.json',
     'at packages/headless/src/verifier.ts:42:11',
   ].join('\n'),
+  stdoutTruncated: false,
+  stderrTruncated: false,
 } satisfies ToolResultContent;
 
 const fileDiffResult = {

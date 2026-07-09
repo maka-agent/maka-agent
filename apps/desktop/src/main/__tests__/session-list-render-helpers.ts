@@ -22,7 +22,10 @@ export function makeSessionSummary(overrides: Partial<SessionSummary> = {}): Ses
 
 export function renderSessionListPanel(options: {
   session?: Partial<SessionSummary>;
+  sessions?: SessionSummary[];
   rowActions?: Parameters<typeof SessionListPanel>[0]['rowActions'];
+  statusGroups?: Parameters<typeof SessionListPanel>[0]['statusGroups'];
+  viewMode?: Parameters<typeof SessionListPanel>[0]['viewMode'];
 } = {}): string {
   const rowActions = options.rowActions ?? {
     onToggleFlag() {},
@@ -34,7 +37,10 @@ export function renderSessionListPanel(options: {
 
   return renderToStaticMarkup(createElement(SessionListPanel, {
     selection: { section: 'sessions', filter: 'chats' },
-    sessions: [makeSessionSummary(options.session)],
+    sessions: options.sessions ?? [makeSessionSummary(options.session)],
+    statusGroups: options.statusGroups,
+    viewMode: options.viewMode,
+    onViewModeChange: options.viewMode ? () => {} : undefined,
     onSelectSession() {},
     onSelect() {},
     onOpenSettings() {},

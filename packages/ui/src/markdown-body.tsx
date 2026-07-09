@@ -31,6 +31,7 @@ import {
 } from './maka-uri.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { MakaUriContext } from './markdown.js';
+import { streamFadeRehypePlugin, type StreamFade } from './stream-fade.js';
 
 const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [
@@ -39,11 +40,14 @@ const MARKDOWN_REHYPE_PLUGINS = [
   [rehypeHighlight, { detect: true, ignoreMissing: true }],
 ] as const;
 
-export function MarkdownBody(props: { text: string }) {
+export function MarkdownBody(props: { text: string; streamFade?: StreamFade }) {
+  const rehypePlugins = props.streamFade
+    ? [...MARKDOWN_REHYPE_PLUGINS, streamFadeRehypePlugin(props.streamFade)]
+    : MARKDOWN_REHYPE_PLUGINS;
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-      rehypePlugins={MARKDOWN_REHYPE_PLUGINS as never}
+      rehypePlugins={rehypePlugins as never}
       components={{
         // PR-UI-RENDER-2: route `maka://` links through the internal
         // URI parser so the assistant can drop in-app navigation
@@ -69,6 +73,16 @@ export function MarkdownBody(props: { text: string }) {
         // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
         // detected language so users can verify hljs got it right.
         pre: ({ children, ...rest }) => <CodeBlock {...rest}>{children}</CodeBlock>,
+        // #618 item 5: the horizontal scroller for over-wide tables lives on
+        // a wrapper div. Scrolling on the table itself requires
+        // `display: block`, which stops the element generating a table box —
+        // Chromium then drops the implicit table/row/cell ARIA roles and
+        // screen readers lose table navigation. TABLE-A11Y-SEMANTICS-0.
+        table: ({ children, ...rest }) => (
+          <div className="maka-table-scroll">
+            <table {...rest}>{children}</table>
+          </div>
+        ),
       }}
     >
       {props.text}
@@ -166,8 +180,8 @@ function CodeBlock({ children, ...rest }: { children?: ReactNode }) {
           data-pending={copyPending ? 'true' : undefined}
         >
           {copied
-            ? <Check size={12} strokeWidth={2} aria-hidden="true" />
-            : <Copy size={12} strokeWidth={1.75} aria-hidden="true" />}
+            ? <Check size={12} aria-hidden="true" />
+            : <Copy size={12} aria-hidden="true" />}
         </UiButton>
       </div>
       <pre {...rest}>{children}</pre>

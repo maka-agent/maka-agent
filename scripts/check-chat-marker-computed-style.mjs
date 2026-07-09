@@ -35,13 +35,11 @@
  * action across resting / pending / copy-pending / copied / failed —
  * including `main`'s old pending `secondary` variant vs the new always-
  * `quiet` shell, which proves that variant switch was visually inert (the
- * reason this PR drops it). The DOM mirrors `TurnView` nesting (chips in a
- * summary, actions in a footer, badges in a lineage row) so positional
- * pseudo-classes and inheritance resolve as in production — including the
- * `summary-switched` "切换" pill nested in a `data-switched` model chip, the
- * `lineage-row-reverse` container, and the `::before` middot separators on
- * summary chips / failed-recovery (all migrated variants, all real once the
- * CSS is inlined).
+ * reason this PR drops it). The DOM mirrors `TurnView` nesting (actions in a
+ * footer, badges in a lineage row) so positional pseudo-classes and
+ * inheritance resolve as in production — including the `lineage-row-reverse`
+ * container and the `::before` middot separator on failed-recovery (all
+ * migrated variants, all real once the CSS is inlined).
  *
  * What is STILL not observable here, and why — locked by the cascade
  * contract's exact source-string literals instead (each a LEAF
@@ -52,11 +50,11 @@
  *     Chromium behavior — the force drives the inspector, not in-page
  *     computed style; verified resting == forced-"hover" even with the CSS
  *     applied). The rules themselves DO compile into the bundle (greppable:
- *     `…:hover:not(:disabled){background-color:oklch(…/ .05)}`). Their
- *     NON-leaf merge winner is a deterministic specificity fact: the marker's
- *     `[&:hover:not(:disabled)]` (0,3,0) outranks UiButton quiet's
- *     `hover:bg-muted` (0,2,0), exactly as the retired
- *     `.maka-turn-footer-action:hover:not(:disabled)` did on main.
+ *     `…:hover:not([aria-disabled=true]){background-color:oklch(…/ .05)}`).
+ *     Their NON-leaf merge winner is a deterministic specificity fact: the
+ *     marker's `[&:hover:not([aria-disabled=true])]` (0,3,0) outranks UiButton
+ *     quiet's `hover:bg-muted` (0,2,0). Footer actions use `aria-disabled`
+ *     (not a real `disabled` attr) so tooltips can show on disabled actions.
  * So this is a rendered proof of the RESTING surface plus the `::before`
  * middots, with only the interactive pseudo-states pinned by source string.
  *
@@ -242,29 +240,11 @@ const TREE = (side) => {
   const C = (p) => p[side];
   const el = (tag, id, p, attrs, kids = '') => `<${tag} id="${id}" class="${C(p)}" ${attrs}>${kids}</${tag}>`;
   const action = (id, p, attrs) => el('button', id, p, `${attrs} type="button"`, '<svg width="11" height="11"></svg><span>复制中…</span>');
-  const chip = (id) => el('span', id, pair('maka-turn-summary-chip', mv('summary-chip')), 'data-kind="model"', '<span>x</span>');
-  // Every other chip `data-[kind]` (and the in-progress `data-[state]`) gets a
-  // row too, so the tools tint / duration+tokens tabular-nums / in-progress
-  // accent+semibold are diffed for real, not only pinned as source strings.
-  const kindChip = (id, attrs) => el('span', id, pair('maka-turn-summary-chip', mv('summary-chip')), attrs, '<span>x</span>');
-  // The "切换" pill nests inside a model chip carrying `data-switched=true`,
-  // exactly as TurnSummary renders it — both the switched-model chip path and
-  // the pill itself are migrated variants, so each is measured as its own row.
-  const switchedChip = (id, pillId) =>
-    el('span', id, pair('maka-turn-summary-chip', mv('summary-chip')), 'data-kind="model" data-switched="true"',
-      '<code>m</code>' + el('span', pillId, pair('maka-turn-summary-chip-switched', mv('summary-switched')), '', '切换'));
   return [
-    el('div', 'summary', pair('maka-turn-summary', mv('summary')), '',
-      chip('summary-chip-1') + chip('summary-chip-2')
-      + kindChip('summary-chip-tools', 'data-kind="tools"')
-      + kindChip('summary-chip-duration', 'data-kind="duration"')
-      + kindChip('summary-chip-tokens', 'data-kind="tokens"')
-      + kindChip('summary-chip-inprogress', 'data-kind="duration" data-state="in-progress"')
-      + switchedChip('summary-chip-switched', 'summary-switched')),
     el('div', 'footer', pair('maka-turn-footer', mv('footer')), 'role="toolbar"',
       action('footer-rest', fa('quiet'), '') +
       action('footer-pending', fa('secondary'), 'data-pending="true" aria-busy="true"') +
-      action('footer-copy-pending', fa('secondary'), 'data-pending="true" data-copy-feedback="pending" aria-busy="true" disabled aria-disabled="true"') +
+      action('footer-copy-pending', fa('secondary'), 'data-pending="true" data-copy-feedback="pending" aria-busy="true" aria-disabled="true"') +
       action('footer-copied', fa('quiet'), 'data-copy-feedback="copied"') +
       action('footer-failed', fa('quiet'), 'data-copy-feedback="failed"')),
     el('div', 'lineage-row', pair('maka-turn-lineage-row', mv('lineage-row')), '',
@@ -288,7 +268,7 @@ const TREE = (side) => {
 };
 
 const PROPS = ['display', 'height', 'minHeight', 'width', 'maxWidth', 'maxHeight', 'minWidth', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'marginTop', 'marginRight', 'marginBottom', 'marginLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'borderTopColor', 'borderBottomColor', 'borderTopStyle', 'borderTopLeftRadius', 'boxShadow', 'overflowX', 'overflowY', 'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'letterSpacing', 'lineHeight', 'textTransform', 'gridTemplateColumns', 'columnGap', 'color', 'backgroundColor', 'opacity', 'transition', 'justifyContent', 'alignItems', 'flexWrap', 'flexDirection', 'fontVariantNumeric', 'whiteSpace', 'wordBreak', 'textOverflow', 'textAlign', 'cursor'];
-const IDS = ['summary', 'summary-chip-1', 'summary-chip-2', 'summary-chip-tools', 'summary-chip-duration', 'summary-chip-tokens', 'summary-chip-inprogress', 'summary-chip-switched', 'summary-switched', 'footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', 'footer-copied', 'footer-failed', 'lineage-row', 'lineage-fwd', 'lineage-row-reverse', 'lineage-rev', 'aborted', 'failed-banner', 'failed-recovery',
+const IDS = ['footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', 'footer-copied', 'footer-failed', 'lineage-row', 'lineage-fwd', 'lineage-row-reverse', 'lineage-rev', 'aborted', 'failed-banner', 'failed-recovery',
   // PR3 stream shell (resting + live border ring). The pulse dot is excluded
   // (animated → phase-dependent computed style).
   'stream', 'stream-header', 'stream-label', 'stream-counts', 'stream-count', 'stream-count-stderr', 'stream-count-redacted', 'stream-count-truncated', 'stream-body', 'stream-chunk', 'stream-chunk-stderr', 'stream-chunk-redacted', 'stream-redacted-tag', 'stream-live',
@@ -313,9 +293,8 @@ const IDS = ['summary', 'summary-chip-1', 'summary-chip-2', 'summary-chip-tools'
   'err-banner'];
 // `::before` middot separators are now diffed for real (they render once the
 // CSS is inlined — the old `<link>` build couldn't apply them, masking this).
-// summary-chip-2 is a non-first chip (`[&:not(:first-child)]:before:…`);
 // failed-recovery carries the always-on `before:content-['·']`.
-const PSEUDO_IDS = ['summary-chip-2', 'failed-recovery'];
+const PSEUDO_IDS = ['failed-recovery'];
 const PSEUDO_PROPS = ['content', 'marginRight', 'color', 'fontWeight'];
 
 function pageHtml(cssText, side) {

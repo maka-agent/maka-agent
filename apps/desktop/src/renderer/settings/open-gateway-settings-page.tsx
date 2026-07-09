@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { AppSettings, OpenGatewayRuntimeStatus, UpdateAppSettingsResult } from '@maka/core';
-import { Button, Input, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
+import { Button, Input, NumberField, NumberFieldInput, SettingsSelect, SettingsSwitch as Switch, Textarea, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { MetricCard } from './settings-metric-card';
 import { SettingsRows, SettingRow } from './settings-rows';
@@ -232,12 +232,9 @@ export function OpenGatewaySettingsPage(props: {
         </label>
         <label>
           <span>端口</span>
-          <Input
-            value={String(gatewayDraft.port)}
-            inputMode="numeric"
-            onChange={(event) => void updateGateway({ port: Number(event.currentTarget.value) || 3939 })}
-            aria-label="开放网关端口"
-          />
+          <NumberField value={gatewayDraft.port} format={{ useGrouping: false }} onValueChange={(v) => void updateGateway({ port: v ?? 3939 })}>
+            <NumberFieldInput inputMode="numeric" aria-label="开放网关端口" />
+          </NumberField>
         </label>
         <label>
           <span>访问 token</span>
@@ -285,42 +282,24 @@ export function OpenGatewaySettingsPage(props: {
         <Button variant="secondary" type="button" className="min-w-[4rem]" disabled={gatewayCopyDisabled} onClick={() => void copyBaseUrl()}>
           {isCopyingGatewayAction('base-url') ? '复制中…' : '复制地址'}
         </Button>
-        <Button variant="secondary" type="button" className="min-w-[8rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()}>
-          {isCopyingGatewayAction('overview-curl') ? '复制中…' : '复制总览 curl'}
-        </Button>
-        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()}>
-          {isCopyingGatewayAction('openapi-curl') ? '复制中…' : '复制接口说明 curl'}
-        </Button>
-        <Button variant="secondary" type="button" className="min-w-[9.5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()}>
-          {isCopyingGatewayAction('session-state-curl') ? '复制中…' : '复制单会话状态 curl'}
-        </Button>
-        <Button variant="secondary" type="button" className="min-w-[8.5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()}>
-          {isCopyingGatewayAction('event-stream-curl') ? '复制中…' : '复制事件流 curl'}
-        </Button>
-        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()}>
-          {isCopyingGatewayAction('recent-events-curl') ? '复制中…' : '复制最近事件 curl'}
-        </Button>
-        <Button variant="secondary" type="button" className="min-w-[9rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()}>
-          {isCopyingGatewayAction('recent-requests-curl') ? '复制中…' : '复制最近请求 curl'}
-        </Button>
       </div>
 
       <SettingsRows>
         <SettingRow title="健康检查" detail="不需要 token，用于确认网关进程是否启动。" value="GET /health" />
-        <SettingRow title="接口说明" detail="需要 Bearer token，返回 OpenAPI 3.1 描述，方便外部工具自动发现开放网关能力。" value="GET /v1/openapi.json" />
-        <SettingRow title="总览状态" detail="需要 Bearer token，返回网关运行态、会话状态、请求状态、失败索引状态和能力清单，不含正文或预览。" value="GET /v1/state" />
+        <SettingRow title="接口说明" detail="需要 Bearer token，返回 OpenAPI 3.1 描述，方便外部工具自动发现开放网关能力。" value="GET /v1/openapi.json" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOpenApiCurl()} aria-label="复制接口说明 curl">{isCopyingGatewayAction('openapi-curl') ? '复制中…' : '复制 curl'}</Button>} />
+        <SettingRow title="总览状态" detail="需要 Bearer token，返回网关运行态、会话状态、请求状态、失败索引状态和能力清单，不含正文或预览。" value="GET /v1/state" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyOverviewCurl()} aria-label="复制总览 curl">{isCopyingGatewayAction('overview-curl') ? '复制中…' : '复制 curl'}</Button>} />
         <SettingRow title="能力清单" detail="需要 Bearer token，返回当前开放的本机 API 能力。" value="GET /v1/capabilities" />
         <SettingRow title="会话列表" detail="需要 Bearer token，返回本地 session summary。" value="GET /v1/sessions" />
         <SettingRow title="会话状态" detail="需要 Bearer token，返回会话数量、未读数、状态分布和最近失败计数，不含标题或预览。" value="GET /v1/sessions/state" />
-        <SettingRow title="单会话状态" detail="需要 Bearer token，返回单个会话的状态、消息计数、事件缓冲和失败计数，不含标题、正文或预览。" value="GET /v1/sessions/:id/state" />
+        <SettingRow title="单会话状态" detail="需要 Bearer token，返回单个会话的状态、消息计数、事件缓冲和失败计数，不含标题、正文或预览。" value="GET /v1/sessions/:id/state" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copySessionStateCurl()} aria-label="复制单会话状态 curl">{isCopyingGatewayAction('session-state-curl') ? '复制中…' : '复制 curl'}</Button>} />
         <SettingRow title="会话消息" detail="需要 Bearer token，按 sessionId 读取本地消息；支持 limit / before 分页。" value="GET /v1/sessions/:id/messages" />
         <SettingRow title="消息状态" detail="需要 Bearer token，返回消息数量和边界摘要，不含正文。" value="GET /v1/sessions/:id/messages/state" />
         <SettingRow title="发送消息" detail="需要 Bearer token，向已有会话追加一条用户消息并返回 turnId。" value="POST /v1/sessions/:id/messages" />
-        <SettingRow title="实时事件" detail="需要 Bearer token，SSE 输出当前会话 live 事件；支持 Last-Event-ID / after 补发最近事件。" value="GET /v1/sessions/:id/events" />
+        <SettingRow title="实时事件" detail="需要 Bearer token，SSE 输出当前会话 live 事件；支持 Last-Event-ID / after 补发最近事件。" value="GET /v1/sessions/:id/events" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyEventStreamCurl()} aria-label="复制事件流 curl">{isCopyingGatewayAction('event-stream-curl') ? '复制中…' : '复制 curl'}</Button>} />
         <SettingRow title="事件状态" detail="需要 Bearer token，返回当前事件 replay buffer 和实时连接状态，不含事件正文。" value="GET /v1/sessions/:id/events/state" />
-        <SettingRow title="最近事件摘要" detail="需要 Bearer token，返回当前会话最近事件的 id、类型、turnId 和时间，不含事件正文。" value="GET /v1/sessions/:id/events/recent" />
+        <SettingRow title="最近事件摘要" detail="需要 Bearer token，返回当前会话最近事件的 id、类型、turnId 和时间，不含事件正文。" value="GET /v1/sessions/:id/events/recent" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentEventsCurl()} aria-label="复制最近事件 curl">{isCopyingGatewayAction('recent-events-curl') ? '复制中…' : '复制 curl'}</Button>} />
         <SettingRow title="全局事件状态" detail="需要 Bearer token，跨会话返回事件 replay buffer 和实时连接聚合状态，不含事件正文。" value="GET /v1/events/state" />
-        <SettingRow title="最近请求" detail="需要 Bearer token，返回最近网关请求的 requestId、方法、路径、状态码和耗时，不含 query、header 或 body。" value="GET /v1/requests/recent" />
+        <SettingRow title="最近请求" detail="需要 Bearer token，返回最近网关请求的 requestId、方法、路径、状态码和耗时，不含 query、header 或 body。" value="GET /v1/requests/recent" action={<Button variant="outline" size="sm" className="settingsRowCurlButton min-w-[5rem]" disabled={!gatewayDraft.token || gatewayCopyDisabled} onClick={() => void copyRecentRequestsCurl()} aria-label="复制最近请求 curl">{isCopyingGatewayAction('recent-requests-curl') ? '复制中…' : '复制 curl'}</Button>} />
         <SettingRow title="失败记录" detail="需要 Bearer token，返回最近错误和中断摘要，用于外部恢复面板。" value="GET /v1/sessions/:id/incidents" />
         <SettingRow title="失败索引" detail="需要 Bearer token，跨会话返回最近错误和中断摘要。" value="GET /v1/incidents" />
         <SettingRow title="失败索引状态" detail="需要 Bearer token，跨会话返回最近失败总数、涉及会话数和边界摘要。" value="GET /v1/incidents/state" />

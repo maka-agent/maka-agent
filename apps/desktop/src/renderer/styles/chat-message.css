@@ -1,118 +1,178 @@
+/* ============================================================================
+   Chat message body
+   ----------------------------------------------------------------------------
+   The MessageBody surface: message row shell, assistant bubble shell, the
+   hover copy button, the streaming caret, and the user-turn meta row. The
+   Markdown prose element layer (.maka-prose + code-block chrome + hljs
+   palette) lives in prose.css (#618 item 3).
 
-  .maka-hero header,
-  .maka-hero-empty-chat header {
-    display: grid;
-    gap: var(--space-2-5);
-    justify-items: center;
-  }
-.maka-hero-visual {
-    position: relative;
-    width: min(520px, 62vw);
-    height: 130px;
-    margin-bottom: var(--space-1);
-  }
-.maka-hero-bubble {
-    position: absolute;
-    display: inline-flex;
-    align-items: center;
-    min-height: 32px;
-    border-radius: var(--radius-modal);
-    background: var(--foreground-3);
-    color: var(--muted-foreground);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-    line-height: var(--leading-none);
-    white-space: nowrap;
-    padding: 0 var(--space-3);
-  }
-.maka-hero-bubble-primary {
-    left: 38px;
-    top: 16px;
-    background: oklch(from var(--brand-deep) l c h / 0.10);
-    color: var(--brand-deep);
-  }
-.maka-hero-bubble-secondary {
-    right: 22px;
-    top: 42px;
-  }
-.maka-hero-avatar {
-    position: absolute;
-    display: inline-grid;
-    place-items: center;
-    border-radius: var(--radius-pill);
-    box-shadow: 0 6px 18px -14px oklch(from var(--foreground) l c h / 0.32);
-  }
-.maka-hero-avatar-maka {
-    left: calc(50% - 48px);
-    top: 42px;
-    width: 66px;
-    height: 66px;
-    background: oklch(from var(--brand-deep) l c h / 0.18);
-    color: var(--brand-deep);
-  }
-.maka-hero-avatar-user {
-    left: calc(50% + 4px);
-    top: 52px;
-    width: 62px;
-    height: 62px;
-    border: var(--border-width-accent) solid oklch(from var(--brand-deep) l c h / 0.12);
-    background: oklch(0.93 0.006 286);
-    color: var(--foreground);
-    font-size: 1.4667em;
-    font-weight: var(--font-weight-bold);
-  }
-.maka-hero-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1-5);
-    color: var(--brand-deep);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-bold);
-    letter-spacing: var(--tracking-widest);
-    text-transform: uppercase;
-  }
-.maka-hero h1 {
-    margin: 0;
-    max-width: 34ch;
-    /* Phase 4A hero typography — atlas §15 deep RE notes reference uses
-       `.welcome-title` with `Instrument Sans` variable font at wght:500
-       for hero. Maka uses Geist Variable; the heading is pulled to 32px
-       with semibold weight + tight leading (PR-FONT-WEIGHT-CONVERGE-0 /
-       PR-LEADING-CONVERGE-0, #520 PR1). The earlier `font-variation-settings
-       "wght" 550, "wdth" 105` was dropped: wght folds into the font-weight
-       token, and the wdth:105 "wider" axis was a one-off that bypassed the
-       token scale. Standard width keeps the hero optically distinct via
-       size + weight + leading alone. */
-    font-size: 2.1333em;
-    font-weight: var(--font-weight-semibold);
-    letter-spacing: var(--tracking-normal);
-    line-height: var(--leading-tight);
-    text-wrap: balance;
-  }
-.maka-hero p {
-    margin: 0;
-    max-width: 54ch;
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-ui);
-    line-height: var(--leading-normal);
-    text-wrap: pretty;
-  }
-@media (max-width: 820px) {
-    .maka-hero-visual {
-      width: min(420px, 84vw);
-      height: 112px;
-    }
+   Relocated from maka-tokens.css. Authored unlayered (the renderer styles/
+   contract requires it) but pulled into @layer components by
+   `@import ... layer(components)` in styles.css, so the rules keep the exact
+   cascade precedence they had in tokens — Tailwind utilities still win, which
+   several selectors here depend on: .maka-message-row's margin loses to the
+   Message variant's ml-0/mr-auto, .maka-message-copy loses to the UiButton
+   size utilities. Zero visual change — issue #546 PR4.
+   ============================================================================ */
 
-    .maka-hero-bubble {
-      font-size: var(--font-size-caption);
-      padding-inline: var(--space-2-5);
-    }
+/* --- Message row (Message primitive base: cva("maka-message-row")) -------- */
+.maka-message-row {
+  max-width: var(--maka-chat-measure);
+  margin: 0 auto;
+  width: 100%;
+  opacity: 1;
+}
 
-    .maka-hero-bubble-primary {
-      left: 0;
-    }
+/* --- Assistant bubble shell ----------------------------------------------- */
+/* User message: a tinted, width-capped block anchored to the right — now
+   the `Bubble variant="user"` chat primitive (issue #332 PR1). It keeps the
+   neutral `--chat-user-bg` token path; the shell utilities live in
+   packages/ui/src/primitives/chat.tsx. */
+/* Assistant: no bubble — just text on background, like an editor. The
+   markdown typography (color, line-height, break-word, the 72ch measure cap,
+   edge-margin trims) lives on .maka-prose in prose.css — the assistant Bubble
+   variant carries both classes, so the shell keeps only container geometry
+   (#618 item 2). */
+.maka-bubble-assistant {
+  padding: var(--space-0-5) 0 0;
+}
+/* The streaming ▎ caret + its trailing-<p> inline hack were retired by the
+   streaming UI rework: the "still writing" signal is now the per-word fade-in
+   (@keyframes maka-stream-fade-in, wrapped by markdown-body's rehype pass), so
+   the trailing paragraph keeps its normal block layout. */
 
-    .maka-hero-bubble-secondary {
-      right: 0;
-    }
-  }
+/* --- Hover-revealed copy button on assistant messages -------------------- */
+/* The wrapper is position: relative so the button can anchor to the top-right
+   corner. The hover/focus-within guard keeps it out of the way until the user
+   deliberately mouses over the bubble or tabs into it. */
+.maka-bubble-with-actions {
+  position: relative;
+}
+.maka-message-copy {
+  position: absolute;
+  top: 2px;
+  right: -2px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--background) l c h / 0.88);
+  color: var(--muted-foreground);
+  opacity: 0;
+  /* PR-CHAT-COPY-BUTTON-POLISH-0 (WAWQAQ 10min loop): the copy
+     button used to fade in on hover but never moved — felt like
+     a label flickering on. Add a tiny entrance translate (4px
+     down → 0) + scale (0.94 → 1) on the rest state so the reveal
+     on hover reads as "this just slid in from above" rather than
+     a fade-only flash. transform stays GPU-accelerated; transition
+     list keeps both axes coherent. */
+  transform: translateY(-3px) scale(var(--scale-press));
+  transition:
+    opacity var(--duration-base) var(--ease-out-strong),
+    transform var(--duration-emphasized) var(--ease-out-strong),
+    color var(--duration-quick) var(--ease-out-strong),
+    background var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong);
+}
+
+/* Labelled variant (e.g. "复制思考过程") — flows inline, doesn't absolute-
+   position, and always visible since it's already inside a collapsible
+   region the user has expanded. */
+.maka-message-copy[data-labelled="true"] {
+  position: static;
+  width: auto;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+  padding: var(--space-0-5) var(--space-2);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  opacity: 1;
+  background: transparent;
+}
+/* (The user-turn meta-row copy renders via MessageCopyButton's
+   `footerStyle`, so it reuses the Marker `footer-action` shell
+   (`markerVariants('footer-action')`) directly and needs no bespoke
+   override here.) */
+.maka-bubble-with-actions:hover .maka-message-copy,
+.maka-bubble-with-actions:focus-within .maka-message-copy,
+.maka-message-copy:focus-visible {
+  opacity: 1;
+  /* Settle into the resting position when the parent bubble is
+     hovered or anything inside it gains focus. The entrance
+     translate / scale defined on .maka-message-copy resolves
+     here. */
+  transform: translateY(0) scale(1);
+}
+.maka-message-copy:hover {
+  color: var(--foreground);
+  background: var(--state-hover-bg);
+  box-shadow: 0 1px 3px oklch(from var(--foreground) l c h / 0.08);
+}
+.maka-message-copy[data-copied="true"] {
+  color: var(--success-text);
+  background: oklch(from var(--success) l c h / 0.08);
+  opacity: 1;
+}
+.maka-message-copy[data-pending="true"] {
+  cursor: progress;
+  opacity: 1;
+}
+.maka-message-copy[data-copy-feedback="failed"] {
+  color: var(--destructive);
+  background: oklch(from var(--destructive) l c h / 0.08);
+  opacity: 1;
+}
+
+/* --- User-turn meta row (relocated from tool-output.css) ----------------- */
+/* PR-CHAT-CHROME-FOLLOWUP-0 / PR5 CHAT-MESSAGE-TIME-0: the relative time is
+   always visible now (it was `opacity: 0` until hover, which hid it on
+   touch + from assistive tech). It stays quiet — caption tier (11px) at
+   normal weight, muted — and rides in the user turn's meta row beneath
+   the block. Aligned to the same tier the footer-action cva uses (text-xs). */
+.maka-message-time-inline {
+  display: inline-block;
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-normal);
+  line-height: var(--leading-none);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* User turn meta row: quiet time + a copy affordance, right-aligned
+   beneath the message block (the parent `Message role="user"` aligns its
+   items to flex-end, so this row shrink-wraps and hugs the right edge). */
+.maka-message-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1-5);
+}
+
+/* Turn summary / lineage rows / footer measure column folded into the
+   `@maka/ui` Marker chat primitive's own variants (issue #332 PR2 —
+   packages/ui/src/primitives/chat.tsx); the layout is now location-
+   independent instead of keyed on a `[data-role="assistant"]` descendant. */
+
+[data-slot="message"] pre {
+  margin: 0;
+  font: inherit;
+}
+
+/* System-note pill. Ties (0,2,1) with `.maka-prose .maka-code-block pre`,
+   which now sits later in the cascade (prose.css imports after this file) —
+   so a fenced code block inside a system note would render as a full code
+   block, not this pill. No system note carries a <pre> today (they're
+   plain-text labels from SYSTEM_NOTE_LABELS), so the pill only ever styles
+   bare <pre> without code-block chrome. */
+[data-slot="message"][data-role="system"] pre {
+  display: inline-flex;
+  border-radius: var(--radius-pill);
+  background: oklch(from var(--info) l c h / 0.08);
+  color: var(--info-text);
+  padding: var(--space-0-5) var(--space-1-5);
+  font-size: var(--font-size-caption);
+}

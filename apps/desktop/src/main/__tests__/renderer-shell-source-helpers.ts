@@ -21,7 +21,6 @@ const sourcePaths = [
   'app-shell-project-actions.ts',
   'app-shell-open-skill-action.ts',
   'app-shell-chat-actions.ts',
-  'app-shell-import-actions.ts',
   'app-shell-stop-action.ts',
   'app-shell-copy.ts',
   'app-shell-command-actions.ts',

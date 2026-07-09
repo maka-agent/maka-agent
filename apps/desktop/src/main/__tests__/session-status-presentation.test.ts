@@ -129,7 +129,7 @@ describe('sessionStatusAriaLabel', () => {
 
   it('blocked status combines status label + blocked reason', () => {
     const text = sessionStatusAriaLabel('blocked', 'auth');
-    assert.match(text, /已阻塞/);
+    assert.match(text, /需要处理/);
     assert.match(text, /登录|登陆/);
     // Separator stays consistent
     assert.match(text, / · /);
@@ -137,7 +137,7 @@ describe('sessionStatusAriaLabel', () => {
 
   it('blocked without reason falls back to actionable recovery copy', () => {
     const text = sessionStatusAriaLabel('blocked');
-    assert.match(text, /已阻塞/);
+    assert.match(text, /需要处理/);
     assert.match(text, /运行中断，可重试/);
     assert.doesNotMatch(text, /未知阻塞/);
   });
@@ -166,19 +166,17 @@ describe('permission mode transition guard copy', () => {
     assert.match(composerReasonBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
   });
 
-  it('composer mode chip disables itself when pending or disabledReason is present', async () => {
+  it('composer permission picker disables itself when pending or disabledReason is present', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
-    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \([\s\S]*?\) : null/)?.[0] ?? '';
 
-    assert.ok(dropdownBlock, 'composer.tsx must render a composer permission-mode Menu dropdown');
-    assert.match(dropdownBlock, /const triggerDisabled = props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\);/);
-    assert.match(dropdownBlock, /disabled=\{triggerDisabled\}/);
-    assert.match(dropdownBlock, /title=\{props\.permissionModeDisabledReason \?\? meta\.hint\}/);
-    assert.match(dropdownBlock, /data-pending=\{props\.permissionModePending \? 'true' : undefined\}/);
-    assert.match(dropdownBlock, /aria-label=\{`权限模式：\$\{meta\.label\}`\}/);
+    assert.ok(dropdownBlock, 'composer.tsx must render a PermissionModeSelect picker');
+    assert.match(dropdownBlock, /<PermissionModeSelect/);
+    assert.match(dropdownBlock, /disabled=\{props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\)\}/);
+    assert.match(dropdownBlock, /disabledReason=\{props\.permissionModeDisabledReason\}/);
   });
 
-  it('composer mode menu offers the user-facing permission modes via base-ui Menu', async () => {
+  it('composer permission picker uses the shared Base UI Select', async () => {
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
     const menuModule = await readFile(join(REPO_ROOT, 'packages/ui/src/permission-mode-menu.tsx'), 'utf8');
 
@@ -193,20 +191,20 @@ describe('permission mode transition guard copy', () => {
       /export const PERMISSION_MODE_ORDER: readonly ChatDefaultPermissionMode\[\] = CHAT_DEFAULT_PERMISSION_MODES;/,
     );
 
-    // Mode chip uses base-ui Menu (not a custom radiogroup) — keyboard
-    // arrow / Home / End navigation is delegated to the primitive. The
-    // popup body is the shared PermissionModeMenuPopup so the composer and
-    // Settings pickers render identical option markup.
-    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \(\(\) => \{[\s\S]*?<\/Menu>/)?.[0] ?? '';
-    assert.match(dropdownBlock, /<Menu>/);
-    assert.match(dropdownBlock, /<MenuTrigger/);
-    assert.match(dropdownBlock, /<PermissionModeMenuPopup/);
+    // Permission picker is Base UI Select (the correct primitive for a
+    // single-value choice), not a hand-styled Menu + chip. The composer
+    // renders the shared PermissionModeSelect so option markup can't drift
+    // from the Settings picker; keyboard arrow/Home/End is delegated to
+    // the Select primitive.
+    const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \([\s\S]*?\) : null/)?.[0] ?? '';
+    assert.match(dropdownBlock, /<PermissionModeSelect/);
+    assert.match(dropdownBlock, /activeMode=\{props\.permissionMode/);
     assert.match(dropdownBlock, /void props\.onPermissionModeChange\?\.\(mode\);/);
-    assert.match(menuModule, /<MenuPopup className="maka-composer-mode-menu"/);
+    assert.match(menuModule, /export function PermissionModeSelect/);
     assert.match(menuModule, /PERMISSION_MODE_ORDER\.map\(\(mode\) =>/);
   });
 
-  it('scrubs thrown permission-mode IPC failures before toast', async () => {
+  it('persists permission-mode picks as the global default and scrubs failures before toast', async () => {
     const renderer = await readRendererShellCombinedSource();
     const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
 
@@ -215,26 +213,27 @@ describe('permission mode transition guard copy', () => {
     assert.match(renderer, /const \{[\s\S]*pendingPermissionModeBySession,[\s\S]*\} = sessionUiState;/);
     assert.match(
       setPermissionModeBlock,
-      /const sessionId = activeIdRef\.current;[\s\S]*if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}[\s\S]*pendingPermissionModeChangesRef\.current\.has\(sessionId\)/,
-      'Permission mode changes must capture the active session id, store no-session picks for the next chat, and gate duplicate changes for active sessions',
+      /if \(mode === 'explore'\) return;[\s\S]*const sessionId = activeIdRef\.current;[\s\S]*const pendingKey = sessionId \?\? '__global_permission_mode__';[\s\S]*pendingPermissionModeChangesRef\.current\.has\(pendingKey\)/,
+      'Permission mode changes must reject explore, capture the active session id, and gate duplicate active/global saves',
     );
-    assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(sessionId\);[\s\S]*setPendingPermissionModeBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/);
-    assert.match(setPermissionModeBlock, /sessionsRef\.current\.find\(\(session\) => session\.id === sessionId\)/);
-    assert.match(setPermissionModeBlock, /window\.maka\.sessions\.setPermissionMode\(sessionId, mode\)/);
+    assert.match(setPermissionModeBlock, /pendingPermissionModeChangesRef\.current\.add\(pendingKey\);[\s\S]*if \(sessionId\) setPendingPermissionModeBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: true \}\)\);/);
     assert.match(
       setPermissionModeBlock,
-      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*setSessions\(\(prev\) => prev\.map\(\(session\) => \(session\.id === next\.id \? next : session\)\)\);[\s\S]*\}/,
-      'Permission mode success must not patch the visible chat header after the user switches sessions',
+      /window\.maka\.settings\.update\(\{ chatDefaults: \{ permissionMode: mode \} \}\)/,
+      'Permission mode changes must persist the Settings -> General chat default instead of mutating one session',
     );
-    assert.match(setPermissionModeBlock, /if \(activeIdRef\.current === sessionId\) toastApi\.success\(`已切到 \$\{labels\[mode\]\}`/);
+    assert.match(setPermissionModeBlock, /const nextMode = result\.settings\.chatDefaults\.permissionMode;/);
+    assert.match(setPermissionModeBlock, /setDefaultPermissionMode\(nextMode\);/);
+    assert.match(setPermissionModeBlock, /setSessions\(\(prev\) => prev\.map\(\(session\) => \(\{ \.\.\.session, permissionMode: nextMode \}\)\)\);/);
+    assert.match(setPermissionModeBlock, /toastApi\.success\(`已切到 \$\{permissionModeLabels\[nextMode\]\}`, permissionModeDescriptions\[nextMode\]\);/);
     assert.match(setPermissionModeBlock, /await refreshSessions\(\)/, 'Permission mode changes must still refresh the sidebar/session list');
     assert.match(
       setPermissionModeBlock,
-      /if \(activeIdRef\.current === sessionId\) \{[\s\S]*toastApi\.error\(\s*'切换权限模式失败',\s*generalizedErrorMessageChinese\(error, '权限模式暂时无法切换，请稍后重试。'\)/,
+      /catch \(error\) \{[\s\S]*toastApi\.error\(\s*'切换权限模式失败',\s*generalizedErrorMessageChinese\(error, '权限模式暂时无法切换，请稍后重试。'\)/,
       'Permission mode failures must use shared Chinese error classification/redaction before reaching toast',
     );
-    assert.match(setPermissionModeBlock, /finally \{[\s\S]*pendingPermissionModeChangesRef\.current\.delete\(sessionId\);[\s\S]*\}/);
-    assert.match(setPermissionModeBlock, /delete next\[sessionId\];/);
+    assert.match(setPermissionModeBlock, /finally \{[\s\S]*pendingPermissionModeChangesRef\.current\.delete\(pendingKey\);[\s\S]*\}/);
+    assert.match(setPermissionModeBlock, /if \(sessionId\) setPendingPermissionModeBySession\(\(current\) => omitSessionKey\(current, sessionId\)\);/);
     assert.match(renderer, /permissionModePending=\{activeId \? pendingPermissionModeBySession\[activeId\] === true : false\}/);
     assert.match(renderer, /onPermissionModeChange=\{\(mode\) => setPermissionMode\(mode\)\}/);
     assert.doesNotMatch(renderer, /onPermissionModeChange=\{\(mode\) => void setPermissionMode\(mode\)\}/);
@@ -243,36 +242,40 @@ describe('permission mode transition guard copy', () => {
       /error instanceof Error \? error\.message : String\(error\)/,
       'Permission mode failures must not render raw thrown Error.message',
     );
+    assert.doesNotMatch(setPermissionModeBlock, /setPendingNewChatPermissionMode\(mode\)/);
+    assert.doesNotMatch(setPermissionModeBlock, /window\.maka\.sessions\.setPermissionMode\(sessionId, mode\)/);
     assert.doesNotMatch(setPermissionModeBlock, /window\.maka\.sessions\.setPermissionMode\(activeId, mode\)/);
   });
 
-  it('uses pending new-chat permission mode for the first new session', async () => {
+  it('uses the configured default permission mode without one-shot new-chat state', async () => {
     const renderer = await readRendererShellCombinedSource();
+    const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
 
-    assert.match(
+    assert.doesNotMatch(
       renderer,
       /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
-      'The shell must keep a renderer-only permission mode pick while no session is active',
+      'The shell must not keep renderer-only permission mode state while no session is active',
     );
-    assert.match(
-      renderer,
+    assert.doesNotMatch(
+      sendBlock,
       /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
-      'New session creation must send the no-session pick when made, and OMIT permissionMode otherwise so main.ts resolves the configured Settings → 通用 default as the single authority',
+      'New session creation must omit permissionMode so main.ts resolves the configured Settings -> General default as the single authority',
     );
-    assert.match(
-      renderer,
+    assert.doesNotMatch(
+      sendBlock,
       /setPendingNewChatPermissionMode\(null\)/,
-      'Successful first send must clear the pending no-session permission mode pick',
+      'Successful first send must not clear a removed renderer-only permission mode pick',
     );
     assert.match(
       renderer,
-      /permissionMode=\{activeSessionForView\?\.permissionMode \?\? pendingNewChatPermissionMode \?\? defaultPermissionMode\}/,
-      'The Composer mode chip must show the pending no-session pick (or the configured default) before the first message creates a session',
+      /permissionMode=\{defaultPermissionMode\}/,
+      'The Composer mode chip must show the configured global default',
     );
+    assert.match(renderer, /setDefaultPermissionMode\(next\.chatDefaults\?\.permissionMode \?\? 'ask'\)/);
     assert.match(
       renderer,
       /permissionModeDisabledReason=\{[\s\S]*activeId && activeSessionForView\?\.status === 'running'/,
-      'No-session permission mode picks must stay enabled while running/waiting guards apply only to existing sessions',
+      'No-session default permission changes must stay enabled while running/waiting guards apply only to existing sessions',
     );
   });
 });

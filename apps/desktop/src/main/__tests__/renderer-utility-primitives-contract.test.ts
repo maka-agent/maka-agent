@@ -118,25 +118,66 @@ describe('renderer utility surfaces use shared UI primitives', () => {
   it('keeps command palette search and rows on shared primitives', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/command-palette.tsx'), 'utf8');
 
-    assert.match(source, /import \{[^}]*\bButton\b[^}]*\bInputGroup\b[^}]*\bInputGroupAddon\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\buseModalA11y\b[^}]*\} from '@maka\/ui';/);
+    assert.match(source, /import \{[^}]*\bDialogContent\b[^}]*\bDialogRoot\b[^}]*\bInputGroup\b[^}]*\bInputGroupInput\b[^}]*\bKbd\b[^}]*\bKbdGroup\b[^}]*\} from '@maka\/ui';/);
+    assert.match(source, /import \{ Autocomplete \} from '@base-ui\/react\/autocomplete'/, 'CommandPalette must consume Base UI Autocomplete for the result list (#520 PR8)');
     assert.doesNotMatch(source, /<input\b/, 'Command palette search must use shared Input');
     assert.doesNotMatch(source, /<button\b/, 'Command palette rows must use shared Button');
     assert.doesNotMatch(source, /<kbd\b/, 'Command palette shortcut glyphs must use shared primitive Kbd');
     assert.match(source, /<InputGroup[\s\S]*className="maka-palette-input-wrap"[\s\S]*aria-label="命令面板搜索"[\s\S]*onMouseDown=\{\(event\) => \{/);
     assert.match(source, /<InputGroupInput[\s\S]*className="maka-palette-input"/);
-    assert.match(source, /<InputGroupAddon align="inline-end" className="maka-palette-input-hint-addon">/);
-    assert.match(source, /<Button[\s\S]*role="option"[\s\S]*className="maka-palette-item"/);
+    // Detail round 6: shortcut hints live in the palette footer only; the
+    // former inline-end addon duplicated ↵/Esc next to the input.
+    assert.doesNotMatch(source, /<InputGroupAddon\b/, 'Palette input must not regrow the duplicated shortcut-hint addon');
+    assert.match(source, /<Autocomplete.Item[\s\S]*className="maka-palette-item"/, 'Command palette rows must be Autocomplete.Item (#520 PR8)');
     assert.match(source, /<KbdGroup className="maka-shortcut-group">[\s\S]*<Kbd className="maka-shortcut-kbd">↑<\/Kbd>[\s\S]*<Kbd className="maka-shortcut-kbd">↓<\/Kbd>/);
   });
 
-  it('keeps keyboard help close action on shared Button', async () => {
+  it('keeps keyboard help on the shared DialogHeader with a single title', async () => {
     const source = await readFile(join(process.cwd(), 'src/renderer/keyboard-help.tsx'), 'utf8');
 
-    assert.match(source, /import \{ Button, Kbd, useModalA11y \} from '@maka\/ui';/);
+    // Modal-header unification: keyboard-help consumes the shared DialogHeader
+    // primitive (single title row + quiet icon-sm close), not an ad-hoc
+    // eyebrow + second-title + boxed close stack.
+    assert.match(source, /import \{ DialogContent, DialogHeader, DialogRoot, Kbd \} from '@maka\/ui';/);
     assert.doesNotMatch(source, /<button\b/, 'KeyboardHelpModal close action must use shared Button');
     assert.doesNotMatch(source, /<kbd\b/, 'KeyboardHelpModal shortcut glyphs must use shared primitive Kbd');
-    assert.match(source, /<Button[\s\S]*className="settingsCloseButton"[\s\S]*aria-label="关闭快捷键面板"/);
+    assert.match(
+      source,
+      /<DialogHeader[\s\S]*title="键盘快捷键"[\s\S]*titleId="maka-help-title"[\s\S]*onClose=\{props\.onClose\}/,
+      'KeyboardHelpModal must render the shared DialogHeader with 键盘快捷键 as THE title',
+    );
+    // The redundant second title and eyebrow are gone.
+    assert.doesNotMatch(source, /所有可用快捷键/, 'The redundant second title must be dropped');
+    assert.doesNotMatch(source, /maka-help-eyebrow/, 'The eyebrow row must be dropped');
+    assert.doesNotMatch(source, /settingsCloseButton/, 'The boxed close-button class must be gone');
     assert.match(source, /<Kbd className="maka-shortcut-kbd">\{key\}<\/Kbd>/);
+  });
+
+  it('unifies titled DialogContent modals onto the shared DialogHeader primitive', async () => {
+    // Modal-header unification contract: every titled DialogContent modal
+    // consumes the shared DialogHeader (single title row + one quiet icon-sm
+    // close button) instead of an ad-hoc header. The command palette is
+    // intentionally headerless (its input row IS the header) and is excluded.
+    const header = await readFile(join(repoRoot, 'packages/ui/src/primitives/dialog-header.tsx'), 'utf8');
+    // The shared close button is the SAME form everywhere: quiet icon-sm
+    // Button + X, aria-label defaults to 关闭, no border box.
+    assert.match(header, /variant="quiet"/, 'DialogHeader close must be the quiet Button variant');
+    assert.match(header, /size="icon-sm"/, 'DialogHeader close must be icon-sm');
+    assert.match(header, /closeLabel = '关闭'/, 'DialogHeader close aria-label defaults to 关闭');
+    assert.match(header, /<X aria-hidden="true" \/>/, 'DialogHeader close renders the X icon');
+    assert.match(header, /export function DialogHeader/, 'DialogHeader must be exported');
+
+    // Both titled modals import + render the shared DialogHeader.
+    const keyboardHelp = await readFile(join(process.cwd(), 'src/renderer/keyboard-help.tsx'), 'utf8');
+    assert.match(keyboardHelp, /import \{[^}]*\bDialogHeader\b[^}]*\} from '@maka\/ui';/);
+    assert.match(keyboardHelp, /<DialogHeader\b/);
+
+    const searchModal = await readFile(join(repoRoot, 'packages/ui/src/search-modal.tsx'), 'utf8');
+    assert.match(searchModal, /import \{ DialogHeader \} from '\.\/primitives\/dialog-header\.js';/);
+    assert.match(searchModal, /<DialogHeader[\s\S]*title="搜索"[\s\S]*titleId="maka-search-modal-title"/);
+    // The old ad-hoc header language is gone.
+    assert.doesNotMatch(searchModal, /maka-search-modal-header/, 'Search modal must drop the ad-hoc header class');
+    assert.doesNotMatch(searchModal, /maka-search-modal-close/, 'Search modal must drop the ad-hoc close class');
   });
 
   it('keeps toast actions and confirm dialog buttons on shared Button without legacy classes', async () => {

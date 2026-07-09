@@ -25,7 +25,10 @@ import {
   buildHarborCellContextBudgetBackendOptions,
   buildHarborCellContextBudgetPolicySnapshot,
   buildHarborCellAiSdkTools,
+  buildHarborCellTaskLedgerExperimentPolicy,
+  harborCellMaxStepsFromEnv,
   createHarborCellLocalToolExecutor,
+  HARBOR_CELL_CONTEXT_ENV_KEYS,
   HARBOR_CELL_OUTPUT_FILENAME,
   HARBOR_CELL_RUNTIME_EVENTS_FILENAME,
   resolveHarborCellAiSdkEnv,
@@ -829,6 +832,13 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('parses host-side max steps from MAKA_MAX_STEPS', () => {
+    assert.equal(harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: '200' }), 200);
+    assert.throws(() => harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: '0' }), /MAKA_MAX_STEPS must be a positive integer/);
+    assert.throws(() => harborCellMaxStepsFromEnv({ MAKA_MAX_STEPS: 'oops' }), /MAKA_MAX_STEPS must be a positive integer/);
+    assert.equal(harborCellMaxStepsFromEnv({}), undefined);
+  });
+
   test('host-side Harbor cell config reads MAKA_ECONOMY_TASK_MODE', async () => {
     const { main } = await import(new URL('../../harbor/run-host-cell.mjs', import.meta.url).href) as {
       main: (options?: { registerBackends?: (registry: BackendRegistry, context: HeadlessBackendContext) => void }) => Promise<void>;
@@ -938,6 +948,106 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Bash')?.permissionRequired, false);
       assert.equal(backendInput.tools.find((tool) => tool.name === 'Write')?.permissionRequired, false);
       assert.match(backendInput.systemPrompt ?? '', /Prefer Read, Glob, and Grep/);
+    });
+  });
+
+  test('Harbor task experiment context flag enables task tools and replay only when requested', async () => {
+    assert.ok(HARBOR_CELL_CONTEXT_ENV_KEYS.includes('MAKA_CONTEXT_TASK_TOOLS' as never));
+    assert.ok(!HARBOR_CELL_CONTEXT_ENV_KEYS.includes('MAKA_CONTEXT_TASK_TOOL_SHAPE' as never));
+    assert.deepEqual(buildHarborCellTaskLedgerExperimentPolicy({ MAKA_CONTEXT_TASK_TOOLS: 'off' }), undefined);
+    assert.deepEqual(buildHarborCellTaskLedgerExperimentPolicy({
+      MAKA_CONTEXT_TASK_TOOLS: 'on',
+      MAKA_CONTEXT_TASK_REPLAY_MAX_CHARS: '700',
+    }), { enabled: true, replayMaxChars: 700 });
+    assert.throws(
+      () => buildHarborCellTaskLedgerExperimentPolicy({
+        MAKA_CONTEXT_TASK_TOOLS: 'on',
+        MAKA_CONTEXT_TASK_TOOL_SHAPE: 'crud',
+      } as never),
+      /unsupported Harbor context env key: MAKA_CONTEXT_TASK_TOOL_SHAPE/,
+    );
+
+    await withDirs(async ({ workspaceDir }) => {
+      const offRegistry = new BackendRegistry();
+      const offRegister = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+      });
+      const toolExecutor = fakeToolExecutor();
+      await offRegister(offRegistry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const offBackend = await offRegistry.build('ai-sdk', backendContext(workspaceDir));
+      const offInput = (offBackend as unknown as {
+        input: { tools: Array<{ name: string }>; turnTailPrompt?: unknown };
+      }).input;
+      assert.ok(!offInput.tools.some((tool) => tool.name.startsWith('task_')));
+      assert.equal(offInput.turnTailPrompt, undefined);
+
+      const todoRegistry = new BackendRegistry();
+      const todoRegister = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_CONTEXT_TASK_TOOLS: 'on',
+        },
+        now: () => 123,
+        newId: testIdFactory(),
+      });
+      await todoRegister(todoRegistry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const todoBackend = await todoRegistry.build('ai-sdk', backendContext(workspaceDir));
+      const todoInput = (todoBackend as unknown as {
+        input: {
+          tools: Array<{ name: string; impl: Function }>;
+          turnTailPrompt?: (context: { sessionId: string; cwd?: string; workspaceRoot?: string }) => Promise<string | undefined>;
+        };
+      }).input;
+      assert.ok(todoInput.tools.some((tool) => tool.name === 'todo_write'));
+      assert.ok(!todoInput.tools.some((tool) => tool.name.startsWith('task_')));
+      assert.ok(todoInput.turnTailPrompt);
+      const emptyTodoReplay = await todoInput.turnTailPrompt({ sessionId: 'session-todo', cwd: workspaceDir });
+      assert.match(emptyTodoReplay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
+
+      const todoWrite = todoInput.tools.find((tool) => tool.name === 'todo_write');
+      assert.ok(todoWrite);
+      await todoWrite.impl({
+        todos: [{ content: 'Run focused benchmark slice', status: 'in_progress' }],
+      }, {
+        sessionId: 'session-todo',
+        turnId: 'turn-1',
+        cwd: workspaceDir,
+        toolCallId: 'tool-todo-write',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      });
+
+      const todoReplay = await todoInput.turnTailPrompt({ sessionId: 'session-todo', cwd: workspaceDir });
+      assert.match(todoReplay ?? '', /Use todo_write at the start of long-running, multi-step tasks/);
+      assert.match(todoReplay ?? '', /Run focused benchmark slice/);
     });
   });
 
@@ -1119,6 +1229,51 @@ describe('runHarborCell', () => {
         sessionId: 'session-1',
       });
       assert.deepEqual(read, { ok: true, serializedResult });
+    });
+  });
+
+  // Eager retrieval only hydrates stale-kind placeholders, so a retrieval arm
+  // is structurally inert unless a placeholder producer (stale prune) and the
+  // archive reader are wired alongside it. The #340-era arms enabled retrieval
+  // without stale prune and it never fired; this contract pins the live shape.
+  test('Harbor eager archive-retrieval arm gets a placeholder producer and archive reader by default', async () => {
+    await withDirs(async ({ workspaceDir, outputDir }) => {
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-4o-mini',
+        env: {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_OUTPUT_DIR: outputDir,
+          MAKA_CONTEXT_ARCHIVE_RETRIEVAL: 'on',
+        },
+        now: () => 123,
+        newId: () => 'id',
+      });
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-4o-mini',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        workspaceDir,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const backendInput = (backend as unknown as {
+        input: ReturnType<typeof buildHarborCellContextBudgetBackendOptions>;
+      }).input;
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.enabled, true);
+      assert.equal(backendInput.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 2);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.enabled, true);
+      assert.equal(backendInput.contextBudget?.archiveRetrieval?.mode, undefined);
+      assert.ok(backendInput.archiveToolResult, 'expected archive writer for the placeholder producer');
+      assert.ok(backendInput.readToolResultArchive, 'expected archive reader for eager hydration');
     });
   });
 
@@ -1320,7 +1475,7 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor context budget env treats explicit false-like booleans as disabled', () => {
-    // stale and archive default off; activeToolResultPrune defaults on, so disabling
+    // archive retrieval defaults off; stale and active prune default on, so disabling
     // stale/archive alone still leaves an enabled activeToolResultPrune policy.
     assert.deepEqual(
       buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'false' }).contextBudget?.activeToolResultPrune,
@@ -1361,14 +1516,49 @@ describe('runHarborCell', () => {
   });
 
   test('Harbor active tool result prune can be disabled with explicit off', () => {
-    assert.equal(
-      buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }).contextBudget,
-      undefined,
-    );
-    assert.equal(
-      buildHarborCellContextBudgetPolicySnapshot({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' }),
-      undefined,
-    );
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.activeToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+  });
+
+  test('Harbor stale tool result prune is enabled by default without any env', () => {
+    const backend = buildHarborCellContextBudgetBackendOptions({});
+    // minRecentTurnsFull is set explicitly so the runtime protection window
+    // matches the policy snapshot and desktop default instead of the runtime's
+    // internal ?? 1 fallback.
+    assert.deepEqual(backend.contextBudget?.staleToolResultPrune, { enabled: true, minRecentTurnsFull: 2 });
+
+    const snapshot = buildHarborCellContextBudgetPolicySnapshot({});
+    assert.equal(snapshot?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.enabled, true);
+    assert.equal(snapshot?.staleToolResultPrune?.maxResultEstimatedTokens, 2048);
+    assert.equal(snapshot?.staleToolResultPrune?.minRecentTurnsFull, 2);
+  });
+
+  test('Harbor stale tool result prune can be disabled with explicit off', () => {
+    const options = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off' });
+    assert.equal(options.contextBudget?.staleToolResultPrune, undefined);
+    assert.deepEqual(options.contextBudget?.activeToolResultPrune, { enabled: true });
+  });
+
+  test('Harbor stale tool result prune min recent turns falls back to MAKA_CONTEXT_MIN_RECENT_TURNS', () => {
+    const fallback = buildHarborCellContextBudgetBackendOptions({ MAKA_CONTEXT_MIN_RECENT_TURNS: '3' });
+    assert.equal(fallback.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 3);
+
+    const explicit = buildHarborCellContextBudgetBackendOptions({
+      MAKA_CONTEXT_MIN_RECENT_TURNS: '3',
+      MAKA_CONTEXT_STALE_TOOL_RESULT_MIN_RECENT_TURNS: '5',
+    });
+    assert.equal(explicit.contextBudget?.staleToolResultPrune?.minRecentTurnsFull, 5);
+  });
+
+  test('Harbor context budget is empty when both default-on prunes are explicitly off', () => {
+    const env = {
+      MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'off',
+      MAKA_CONTEXT_ACTIVE_TOOL_RESULT_PRUNE: 'off',
+    };
+    assert.equal(buildHarborCellContextBudgetBackendOptions({ ...env }).contextBudget, undefined);
+    assert.equal(buildHarborCellContextBudgetPolicySnapshot({ ...env }), undefined);
   });
 
   test('Harbor parses semantic compact policy for headless runs', () => {
@@ -1984,6 +2174,11 @@ function fakeToolExecutor(): IsolatedToolExecutor {
       return { exitCode: 0, stdout: '', stderr: '' };
     },
   };
+}
+
+function testIdFactory(): () => string {
+  let i = 0;
+  return () => `id-${++i}`;
 }
 
 function sha256(text: string): string {

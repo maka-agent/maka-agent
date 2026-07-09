@@ -52,31 +52,37 @@ describe('home composer new-chat model picker', () => {
 
     const picker = ui.match(/function NewChatModelPicker\(props: \{[\s\S]*?\}\) \{[\s\S]*?\n\}/)?.[0] ?? '';
     assert.notEqual(picker, '', 'NewChatModelPicker component must exist');
-    // Interactive: built on SelectRoot, fires the pick on value change.
-    assert.match(picker, /<SelectRoot<string>/, 'NewChatModelPicker must be a real SelectRoot dropdown');
+    // Interactive: built on the shared ModelPicker combobox, fires the pick
+    // on value change.
+    assert.match(picker, /<ModelPicker/, 'NewChatModelPicker must be a real ModelPicker dropdown');
     assert.match(picker, /props\.onPick\(next\)/, 'NewChatModelPicker must call onPick with the chosen model');
-    // No hand-added chevron — SelectTrigger renders its own BaseSelect.Icon.
+    // No hand-added chevron or status dot — ModelPicker's trigger renders the
+    // dropdown affordance, and the active-session picker has no red dot. Keep
+    // the new-chat trigger visually aligned with it.
     assert.doesNotMatch(
       picker,
       /<ChevronDown/,
-      'NewChatModelPicker must not hand-add a chevron (SelectTrigger already renders one) — guards the double-chevron regression',
+      'NewChatModelPicker must not hand-add a chevron (ModelPicker\'s trigger already renders one) — guards the double-chevron regression',
+    );
+    assert.doesNotMatch(
+      picker,
+      /maka-composer-model-status/,
+      'NewChatModelPicker must not render the red status dot; the active-session model picker has no equivalent marker',
     );
   });
 
-  it('shares one ModelChoiceOptions list between both model pickers', async () => {
-    // The pickers live in `chat-model-switcher.tsx`; the composer renders
-    // them from `composer.tsx`. Search the union so the contract holds across
-    // the seam.
-    const ui =
-      (await readRepo('packages/ui/src/composer.tsx')) +
-      '\n' +
-      (await readRepo('packages/ui/src/chat-model-switcher.tsx'));
-    assert.match(ui, /function ModelChoiceOptions\(\{\s*groups,/, 'shared ModelChoiceOptions list component must exist');
-    const usages = ui.match(/<ModelChoiceOptions groups=\{grouped\} renderProviderMark=\{props\.renderProviderMark\} \/>/g) ?? [];
+  it('shares one ModelPicker popup between both model pickers', async () => {
+    // The pickers live in `chat-model-switcher.tsx`; the shared searchable
+    // popup lives in `model-picker.tsx`. Both ChatModelSwitcher and
+    // NewChatModelPicker must render it (no duplicated grouped-list JSX).
+    const ui = await readRepo('packages/ui/src/chat-model-switcher.tsx');
+    const picker = await readRepo('packages/ui/src/model-picker.tsx');
+    assert.match(picker, /export function ModelPicker\(/, 'shared ModelPicker component must exist');
+    const usages = ui.match(/<ModelPicker/g) ?? [];
     assert.equal(
       usages.length,
       2,
-      'both ChatModelSwitcher and NewChatModelPicker must render the shared <ModelChoiceOptions> (no duplicated grouped list)',
+      'both ChatModelSwitcher and NewChatModelPicker must render the shared <ModelPicker> (no duplicated grouped list)',
     );
   });
 
@@ -93,8 +99,8 @@ describe('home composer new-chat model picker', () => {
     );
     assert.match(
       renderer,
-      /onPickNewChatModel=\{\(input\) => setPendingNewChatModel\(input\)\}/,
-      'main.tsx must wire the composer pick to setPendingNewChatModel',
+      /onPickNewChatModel=\{\(input\) => \{[\s\S]*setPendingNewChatModel\(input\);[\s\S]*saveComposerDefaults\(\{ model: input \}\);[\s\S]*\}\}/,
+      'main.tsx must wire the composer pick to state and persisted composer defaults',
     );
     // A pick only stays in effect while it is still an offered choice; once the
     // connection/model is removed the picker must fall back to the default so it
@@ -113,40 +119,67 @@ describe('home composer new-chat model picker', () => {
     );
   });
 
-  it('wires the picked new-chat permission mode to one sessions.create call only', async () => {
-    const renderer = await readRendererShellCombinedSource();
-    const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
-    const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
+  it('filters the pending new-chat thinking level against the currently picked model', async () => {
+    const renderer = await readRendererShellSources([
+      'app-shell.tsx',
+      'app-shell-chat-actions.ts',
+    ]);
 
     assert.match(
       renderer,
+      /const newChatThinkingLevel\s*=\s*pendingNewChatThinkingLevel && newChatThinkingLevels\.includes\(pendingNewChatThinkingLevel\)\s*\? pendingNewChatThinkingLevel\s*: undefined;/,
+      'AppShell must only surface a pending new-chat thinking level when the current new-chat model supports it',
+    );
+    assert.match(
+      renderer,
+      /pendingNewChatThinkingLevel:\s*newChatThinkingLevel \?\? null/,
+      'send() dependencies must receive the filtered newChatThinkingLevel, not the raw pending state',
+    );
+    assert.match(
+      renderer,
+      /\.{3}\(pendingNewChatThinkingLevel \? \{ thinkingLevel: pendingNewChatThinkingLevel \} : \{\}\)/,
+      'sessions.create still forwards the dependency field, which must already be filtered by AppShell',
+    );
+  });
+
+  it('wires composer permission mode picks to the global chat default', async () => {
+    const renderer = await readRendererShellCombinedSource();
+    const setPermissionModeBlock = renderer.match(/async function setPermissionMode[\s\S]*?async function setSessionModel/)?.[0] ?? '';
+    const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
+
+    assert.doesNotMatch(
+      renderer,
+      /saveComposerDefaults\(\{\s*permissionMode:/,
+      'permission mode must not be persisted into composer defaults',
+    );
+    assert.doesNotMatch(
+      renderer,
       /const \[pendingNewChatPermissionMode, setPendingNewChatPermissionMode\] = useState<PermissionMode \| null>\(null\)/,
-      'AppShell must keep the picked empty-state permission mode in renderer-only state',
+      'composer permission picks are no longer one-shot renderer state',
+    );
+    assert.doesNotMatch(
+      setPermissionModeBlock,
+      /setPendingNewChatPermissionMode\(mode\)/,
+      'composer permission picks must not be stored for only the next new chat',
     );
     assert.match(
       setPermissionModeBlock,
-      /if \(!sessionId\) \{[\s\S]*setPendingNewChatPermissionMode\(mode\);[\s\S]*return;[\s\S]*\}/,
-      'permission-mode picks without an active session must update pendingNewChatPermissionMode instead of calling IPC',
+      /window\.maka\.settings\.update\(\{ chatDefaults: \{ permissionMode: mode \} \}\)/,
+      'every composer permission-mode pick must persist the global chat default',
     );
-    assert.match(
+    assert.doesNotMatch(
       sendBlock,
       /\.\.\.\(pendingNewChatPermissionMode \? \{ permissionMode: pendingNewChatPermissionMode \} : \{\}\)/,
-      'new-chat sessions.create must send the picked pending permission mode when one exists, and omit the field otherwise (main.ts resolves the configured default)',
-    );
-    assert.match(
-      sendBlock,
-      /setPendingNewChatPermissionMode\(null\);/,
-      'pending new-chat permission mode must be one-shot and reset after creating a session',
+      'new-chat sessions.create must never shadow the persisted global default with one-shot renderer state',
     );
   });
 
   it('does not let stale new-chat send creation steal the active session after navigation', async () => {
     const renderer = await readRendererShellSources([
       'app-shell-chat-actions.ts',
-      'app-shell-import-actions.ts',
       'app-shell.tsx',
     ]);
-    const sendBlock = renderer.match(/async function send\(text: string\): Promise<boolean> \{[\s\S]*?\n  async function importTextFilePrompt/)?.[0] ?? '';
+    const sendBlock = renderer.match(/async function send\(text: string[\s\S]*?\n  async function respondToPermission/)?.[0] ?? '';
 
     assert.match(
       renderer,
@@ -161,12 +194,12 @@ describe('home composer new-chat model picker', () => {
     assert.match(sendBlock, /upsertSessionSummary\(session\);/);
     assert.match(
       sendBlock,
-      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, \{ replaceCurrentMessages: true \}\);[\s\S]*\}/,
+      /if \(newChatOwner && isNewChatSendSurfaceActive\(newChatOwner\)\) \{[\s\S]*setNavSelection\(\{ section: 'sessions', filter: 'chats' \}\);[\s\S]*setActiveId\(session\.id\);[\s\S]*showOptimisticUserMessage\(session\.id, turnId, text, sendResult\.attachments, \{ replaceCurrentMessages: true \}\);[\s\S]*\}/,
       'newly-created sessions may only become active if the user is still on the original empty new-chat surface',
     );
     assert.match(
       sendBlock,
-      /await window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text \}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
+      /await window\.maka\.sessions\.send\(session\.id, \{ type: 'send', turnId, text,[\s\S]*\}\);[\s\S]*if \(activeIdRef\.current === session\.id\) \{[\s\S]*await refreshMessagesUntilTurn\(session\.id, turnId\);[\s\S]*\}[\s\S]*await refreshSessions\(\);/,
       'background new-chat sends should continue and refresh the list, but must not poll messages unless the created session is active',
     );
   });

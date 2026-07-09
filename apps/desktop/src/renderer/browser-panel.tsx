@@ -24,6 +24,9 @@ import {
   EmptyMedia,
   EmptyTitle,
   Input,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
   useToast,
 } from '@maka/ui';
 
@@ -152,44 +155,47 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
   return (
     <div className="maka-browser-panel" aria-label="嵌入式浏览器">
       <div className="maka-browser-toolbar">
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-browser-navbtn"
-          aria-label="浏览器后退"
-          title="后退"
-          disabled={!state.canGoBack}
-          onClick={() => void window.maka.browser.back(sessionId)}
-        >
-          <ChevronLeft size={16} aria-hidden />
-        </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-browser-navbtn"
-          aria-label="浏览器前进"
-          title="前进"
-          disabled={!state.canGoForward}
-          onClick={() => void window.maka.browser.forward(sessionId)}
-        >
-          <ChevronRight size={16} aria-hidden />
-        </Button>
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-browser-navbtn"
-          aria-label={state.loading ? '停止加载页面' : '刷新页面'}
-          title={state.loading ? '停止' : '刷新'}
-          disabled={!state.hasPage && !state.loading}
-          onClick={() =>
-            state.loading ? void window.maka.browser.stop(sessionId) : void window.maka.browser.reload(sessionId)
-          }
-        >
-          {state.loading ? <X size={16} aria-hidden /> : <RotateCw size={16} aria-hidden />}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-browser-navbtn"
+            aria-label="浏览器后退"
+            disabled={!state.canGoBack}
+            onClick={() => void window.maka.browser.back(sessionId)}
+          >
+            <ChevronLeft size={16} aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent>后退</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-browser-navbtn"
+            aria-label="浏览器前进"
+            disabled={!state.canGoForward}
+            onClick={() => void window.maka.browser.forward(sessionId)}
+          >
+            <ChevronRight size={16} aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent>前进</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-browser-navbtn"
+            aria-label={state.loading ? '停止加载页面' : '刷新页面'}
+            disabled={!state.hasPage && !state.loading}
+            onClick={() =>
+              state.loading ? void window.maka.browser.stop(sessionId) : void window.maka.browser.reload(sessionId)
+            }
+          >
+            {state.loading ? <X size={16} aria-hidden /> : <RotateCw size={16} aria-hidden />}
+          </TooltipTrigger>
+          <TooltipContent>{state.loading ? '停止' : '刷新'}</TooltipContent>
+        </Tooltip>
         <Input
           className="maka-browser-address"
           type="text"
@@ -212,17 +218,18 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
             }
           }}
         />
-        <Button
-          type="button"
-          variant="quiet"
-          size="icon-sm"
-          className="maka-browser-navbtn"
-          aria-label="关闭浏览器页面"
-          title="关闭页面"
-          onClick={() => void window.maka.browser.close(sessionId)}
-        >
-          <X size={16} aria-hidden />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={<Button variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-browser-navbtn"
+            aria-label="关闭浏览器页面"
+            onClick={() => void window.maka.browser.close(sessionId)}
+          >
+            <X size={16} aria-hidden />
+          </TooltipTrigger>
+          <TooltipContent>关闭页面</TooltipContent>
+        </Tooltip>
       </div>
       <div className="maka-browser-strip" ref={stripRef}>
         {!state.hasPage && (
