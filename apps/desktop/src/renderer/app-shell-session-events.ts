@@ -46,6 +46,8 @@ export function createAppShellSessionEventHandlers(options: {
   setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThinkingBySession: StateUpdater<Record<string, string>>;
   setThinkingTruncatedBySession: StateUpdater<Record<string, boolean>>;
+  /** #646: clear the turn-active flag when a turn ends (see model-wait-state.ts). */
+  setTurnActiveBySession: StateUpdater<Record<string, boolean>>;
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   thinkingBySessionRef: RefBox<Record<string, string>>;
@@ -66,6 +68,7 @@ export function createAppShellSessionEventHandlers(options: {
     setStreamingBySession,
     setThinkingBySession,
     setThinkingTruncatedBySession,
+    setTurnActiveBySession,
     showModelSetupToast,
     streamingBySessionRef,
     thinkingBySessionRef,
@@ -101,6 +104,20 @@ export function createAppShellSessionEventHandlers(options: {
       return { ...current, [sessionId]: { text: '', truncated: false, phase: 'streaming' } };
     });
     clearThinking(sessionId);
+  }
+
+  /**
+   * #646: the turn ended — drop the "正在处理…" arm so the indicator can't
+   * linger after the reply settles. Synchronous and unguarded, like
+   * `clearStreaming`: a turn-ending event runs before the next turn is armed.
+   */
+  function clearTurnActive(sessionId: string) {
+    setTurnActiveBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
   }
 
   /**
@@ -511,6 +528,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'error':
         clearStreaming(sessionId);
+        clearTurnActive(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
@@ -527,6 +545,7 @@ export function createAppShellSessionEventHandlers(options: {
         break;
       case 'abort':
         clearStreaming(sessionId);
+        clearTurnActive(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         markInFlightToolsInterrupted(sessionId);
         void refreshSessions();
@@ -536,6 +555,10 @@ export function createAppShellSessionEventHandlers(options: {
         let refreshMessagesOptions: RefreshMessagesOptions | undefined;
         let heldTextless: { messageId?: string; slot?: AssistantStreamSlot; thinking?: string } | undefined;
         if (event.stopReason !== 'permission_handoff') {
+          // The turn genuinely ended (permission_handoff only pauses it) — drop
+          // the "正在处理…" arm so the indicator doesn't flash on as the reply
+          // settles.
+          clearTurnActive(sessionId);
           const slot = streamingBySessionRef.current[sessionId];
           if (slot?.text) {
             setStreamingBySession((current) => markAssistantStreamSlotDraining(current, sessionId));

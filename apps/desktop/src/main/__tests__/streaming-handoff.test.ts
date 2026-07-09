@@ -335,6 +335,7 @@ describe('assistant streaming handoff', () => {
           messages = typeof next === 'function' ? next(messages) : next;
         },
         setNavSelection: () => {},
+        setTurnActiveBySession: () => {},
         showModelSetupToast: () => {},
         toastApi: { error: () => {} },
         upsertSessionSummary: () => {},
@@ -354,6 +355,7 @@ describe('assistant streaming handoff', () => {
         },
         setThinkingBySession: createStateSetter<Record<string, string>>({}),
         setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+        setTurnActiveBySession: () => {},
         showModelSetupToast: () => {},
         streamingBySessionRef,
         thinkingBySessionRef: { current: {} as Record<string, string> },
@@ -549,6 +551,59 @@ describe('assistant streaming handoff', () => {
   });
 });
 
+describe('model-wait indicator arm/clear wiring (#646)', () => {
+  const streamingSlot: AssistantStreamSlot = { text: 'answer', truncated: false, phase: 'streaming', messageId: 'assistant-1' };
+
+  it('clears the turn-active arm when the turn completes for real (end_turn)', () => {
+    const windowFixture = installReadMessagesWindow([[]]);
+    try {
+      const harness = buildEventHarness(streamingSlot);
+      assert.equal(harness.getTurnActive()['session-1'], true, 'harness starts armed');
+      harness.handlers.handleEvent('session-1', completeEvent());
+      assert.equal(harness.getTurnActive()['session-1'], undefined, 'complete drops the arm');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('keeps the turn armed on a permission_handoff complete (the turn only pauses)', () => {
+    const windowFixture = installReadMessagesWindow([[]]);
+    try {
+      const harness = buildEventHarness(streamingSlot);
+      harness.handlers.handleEvent('session-1', {
+        type: 'complete', id: 'event-2', turnId: 'turn-1', ts: 3, stopReason: 'permission_handoff',
+      } as SessionEvent);
+      assert.equal(harness.getTurnActive()['session-1'], true, 'a permission pause is not a turn end');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('clears the arm on error and on abort', () => {
+    for (const event of [
+      { type: 'error', id: 'event-e', turnId: 'turn-1', ts: 3, message: 'boom' },
+      { type: 'abort', id: 'event-a', turnId: 'turn-1', ts: 3 },
+    ] as SessionEvent[]) {
+      const windowFixture = installReadMessagesWindow([[]]);
+      try {
+        const harness = buildEventHarness(streamingSlot);
+        harness.handlers.handleEvent('session-1', event);
+        assert.equal(harness.getTurnActive()['session-1'], undefined, `${event.type} drops the arm`);
+      } finally {
+        windowFixture.restore();
+      }
+    }
+  });
+
+  it('keeps the turn armed while content streams — the derivation hides the indicator, not a clear', () => {
+    const harness = buildEventHarness({ text: '', truncated: false, phase: 'streaming' });
+    harness.handlers.handleEvent('session-1', {
+      type: 'text_delta', id: 'event-d', turnId: 'turn-1', ts: 2, messageId: 'assistant-1', text: 'hello',
+    } as SessionEvent);
+    assert.equal(harness.getTurnActive()['session-1'], true, 'the arm persists across the whole turn');
+  });
+});
+
 function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
@@ -645,6 +700,7 @@ function buildEventHarness(
   getMessages: () => StoredMessage[];
   getStreaming: () => Record<string, AssistantStreamSlot>;
   getThinking: () => Record<string, string>;
+  getTurnActive: () => Record<string, boolean>;
 } {
   const activeIdRef = { current: 'session-1' as string | undefined };
   let messages: StoredMessage[] = [];
@@ -652,6 +708,8 @@ function buildEventHarness(
   const streamingBySessionRef = { current: streamingBySession };
   let thinkingBySession: Record<string, string> = { ...initialThinking };
   const thinkingBySessionRef = { current: thinkingBySession };
+  // The harness represents a turn already in flight, so it starts armed (#646).
+  let turnActiveBySession: Record<string, boolean> = { 'session-1': true };
 
   const chatActions = createAppShellChatActions({
     activeIdRef,
@@ -671,6 +729,9 @@ function buildEventHarness(
       messages = typeof next === 'function' ? next(messages) : next;
     },
     setNavSelection: () => {},
+    setTurnActiveBySession: (updater) => {
+      turnActiveBySession = updater(turnActiveBySession);
+    },
     showModelSetupToast: () => {},
     toastApi: { error: () => {} },
     upsertSessionSummary: () => {},
@@ -693,6 +754,9 @@ function buildEventHarness(
       thinkingBySessionRef.current = thinkingBySession;
     },
     setThinkingTruncatedBySession: createStateSetter<Record<string, boolean>>({}),
+    setTurnActiveBySession: (updater) => {
+      turnActiveBySession = updater(turnActiveBySession);
+    },
     showModelSetupToast: () => {},
     streamingBySessionRef,
     thinkingBySessionRef,
@@ -704,5 +768,6 @@ function buildEventHarness(
     getMessages: () => messages,
     getStreaming: () => streamingBySession,
     getThinking: () => thinkingBySession,
+    getTurnActive: () => turnActiveBySession,
   };
 }

@@ -14,8 +14,10 @@ export interface AppShellSessionUiState {
   liveToolsBySession: Record<string, ToolActivityItem[]>;
   // #646: a turn is "active" from local send() until complete / error / abort.
   // Combined with an empty streaming/thinking/tool state it drives the
-  // "正在处理…" indicator (see model-wait-state.ts). A plain boolean — the
-  // turnId guard against a stale late `complete` lives in the event wiring.
+  // "正在处理…" indicator (see model-wait-state.ts). Cleared synchronously on the
+  // turn-ending event (mirrors the unguarded clearStreaming — the clear runs
+  // before any next turn exists); a stale over-clear only misses one indicator
+  // window and self-heals next turn.
   turnActiveBySession: Record<string, boolean>;
   permissionBySession: PermissionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
@@ -99,9 +101,6 @@ export function createAppShellSessionUiStateController(
   // of it at schedule time to avoid wiping a newer turn's reasoning (review P2-A).
   const thinkingBySessionRef = { current: currentState.thinkingBySession };
   const sessionEventHealthBySessionRef = { current: currentState.sessionEventHealthBySession };
-  // #646: read the latest turn-active map synchronously in the event wiring so a
-  // stale late `complete` can be turnId-guarded without a stale-closure snapshot.
-  const turnActiveBySessionRef = { current: currentState.turnActiveBySession };
 
   function replaceState(next: AppShellSessionUiState): void {
     if (next === currentState) return;
@@ -109,7 +108,6 @@ export function createAppShellSessionUiStateController(
     streamingBySessionRef.current = next.streamingBySession;
     thinkingBySessionRef.current = next.thinkingBySession;
     sessionEventHealthBySessionRef.current = next.sessionEventHealthBySession;
-    turnActiveBySessionRef.current = next.turnActiveBySession;
     onChange(next);
   }
 
@@ -132,7 +130,6 @@ export function createAppShellSessionUiStateController(
     streamingBySessionRef,
     thinkingBySessionRef,
     sessionEventHealthBySessionRef,
-    turnActiveBySessionRef,
     setMessageLoadErrorBySession: createMapSetter('messageLoadErrorBySession'),
     setMessageRetryPendingBySession: createMapSetter('messageRetryPendingBySession'),
     setStopPendingBySession: createMapSetter('stopPendingBySession'),
@@ -169,7 +166,6 @@ export function useAppShellSessionUiState() {
     streamingBySessionRef: controller.streamingBySessionRef,
     thinkingBySessionRef: controller.thinkingBySessionRef,
     sessionEventHealthBySessionRef: controller.sessionEventHealthBySessionRef,
-    turnActiveBySessionRef: controller.turnActiveBySessionRef,
     setMessageLoadErrorBySession: controller.setMessageLoadErrorBySession,
     setMessageRetryPendingBySession: controller.setMessageRetryPendingBySession,
     setStopPendingBySession: controller.setStopPendingBySession,

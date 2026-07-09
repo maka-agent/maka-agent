@@ -116,6 +116,9 @@ export function createAppShellChatActions(deps: {
   setMessageRetryPendingBySession: BooleanRecordUpdater;
   setMessages: MessageListUpdater;
   setNavSelection: (selection: NavSelection) => void;
+  /** #646: arm the "正在处理…" indicator locally at send() — the model-wait
+   * window opens before any SessionEvent arrives (turn_started is not one). */
+  setTurnActiveBySession: BooleanRecordUpdater;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
@@ -136,6 +139,7 @@ export function createAppShellChatActions(deps: {
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
+    setTurnActiveBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -184,6 +188,23 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
+  // #646: open / close the model-wait window for a session. Armed the moment
+  // send() commits (before the IPC round-trip) so the "正在处理…" indicator
+  // covers the connect-to-first-token gap that has no SessionEvent of its own;
+  // disarmed if the send never reaches the runtime (the catch below).
+  function armTurnActive(sessionId: string): void {
+    setTurnActiveBySession((current) => (current[sessionId] ? current : { ...current, [sessionId]: true }));
+  }
+
+  function disarmTurnActive(sessionId: string): void {
+    setTurnActiveBySession((current) => {
+      if (!current[sessionId]) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }
+
   async function send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean> {
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
@@ -205,6 +226,7 @@ export function createAppShellChatActions(deps: {
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
+        armTurnActive(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
         const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
@@ -221,6 +243,7 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
+      armTurnActive(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
@@ -230,6 +253,9 @@ export function createAppShellChatActions(deps: {
       if (optimisticSessionId && optimisticTurnId) {
         removeOptimisticUserMessage(optimisticSessionId, optimisticTurnId);
       }
+      // The turn never reached the runtime — close the model-wait window so the
+      // "正在处理…" indicator doesn't hang after a failed send.
+      if (optimisticSessionId) disarmTurnActive(optimisticSessionId);
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
       const sendStillOwnsCurrentSurface = feedbackSessionId
         ? activeIdRef.current === feedbackSessionId
