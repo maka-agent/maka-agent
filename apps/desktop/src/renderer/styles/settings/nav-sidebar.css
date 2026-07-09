@@ -650,48 +650,39 @@
   .settingsField textarea {
     transition: none !important;
   }
-  .settingsFormRow [role="switch"] > span,
-  .settingsField [role="switch"] > span {
+  .settingsModal [role="switch"] > span {
     transition: none;
   }
 }
 
-/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15, WAWQAQ msg `f7e9d166`):
-   the BaseSwitch shared adapter renders at `h-5 w-9` (20×36px) with a
-   16×16 thumb — too small inside the now-roomy settings rows.
-   Reference toggles inside Settings are noticeably larger and the
-   on-state is a more saturated green. Scope the bigger size to
-   settings rows only so the Switch primitive stays compact in chat /
-   sidebar usage. The thumb translate offset (`1.125rem` for h-5)
-   no longer reaches the right side at h-6.5, so we override it with
-   a calc that scales with the new track width. */
-.settingsFormRow [role="switch"],
-.settingsField [role="switch"] {
+/* PR-SETTINGS-SWITCH-SCALE-0 (round 3/15) + switch-geometry round 8:
+   the BaseSwitch shared adapter renders at 36×20 with a 16×16 thumb —
+   too small inside the roomy settings rows. ONE scope for the bigger
+   size: every switch inside the settings modal (`.settingsModal`), so
+   pages that aren't built from settingsFormRow/settingsField (数据
+   导入导出's category list, ad-hoc rows) can't fall back to the compact
+   scale and split the app into two switch sizes.
+   Geometry: 46px track − 2×1px border − 22px thumb − 2px inset = 20px
+   checked travel — SYMMETRIC 2px insets on both sides (the old 22px
+   value parked the thumb flush against the right border while the
+   unchecked side kept a 2px gap).
+   The overrides write the `translate:` property (not `transform:`)
+   because Tailwind v4's translate-x utilities emit `translate:` — a
+   `transform` override would stack additively instead of replacing. */
+.settingsModal [role="switch"] {
   height: 26px;
   width: 46px;
   border-radius: var(--radius-pill);
 }
 
-.settingsFormRow [role="switch"] > span,
-.settingsField [role="switch"] > span {
+.settingsModal [role="switch"] > span {
   height: 22px;
   width: 22px;
-  /* WAWQAQ msg `b45dc33d` 2026-06-25: Settings Switch thumbs ("白点")
-     were escaping the track to the right. Root cause: Tailwind v4's
-     `translate-x-0.5` / `translate-x-[1.125rem]` utilities applied on
-     <BaseSwitch.Thumb> in `packages/ui/src/ui.tsx:464` emit the
-     `translate:` CSS property, not `transform:`. The previous overrides
-     here set `transform: translateX(...)`, which is an INDEPENDENT
-     property — both stacked additively, pushing the thumb 2-18px past
-     the right edge of the 46px track at h-6.5 settings scale.
-     Fix: override the same `translate:` property so the value wins by
-     specificity instead of compounding. */
   translate: 2px 0;
 }
 
-.settingsFormRow [role="switch"][data-checked] > span,
-.settingsField [role="switch"][data-checked] > span {
-  translate: 22px 0;
+.settingsModal [role="switch"][data-checked] > span {
+  translate: 20px 0;
 }
 
 .settingsFormRow strong,

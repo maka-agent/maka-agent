@@ -370,7 +370,13 @@ export const Switch = forwardRef<
       data-slot="switch"
       {...props}
     >
-      <BaseSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background shadow transition-transform data-[checked]:translate-x-[1.125rem]" />
+      {/* Checked travel MUST stay on the px-based spacing scale (translate-x-4
+          = 16px): track w-9 (36px) − 2×1px border − 16px thumb − 2px inset = 16,
+          giving symmetric 2px insets. The previous rem arbitrary value
+          (translate-x-[1.125rem]) silently shrank to 14.625px under the app's
+          13px root font — spacing utilities are px-calc'd, rem values are not —
+          leaving the thumb 4.4px short of the right edge. */}
+      <BaseSwitch.Thumb className="block h-4 w-4 translate-x-0.5 rounded-full bg-background shadow transition-transform data-[checked]:translate-x-4" />
     </BaseSwitch.Root>
   );
 });
