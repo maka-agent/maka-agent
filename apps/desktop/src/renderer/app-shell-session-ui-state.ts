@@ -50,6 +50,23 @@ type MissingSessionUiMapKey = Exclude<AppShellSessionUiStateMapKey, typeof SESSI
 const allSessionUiMapsAreListed: Record<MissingSessionUiMapKey, never> = {};
 void allSessionUiMapsAreListed;
 
+// #646: the subset of maps that hold a turn's transient live state — the
+// streaming slot, live thinking + its truncated flag, live tools, and the turn
+// arm. `useSettledSessionTransientReconcile` heals a session whose turn ended
+// while its SessionEvent stream wasn't being followed, and must drop ONLY this
+// transient. The independently-scoped maps (message load error / retry, pending
+// permission-mode / model toggles, the permission queue, event-stream health,
+// stop-pending) each have their own lifecycle and must survive a mere turn
+// settle — a full `clearAppShellSessionUiStateForSession` (session deletion)
+// would wipe them too.
+const TURN_TRANSIENT_MAP_KEYS = [
+  'streamingBySession',
+  'thinkingBySession',
+  'thinkingTruncatedBySession',
+  'liveToolsBySession',
+  'turnActiveBySession',
+] as const satisfies readonly AppShellSessionUiStateMapKey[];
+
 export function createInitialAppShellSessionUiState(): AppShellSessionUiState {
   return Object.fromEntries(SESSION_UI_MAP_KEYS.map((key) => [key, {}])) as unknown as AppShellSessionUiState;
 }
@@ -89,6 +106,17 @@ export function clearAppShellSessionUiStateForSession(
 ): AppShellSessionUiState {
   let nextState = state;
   for (const key of SESSION_UI_MAP_KEYS) {
+    nextState = clearSessionUiStateMap(nextState, key, sessionId);
+  }
+  return nextState;
+}
+
+export function clearAppShellTurnTransientForSession(
+  state: AppShellSessionUiState,
+  sessionId: string,
+): AppShellSessionUiState {
+  let nextState = state;
+  for (const key of TURN_TRANSIENT_MAP_KEYS) {
     nextState = clearSessionUiStateMap(nextState, key, sessionId);
   }
   return nextState;
@@ -149,6 +177,9 @@ export function createAppShellSessionUiStateController(
     clearSessionUiState: (sessionId: string) => {
       replaceState(clearAppShellSessionUiStateForSession(currentState, sessionId));
     },
+    clearTurnTransientState: (sessionId: string) => {
+      replaceState(clearAppShellTurnTransientForSession(currentState, sessionId));
+    },
   };
 }
 
@@ -183,5 +214,6 @@ export function useAppShellSessionUiState() {
     setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
     setPendingSessionModelBySession: controller.setPendingSessionModelBySession,
     clearSessionUiState: controller.clearSessionUiState,
+    clearTurnTransientState: controller.clearTurnTransientState,
   };
 }

@@ -70,6 +70,12 @@ export function createAppShellSessionEventHandlers(options: {
   showModelSetupToast: (description: string, reason?: string) => void;
   streamingBySessionRef: RefBox<Record<string, AssistantStreamSlot>>;
   thinkingBySessionRef: RefBox<Record<string, string>>;
+  /** #646: sessions whose textless / thinking-only completion is holding its live
+   * buffer open until the committed message refreshes in (the #642 refresh-before-
+   * clear). This path sets no draining slot (a thinking-only turn may have no slot),
+   * so `useSettledSessionTransientReconcile` reads this set to avoid clearing the
+   * held thinking before `clearStreamingIfCurrent` runs. */
+  settlingBySessionRef: RefBox<Set<string>>;
   toastApi: ToastApi;
   /** Report a terminal turn to the main process, which decides whether
    * to raise an OS notification (gated on a product toggle + window
@@ -91,6 +97,7 @@ export function createAppShellSessionEventHandlers(options: {
     showModelSetupToast,
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi,
     notifyRunEnded,
   } = options;
@@ -214,9 +221,16 @@ export function createAppShellSessionEventHandlers(options: {
         slot: streamingBySessionRef.current[sessionId],
         thinking: thinkingBySessionRef.current[sessionId],
       };
+      // Mark settling for the hold's duration so the status-driven reconcile
+      // (`useSettledSessionTransientReconcile`) doesn't wipe the held thinking
+      // before this clear runs — this textless path sets no draining slot.
+      settlingBySessionRef.current.add(sessionId);
       void refreshMessages(sessionId, messageId ? { requiredAssistantMessageId: messageId } : undefined)
         .catch(() => false)
-        .finally(() => clearStreamingIfCurrent(sessionId, held));
+        .finally(() => {
+          clearStreamingIfCurrent(sessionId, held);
+          settlingBySessionRef.current.delete(sessionId);
+        });
       return;
     }
     setStreamingBySession((current) => drainAssistantStreamSlot(current, sessionId, applied, messageId));
@@ -639,10 +653,17 @@ export function createAppShellSessionEventHandlers(options: {
           void refreshed.catch(() => false);
           // #642: clear the held live buffer only AFTER the committed message
           // has been refreshed in (textless / thinking-only completion), and only
-          // if this turn's buffer is still current (review P2-A).
+          // if this turn's buffer is still current (review P2-A). Mark the session
+          // settling for the duration so the status-driven reconcile
+          // (`useSettledSessionTransientReconcile`) doesn't wipe the held thinking
+          // early — this path sets no draining slot for the reconcile to skip on.
           if (heldTextless) {
             const held = heldTextless;
-            void refreshed.finally(() => clearStreamingIfCurrent(sessionId, held));
+            settlingBySessionRef.current.add(sessionId);
+            void refreshed.finally(() => {
+              clearStreamingIfCurrent(sessionId, held);
+              settlingBySessionRef.current.delete(sessionId);
+            });
           }
         }
         break;

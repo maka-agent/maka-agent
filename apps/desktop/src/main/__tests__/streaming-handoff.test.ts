@@ -293,13 +293,61 @@ describe('assistant streaming handoff', () => {
     assert.match(effects, /export function useSettledSessionTransientReconcile\(/);
     assert.match(effects, /session\.status === 'running' \|\| session\.status === 'waiting_for_user'\) continue;/);
     assert.match(effects, /streamingBySessionRef\.current\[session\.id\]\?\.phase === 'draining'\) continue;/);
-    assert.match(effects, /options\.clearSessionUiState\(session\.id\)/);
+    // #680 review P2: the heal drops ONLY the turn transient — never the
+    // independently-scoped message-load-error / retry / pending-toggle state that a
+    // full clearSessionUiState would wipe on every settle. And it skips a session
+    // whose textless completion is mid refresh-before-clear (no draining slot to key
+    // off), so the held live thinking survives until the committed message lands.
+    assert.match(effects, /options\.settlingBySessionRef\.current\.has\(session\.id\)\) continue;/);
+    assert.match(effects, /options\.clearTurnTransientState\(session\.id\)/);
+    assert.doesNotMatch(effects, /options\.clearSessionUiState\(session\.id\)/);
     assert.match(effects, /\}, \[options\.sessions\]\);/);
 
     // The former event/switch-triggered reconciles read status before the terminal
     // refresh resolved — they must be gone so the race can't reappear.
     assert.doesNotMatch(effects, /reconcileTransientOnActivate/);
     assert.doesNotMatch(effects, /refreshedSessions\.then\(/);
+  });
+
+  it('the settled-session turn-transient clear drops only turn transient, keeping message-load-error / pending toggles (#680 review P2)', async () => {
+    const { createInitialAppShellSessionUiState, clearAppShellTurnTransientForSession, clearAppShellSessionUiStateForSession } =
+      await import('../../renderer/app-shell-session-ui-state.js');
+    // A settled session whose committed read failed carries a message-load error +
+    // retry affordance, and may have in-flight permission-mode / model toggles.
+    // None of these belong to the turn; a mere settle must not wipe them (the bug
+    // was that the reconcile reused the full clearSessionUiState, so any unrelated
+    // sessions refresh nuked the error banner while the messages never reloaded).
+    const populated = {
+      ...createInitialAppShellSessionUiState(),
+      streamingBySession: { s1: { text: 'half', truncated: false, phase: 'streaming' as const, messageId: 'a1' } },
+      thinkingBySession: { s1: 'live reasoning' },
+      thinkingTruncatedBySession: { s1: true },
+      liveToolsBySession: { s1: [{ toolUseId: 't1', toolName: 'bash', status: 'running' as const, args: {} }] },
+      turnActiveBySession: { s1: 'streamed' as TurnPhase },
+      messageLoadErrorBySession: { s1: '读取对话失败' },
+      messageRetryPendingBySession: { s1: true },
+      pendingPermissionModeBySession: { s1: true },
+      pendingSessionModelBySession: { s1: true },
+    };
+
+    const narrow = clearAppShellTurnTransientForSession(populated, 's1');
+    // Turn transient is dropped (the frozen stuck-Stop / half-bubble heal).
+    assert.equal(narrow.streamingBySession.s1, undefined, 'the frozen streaming slot is dropped');
+    assert.equal(narrow.thinkingBySession.s1, undefined, 'the frozen live thinking is dropped');
+    assert.equal(narrow.thinkingTruncatedBySession.s1, undefined, 'the truncated flag is dropped');
+    assert.equal(narrow.liveToolsBySession.s1, undefined, 'the frozen live tools are dropped');
+    assert.equal(narrow.turnActiveBySession.s1, undefined, 'the stale turn arm is dropped');
+    // Independently-scoped state survives the settle.
+    assert.equal(narrow.messageLoadErrorBySession.s1, '读取对话失败', 'the message-load error survives a settle');
+    assert.equal(narrow.messageRetryPendingBySession.s1, true, 'the retry-pending flag survives');
+    assert.equal(narrow.pendingPermissionModeBySession.s1, true, 'a pending permission-mode toggle survives');
+    assert.equal(narrow.pendingSessionModelBySession.s1, true, 'a pending session-model toggle survives');
+
+    // Contrast: the full deletion clear (session removed) still wipes everything —
+    // that path is intentionally broad and must not regress to the narrow one.
+    const full = clearAppShellSessionUiStateForSession(populated, 's1');
+    assert.equal(full.messageLoadErrorBySession.s1, undefined, 'the full deletion clear still wipes non-transient state');
+    assert.equal(full.turnActiveBySession.s1, undefined, 'the full deletion clear still wipes turn transient');
   });
 
   it('complete refreshes committed messages even while the streaming bubble drains', async () => {
@@ -321,8 +369,8 @@ describe('assistant streaming handoff', () => {
     // during the refresh isn't wiped.
     assert.match(
       completeCase,
-      /heldTextless = \{[\s\S]*if \(heldTextless\) \{[\s\S]*void refreshed\.finally\(\(\) => clearStreamingIfCurrent\(sessionId, held\)\);/,
-      'textless complete must defer an identity-guarded clear until after the committed refresh',
+      /heldTextless = \{[\s\S]*if \(heldTextless\) \{[\s\S]*settlingBySessionRef\.current\.add\(sessionId\);[\s\S]*void refreshed\.finally\(\(\) => \{[\s\S]*clearStreamingIfCurrent\(sessionId, held\);[\s\S]*settlingBySessionRef\.current\.delete\(sessionId\);/,
+      'textless complete must mark the session settling, then defer an identity-guarded clear until after the committed refresh',
     );
   });
 
@@ -434,6 +482,7 @@ describe('assistant streaming handoff', () => {
         showModelSetupToast: () => {},
         streamingBySessionRef,
         thinkingBySessionRef: { current: {} as Record<string, string> },
+        settlingBySessionRef: { current: new Set<string>() },
         toastApi: { error: () => {} },
       });
 
@@ -483,6 +532,39 @@ describe('assistant streaming handoff', () => {
         '',
         'the live buffer is cleared only after the committed refresh (refresh-before-clear)',
       );
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('marks a textless completion settling until the committed refresh resolves, so the status reconcile skips it (#680 review P2)', async () => {
+    // The status-driven reconcile keys off sessions settling to a terminal status,
+    // which can land before this hold's async refresh resolves. Without a settling
+    // mark the reconcile would clear the held live thinking early (the textless path
+    // sets no draining slot for it to skip on), re-opening the #642 unmount flicker.
+    const committedMessages: StoredMessage[] = [
+      { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+      { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: '', modelId: 'model' },
+    ];
+    const windowFixture = installReadMessagesWindow([committedMessages, committedMessages, committedMessages]);
+    try {
+      const harness = buildEventHarness(
+        { text: '', truncated: false, phase: 'streaming', messageId: 'assistant-1' },
+        { 'session-1': 'turn-1 reasoning' },
+      );
+      harness.handlers.handleEvent('session-1', {
+        type: 'text_complete', id: 'tc-1', turnId: 'turn-1', ts: 3, messageId: 'assistant-1', text: '',
+      } as SessionEvent);
+
+      // Synchronously after the completion, the hold is registered AND the live
+      // thinking is still mounted — so a reconcile firing now skips this session.
+      assert.equal(harness.getSettling().has('session-1'), true, 'the textless hold is marked settling');
+      assert.equal(harness.getThinking()['session-1'], 'turn-1 reasoning', 'the live thinking is still held');
+
+      await flushAsyncWork();
+
+      assert.equal(harness.getSettling().has('session-1'), false, 'the settling mark is released once the committed refresh resolves');
+      assert.equal(harness.getThinking()['session-1'], '', 'the live thinking clears only after the refresh (refresh-before-clear)');
     } finally {
       windowFixture.restore();
     }
@@ -856,6 +938,7 @@ function buildEventHarness(
   getStreaming: () => Record<string, AssistantStreamSlot>;
   getThinking: () => Record<string, string>;
   getTurnActive: () => Record<string, TurnPhase>;
+  getSettling: () => Set<string>;
 } {
   const activeIdRef = { current: 'session-1' as string | undefined };
   let messages: StoredMessage[] = [];
@@ -863,6 +946,7 @@ function buildEventHarness(
   const streamingBySessionRef = { current: streamingBySession };
   let thinkingBySession: Record<string, string> = { ...initialThinking };
   const thinkingBySessionRef = { current: thinkingBySession };
+  const settlingBySessionRef = { current: new Set<string>() };
   // The harness represents a turn already in flight at its head, so it starts in
   // the 'waiting' (first-token) phase (#646).
   let turnActiveBySession: Record<string, TurnPhase> = { 'session-1': 'waiting' };
@@ -917,6 +1001,7 @@ function buildEventHarness(
     showModelSetupToast: () => {},
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi: { error: () => {} },
   });
 
@@ -926,6 +1011,7 @@ function buildEventHarness(
     getStreaming: () => streamingBySession,
     getThinking: () => thinkingBySession,
     getTurnActive: () => turnActiveBySession,
+    getSettling: () => settlingBySessionRef.current,
   };
 }
 

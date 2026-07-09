@@ -200,6 +200,11 @@ export function AppShell({
   const [messageLoadPending, setMessageLoadPending] = useState(false);
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
   const stopPendingRef = useRef<Set<string>>(new Set());
+  // #646: sessions whose textless / thinking-only completion is mid refresh-before-
+  // clear (#642). Shared between the event handlers (which set/clear it) and the
+  // status-driven reconcile (which skips them), so the reconcile can't wipe the
+  // held live thinking before the committed message lands.
+  const settlingBySessionRef = useRef<Set<string>>(new Set());
   const {
     state: sessionUiState,
     streamingBySessionRef,
@@ -218,6 +223,7 @@ export function AppShell({
     setPendingPermissionModeBySession,
     setPendingSessionModelBySession,
     clearSessionUiState,
+    clearTurnTransientState,
   } = useAppShellSessionUiState();
   const {
     messageLoadErrorBySession,
@@ -1022,6 +1028,7 @@ export function AppShell({
     showModelSetupToast,
     streamingBySessionRef,
     thinkingBySessionRef,
+    settlingBySessionRef,
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
@@ -1131,7 +1138,8 @@ export function AppShell({
   useSettledSessionTransientReconcile({
     sessions,
     streamingBySessionRef,
-    clearSessionUiState,
+    settlingBySessionRef,
+    clearTurnTransientState,
   });
 
   function captureComposerImportOwner(): ComposerImportOwner {
