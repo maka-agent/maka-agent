@@ -3,10 +3,40 @@ import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative } from 'node:path';
 import { lstat, mkdir, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 
+/**
+ * Fixed marketplace taxonomy. A source's `category:` front-matter is
+ * accepted only when it exactly matches one of these buckets; anything
+ * else (including a missing field) resolves to the neutral 效率工具
+ * default so the market filter never surfaces an unbounded, user-typed
+ * label set. Kept in one place so the renderer filter and the seeder
+ * agree on the same list.
+ */
+export const MANAGED_SKILL_CATEGORIES = [
+  '内容创作',
+  '数据与AI',
+  '设计与UI',
+  'DevOps与部署',
+  '文档与写作',
+  '效率工具',
+  '研究与分析',
+] as const;
+
+export type ManagedSkillCategory = (typeof MANAGED_SKILL_CATEGORIES)[number];
+
+const MANAGED_SKILL_CATEGORY_DEFAULT: ManagedSkillCategory = '效率工具';
+
+function normalizeManagedSkillCategory(raw: string | undefined): ManagedSkillCategory {
+  if (raw && (MANAGED_SKILL_CATEGORIES as readonly string[]).includes(raw)) {
+    return raw as ManagedSkillCategory;
+  }
+  return MANAGED_SKILL_CATEGORY_DEFAULT;
+}
+
 export interface ManagedSkillSourceRecord {
   id: string;
   name: string;
   description: string;
+  category: ManagedSkillCategory;
   sourceType: 'local';
   sourcePath: string;
   contentSha256: string;
@@ -18,6 +48,12 @@ export interface ManagedSkillSourceEntry {
   id: string;
   name: string;
   description: string;
+  /**
+   * Marketplace taxonomy bucket. Always one of MANAGED_SKILL_CATEGORIES —
+   * unknown / missing front-matter resolves to 效率工具 at read time, so
+   * the renderer can treat this as a required field.
+   */
+  category: ManagedSkillCategory;
   sourceType: 'local';
 }
 
@@ -30,6 +66,15 @@ export type ReadManagedSkillSourceResult =
   | { ok: false; reason: 'not_found' | 'blocked_path' | 'read_failed' };
 
 export function resolveManagedSkillSourcesRoot(homeDir = homedir()): string {
+  // Dev/test-only override so the visual-smoke fixture can seed a
+  // deterministic managed-source catalog without touching the real
+  // ~/.maka/skill-sources. Packaged builds ignore this (app.isPackaged
+  // gate lives in main.ts, same as the fixture env vars); here we only
+  // honor an absolute path so a relative value can never escape.
+  const override = process.env.MAKA_SKILL_SOURCES_ROOT;
+  if (override && isAbsolute(override) && process.env.MAKA_VISUAL_SMOKE_FIXTURE) {
+    return override;
+  }
   return join(homeDir, '.maka', 'skill-sources');
 }
 
@@ -95,6 +140,7 @@ export async function importManagedSkillSource(input: {
       id,
       name: parsed.name,
       description: parsed.description ?? '',
+      category: normalizeManagedSkillCategory(parsed.category),
       sourceType: 'local',
       sourcePath: managedSkillPath,
       contentSha256,
@@ -135,6 +181,7 @@ export async function readManagedSkillSource(
       id: sourceId,
       name: parsed.name ?? sourceId,
       description: parsed.description ?? '',
+      category: normalizeManagedSkillCategory(parsed.category),
       sourceType: 'local',
       sourcePath,
       contentSha256,
@@ -152,6 +199,7 @@ export function toManagedSkillSourceEntry(source: ManagedSkillSourceRecord): Man
     id: source.id,
     name: source.name,
     description: source.description,
+    category: source.category,
     sourceType: source.sourceType,
   };
 }
@@ -235,17 +283,17 @@ function sourceIdFromPath(filePath: string): string | undefined {
   return isSafeSkillId(normalized) ? normalized : undefined;
 }
 
-function parseSkillFrontMatterForSource(text: string): { name?: string; description?: string } {
+function parseSkillFrontMatterForSource(text: string): { name?: string; description?: string; category?: string } {
   if (!text.startsWith('---')) return {};
   const close = text.indexOf('\n---', 3);
   if (close < 0) return {};
   const block = text.slice(3, close);
-  const result: { name?: string; description?: string } = {};
+  const result: { name?: string; description?: string; category?: string } = {};
   for (const raw of block.split(/\r?\n/)) {
-    const match = raw.match(/^(name|description):\s*(.*)$/);
+    const match = raw.match(/^(name|description|category):\s*(.*)$/);
     if (!match) continue;
     const value = match[2].trim().replace(/^['"]|['"]$/g, '');
-    if (value) result[match[1] as 'name' | 'description'] = value;
+    if (value) result[match[1] as 'name' | 'description' | 'category'] = value;
   }
   return result;
 }

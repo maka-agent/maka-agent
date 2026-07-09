@@ -307,7 +307,9 @@ describe('Settings coming-soon cleanup contract', () => {
     // `<div role="listitem">`. ARIA list semantics still hold
     // — the elements carry them implicitly.
     assert.match(healthPage![0], /<ul aria-label="健康摘要" className="settingsHealthSummary">/, 'Health Center summary metrics must expose list semantics');
-    assert.match(settings, /<li className="settingsHealthSummaryTile" data-tone=\{props\.tone\} data-empty=\{props\.count === 0\}>/, 'Health Center summary metric tiles must expose listitem semantics');
+    // Convergence R4: the tile is the shared StatTile rendered as="li" —
+    // listitem semantics preserved through the primitive's `as` prop.
+    assert.match(settings, /<StatTile\s+as="li"\s+className="settingsHealthSummaryTile"/, 'Health Center summary metric tiles must expose listitem semantics via StatTile as="li"');
     assert.match(healthPage![0], /aria-label=\{`\$\{copy\.label\}健康信号`\}/, 'Health Center section aria labels should not mix English "signals" into Chinese UI');
     assert.match(healthPage![0], /<ul className="settingsHealthSignalList" aria-label=\{`\$\{copy\.label\}健康信号列表`\}>/, 'Health Center signal lists must expose product-scoped accessible names');
     assert.match(healthSignalRow![0], /来源：\{HEALTH_SOURCE_LABEL\[signal\.source\]\}/, 'Health Center row should present localized source labels');

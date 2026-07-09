@@ -28,6 +28,7 @@ import type { NormalizedThreadHit, ThreadSearchState } from './use-thread-search
 export function buildContentSearchCommands(
   state: ThreadSearchState,
   onSelectSession?: (sessionId: string, turnId?: string) => void,
+  onOpenSearchModal?: (query: string) => void,
 ): Command[] {
   switch (state.kind) {
     case 'idle':
@@ -96,7 +97,25 @@ export function buildContentSearchCommands(
           },
         ];
       }
-      return state.hits.map((hit, index) => contentSearchHitCommand(hit, index, onSelectSession));
+      return [
+        ...state.hits.map((hit, index) => contentSearchHitCommand(hit, index, onSelectSession)),
+        // Funnel bridge: the palette shows quick-jump hits; the search modal
+        // is the browse surface (same window.maka.search.thread backend).
+        // A terminal row hands the query over so the two entry points read
+        // as one funnel, not two disconnected searches.
+        ...(onOpenSearchModal
+          ? [{
+              id: 'thread-search:open-modal',
+              kind: 'action' as const,
+              label: '在搜索面板中查看全部结果',
+              hint: `"${truncateForHint(state.query)}"`,
+              group: '内容搜索',
+              Icon: Search,
+              keywords: [],
+              run: () => onOpenSearchModal(state.query),
+            }]
+          : []),
+      ];
   }
 }
 

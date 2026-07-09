@@ -332,29 +332,15 @@
 .maka-module-main .maka-daily-review-totals {
     grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   }
+/* Convergence R4: recipe lives in the StatTile primitive; density override
+   only (tight strip cells). */
 .maka-daily-review-totals-cell {
-    display: grid;
     gap: 1px;
     padding: var(--space-1) var(--space-2);
-    border: 0;
-    border-radius: var(--radius-control);
-    background: oklch(from var(--foreground) l c h / 0.04);
   }
-.maka-daily-review-totals-cell[data-tone="error"] {
+.maka-daily-review-totals-cell[data-tone="destructive"] {
     border-color: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.35);
     background: oklch(from var(--destructive, var(--warning, var(--info))) l c h / 0.06);
-  }
-.maka-daily-review-totals-value {
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-semibold);
-    color: var(--foreground);
-    font-variant-numeric: tabular-nums;
-  }
-.maka-daily-review-totals-label {
-    font-size: var(--font-size-caption);
-    text-transform: none;
-    letter-spacing: var(--tracking-normal);
-    color: var(--muted-foreground);
   }
 
 /* PR-DAILY-REVIEW-EYEBROW-RHYTHM-0 (WAWQAQ msg `7f0ec4a5`): granularity

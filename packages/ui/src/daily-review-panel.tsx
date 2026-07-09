@@ -23,6 +23,8 @@ import { Chip, type ChipProps } from './primitives/chip.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
+import { StatTile } from './primitives/stat-tile.js';
+import { SectionHeader } from './primitives/section-header.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
 import { RelativeTime } from './relative-time.js';
 import { Markdown } from './markdown.js';
@@ -365,10 +367,13 @@ export function DailyReviewPanel(props: {
       )}
       {canLoadArchives && (
         <section className="maka-daily-review-archives" aria-label="已生成报告">
-          <div className="maka-daily-review-archives-header">
-            <h4 className="maka-daily-review-section-title">已生成报告</h4>
-            <span className="maka-daily-review-archive-count">{archives.length} 份</span>
-          </div>
+          <SectionHeader
+            className="maka-daily-review-archives-header"
+            as="h4"
+            accent
+            title="已生成报告"
+            count={<span className="maka-daily-review-archive-count">{archives.length} 份</span>}
+          />
           {archiveError && (
             <Alert variant="warning" className="maka-daily-review-alert">
               <AlertDescription>回顾报告读取失败：{archiveError}</AlertDescription>
@@ -387,9 +392,12 @@ export function DailyReviewPanel(props: {
             </Alert>
           )}
           {archives.length === 0 && !archiveError ? (
-            <p className="maka-daily-review-archive-empty">
-              还没有生成报告。点击上方按钮后，报告会保存到本机并显示在这里。
-            </p>
+            <EmptyState
+              variant="inline"
+              extraClassName="maka-daily-review-archive-empty"
+              title="还没有生成报告"
+              body="点击上方按钮后，报告会保存到本机并显示在这里。"
+            />
           ) : (
             <div className="maka-daily-review-archive-layout">
               {/* PR-DAILYREVIEW-ARCHIVE-ROW-A11Y-0 (round 7/30):
@@ -698,11 +706,16 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
 }
 
 function DailyReviewTotalsCell(props: { label: string; value: string; tone?: 'error' }) {
+  // Convergence R4: shared StatTile, filled emphasis; the error tone maps
+  // to the primitive's destructive ink + this cell's tinted wash (CSS).
   return (
-    <div className="maka-daily-review-totals-cell" data-tone={props.tone}>
-      <span className="maka-daily-review-totals-value">{props.value}</span>
-      <span className="maka-daily-review-totals-label">{props.label}</span>
-    </div>
+    <StatTile
+      className="maka-daily-review-totals-cell"
+      emphasis="filled"
+      label={props.label}
+      value={props.value}
+      tone={props.tone === 'error' ? 'destructive' : 'neutral'}
+    />
   );
 }
 

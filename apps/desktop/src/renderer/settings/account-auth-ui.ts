@@ -105,7 +105,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '在模型设置中保存模型密钥',
+        label: '保存密钥',
         detail: '账号页只展示状态；密钥输入仍在 设置 · 模型。',
         tone: 'neutral',
       };
@@ -114,7 +114,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: contract.setupMode === 'none' ? '在模型设置中探测模型' : '在模型设置中拉取模型',
+        label: contract.setupMode === 'none' ? '探测模型' : '拉取模型',
         detail: '模型列表刷新由 设置 · 模型 的连接编辑器执行。',
         tone: 'neutral',
       };
@@ -123,8 +123,8 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: contract.setupMode === 'oauth' ? '在模型设置中退出登录' : '在模型设置中替换或移除凭据',
-        detail: '当前页面不直接写入凭据存储。',
+        label: contract.setupMode === 'oauth' ? '退出登录' : '替换或移除凭据',
+        detail: '凭据的替换与移除在 设置 · 模型 中执行；本页不直接写入凭据存储。',
         tone: 'neutral',
       };
     case 'start_oauth':
@@ -132,7 +132,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '在模型设置中登录 OAuth',
+        label: '登录 OAuth',
         detail: 'OAuth 登录入口位于 设置 · 模型 · OAuth。',
         tone: 'neutral',
       };
@@ -141,7 +141,7 @@ function availableAction(
         action,
         kind: 'guidance',
         executable: false,
-        label: '在模型设置中刷新登录',
+        label: '刷新登录',
         detail: 'OAuth 账号状态刷新位于 设置 · 模型 · OAuth。',
         tone: 'neutral',
       };

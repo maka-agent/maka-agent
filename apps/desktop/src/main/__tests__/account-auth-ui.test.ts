@@ -60,7 +60,9 @@ describe('Account auth UI contract mapping', () => {
           }
           assert.equal(action.kind, 'guidance');
           assert.equal(action.executable, false);
-          assert.match(action.label, /模型设置/);
+          // Location guarantee moved from the label to the detail tooltip:
+          // labels are the bare action, the detail must still say WHERE.
+          assert.match(action.detail, /设置 · 模型|模型设置/);
           assert.doesNotMatch(action.label, /Roadmap|路线图|即将|TODO/i);
           assert.doesNotMatch(action.detail, /Roadmap|路线图|即将|TODO/i);
         }
@@ -160,9 +162,13 @@ describe('Account settings credential probe UI', () => {
     assert.match(connectionStatus, /最近一次测试成功。修改模型密钥、服务地址或默认模型会清掉此状态；发送链路需独立验证/);
     assert.match(row, /正在读取本机凭据和账号登录状态/);
     assert.match(row, /读取本机凭据和账号登录状态失败/);
-    assert.match(authUi, /在模型设置中保存模型密钥/);
+    // Guidance chips carry the bare action; the 设置 · 模型 location lives in
+    // the detail tooltip — the 在模型设置中 prefix repeated across four sibling
+    // chips was pure noise once #645 gave guidance its own visual form.
+    assert.match(authUi, /label: '保存密钥',/);
+    assert.doesNotMatch(authUi, /在模型设置中/);
     assert.match(authUi, /账号页只展示状态；密钥输入仍在 设置 · 模型/);
-    assert.match(authUi, /当前页面不直接写入凭据存储/);
+    assert.match(authUi, /本页不直接写入凭据存储/);
     assert.match(authUi, /模型密钥管理/);
 
     for (const block of [page, row, authUi, connectionStatus, providerAuth]) {

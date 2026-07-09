@@ -75,10 +75,26 @@ export interface ManagedSkillUpdatePreview {
   };
 }
 
+/**
+ * Marketplace taxonomy buckets surfaced by the 市场 tab category filter.
+ * Mirrors MANAGED_SKILL_CATEGORIES in apps/desktop's managed-skill-sources;
+ * the main-process reader always resolves an entry to one of these, so the
+ * renderer can treat `category` as required (unknown → 效率工具 upstream).
+ */
+export type ManagedSkillCategory =
+  | '内容创作'
+  | '数据与AI'
+  | '设计与UI'
+  | 'DevOps与部署'
+  | '文档与写作'
+  | '效率工具'
+  | '研究与分析';
+
 export interface ManagedSkillSourceEntry {
   id: string;
   name: string;
   description: string;
+  category: ManagedSkillCategory;
   sourceType: 'local';
 }
 

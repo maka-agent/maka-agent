@@ -582,6 +582,9 @@ export function CommandPalette(props: {
    * when the backend supplied one, scroll to the matched turn.
    */
   onSelectSession?: (sessionId: string, turnId?: string) => void;
+  /** Funnel bridge: hands the current query to the search modal (the
+   *  browse surface over the same thread-search backend). */
+  onOpenSearchModal?: (query: string) => void;
   threadSearchDeps?: UseThreadSearchDeps;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -624,8 +627,8 @@ export function CommandPalette(props: {
   // sessions first, then matched content. Single empty / blocked /
   // error tile per state.
   const contentCommands = useMemo(() => {
-    return buildContentSearchCommands(threadSearch.state, props.onSelectSession);
-  }, [threadSearch.state, props.onSelectSession]);
+    return buildContentSearchCommands(threadSearch.state, props.onSelectSession, props.onOpenSearchModal);
+  }, [threadSearch.state, props.onSelectSession, props.onOpenSearchModal]);
 
   // Combine. Filtered commands keep their existing order; content
   // commands always sit at the end so they don't disrupt muscle

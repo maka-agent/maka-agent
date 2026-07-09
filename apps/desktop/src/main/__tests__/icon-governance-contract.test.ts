@@ -13,7 +13,7 @@
  *      apps/desktop/src/renderer or packages/ui/src (brand-asset files
  *      excepted) — icons ride the single governed stroke instead.
  *   b) session-sidebar-nav.tsx imports exactly the decided semantic set
- *      (Plus / CalendarCheck / Blocks / Timer / Settings) from ./icons.js.
+ *      (SquarePen / CalendarCheck / Blocks / Timer / Settings) from ./icons.js.
  *   c) icons.tsx stays the ONLY packages/ui/src file importing lucide-react
  *      (funnel integrity).
  */
@@ -85,9 +85,10 @@ describe('icon + typography governance contract', () => {
       .map((name) => name.trim())
       .filter(Boolean)
       .sort();
-    // Decided semantic mapping: 新任务 → Plus, 每日回顾 → CalendarCheck,
+    // Decided semantic mapping (maintainer 2026-07-10: 新任务 matches the
+    // collapsed-topbar compose icon): 新任务 → SquarePen, 每日回顾 → CalendarCheck,
     // 技能 → Blocks, 定时任务 → Timer, 设置 → Settings.
-    const expected = ['Blocks', 'CalendarCheck', 'Plus', 'Settings', 'Timer'];
+    const expected = ['Blocks', 'CalendarCheck', 'Settings', 'SquarePen', 'Timer'];
     assert.deepEqual(
       imported,
       expected,

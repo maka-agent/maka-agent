@@ -7,7 +7,7 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, StatTile } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -39,7 +39,9 @@ const HEALTH_LAYER_COPY: Record<HealthSignalLayer, { label: string; description:
 };
 
 const HEALTH_STATUS_COPY: Record<HealthSignalStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'destructive' }> = {
-  ok: { label: '正常', tone: 'success' },
+  // Status-color restraint (#651 rule): 正常 is the EXPECTED state — neutral
+  // ink; color stays reserved for the signals that need attention.
+  ok: { label: '正常', tone: 'neutral' },
   info: { label: '提示', tone: 'info' },
   warning: { label: '警告', tone: 'warning' },
   error: { label: '错误', tone: 'destructive' },
@@ -153,7 +155,7 @@ export function HealthCenterPage() {
           drops its `role="listitem"` because the `<li>`
           wrapper already carries it. */}
       <ul aria-label="健康摘要" className="settingsHealthSummary">
-        <HealthSummaryTile tone="success" label="正常" count={snapshot.summary.ok} />
+        <HealthSummaryTile tone="neutral" label="正常" count={snapshot.summary.ok} />
         <HealthSummaryTile tone="info" label="提示" count={snapshot.summary.info} />
         <HealthSummaryTile tone="warning" label="警告" count={snapshot.summary.warning} />
         <HealthSummaryTile tone="destructive" label="错误" count={snapshot.summary.error} />
@@ -207,11 +209,16 @@ function HealthSummaryTile(props: {
   label: string;
   count: number;
 }) {
+  // Convergence R4: same StatTile as the permission summary — the two
+  // recipes were literal twins hand-rolled twice.
   return (
-    <li className="settingsHealthSummaryTile" data-tone={props.tone} data-empty={props.count === 0}>
-      <strong>{props.count}</strong>
-      <small>{props.label}</small>
-    </li>
+    <StatTile
+      as="li"
+      className="settingsHealthSummaryTile"
+      label={props.label}
+      value={props.count}
+      tone={props.tone}
+    />
   );
 }
 
