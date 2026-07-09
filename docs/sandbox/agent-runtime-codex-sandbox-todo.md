@@ -531,6 +531,61 @@ SandboxTransformResult
 >
 > 未实现内容：Phase 7 仍未把 `ProfileEnforcedWorkspaceExecutor` 接入 Maka 默认 session/runtime startup；仍未实现 background Bash sandbox；仍未实现 `Glob` / `Grep` 结果级过滤；仍未实现文件工具 OS sandboxed helper。默认接线和更强的文件工具 OS 兜底留给后续阶段。
 
+## Phase 7.5: 统一 WorkspaceExecutor factory / runtime tool assembly
+
+目标：把 Phase 1-7 已实现的 profile、sandbox command wrapper、file profile enforcement 组合成默认 runtime 可使用的 executor/tool assembly。
+
+建议文件：
+
+- 新增：`packages/runtime/src/workspace-executor-factory.ts`
+- 修改：`packages/runtime/src/index.ts`
+- 修改：`packages/runtime/package.json`
+- 修改：`apps/desktop/src/main/main.ts`
+- 修改：`packages/cli/src/runtime-bootstrap.ts`
+- 测试：`packages/runtime/src/__tests__/workspace-executor-factory.test.ts`
+
+任务：
+
+- [x] 新增统一 `createPermissionAwareWorkspaceExecutor()`。
+- [x] 使用 `compilePermissionProfile()` 从 `permissionMode + cwd` 生成 active profile。
+- [x] 默认 `workspaceRoots = [cwd]`，并允许调用方显式传入。
+- [x] 组合 `LocalWorkspaceExecutor -> SandboxedCommandWorkspaceExecutor -> ProfileEnforcedWorkspaceExecutor`。
+- [x] 新增 `buildPermissionAwareBuiltinTools()`，把 permission-aware executor 注入 `buildBuiltinTools()`。
+- [x] desktop `ai-sdk` backend 按当前 session header 构造 permission-aware builtin tools。
+- [x] CLI `ai-sdk` backend 按当前 session header 构造 permission-aware builtin tools。
+- [x] session cwd 在 runtime assembly 边界做 realpath/absolute path 规范化。
+- [x] 保留 `shellRuns` 存在时的 background Bash 路径。
+- [ ] headless / isolated executor 路径接入同一套 factory。
+- [ ] child agent tools 改成按 child session active profile 构造。
+- [ ] background Bash 接入 sandbox-aware argv spawn。
+
+验收标准：
+
+- 默认 runtime tool assembly 不再只能手动注入 wrapper。
+- foreground Bash toolset 可以默认走 `SandboxedCommandWorkspaceExecutor`。
+- Read / Write / Edit / Glob / Grep 可以默认走 `ProfileEnforcedWorkspaceExecutor`。
+- 切换 permission mode 后，下一轮 backend 重建时会重新编译 active profile。
+- `shellRuns` 存在时不破坏现有 background Bash / StopBackgroundTask 行为。
+
+测试建议：
+
+- factory 单元测试：`ask` / `execute` 生成 workspace-write。
+- factory 单元测试：`explore` 生成 read-only 并拒绝写入。
+- factory 单元测试：`bypass` 生成 danger-full-access 且不要求 sandbox backend。
+- builtin tools 集成测试：foreground Bash 使用 sandbox transform。
+- builtin tools 集成测试：file tools 使用 profile enforcement。
+- builtin tools 集成测试：`shellRuns` 存在时 background Bash 保持现状。
+
+> 具体方案：Phase 7.5 新增 `workspace-executor-factory.ts`，把已有三块能力收束到一个默认 assembly 边界：`compilePermissionProfile()` 负责把当前 session 的 `permissionMode + cwd` 转成 active profile；`SandboxedCommandWorkspaceExecutor` 负责 foreground command execution 的 sandbox transform；`ProfileEnforcedWorkspaceExecutor` 负责 Node 主进程内 file tools 的 profile enforcement。factory 不新增权限语义，只组合已有模块。
+>
+> 组合顺序固定为 `LocalWorkspaceExecutor -> SandboxedCommandWorkspaceExecutor -> ProfileEnforcedWorkspaceExecutor`。这样 `exec()` 先进入 command sandbox wrapper；文件读写搜索先进入 profile enforcement，再委托给 local executor 做真实文件系统访问、realpath containment 和 symlink escape 防护。`danger-full-access` 仍通过 profile 显式表达 unrestricted，而不是通过缺少 context 绕过 wrapper。
+>
+> desktop 和 CLI 的 `ai-sdk` backend factory 改为按当前 `ctx.header.permissionMode` 和 `ctx.header.cwd` 构造 builtin tools。`setPermissionMode()` 已经会 dispose backend，因此用户切换 mode 后，下一轮会重建 backend，并重新生成 active profile。runtime assembly 边界会把 session cwd 规范化成 realpath/absolute path，再传给 profile matcher 使用。
+>
+> 未实现内容：Phase 7.5 不改变 `PermissionEngine` policy matrix；不实现 background Bash sandbox；不接 headless / isolated executor；不让 child agent tools 按 child session profile 动态构造；不实现文件工具 OS sandboxed helper。由于 desktop/CLI 当前传入 `shellRuns`，默认 Bash 仍走 background Bash 路径，file tools 已接入 permission-aware executor；没有 `shellRuns` 的 foreground toolset 会使用 sandbox-aware executor。
+>
+> 实现结果：Phase 7.5 新增 `createPermissionAwareWorkspaceExecutor()` 和 `buildPermissionAwareBuiltinTools()`，并从 runtime barrel 和 package subpath 导出。新增 `workspace-executor-factory.test.ts` 覆盖 profile 编译、foreground Bash sandbox transform、read-only 写入拒绝、workspace-write protected metadata 拒绝、bypass no-sandbox、以及 `shellRuns` 存在时 background Bash 保持现状。
+
 ## Phase 8: sandbox-aware PermissionEngine / policy
 
 目标：让权限决策理解 active profile 和 sandbox availability，而不是只看 mode x category。

@@ -72,6 +72,7 @@ import {
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
+  buildPermissionAwareBuiltinTools,
   buildChildAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
@@ -433,8 +434,7 @@ const webSearchTool = buildWebSearchAgentTool({
   settingsStore,
   getPrivacyContext: getWorkspacePrivacyContext,
 });
-const builtinTools: MakaTool[] = [
-  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
+const sharedRuntimeTools: MakaTool[] = [
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -455,6 +455,19 @@ const builtinTools: MakaTool[] = [
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
 ];
+async function buildSessionBuiltinTools(header: SessionHeader): Promise<MakaTool[]> {
+  const cwd = await normalizedExistingPath(header.cwd);
+  const permissionAware = buildPermissionAwareBuiltinTools({
+    mode: header.permissionMode,
+    cwd,
+    workspaceRoots: [cwd],
+    shellRuns,
+  });
+  return [
+    ...permissionAware.tools.filter((tool: MakaTool) => tool.name !== 'Edit'),
+    ...sharedRuntimeTools,
+  ];
+}
 // Child agents stay file-only for local reads; parent runtime refs such as
 // maka://runtime/background-tasks/<id> are not part of their tool surface.
 const childAgentTools = buildChildAgentTools([
@@ -599,6 +612,14 @@ async function resolveToolArtifactSourcePath(cwd: string, sourcePath: string): P
   return isInsideOrSamePath(root, target) ? target : null;
 }
 
+async function normalizedExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
 /**
  * Sanitize a single path segment for use under `screenshots/`. Allows
  * only `[a-zA-Z0-9._-]`; rejects everything else (slashes, `..`, NUL,
@@ -640,7 +661,7 @@ backends.register('ai-sdk', async (ctx) => {
     modelId: model,
     permissionEngine,
     modelFactory: (input) => getAIModel({ ...input, fetch: modelFetch }),
-    tools: [...(ctx.tools ?? builtinTools)],
+    tools: [...(ctx.tools ?? await buildSessionBuiltinTools(ctx.header))],
     toolAvailability,
     spawnChildAgent: (input) => runtime.spawnChildAgent(ctx.sessionId, input),
     listChildAgents: () => runtime.listChildAgents(ctx.sessionId),

@@ -28,6 +28,7 @@
     "./session-manager": "./dist/session-manager.js",
     "./fake-backend": "./dist/fake-backend.js",
     "./workspace-executor": "./dist/workspace-executor.js",
+    "./workspace-executor-factory": "./dist/workspace-executor-factory.js",
     "./sandbox": "./dist/sandbox/index.js",
     "./network/proxy-env": "./dist/network/proxy-env.js",
     "./network/proxy-test": "./dist/network/proxy-test.js",

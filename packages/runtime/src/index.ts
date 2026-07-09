@@ -167,6 +167,16 @@ export type {
   WorkspaceWriteLockProvider,
   WorkspaceWriteLockKeyResult,
 } from './workspace-executor.js';
+export {
+  buildPermissionAwareBuiltinTools,
+  createPermissionAwareWorkspaceExecutor,
+} from './workspace-executor-factory.js';
+export type {
+  BuildPermissionAwareBuiltinToolsInput,
+  CreatePermissionAwareWorkspaceExecutorInput,
+  PermissionAwareBuiltinToolsAssembly,
+  PermissionAwareWorkspaceExecutorAssembly,
+} from './workspace-executor-factory.js';
 export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-replace.js';
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';

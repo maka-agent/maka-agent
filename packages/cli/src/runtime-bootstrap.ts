@@ -1,13 +1,13 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import {
   AiSdkBackend,
   BackendRegistry,
   PermissionEngine,
   SessionManager,
   ShellRunProcessManager,
-  buildBuiltinTools,
+  buildPermissionAwareBuiltinTools,
   buildDefaultContextBudgetPolicy,
   buildLlmHistorySummarizer,
   buildManualCompactLookupPolicy,
@@ -36,7 +36,7 @@ export interface MakaCliRuntimeContext {
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
-  tools: ReturnType<typeof buildBuiltinTools>;
+  tools: ReturnType<typeof buildPermissionAwareBuiltinTools>['tools'];
   close(): Promise<void>;
 }
 
@@ -79,7 +79,13 @@ export async function createMakaCliRuntimeContext(
     newId: randomUUID,
     now: Date.now,
   });
-  const tools = buildBuiltinTools({ shellRuns });
+  const initialCwd = await normalizedExistingPath(input.cwd);
+  const tools = buildPermissionAwareBuiltinTools({
+    mode: 'ask',
+    cwd: initialCwd,
+    workspaceRoots: [initialCwd],
+    shellRuns,
+  }).tools;
 
   backends.register('ai-sdk', async (ctx) => {
     const ready = await resolveDefaultSessionTarget({
@@ -99,6 +105,13 @@ export async function createMakaCliRuntimeContext(
         },
       } : {}),
     });
+    const cwd = await normalizedExistingPath(ctx.header.cwd);
+    const sessionTools = buildPermissionAwareBuiltinTools({
+      mode: ctx.header.permissionMode,
+      cwd,
+      workspaceRoots: [cwd],
+      shellRuns,
+    }).tools;
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...ctx.header, model: ready.model },
@@ -108,7 +121,7 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools,
+      tools: sessionTools,
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       contextBudget: buildManualCompactLookupPolicy(
         buildDefaultContextBudgetPolicy(ready.connection, { name: 'cli-default-history-budget' }),
@@ -159,6 +172,14 @@ export async function createMakaCliRuntimeContext(
     tools,
     close: () => shellRuns.terminateAll(),
   };
+}
+
+async function normalizedExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
 }
 
 export async function getOrCreateCliClaudeDeviceId(
