@@ -996,7 +996,7 @@ function multiStepTurnMessages(now: number): StoredMessage[] {
   const step1 = 'msg-assistant-2a';
   const step2 = 'msg-assistant-2b';
   return [
-    { type: 'user', id: 'msg-user-2', turnId, ts: now - 6 * 60_000, text: '确认 stream-fade 的环逻辑没有边界问题，然后跑一下单测。' },
+    { type: 'user', id: 'msg-user-2', turnId, ts: now - 6 * 60_000, text: '确认 stream-fade 的环逻辑没有边界问题，然后跑一下单测。', origin: { kind: 'automation', automationId: 'auto-fixture-demo' } },
     {
       type: 'tool_call',
       id: 'tool-read-fade',

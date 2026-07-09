@@ -294,6 +294,7 @@ export class AgentRun {
         ts: userMessageTs,
         text: this.input.userInput.text,
         ...(this.input.userInput.attachments ? { attachments: this.input.userInput.attachments } : {}),
+        ...(this.input.userInput.origin ? { origin: this.input.userInput.origin } : {}),
       };
       await this.input.store.appendMessage(this.sessionId, userMsg);
       await this.input.hooks.appendTurnState(this.sessionId, this.turnId, 'running', this.lineage);

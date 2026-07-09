@@ -178,6 +178,9 @@ export interface UserMessage {
   ts: number;
   text: string;
   attachments?: AttachmentRef[];
+  /** Non-user trigger source (automation fire). Lets the chat mark turns the
+   *  user did not hand-type. Mirrors TurnOrigin in runtime-inputs. */
+  origin?: { kind: 'automation'; automationId: string };
 }
 
 export interface AssistantMessage {

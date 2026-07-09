@@ -143,6 +143,11 @@ const markerVariants = cva("", {
       // `.maka-turn-aborted-marker` (+ its italic `em`) — dormant, muted.
       aborted:
         "inline-flex w-fit items-center gap-1 mx-0 mt-0.5 mb-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--foreground-secondary)] text-xs italic [&_em]:italic",
+      // `.maka-turn-automation-origin` — quiet provenance chip above a user
+      // bubble whose turn was fired by an automation, not hand-typed. Sits on
+      // the user side (self-end) so it reads as the bubble's byline.
+      "automation-origin":
+        "inline-flex w-fit items-center gap-1 self-end mx-0 mb-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--muted-foreground)] text-xs",
       // `.maka-turn-failed-banner` — fault state, destructive tone.
       "failed-banner":
         "inline-flex w-fit flex-wrap items-center gap-1.5 mx-0 mt-0.5 mb-1.5 px-2 py-1 rounded-[var(--radius-control)] border border-[oklch(from_var(--destructive)_l_c_h_/_0.28)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] text-[color:var(--destructive)] text-xs",

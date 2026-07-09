@@ -15,6 +15,7 @@ import {
   Loader2,
   RefreshCcw,
   Sparkles,
+  Timer,
 } from './icons.js';
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
@@ -1083,6 +1084,19 @@ const TurnView = memo(function TurnView(props: {
               <span>{badge.label}</span>
             </UiButton>
           ))}
+        </Marker>
+      )}
+      {/* Automation provenance: a turn injected by a scheduled automation is
+          NOT something the user typed — say so above the bubble instead of
+          impersonating the user. Id stays in the tooltip (no raw ids inline). */}
+      {turn.user?.automationOrigin && (
+        <Marker
+          variant="automation-origin"
+          role="note"
+          title={`由定时任务触发 · ${turn.user.automationOrigin.automationId}`}
+        >
+          <Timer size={12} aria-hidden="true" />
+          <span>定时任务触发</span>
         </Marker>
       )}
       {turn.user && (

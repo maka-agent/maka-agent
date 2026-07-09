@@ -9,6 +9,8 @@ export interface ChatItem {
   ts?: number;
   /** User-message attachments projected from StoredMessage; absent on assistant/system rows. */
   attachments?: AttachmentRef[];
+  /** Present when the turn was fired by an automation, not hand-typed. */
+  automationOrigin?: { automationId: string };
 }
 
 /**
@@ -316,6 +318,7 @@ export function materializeTurns(
         text: message.text,
         ts: message.ts,
         ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+        ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),
       };
     } else if (message.type === 'assistant') {
       // A turn now holds one AssistantMessage per model step. Concatenate their

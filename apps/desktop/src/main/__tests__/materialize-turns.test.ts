@@ -562,3 +562,20 @@ describe('deriveTurnLineageMap', () => {
     assert.equal(JSON.stringify(input), before);
   });
 });
+
+describe('automation turn attribution (F6)', () => {
+  it('projects an automation origin onto the turn user entry', () => {
+    const turns = materializeTurns([
+      { type: 'user', id: 'u1', turnId: 't1', ts: 1, text: '早报', origin: { kind: 'automation', automationId: 'auto-1' } },
+      { type: 'assistant', id: 'a1', turnId: 't1', ts: 2, text: '好的' },
+    ] as StoredMessage[]);
+    assert.equal(turns[0]?.user?.automationOrigin?.automationId, 'auto-1');
+  });
+
+  it('hand-typed turns carry no automation origin', () => {
+    const turns = materializeTurns([
+      { type: 'user', id: 'u1', turnId: 't1', ts: 1, text: '你好' },
+    ] as StoredMessage[]);
+    assert.equal(turns[0]?.user?.automationOrigin, undefined);
+  });
+});
