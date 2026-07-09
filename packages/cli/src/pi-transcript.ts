@@ -462,79 +462,33 @@ function systemNoteText(message: SystemNoteMessage): string | undefined {
   }
 }
 
-/**
- * Identifies which transcript entry (and which line within its rendered block)
- * a given transcript row came from. Spacer rows and the permission prompt have
- * no stable entry identity and are reported as `null` owners. The scroll layout
- * uses this to anchor the viewport to a piece of content rather than a line
- * offset, so it stays pinned to what the reader is looking at across arbitrary
- * re-renders (blocks growing, shrinking, above or below the fold, or all at
- * once in one coalesced frame).
- */
-export interface TranscriptLineOwner {
-  entry: MakaPiTranscriptEntry;
-  /** 0-based line index within the entry's rendered block. */
-  row: number;
-}
-
-export interface RenderedTranscript {
-  lines: string[];
-  owners: (TranscriptLineOwner | null)[];
-}
-
-export function renderMakaPiTranscriptSource(
-  state: MakaPiTranscriptState,
-  metadata: MakaPiTranscriptMetadata,
-  width: number,
-): RenderedTranscript {
-  const safeWidth = Math.max(1, width);
-  const lines: string[] = [];
-  const owners: (TranscriptLineOwner | null)[] = [];
-
-  // A fresh session (no history, nothing pending) opens on a welcome block so the
-  // first screen greets and orients instead of showing an empty pane. It carries
-  // no entry identity (null owners); once the first prompt lands, entries take
-  // over and it never renders again.
-  if (state.entries.length === 0 && !state.pendingPermission) {
-    for (const line of renderWelcomeBlock(metadata, safeWidth)) {
-      lines.push(line);
-      owners.push(null);
-    }
-    return { lines, owners };
-  }
-
-  for (const entry of state.entries) {
-    // A blank spacer above every entry, then its (memoized) rendered block. The
-    // spacer belongs to the entry (row 0) so the scroll anchor stays stable when
-    // the viewport top lands on it — otherwise anchoring to the block's first line
-    // would drop the spacer and drift the view up a row on the next re-render.
-    lines.push('');
-    owners.push({ entry, row: 0 });
-    const block = renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking);
-    block.forEach((line, row) => {
-      lines.push(line);
-      owners.push({ entry, row: row + 1 });
-    });
-  }
-
-  if (state.pendingPermission) {
-    lines.push('');
-    owners.push(null);
-    for (const line of renderPermissionPrompt(state.pendingPermission, safeWidth)) {
-      lines.push(line);
-      owners.push(null);
-    }
-  }
-
-  return { lines, owners };
-}
-
 export function renderMakaPiTranscript(
   state: MakaPiTranscriptState,
   metadata: MakaPiTranscriptMetadata,
   width: number,
 ): string[] {
-  return renderMakaPiTranscriptSource(state, metadata, width).lines;
+  const safeWidth = Math.max(1, width);
+  const lines: string[] = [];
+
+  // A fresh session (no history, nothing pending) opens on a welcome block so the
+  // first screen greets and orients instead of showing an empty pane. Once the
+  // first prompt lands, entries take over and it never renders again.
+  if (state.entries.length === 0 && !state.pendingPermission) {
+    return renderWelcomeBlock(metadata, safeWidth);
+  }
+
+  for (const entry of state.entries) {
+    // A blank spacer above every entry, then its (memoized) rendered block.
+    lines.push('');
+    lines.push(...renderTranscriptEntryMemoized(entry, safeWidth, state.expandAllTools, state.expandAllThinking));
+  }
+
+  if (state.pendingPermission) {
+    lines.push('');
+    lines.push(...renderPermissionPrompt(state.pendingPermission, safeWidth));
+  }
+
+  return lines;
 }
 
 /**
@@ -555,7 +509,7 @@ const transcriptEntryRenderCache = new WeakMap<MakaPiTranscriptEntry, Transcript
 // Returns the cached line array by reference on a hit — callers must treat it as
 // read-only (copy the lines into their own buffer rather than mutating in place),
 // or a later render would serve corrupted content for that entry. The only
-// caller, renderMakaPiTranscriptSource, copies each line out.
+// caller, renderMakaPiTranscript, spreads the lines into its own buffer.
 function renderTranscriptEntryMemoized(
   entry: MakaPiTranscriptEntry,
   width: number,
@@ -632,67 +586,6 @@ function transcriptEntrySignature(
         entry.result ? entry.result.kind : '',
       ].join('|');
   }
-}
-
-export interface TranscriptWindow {
-  /** The viewport-sized slice of transcript lines, including a scroll indicator row when scrolled. */
-  lines: string[];
-  /** Clamped scroll offset actually applied — lines hidden below the viewport bottom (0 = following the tail). */
-  scrollOffset: number;
-  /** Lines hidden above the top of the viewport. */
-  hiddenAbove: number;
-  /** Lines hidden below the bottom of the viewport. */
-  hiddenBelow: number;
-  /** True when the transcript is taller than the viewport (a scroll indicator is shown). */
-  scrollable: boolean;
-}
-
-/**
- * Window a fully rendered transcript to the viewport. When the transcript fits,
- * every line is returned unchanged. When it overflows, one row is reserved for a
- * dim scroll indicator so the remaining rows show a `scrollOffset`-anchored slice
- * — offset 0 follows the live tail, larger offsets reveal older lines.
- */
-export function windowTranscriptLines(
-  allLines: readonly string[],
-  viewportRows: number,
-  scrollOffset: number,
-  width: number,
-): TranscriptWindow {
-  const rows = Math.max(0, Math.trunc(viewportRows));
-  if (rows === 0) {
-    return { lines: [], scrollOffset: 0, hiddenAbove: 0, hiddenBelow: 0, scrollable: false };
-  }
-  if (allLines.length <= rows) {
-    return { lines: [...allLines], scrollOffset: 0, hiddenAbove: 0, hiddenBelow: 0, scrollable: false };
-  }
-  // Reserve one row for the scroll indicator — but only when the viewport is at
-  // least two rows tall. A one-row viewport (very short terminal, or a tall
-  // editor/autocomplete area) can hold either a content line or the indicator,
-  // not both; showing the content keeps the total within the layout budget.
-  const showIndicator = rows >= 2;
-  const contentRows = showIndicator ? rows - 1 : rows;
-  const maxOffset = allLines.length - contentRows;
-  const offset = Math.min(Math.max(0, Math.trunc(scrollOffset)), maxOffset);
-  const end = allLines.length - offset;
-  const start = Math.max(0, end - contentRows);
-  const hiddenAbove = start;
-  const hiddenBelow = allLines.length - end;
-  const windowLines = allLines.slice(start, end);
-  const lines = showIndicator
-    ? [...windowLines, fitLine(transcriptScrollIndicator(hiddenAbove, hiddenBelow), Math.max(1, width))]
-    : [...windowLines];
-  return { lines, scrollOffset: offset, hiddenAbove, hiddenBelow, scrollable: true };
-}
-
-function transcriptScrollIndicator(hiddenAbove: number, hiddenBelow: number): string {
-  // Only reached from the scrollable path, where the window is smaller than the
-  // transcript, so at least one side always has hidden lines.
-  const counts: string[] = [];
-  if (hiddenAbove > 0) counts.push(`↑ ${hiddenAbove} more`);
-  if (hiddenBelow > 0) counts.push(`↓ ${hiddenBelow} more`);
-  const keys = hiddenBelow > 0 ? 'PgUp/PgDn scroll · PgDn to follow' : 'PgUp/PgDn scroll';
-  return ansi.dim(`── ${counts.join('  ')} · ${keys} ──`);
 }
 
 export function renderMakaPiStatusLine(metadata: MakaPiTranscriptMetadata, width: number): string {
