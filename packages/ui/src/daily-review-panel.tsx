@@ -24,6 +24,7 @@ import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
 import { StatTile } from './primitives/stat-tile.js';
+import { SectionHeader } from './primitives/section-header.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
 import { RelativeTime } from './relative-time.js';
 import { Markdown } from './markdown.js';
@@ -366,10 +367,13 @@ export function DailyReviewPanel(props: {
       )}
       {canLoadArchives && (
         <section className="maka-daily-review-archives" aria-label="已生成报告">
-          <div className="maka-daily-review-archives-header">
-            <h4 className="maka-daily-review-section-title">已生成报告</h4>
-            <span className="maka-daily-review-archive-count">{archives.length} 份</span>
-          </div>
+          <SectionHeader
+            className="maka-daily-review-archives-header"
+            as="h4"
+            accent
+            title="已生成报告"
+            count={<span className="maka-daily-review-archive-count">{archives.length} 份</span>}
+          />
           {archiveError && (
             <Alert variant="warning" className="maka-daily-review-alert">
               <AlertDescription>回顾报告读取失败：{archiveError}</AlertDescription>

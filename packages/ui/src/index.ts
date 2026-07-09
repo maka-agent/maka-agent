@@ -60,6 +60,7 @@ export * from './primitives/kbd.js';
 export * from './primitives/menu.js';
 export * from './primitives/dialog-header.js';
 export * from './primitives/stat-tile.js';
+export * from './primitives/section-header.js';
 export * from './primitives/choice-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';

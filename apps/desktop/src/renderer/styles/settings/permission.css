@@ -547,13 +547,6 @@
 /* Diagnostic 5-column capability detail collapsed by default so the
      page reads as "system permissions" first. Expand on click. */
 
-.settingsPermissionSectionHeader {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: var(--space-3);
-  }
-
 .settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityLayers,
   .settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityGuidance,
   .settingsCapabilityList:not([data-diagnostics-open="true"]) .settingsCapabilityAuditSlot,

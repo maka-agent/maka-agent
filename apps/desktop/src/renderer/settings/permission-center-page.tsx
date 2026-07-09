@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader, StatTile, useToast } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -248,21 +248,23 @@ export function PermissionCenterPage() {
       </section>
 
       <section aria-label="功能能力" className="settingsPermissionSection">
-        <header className="settingsPermissionSectionHeader">
-          <div>
-            <h4>功能能力</h4>
-            <small>每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。</small>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setDiagnosticsOpen((open) => !open)}
-            aria-expanded={diagnosticsOpen}
-          >
-            {diagnosticsOpen ? '收起详情' : '展开详情'}
-          </Button>
-        </header>
+        <SectionHeader
+          className="settingsPermissionSectionHeader"
+          as="h4"
+          title="功能能力"
+          subtitle="每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。"
+          action={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setDiagnosticsOpen((open) => !open)}
+              aria-expanded={diagnosticsOpen}
+            >
+              {diagnosticsOpen ? '收起详情' : '展开详情'}
+            </Button>
+          }
+        />
         <ul className="settingsCapabilityList" aria-label="功能能力列表" data-diagnostics-open={diagnosticsOpen ? 'true' : undefined}>
           {capabilities.capabilities.map((capability) => (
             <CapabilityRow key={capability.id} capability={capability} />

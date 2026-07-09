@@ -16,6 +16,7 @@ import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
 import { SettingsSelect, type SettingsSelectOption } from './primitives/settings-select.js';
 import { EmptyState } from './empty-state.js';
+import { SectionHeader } from './primitives/section-header.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
 import type { ManagedSkillCategory, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
 
@@ -225,20 +226,23 @@ function SkillLibraryPanel(props: {
 
   const market = (
     <section className="maka-skill-market" aria-label="技能市场">
-      <div className="maka-skill-section-row">
-        <span className="maka-skill-section-label">官方精选</span>
-        <div className="maka-skill-filter-actions" aria-label="来源库操作">
-          <UiButton
-            type="button"
-            variant="secondary"
-            className="maka-skill-filter-pill"
-            onClick={props.onImportManagedSkillSource}
-            disabled={!props.onImportManagedSkillSource || props.actionBusy}
-          >
-            导入本地 Skill
-          </UiButton>
-        </div>
-      </div>
+      <SectionHeader
+        className="maka-skill-section-row"
+        title={<span className="maka-skill-section-label">官方精选</span>}
+        action={
+          <div className="maka-skill-filter-actions" aria-label="来源库操作">
+            <UiButton
+              type="button"
+              variant="secondary"
+              className="maka-skill-filter-pill"
+              onClick={props.onImportManagedSkillSource}
+              disabled={!props.onImportManagedSkillSource || props.actionBusy}
+            >
+              导入本地 Skill
+            </UiButton>
+          </div>
+        }
+      />
       {allManagedSources.length === 0 ? (
         <EmptyState
           Icon={BookOpen}
@@ -320,10 +324,11 @@ function SkillLibraryPanel(props: {
         />
       ) : (
         <>
-          <div className="maka-skill-section-row">
-            <span className="maka-skill-section-label">{label}</span>
-            <small>{list.length} 个</small>
-          </div>
+          <SectionHeader
+            className="maka-skill-section-row"
+            title={<span className="maka-skill-section-label">{label}</span>}
+            count={`${list.length} 个`}
+          />
           <ul className="maka-skill-library-list" aria-label="技能列表">
             {list.map((skill) => {
               const tools = skill.declaredTools ?? [];
@@ -415,10 +420,11 @@ function SkillLibraryPanel(props: {
 
   const updateReview = updatePreview ? (
     <section className="maka-skill-governance-review" aria-label="Skill 更新审查">
-      <div className="maka-skill-section-row">
-        <span className="maka-skill-section-label">更新审查</span>
-        <small>{formatSkillStatusLabel(updatePreview.skill)}</small>
-      </div>
+      <SectionHeader
+        className="maka-skill-section-row"
+        title={<span className="maka-skill-section-label">更新审查</span>}
+        count={formatSkillStatusLabel(updatePreview.skill)}
+      />
       <div className="maka-skill-governance-summary">
         <span>{updatePreview.skill.name}</span>
         <span>{updatePreview.skill.managedSourceId ? `来源 ${updatePreview.skill.managedSourceId}` : '受管理来源'}</span>
