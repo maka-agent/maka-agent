@@ -484,12 +484,24 @@ export interface RenderedTranscript {
 
 export function renderMakaPiTranscriptSource(
   state: MakaPiTranscriptState,
-  _metadata: MakaPiTranscriptMetadata,
+  metadata: MakaPiTranscriptMetadata,
   width: number,
 ): RenderedTranscript {
   const safeWidth = Math.max(1, width);
   const lines: string[] = [];
   const owners: (TranscriptLineOwner | null)[] = [];
+
+  // A fresh session (no history, nothing pending) opens on a welcome block so the
+  // first screen greets and orients instead of showing an empty pane. It carries
+  // no entry identity (null owners); once the first prompt lands, entries take
+  // over and it never renders again.
+  if (state.entries.length === 0 && !state.pendingPermission) {
+    for (const line of renderWelcomeBlock(metadata, safeWidth)) {
+      lines.push(line);
+      owners.push(null);
+    }
+    return { lines, owners };
+  }
 
   for (const entry of state.entries) {
     // A blank spacer above every entry, then its (memoized) rendered block. The
@@ -764,6 +776,31 @@ function renderTextBlock(
 function renderNotice(entry: MakaPiNoticeEntry, width: number): string[] {
   const label = entry.level === 'error' ? ansi.red('Error') : ansi.dim('Note');
   return renderIndented(`${label}: ${entry.text}`, width, 0).map((line) => fitLine(line, width));
+}
+
+// Shown on a fresh, empty session. Greets, states where we are (model /
+// connection / folder), and lists the handful of commands and keys worth
+// knowing up front — enough to start without reading docs.
+function renderWelcomeBlock(metadata: MakaPiTranscriptMetadata, width: number): string[] {
+  // Point at /help for the full command list rather than duplicating it here —
+  // the autocomplete already teaches commands as you type. Just the greeting plus
+  // the keys you cannot discover by typing `/`.
+  const tips: [string, string][] = [
+    ['/help', '查看全部命令与快捷键'],
+    ['Ctrl+O', '展开或折叠工具输出'],
+    ['Esc Esc', '回退到较早的轮次'],
+  ];
+  const keyWidth = Math.max(...tips.map(([key]) => key.length));
+  const lines = [
+    fitLine(ansi.accent('maka'), width),
+    fitLine(ansi.dim(`${metadata.model} · ${metadata.connectionSlug} · ${metadata.cwd}`), width),
+    '',
+    fitLine('输入消息开始对话，或用斜杠命令：', width),
+  ];
+  for (const [key, description] of tips) {
+    lines.push(fitLine(ansi.dim(`  ${key.padEnd(keyWidth)}  ${description}`), width));
+  }
+  return lines;
 }
 
 function renderPermissionPrompt(request: PermissionRequestEvent, width: number): string[] {

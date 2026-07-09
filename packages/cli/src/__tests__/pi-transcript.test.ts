@@ -17,6 +17,23 @@ import {
 } from '../pi-transcript.js';
 
 describe('Maka Pi TUI transcript', () => {
+  test('greets on a fresh empty session and drops the welcome once a prompt lands', () => {
+    const state = createMakaPiTranscriptState();
+
+    const welcome = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(welcome, /maka/);
+    assert.match(welcome, /\/help/);
+    // The welcome orients with the active model/connection/folder.
+    assert.match(welcome, /deepseek-v4-flash/);
+    assert.ok(welcome.includes('输入消息开始对话'));
+
+    // Once a turn exists the transcript takes over — the welcome never returns.
+    appendUserPrompt(state, 'hello world');
+    const afterPrompt = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.equal(afterPrompt.includes('/help'), false);
+    assert.ok(afterPrompt.includes('hello world'));
+  });
+
   test('keeps assistant text after a tool call visible after the tool block', () => {
     const state = createMakaPiTranscriptState();
     appendUserPrompt(state, 'inspect the package');
