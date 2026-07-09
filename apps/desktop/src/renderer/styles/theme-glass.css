@@ -83,9 +83,14 @@ html[data-os="darwin"] {
   /* PALETTE-LEAK-0: the zinc hex here (#fafafa) overrode reference-shell's
      var(--background)-derived container for ALL of darwin, so the main
      content pane ignored palette switches entirely. Re-anchor on
-     --background so hue/chroma follow the active palette; the default
-     palette (background l=1.0) resolves to the same value. */
-  --color-bg-container: oklch(from var(--background) calc(l - 0.015) c h);
+     --background so hue/chroma follow the active palette.
+     CONTENT-SURFACE-CONTRAST (maintainer, 2026-07-09): the extra −0.015
+     step made the content card visibly off-white (measured 0.985) and
+     collapsed the card↔canvas contrast to Δ0.009 — "内容面不是纯白，
+     和左边对比不够". The card is the palette background, full stop;
+     separation is the canvas/sidebar's job (surface-canvas −0.024 +
+     vibrancy), matching the reference's white-card-on-gray-shell. */
+  --color-bg-container: var(--background);
   --color-text-quaternary: oklch(from var(--foreground) l c h / 0.45);
 }
 
