@@ -1,5 +1,5 @@
 import type { PlanReminder } from '@maka/core';
-import { Blocks, CalendarCheck, Plus, Settings, Timer } from './icons.js';
+import { Blocks, CalendarCheck, Settings, SquarePen, Timer } from './icons.js';
 import type { NavSelection } from './nav-selection.js';
 import { Button as UiButton, cn } from './ui.js';
 import { cva } from 'class-variance-authority';
@@ -69,7 +69,7 @@ export function SessionSidebarNav(props: {
         type="button"
         onClick={props.onNew}
       >
-        <Plus className="maka-nav-icon" aria-hidden="true" />
+        <SquarePen className="maka-nav-icon" aria-hidden="true" />
         <span>新任务</span>
         <kbd className="maka-nav-kbd" aria-hidden="true">⌘ N</kbd>
       </UiButton>
