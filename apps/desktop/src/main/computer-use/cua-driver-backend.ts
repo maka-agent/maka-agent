@@ -45,6 +45,9 @@ const HANDSHAKE_TIMEOUT_MS = 10_000;
 // runaway/garbage stream, so we tear down instead of growing memory unbounded.
 const MAX_STDOUT_BUFFER = 32 * 1024 * 1024;
 const STDERR_TAIL_CAP = 4096;
+// Frames larger than this get compressed (to JPEG) before the cap check. Small
+// crisp PNGs (simple screens) pass through untouched.
+const COMPRESS_FRAME_THRESHOLD = 1.5 * 1024 * 1024;
 
 export interface CuaDriverBackendOptions {
   /** Absolute path to the bundled `cua-driver` binary. */
@@ -54,6 +57,13 @@ export interface CuaDriverBackendOptions {
   timeoutMs?: number;
   /** Per-request bound on the startup handshake (defaults to HANDSHAKE_TIMEOUT_MS). */
   handshakeTimeoutMs?: number;
+  /**
+   * Optional frame compressor: given a captured frame (base64 + mimeType) returns
+   * a smaller encoding at the SAME (native) resolution — so coordinates are
+   * unchanged. Applied only to large frames. Runs in Electron main (nativeImage);
+   * omitted under node --test, where frames pass through untouched.
+   */
+  compressFrame?: (base64: string, mimeType: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
 }
 
 interface JsonRpcResponse {
@@ -366,14 +376,24 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           const r = await client.callTool('get_desktop_state', {}, signal);
           const img = r?.content?.find((c) => c.type === 'image');
           if (!img?.data) return { outcome: { ok: false, error: 'capture_failed', message: 'no image returned' } };
-          const bytes = Buffer.from(img.data, 'base64');
-          if (exceedsComputerUseFrameCap(bytes.byteLength)) {
-            return { outcome: { ok: false, error: 'sensitivity_blocked', message: `frame ${bytes.byteLength}B exceeds cap` } };
+          let base64 = img.data;
+          let mimeType: 'image/png' | 'image/jpeg' = img.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png';
+          let byteLength = Buffer.from(base64, 'base64').byteLength;
+          // Compress large frames (native res, coords unchanged) so a Retina
+          // full-display PNG doesn't balloon past the cap / the provider's limit.
+          if (opts.compressFrame && byteLength > COMPRESS_FRAME_THRESHOLD) {
+            const c = opts.compressFrame(base64, mimeType);
+            base64 = c.base64;
+            mimeType = c.mimeType;
+            byteLength = Buffer.from(base64, 'base64').byteLength;
+          }
+          if (exceedsComputerUseFrameCap(byteLength)) {
+            return { outcome: { ok: false, error: 'sensitivity_blocked', message: `frame ${byteLength}B exceeds cap` } };
           }
           const sc = r?.structuredContent ?? {};
           const screenshot: CuScreenshot = {
-            base64: img.data,
-            mimeType: img.mimeType === 'image/jpeg' ? 'image/jpeg' : 'image/png',
+            base64,
+            mimeType,
             widthPx: typeof sc.screenshot_width === 'number' ? sc.screenshot_width : 0,
             heightPx: typeof sc.screenshot_height === 'number' ? sc.screenshot_height : 0,
           };

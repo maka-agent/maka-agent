@@ -57,7 +57,11 @@ function readBackendId(): CuBackendId {
  * any unmet precondition or construction failure returns the NONE sentinel so
  * the caller simply advertises no tools.
  */
-export function selectComputerUseBackend(deps?: { hostBundleId?: string; overlay?: CuOverlayHook }): SelectedComputerUseBackend {
+export function selectComputerUseBackend(deps?: {
+  hostBundleId?: string;
+  overlay?: CuOverlayHook;
+  compressFrame?: (base64: string, mimeType: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+}): SelectedComputerUseBackend {
   // Fail closed off macOS — the whole capability is AX/ScreenCaptureKit-bound.
   if (process.platform !== 'darwin') return NONE;
 
@@ -78,6 +82,7 @@ export function selectComputerUseBackend(deps?: { hostBundleId?: string; overlay
     const backend = createCuaDriverBackend({
       binaryPath,
       hostBundleId: resolveHostBundleId(deps?.hostBundleId),
+      ...(deps?.compressFrame ? { compressFrame: deps.compressFrame } : {}),
     });
     return { backend, tools: buildComputerUseTools({ backend, overlay }), backendId };
   } catch (err) {

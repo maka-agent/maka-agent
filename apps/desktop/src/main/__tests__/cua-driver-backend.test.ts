@@ -32,6 +32,8 @@ const HANG_TOOL = process.env.CUA_MOCK_HANG_TOOL || '';
 const ERR_TOOL = process.env.CUA_MOCK_RPCERR_TOOL || '';
 // 1x1 transparent PNG (tiny, well under the 2MB frame cap).
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+// A "big" frame (~1.9MB decoded) to exercise the compression threshold path.
+const BIG_IMG = process.env.CUA_MOCK_BIG_IMAGE === '1' ? 'A'.repeat(2600000) : '';
 function logRec(rec) { if (LOG) { try { fs.appendFileSync(LOG, JSON.stringify(rec) + '\n'); } catch (e) {} } }
 logRec({
   kind: 'start',
@@ -67,7 +69,7 @@ function handle(msg) {
         return;
       case 'get_desktop_state':
         reply(id, {
-          content: [{ type: 'image', data: PNG, mimeType: 'image/png' }],
+          content: [{ type: 'image', data: BIG_IMG || PNG, mimeType: 'image/png' }],
           structuredContent: { screenshot_width: 1440, screenshot_height: 900 },
         });
         return;
@@ -159,15 +161,17 @@ function toolCall(records: Array<Record<string, any>>, name: string): Record<str
  * spawn time, so we set the per-child log path (and optional hang tool) right
  * before returning — tests run sequentially, so there is no env interleave.
  */
-function makeBackend(opts: { hangTool?: string; rpcErrTool?: string; handshakeTimeoutMs?: number } = {}): { backend: ReturnType<typeof createCuaDriverBackend>; logPath: string } {
+function makeBackend(opts: { hangTool?: string; rpcErrTool?: string; handshakeTimeoutMs?: number; bigImage?: boolean; compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' } } = {}): { backend: ReturnType<typeof createCuaDriverBackend>; logPath: string } {
   const logPath = join(workDir, 'log-' + randomUUID() + '.ndjson');
   process.env.CUA_MOCK_LOG = logPath;
   process.env.CUA_MOCK_HANG_TOOL = opts.hangTool ?? '';
   process.env.CUA_MOCK_RPCERR_TOOL = opts.rpcErrTool ?? '';
+  process.env.CUA_MOCK_BIG_IMAGE = opts.bigImage ? '1' : '';
   const backend = createCuaDriverBackend({
     binaryPath: mockPath,
     hostBundleId: HOST_BUNDLE_ID,
     timeoutMs: 5000,
+    ...(opts.compressFrame ? { compressFrame: opts.compressFrame } : {}),
     ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
   });
   backends.push(backend);
@@ -237,6 +241,24 @@ describe('cua-driver backend', () => {
     assert.equal(res.screenshot!.heightPx, 900);
     assert.ok(res.screenshot!.base64.length > 0);
     assert.ok(Buffer.from(res.screenshot!.base64, 'base64').byteLength > 0);
+  });
+
+  it('large frame → compressFrame applied (JPEG); small frame → untouched (PNG)', async () => {
+    let calls = 0;
+    const compressFrame = (_b: string, _m: string) => { calls += 1; return { base64: 'anVzdGpwZWc=', mimeType: 'image/jpeg' as const }; };
+
+    // Big frame (~1.9 MB decoded > 1.5 MB threshold) → compressed to JPEG.
+    const big = makeBackend({ bigImage: true, compressFrame });
+    const bigRes = await big.backend.run({ type: 'screenshot' } as CuAction, new AbortController().signal);
+    assert.equal(calls, 1, 'compressFrame called for a large frame');
+    assert.equal(bigRes.screenshot!.mimeType, 'image/jpeg');
+    assert.equal(bigRes.screenshot!.base64, 'anVzdGpwZWc=');
+
+    // Small frame (tiny PNG < threshold) → compressor NOT called, stays PNG.
+    const small = makeBackend({ bigImage: false, compressFrame });
+    const smallRes = await small.backend.run({ type: 'screenshot' } as CuAction, new AbortController().signal);
+    assert.equal(calls, 1, 'compressFrame NOT called for a small frame');
+    assert.equal(smallRes.screenshot!.mimeType, 'image/png');
   });
 
   it('click on an app window → pid+window_id path (no cursor warp), NEVER scope:desktop', async () => {

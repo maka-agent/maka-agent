@@ -387,6 +387,17 @@ const browserTools = buildBrowserTools();
 const computerUseOverlay = createCursorOverlayController();
 const computerUse = selectComputerUseBackend({
   overlay: createComputerUseOverlayHook(computerUseOverlay, screen),
+  // Compress large frames to JPEG at NATIVE resolution (coordinates unchanged) so a
+  // Retina full-display capture doesn't blow past the frame cap / provider limit.
+  compressFrame: (base64) => {
+    try {
+      const img = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
+      if (img.isEmpty()) return { base64, mimeType: 'image/png' };
+      return { base64: img.toJPEG(82).toString('base64'), mimeType: 'image/jpeg' };
+    } catch {
+      return { base64, mimeType: 'image/png' };
+    }
+  },
 });
 const computerUseTools = computerUse.tools;
 console.log(`[cu-startup] backend=${computerUse.backendId} tools=${computerUseTools.length}`);
