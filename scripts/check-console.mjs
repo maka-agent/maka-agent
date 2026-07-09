@@ -79,6 +79,14 @@ const ALLOW = new Map([
     'Watcher startup failure and runtime error diagnostics; non-fatal, no secrets.',
   ],
   [
+    'packages/computer-use/src/computer-use-overlay-hook.ts',
+    'dev-gated (if (debug)) agent-cursor overlay coordinate traces; off in production, no secrets.',
+  ],
+  [
+    'packages/computer-use/src/select-backend.ts',
+    'fail-closed backend-construction diagnostic (main process); logs the error class only, never reaches the renderer.',
+  ],
+  [
     'scripts/check-console.mjs',
     'this script — explicit allow.',
   ],
