@@ -13,7 +13,6 @@ import {
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
   toggleAllToolExpansion,
-  windowTranscriptLines,
 } from '../pi-transcript.js';
 
 describe('Maka Pi TUI transcript', () => {
@@ -1230,65 +1229,6 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /stream-line-9/);
     assert.match(expanded, /lines hidden/);
     assert.doesNotMatch(expanded, /stream-line-5/); // a middle line the cap hides
-  });
-});
-
-describe('transcript viewport windowing', () => {
-  const lines = Array.from({ length: 50 }, (_, i) => `line-${i}`);
-
-  test('returns every line unchanged when the transcript fits', () => {
-    const short = lines.slice(0, 5);
-    const win = windowTranscriptLines(short, 24, 0, 80);
-    assert.deepEqual(win.lines, short);
-    assert.equal(win.scrollable, false);
-    assert.equal(win.scrollOffset, 0);
-    assert.equal(win.hiddenAbove, 0);
-    assert.equal(win.hiddenBelow, 0);
-  });
-
-  test('follows the tail at offset 0, reserving a row for the scroll indicator', () => {
-    const win = windowTranscriptLines(lines, 10, 0, 80);
-    assert.equal(win.scrollable, true);
-    assert.equal(win.lines.length, 10);
-    // Nine content rows (10 minus the indicator) ending at the last line.
-    assert.equal(stripAnsi(win.lines[0]!), 'line-41');
-    assert.equal(stripAnsi(win.lines[8]!), 'line-49');
-    assert.equal(win.hiddenAbove, 41);
-    assert.equal(win.hiddenBelow, 0);
-    assert.match(stripAnsi(win.lines[9]!), /↑ 41 more/);
-  });
-
-  test('reveals older lines and reports the split when scrolled up', () => {
-    const win = windowTranscriptLines(lines, 10, 9, 80);
-    assert.equal(win.scrollOffset, 9);
-    assert.equal(stripAnsi(win.lines[0]!), 'line-32');
-    assert.equal(stripAnsi(win.lines[8]!), 'line-40');
-    assert.equal(win.hiddenAbove, 32);
-    assert.equal(win.hiddenBelow, 9);
-    assert.match(stripAnsi(win.lines[9]!), /↑ 32 more.*↓ 9 more/);
-  });
-
-  test('clamps an over-scroll to the top of the transcript', () => {
-    const win = windowTranscriptLines(lines, 10, 9_999, 80);
-    // contentRows = 9, so the deepest offset lands the window on the first lines.
-    assert.equal(stripAnsi(win.lines[0]!), 'line-0');
-    assert.equal(win.hiddenAbove, 0);
-    assert.equal(win.scrollOffset, lines.length - 9);
-    assert.match(stripAnsi(win.lines[9]!), /↓ \d+ more/);
-  });
-
-  test('truncates the indicator to the viewport width', () => {
-    const win = windowTranscriptLines(lines, 10, 5, 12);
-    assert.ok(win.lines.every((line) => visibleWidth(line) <= 12));
-  });
-
-  test('never exceeds a one-row viewport (drops the indicator)', () => {
-    const win = windowTranscriptLines(lines, 1, 0, 80);
-    // A one-row viewport holds a content line OR the indicator, not both; the
-    // content wins so the layout budget of exactly one row is kept.
-    assert.equal(win.lines.length, 1);
-    assert.equal(stripAnsi(win.lines[0]!), 'line-49');
-    assert.equal(win.scrollable, true);
   });
 });
 

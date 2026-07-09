@@ -151,10 +151,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return;
-    // Control actions are user-initiated and append their result (a notice, a
-    // compaction summary); follow the tail so it is visible even if the user had
-    // scrolled up.
-    layout.followTailNow();
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -202,11 +198,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const request = state.pendingPermission;
     if (!request || permissionInFlight) return false;
     permissionInFlight = true;
-    // Answering is the user acting; the decision resumes the turn at the tail
-    // (tool output, the next reply, or an error). Snap back to the tail so that
-    // continuation is visible even if the user had paged up past the prompt to
-    // read context before deciding — otherwise the session looks stuck.
-    layout.followTailNow();
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck.
     void input.driver.respondToPermission({
@@ -240,10 +231,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       requestRender();
       return;
     }
-    // A submission is the user acting; snap back to the tail so their prompt and
-    // its response are visible, rather than treating the appended rows as
-    // background stream output and preserving a scrolled-up position.
-    layout.followTailNow();
     if (handleSlashCommand(prompt)) return;
 
     runAgentTurn(prompt);
@@ -260,7 +247,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     attention.promptTurnStarted();
     requestRender();
 
-    let permissionSnapped = false;
+    let permissionAlerted = false;
     void submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -269,21 +256,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // ran — a quick failure in a background tab would otherwise stay silent.
       onError: () => attention.attentionNeeded(),
       onChange: () => {
-        // A newly raised permission prompt renders at the transcript tail. If the
-        // user has paged up, it would land below the fold and the session would
-        // look stuck waiting for a y/n they cannot see. Snap to the tail once when
-        // the prompt first appears — not on every render, so the user can still
-        // page up to read context before answering.
+        // A pending decision blocks the turn; ring an unfocused terminal once when
+        // the prompt first appears (not on every render) so the user is not left
+        // waiting on a prompt they cannot see.
         if (state.pendingPermission) {
-          if (!permissionSnapped) {
-            permissionSnapped = true;
-            layout.followTailNow();
-            // A pending decision blocks the turn; ring an unfocused terminal so
-            // the user is not left waiting on a prompt they cannot see.
+          if (!permissionAlerted) {
+            permissionAlerted = true;
             attention.attentionNeeded();
           }
         } else {
-          permissionSnapped = false;
+          permissionAlerted = false;
         }
         requestRender();
       },
@@ -349,9 +331,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
-    // The transcript is a different document now; drop any scroll position so the
-    // resumed session opens following its latest messages, not mid-history.
-    layout.followTailNow();
   };
 
   // Folder/connection safety is enforced inside driver.switchSession(),
@@ -498,7 +477,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // session, send a prompt to begin" cue. A notice here would make entries
     // non-empty and suppress it.
     replaceTranscriptWithStoredMessages(state, []);
-    layout.followTailNow();
     requestRender();
   };
 
@@ -511,7 +489,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const keybindings = [
       '  Ctrl+O — expand or collapse all tool output',
       '  Ctrl+T — expand or collapse the latest thinking block',
-      '  PageUp / PageDown — scroll the transcript',
+      '  Scroll the transcript with your terminal or trackpad',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
       '  Ctrl+C / Ctrl+D — exit Maka',
@@ -831,20 +809,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
-    // Page through transcript scrollback — but only when there is scrollback to
-    // page. PageUp/PageDown also page the editor's own multi-line input buffer,
-    // so when the transcript fits the viewport we let the key fall through to the
-    // editor instead of swallowing it.
-    if (matchesKey(data, Key.pageUp)) {
-      if (!layout.isScrollable()) return undefined;
-      if (layout.scrollUp()) tui.requestRender();
-      return { consume: true };
-    }
-    if (matchesKey(data, Key.pageDown)) {
-      if (!layout.isScrollable()) return undefined;
-      if (layout.scrollDown()) tui.requestRender();
-      return { consume: true };
-    }
     if (state.pendingPermission) {
       if (matchesKey(data, 'y') || matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
         respondToPendingPermission('allow');
@@ -905,6 +869,20 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return undefined;
   });
 
+  // Keep older output in the terminal's own scrollback: the transcript is never
+  // windowed, so when it shrinks (collapsing tool output, a thinking block
+  // re-wrapping) a full clear would wipe the scrollback the user scrolls through.
+  // Differential rendering clears the vacated rows without the wipe.
+  //
+  // Known limit: a global Ctrl+O / Ctrl+T toggle that resizes a block sitting
+  // *above* the live viewport top makes pi-tui's differential renderer fall back
+  // to a full redraw (its `firstChanged < viewportTop` path), which does emit a
+  // scrollback-clearing sequence. That path re-emits the whole transcript, so no
+  // transcript content is lost — the tail is rebuilt into fresh scrollback — but
+  // the scroll position resets and any pre-Maka scrollback is cleared. Fully
+  // avoiding it would require a preserve-scrollback render path inside pi-tui,
+  // which we do not own; setClearOnShrink only governs the shrink path above.
+  tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
   tui.start();
