@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
+import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -478,7 +478,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       */}
       <div className="settingsCapabilityAuditSlot" aria-hidden={capability.auditEvents.length === 0}>
         {capability.auditEvents.length === 0 ? (
-          <small>暂无审计记录。</small>
+          <EmptyState variant="inline" title="暂无审计记录" body="" />
         ) : (
           <ul aria-label={`${capability.label}审计记录列表`}>
             {capability.auditEvents.slice(-3).map((event, index) => (

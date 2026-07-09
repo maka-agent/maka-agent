@@ -19,9 +19,14 @@ type EmptyStateIcon = typeof Search;
  * pile of "empty-state action variants".
  */
 interface EmptyStateProps {
-  Icon: EmptyStateIcon;
+  /** Required for the card variant; unused by inline. */
+  Icon?: EmptyStateIcon;
   title: string;
   body: ReactNode;
+  /** Convergence R5: `inline` renders a single quiet muted line (no icon,
+   *  no card) for in-flow "waiting/none yet" notes; `card` is the full
+   *  empty surface. */
+  variant?: 'card' | 'inline';
   cta?: { label: string; onClick: () => void; disabled?: boolean };
   secondaryCta?: { label: string; onClick: () => void; disabled?: boolean };
   /** Optional extra class on the container (e.g. `maka-plan-empty`). */
@@ -31,6 +36,21 @@ interface EmptyStateProps {
 }
 
 export function EmptyState(props: EmptyStateProps) {
+  if (props.variant === 'inline') {
+    return (
+      <p
+        className={cn(
+          'm-0 text-[length:var(--font-size-ui)] leading-normal text-[color:var(--muted-foreground)]',
+          props.extraClassName,
+        )}
+        data-slot="empty-state-inline"
+        data-empty-view={props.dataEmptyView}
+      >
+        {props.title}
+        {props.body != null && props.body !== '' ? <> · {props.body}</> : null}
+      </p>
+    );
+  }
   const className = cn(
     'maka-empty-state rounded-md border-border bg-card/70 p-8 text-card-foreground shadow-maka-panel',
     props.extraClassName,
@@ -39,7 +59,7 @@ export function EmptyState(props: EmptyStateProps) {
     <Empty className={className} data-empty-view={props.dataEmptyView}>
       <EmptyHeader>
         <EmptyMedia variant="icon" className="maka-empty-state-media">
-          <props.Icon className="maka-empty-state-icon size-6 text-muted-foreground" />
+          {props.Icon && <props.Icon className="maka-empty-state-icon size-6 text-muted-foreground" />}
         </EmptyMedia>
         <EmptyTitle className="maka-empty-state-title">{props.title}</EmptyTitle>
         <EmptyDescription className="maka-empty-state-body">{props.body}</EmptyDescription>

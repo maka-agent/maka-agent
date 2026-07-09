@@ -392,9 +392,12 @@ export function DailyReviewPanel(props: {
             </Alert>
           )}
           {archives.length === 0 && !archiveError ? (
-            <p className="maka-daily-review-archive-empty">
-              还没有生成报告。点击上方按钮后，报告会保存到本机并显示在这里。
-            </p>
+            <EmptyState
+              variant="inline"
+              extraClassName="maka-daily-review-archive-empty"
+              title="还没有生成报告"
+              body="点击上方按钮后，报告会保存到本机并显示在这里。"
+            />
           ) : (
             <div className="maka-daily-review-archive-layout">
               {/* PR-DAILYREVIEW-ARCHIVE-ROW-A11Y-0 (round 7/30):
