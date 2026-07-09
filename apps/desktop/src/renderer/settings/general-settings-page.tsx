@@ -357,7 +357,7 @@ function NetworkProxySection(props: {
             </label>
             <label>
               <span>端口</span>
-              <NumberField value={proxyDraft.port || null} onValueChange={(v) => void updateProxy({ port: v ?? 0 })}>
+              <NumberField value={proxyDraft.port || null} format={{ useGrouping: false }} onValueChange={(v) => void updateProxy({ port: v ?? 0 })}>
                 <NumberFieldInput placeholder="7890" aria-label="代理端口" />
               </NumberField>
             </label>

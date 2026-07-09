@@ -297,7 +297,7 @@ export function WebSearchSettingsPage(props: {
             </Button>
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               disabled={credentialActionBusy || (draftKey.length === 0 && !hasUsableKey)}
               onClick={() => void runTest()}
             >

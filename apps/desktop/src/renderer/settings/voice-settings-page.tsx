@@ -132,12 +132,10 @@ export function VoiceModelsSettingsPage() {
 
   return (
     <section className="settingsFeatureStatusPage" aria-label="语音模型">
-      <header className="settingsFeatureStatusBanner" role="status">
-        <span className="settingsFeatureStatusBannerDot" aria-hidden="true" />
-        <strong>本机录音自检 · 已上线</strong>
-        <span>只做本地权限与采集链路自检；不上传音频、不保存样本、不写入记忆。</span>
-      </header>
-
+      {/* Detail sweep: the always-on shipped-feature announcement banner is
+          gone — release notes don't live in settings, and its privacy copy
+          duplicated the 隐私 tile + 当前边界 section below. (daily-review
+          made the same banner exception-only earlier.) */}
       <div className="settingsFeatureStatusHero">
         <span className="settingsFeatureStatusIcon" aria-hidden="true">
           <Volume2 size={24} />
