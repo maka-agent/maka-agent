@@ -97,9 +97,14 @@
 .enabledRollup.is-idle,
 .enabledConnStatus.is-untested { color: var(--muted-foreground); }
 
+/* Connection-row harmonization: the expanded panel used to paint a
+   full-bleed 2% wash + top border from x=0 — an edge-to-edge band under
+   the logo column that read as a different component from the catalog
+   rows below. The panel is transparent now; the rounded row fills
+   (hover / selected) carry the state, inset from the edges like every
+   other row surface. */
 .enabledProviderPanel {
-  background: oklch(from var(--foreground) l c h / 0.02);
-  border-top: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
+  padding-bottom: var(--space-1);
 }
 
 .enabledProviderPanel ul {

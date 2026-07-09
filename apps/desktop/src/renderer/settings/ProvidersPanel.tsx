@@ -233,7 +233,7 @@ export function ProvidersPanel({ bridge }: { bridge: ConnectionsBridge }) {
                         {group.connections.map((connection) => (
                           <li key={connection.slug}>
                             <Item
-                              className="enabledConnRow py-2 pr-8 pl-12"
+                              className="enabledConnRow mx-2 py-2 pr-6 pl-10"
                               data-default={connection.slug === defaultSlug ? 'true' : undefined}
                               data-test-status={connection.lastTestStatus ?? 'untested'}
                               data-disabled={connection.enabled ? undefined : 'true'}
