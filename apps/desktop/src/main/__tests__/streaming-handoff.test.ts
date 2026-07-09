@@ -264,7 +264,16 @@ describe('assistant streaming handoff', () => {
     // draining slot) and `activeStreamingLive` excludes draining by construction —
     // so draining still settles the composer. The guard against inlining the raw
     // `activeStreaming.length > 0` (which WOULD keep draining live) stays.
-    assert.match(shell, /streaming=\{turnInFlight \|\| activeStreamingLive\}/);
+    //
+    // #646 review (ChatGPT): `turnInFlight` alone goes stale for a session whose
+    // turn completes while backgrounded — the event stream only follows activeId,
+    // so its terminal event (and clearTurnActive) never arrives. Returning to that
+    // session would then show a stuck Stop that hides Send. The arm is therefore
+    // gated on `sessionAwaitingModel` (status === 'running'), which sessions:changed
+    // keeps truthful for backgrounded sessions; this must not regress back to a bare
+    // `turnInFlight`.
+    assert.match(shell, /streaming=\{\(sessionAwaitingModel && turnInFlight\) \|\| activeStreamingLive\}/);
+    assert.doesNotMatch(shell, /streaming=\{turnInFlight \|\| activeStreamingLive\}/);
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
   });
 

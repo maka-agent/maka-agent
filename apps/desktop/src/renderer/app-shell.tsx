@@ -1622,9 +1622,16 @@ export function AppShell({
                 // screen (first token, or a slow provider's step-to-step lull).
                 // Drive Stop off `turnInFlight` (armed at send, cleared at the
                 // terminal event), not the wait indicators, so it never blinks out
-                // in a mid-turn gap. `activeStreamingLive` is folded in defensively
-                // for the rare replay where the arm was over-cleared.
-                streaming={turnInFlight || activeStreamingLive}
+                // in a mid-turn gap. But `turnInFlight` alone goes STALE: the event
+                // stream only follows `activeId`, so a session whose turn completes
+                // while backgrounded never receives its terminal event and keeps its
+                // arm. Gate on `sessionAwaitingModel` (status === 'running', kept
+                // truthful for backgrounded sessions by sessions:changed and made
+                // synchronous at send by markSessionRunningOptimistic) so returning
+                // to such a session shows Send, not a stuck Stop that hides it.
+                // `activeStreamingLive` is folded in defensively for the rare replay
+                // where the arm was over-cleared.
+                streaming={(sessionAwaitingModel && turnInFlight) || activeStreamingLive}
                 // #646: in the first-token wait (Stop up, nothing streams yet) the
                 // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
                 // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
