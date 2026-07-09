@@ -256,7 +256,13 @@ describe('assistant streaming handoff', () => {
       /slot\.text && slot\.phase === 'streaming'/,
       'sidebar streaming pulse should ignore final text that is only draining into history',
     );
-    assert.match(shell, /streaming=\{activeStreamingLive\}/);
+    // #646: the composer Stop reaches the model-wait window too, so the prop is
+    // now `activeStreamingLive || showProcessingIndicator`. Both disjuncts are
+    // draining-safe — `activeStreamingLive` excludes draining by construction,
+    // and `showProcessingIndicator` requires zero streaming text — so draining
+    // still settles the composer. The guard against inlining the raw
+    // `activeStreaming.length > 0` (which WOULD keep draining live) stays.
+    assert.match(shell, /streaming=\{activeStreamingLive \|\| showProcessingIndicator\}/);
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
   });
 

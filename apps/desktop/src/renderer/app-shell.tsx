@@ -916,6 +916,7 @@ export function AppShell({
     setStreamingBySession,
     setThemePref,
     setThinkingBySession,
+    setTurnActiveBySession,
   });
 
   const {
@@ -1583,7 +1584,13 @@ export function AppShell({
                 hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
-                streaming={activeStreamingLive}
+                // #646: Stop must reach the wait window too — the moment the user
+                // most wants to interrupt is while the model is being awaited with
+                // nothing streaming yet. `activeStreamingLive` only covers visible
+                // output, so fold in the (debounced, status-gated) processing
+                // indicator; a turn that resolves inside the 200ms window never
+                // needed a Stop button anyway.
+                streaming={activeStreamingLive || showProcessingIndicator}
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}
