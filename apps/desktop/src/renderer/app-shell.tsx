@@ -1199,7 +1199,17 @@ export function AppShell({
   // terminal event was missed), so without a local nudge the first-token wait
   // races — and usually loses — against the lagging status. Set it optimistically
   // so the gate opens synchronously; subscribeChanges reconciles the real value.
-  function markSessionRunningOptimistic(sessionId: string): void {
+  //
+  // Returns a restore callback (or undefined when nothing was nudged). If send()
+  // fails before the turn reaches the runtime, no subscribeChanges event will
+  // arrive to reconcile the optimistic value, so the caller must revert it — but
+  // only while it is STILL the optimistic 'running' (a real status that landed
+  // meanwhile wins). Prevents a failed send from leaving a phantom running dot
+  // that also blocks the permission-mode toggle until the next unrelated refresh.
+  function markSessionRunningOptimistic(sessionId: string): (() => void) | undefined {
+    const prior = sessionsRef.current.find((entry) => entry.id === sessionId);
+    if (!prior || prior.status === 'running') return undefined;
+    const priorStatus = prior.status;
     setSessions((current) => {
       let changed = false;
       const next = current.map((entry) => {
@@ -1211,6 +1221,19 @@ export function AppShell({
       sessionsRef.current = next;
       return next;
     });
+    return () => {
+      setSessions((current) => {
+        let changed = false;
+        const next = current.map((entry) => {
+          if (entry.id !== sessionId || entry.status !== 'running') return entry;
+          changed = true;
+          return { ...entry, status: priorStatus };
+        });
+        if (!changed) return current;
+        sessionsRef.current = next;
+        return next;
+      });
+    };
   }
 
   function markSessionReadLocally(sessionId: string, readMessages: readonly StoredMessage[]): void {

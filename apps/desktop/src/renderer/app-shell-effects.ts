@@ -197,7 +197,8 @@ export function useAppShellBootstrapSubscriptions(options: {
     options.handleConnectionEvent(event);
   });
   const handleSessionChange = useEffectEvent((event: { reason: string; sessionId?: string; ts: number; modelId?: string }) => {
-    void options.refreshSessions();
+    const refreshedSessions = options.refreshSessions();
+    void refreshedSessions;
     if (event.sessionId) {
       options.setSessionEventHealthBySession((current) => {
         const previous = current[event.sessionId!];
@@ -217,6 +218,22 @@ export function useAppShellBootstrapSubscriptions(options: {
     const changedSessionId = event.sessionId;
     if (event.reason === 'message-appended' && changedSessionId && changedSessionId === options.activeIdRef.current) {
       void options.refreshMessages(changedSessionId);
+    }
+    // #646 review: a backgrounded session's SessionEvent stream isn't subscribed
+    // here (useActiveSessionEvents follows activeId only), so when its turn reaches
+    // a terminal status while backgrounded, its transient renderer state (the arm,
+    // the streaming slot, live thinking/tools) stays frozen mid-turn — surfacing a
+    // stuck Stop and a half-streamed bubble on return. Heal it against the
+    // authoritative status: once the refresh shows no turn in flight (not running /
+    // not waiting_for_user) and it isn't the active session, drop its transient
+    // state. The active session is left to its own event lifecycle (draining, etc.).
+    if (changedSessionId) {
+      void refreshedSessions.then((summaries) => {
+        if (changedSessionId === options.activeIdRef.current) return;
+        const summary = summaries.find((entry) => entry.id === changedSessionId);
+        if (!summary || summary.status === 'running' || summary.status === 'waiting_for_user') return;
+        options.clearSessionRendererState(changedSessionId);
+      });
     }
     if (event.reason === 'rebound') {
       const modelSuffix = event.modelId ? ` · ${event.modelId}` : '';

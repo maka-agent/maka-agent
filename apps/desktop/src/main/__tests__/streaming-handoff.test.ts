@@ -277,6 +277,26 @@ describe('assistant streaming handoff', () => {
     assert.doesNotMatch(shell, /streaming=\{activeStreaming\.length > 0/);
   });
 
+  it('heals a backgrounded session whose turn ended off-screen so returning shows Send, not a stale Stop (#646 review)', async () => {
+    const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
+    const effects = await readRendererShellSource('app-shell-effects.ts');
+
+    // The gate on Composer.streaming only survives because the transient renderer
+    // state of a backgrounded session is reconciled against its authoritative
+    // status: when sessions:changed reports it no longer running / waiting_for_user
+    // and it isn't the active session, its arm + streaming slot + live tools are
+    // dropped. Without this the `activeStreamingLive` disjunct would keep a stale
+    // Stop (and half-streamed bubble) on return. Must not regress.
+    const handler = effects.match(/const handleSessionChange = useEffectEvent\([\s\S]*?\n {2}\}\);/)?.[0] ?? '';
+    assert.match(handler, /refreshedSessions\.then\(/);
+    assert.match(handler, /changedSessionId === options\.activeIdRef\.current\) return;/);
+    assert.match(
+      handler,
+      /summary\.status === 'running' \|\| summary\.status === 'waiting_for_user'\) return;/,
+    );
+    assert.match(handler, /options\.clearSessionRendererState\(changedSessionId\)/);
+  });
+
   it('complete refreshes committed messages even while the streaming bubble drains', async () => {
     const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
     const events = await readRendererShellSource('app-shell-session-events.ts');
@@ -373,7 +393,7 @@ describe('assistant streaming handoff', () => {
         clearPendingSessionAction: () => {},
         isNewChatSendSurfaceActive: () => false,
         markSessionReadLocally: () => {},
-        markSessionRunningOptimistic: () => {},
+        markSessionRunningOptimistic: () => undefined,
         messageRetryPendingRef: { current: new Set<string>() },
         refreshSessions: async () => [],
         setActiveId: (sessionId) => {
@@ -849,7 +869,7 @@ function buildEventHarness(
     clearPendingSessionAction: () => {},
     isNewChatSendSurfaceActive: () => false,
     markSessionReadLocally: () => {},
-    markSessionRunningOptimistic: () => {},
+    markSessionRunningOptimistic: () => undefined,
     messageRetryPendingRef: { current: new Set<string>() },
     refreshSessions: async () => [],
     setActiveId: (sessionId) => {
@@ -907,7 +927,7 @@ function buildEventHarness(
 describe('send optimistically opens the model-wait window (#646)', () => {
   const globalObject = globalThis as unknown as { window?: unknown };
 
-  function installSendWindow(): { restore(): void } {
+  function installSendWindow(opts: { failSend?: boolean } = {}): { restore(): void } {
     const previousWindow = globalObject.window;
     let lastTurnId: string | undefined;
     globalObject.window = {
@@ -917,6 +937,7 @@ describe('send optimistically opens the model-wait window (#646)', () => {
           // pass — otherwise refreshMessagesUntilTurn spins to its wall-clock
           // deadline and the test stalls for ~1s.
           send: async (_sessionId: string, payload: { turnId: string }) => {
+            if (opts.failSend) throw new Error('send rejected before the runtime');
             lastTurnId = payload.turnId;
             return { attachments: [] };
           },
@@ -937,7 +958,7 @@ describe('send optimistically opens the model-wait window (#646)', () => {
     };
   }
 
-  function buildChatActions(runningMarks: string[]): {
+  function buildChatActions(runningMarks: string[], restoreMarks?: string[]): {
     chatActions: ReturnType<typeof createAppShellChatActions>;
     getTurnActive: () => Record<string, TurnPhase>;
   } {
@@ -952,6 +973,9 @@ describe('send optimistically opens the model-wait window (#646)', () => {
       markSessionReadLocally: () => {},
       markSessionRunningOptimistic: (sessionId) => {
         runningMarks.push(sessionId);
+        // Mirror the real marker: hand back a restore callback so a failed send
+        // can revert the optimistic 'running' status.
+        return restoreMarks ? () => restoreMarks.push(sessionId) : undefined;
       },
       messageRetryPendingRef: { current: new Set<string>() },
       refreshSessions: async () => [],
@@ -985,6 +1009,26 @@ describe('send optimistically opens the model-wait window (#646)', () => {
       // status round-trip that used to lose the first-token race.
       assert.deepEqual(runningMarks, ['session-1']);
       assert.equal(getTurnActive()['session-1'], 'waiting');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+
+  it('reverts the optimistic running status when send() fails before the runtime (#646 review)', async () => {
+    const windowFixture = installSendWindow({ failSend: true });
+    try {
+      const runningMarks: string[] = [];
+      const restoreMarks: string[] = [];
+      const { chatActions, getTurnActive } = buildChatActions(runningMarks, restoreMarks);
+      const ok = await chatActions.send('hello');
+      // A send that never reached the runtime gets no subscribeChanges event to
+      // reconcile the optimistic bump, so the catch must both disarm the turn and
+      // invoke the restore callback — otherwise the session keeps a phantom running
+      // dot and a blocked permission-mode toggle.
+      assert.equal(ok, false);
+      assert.deepEqual(runningMarks, ['session-1']);
+      assert.deepEqual(restoreMarks, ['session-1'], 'the optimistic status must be restored on failure');
+      assert.equal(getTurnActive()['session-1'], undefined, 'a failed send disarms the turn');
     } finally {
       windowFixture.restore();
     }

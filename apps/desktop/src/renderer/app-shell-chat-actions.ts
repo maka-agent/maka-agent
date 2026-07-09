@@ -113,7 +113,7 @@ export function createAppShellChatActions(deps: {
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
   /** #646: optimistically flip the session's status to 'running' at send() so the
    * "正在处理…" gate opens before the runtime's status round-trip lands. */
-  markSessionRunningOptimistic: (sessionId: string) => void;
+  markSessionRunningOptimistic: (sessionId: string) => (() => void) | undefined;
   messageRetryPendingRef: RefBox<Set<string>>;
   refreshSessions: () => Promise<SessionSummary[]>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -221,6 +221,7 @@ export function createAppShellChatActions(deps: {
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
     let optimisticTurnId: string | undefined;
+    let restoreOptimisticStatus: (() => void) | undefined;
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
@@ -238,7 +239,7 @@ export function createAppShellChatActions(deps: {
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
         armTurnActive(session.id);
-        markSessionRunningOptimistic(session.id);
+        restoreOptimisticStatus = markSessionRunningOptimistic(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
         const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
@@ -256,7 +257,7 @@ export function createAppShellChatActions(deps: {
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
       armTurnActive(sessionId);
-      markSessionRunningOptimistic(sessionId);
+      restoreOptimisticStatus = markSessionRunningOptimistic(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
@@ -267,8 +268,12 @@ export function createAppShellChatActions(deps: {
         removeOptimisticUserMessage(optimisticSessionId, optimisticTurnId);
       }
       // The turn never reached the runtime — close the model-wait window so the
-      // "正在处理…" indicator doesn't hang after a failed send.
+      // "正在处理…" indicator doesn't hang after a failed send, and revert the
+      // optimistic running status (no subscribeChanges event will reconcile it
+      // for a send that never started) so the session doesn't keep a phantom
+      // running dot / blocked permission-mode toggle.
       if (optimisticSessionId) disarmTurnActive(optimisticSessionId);
+      restoreOptimisticStatus?.();
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
       const sendStillOwnsCurrentSurface = feedbackSessionId
         ? activeIdRef.current === feedbackSessionId
