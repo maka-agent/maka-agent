@@ -27,6 +27,7 @@ import {
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
+import { deriveToolRowMotion, isToolRowRunning } from './tool-activity/tool-row-motion.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { LiveIndicator, previewVariants, streamVariants, TextShimmer, toolVariants } from './primitives/chat.js';
@@ -339,6 +340,15 @@ function trowKindIcon(toolName: string): ComponentType<LucideProps> {
   return TROW_KIND_ICON[trowActivityKind(toolName)];
 }
 
+// #646 run→done seam: the one-shot settle "landing". Reuses the whitelisted
+// `maka-stream-fade-in` keyframe (opacity 0→1, one-shot `both`) — no new keyframe
+// (design-406 governance) — and rides `var(--duration-emphasized)` /
+// `var(--ease-out-strong)` so it converges with the motion tokens. Applied only
+// when `motion.settling` (the row was seen running here and just settled), so a
+// replayed transcript's rows stay static. Auto-frozen under reduced-motion /
+// visual-smoke by the global rules in styles/base.css.
+const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]';
+
 /**
  * Codex-style tool trow (streaming UI rework): one contiguous run of tool
  * activity rendered as a single flat, borderless disclosure — replacing the
@@ -368,19 +378,26 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   useEffect(() => {
     if (attention) setOpen(true);
   }, [attention]);
+  // #646: a group settles when all its tools do; the settle fade plays only if
+  // the group was ever seen running here (not a replayed transcript). The
+  // delayed shimmer de-flickers a group whose tools all finish sub-second.
+  const everRunningRef = useRef(false);
+  if (running) everRunningRef.current = true;
+  const settled = !running;
+  const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
   const SummaryIcon = trowKindIcon(active.toolName);
   const summary = running
     ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
     : summarizeTrowTools(items);
   return (
-    <Collapsible className="flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <SummaryIcon size={16} strokeWidth={1.75} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}>{summary}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]', settling && SETTLE_FADE)}>{summary}</span>
         )}
         <ChevronRight
           size={14}
@@ -414,7 +431,13 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
     setOpen(isOpenByDefault(item.status));
   }, [item.status]);
   const duration = formatDuration(item.durationMs);
-  const running = item.status === 'running' || item.status === 'pending' || item.status === 'waiting_permission';
+  // #646 run→done seam: `everRunning` is sticky across this row's renders so the
+  // settle fade fires only for a tool that ran here, never for a replayed row
+  // mounted already terminal. The delayed shimmer + one-shot fade share the same
+  // ~200ms window, so a sub-second tool neither sweeps nor lands — it just appears.
+  const everRunningRef = useRef(false);
+  if (isToolRowRunning(item.status)) everRunningRef.current = true;
+  const motion = deriveToolRowMotion({ status: item.status, everRunning: everRunningRef.current });
   const errored = item.status === 'errored';
   const RowIcon = trowKindIcon(item.toolName);
   // One row language with the multi-tool summary row: a kind icon + a
@@ -423,8 +446,9 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   // settled prefers the intent, falls back to the display name.
   const runningSummary = formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item);
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
+  const settleFade = motion.settling ? SETTLE_FADE : undefined;
   return (
-    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={motion.settled ? 'true' : undefined} open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <RowIcon
           size={16}
@@ -432,12 +456,12 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
           aria-hidden="true"
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
-        {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{runningSummary}</TextShimmer>
+        {motion.shimmer ? (
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{runningSummary}</TextShimmer>
         ) : item.intent ? (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone, settleFade)}>{formatToolIntent(item.intent)}</span>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone, settleFade)}>{resolveToolDisplayName(item)}</span>
         )}
         {/* Quiet meta sits right after the label (near the text, not pinned to
             the far edge): duration + chevron ride in on hover / open, matching

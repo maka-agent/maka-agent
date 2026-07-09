@@ -156,6 +156,38 @@ describe('assistant streaming handoff', () => {
     assert.equal(countOccurrences(settledMarkup, 'data-slot="text-shimmer"'), 0, 'a completed tool trow does not shimmer');
   });
 
+  it('delays the tool shimmer and lands settled rows without fading replayed history (#646)', () => {
+    // A running tool row's sweep rides the ~200ms `animation-delay` (the delayed
+    // TextShimmer), so a sub-second tool unmounts inside the window and never
+    // visibly sweeps. The model-wait "正在处理…" indicator shimmers immediately
+    // (its delay is at the mount level), so only tool rows carry the delayed form.
+    const runningMarkup = renderChat({
+      messages: [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }],
+      streamingText: '',
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'running', args: {} }],
+    });
+    assert.match(
+      runningMarkup,
+      /maka-text-shimmer_1\.8s_linear_var\(--duration-emphasized\)_infinite/,
+      'a running tool row shimmers on a delay',
+    );
+    assert.doesNotMatch(runningMarkup, /data-settled="true"/, 'a running row is not settled');
+
+    // A completed row rendered fresh IS the replayed-history case (never seen
+    // running in this view): it carries data-settled for the visual-smoke
+    // endpoint + CSS hook, but must NOT play the one-shot settle fade — a loaded
+    // transcript's tool rows stay static, they do not fade in on scroll.
+    const settledMarkup = renderChat({
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text: 'done', modelId: 'model' },
+      ],
+      tools: [{ toolUseId: 't1', toolName: 'bash', intent: '运行一个耗时命令', status: 'completed', args: {}, durationMs: 1200 }],
+    });
+    assert.match(settledMarkup, /data-settled="true"/, 'a completed tool row is marked settled');
+    assert.doesNotMatch(settledMarkup, /maka-stream-fade-in/, 'a replayed-history row does not fade in');
+  });
+
   it('suppresses the actionable footer while only a tool is running, with no answer text (#642 review P2-B)', () => {
     // A tool step can start (tool_start / running) before any answer text or
     // thinking streams. The tail turn must still count as live so its footer is
