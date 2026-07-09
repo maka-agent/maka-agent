@@ -573,6 +573,25 @@ export function AppShell({
     clearSessionUiState(sessionId);
   }
 
+  // #646 review: switching TO a session whose turn ended while it was backgrounded
+  // does not heal its frozen live transient — the terminal SessionEvent was missed
+  // (the event stream follows activeId only), the switch-in path only reloads
+  // committed messages, and handleSessionChange's terminal reconcile skips this
+  // session when the user switches back before its refresh resolves (that reconcile
+  // keeps an active-guard so a live completion's own draining lifecycle isn't cut
+  // short). Close that gap at switch-in: a session that is settled (not running /
+  // waiting_for_user) yet still carries a stale STREAMING slot (never drained) has
+  // leftover live scraps — drop its transient UI state so Composer shows Send, not a
+  // stuck Stop from the ungated `activeStreamingLive`. A draining slot (a normal
+  // completion we switched back into mid-settle) is left to its own lifecycle. Runs
+  // only on activeId change, so it never races a live completion or a fresh send.
+  function reconcileTransientOnActivate(sessionId: string): void {
+    const status = sessionsRef.current.find((entry) => entry.id === sessionId)?.status;
+    if (status === 'running' || status === 'waiting_for_user') return;
+    if (streamingBySessionRef.current[sessionId]?.phase === 'draining') return;
+    clearSessionUiState(sessionId);
+  }
+
   const sessionRowActionHandlers = createAppShellSessionRowActions({
     activeIdRef,
     clearSessionRendererState,
@@ -1110,6 +1129,7 @@ export function AppShell({
     activeIdRef,
     handleEvent,
     markSessionReadLocally,
+    reconcileTransientOnActivate,
     setMessageLoadErrorBySession,
     setMessageLoadPending,
     setMessages,

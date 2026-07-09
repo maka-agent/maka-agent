@@ -232,6 +232,7 @@ function ActiveSessionEventProbe(props: {
     activeIdRef: props.refs.activeIdRef,
     handleEvent: props.onSessionEvent,
     markSessionReadLocally: () => {},
+    reconcileTransientOnActivate: () => {},
     setMessageLoadErrorBySession: () => {},
     setMessageLoadPending: () => {},
     setMessages: () => {},

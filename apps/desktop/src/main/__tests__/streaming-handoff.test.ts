@@ -297,6 +297,33 @@ describe('assistant streaming handoff', () => {
     assert.match(handler, /options\.clearSessionRendererState\(changedSessionId\)/);
   });
 
+  it('also heals stale live transient at switch-in, closing the reconcile race when the user returns before its refresh resolves (#646 review)', async () => {
+    const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
+    const effects = await readRendererShellSource('app-shell-effects.ts');
+    const shell = await readRendererShellSource('app-shell.tsx');
+
+    // handleSessionChange's terminal reconcile keeps an active-guard so a live
+    // completion's draining lifecycle isn't cut short — but that guard also skips a
+    // session the user switches back into before the refresh resolves. The switch-in
+    // path must therefore reconcile the newly-active session's stale live transient
+    // BEFORE it re-establishes the event stream. Runs only on activeId change, so it
+    // never races a live completion (same-session) or a fresh send.
+    const activate = effects.match(/useLayoutEffect\(\(\) => \{[\s\S]*?\}, \[activeId\]\);/)?.[0] ?? '';
+    assert.match(activate, /options\.reconcileTransientOnActivate\(activeId\);/);
+    assert.match(
+      activate,
+      /reconcileTransientOnActivate\(activeId\);[\s\S]*subscribeEvents\(activeId/,
+      'switch-in reconcile must run before re-subscribing the live stream',
+    );
+
+    // The reconcile is status-authoritative and draining-safe: skip a still-running
+    // / waiting session, skip a slot mid-drain, otherwise drop the frozen transient.
+    const fn = shell.match(/function reconcileTransientOnActivate\(sessionId: string\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? '';
+    assert.match(fn, /status === 'running' \|\| status === 'waiting_for_user'\) return;/);
+    assert.match(fn, /streamingBySessionRef\.current\[sessionId\]\?\.phase === 'draining'\) return;/);
+    assert.match(fn, /clearSessionUiState\(sessionId\)/);
+  });
+
   it('complete refreshes committed messages even while the streaming bubble drains', async () => {
     const { readRendererShellSource } = await import('./renderer-shell-source-helpers.js');
     const events = await readRendererShellSource('app-shell-session-events.ts');

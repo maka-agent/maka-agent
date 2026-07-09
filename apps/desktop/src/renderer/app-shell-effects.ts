@@ -331,6 +331,7 @@ export function useActiveSessionEvents(options: {
   activeIdRef: RefBox<string | undefined>;
   handleEvent: (sessionId: string, event: SessionEvent) => void;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
+  reconcileTransientOnActivate: (sessionId: string) => void;
   setMessageLoadErrorBySession: (
     updater: (current: Record<string, string>) => Record<string, string>,
   ) => void;
@@ -391,6 +392,11 @@ export function useActiveSessionEvents(options: {
     if (!activeId) return;
     let disposed = false;
     const subscribedAt = Date.now();
+    // #646 review: before re-establishing this session's live stream, drop any
+    // stale live transient it froze while backgrounded (a turn that ended
+    // off-screen leaves a phantom streaming slot / arm). Runs first so the fresh
+    // event-health subscription below isn't clobbered.
+    options.reconcileTransientOnActivate(activeId);
     options.setMessageLoadErrorBySession((current) => {
       if (!current[activeId]) return current;
       const next = { ...current };
