@@ -41,6 +41,7 @@ function SkillLibraryPanel(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  onUseSkill?(skillId: string, skillName: string): void;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
@@ -379,6 +380,19 @@ function SkillLibraryPanel(props: {
                       {reviewing && <span>审查中…</span>}
                     </span>
                   </div>
+                  {props.onUseSkill && skill.enabled && (
+                    <UiButton
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      className="maka-skill-library-use-button"
+                      onClick={() => props.onUseSkill?.(skill.id, skill.name)}
+                      disabled={props.actionBusy}
+                      aria-label={`在对话中使用 ${skill.name}`}
+                    >
+                      使用
+                    </UiButton>
+                  )}
                   <UiButton
                     type="button"
                     variant="ghost"
@@ -588,6 +602,7 @@ export function SkillsModuleMain(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  onUseSkill?(skillId: string, skillName: string): void;
   onOpenSkillsFolder?(): void | Promise<void>;
   onRefreshManagedSkillSources?(): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
@@ -697,6 +712,7 @@ export function SkillsModuleMain(props: {
         onUpdateManagedSkill={props.onUpdateManagedSkill ? async (skillId, options) =>
           (await runSkillAction(`managed:update:${skillId}`, () => props.onUpdateManagedSkill?.(skillId, options))) === true : undefined}
         onSetSkillEnabled={props.onSetSkillEnabled ? (skillId, enabled) => runSkillAction(`runtime:set:${skillId}`, () => props.onSetSkillEnabled?.(skillId, enabled)) : undefined}
+        onUseSkill={props.onUseSkill}
         actionBusy={skillActionBusy}
         refreshPending={pendingSkillAction === 'refresh'}
         createPending={pendingSkillAction === 'create'}

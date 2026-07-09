@@ -667,6 +667,21 @@ export function AppShell({
     setSearchModalInitialQuery(query);
     setSearchModalOpen(true);
   }, []);
+  /** 技能页 使用: jump to the chat view and seed the composer with a skill
+   *  invocation. Same human-in-the-loop rule as maka://compose — we never
+   *  auto-send; the user finishes the sentence and presses Enter. */
+  const useSkillInChat = useCallback((_skillId: string, skillName: string) => {
+    setNavSelection({ section: 'sessions', filter: 'chats' });
+    const seed = () => {
+      composerRef.current?.setText(`使用 ${skillName} 技能：`);
+      composerRef.current?.focus();
+    };
+    if (activeIdRef.current) {
+      window.requestAnimationFrame(seed);
+      return;
+    }
+    void createSession().then(() => window.requestAnimationFrame(seed));
+  }, []);
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
   }, []);
@@ -1491,6 +1506,7 @@ export function AppShell({
                 onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
+                onUseSkill={useSkillInChat}
                 onOpenSkillsFolder={() => openSkillsFolder()}
                 onImportManagedSkillSource={() => importManagedSkillSource()}
                 onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}

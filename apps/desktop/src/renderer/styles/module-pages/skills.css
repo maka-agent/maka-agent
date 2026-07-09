@@ -457,7 +457,12 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 .maka-skill-template-row {
   min-width: 0;
   display: grid;
+  /* 3 children in a 2-col grid need explicit placement — auto-flow dropped
+     the meta line under the ICON column and shattered the row. */
   grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-areas:
+    'icon copy'
+    '.    meta';
   gap: var(--space-0-5) var(--space-1-5);
   align-items: center;
   padding: var(--space-1) var(--space-2);
@@ -470,6 +475,10 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 .maka-skill-template-row:hover {
   background: var(--state-hover-bg);
 }
+
+.maka-skill-template-row > .maka-skill-template-icon { grid-area: icon; align-self: center; }
+.maka-skill-template-row > .maka-skill-template-copy { grid-area: copy; }
+.maka-skill-template-row > small { grid-area: meta; }
 
 .maka-skill-template-icon {
   grid-row: span 2;

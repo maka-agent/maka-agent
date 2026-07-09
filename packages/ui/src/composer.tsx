@@ -53,7 +53,9 @@ const COMPOSER_COPY_BY_LOCALE: Record<UiLocale, {
   streamingHintInterrupt: string;
 }> = {
   zh: {
-    placeholder: '描述任务  /  快捷调用  @  添加上下文',
+    // Placeholder honesty: '/' quick-invoke and '@' context syntax do not
+    // exist yet — the old copy advertised affordances the input can't honor.
+    placeholder: '描述任务…',
     textareaAriaLabel: '消息输入框',
     awaitingPermission: '等待你确认权限…',
     sending: '正在发送…',

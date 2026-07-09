@@ -243,6 +243,8 @@ export function ChatView(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  /** 使用 button: seed the composer with a skill invocation (R5 follow-up). */
+  onUseSkill?(skillId: string, skillName: string): void;
   onOpenSkillsFolder?(): void | Promise<void>;
   managedSkillSources?: ManagedSkillSourceEntry[];
   onRefreshManagedSkillSources?(): void | Promise<void>;
@@ -445,6 +447,7 @@ export function ChatView(props: {
           onRefreshSkills={props.onRefreshSkills}
           onCreateSkillTemplate={props.onCreateSkillTemplate}
           onOpenSkill={props.onOpenSkill}
+          onUseSkill={props.onUseSkill}
           onOpenSkillsFolder={props.onOpenSkillsFolder}
           managedSkillSources={props.managedSkillSources}
           onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
