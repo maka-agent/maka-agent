@@ -186,6 +186,7 @@ function BootstrapSubscriptionProbe(props: {
     bootstrapSessions: async () => {},
     clearPendingTurnActionsForSession: () => {},
     clearSessionRendererState: () => {},
+    createSession: () => {},
     handleConnectionEvent: props.onConnectionEvent,
     openSettings: () => {},
     pendingPermissionModeChangesRef: props.refs.pendingPermissionModeChangesRef,
