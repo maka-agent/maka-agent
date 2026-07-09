@@ -7,7 +7,7 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, StatTile } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -209,11 +209,16 @@ function HealthSummaryTile(props: {
   label: string;
   count: number;
 }) {
+  // Convergence R4: same StatTile as the permission summary — the two
+  // recipes were literal twins hand-rolled twice.
   return (
-    <li className="settingsHealthSummaryTile" data-tone={props.tone} data-empty={props.count === 0}>
-      <strong>{props.count}</strong>
-      <small>{props.label}</small>
-    </li>
+    <StatTile
+      as="li"
+      className="settingsHealthSummaryTile"
+      label={props.label}
+      value={props.count}
+      tone={props.tone}
+    />
   );
 }
 

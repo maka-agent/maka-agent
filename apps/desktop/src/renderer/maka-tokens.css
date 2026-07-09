@@ -301,6 +301,9 @@
      Caption 11 is dense meta (timestamps, badges, kbd, overlines).
      Bubble h1-h4 scale in em off body 13 so they track the root automatically. */
   --font-size-heading: 15px;
+  /* Display tier for stat-tile values (convergence R4) — the summary tiles
+     used ad-hoc 1.5em/1.4em; one ladder step ends that. */
+  --font-size-stat: 20px;
   --font-size-base: 13px;
   --font-size-ui: var(--font-size-base);
   --font-size-caption: 11px;

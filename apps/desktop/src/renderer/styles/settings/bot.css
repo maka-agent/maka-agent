@@ -333,24 +333,13 @@
   gap: var(--space-1-5);
 }
 
+/* Convergence R4: recipe lives in the StatTile primitive; this class keeps
+   only the metric-strip density override. */
 .settingsMetricCard {
-  font-variant-numeric: tabular-nums;
   min-height: 52px;
-  display: grid;
-  align-content: center;
+  justify-content: center;
   gap: var(--space-0-5);
-  background: var(--foreground-5);
   padding: var(--space-1-5) var(--space-2-5);
-}
-
-.settingsMetricCard small,
-.settingsMetricCard span {
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-}
-
-.settingsMetricCard strong {
-  font-size: var(--font-size-ui);
 }
 
 /* #520 PR9: .settingsStatsTable retired onto the local native

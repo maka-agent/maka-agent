@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader, useToast } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, StatTile, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -284,14 +284,15 @@ function PermissionSummaryTile(props: {
   value: number;
   tone: 'success' | 'warning' | 'destructive' | 'neutral';
 }) {
-  // A zero count is not an exception — the tone only paints when there is
-  // actually something to look at (0 已拒绝 in red read as a false alarm).
-  const effectiveTone = props.value > 0 ? props.tone : 'neutral';
+  // Convergence R4: StatTile owns the recipe (incl. the zero-is-not-an-
+  // exception tone gate this tile pioneered).
   return (
-    <div className="settingsPermissionSummaryTile" data-tone={effectiveTone} data-empty={props.value === 0}>
-      <span className="settingsPermissionSummaryValue">{props.value}</span>
-      <span className="settingsPermissionSummaryLabel">{props.label}</span>
-    </div>
+    <StatTile
+      className="settingsPermissionSummaryTile"
+      label={props.label}
+      value={props.value}
+      tone={props.tone}
+    />
   );
 }
 

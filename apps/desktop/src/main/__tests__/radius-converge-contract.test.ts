@@ -403,7 +403,6 @@ describe('radius token governance (#406 gap 4)', () => {
       // .maka-daily-review-info dropped: unboxed to a plain hint line in
       // the daily-review IA restructure — no card chrome, no radius.
       '.maka-daily-review-archive-body': '--radius-surface',
-      '.settingsPermissionSummaryTile': '--radius-surface',
     };
     const offenders: string[] = [];
     for (const [sel, token] of Object.entries(SELECTOR_TIER)) {

@@ -23,6 +23,7 @@ import { Chip, type ChipProps } from './primitives/chip.js';
 import { SettingsSegmented } from './primitives/settings-segmented.js';
 import { Alert, AlertAction, AlertDescription } from './primitives/alert.js';
 import { EmptyState } from './empty-state.js';
+import { StatTile } from './primitives/stat-tile.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
 import { RelativeTime } from './relative-time.js';
 import { Markdown } from './markdown.js';
@@ -698,11 +699,16 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
 }
 
 function DailyReviewTotalsCell(props: { label: string; value: string; tone?: 'error' }) {
+  // Convergence R4: shared StatTile, filled emphasis; the error tone maps
+  // to the primitive's destructive ink + this cell's tinted wash (CSS).
   return (
-    <div className="maka-daily-review-totals-cell" data-tone={props.tone}>
-      <span className="maka-daily-review-totals-value">{props.value}</span>
-      <span className="maka-daily-review-totals-label">{props.label}</span>
-    </div>
+    <StatTile
+      className="maka-daily-review-totals-cell"
+      emphasis="filled"
+      label={props.label}
+      value={props.value}
+      tone={props.tone === 'error' ? 'destructive' : 'neutral'}
+    />
   );
 }
 
