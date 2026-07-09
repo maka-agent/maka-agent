@@ -36,6 +36,7 @@ function seededState(): AppShellSessionUiState {
       drop: [{ toolUseId: 'tool-drop', toolName: 'Shell', status: 'running', args: {} }],
       keep: [{ toolUseId: 'tool-keep', toolName: 'Shell', status: 'pending', args: {} }],
     },
+    turnActiveBySession: { drop: true, keep: true },
     permissionBySession: {
       drop: [permissionRequest('drop')],
       keep: [permissionRequest('keep')],
@@ -60,6 +61,7 @@ describe('app shell session UI state controller', () => {
     assert.deepEqual(Object.keys(next.thinkingBySession), ['keep']);
     assert.deepEqual(Object.keys(next.thinkingTruncatedBySession), ['keep']);
     assert.deepEqual(Object.keys(next.liveToolsBySession), ['keep']);
+    assert.deepEqual(Object.keys(next.turnActiveBySession), ['keep']);
     assert.deepEqual(Object.keys(next.permissionBySession), ['keep']);
     assert.deepEqual(Object.keys(next.sessionEventHealthBySession), ['keep']);
     assert.deepEqual(Object.keys(next.pendingPermissionModeBySession), ['keep']);
