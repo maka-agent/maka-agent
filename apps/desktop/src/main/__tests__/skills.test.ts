@@ -1209,9 +1209,18 @@ name: Writer
     assert.doesNotMatch(skillEntryContract, /sourceName|sourceVersion|contentSha256|installedAt|validationCodes|validationMessages|write_failed/, 'renderer SkillEntry must not expose lock internals');
     assert.match(workspaceResourcesIpc, /toSkillEntry/, 'Skills IPC must scrub main-internal lock fields before crossing to renderer');
     assert.doesNotMatch(workspaceResourcesIpc, /ipcMain\.handle\('skills:list'[\s\S]*listInstalledSkills\(deps\.workspaceRoot\)/, 'Skills list IPC must not return InstalledSkill objects directly');
-    assert.match(skillPanel, /const managedSources = \(/, 'Phase 2 must surface the managed source cache without making it runtime');
-    assert.match(skillPanel, /<section className="maka-skill-installed" aria-label="来源库">/);
+    // Marketplace redesign: managed sources ARE the 市场 tab now — the
+    // separate 来源库 list under 已安装 was folded into a card grid. The
+    // source cache is still surfaced (never runtime), just as a browse
+    // grid keyed off props.managedSkillSources.
+    assert.match(skillPanel, /const market = \(/, 'Phase 2 must surface the managed source cache without making it runtime');
+    assert.match(skillPanel, /<section className="maka-skill-market" aria-label="技能市场">/);
+    assert.match(skillPanel, /<div className="maka-skill-market-grid">/, '市场 tab renders managed sources as a card grid');
+    assert.match(skillPanel, /const marketSources = useMemo\(/, '市场 grid is a pure client-side filter/sort over managedSkillSources');
+    assert.match(skillPanel, /官方精选/, '市场 grid carries the 官方精选 section label');
+    assert.match(skillPanel, /className="maka-skill-market-install-button"[\s\S]*aria-label=\{`安装 \$\{source\.name\}`\}/, 'only the + install icon-button acts; the market card body stays inert');
     assert.match(skillPanel, /导入本地 Skill/);
+    assert.doesNotMatch(skillPanel, /const managedSources = \(/, '来源库 list was replaced by the 市场 card grid');
     assert.match(skillPanel, /onInstallManagedSkill\?\(sourceId: string\): void \| Promise<void>/);
     assert.match(skillPanel, /onPreviewManagedSkillUpdate\?\(skillId: string\): Promise<ManagedSkillUpdatePreview \| null>/);
     assert.match(skillPanel, /onUpdateManagedSkill\?\(skillId: string, options\?: \{ force\?: boolean; expectedCurrentSha256\?: string; expectedSourceSha256\?: string \}\): boolean \| Promise<boolean>/);

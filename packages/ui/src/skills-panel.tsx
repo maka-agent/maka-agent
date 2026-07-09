@@ -1,13 +1,12 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Blocks,
   BookOpen,
-  CalendarDays,
+  Download,
   FileEdit,
   Loader2,
   Plus,
   Search,
-  ShieldAlert,
 } from './icons.js';
 import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
@@ -15,9 +14,24 @@ import { Button as UiButton, Switch, TabsRoot, TabsList, TabsTrigger, TabsPanel 
 import { Chip, type ChipProps } from './primitives/chip.js';
 import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
+import { SettingsSelect, type SettingsSelectOption } from './primitives/settings-select.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
+import type { ManagedSkillCategory, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
+
+// 市场 tab client-side filter/sort controls. Both are pure renderer
+// state — the managed-source list itself is fetched once over IPC.
+const MARKET_CATEGORY_ALL = '__all__';
+const MARKET_CATEGORIES: ReadonlyArray<ManagedSkillCategory> = [
+  '内容创作',
+  '数据与AI',
+  '设计与UI',
+  'DevOps与部署',
+  '文档与写作',
+  '效率工具',
+  '研究与分析',
+];
+type MarketSort = 'name' | 'recent';
 
 const SKILL_UPDATE_PREVIEW_MAX_LINES = 80;
 
@@ -53,6 +67,8 @@ function SkillLibraryPanel(props: {
   });
   const [updatePreview, setUpdatePreview] = useState<ManagedSkillUpdatePreview | null>(null);
   const [reviewingSkillId, setReviewingSkillId] = useState<string | null>(null);
+  const [marketCategory, setMarketCategory] = useState<ManagedSkillCategory | typeof MARKET_CATEGORY_ALL>(MARKET_CATEGORY_ALL);
+  const [marketSort, setMarketSort] = useState<MarketSort>('name');
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
     if (!normalizedSkillQuery) return true;
@@ -63,10 +79,22 @@ function SkillLibraryPanel(props: {
   // render the SAME list, which made them meaningless.
   const bundledSkills = filteredSkills.filter((skill) => skill.sourceType === 'bundled');
   const installedSkills = filteredSkills.filter((skill) => skill.sourceType !== 'bundled');
-  const filteredMarketCards = SKILL_MARKETPLACE_CARDS.filter((card) => {
-    if (!normalizedSkillQuery) return true;
-    return `${card.title} ${card.body} ${card.meta}`.toLowerCase().includes(normalizedSkillQuery);
-  });
+  const allManagedSources = props.managedSkillSources ?? [];
+  // 市场 tab: managed sources are the marketplace catalog. Search (shared
+  // header field), category dropdown, and sort are all pure client-side —
+  // the list is fetched once over IPC. Sort 最近 (order preserved from the
+  // IPC list, which main already sorts by name) vs 名称 (explicit A→Z).
+  const marketSources = useMemo(() => {
+    const filtered = allManagedSources.filter((source) => {
+      if (marketCategory !== MARKET_CATEGORY_ALL && source.category !== marketCategory) return false;
+      if (!normalizedSkillQuery) return true;
+      return `${source.id} ${source.name} ${source.description} ${source.category}`.toLowerCase().includes(normalizedSkillQuery);
+    });
+    if (marketSort === 'name') {
+      return [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return filtered;
+  }, [allManagedSources, marketCategory, marketSort, normalizedSkillQuery]);
   const skillListEmptyTitle = normalizedSkillQuery ? '没有匹配的 Skill' : '等待添加 Skill';
   const skillListEmptyBody: ReactNode = normalizedSkillQuery ? '换一个关键词，或清空搜索查看全部本地技能。' : (
     <>
@@ -74,10 +102,6 @@ function SkillLibraryPanel(props: {
       {' '}<code className="maka-empty-state-code">skills/</code> 目录下，刷新后会出现在这里。
     </>
   );
-  const filteredManagedSources = (props.managedSkillSources ?? []).filter((source) => {
-    if (!normalizedSkillQuery) return true;
-    return `${source.id} ${source.name} ${source.description}`.toLowerCase().includes(normalizedSkillQuery);
-  });
   async function reviewManagedSkillUpdate(skill: SkillEntry) {
     if (!props.onPreviewManagedSkillUpdate || reviewingSkillId !== null) return;
     setReviewingSkillId(skill.id);
@@ -119,11 +143,40 @@ function SkillLibraryPanel(props: {
     </section>
   );
 
+  const categoryOptions: ReadonlyArray<SettingsSelectOption<ManagedSkillCategory | typeof MARKET_CATEGORY_ALL>> = [
+    [MARKET_CATEGORY_ALL, '全部分类'],
+    ...MARKET_CATEGORIES.map((category) => [category, category] as const),
+  ];
+  const sortOptions: ReadonlyArray<SettingsSelectOption<MarketSort>> = [
+    ['name', '排序：名称'],
+    ['recent', '排序：最近'],
+  ];
+  const marketControls = activeSkillTab === 'market' && allManagedSources.length > 0 ? (
+    <div className="maka-skill-market-controls" role="group" aria-label="市场筛选与排序">
+      <SettingsSelect<ManagedSkillCategory | typeof MARKET_CATEGORY_ALL>
+        value={marketCategory}
+        options={categoryOptions}
+        onChange={(value) => setMarketCategory(value)}
+        ariaLabel="按分类筛选市场技能"
+        width="full"
+        className="maka-skill-market-select"
+      />
+      <SettingsSelect<MarketSort>
+        value={marketSort}
+        options={sortOptions}
+        onChange={(value) => setMarketSort(value)}
+        ariaLabel="市场技能排序方式"
+        width="full"
+        className="maka-skill-market-select"
+      />
+    </div>
+  ) : null;
+
   const tabs = (
     <div className="maka-skill-tabs-bar">
       <TabsList variant="underline" className="maka-skill-tabs" aria-label="技能视图">
         {([
-          ['market', '市场', filteredMarketCards.length],
+          ['market', '市场', allManagedSources.length],
           ['builtin', '内置', bundledSkills.length],
           ['installed', '已安装', installedSkills.length],
         ] as const).map(([tab, label, count]) => (
@@ -137,10 +190,10 @@ function SkillLibraryPanel(props: {
           </TabsTrigger>
         ))}
       </TabsList>
-      {/* Designer audit P1-9: the static 全部 / 排序：热门 pills were removed
-          entirely — they were styled like buttons but dead, which reads as a
-          broken control. Bring back real filter/sort controls with the
-          marketplace launch. */}
+      {/* Marketplace launch: real client-side category + sort controls on
+          the tab row's right side (market tab only). The old static 全部 /
+          排序：热门 pills were dead chrome; these drive marketSources. */}
+      {marketControls}
     </div>
   );
 
@@ -173,40 +226,74 @@ function SkillLibraryPanel(props: {
   const market = (
     <section className="maka-skill-market" aria-label="技能市场">
       <div className="maka-skill-section-row">
-        <span className="maka-skill-section-label">市场技能</span>
-        <small>精选模板</small>
+        <span className="maka-skill-section-label">官方精选</span>
+        <div className="maka-skill-filter-actions" aria-label="来源库操作">
+          <UiButton
+            type="button"
+            variant="secondary"
+            className="maka-skill-filter-pill"
+            onClick={props.onImportManagedSkillSource}
+            disabled={!props.onImportManagedSkillSource || props.actionBusy}
+          >
+            导入本地 Skill
+          </UiButton>
+        </div>
       </div>
-      {filteredMarketCards.length === 0 ? (
+      {allManagedSources.length === 0 ? (
+        <EmptyState
+          Icon={BookOpen}
+          title={normalizedSkillQuery ? '没有匹配的市场技能' : '来源库还是空的'}
+          body={normalizedSkillQuery
+            ? '换一个关键词，或清空搜索查看全部来源。'
+            : '导入一个含 SKILL.md 的本地文件，它会作为可安装的来源出现在这里。'}
+          extraClassName="maka-skill-installed-empty"
+        />
+      ) : marketSources.length === 0 ? (
         <EmptyState
           Icon={Search}
           title="没有匹配的市场技能"
-          body="换一个关键词，或清空搜索查看全部精选技能。"
+          body="换一个分类或关键词，或清空筛选查看全部来源。"
           extraClassName="maka-skill-installed-empty"
         />
       ) : (
         <div className="maka-skill-market-grid">
-          {filteredMarketCards.map((card) => (
-            <article key={card.title} className="maka-skill-market-card">
-              <div className="maka-skill-market-card-head">
-                <span className="maka-skill-market-icon" aria-hidden="true">
-                  <card.Icon size={18} />
-                </span>
-                <div>
-                  <h3>{card.title}</h3>
-                  <small>{card.meta}</small>
+          {marketSources.map((source) => {
+            const installed = (props.skills ?? []).some((skill) => skill.id === source.id);
+            const installing = props.installingSourceId === source.id;
+            const description = source.description || '本地来源库 Skill。';
+            return (
+              <article key={source.id} className="maka-skill-market-card">
+                <div className="maka-skill-market-card-head">
+                  <span className="maka-skill-market-icon" aria-hidden="true">
+                    <Blocks size={18} />
+                  </span>
+                  <div className="maka-skill-market-card-title">
+                    <h3>{source.name}</h3>
+                    <small>{source.id}</small>
+                  </div>
+                  {/* + install acts; the card itself is inert (honest
+                      affordance). Disabled once the source is in the
+                      workspace, so it reads as a real state, not a toggle. */}
+                  <UiButton
+                    type="button"
+                    variant="ghost"
+                    className="maka-skill-market-install-button"
+                    onClick={() => props.onInstallManagedSkill?.(source.id)}
+                    disabled={installed || props.actionBusy || !props.onInstallManagedSkill}
+                    aria-label={`安装 ${source.name}`}
+                    title={installed ? '已安装到当前工作区' : `安装 ${source.name}`}
+                  >
+                    {installing ? <Loader2 size={16} aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+                  </UiButton>
                 </div>
-              </div>
-              <p>{card.body}</p>
-              <div className="maka-skill-market-card-foot">
-                <span>{card.source}</span>
-                {/* Static label, not a disabled button — same rationale as
-                    the filter pills above: marketplace install isn't wired
-                    yet, and a dead 安装 button promises interactivity it
-                    can't deliver. */}
-                <span className="maka-skill-market-install" data-static="true">即将上线</span>
-              </div>
-            </article>
-          ))}
+                <p>{description}</p>
+                <div className="maka-skill-market-card-foot">
+                  <Chip size="sm" variant="neutral" className="maka-skill-market-category">{source.category}</Chip>
+                  <span>{installed ? '已安装' : '未安装'}</span>
+                </div>
+              </article>
+            );
+          })}
         </div>
       )}
     </section>
@@ -269,7 +356,10 @@ function SkillLibraryPanel(props: {
                       )}
                     </span>
                     <span className="maka-skill-library-meta">
-                      <span>{skill.id}</span>
+                      {/* Marketplace redesign: the slug moved into the row's
+                          title tooltip (技能：${skill.id}) — the reference row
+                          shows only name + description. The status chips below
+                          stay (exception-only tone). */}
                       {/* Detail round 6, exception-only: the adjacent Switch
                           already says enabled/disabled — the visible chip only
                           appears for states the switch can't express
@@ -319,69 +409,6 @@ function SkillLibraryPanel(props: {
             })}
           </ul>
         </>
-      )}
-    </section>
-  );
-
-  const managedSources = (
-    <section className="maka-skill-installed" aria-label="来源库">
-      <div className="maka-skill-section-row">
-        <span className="maka-skill-section-label">来源库</span>
-        <small>{filteredManagedSources.length} 个</small>
-      </div>
-      <div className="maka-skill-filter-actions" aria-label="来源库操作">
-        <UiButton
-          type="button"
-          variant="secondary"
-          className="maka-skill-filter-pill"
-          onClick={props.onImportManagedSkillSource}
-          disabled={!props.onImportManagedSkillSource || props.actionBusy}
-        >
-          导入本地 Skill
-        </UiButton>
-      </div>
-      {filteredManagedSources.length === 0 ? (
-        normalizedSkillQuery ? (
-          <EmptyState
-            Icon={BookOpen}
-            title="没有匹配的来源"
-            body="换一个关键词，或清空搜索查看全部来源。"
-            extraClassName="maka-skill-installed-empty"
-          />
-        ) : null
-      ) : (
-        <ul className="maka-skill-library-list" aria-label="来源列表">
-          {filteredManagedSources.map((source) => {
-            const installed = (props.skills ?? []).some((skill) => skill.id === source.id);
-            const installing = props.installingSourceId === source.id;
-            return (
-              <li key={source.id} className="maka-skill-library-item">
-                <div className="maka-skill-library-row" title={`来源：${source.id}`}>
-                  <span className="maka-skill-library-status" aria-hidden="true">
-                    <BookOpen size={16} />
-                  </span>
-                  <span className="maka-skill-library-copy">
-                    <span className="maka-skill-library-name">{source.name}</span>
-                    <span className="maka-skill-library-description">{source.description || '本地来源库 Skill。'}</span>
-                  </span>
-                  <span className="maka-skill-library-meta">
-                    <span>{source.id}</span>
-                    <span>{installed ? '已安装' : '未安装'}</span>
-                  </span>
-                  <UiButton
-                    type="button"
-                    variant="ghost"
-                    className="maka-skill-market-install"
-                    onClick={() => props.onInstallManagedSkill?.(source.id)}
-                    disabled={installed || props.actionBusy || !props.onInstallManagedSkill}
-                  >
-                    {installing ? '安装中…' : installed ? '已安装' : '安装'}
-                  </UiButton>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
       )}
     </section>
   );
@@ -447,7 +474,6 @@ function SkillLibraryPanel(props: {
         <TabsPanel value="installed">
           {skillList(installedSkills, skillListEmptyTitle, skillListEmptyBody, '已安装技能')}
           {updateReview}
-          {managedSources}
           {templates}
         </TabsPanel>
       </TabsRoot>
@@ -477,43 +503,6 @@ const SKILL_EXAMPLE_CARDS: ReadonlyArray<{
     body: '生成结构、整理讲稿、检查 PPTX 页面，让演示准备更稳定。',
     meta: 'Slides · 提纲 · 校对',
     Icon: BookOpen,
-  },
-];
-
-const SKILL_MARKETPLACE_CARDS: ReadonlyArray<{
-  title: string;
-  body: string;
-  meta: string;
-  source: string;
-  Icon: typeof FileEdit;
-}> = [
-  {
-    title: '研究简报',
-    body: '把网页资料、引用和结论整理成结构化 brief，适合快速进入陌生领域。',
-    meta: 'Research · Web',
-    source: '官方精选',
-    Icon: Search,
-  },
-  {
-    title: '文档审阅',
-    body: '检查 DOCX / Markdown 的结构、语气和遗漏项，并输出可执行修改建议。',
-    meta: 'Writing · Office',
-    source: '官方精选',
-    Icon: FileEdit,
-  },
-  {
-    title: '会议跟进',
-    body: '从会议记录里抽取决定、风险和 owner，生成下一步任务清单。',
-    meta: 'Ops · Summary',
-    source: '社区模板',
-    Icon: CalendarDays,
-  },
-  {
-    title: '发布检查',
-    body: '按发布前 checklist 扫描 diff、测试和文档，减少临门一脚的遗漏。',
-    meta: 'Engineering · QA',
-    source: '团队模板',
-    Icon: ShieldAlert,
   },
 ];
 
