@@ -193,6 +193,24 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   border-bottom: var(--border-width-hairline) solid var(--border);
 }
 
+/* Marketplace launch: category + sort dropdowns ride the tab row's right
+   edge (market tab only). Two quiet SettingsSelect triggers sized down to
+   the tab-row rhythm; the SettingsSelect trigger chrome itself is owned by
+   its own stylesheet — here we only constrain width + height. */
+.maka-skill-market-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+}
+
+.maka-skill-market-select {
+  min-width: 0;
+  width: auto;
+  height: var(--h-control-sm);
+  min-height: var(--h-control-sm);
+}
+
 .maka-skill-tabs {
   display: flex;
   gap: var(--space-4);
@@ -266,7 +284,9 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 
 .maka-skill-market-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* Marketplace grid: 3 columns on wide, collapsing to 2/1 via auto-fit as
+     the panel narrows (panel max-width 900px → ~2 cols; narrow → 1). */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
   gap: var(--space-3);
 }
 
@@ -296,15 +316,36 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: var(--space-3);
+  gap: var(--space-2-5);
+}
+
+.maka-skill-market-card-title {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: grid;
+  gap: var(--space-0-5);
 }
 
 .maka-skill-market-card h3 {
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--foreground);
   font-size: var(--font-size-heading);
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
+}
+
+/* Slug caption: soft monospace, matching the library row's id treatment. */
+.maka-skill-market-card-title small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-normal);
 }
 
 .maka-skill-market-card small,
@@ -312,6 +353,31 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   color: var(--muted-foreground);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-semibold);
+}
+
+/* + install: quiet icon button anchored top-right of the card head; only
+   this element acts, keeping the card body an honest inert surface. */
+.maka-skill-market-install-button {
+  flex: 0 0 auto;
+  width: var(--h-control-sm);
+  min-width: var(--h-control-sm);
+  height: var(--h-control-sm);
+  padding: 0;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  color: var(--muted-foreground);
+  transition: background-color var(--duration-base) var(--ease-out-strong), color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-skill-market-card:hover .maka-skill-market-install-button:not(:disabled),
+.maka-skill-market-install-button:not(:disabled):hover {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-skill-market-category {
+  justify-self: start;
 }
 
 .maka-skill-market-card p {

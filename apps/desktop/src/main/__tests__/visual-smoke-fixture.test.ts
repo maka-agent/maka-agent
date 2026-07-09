@@ -575,6 +575,51 @@ describe('visual smoke fixture mode', () => {
     assert.equal(getVisualSmokeState(dailyReview)?.activeSessionId, 'visual-smoke-turn');
   });
 
+  it('module-skills seeds a managed-source market catalog (>=6 entries with categories) plus workspace skills', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-skills-'));
+    const previousSourcesRoot = process.env.MAKA_SKILL_SOURCES_ROOT;
+    try {
+      const fixture = resolveVisualSmokeFixture('module-skills', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+
+      const sourcesRoot = join(workspaceRoot, '.maka', 'skill-sources');
+      assert.equal(process.env.MAKA_SKILL_SOURCES_ROOT, sourcesRoot, 'seeder points the sources-root override at the fixture workspace');
+
+      const expectedSources: ReadonlyArray<{ id: string; category: string }> = [
+        { id: 'research-brief', category: '研究与分析' },
+        { id: 'doc-review', category: '文档与写作' },
+        { id: 'meeting-followup', category: '效率工具' },
+        { id: 'release-checklist', category: 'DevOps与部署' },
+        { id: 'data-analyst', category: '数据与AI' },
+        { id: 'ui-audit', category: '设计与UI' },
+        { id: 'blog-outline', category: '内容创作' },
+      ];
+      assert.ok(expectedSources.length >= 6, 'market grid needs >=6 entries to render meaningfully');
+      const categories = new Set<string>();
+      for (const source of expectedSources) {
+        const content = await readFile(join(sourcesRoot, source.id, 'SKILL.md'), 'utf8');
+        assert.match(content, new RegExp(`category: ${source.category}`), `${source.id} carries its category front-matter`);
+        categories.add(source.category);
+      }
+      assert.ok(categories.size >= 5, 'sources span several taxonomy buckets so the filter is exercised');
+
+      // meeting-followup is also a workspace skill so the grid shows an
+      // installed state; daily-standup fills 已安装 with a second row.
+      await readFile(join(workspaceRoot, 'skills', 'meeting-followup', 'SKILL.md'), 'utf8');
+      await readFile(join(workspaceRoot, 'skills', 'daily-standup', 'SKILL.md'), 'utf8');
+    } finally {
+      if (previousSourcesRoot === undefined) delete process.env.MAKA_SKILL_SOURCES_ROOT;
+      else process.env.MAKA_SKILL_SOURCES_ROOT = previousSourcesRoot;
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
   it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action overlay shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
