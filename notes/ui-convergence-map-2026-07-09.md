@@ -58,8 +58,8 @@ already contract-governed — the work is moving STRUCTURE onto shared primitive
       title prop tripped english-aria-label). Verified: ui+desktop builds,
       2293 desktop / 46 ui tests, dead-css clean, alignment audit clean,
       5 CDP captures in notes/round3-page-header-captures/.
-- [ ] 4 StatTile
-- [ ] 5 SectionHeader/ActionRow
+- [ ] 4 StatTile — agent run cancelled by maintainer 2026-07-10; partial work discarded with the worktree, re-runnable from this spec
+- [ ] 5 SectionHeader/ActionRow — same cancelled run; re-runnable from this spec
 
 (Details per family — implementations with file:line, divergences, risks — are in the audit
 agent's report; the essentials are inlined above. Update checkboxes as rounds ship.)
