@@ -156,9 +156,8 @@ import {
   persistSynthesisCacheBlocksToArtifacts,
 } from './synthesis-cache-artifacts.js';
 import { buildBrowserTools } from './browser/browser-tools.js';
-import { selectComputerUseBackend } from './computer-use/select-backend.js';
+import { selectComputerUseBackend, createComputerUseOverlayHook } from '@maka/computer-use';
 import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
-import { createComputerUseOverlayHook } from './computer-use/computer-use-overlay-hook.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';

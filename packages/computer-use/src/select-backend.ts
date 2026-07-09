@@ -39,7 +39,9 @@ const NONE: SelectedComputerUseBackend = { backend: undefined, tools: [], backen
 // packaging job lands its real resolver alongside the bundled binary. A path
 // that does not exist makes the selector fail closed, which is the contract.
 function getAxHelperBinaryPath(): string {
-  const base = process.resourcesPath ?? process.cwd();
+  // resourcesPath is Electron-only (absent in the base Node Process type / a
+  // headless CLI); cast + fall back to cwd so this package builds outside Electron.
+  const base = (process as unknown as { resourcesPath?: string }).resourcesPath ?? process.cwd();
   return join(base, 'maka-cu-helper', 'maka-cu-helper');
 }
 

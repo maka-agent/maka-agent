@@ -24,21 +24,11 @@ import type { BrowserWindowConstructorOptions, Rectangle } from 'electron';
 
 const requireElectron = createRequire(import.meta.url);
 
-export type CursorActionKind = 'move' | 'click' | 'drag' | 'scroll';
-
-export interface CursorMoveInput {
-  /** The CU tool's toolUseId — the abort key shared with the renderer. */
-  actionId: string;
-  /** The session the action belongs to; keys per-session teardown + palette. */
-  sessionId: string;
-  /** SCREEN coordinates (logical points) where the agent is acting. MAIN owns
-   *  the declared-px → screen transform; the controller converts to window-local. */
-  screenX: number;
-  screenY: number;
-  kind: CursorActionKind;
-  /** Hold the pressed visual (mouse-down without up). */
-  pressed?: boolean;
-}
+// Shared cursor-move contract lives in @maka/computer-use so the CLI can drive the
+// same hook against a headless sink. This controller is the Electron implementation
+// of that sink (it also satisfies OverlayCursorSink structurally via ensure/move).
+export type { CursorActionKind, CursorMoveInput } from '@maka/computer-use';
+import type { CursorMoveInput } from '@maka/computer-use';
 
 /** Minimal window surface the controller drives (fake-able in node --test). */
 export interface CursorOverlayWindowLike {

@@ -17,3 +17,7 @@ skills-lock.json
 # The committed baseline lives in `apps/desktop/tests/screenshots-baseline/`.
 apps/desktop/tests/screenshots/
 deepseek.key
+# Bundled cua-driver binary — a large prebuilt artifact fetched by
+# scripts/prepare-cua-driver.mjs, not source. Packaging maps it into the app's
+# Resources/bin via electron-builder extraResources.
+apps/desktop/resources/bin/

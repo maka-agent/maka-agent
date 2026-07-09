@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 
-import { cuaDriverBinaryPath } from './cua-driver-path.js';
+import { cuaDriverBinaryPath } from '../cua-driver-path.js';
 
 test('prod path resolves under resourcesPath/bin', () => {
   const resourcesPath = '/Applications/Maka.app/Contents/Resources';

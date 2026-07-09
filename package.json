@@ -8,6 +8,7 @@
     "packages/core",
     "packages/storage",
     "packages/runtime",
+    "packages/computer-use",
     "packages/headless",
     "packages/cli",
     "packages/ui",

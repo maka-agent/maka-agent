@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 
 import type { CuAction } from '@maka/core';
-import { createCuaDriverBackend } from '../computer-use/cua-driver-backend.js';
+import { createCuaDriverBackend } from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
 

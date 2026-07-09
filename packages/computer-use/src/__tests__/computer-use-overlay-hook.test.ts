@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { CuAction } from '@maka/core';
-import { createComputerUseOverlayHook, declaredPxToScreenPoint, type OverlayScreenLike } from '../computer-use/computer-use-overlay-hook.js';
+import { createComputerUseOverlayHook, declaredPxToScreenPoint, type OverlayScreenLike } from '../computer-use-overlay-hook.js';
 
 type MoveArgs = { actionId: string; sessionId: string; screenX: number; screenY: number; kind: string; pressed?: boolean };
 

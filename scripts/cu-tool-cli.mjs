@@ -11,8 +11,8 @@ import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildComputerUseTools } from '../packages/runtime/dist/index.js';
-import { createCuaDriverBackend } from '../apps/desktop/dist/main/computer-use/cua-driver-backend.js';
-import { createComputerUseOverlayHook } from '../apps/desktop/dist/main/computer-use/computer-use-overlay-hook.js';
+import { createCuaDriverBackend } from '../packages/computer-use/dist/index.js';
+import { createComputerUseOverlayHook } from '../packages/computer-use/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const binary = process.argv[2] || join(here, '..', 'apps', 'desktop', 'resources', 'bin', 'cua-driver');

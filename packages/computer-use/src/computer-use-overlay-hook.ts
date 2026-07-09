@@ -5,7 +5,30 @@
 // Backend-agnostic: fed from buildComputerUseTools' `overlay` seam, above dispatch.
 import type { CuAction, CuPoint } from '@maka/core';
 import type { CuOverlayHook } from '@maka/runtime';
-import type { CursorOverlayController, CursorActionKind } from './cursor-overlay-window.js';
+
+/** The overlay cursor action kinds the hook classifies actions into. */
+export type CursorActionKind = 'move' | 'click' | 'drag' | 'scroll';
+
+/** One per-action cursor move, in SCREEN (logical) coordinates. */
+export interface CursorMoveInput {
+  actionId: string;
+  sessionId: string;
+  screenX: number;
+  screenY: number;
+  kind: CursorActionKind;
+  pressed?: boolean;
+}
+
+/**
+ * The minimal surface the hook drives — the visual side of computer-use. The
+ * desktop's Electron overlay controller implements this (BrowserWindow); a
+ * headless surface (CLI) can pass a no-op. Decoupling the hook from the Electron
+ * controller is what lets this package be shared by both GUI and CLI.
+ */
+export interface OverlayCursorSink {
+  ensure(sessionId: string): void;
+  move(input: CursorMoveInput): void;
+}
 
 interface DisplayLike {
   bounds: { x: number; y: number; width: number; height: number };
@@ -65,7 +88,7 @@ export function declaredPxToScreenPoint(pt: CuPoint, display: DisplayLike): { x:
 }
 
 /** Build the overlay hook that drives `controller` from CU actions. */
-export function createComputerUseOverlayHook(controller: CursorOverlayController, screen: OverlayScreenLike): CuOverlayHook {
+export function createComputerUseOverlayHook(controller: OverlayCursorSink, screen: OverlayScreenLike): CuOverlayHook {
   const debug = Boolean(process.env.MAKA_CU_E2E_PROMPT);
   return {
     onActionBegin(action, ctx) {

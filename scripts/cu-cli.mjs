@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createCuaDriverBackend } from '../apps/desktop/dist/main/computer-use/cua-driver-backend.js';
+import { createCuaDriverBackend } from '../packages/computer-use/dist/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const binary = process.argv[2] || join(here, '..', 'apps', 'desktop', 'resources', 'bin', 'cua-driver');

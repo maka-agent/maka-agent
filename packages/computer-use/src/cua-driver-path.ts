@@ -7,7 +7,7 @@
 //     main file. This file compiles to dist/main/computer-use/cua-driver-path.js,
 //     so apps/desktop is three levels up (../../../ from dist/main/computer-use).
 import { existsSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const BINARY_NAME = 'cua-driver';
@@ -17,15 +17,18 @@ function currentResourcesPath(): string {
 }
 
 function devBinaryPath(): string {
-  // Robust to BOTH build layouts: prod tsc emits dist/main/computer-use/*.js,
-  // while `npm run dev` esbuild-bundles into dist/main/main.js — either way the
-  // repo binary lives at <desktop>/resources/bin. Walk up to the 'dist' root,
-  // whose parent is <desktop>, then join resources/bin. (A naive fixed-depth
-  // `../../../` is wrong for the bundled layout and silently hides the binary.)
+  // Dev fallback. The cua-driver binary is bundled as a DESKTOP-app resource at
+  // <repo>/apps/desktop/resources/bin. Since this module now lives in a shared
+  // package (@maka/computer-use) that both the desktop app AND the CLI consume,
+  // walk up from the compiled module to the repo root (the dir that contains
+  // apps/desktop) and point there — robust to the tsc layout, the desktop esbuild
+  // bundle, and the node_modules symlink. Production uses resourcesPath/bin instead.
   const start = dirname(fileURLToPath(import.meta.url));
   let dir = start;
-  for (let i = 0; i < 6; i++) {
-    if (basename(dir) === 'dist') return join(dirname(dir), 'resources', 'bin', BINARY_NAME);
+  for (let i = 0; i < 8; i++) {
+    if (existsSync(join(dir, 'apps', 'desktop'))) {
+      return join(dir, 'apps', 'desktop', 'resources', 'bin', BINARY_NAME);
+    }
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;

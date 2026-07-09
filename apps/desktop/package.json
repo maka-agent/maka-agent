@@ -37,6 +37,7 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@jackwener/opencli": "1.8.4",
     "@maka/core": "0.1.0",
+    "@maka/computer-use": "0.1.0",
     "@maka/runtime": "0.1.0",
     "@maka/storage": "0.1.0",
     "@maka/ui": "0.1.0",

@@ -11,6 +11,7 @@ import {
   buildSubscriptionModelFetch,
   getAIModel,
 } from '@maka/runtime';
+import { selectComputerUseBackend } from '@maka/computer-use';
 import {
   createAgentRunStore,
   createConnectionStore,
@@ -29,6 +30,12 @@ export interface MakaCliRuntimeContext {
   runtime: SessionManager;
   target: ReadySessionTarget;
   tools: ReturnType<typeof buildBuiltinTools>;
+  /**
+   * Release process-owned resources (e.g. the cua-driver child process when
+   * headless computer-use is enabled). Safe to call once, after the session
+   * ends. No-op when nothing needs disposal.
+   */
+  dispose: () => void;
 }
 
 export interface CreateMakaCliRuntimeContextInput {
@@ -64,6 +71,22 @@ export async function createMakaCliRuntimeContext(
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
   const tools = buildBuiltinTools();
+
+  // Headless computer-use. The shared @maka/computer-use backend runs without an
+  // overlay (the visual agent-cursor is Electron-only), so the CLI can drive the
+  // host via screenshot/click/scroll — but with NO on-screen cursor showing what
+  // it does. That visibility is what makes GUI computer-use safe to watch, so the
+  // CLI keeps the capability OPT-IN (MAKA_CLI_COMPUTER_USE=1). Every action still
+  // routes through the permission engine, and the TUI runs in 'ask' mode, so the
+  // user approves each one. Fails closed off macOS / missing binary → zero tools.
+  let disposeComputerUse: (() => void) | undefined;
+  if (process.env.MAKA_CLI_COMPUTER_USE === '1') {
+    const computerUse = selectComputerUseBackend();
+    if (computerUse.tools.length > 0) {
+      tools.push(...computerUse.tools);
+      disposeComputerUse = () => computerUse.backend?.dispose?.();
+    }
+  }
 
   backends.register('ai-sdk', async (ctx) => {
     const ready = await resolveDefaultSessionTarget({
@@ -119,6 +142,7 @@ export async function createMakaCliRuntimeContext(
     runtime,
     target,
     tools,
+    dispose: () => disposeComputerUse?.(),
   };
 }
 
