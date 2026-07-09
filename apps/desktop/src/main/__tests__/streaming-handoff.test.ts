@@ -364,6 +364,7 @@ describe('assistant streaming handoff', () => {
         clearPendingSessionAction: () => {},
         isNewChatSendSurfaceActive: () => false,
         markSessionReadLocally: () => {},
+        markSessionRunningOptimistic: () => {},
         messageRetryPendingRef: { current: new Set<string>() },
         refreshSessions: async () => [],
         setActiveId: (sessionId) => {
@@ -839,6 +840,7 @@ function buildEventHarness(
     clearPendingSessionAction: () => {},
     isNewChatSendSurfaceActive: () => false,
     markSessionReadLocally: () => {},
+    markSessionRunningOptimistic: () => {},
     messageRetryPendingRef: { current: new Set<string>() },
     refreshSessions: async () => [],
     setActiveId: (sessionId) => {
@@ -892,3 +894,90 @@ function buildEventHarness(
     getTurnActive: () => turnActiveBySession,
   };
 }
+
+describe('send optimistically opens the model-wait window (#646)', () => {
+  const globalObject = globalThis as unknown as { window?: unknown };
+
+  function installSendWindow(): { restore(): void } {
+    const previousWindow = globalObject.window;
+    let lastTurnId: string | undefined;
+    globalObject.window = {
+      maka: {
+        sessions: {
+          // Echo the turnId so the readMessages poll below resolves on its first
+          // pass — otherwise refreshMessagesUntilTurn spins to its wall-clock
+          // deadline and the test stalls for ~1s.
+          send: async (_sessionId: string, payload: { turnId: string }) => {
+            lastTurnId = payload.turnId;
+            return { attachments: [] };
+          },
+          readMessages: async (): Promise<StoredMessage[]> =>
+            lastTurnId ? [{ type: 'user', id: 'u-1', turnId: lastTurnId, ts: 1, text: 'hello' }] : [],
+        },
+      },
+      setTimeout: (callback: () => void) => {
+        queueMicrotask(callback);
+        return 0;
+      },
+    };
+    return {
+      restore: () => {
+        if (previousWindow === undefined) delete globalObject.window;
+        else globalObject.window = previousWindow;
+      },
+    };
+  }
+
+  function buildChatActions(runningMarks: string[]): {
+    chatActions: ReturnType<typeof createAppShellChatActions>;
+    getTurnActive: () => Record<string, TurnPhase>;
+  } {
+    const activeIdRef = { current: 'session-1' as string | undefined };
+    let turnActiveBySession: Record<string, TurnPhase> = {};
+    const chatActions = createAppShellChatActions({
+      activeIdRef,
+      addPendingSessionAction: () => true,
+      captureComposerImportOwner: () => ({ sessionId: 'session-1', navSection: 'sessions' }),
+      clearPendingSessionAction: () => {},
+      isNewChatSendSurfaceActive: () => false,
+      markSessionReadLocally: () => {},
+      markSessionRunningOptimistic: (sessionId) => {
+        runningMarks.push(sessionId);
+      },
+      messageRetryPendingRef: { current: new Set<string>() },
+      refreshSessions: async () => [],
+      setActiveId: (sessionId) => {
+        activeIdRef.current = sessionId;
+      },
+      setMessageLoadErrorBySession: () => {},
+      setMessageRetryPendingBySession: () => {},
+      setMessages: () => {},
+      setNavSelection: () => {},
+      setTurnActiveBySession: (updater) => {
+        turnActiveBySession = updater(turnActiveBySession);
+      },
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+      upsertSessionSummary: () => {},
+      validPendingNewChatModel: null,
+      pendingNewChatThinkingLevel: null,
+    });
+    return { chatActions, getTurnActive: () => turnActiveBySession };
+  }
+
+  it('marks the active session running the moment send() commits — the "正在处理…" gate must not wait for the status round-trip (#646)', async () => {
+    const windowFixture = installSendWindow();
+    try {
+      const runningMarks: string[] = [];
+      const { chatActions, getTurnActive } = buildChatActions(runningMarks);
+      await chatActions.send('hello');
+      // The status nudge that opens the head indicator, and the arm that gives it
+      // a 'waiting' phase, both land synchronously at send — not after the IPC
+      // status round-trip that used to lose the first-token race.
+      assert.deepEqual(runningMarks, ['session-1']);
+      assert.equal(getTurnActive()['session-1'], 'waiting');
+    } finally {
+      windowFixture.restore();
+    }
+  });
+});

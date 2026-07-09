@@ -111,6 +111,9 @@ export function createAppShellChatActions(deps: {
   ) => void;
   isNewChatSendSurfaceActive: (owner: ComposerImportOwner) => boolean;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
+  /** #646: optimistically flip the session's status to 'running' at send() so the
+   * "正在处理…" gate opens before the runtime's status round-trip lands. */
+  markSessionRunningOptimistic: (sessionId: string) => void;
   messageRetryPendingRef: RefBox<Set<string>>;
   refreshSessions: () => Promise<SessionSummary[]>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -134,6 +137,7 @@ export function createAppShellChatActions(deps: {
     clearPendingSessionAction,
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
+    markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
     setActiveId,
@@ -234,6 +238,7 @@ export function createAppShellChatActions(deps: {
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
         armTurnActive(session.id);
+        markSessionRunningOptimistic(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
         const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
@@ -251,6 +256,7 @@ export function createAppShellChatActions(deps: {
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
       armTurnActive(sessionId);
+      markSessionRunningOptimistic(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);

@@ -940,6 +940,7 @@ export function AppShell({
     clearPendingSessionAction,
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
+    markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
     setActiveId,
@@ -1186,6 +1187,27 @@ export function AppShell({
         normalizeSessionSummaryForDisplay(session),
         ...current.filter((entry) => entry.id !== session.id),
       ];
+      sessionsRef.current = next;
+      return next;
+    });
+  }
+
+  // #646: on send() we KNOW locally that a turn is starting, but the session's
+  // persisted status only flips to 'running' after an IPC round-trip
+  // (runtime → subscribeChanges). The head "正在处理…" indicator is gated on
+  // `status === 'running'` (that gate self-heals a backgrounded session whose
+  // terminal event was missed), so without a local nudge the first-token wait
+  // races — and usually loses — against the lagging status. Set it optimistically
+  // so the gate opens synchronously; subscribeChanges reconciles the real value.
+  function markSessionRunningOptimistic(sessionId: string): void {
+    setSessions((current) => {
+      let changed = false;
+      const next = current.map((entry) => {
+        if (entry.id !== sessionId || entry.status === 'running') return entry;
+        changed = true;
+        return { ...entry, status: 'running' as const };
+      });
+      if (!changed) return current;
       sessionsRef.current = next;
       return next;
     });
