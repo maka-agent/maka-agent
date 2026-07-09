@@ -41,7 +41,23 @@ already contract-governed — the work is moving STRUCTURE onto shared primitive
       daily-review session rows (composite: preview sibling outside the button),
       maka-skill-library-row (bespoke grid + parent-li hover, skills.test.ts
       pin — interactive={false} support landed for a future adoption).
-- [ ] 3 PageHeader — next
+- [x] 3 PageHeader — SHIPPED on feat/page-header-convergence: new
+      primitives/page-header.tsx (title/subtitle/eyebrow/icon/badge/
+      as('h2'|'h3')/actions/meta + contentClassName/iconClassName/
+      headingRowClassName/subtitleClassName/as_wrapper escape hatches).
+      Migrated all 6 call sites: skills-panel maka-module-main-header,
+      plan-reminder-panel maka-plan-hero (contentClassName=maka-plan-heading),
+      permission-center settingsPermissionIntro (meta), health-center
+      settingsHealthIntro (meta + <strong> subtitle), voice-settings
+      settingsFeatureStatusHero (icon + 本地自检 badge), about-settings
+      settingsAboutHero (icon + version/channel badge fragment + h2 scale).
+      NO CSS re-pin needed: every wrapper's typography CSS uses DESCENDANT
+      selectors (`.wrap h2/h3/p`) that keep matching through the primitive's
+      slot divs; radius/pruning contracts untouched (wrapper blocks
+      unchanged). check-a11y: added `Maka` to the brand allow-list (About
+      title prop tripped english-aria-label). Verified: ui+desktop builds,
+      2293 desktop / 46 ui tests, dead-css clean, alignment audit clean,
+      5 CDP captures in notes/round3-page-header-captures/.
 - [ ] 4 StatTile
 - [ ] 5 SectionHeader/ActionRow
 

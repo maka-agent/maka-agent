@@ -315,6 +315,9 @@ const RULES = [
  * impose Chinese on every brand name).
  */
 const ALLOWED_ENGLISH_PATTERNS = [
+  // The app's own product name — a proper noun, kept in Latin script
+  // everywhere (About hero title, brand marks). Not a missing translation.
+  /^Maka$/,
   // Model providers / brand names
   /^OpenAI$/i,
   /^Anthropic$/i,

@@ -110,6 +110,12 @@ export type { BadgeProps } from './primitives/badge.js';
 // / destructive.
 export { Chip, chipVariants } from './primitives/chip.js';
 export type { ChipProps } from './primitives/chip.js';
+// PageHeader — the shared page-header shell (convergence round 3). One shell
+// for the module hero (as='h2': 技能 / 定时任务) and the settings intros
+// (as='h3': permission / health / voice / about). Wrapper class + per-slot
+// CSS stay at the call site; the primitive converges STRUCTURE only.
+export { PageHeader } from './primitives/page-header.js';
+export type { PageHeaderProps } from './primitives/page-header.js';
 // Streaming UI rework: Codex-style tool "trow" grouping helpers. Pure bucketing
 // + summary used by the timeline tool renderer (ToolTrow) and unit-tested.
 export {

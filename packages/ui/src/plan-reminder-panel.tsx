@@ -63,6 +63,7 @@ import {
 } from './ui.js';
 import { Badge } from './primitives/badge.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
+import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { Alert, AlertTitle } from './primitives/alert.js';
@@ -337,13 +338,14 @@ export function PlanReminderPanel(props: {
   return (
     <div className="maka-plan-panel">
       <div className="maka-plan-shell agents-inner-view-clamp">
-        <div className="maka-plan-hero">
-          <div className="maka-plan-heading">
-            <h2>定时任务</h2>
-            <p>
-              创建和管理周期性任务，让 Maka 按计划执行提醒、复盘和投递。
-            </p>
-          </div>
+        <PageHeader
+          as_wrapper="div"
+          className="maka-plan-hero"
+          as="h2"
+          title="定时任务"
+          subtitle="创建和管理周期性任务，让 Maka 按计划执行提醒、复盘和投递。"
+          contentClassName="maka-plan-heading"
+          actions={
           <div className="maka-plan-top-actions" aria-label="计划提醒操作">
             <UiButton
               type="button"
@@ -368,7 +370,8 @@ export function PlanReminderPanel(props: {
               新建定时任务
             </UiButton>
           </div>
-        </div>
+          }
+        />
 
         {/* PR-UI-ALIGN-1 (2026-06-21): the inline example-template strip
             (每日新闻摘要 / 周末待办整理) cluttered the top of the page and has no

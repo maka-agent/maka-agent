@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Sparkles } from '@maka/ui/icons';
-import { Button, useToast } from '@maka/ui';
+import { Button, PageHeader, useToast } from '@maka/ui';
 import { SettingsRows, SettingRow } from './settings-rows';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -114,13 +114,16 @@ export function AboutSettingsPage() {
 
   return (
     <div className="settingsAboutPage">
-      <header className="settingsAboutHero">
-        <span className="settingsAboutLogo" aria-hidden="true">
-          <Sparkles size={26} />
-        </span>
-        <div>
-          <div className="settingsAboutHeading">
-            <h2>Maka</h2>
+      <PageHeader
+        as_wrapper="div"
+        className="settingsAboutHero"
+        as="h2"
+        icon={<Sparkles size={26} />}
+        iconClassName="settingsAboutLogo"
+        headingRowClassName="settingsAboutHeading"
+        title="Maka"
+        badge={
+          <>
             <span className="settingsAboutVersion">v{info.appVersion}</span>
             <span className="settingsAboutChannel">
               {info.buildMode === 'dev'
@@ -129,10 +132,11 @@ export function AboutSettingsPage() {
                   : '本地开发版'
                 : '正式版'}
             </span>
-          </div>
-          <p className="settingsAboutTagline">本地优先的 AI 助手 · 桌面端运行环境</p>
-        </div>
-      </header>
+          </>
+        }
+        subtitle="本地优先的 AI 助手 · 桌面端运行环境"
+        subtitleClassName="settingsAboutTagline"
+      />
 
       <section className="settingsAboutPrivacy" aria-label="隐私与安全">
         <h3>本地优先 · 隐私默认</h3>

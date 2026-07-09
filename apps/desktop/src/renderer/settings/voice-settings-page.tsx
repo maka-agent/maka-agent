@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Volume2 } from '@maka/ui/icons';
 import type { VoicePermissionStatus } from '@maka/core';
 import { defaultVoiceCaptureCaps, validateVoiceCaptureRequest } from '@maka/core';
-import { Button, useToast } from '@maka/ui';
+import { Button, PageHeader, useToast } from '@maka/ui';
 
 type VoiceSmokeState =
   | { status: 'idle'; message: string }
@@ -136,21 +136,17 @@ export function VoiceModelsSettingsPage() {
           gone — release notes don't live in settings, and its privacy copy
           duplicated the 隐私 tile + 当前边界 section below. (daily-review
           made the same banner exception-only earlier.) */}
-      <div className="settingsFeatureStatusHero">
-        <span className="settingsFeatureStatusIcon" aria-hidden="true">
-          <Volume2 size={24} />
-        </span>
-        <div>
-          <div className="settingsFeatureStatusHeroHeading">
-            <h3>语音模型</h3>
-            <span className="settingsFeatureStatusBadge">本地自检</span>
-          </div>
-          <p>
-            这页现在可以验证麦克风权限和本地录音链路。语音转写和语音朗读模型必须遵守这个边界：
-            转写结果必须先回到消息输入框，由用户编辑确认后才能发送；音频样本默认不落盘。
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        as_wrapper="div"
+        className="settingsFeatureStatusHero"
+        as="h3"
+        icon={<Volume2 size={24} />}
+        iconClassName="settingsFeatureStatusIcon"
+        headingRowClassName="settingsFeatureStatusHeroHeading"
+        title="语音模型"
+        badge={<span className="settingsFeatureStatusBadge">本地自检</span>}
+        subtitle="这页现在可以验证麦克风权限和本地录音链路。语音转写和语音朗读模型必须遵守这个边界：转写结果必须先回到消息输入框，由用户编辑确认后才能发送；音频样本默认不落盘。"
+      />
 
       <dl className="settingsBotStatusGrid" aria-label="语音能力状态">
         <div>

@@ -7,7 +7,7 @@ import type {
   HealthSnapshot,
 } from '@maka/core';
 import { HEALTH_SIGNAL_LAYERS } from '@maka/core';
-import { Button, Badge, RelativeTime } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -117,29 +117,33 @@ export function HealthCenterPage() {
 
   return (
     <div className="settingsHealthPage">
-      <header className="settingsHealthIntro">
-        <div>
-          <h3>健康中心</h3>
-          <p>
+      <PageHeader
+        className="settingsHealthIntro"
+        as="h3"
+        title="健康中心"
+        subtitle={
+          <>
             按层级（配置 · 验证 · 权限 · 功能 · 操作审批 · 记忆 · 运行态 · 存储）展示当前快照。
             <strong>验证通过 ≠ 运行可用</strong> — 凭据测试只属于验证层；发送通路以运行态探测结果为准。
-          </p>
-        </div>
-        <div className="settingsHealthMeta">
-          <Badge variant="info">只读快照</Badge>
-          <small>
-            最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
-          </small>
-          <Button
-            type="button"
-            className="settingsHealthRefresh"
-            variant="secondary"
-            onClick={() => setRefreshTick((tick) => tick + 1)}
-          >
-            刷新
-          </Button>
-        </div>
-      </header>
+          </>
+        }
+        meta={
+          <div className="settingsHealthMeta">
+            <Badge variant="info">只读快照</Badge>
+            <small>
+              最近一次读取：<RelativeTime ts={healthCheckedAtMs} className="settingsHelpInlineTime" />
+            </small>
+            <Button
+              type="button"
+              className="settingsHealthRefresh"
+              variant="secondary"
+              onClick={() => setRefreshTick((tick) => tick + 1)}
+            >
+              刷新
+            </Button>
+          </div>
+        }
+      />
 
       {/* PR-HEALTH-SUMMARY-LIST-A11Y-0 (round 19/30): fifth
           application of the ARIA list semantics fix. Was

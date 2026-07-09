@@ -13,6 +13,7 @@ import type { CapabilityAuditReport } from '@maka/core';
 import { deriveCapabilityAuditReport } from '@maka/core';
 import { Button as UiButton, Switch, TabsRoot, TabsList, TabsTrigger, TabsPanel } from './ui.js';
 import { Chip, type ChipProps } from './primitives/chip.js';
+import { PageHeader } from './primitives/page-header.js';
 import { Input } from './primitives/input.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
@@ -635,11 +636,12 @@ export function SkillsModuleMain(props: {
   const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ skills: props.skills ?? [] });
   return (
     <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label="技能">
-      <header className="maka-module-main-header">
-        <div>
-          <h2>技能</h2>
-          <p>安装与管理技能，在对话中扩展 Maka 的能力。</p>
-        </div>
+      <PageHeader
+        className="maka-module-main-header"
+        as="h2"
+        title="技能"
+        subtitle="安装与管理技能，在对话中扩展 Maka 的能力。"
+        actions={
         <div className="maka-module-main-actions" role="group" aria-label="技能操作">
           <label className="maka-skill-search" aria-label="搜索技能">
             <Search size={15} aria-hidden="true" />
@@ -685,7 +687,8 @@ export function SkillsModuleMain(props: {
             {pendingSkillAction === 'refresh' ? '刷新中…' : '刷新'}
           </UiButton>
         </div>
-      </header>
+        }
+      />
       <CapabilityAuditStrip report={auditReport} />
       <SkillLibraryPanel
         skills={props.skills}

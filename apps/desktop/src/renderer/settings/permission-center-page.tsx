@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, RelativeTime, useToast } from '@maka/ui';
+import { Button, Badge, RelativeTime, PageHeader, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -199,28 +199,27 @@ export function PermissionCenterPage() {
 
   return (
     <div className="settingsPermissionPage">
-      <header className="settingsPermissionIntro">
-        <div>
-          <h3>权限与能力</h3>
-          <p>
-            查看 Maka 需要的系统权限和当前授权状态，
-            直接从这里前往「系统设置 → 隐私与安全性」完成授权或撤销，不必自己翻菜单。
-          </p>
-        </div>
-        <div className="settingsPermissionMeta">
-          <small>
-            最近读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
-          </small>
-          <Button
-            type="button"
-            className="settingsPermissionRefresh"
-            variant="secondary"
-            onClick={() => setRefreshTick((tick) => tick + 1)}
-          >
-            重新检测
-          </Button>
-        </div>
-      </header>
+      <PageHeader
+        className="settingsPermissionIntro"
+        as="h3"
+        title="权限与能力"
+        subtitle="查看 Maka 需要的系统权限和当前授权状态，直接从这里前往「系统设置 → 隐私与安全性」完成授权或撤销，不必自己翻菜单。"
+        meta={
+          <div className="settingsPermissionMeta">
+            <small>
+              最近读取：<RelativeTime ts={checkedAtMs} className="settingsHelpInlineTime" />
+            </small>
+            <Button
+              type="button"
+              className="settingsPermissionRefresh"
+              variant="secondary"
+              onClick={() => setRefreshTick((tick) => tick + 1)}
+            >
+              重新检测
+            </Button>
+          </div>
+        }
+      />
 
       <section className="settingsPermissionSummary" aria-label="权限概览">
         <PermissionSummaryTile label="已授权" value={counts.granted} tone="success" />
