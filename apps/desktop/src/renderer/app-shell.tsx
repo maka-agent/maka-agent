@@ -67,6 +67,8 @@ import { deriveBranchBanner } from './branch-banner';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
+import { MODEL_PROCESSING_DELAY_MS, deriveModelWaitIdle } from './model-wait-state';
+import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { filterSessions, readNavSelection } from './nav-selection';
@@ -353,6 +355,22 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
+  // #646: the "正在处理…" indicator — the model is being awaited with nothing
+  // streaming. `turnActive` (armed at send, no lag) gives a clean start/end; the
+  // `status === 'running'` gate self-heals a backgrounded session whose terminal
+  // event was missed while inactive (its arm can't clear without the event). The
+  // 200ms rising-edge delay (useDelayedFlag) suppresses the flash on fast turns.
+  const activeTurnActive = activeId ? sessionUiState.turnActiveBySession[activeId] === true : false;
+  const showProcessingIndicator = useDelayedFlag(
+    activeSession?.status === 'running'
+      && deriveModelWaitIdle({
+        turnActive: activeTurnActive,
+        streamingText: activeStreaming,
+        thinkingText: activeThinking,
+        hasInFlightTools: hasInFlightLiveTools,
+      }),
+    MODEL_PROCESSING_DELAY_MS,
+  );
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
     : undefined;
@@ -1448,6 +1466,7 @@ export function AppShell({
                 streamingText={activeStreaming}
                 streamingComplete={activeStreamingComplete}
                 streamingMessageId={activeStreamingMessageId}
+                processingIndicator={showProcessingIndicator}
                 onStreamingSettled={activeId ? () => settleAssistantStreaming(activeId, activeStreamingMessageId) : undefined}
                 streamingTruncated={activeStreamingTruncated}
                 thinkingText={activeThinking}

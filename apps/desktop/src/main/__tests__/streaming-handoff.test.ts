@@ -604,6 +604,29 @@ describe('model-wait indicator arm/clear wiring (#646)', () => {
   });
 });
 
+describe('model-wait indicator rendering (#646)', () => {
+  const userTurn: StoredMessage[] = [{ type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' }];
+
+  it('renders "正在处理…" with a shimmer inside the tail turn when armed with nothing streaming', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', processingIndicator: true });
+    assert.match(markup, /正在处理…/, 'the processing label is shown');
+    assert.match(markup, /data-slot="text-shimmer"/, 'the label shimmers (the "working" signal)');
+    assert.match(markup, /data-live-streaming="true"/, 'the tail turn stays live so its footer is non-actionable');
+    assert.match(markup, /aria-hidden="true" class="mt-0\.5 h-8"/, 'reserved-height placeholder footer, not a clickable one');
+  });
+
+  it('shows nothing extra when the indicator is off', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: '', processingIndicator: false });
+    assert.doesNotMatch(markup, /正在处理…/);
+  });
+
+  it('yields to a streaming answer — the indicator never renders alongside content', () => {
+    const markup = renderChat({ messages: userTurn, streamingText: 'hello', processingIndicator: true });
+    assert.doesNotMatch(markup, /正在处理…/, 'the derivation is exclusive, but the render guards it too');
+    assert.match(markup, /maka-bubble-streaming/, 'the streaming answer owns the tail turn instead');
+  });
+});
+
 function countOccurrences(haystack: string, needle: string): number {
   return haystack.split(needle).length - 1;
 }
