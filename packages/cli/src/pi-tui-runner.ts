@@ -459,13 +459,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const newSession = () => {
     input.driver.startNewSession();
     // Fresh transcript for the fresh session; the next prompt creates it on disk.
+    // Leave the transcript empty (no confirmation notice) so /new opens on the
+    // same welcome block as a cold start — the welcome block is the "fresh
+    // session, send a prompt to begin" cue. A notice here would make entries
+    // non-empty and suppress it.
     replaceTranscriptWithStoredMessages(state, []);
     layout.followTailNow();
-    state.entries.push({
-      kind: 'notice',
-      level: 'info',
-      text: 'Started a new session. Send a prompt to begin.',
-    });
     requestRender();
   };
 

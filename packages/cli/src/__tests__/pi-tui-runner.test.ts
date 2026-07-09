@@ -1779,7 +1779,10 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
 
     await waitFor(() => driver.startNewSessionCalls === 1);
-    await waitFor(() => plainTerminalOutput(terminal.output()).includes('Started a new session'));
+    // /new empties the transcript, so it opens on the same welcome block as a
+    // cold start rather than a one-off notice — that block is the "fresh session"
+    // cue and a notice would suppress it.
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('输入消息开始对话，或用斜杠命令：'));
     // The previous turn is gone from the visible transcript.
     await waitFor(() => !plainTerminalOutput(terminal.screenOutput()).includes('remember this'));
 
