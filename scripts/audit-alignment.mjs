@@ -13,7 +13,21 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const ELECTRON=ROOT+'/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron';
+// Resolve via the electron package export so Linux CI gets
+// `electron/dist/electron` and macOS gets `Electron.app/.../Electron`.
+// Hardcoding the .app path is what broke the ubuntu-latest e2e job in #695.
+async function resolveElectronBin() {
+  try {
+    const bin = (await import('electron')).default;
+    if (typeof bin === 'string') return bin;
+  } catch (err) {
+    console.error('[audit-alignment] electron not resolvable (run `npm install`):', err);
+    process.exit(2);
+  }
+  console.error('[audit-alignment] electron resolved but exposed no binary path; run `npm install`.');
+  process.exit(2);
+}
+const ELECTRON = await resolveElectronBin();
 const FIXTURES=['module-skills','module-daily-review','plan-reminders','settings-general','fetched-empty','settings-data','settings-gateway','turn-narrative','settings-permissions'];
 let port=Number(process.env.AUDIT_PORT_BASE ?? 14600);
 let totalIssues=0;
@@ -56,8 +70,11 @@ const EXPR=`(()=>{
 for(const fx of FIXTURES){
   const P=port++;
   const child=spawn(ELECTRON,[ROOT+'/apps/desktop','--remote-debugging-port='+P,'--user-data-dir='+join(tmpdir(),'maka-audit-'+P+'-'+process.pid)],{env:{...process.env,MAKA_VISUAL_SMOKE_FIXTURE:fx,MAKA_VISUAL_SMOKE_THEME:'light'},stdio:'ignore'});
+  // Surface spawn failures (ENOENT etc.) into the try/catch instead of an
+  // unhandled 'error' event that crashes the process before fixtureErrors++.
+  const launchError=new Promise((_,rej)=>child.once('error',rej));
   try{
-    await new Promise(r=>setTimeout(r,8500));
+    await Promise.race([new Promise(r=>setTimeout(r,8500)),launchError]);
     const list=await (await fetch(`http://127.0.0.1:${P}/json/list`)).json();
     const page=list.find(t=>t.type==='page');
     const ws=new WebSocket(page.webSocketDebuggerUrl);
