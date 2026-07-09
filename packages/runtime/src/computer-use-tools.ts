@@ -34,9 +34,9 @@ export interface CuRunResult {
 }
 
 /**
- * The host dispatch seam. Implemented by @maka/desktop, which spawns the signed
- * `maka-cu-helper` and speaks its NDJSON protocol. Tier-2 (private-SkyLight) and
- * Tier-3 (foreground) backends plug in behind this same interface later.
+ * The host dispatch seam. Implemented in @maka/computer-use by the cua-driver
+ * backend, which spawns trycua/cua-driver and speaks its JSON-RPC protocol over
+ * stdio. Alternative backends can plug in behind this same interface later.
  */
 export interface CuDispatchBackend {
   /** Live macOS TCC status. Called at EVERY action-start — cached "granted" is
@@ -57,7 +57,7 @@ export interface CuOverlayHookContext {
  * `CuAction`, whose coordinate is in declared px) so a host can drive an agent-
  * cursor overlay. Purely additive + display-only — it never affects dispatch,
  * coordinates, or the real pointer. Backend-agnostic: it sits ABOVE `backend.run`,
- * so it fires identically for cua-driver Tier-2 and the AX-helper Tier-1.
+ * so it fires identically regardless of which host dispatch backend runs the action.
  */
 export interface CuOverlayHook {
   onActionBegin(action: CuAction, ctx: CuOverlayHookContext): void;
@@ -171,8 +171,9 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
       + 'agent-cursor to a target, then click/scroll to act there. Use left_click_drag (start_coordinate → coordinate) for marquee/lasso '
       + 'selection, sliders, or resizing — but only WITHIN a single window; a drag whose endpoints land in different windows is refused '
       + '(cross-app drag-and-drop is not supported). Coordinates are in the declared display-pixel space (the runtime maps '
-      + 'them to the real screen). Prefer this over shelling out to cliclick/screencapture for host GUI control. Keyboard (type/key) is '
-      + 'unavailable on this backend. Never used for web pages inside Maka (use the browser tools for those).',
+      + 'them to the real screen). Prefer this over shelling out to cliclick/screencapture for host GUI control. Keyboard: type/key '
+      + 'deliver keystrokes to the window you last clicked (click the field first to focus it, then type) — never to your other windows; '
+      + 'a type/key with no prior click is refused. Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
     impl: async (args, { abortSignal, sessionId, toolCallId }): Promise<ComputerToolResult> => {

@@ -94,7 +94,11 @@ async function alreadyPrepared() {
   try {
     await access(destinationPath(), constants.X_OK);
     const marker = JSON.parse(await readFile(markerPath(), 'utf8'));
-    return marker.version === cua.version && marker.sha256 === cua.sha256;
+    if (marker.version !== cua.version || marker.sha256 !== cua.sha256) return false;
+    // Re-hash the actual binary so a corrupted/swapped file with an intact marker
+    // is not silently trusted — on drift, fall through to re-download/re-verify.
+    const actual = sha256(await readFile(destinationPath()));
+    return actual === cua.sha256;
   } catch {
     return false;
   }
@@ -124,31 +128,34 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
   // Extract the tarball to a temp dir, then copy out the single `cua-driver`
   // Mach-O. Tarball internal layout is not assumed — we locate the binary.
   const workDir = await mkdtemp(join(tmpdir(), 'maka-cua-driver-'));
-  const tarPath = join(workDir, cua.asset);
-  await writeFile(tarPath, Buffer.from(data));
-  await execFileAsync('tar', ['-xzf', tarPath, '-C', workDir]);
-  const { stdout } = await execFileAsync('find', [workDir, '-name', cua.binaryName, '-type', 'f']);
-  const found = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (found.length === 0) {
-    throw new Error(`Extracted archive ${cua.asset} did not contain a '${cua.binaryName}' binary`);
-  }
-
-  await mkdir(binDir, { recursive: true });
-  const destination = destinationPath();
-  await rm(destination, { force: true });
-  await writeFile(destination, await readFile(found[0]));
-  await chmod(destination, 0o755);
-  // Best-effort: clear the download quarantine xattr so the dev Electron process
-  // can spawn it without a Gatekeeper prompt. Non-fatal if xattr is absent.
   try {
-    await execFileAsync('xattr', ['-d', 'com.apple.quarantine', destination]);
-  } catch {
-    /* no quarantine attr — fine */
-  }
-  await writeFile(markerPath(), `${JSON.stringify({ version: cua.version, sha256: cua.sha256 }, null, 2)}\n`);
-  await rm(workDir, { recursive: true, force: true });
+    const tarPath = join(workDir, cua.asset);
+    await writeFile(tarPath, Buffer.from(data));
+    await execFileAsync('tar', ['-xzf', tarPath, '-C', workDir]);
+    const { stdout } = await execFileAsync('find', [workDir, '-name', cua.binaryName, '-type', 'f']);
+    const found = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (found.length === 0) {
+      throw new Error(`Extracted archive ${cua.asset} did not contain a '${cua.binaryName}' binary`);
+    }
 
-  return { skipped: false, destination, version: cua.version };
+    await mkdir(binDir, { recursive: true });
+    const destination = destinationPath();
+    await rm(destination, { force: true });
+    await writeFile(destination, await readFile(found[0]));
+    await chmod(destination, 0o755);
+    // Best-effort: clear the download quarantine xattr so the dev Electron process
+    // can spawn it without a Gatekeeper prompt. Non-fatal if xattr is absent.
+    try {
+      await execFileAsync('xattr', ['-d', 'com.apple.quarantine', destination]);
+    } catch {
+      /* no quarantine attr — fine */
+    }
+    await writeFile(markerPath(), `${JSON.stringify({ version: cua.version, sha256: cua.sha256 }, null, 2)}\n`);
+
+    return { skipped: false, destination, version: cua.version };
+  } finally {
+    await rm(workDir, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

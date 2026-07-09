@@ -1,16 +1,13 @@
 // @maka/computer-use — the shared, node-only computer-use backend + coordinate/
 // overlay seam, usable by BOTH the desktop GUI (apps/desktop, which adds the
 // Electron overlay window) and the CLI (packages/cli, headless). The `computer`
-// TOOL itself lives in @maka/runtime; this package is the host dispatch (cua-driver
-// / AX-helper), binary resolution, and the CuAction→cursor overlay hook.
+// TOOL itself lives in @maka/runtime; this package is the host dispatch (cua-driver),
+// binary resolution, and the CuAction→cursor overlay hook.
 export { selectComputerUseBackend } from './select-backend.js';
 export type { CuBackendId, SelectedComputerUseBackend } from './select-backend.js';
 
 export { createCuaDriverBackend } from './cua-driver-backend.js';
 export type { CuaDriverBackendOptions } from './cua-driver-backend.js';
-
-export { createHelperBackend } from './helper-backend.js';
-export type { HelperBackendOptions } from './helper-backend.js';
 
 export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-path.js';
 

@@ -13,19 +13,17 @@
 // abort) stay in the @maka/runtime `computer` tool. cua-driver does NOT redact
 // secrets — the runtime redacts every backend-supplied message upstream.
 //
-// KEYBOARD FAILS CLOSED HERE. Not because the mechanism is unsafe — verified
-// against the real driver, cua-driver's type_text/press_key ARE background-safe
-// (delivery_mode:"background" = no fronting/raising/focus-steal) and target an
-// explicit pid. The problem is *which* pid: the flat Anthropic computer grammar
-// (type/key carry only `text`, no target) gives no window/pid context, and a
-// scope:'desktop' click does not raise/focus its target — so the only pid we
-// could GUESS is the OS-frontmost app = the user's active window. Typing there
-// would violate the non-negotiable "never disturb the user's active app". Doing
-// it right needs the element/window flow (get_accessibility_tree / get_window_state
-// → owner pid or element_index+window_id → type_text{pid, delivery_mode:background}),
-// which this coordinate-oriented backend does not implement yet. Until then type/key
-// return a truthful `unsupported_action` rather than guess. (The Tier-1 AX helper
-// backend already does targeted background typing to a resolved pid.)
+// KEYBOARD IS TARGET-BOUND, NEVER FRONTMOST. cua-driver's type_text/press_key are
+// background-safe (delivery_mode:"background" = no fronting/raising/focus-steal) and
+// target an explicit pid. The only hazard is *which* pid: the flat Anthropic grammar
+// (type/key carry just `text`, no target), so a naive backend could only GUESS the
+// OS-frontmost app = the user's active window — typing there would violate the
+// non-negotiable "never disturb the user's active app". We resolve the pid instead of
+// guessing it: every click/scroll/drag records the window the AGENT aimed at
+// (`lastTarget` = {pid, windowId}), and type/key deliver ONLY to that window in the
+// background (delivery_mode left DEFAULT). With no established target we FAIL CLOSED —
+// we never fall back to frontmost. This is the standard click-to-focus-then-type flow:
+// the agent's own preceding click both establishes the target and focuses the field.
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
@@ -303,13 +301,56 @@ function toOutcome(result: JsonRpcResponse['result'], tierVerified: boolean | un
   return { ok: true, tier: 'coordinate-background', verified: tierVerified };
 }
 
+/**
+ * Map an Anthropic `key` chord (e.g. "Return", "cmd+a", "ctrl+shift+t") to
+ * cua-driver's press_key grammar: a single lowercased key name + a modifier
+ * array drawn from {cmd, shift, option, ctrl, fn}. Best-effort: an unrecognized
+ * key name is passed through lowercased and fails cleanly at the driver (a typed
+ * error, never a wrong-window keystroke). Synonyms are normalized to the mac set.
+ */
+const KEY_MODIFIER_ALIASES: Record<string, string> = {
+  cmd: 'cmd', command: 'cmd', meta: 'cmd', super: 'cmd', win: 'cmd', windows: 'cmd',
+  ctrl: 'ctrl', control: 'ctrl',
+  alt: 'option', option: 'option', opt: 'option',
+  shift: 'shift', fn: 'fn', function: 'fn',
+};
+const KEY_NAME_ALIASES: Record<string, string> = {
+  enter: 'return', 'return': 'return', esc: 'escape', escape: 'escape',
+  del: 'delete', delete: 'delete', backspace: 'delete',
+  ' ': 'space', space: 'space',
+  page_up: 'pageup', pageup: 'pageup', page_down: 'pagedown', pagedown: 'pagedown',
+};
+export function parseKeyChord(text: string): { key: string; modifiers: string[] } {
+  const raw = text.trim();
+  // Split a "+"-joined chord, but keep a lone "+" (the plus key) intact.
+  const tokens = raw === '+' ? ['+'] : raw.split('+').map((t) => t.trim()).filter((t) => t.length > 0);
+  if (tokens.length === 0) return { key: raw.toLowerCase(), modifiers: [] };
+  const keyToken = tokens[tokens.length - 1].toLowerCase();
+  const key = KEY_NAME_ALIASES[keyToken] ?? keyToken;
+  const modifiers = [
+    ...new Set(
+      tokens.slice(0, -1)
+        .map((m) => KEY_MODIFIER_ALIASES[m.toLowerCase()])
+        .filter((m): m is string => Boolean(m)),
+    ),
+  ];
+  return { key, modifiers };
+}
+
 export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatchBackend & { dispose: () => void } {
   const client = new CuaDriverClient(opts);
-
   // Cached backing scale (device px per logical point). The model's click
   // coordinate is in get_desktop_state DEVICE pixels; window bounds from
   // list_windows are in logical SCREEN POINTS, so we convert with this.
   let lastFrameWidthPx: number | undefined; // device width of the last capture
+
+  // The window the AGENT most recently aimed a click/scroll/drag at, recorded
+  // from resolveWindowAt. Keyboard (type/key) delivers ONLY here — never to the
+  // OS-frontmost (= the user's active) window. Null until the agent has targeted
+  // something, in which case type/key FAIL CLOSED rather than guess a pid. This
+  // is the standard click-to-focus-then-type contract: the click that sets the
+  // target is the same click that focuses the field the keystrokes land in.
+  let lastTarget: { pid: number; windowId: number } | null = null;
   async function getScale(signal: AbortSignal): Promise<number> {
     const r = await client.callTool('get_screen_size', {}, signal);
     const sc = r?.structuredContent ?? {};
@@ -431,6 +472,9 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           if (action.type === 'double_click') args.count = 2;
           if (action.type === 'triple_click') args.count = 3;
           const r = await client.callTool('click', args, signal);
+          // The agent aimed a click at this window → it becomes the keyboard target
+          // (and this same click focuses the field a subsequent `type` writes to).
+          lastTarget = { pid: win.pid, windowId: win.windowId };
           return { outcome: toOutcome(r, undefined) };
         }
         case 'scroll': {
@@ -453,6 +497,8 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             { pid: win.pid, window_id: win.windowId, x: win.localX, y: win.localY, direction: action.scrollDirection, amount: action.scrollAmount },
             signal,
           );
+          // The agent aimed input at this window → it becomes the keyboard target.
+          lastTarget = { pid: win.pid, windowId: win.windowId };
           return { outcome: toOutcome(r, undefined) };
         }
         case 'left_click_drag': {
@@ -499,26 +545,45 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             { pid: from.pid, window_id: from.windowId, from_x: from.localX, from_y: from.localY, to_x: to.localX, to_y: to.localY },
             signal,
           );
+          // Both endpoints are in this one window (checked above) → keyboard target.
+          lastTarget = { pid: from.pid, windowId: from.windowId };
           return { outcome: toOutcome(r, undefined) };
         }
         case 'type':
-        case 'key':
-          // FAIL CLOSED — see the module header. cua-driver keyboard is background-
-          // safe (delivery_mode:"background", no focus steal) but needs a *target
-          // pid*; the flat grammar carries none, and guessing frontmost = the user's
-          // active window. We refuse honestly rather than guess (upgrade path: resolve
-          // the target pid via get_accessibility_tree / get_window_state, then type
-          // to THAT pid — never frontmost).
-          return {
-            outcome: {
-              ok: false,
-              error: 'unsupported_action',
-              message:
-                `keyboard action '${action.type}' is unavailable via the cua-driver backend `
-                + '(its only resolvable target is the frontmost/your active window); '
-                + 'use the AX-helper backend (MAKA_CU_BACKEND=ax-helper) for background typing to a specific target',
-            },
-          };
+        case 'key': {
+          // Target-bound keyboard: deliver ONLY to the window the agent last aimed
+          // a click/scroll/drag at (lastTarget) — never the OS-frontmost window,
+          // which is the user's active app. With no established target we FAIL
+          // CLOSED rather than guess a pid (the one non-negotiable rule). Both
+          // type_text and press_key default to delivery_mode:"background" (no
+          // fronting/raising/focus-steal) — we deliberately never pass 'foreground'.
+          if (!lastTarget) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message:
+                  `keyboard action '${action.type}' has no target window yet — refusing: `
+                  + 'keystrokes go ONLY to the window the agent last clicked (never your frontmost app). '
+                  + 'Click the field/control you want to type into first, then send the keys.',
+              },
+            };
+          }
+          if (action.type === 'type') {
+            const r = await client.callTool(
+              'type_text',
+              { pid: lastTarget.pid, window_id: lastTarget.windowId, text: action.text },
+              signal,
+            );
+            return { outcome: toOutcome(r, undefined) };
+          }
+          // action.type === 'key': a single chord → press_key {key, modifiers}.
+          const { key, modifiers } = parseKeyChord(action.text);
+          const keyArgs: Record<string, unknown> = { pid: lastTarget.pid, window_id: lastTarget.windowId, key };
+          if (modifiers.length > 0) keyArgs.modifiers = modifiers;
+          const r = await client.callTool('press_key', keyArgs, signal);
+          return { outcome: toOutcome(r, undefined) };
+        }
         case 'wait':
           await new Promise((res) => setTimeout(res, Math.min(action.durationMs, 10_000)));
           return { outcome: { ok: true, tier: 'coordinate-background' } };

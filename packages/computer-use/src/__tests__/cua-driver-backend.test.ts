@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 
 import type { CuAction } from '@maka/core';
-import { createCuaDriverBackend } from '../cua-driver-backend.js';
+import { createCuaDriverBackend, parseKeyChord } from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
 
@@ -89,9 +89,17 @@ function handle(msg) {
         // Two layer-0 windows. Win 77 covers screen-points (100,100)-(700,500).
         // Win 88 sits at (100,600)-(400,900) — disjoint from win 77 and from every
         // existing test's probe point, used only to exercise cross-window drag.
+        // Wins 91-94 overlap ONLY at a fresh probe point screen (1000,200) that no
+        // other test touches — they exercise the z-order tiebreak (92 z9 beats 91 z2)
+        // and the eligibility filter (93 is layer!=0, 94 is off-screen → both excluded
+        // despite the highest z / covering the point).
         reply(id, { content: [], structuredContent: { windows: [
           { window_id: 77, pid: 4242, layer: 0, is_on_screen: true, z_index: 5, bounds: { x: 100, y: 100, width: 600, height: 400 } },
           { window_id: 88, pid: 4242, layer: 0, is_on_screen: true, z_index: 3, bounds: { x: 100, y: 600, width: 300, height: 300 } },
+          { window_id: 91, pid: 5001, layer: 0, is_on_screen: true, z_index: 2, bounds: { x: 900, y: 100, width: 400, height: 300 } },
+          { window_id: 92, pid: 5002, layer: 0, is_on_screen: true, z_index: 9, bounds: { x: 950, y: 150, width: 300, height: 200 } },
+          { window_id: 93, pid: 5003, layer: 3, is_on_screen: true, z_index: 99, bounds: { x: 900, y: 100, width: 400, height: 300 } },
+          { window_id: 94, pid: 5004, layer: 0, is_on_screen: false, z_index: 50, bounds: { x: 900, y: 100, width: 400, height: 300 } },
         ] } });
         return;
       case 'list_apps':
@@ -285,6 +293,7 @@ describe('cua-driver backend', () => {
     assert.equal(click!.x, 400);
     assert.equal(click!.y, 200);
     assert.equal(click!.scope, undefined, 'must NOT use scope:desktop (that warps the real cursor)');
+    assert.equal(click!.delivery_mode, undefined, 'must NOT force foreground on click (default Background = no warp / no z-order change)');
   });
 
   it('click on empty desktop (no window) fails closed — never warps', async () => {
@@ -296,6 +305,47 @@ describe('cua-driver backend', () => {
     if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
     const trace = methodTrace(await readRecords(logPath));
     assert.ok(!trace.includes('tools/call:click'), 'no click sent when no window (would warp)');
+  });
+
+  it('after a screenshot, coordinates use the true device/logical ratio (screenshot_width/logical_width), not scale_factor', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // A screenshot sets lastFrameWidthPx=1440; get_screen_size.width=1512. So the
+    // PRIMARY scale is 1440/1512 (≈0.952), NOT scale_factor=2. This is the path that
+    // matters in the real app (scale_factor was observed lying as 1 on a Retina display
+    // → clicks flew off-screen); every OTHER coordinate test exercises only the
+    // pre-screenshot scale_factor fallback, so this locks the production path.
+    await backend.run({ type: 'screenshot' } as CuAction, sig);
+    const res = await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    assert.equal(res.outcome.ok, true);
+
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.ok(click);
+    assert.equal(click!.pid, 4242);
+    assert.equal(click!.window_id, 77, 'device (600,400) ÷ 0.952 = screen (630,420) ∈ win 77');
+    const scale = 1440 / 1512;
+    const expectedX = 600 - 100 * scale; // window-local device px = device − origin*scale
+    const expectedY = 400 - 100 * scale;
+    assert.ok(Math.abs(click!.x - expectedX) < 1e-6, `localX ${click!.x} ≈ ${expectedX} (primary scale), not the fallback`);
+    assert.ok(Math.abs(click!.y - expectedY) < 1e-6, `localY ${click!.y} ≈ ${expectedY}`);
+    assert.notEqual(click!.x, 400, 'must NOT be the scale_factor=2 fallback value (400)');
+  });
+
+  it('resolveWindowAt picks the highest z-order eligible window; excludes layer!=0 and off-screen', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // scale_factor=2 (no screenshot). Device (2000,400) → screen (1000,200), covered by
+    // win 91 (z2), 92 (z9), 93 (layer 3), 94 (off-screen). Eligible = {91,92}; highest
+    // z_index wins → 92. 93/94 are excluded despite covering the point and outranking on z.
+    const res = await backend.run({ type: 'left_click', coordinate: { x: 2000, y: 400 } } as CuAction, sig);
+    assert.equal(res.outcome.ok, true);
+
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.ok(click);
+    assert.equal(click!.window_id, 92, 'highest-z eligible window wins the tiebreak (not 91)');
+    assert.equal(click!.pid, 5002, 'winner is 92, and the excluded 93 (layer!=0) / 94 (off-screen) were NOT chosen');
+    assert.equal(click!.x, 2000 - 950 * 2, 'window-local device px = device − origin.x*scale');
+    assert.equal(click!.y, 400 - 150 * 2);
   });
 
   it('scroll on an app window → pid+window_id (no warp); empty desktop fails closed', async () => {
@@ -311,6 +361,7 @@ describe('cua-driver backend', () => {
     assert.equal(scroll!.scope, undefined, 'must NOT use scope:desktop');
     assert.equal(scroll!.direction, 'down');
     assert.equal(scroll!.amount, 3);
+    assert.equal(scroll!.delivery_mode, undefined, 'must NOT force foreground on scroll');
 
     // Empty desktop → fail closed (device (5,5) → screen (2.5,2.5), outside window).
     const empty = await backend.run({ type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, sig);
@@ -377,7 +428,7 @@ describe('cua-driver backend', () => {
     assert.ok(!trace.some((m) => m.startsWith('tools/call:click') || m.startsWith('tools/call:move')), 'mouse_move must not inject real input');
   });
 
-  it('type / key fail closed as unsupported_action and never inject keystrokes', async () => {
+  it('keyboard with NO prior click fails closed — never guesses a target, never injects', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
 
@@ -389,14 +440,88 @@ describe('cua-driver backend', () => {
     assert.equal(keyRes.outcome.ok, false);
     if (keyRes.outcome.ok === false) assert.equal(keyRes.outcome.error, 'unsupported_action');
 
-    // The non-negotiable invariant: the backend must NEVER resolve a frontmost
-    // target or emit keystrokes. It touches neither list_apps (the removed
-    // frontmost-routing masking shim) nor type_text / press_key.
-    const records = await readRecords(logPath);
-    const trace = methodTrace(records);
+    // The non-negotiable invariant: with no agent-established target, the backend
+    // must NEVER resolve a frontmost pid (list_apps) or emit any keystroke. It is
+    // the ONLY safe answer — guessing frontmost = typing into the user's window.
+    const trace = methodTrace(await readRecords(logPath));
     assert.ok(!trace.includes('tools/call:list_apps'), 'list_apps must not be queried (no frontmost routing)');
-    assert.ok(!trace.includes('tools/call:type_text'), 'type_text must never be sent');
-    assert.ok(!trace.includes('tools/call:press_key'), 'press_key must never be sent');
+    assert.ok(!trace.includes('tools/call:type_text'), 'type_text must never be sent without a target');
+    assert.ok(!trace.includes('tools/call:press_key'), 'press_key must never be sent without a target');
+  });
+
+  it('type after a click → type_text to the clicked window (pid+window_id, background, never foreground)', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // Establish the target: click win 77 (device 600,400 → screen 300,200 ∈ win 77).
+    const click = await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    assert.equal(click.outcome.ok, true);
+
+    const typed = await backend.run({ type: 'type', text: 'hello world' } as CuAction, sig);
+    assert.equal(typed.outcome.ok, true, 'type succeeds once a target is established');
+
+    const records = await readRecords(logPath);
+    const call = toolCall(records, 'type_text');
+    assert.ok(call, 'type_text sent to the agent-clicked window');
+    assert.equal(call!.pid, 4242);
+    assert.equal(call!.window_id, 77);
+    assert.equal(call!.text, 'hello world');
+    assert.equal(call!.delivery_mode, undefined, 'must NOT force foreground — default background = no focus steal');
+    // Red line: the target came from the click, never from a frontmost lookup.
+    assert.ok(!methodTrace(records).includes('tools/call:list_apps'), 'must never resolve a frontmost pid to type into');
+  });
+
+  it('key chord after a click → press_key with parsed key + modifiers (cmd+a)', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+
+    const res = await backend.run({ type: 'key', text: 'cmd+a' } as CuAction, sig);
+    assert.equal(res.outcome.ok, true);
+    const call = toolCall(await readRecords(logPath), 'press_key');
+    assert.ok(call, 'press_key sent to the clicked window');
+    assert.equal(call!.pid, 4242);
+    assert.equal(call!.window_id, 77);
+    assert.equal(call!.key, 'a');
+    assert.deepEqual(call!.modifiers, ['cmd']);
+    assert.equal(call!.delivery_mode, undefined, 'background default, never foreground');
+  });
+
+  it('plain named key after a click → press_key key:"return" with no modifier array', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+
+    const res = await backend.run({ type: 'key', text: 'Return' } as CuAction, sig);
+    assert.equal(res.outcome.ok, true);
+    const call = toolCall(await readRecords(logPath), 'press_key');
+    assert.ok(call);
+    assert.equal(call!.key, 'return');
+    assert.equal(call!.modifiers, undefined, 'omit modifiers when the chord carries none');
+  });
+
+  it('scroll also establishes the keyboard target (any agent-aimed window counts)', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'scroll', coordinate: { x: 600, y: 400 }, scrollDirection: 'down', scrollAmount: 2 } as CuAction, sig);
+
+    const res = await backend.run({ type: 'type', text: 'hi' } as CuAction, sig);
+    assert.equal(res.outcome.ok, true, 'type works after scroll established the target');
+    const call = toolCall(await readRecords(logPath), 'type_text');
+    assert.ok(call);
+    assert.equal(call!.pid, 4242);
+    assert.equal(call!.window_id, 77);
+  });
+
+  it('parseKeyChord maps Anthropic key chords to cua-driver key + mac modifiers', () => {
+    assert.deepEqual(parseKeyChord('Return'), { key: 'return', modifiers: [] });
+    assert.deepEqual(parseKeyChord('cmd+a'), { key: 'a', modifiers: ['cmd'] });
+    assert.deepEqual(parseKeyChord('ctrl+shift+t'), { key: 't', modifiers: ['ctrl', 'shift'] });
+    assert.deepEqual(parseKeyChord('command+Shift+3'), { key: '3', modifiers: ['cmd', 'shift'] });
+    assert.deepEqual(parseKeyChord('alt+Tab'), { key: 'tab', modifiers: ['option'] });
+    assert.deepEqual(parseKeyChord('super+l'), { key: 'l', modifiers: ['cmd'] });
+    assert.deepEqual(parseKeyChord('esc'), { key: 'escape', modifiers: [] });
+    assert.deepEqual(parseKeyChord('Page_Down'), { key: 'pagedown', modifiers: [] });
+    assert.deepEqual(parseKeyChord('+'), { key: '+', modifiers: [] }); // lone plus key
   });
 
   it('abort mid-call kills the child and rejects the promise', async () => {

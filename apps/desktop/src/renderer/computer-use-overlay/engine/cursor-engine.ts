@@ -24,7 +24,6 @@ const SPRING_K = 400;
 const SPRING_C = 17;
 const SPRING_OVERSHOOT = 0.8;
 const CLICK_OFFSET = 16;
-const IDLE_HIDE_MS = 20_000;
 const SENTINEL = -200; // off-screen start; paint hidden while pos.x < -100
 
 /** Resting arrow heading: 45° so the tip points up-left like a normal cursor. */
@@ -42,8 +41,6 @@ export class CursorEngine {
   private clickT: number | null = null;
   private clickOnArrive = false;
   pressed = false;
-  private idleSecs = 0;
-  private idleAlpha = 1;
   private palette: Palette = makaBrandPalette();
 
   setSession(_sessionId: string): void {
@@ -76,8 +73,6 @@ export class CursorEngine {
     this.spring = null;
     this.springTgt = null;
     this.clickOnArrive = clickOnArrive;
-    this.idleSecs = 0;
-    this.idleAlpha = 1;
   }
 
   /** Fire the expanding click-pulse ring (and optionally hold pressed). */
@@ -86,8 +81,6 @@ export class CursorEngine {
       this.pos = [x, y];
     }
     this.clickT = 0;
-    this.idleSecs = 0;
-    this.idleAlpha = 1;
   }
 
   /** True while a glide, spring settle, or click pulse is in progress. */
@@ -95,7 +88,7 @@ export class CursorEngine {
     return this.path !== null || this.spring !== null || this.clickT !== null;
   }
   isVisible(): boolean {
-    return this.pos[0] >= -100 && this.idleAlpha >= 0.004;
+    return this.pos[0] >= -100;
   }
 
   /** Advance the animation by dt seconds. Faithful to tick_swift_constants. */
@@ -148,21 +141,6 @@ export class CursorEngine {
       const next = this.clickT + dt * 4; // full pulse over 0.25s
       this.clickT = next >= 1 ? null : next;
     }
-    this.tickIdle(dt);
-  }
-
-  private tickIdle(dt: number): void {
-    const moving = this.path !== null || this.spring !== null || this.clickT !== null;
-    if (moving) {
-      this.idleSecs = 0;
-      this.idleAlpha = 1;
-      return;
-    }
-    this.idleSecs += dt;
-    const fadeStart = IDLE_HIDE_MS / 1000;
-    const fadeEnd = fadeStart + 0.18;
-    if (this.idleSecs > fadeEnd) this.idleAlpha = 0;
-    else if (this.idleSecs > fadeStart) this.idleAlpha = 1 - Math.min(1, Math.max(0, (this.idleSecs - fadeStart) / 0.18));
   }
 
   /** Paint the cursor into a 2D context. (px,py) = pos − origin, in logical px. */
@@ -170,14 +148,13 @@ export class CursorEngine {
     if (!this.isVisible()) return;
     const px = this.pos[0] - originX;
     const py = this.pos[1] - originY;
-    const a = this.idleAlpha;
     const p = this.palette;
 
     // --- Bloom (radial gradient behind the cursor) ---
     const bloomR = this.pressed ? 34 : 22;
     const grad = ctx.createRadialGradient(px, py, 0, px, py, bloomR);
-    grad.addColorStop(0, rgba(p.bloomInner, (115 / 255) * a));
-    grad.addColorStop(0.5, rgba(p.bloomOuter, (26 / 255) * a));
+    grad.addColorStop(0, rgba(p.bloomInner, 115 / 255));
+    grad.addColorStop(0.5, rgba(p.bloomOuter, 26 / 255));
     grad.addColorStop(1, rgba(p.bloomOuter, 0));
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -186,11 +163,11 @@ export class CursorEngine {
 
     // --- Pressed state (dot + ring) ---
     if (this.pressed) {
-      ctx.fillStyle = rgba(p.cursorMid, (110 / 255) * a);
+      ctx.fillStyle = rgba(p.cursorMid, 110 / 255);
       ctx.beginPath();
       ctx.arc(px, py, 6.5, 0, 2 * PI);
       ctx.fill();
-      ctx.strokeStyle = rgba(p.cursorMid, (210 / 255) * a);
+      ctx.strokeStyle = rgba(p.cursorMid, 210 / 255);
       ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(px, py, 13, 0, 2 * PI);
@@ -201,7 +178,7 @@ export class CursorEngine {
     if (this.clickT !== null) {
       const t = this.clickT;
       const ringR = (bloomR + 20 * t) * (1 - t * 0.5);
-      ctx.strokeStyle = rgba(p.cursorMid, ((1 - t) * 180 / 255) * a);
+      ctx.strokeStyle = rgba(p.cursorMid, (1 - t) * 180 / 255);
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(px, py, ringR, 0, 2 * PI);
@@ -209,10 +186,10 @@ export class CursorEngine {
     }
 
     // --- Arrow glyph (procedural, gradient tip→tail, white outline) ---
-    this.paintArrow(ctx, px, py, a);
+    this.paintArrow(ctx, px, py);
   }
 
-  private paintArrow(ctx: CanvasRenderingContext2D, px: number, py: number, a: number): void {
+  private paintArrow(ctx: CanvasRenderingContext2D, px: number, py: number): void {
     const verts: ReadonlyArray<readonly [number, number]> = [[14, 0], [-8, -9], [-3, 0], [-8, 9]];
     const angle = this.heading + PI; // tip points along motion (draw_default_arrow)
     const ca = Math.cos(angle), sa = Math.sin(angle);
@@ -227,13 +204,13 @@ export class CursorEngine {
     ctx.closePath();
 
     const g = ctx.createLinearGradient(tip[0], tip[1], tail[0], tail[1]);
-    const c = (rgb: Rgb): string => rgba(rgb, a);
+    const c = (rgb: Rgb): string => rgba(rgb, 1);
     g.addColorStop(0.0, c(p.cursorStart));
     g.addColorStop(0.53, c(p.cursorMid));
     g.addColorStop(1.0, c(p.cursorEnd));
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = `rgba(255,255,255,${a})`;
+    ctx.strokeStyle = 'rgba(255,255,255,1)';
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.stroke();

@@ -34,6 +34,11 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
     );
     assert.match(
       scripts['check:release']!,
+      /check:cua-driver-bundle/,
+      '`check:release` must continue to gate on cua-driver bundle integrity.',
+    );
+    assert.match(
+      scripts['check:release']!,
       /check-dead-css\.mjs --check/,
       '`check:release` must continue to gate on the Round G dead-CSS baseline check.',
     );

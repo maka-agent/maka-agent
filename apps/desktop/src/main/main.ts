@@ -476,10 +476,10 @@ const officeTools: MakaTool[] = [buildOfficeDocumentTool(), buildOfficeDocumentE
 // WebContentsView via the BrowserViewHost the desktop provides in registerIpc;
 // outside the app (no host) they report the browser as unavailable.
 const browserTools: MakaTool[] = buildBrowserTools();
-// Computer-use dispatch: pick + construct a host backend (cua-driver default,
-// ax-helper via MAKA_CU_BACKEND). Fails closed off macOS / missing binary →
-// zero tools, so the `computer` capability group stays unavailable and the
-// tool is never advertised to the model. Disposed in the before-quit handler.
+// Computer-use dispatch: construct the cua-driver host backend. Fails closed off
+// macOS / missing binary → zero tools, so the `computer` capability group stays
+// unavailable and the tool is never advertised to the model. Disposed in the
+// before-quit handler.
 // The overlay controller draws the Maka-owned agent cursor over the real screen;
 // the hook feeds it each action's coordinate (S15 transform in MAIN). Torn down
 // per-session on turn-end (streamEvents) and unconditionally at before-quit.
