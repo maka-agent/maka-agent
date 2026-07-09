@@ -3,8 +3,9 @@ import type { SearchErrorReason, SearchRequest, SearchResult } from '@maka/core'
 import { generalizedErrorMessageChinese } from '@maka/core';
 import { Autocomplete } from '@base-ui/react/autocomplete';
 import { Search, X } from './icons.js';
+import { DialogHeader } from './primitives/dialog-header.js';
 import { InputGroup, InputGroupAddon, InputGroupInput } from './primitives/input-group.js';
-import { DialogClose, DialogContent, DialogRoot, Button as UiButton } from './ui.js';
+import { DialogContent, DialogRoot, Button as UiButton } from './ui.js';
 
 /**
  * PR-SIDEBAR-IA-0 Phase 2 fixup (xuan `91401163` + kenji `6465cf22`,
@@ -225,18 +226,12 @@ export function SearchModal(props: {
         initialFocus={inputRef}
         finalFocus={() => (suppressFocusRestoreRef.current ? false : true)}
       >
-        <header className="maka-search-modal-header">
-          <h2 id="maka-search-modal-title" className="maka-search-modal-title">搜索</h2>
-          <DialogClose
-            render={<UiButton variant="quiet" size="icon-sm" />}
-            type="button"
-            className="maka-search-modal-close"
-            onClick={() => props.onClose()}
-            aria-label="关闭搜索"
-          >
-            <X size={16} aria-hidden="true" />
-          </DialogClose>
-        </header>
+        <DialogHeader
+          icon={<Search aria-hidden="true" />}
+          title="搜索"
+          titleId="maka-search-modal-title"
+          onClose={() => props.onClose()}
+        />
         {/*
           #520 PR8: Autocomplete owns the listbox/option ARIA + ArrowUp/Down/
           Enter/Escape keyboard nav (activedescendant mode). `inline` keeps the

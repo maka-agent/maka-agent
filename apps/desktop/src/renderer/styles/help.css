@@ -18,24 +18,8 @@
   box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.05);
 }
 
-.maka-help-header {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-.maka-help-eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-1);
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--tracking-normal);
-  text-transform: none;
-}
+/* The header row (title + close) is the shared DialogHeader primitive
+ * (@maka/ui) now — no help-specific header/eyebrow CSS. */
 
 .maka-help-body {
   display: grid;

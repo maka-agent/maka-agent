@@ -7,8 +7,8 @@
 // are handled by the same shell as SearchModal / Permission (#520 PR7).
 
 import { useEffect, useState } from 'react';
-import { Keyboard, X } from '@maka/ui/icons';
-import { Button, DialogContent, DialogRoot, Kbd } from '@maka/ui';
+import { Keyboard } from '@maka/ui/icons';
+import { DialogContent, DialogHeader, DialogRoot, Kbd } from '@maka/ui';
 
 type Section = {
   heading: string;
@@ -124,25 +124,12 @@ export function KeyboardHelpModal(props: { onClose(): void }) {
         aria-labelledby="maka-help-title"
         showClose={false}
       >
-        <div className="maka-modal-header maka-help-header">
-          <div>
-            <span className="maka-help-eyebrow" aria-hidden="true">
-              <Keyboard size={14} />
-              <span>键盘快捷键</span>
-            </span>
-            <h2 className="maka-modal-title" id="maka-help-title">所有可用快捷键</h2>
-          </div>
-          <Button
-            type="button"
-            className="settingsCloseButton"
-            variant="quiet"
-            size="icon-sm"
-            aria-label="关闭快捷键面板"
-            onClick={props.onClose}
-          >
-            <X aria-hidden="true" />
-          </Button>
-        </div>
+        <DialogHeader
+          icon={<Keyboard aria-hidden="true" />}
+          title="键盘快捷键"
+          titleId="maka-help-title"
+          onClose={props.onClose}
+        />
         <div className="maka-modal-body maka-help-body">
           {SHORTCUTS.map((section) => (
             <section key={section.heading} className="maka-help-section">
