@@ -29,7 +29,7 @@ function mod2pi(x: number): number {
 export class PlannedPath {
   readonly length: number;
   readonly endVisualHeading: number;
-  private readonly kind: 'dubins' | 'linear';
+  private readonly kind: 'dubins' | 'straight';
   private readonly x0: number;
   private readonly y0: number;
   private readonly th0: number;
@@ -43,7 +43,7 @@ export class PlannedPath {
   private readonly th1: number;
 
   constructor(f: {
-    length: number; endVisualHeading: number; kind: 'dubins' | 'linear';
+    length: number; endVisualHeading: number; kind: 'dubins' | 'straight';
     x0: number; y0: number; th0: number; r: number;
     seg1: number; seg2: number; seg3: number; types: [SegType, SegType, SegType];
     x1: number; y1: number; th1: number;
@@ -55,10 +55,10 @@ export class PlannedPath {
   }
 
   sample(distance: number): PathState {
-    return this.kind === 'linear' ? this.sampleLinear(distance) : this.sampleDubins(distance);
+    return this.kind === 'straight' ? this.sampleStraight(distance) : this.sampleDubins(distance);
   }
 
-  private sampleLinear(s: number): PathState {
+  private sampleStraight(s: number): PathState {
     const len = Math.max(this.length, 1);
     const u = Math.min(1, Math.max(0, s / len));
     let diff = this.th1 - this.th0;
@@ -173,7 +173,7 @@ export function planPath(x0: number, y0: number, th0: number, x1: number, y1: nu
   if (dubins) return dubins;
   const d = Math.max(Math.hypot(x1 - x0, y1 - y0), 1);
   return new PlannedPath({
-    length: d, endVisualHeading, kind: 'linear',
+    length: d, endVisualHeading, kind: 'straight',
     x0, y0, th0, r, seg1: 0, seg2: 0, seg3: 0, types: ['S', 'S', 'S'], x1, y1, th1,
   });
 }
