@@ -74,6 +74,9 @@ interface SearchModalCloseOptions {
 
 export function SearchModal(props: {
   onClose(options?: SearchModalCloseOptions): void;
+  /** Seed query for the funnel bridge (palette 查看全部结果 → modal).
+   *  Read once on mount; the modal owns the state afterwards. */
+  initialQuery?: string;
   /**
    * Navigate to a session (optionally scrolling to a specific turn).
    * Provided by the application shell so the modal stays portable —
@@ -107,7 +110,7 @@ export function SearchModal(props: {
   //   - `pending` reflects whether ANY IPC call is in flight. We do
   //     NOT show a spinner if the query is empty (avoids flashing
   //     loading state during typing).
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(props.initialQuery ?? '');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [error, setError] = useState<{ reason: SearchErrorReason; message: string } | null>(null);
   const [pending, setPending] = useState(false);

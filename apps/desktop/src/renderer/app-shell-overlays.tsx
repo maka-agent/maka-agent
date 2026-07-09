@@ -54,12 +54,14 @@ export function AppShellOverlays(props: {
   helpOpen: boolean;
   closeHelp(): void;
   searchModalOpen: boolean;
+  searchModalInitialQuery: string;
   closeSearchModal: SearchModalProps['onClose'];
   searchModalDeps: SearchModalProps['deps'];
   searchModalOnNavigate: NonNullable<SearchModalProps['onNavigateToSession']>;
   paletteOpen: boolean;
   closePalette(): void;
   paletteOnSelectSession(sessionId: string, turnId?: string): void;
+  paletteOnOpenSearchModal(query: string): void;
   commandOptions: AppShellCommandListOptions;
 }) {
   const {
@@ -72,11 +74,13 @@ export function AppShellOverlays(props: {
     connections,
     defaultConnection,
     helpOpen,
+    paletteOnOpenSearchModal,
     paletteOnSelectSession,
     paletteOpen,
     refreshConnections,
     respondToPermission,
     searchModalDeps,
+    searchModalInitialQuery,
     searchModalOnNavigate,
     searchModalOpen,
     settingsOpen,
@@ -119,6 +123,7 @@ export function AppShellOverlays(props: {
         <SearchModal
           onClose={closeSearchModal}
           deps={searchModalDeps}
+          initialQuery={searchModalInitialQuery}
           onNavigateToSession={searchModalOnNavigate}
         />
       )}
@@ -126,6 +131,10 @@ export function AppShellOverlays(props: {
         <CommandPalette
           onClose={closePalette}
           onSelectSession={paletteOnSelectSession}
+          onOpenSearchModal={(query) => {
+            closePalette();
+            paletteOnOpenSearchModal(query);
+          }}
           commands={buildAppShellCommandList(commandOptions)}
         />
       )}

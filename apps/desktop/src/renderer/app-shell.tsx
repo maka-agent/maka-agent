@@ -276,6 +276,9 @@ export function AppShell({
   // modal; result selection below can also hand ChatView a turn anchor
   // so the hit is visible after session navigation.
   const [searchModalOpen, setSearchModalOpen] = useState(false);
+  // Funnel bridge: query handed from the palette's 查看全部结果 row into the
+  // search modal. Topbar opens reset it so a plain open starts blank.
+  const [searchModalInitialQuery, setSearchModalInitialQuery] = useState('');
   const [searchScrollTarget, setSearchScrollTarget] = useState<{
     sessionId: string;
     turnId: string;
@@ -659,6 +662,10 @@ export function AppShell({
   }, []);
   const paletteOnSelectSession = useCallback((sessionId: string, turnId?: string) => {
     openSessionInChatRef.current(sessionId, turnId);
+  }, []);
+  const paletteOnOpenSearchModal = useCallback((query: string) => {
+    setSearchModalInitialQuery(query);
+    setSearchModalOpen(true);
   }, []);
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
@@ -1369,7 +1376,10 @@ export function AppShell({
       >
         <AppShellTopbarActions
           sidebarCollapsed={sessionListCollapsed}
-          onOpenSearchModal={() => setSearchModalOpen(true)}
+          onOpenSearchModal={() => {
+            setSearchModalInitialQuery('');
+            setSearchModalOpen(true);
+          }}
           onCollapseSidebar={() => setSessionListCollapsed(true)}
           onExpandSidebar={() => setSessionListCollapsed(false)}
           onCreateSession={createSession}
@@ -1675,12 +1685,14 @@ export function AppShell({
         helpOpen={helpOpen}
         closeHelp={closeHelp}
         searchModalOpen={searchModalOpen}
+        searchModalInitialQuery={searchModalInitialQuery}
         closeSearchModal={closeSearchModal}
         searchModalDeps={searchModalDeps}
         searchModalOnNavigate={searchModalOnNavigate}
         paletteOpen={paletteOpen}
         closePalette={closePalette}
         paletteOnSelectSession={paletteOnSelectSession}
+        paletteOnOpenSearchModal={paletteOnOpenSearchModal}
         commandOptions={commandOptions}
       />
     </div>
