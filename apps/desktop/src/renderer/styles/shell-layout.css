@@ -36,12 +36,14 @@
 .maka-shell-2col {
   --maka-sidebar-topbar-button-size: 24px;
   --maka-sidebar-topbar-gap: 8px;
-  /* Alignment governance: the rail is 34px tall with centered 24px buttons,
-     so top = safe-top(20, the traffic-light center) - 17 centers the buttons
-     EXACTLY on the traffic lights — same math as
-     --maka-workspace-top-actions-top. The old -18 left this cluster 1px
-     higher than both the lights and the right-side action cluster. */
-  --maka-sidebar-topbar-offset-y: calc(var(--maka-titlebar-control-safe-top) - 17px);
+  /* Alignment governance, PIXEL-MEASURED (screencapture + centroid): the
+     macOS traffic lights draw ~13.5pt tall with their optical center at
+     y=20.75 — NOT the theoretical 20 (position 14 + 12/2). Icon glyphs
+     centered at 19.8 read visibly high. top = safe-top - 16 puts the
+     34px rail's 24px buttons at center 21 (0.25px inside the lights'
+     center — imperceptible, integer-safe). Keep in lockstep with
+     --maka-workspace-top-actions-top. */
+  --maka-sidebar-topbar-offset-y: calc(var(--maka-titlebar-control-safe-top) - 16px);
   --maka-sidebar-topbar-offset-x: calc(var(--maka-titlebar-control-safe-left) - 10px);
   --maka-sidebar-collapsed-topbar-inset: calc(
     var(--maka-sidebar-topbar-offset-x) + var(--maka-sidebar-topbar-button-size) +
