@@ -489,7 +489,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     const keybindings = [
       '  Ctrl+O — expand or collapse all tool output',
       '  Ctrl+T — expand or collapse the latest thinking block',
-      '  PageUp / PageDown — scroll the transcript',
+      '  Scroll the transcript with your terminal or trackpad',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
       '  Ctrl+C / Ctrl+D — exit Maka',
@@ -873,6 +873,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // windowed, so when it shrinks (collapsing tool output, a thinking block
   // re-wrapping) a full clear would wipe the scrollback the user scrolls through.
   // Differential rendering clears the vacated rows without the wipe.
+  //
+  // Known limit: a global Ctrl+O / Ctrl+T toggle that resizes a block sitting
+  // *above* the live viewport top makes pi-tui's differential renderer fall back
+  // to a full redraw (its `firstChanged < viewportTop` path), which does emit a
+  // scrollback-clearing sequence. That path re-emits the whole transcript, so no
+  // transcript content is lost — the tail is rebuilt into fresh scrollback — but
+  // the scroll position resets and any pre-Maka scrollback is cleared. Fully
+  // avoiding it would require a preserve-scrollback render path inside pi-tui,
+  // which we do not own; setClearOnShrink only governs the shrink path above.
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);

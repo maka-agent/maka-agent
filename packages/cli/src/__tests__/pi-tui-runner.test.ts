@@ -1355,6 +1355,10 @@ describe('Maka Pi TUI runner', () => {
     assert.ok(out.includes('Keybindings'));
     assert.ok(out.includes('Ctrl+O'));
     assert.ok(out.includes('Esc Esc'));
+    // Scrolling is the terminal's own now; the removed PgUp/PgDn pager must not
+    // be advertised as a working keybinding.
+    assert.ok(out.includes('terminal or trackpad'));
+    assert.equal(out.includes('PageUp'), false);
     assert.deepEqual(driver.prompts, []);
 
     terminal.input('\x03');
