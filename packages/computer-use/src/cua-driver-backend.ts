@@ -455,6 +455,52 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           );
           return { outcome: toOutcome(r, undefined) };
         }
+        case 'left_click_drag': {
+          // Press-drag-release WITHIN a single window. cua-driver's `drag` sends the
+          // whole down→(interpolated moves)→up sequence through the SAME window-local
+          // post_mouse_event → SLEventPostToPid/CGEventPostToPid path as click
+          // (source-verified against cua-driver-rs v0.7.1: NO CGWarpMouseCursorPosition
+          // anywhere on the drag path — the only warp in the whole crate is click's
+          // pid-less scope:'desktop' branch, and drag has no such branch since its pid
+          // is required). So a pid+window_id drag never moves the user's REAL cursor.
+          // We resolve BOTH endpoints and require the SAME window: a window-local drag
+          // cannot cross windows, and cross-app drag-and-drop needs a real
+          // NSDraggingSession this synthetic post_to_pid path cannot establish
+          // (cua-driver itself marks the result unverifiable). Fail closed on empty
+          // desktop (no target window ⇒ no required pid to post to) or cross-window.
+          // delivery_mode is left DEFAULT (Background) — never 'foreground', which
+          // would briefly reorder window z-order/frontmost (a focus disturbance).
+          const from = await resolveWindowAt(action.startCoordinate.x, action.startCoordinate.y, signal);
+          const to = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          if (!from || !to) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message:
+                  'drag endpoint is not over an app window (empty desktop) — refusing: the drag needs a target window/pid. '
+                  + 'Drag within a single app window instead.',
+              },
+            };
+          }
+          if (from.pid !== to.pid || from.windowId !== to.windowId) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message:
+                  'drag endpoints span different windows — refusing: a background window-local drag cannot cross windows, '
+                  + 'and cross-app drag-and-drop needs a real drag session. Keep both endpoints inside one window.',
+              },
+            };
+          }
+          const r = await client.callTool(
+            'drag',
+            { pid: from.pid, window_id: from.windowId, from_x: from.localX, from_y: from.localY, to_x: to.localX, to_y: to.localY },
+            signal,
+          );
+          return { outcome: toOutcome(r, undefined) };
+        }
         case 'type':
         case 'key':
           // FAIL CLOSED — see the module header. cua-driver keyboard is background-

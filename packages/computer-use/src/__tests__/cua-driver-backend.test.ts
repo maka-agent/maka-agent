@@ -79,13 +79,19 @@ function handle(msg) {
       case 'scroll':
         reply(id, { content: [{ type: 'text', text: 'scrolled' }], structuredContent: {} });
         return;
+      case 'drag':
+        reply(id, { content: [{ type: 'text', text: 'dragged' }], structuredContent: {} });
+        return;
       case 'get_screen_size':
         reply(id, { content: [], structuredContent: { width: 1512, height: 982, scale_factor: 2 } });
         return;
       case 'list_windows':
-        // One layer-0 window covering screen-points (100,100)-(700,500).
+        // Two layer-0 windows. Win 77 covers screen-points (100,100)-(700,500).
+        // Win 88 sits at (100,600)-(400,900) — disjoint from win 77 and from every
+        // existing test's probe point, used only to exercise cross-window drag.
         reply(id, { content: [], structuredContent: { windows: [
           { window_id: 77, pid: 4242, layer: 0, is_on_screen: true, z_index: 5, bounds: { x: 100, y: 100, width: 600, height: 400 } },
+          { window_id: 88, pid: 4242, layer: 0, is_on_screen: true, z_index: 3, bounds: { x: 100, y: 600, width: 300, height: 300 } },
         ] } });
         return;
       case 'list_apps':
@@ -309,6 +315,58 @@ describe('cua-driver backend', () => {
     // Empty desktop → fail closed (device (5,5) → screen (2.5,2.5), outside window).
     const empty = await backend.run({ type: 'scroll', coordinate: { x: 5, y: 5 }, scrollDirection: 'down', scrollAmount: 3 } as CuAction, sig);
     assert.equal(empty.outcome.ok, false);
+  });
+
+  it('left_click_drag within one window → drag via pid+window_id (no warp), window-local coords', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // scale=2. start device (600,400) → screen (300,200) ∈ win 77;
+    //           end  device (800,600) → screen (400,300) ∈ win 77. Same window.
+    const res = await backend.run(
+      { type: 'left_click_drag', startCoordinate: { x: 600, y: 400 }, coordinate: { x: 800, y: 600 } } as CuAction,
+      sig,
+    );
+    assert.equal(res.outcome.ok, true, 'same-window drag succeeds');
+    const drag = toolCall(await readRecords(logPath), 'drag');
+    assert.ok(drag, 'drag sent to cua-driver');
+    assert.equal(drag!.pid, 4242);
+    assert.equal(drag!.window_id, 77);
+    // window-local device px = model device − window origin(100) * scale(2) = 200.
+    assert.equal(drag!.from_x, 400); // 600-200
+    assert.equal(drag!.from_y, 200); // 400-200
+    assert.equal(drag!.to_x, 600); // 800-200
+    assert.equal(drag!.to_y, 400); // 600-200
+    assert.equal(drag!.scope, undefined, 'must NOT use scope:desktop (the warping path)');
+    assert.equal(drag!.delivery_mode, undefined, 'must NOT force foreground; default Background is no-warp + no z-order disturbance');
+  });
+
+  it('left_click_drag with an endpoint on empty desktop fails closed — never posts a drag', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // start device (5,5) → screen (2.5,2.5): outside every window ⇒ no pid to post to.
+    const res = await backend.run(
+      { type: 'left_click_drag', startCoordinate: { x: 5, y: 5 }, coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+    );
+    assert.equal(res.outcome.ok, false);
+    if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
+    const trace = methodTrace(await readRecords(logPath));
+    assert.ok(!trace.includes('tools/call:drag'), 'no drag sent when an endpoint has no window');
+  });
+
+  it('left_click_drag across two different windows fails closed — no cross-window drag', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    // start device (600,400) → screen (300,200) ∈ win 77;
+    //  end  device (400,1400) → screen (200,700) ∈ win 88. Different windows.
+    const res = await backend.run(
+      { type: 'left_click_drag', startCoordinate: { x: 600, y: 400 }, coordinate: { x: 400, y: 1400 } } as CuAction,
+      sig,
+    );
+    assert.equal(res.outcome.ok, false);
+    if (res.outcome.ok === false) assert.equal(res.outcome.error, 'unsupported_action');
+    const trace = methodTrace(await readRecords(logPath));
+    assert.ok(!trace.includes('tools/call:drag'), 'no drag sent when endpoints span windows');
   });
 
   it('mouse_move succeeds without touching cua-driver (visual agent-cursor only)', async () => {
