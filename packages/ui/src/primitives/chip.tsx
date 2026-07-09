@@ -42,18 +42,37 @@ export const chipVariants = cva(
 export interface ChipProps extends useRender.ComponentProps<"span"> {
   variant?: VariantProps<typeof chipVariants>["variant"];
   size?: VariantProps<typeof chipVariants>["size"];
+  // Render a leading 6px round status dot (currentColor at 70% alpha) before
+  // the label — the "● 已连接" affordance from the retired .settingsBotStatusPill.
+  // The dot inherits the chip's tone via currentColor, so it stays in sync
+  // with the variant with no extra tone plumbing.
+  dot?: boolean;
 }
 
 export function Chip({
   className,
   variant,
   size,
+  dot,
+  children,
   render,
   ...props
 }: ChipProps): React.ReactElement {
   const defaultProps = {
-    className: cn(chipVariants({ className, size, variant })),
+    className: cn(chipVariants({ className, size, variant }), dot && "gap-[var(--space-1)]"),
     "data-slot": "chip",
+    children: (
+      <>
+        {dot ? (
+          <span
+            aria-hidden="true"
+            data-slot="chip-dot"
+            className="size-1.5 shrink-0 rounded-full bg-current opacity-70"
+          />
+        ) : null}
+        {children}
+      </>
+    ),
   };
 
   return useRender({

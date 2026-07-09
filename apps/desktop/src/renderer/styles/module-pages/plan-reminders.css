@@ -777,25 +777,9 @@
   padding: var(--space-1-5) var(--space-2-5);
 }
 
-.maka-plan-run-status {
-  border-radius: var(--radius-pill);
-  background: var(--foreground-3);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-semibold);
-  padding: var(--space-0-5) var(--space-1-5);
-}
-
-.maka-plan-run-status[data-status="triggered"] {
-  background: oklch(from var(--success) l c h / 0.10);
-  color: var(--success-text);
-}
-
-.maka-plan-run-status[data-status="blocked"],
-.maka-plan-run-status[data-status="failed"] {
-  background: oklch(from var(--warning) l c h / 0.10);
-  color: var(--warning-text);
-}
+/* .maka-plan-run-status is now the Chip primitive (squared status label);
+   its tone→alpha comes from chip.tsx and the triggered/blocked/failed mapping
+   from planRunStatusChipTone in plan-reminder-panel.tsx. No bespoke CSS. */
 
 .maka-plan-run-main {
   display: grid;

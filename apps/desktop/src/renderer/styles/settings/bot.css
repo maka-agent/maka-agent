@@ -186,31 +186,9 @@
 .settingsBotConfigDocLink:hover {
     text-decoration: underline;
   }
-.settingsBotStatusPill {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-1-5);
-    border-radius: var(--radius-pill);
-    background: color-mix(in srgb, var(--foreground) 5%, transparent);
-    color: var(--foreground-secondary);
-    font-size: var(--font-size-caption);
-    font-weight: var(--font-weight-medium);
-    letter-spacing: var(--tracking-normal);
-  }
-.settingsBotStatusPillDot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--muted-foreground);
-  }
-.settingsBotStatusPill[data-tone="info"] .settingsBotStatusPillDot { background: var(--status-running); }
-.settingsBotStatusPill[data-tone="success"] { color: var(--success-text); }
-.settingsBotStatusPill[data-tone="success"] .settingsBotStatusPillDot { background: var(--success); }
-.settingsBotStatusPill[data-tone="warning"] { color: var(--info-text); }
-.settingsBotStatusPill[data-tone="warning"] .settingsBotStatusPillDot { background: var(--info); }
-.settingsBotStatusPill[data-tone="destructive"] { color: var(--destructive-text); }
-.settingsBotStatusPill[data-tone="destructive"] .settingsBotStatusPillDot { background: var(--destructive); }
+/* .settingsBotStatusPill is now the Chip primitive with dot (squared status
+   label + leading tone dot). tone→alpha and the 6px currentColor dot come from
+   chip.tsx; the "● 已连接" affordance is preserved by the Chip `dot` prop. */
 .settingsHelpText {
     margin: 0;
   }

@@ -62,6 +62,7 @@ import {
   TabsTrigger,
 } from './ui.js';
 import { Badge } from './primitives/badge.js';
+import { Chip, type ChipProps } from './primitives/chip.js';
 import { Input } from './primitives/input.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { Alert, AlertTitle } from './primitives/alert.js';
@@ -88,6 +89,18 @@ function PlanReminderSelect<T extends string>(props: {
   disabled?: boolean;
 }) {
   return <SettingsSelect width="full" {...props} />;
+}
+
+// Run-history status Chip tone. triggered = it fired (info, informational,
+// not a health signal), blocked = intentionally skipped (warning), failed =
+// delivery error (destructive). Exception-only: no success green for a plain
+// "it ran" record.
+function planRunStatusChipTone(
+  status: NonNullable<PlanReminder['lastRun']>['status'],
+): ChipProps['variant'] {
+  if (status === 'blocked') return 'warning';
+  if (status === 'failed') return 'destructive';
+  return 'info';
 }
 
 export function PlanReminderPanel(props: {
@@ -630,9 +643,14 @@ export function PlanReminderPanel(props: {
               <div className="maka-plan-run-list" aria-label="计划提醒执行记录">
                 {visibleRunEntries.map(({ reminder, run }) => (
                   <article key={`${reminder.id}:${run.id}`} className="maka-plan-run-row">
-                    <div className="maka-plan-run-status" data-status={run.status}>
+                    <Chip
+                      size="sm"
+                      variant={planRunStatusChipTone(run.status)}
+                      className="maka-plan-run-status"
+                      data-status={run.status}
+                    >
                       {runStatusLabel(run.status)}
-                    </div>
+                    </Chip>
                     <div className="maka-plan-run-main">
                       <strong>{reminder.title}</strong>
                       <span>{run.message}</span>
