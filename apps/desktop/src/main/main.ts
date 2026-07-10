@@ -350,20 +350,24 @@ const automationWiring = createMainAutomationWiring({
     });
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
-  async injectTurn(sessionId: string, prompt: string, automationId: string) {
+  async injectTurn(sessionId: string, prompt: string, automationId: string, signal: AbortSignal) {
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
-    });
+    }, { signal });
     const r = await streamEvents(sessionId, iterator, turnId);
     return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
   // run the prompt there, so each fire is a first-class session + run.
-  async createFreshRun(prompt: string, automationId: string) {
+  async createFreshRun(prompt: string, automationId: string, signal: AbortSignal) {
+    signal.throwIfAborted();
     const slug = await connectionStore.getDefault();
+    signal.throwIfAborted();
     const { connection, model } = await getReadyConnection(slug, undefined);
+    signal.throwIfAborted();
     const cwd = await resolveCurrentProjectRoot();
+    signal.throwIfAborted();
     const session = await runtime.createSession({
       cwd,
       backend: 'ai-sdk',
@@ -374,17 +378,20 @@ const automationWiring = createMainAutomationWiring({
       labels: ['automation', 'cron'],
     });
     emitSessionsChanged('created', session.id);
-    const turnId = randomUUID();
-    const iterator = runtime.sendMessage(session.id, {
-      turnId, text: prompt, origin: { kind: 'automation', automationId },
-    });
-    const r = await streamEvents(session.id, iterator, turnId);
-    // Archive the fresh cron session after its run finalizes so recurring crons
-    // do not accumulate an unbounded pile of active sessions. The session (with
-    // its run/trace) is preserved under the archive, labelled automation/cron.
-    await runtime.archive(session.id).catch(() => {});
-    emitSessionsChanged('archived', session.id);
-    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    try {
+      signal.throwIfAborted();
+      const turnId = randomUUID();
+      const iterator = runtime.sendMessage(session.id, {
+        turnId, text: prompt, origin: { kind: 'automation', automationId },
+      }, { signal });
+      const r = await streamEvents(session.id, iterator, turnId);
+      return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
+    } finally {
+      // Every cron session is retained as an archived diagnostic, including a
+      // session whose startup or turn was cancelled during app shutdown.
+      await runtime.archive(session.id).catch(() => {});
+      emitSessionsChanged('archived', session.id);
+    }
   },
 });
 
@@ -2060,10 +2067,12 @@ app.on('before-quit', (event) => {
 });
 
 async function runBeforeQuitCleanup(): Promise<void> {
-  automationWiring.scheduler.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
+  await automationWiring.scheduler.dispose().catch((error) => {
+    console.error('[shutdown] automation cleanup failed:', error);
+  });
   const results = await Promise.allSettled([
     botRegistry.stopAll(),
     openGateway.stop(),

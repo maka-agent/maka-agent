@@ -8,7 +8,7 @@
  *   the old wakeup-scheduler's 5s→5min exponential backoff budget); only when
  *   the window is exhausted does skipFire() advance/settle the schedule
  * - Defer bookkeeping is pruned when automations disappear
- * - dispose() sets flag checked in async paths to prevent post-dispose execution
+ * - dispose() joins in-flight dispatches before shutdown completes
  * - Uses deps.now() consistently (injectable for testing)
  */
 
@@ -90,6 +90,7 @@ interface DeferState {
 export class AutomationScheduler {
   private tickTimer: unknown = null;
   private disposed = false;
+  private disposePromise: Promise<void> | undefined;
   private deferStates = new Map<string, DeferState>();
   /** Dispatches owned by this scheduler, for duplicate prevention and joined shutdown. */
   private inFlight = new Map<string, {
@@ -114,16 +115,16 @@ export class AutomationScheduler {
     }
   }
 
-  dispose(): void {
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
     this.disposed = true;
     this.stop();
     this.deferStates.clear();
     for (const { controller } of this.inFlight.values()) controller.abort();
-  }
-
-  async disposeAsync(): Promise<void> {
-    this.dispose();
-    await Promise.allSettled([...this.inFlight.values()].map(({ dispatch }) => dispatch));
+    this.disposePromise = Promise.allSettled(
+      [...this.inFlight.values()].map(({ dispatch }) => dispatch),
+    ).then(() => {});
+    return this.disposePromise;
   }
 
   private scheduleTick(): void {

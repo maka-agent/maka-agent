@@ -248,11 +248,11 @@ describe('AutomationScheduler', () => {
     const t = createTestSetup();
     t.scheduler.start();
     assert.ok(t.timers.length > 0);
-    t.scheduler.dispose();
+    await t.scheduler.dispose();
     assert.equal(t.timers.length, 0);
   });
 
-  test('disposeAsync aborts and waits for an in-flight dispatch', async () => {
+  test('dispose aborts and waits for an in-flight dispatch', async () => {
     let now = 1_700_000_000_000;
     let tick: (() => void) | undefined;
     let dispatchSignal: AbortSignal | undefined;
@@ -291,9 +291,7 @@ describe('AutomationScheduler', () => {
     assert.ok(dispatchSignal);
 
     let settled = false;
-    const shutdown = (scheduler as AutomationScheduler & { disposeAsync(): Promise<void> })
-      .disposeAsync()
-      .then(() => { settled = true; });
+    const shutdown = scheduler.dispose().then(() => { settled = true; });
     assert.equal(dispatchSignal.aborted, true);
     await Promise.resolve();
     assert.equal(settled, false);

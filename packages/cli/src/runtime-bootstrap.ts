@@ -273,7 +273,7 @@ export async function createMakaCliRuntimeContext(
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.
-      await automationScheduler.disposeAsync();
+      await automationScheduler.dispose();
       await shellRuns.terminateAll();
     },
   };
