@@ -38,13 +38,22 @@ export interface AutomationSchedulerDeps {
    * Inject a turn into the automation's own session (heartbeat kind).
    * Resolves with the run outcome AFTER the turn's stream finishes.
    */
-  injectTurn: (sessionId: string, prompt: string, automationId: string) => Promise<AutomationFireResult>;
+  injectTurn: (
+    sessionId: string,
+    prompt: string,
+    automationId: string,
+    signal: AbortSignal,
+  ) => Promise<AutomationFireResult>;
   /**
    * Spawn a fresh session and run the prompt there (cron kind).
    * Resolves with the run outcome AFTER the run's stream finishes.
    * When absent, the host does not support cron and cron fires fail.
    */
-  createFreshRun?: (prompt: string, automationId: string) => Promise<AutomationFireResult>;
+  createFreshRun?: (
+    prompt: string,
+    automationId: string,
+    signal: AbortSignal,
+  ) => Promise<AutomationFireResult>;
   setTimeout: (fn: () => void, ms: number) => unknown;
   clearTimeout: (timer: unknown) => void;
   now?: () => number;
@@ -82,8 +91,11 @@ export class AutomationScheduler {
   private tickTimer: unknown = null;
   private disposed = false;
   private deferStates = new Map<string, DeferState>();
-  /** Automation ids whose fire is currently executing (prevents concurrent re-fire). */
-  private inFlight = new Set<string>();
+  /** Dispatches owned by this scheduler, for duplicate prevention and joined shutdown. */
+  private inFlight = new Map<string, {
+    controller: AbortController;
+    dispatch: Promise<AutomationFireResult>;
+  }>();
   private readonly now: () => number;
 
   constructor(private readonly deps: AutomationSchedulerDeps) {
@@ -106,7 +118,12 @@ export class AutomationScheduler {
     this.disposed = true;
     this.stop();
     this.deferStates.clear();
-    this.inFlight.clear();
+    for (const { controller } of this.inFlight.values()) controller.abort();
+  }
+
+  async disposeAsync(): Promise<void> {
+    this.dispose();
+    await Promise.allSettled([...this.inFlight.values()].map(({ dispatch }) => dispatch));
   }
 
   private scheduleTick(): void {
@@ -221,13 +238,19 @@ export class AutomationScheduler {
     this.deps.onStateChange?.();
 
     const id = automation.id;
-    this.inFlight.add(id);
+    const controller = new AbortController();
     // Dispatch WITHOUT awaiting the tick — the run resolves its outcome later.
     // The outcome (success/failure) is committed only after the stream finishes,
     // so a failed or aborted fire is never recorded as a success.
     const dispatch = automation.kind === 'heartbeat'
-      ? this.deps.injectTurn(automation.sessionId, `[Automation: ${automation.name}]\n\n${automation.prompt}`, id)
-      : this.deps.createFreshRun!(automation.prompt, id);
+      ? this.deps.injectTurn(
+        automation.sessionId,
+        `[Automation: ${automation.name}]\n\n${automation.prompt}`,
+        id,
+        controller.signal,
+      )
+      : this.deps.createFreshRun!(automation.prompt, id, controller.signal);
+    this.inFlight.set(id, { controller, dispatch });
 
     void dispatch.then((result) => {
       this.inFlight.delete(id);
@@ -249,4 +272,3 @@ export class AutomationScheduler {
 }
 
 export { FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS, BACKOFF_BASE_MS, BACKOFF_MAX_MS };
-

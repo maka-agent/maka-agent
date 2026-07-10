@@ -59,7 +59,11 @@ export interface CreateMakaCliRuntimeContextInput {
    * (reviewer G1: a host derives cron support from the executor it passes in).
    * Omitted by the default CLI (no multi-session surface) — heartbeat only.
    */
-  automationCreateFreshRun?: (prompt: string, automationId: string) => Promise<import('@maka/runtime').AutomationFireResult>;
+  automationCreateFreshRun?: (
+    prompt: string,
+    automationId: string,
+    signal: AbortSignal,
+  ) => Promise<import('@maka/runtime').AutomationFireResult>;
 }
 
 export interface GetOrCreateCliClaudeDeviceIdDeps {
@@ -230,11 +234,11 @@ export async function createMakaCliRuntimeContext(
     // Heartbeat: inject into the automation's session; resolve after the drain.
     // The CLI has no multi-session UI, so cron (fresh-session) is disabled —
     // createFreshRun is omitted, so the tool advertises heartbeat only.
-    injectTurn: async (sessionId, prompt, automationId) => {
+    injectTurn: async (sessionId, prompt, automationId, signal) => {
       const turnId = randomUUID();
       const iterator = runtime.sendMessage(sessionId, {
         turnId, text: prompt, origin: { kind: 'automation', automationId },
-      });
+      }, { signal });
       try {
         for await (const _ of iterator) { /* drain */ }
         return { runId: turnId, ok: true };
@@ -269,7 +273,7 @@ export async function createMakaCliRuntimeContext(
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.
-      automationScheduler.dispose();
+      await automationScheduler.disposeAsync();
       await shellRuns.terminateAll();
     },
   };

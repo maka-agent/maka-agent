@@ -252,6 +252,57 @@ describe('AutomationScheduler', () => {
     assert.equal(t.timers.length, 0);
   });
 
+  test('disposeAsync aborts and waits for an in-flight dispatch', async () => {
+    let now = 1_700_000_000_000;
+    let tick: (() => void) | undefined;
+    let dispatchSignal: AbortSignal | undefined;
+    let resolveDispatch: ((result: AutomationFireResult) => void) | undefined;
+    const manager = new AutomationManager({
+      generateId: () => 'auto-1',
+      now: () => now,
+      random: () => 0,
+    });
+    const scheduler = new AutomationScheduler({
+      automationManager: manager,
+      canFire: async () => true,
+      injectTurn: (...args: unknown[]) => {
+        dispatchSignal = args[3] as AbortSignal;
+        return new Promise<AutomationFireResult>((resolve) => {
+          resolveDispatch = resolve;
+        });
+      },
+      setTimeout: (fn) => {
+        tick = fn;
+        return 1;
+      },
+      clearTimeout: () => {
+        tick = undefined;
+      },
+      now: () => now,
+    });
+    manager.create({
+      kind: 'heartbeat', name: 'test', prompt: 'p',
+      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
+    });
+    now += 31_000;
+    scheduler.start();
+    tick?.();
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    assert.ok(dispatchSignal);
+
+    let settled = false;
+    const shutdown = (scheduler as AutomationScheduler & { disposeAsync(): Promise<void> })
+      .disposeAsync()
+      .then(() => { settled = true; });
+    assert.equal(dispatchSignal.aborted, true);
+    await Promise.resolve();
+    assert.equal(settled, false);
+
+    resolveDispatch?.({ runId: 'run-1', ok: false, error: 'aborted' });
+    await shutdown;
+    assert.equal(settled, true);
+  });
+
   test('does not fire expired automations', async () => {
     const t = createTestSetup();
     const auto = t.manager.create({
