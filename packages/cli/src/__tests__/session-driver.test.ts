@@ -70,6 +70,28 @@ describe('Maka session driver', () => {
     assert.deepEqual(runtime.sent, []);
   });
 
+  test('cancels every prompt waiting on the same session creation', async () => {
+    const runtime = new DeferredSessionCreationRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+    const firstTurn = collect(driver.sendPrompt('first'));
+    const secondTurn = collect(driver.sendPrompt('second'));
+    await runtime.createStarted;
+    const stop = driver.stop();
+
+    runtime.releaseCreate();
+    await Promise.all([stop, firstTurn, secondTurn]);
+
+    assert.equal(runtime.created.length, 1);
+    assert.deepEqual(runtime.stopped, ['session-1']);
+    assert.deepEqual(runtime.sent, []);
+  });
+
   test('can still create a bypass session when explicitly requested', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
