@@ -126,6 +126,28 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('restores the terminal when focus reporting fails after TUI start', async () => {
+    const terminal = new ThrowingFocusReportTerminal();
+    const driver = new SlashCommandDriver();
+    const previousExitCode = process.exitCode;
+
+    try {
+      await assert.rejects(runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'deepseek-v4-flash',
+        connectionSlug: 'deepseek',
+        permissionMode: 'ask',
+        terminal,
+      }), /focus reporting failed/);
+      assert.equal(terminal.stopCalls, 1);
+    } finally {
+      if (terminal.stopCalls === 0) process.emit('SIGTERM');
+      process.exitCode = previousExitCode;
+    }
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -2421,6 +2443,13 @@ function exitMaka(_terminal: FakeTerminal): void {
   const previousExitCode = process.exitCode;
   process.emit('SIGTERM');
   process.exitCode = previousExitCode;
+}
+
+class ThrowingFocusReportTerminal extends FakeTerminal {
+  override write(data: string): void {
+    if (data === '\x1b[?1004h') throw new Error('focus reporting failed');
+    super.write(data);
+  }
 }
 
 class RejectingStopDriver implements MakaSessionDriver {

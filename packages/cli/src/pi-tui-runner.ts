@@ -971,14 +971,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
-  tui.start();
-  // The AttentionController set the initial title in its constructor. Enable
-  // focus reporting so it learns when the terminal is backgrounded; the input
-  // listener forwards the `\x1b[I` / `\x1b[O` reports. This must run *after*
-  // tui.start() puts the terminal in raw mode — otherwise the terminal's reply
-  // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
-  // line discipline and leaks onto the screen as a stray `^[[I` on launch.
-  terminal.write(ENABLE_FOCUS_REPORTING);
+  try {
+    tui.start();
+    // The AttentionController set the initial title in its constructor. Enable
+    // focus reporting so it learns when the terminal is backgrounded; the input
+    // listener forwards the `\x1b[I` / `\x1b[O` reports. This must run *after*
+    // tui.start() puts the terminal in raw mode — otherwise the terminal's reply
+    // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
+    // line discipline and leaks onto the screen as a stray `^[[I` on launch.
+    terminal.write(ENABLE_FOCUS_REPORTING);
+  } catch (error) {
+    beginClose(error instanceof Error ? error : new Error(String(error)));
+  }
 
   return closedPromise;
 }
