@@ -61,7 +61,7 @@ describe('E2E: durable cron fires after its creator session is archived', () => 
     await h.tick();
 
     assert.equal(h.freshRuns.length, 1, 'cron should fire despite the archived creator session');
-    await h.scheduler.dispose();
+    h.scheduler.dispose();
   });
 
   it('a heartbeat in the same archived session does NOT fire', async () => {
@@ -78,7 +78,7 @@ describe('E2E: durable cron fires after its creator session is archived', () => 
     await h.tick(); await h.tick(); await h.tick();
 
     assert.equal(h.injected.length, 0, 'heartbeat must not fire into an archived session');
-    await h.scheduler.dispose();
+    h.scheduler.dispose();
   });
 
   it('incognito blocks the cron too', async () => {
@@ -94,6 +94,6 @@ describe('E2E: durable cron fires after its creator session is archived', () => 
     await h.tick();
 
     assert.equal(h.freshRuns.length, 0, 'cron must not fire while incognito is active');
-    await h.scheduler.dispose();
+    h.scheduler.dispose();
   });
 });

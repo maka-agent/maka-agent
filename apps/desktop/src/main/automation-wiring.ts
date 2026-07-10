@@ -22,18 +22,9 @@ export interface CreateMainAutomationWiringDeps {
   workspaceRoot: string;
   canFire: (automation: AutomationDefinition) => Promise<boolean>;
   /** Inject a turn into the automation's session; resolves after the stream finishes. */
-  injectTurn: (
-    sessionId: string,
-    prompt: string,
-    automationId: string,
-    signal: AbortSignal,
-  ) => Promise<AutomationFireResult>;
+  injectTurn: (sessionId: string, prompt: string, automationId: string) => Promise<AutomationFireResult>;
   /** Spawn a fresh session + run (cron); resolves after the stream finishes. Omit to disable cron. */
-  createFreshRun?: (
-    prompt: string,
-    automationId: string,
-    signal: AbortSignal,
-  ) => Promise<AutomationFireResult>;
+  createFreshRun?: (prompt: string, automationId: string) => Promise<AutomationFireResult>;
 }
 
 export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps): MainAutomationWiring {
@@ -99,3 +90,4 @@ export function createMainAutomationWiring(deps: CreateMainAutomationWiringDeps)
 
   return { manager, scheduler, tools, loadDurableAutomations };
 }
+

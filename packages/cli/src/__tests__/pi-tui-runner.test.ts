@@ -66,9 +66,9 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stderr, /fatal probe/);
   });
 
-  test('keeps a completed session active on clean close', async () => {
+  test('restores the terminal when driver stop rejects during close', async () => {
     const terminal = new FakeTerminal();
-    const driver = new CompletedSessionDriver();
+    const driver = new RejectingStopDriver();
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -78,11 +78,6 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
     });
-
-    terminal.input('hello');
-    terminal.input('\r');
-    await waitFor(() => driver.prompts.length === 1);
-    await waitFor(() => terminal.progressStates.at(-1) === false);
 
     exitMaka(terminal);
 
@@ -93,15 +88,14 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
 
-    assert.equal(driver.stopCalls, 0);
-    assert.equal(driver.status, 'active');
+    assert.equal(driver.stopCalls, 1);
     assert.equal(terminal.stopCalls, 1);
     assert.equal(terminal.progressStates.at(-1), false);
   });
 
-  test('waits for an in-flight turn interrupt before completing close', async () => {
+  test('restores the terminal before a slow driver stop settles', async () => {
     const terminal = new FakeTerminal();
-    const driver = new HangingInterruptDriver();
+    const driver = new HangingCloseDriver();
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -111,168 +105,14 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
     });
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
 
-    terminal.input('run');
+    terminal.input('/exit');
     terminal.input('\r');
-    await waitFor(() => terminal.progressStates.at(-1) === true);
-    terminal.input('\x03');
     await waitFor(() => driver.stopCalls === 1);
-    exitMaka(terminal);
-    await delay(0);
     try {
       assert.equal(terminal.stopCalls, 1);
-      assert.equal(settled, false);
-      assert.equal(driver.stopCalls, 1);
     } finally {
       driver.releaseStop();
-      await run;
-    }
-  });
-
-  test('does not retry a failed turn cancel during close', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new RejectOnceInterruptDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-
-    terminal.input('run');
-    terminal.input('\r');
-    await waitFor(() => terminal.progressStates.at(-1) === true);
-    terminal.input('\x03');
-    await waitFor(() => driver.stopCalls === 1);
-    exitMaka(terminal);
-
-    try {
-      driver.rejectFirstStop();
-      await delay(10);
-      assert.equal(driver.stopCalls, 1);
-      driver.releaseTurn();
-      await run;
-      assert.equal(terminal.stopCalls, 1);
-    } finally {
-      driver.releaseTurn();
-      await run;
-    }
-  });
-
-  test('reuses a pending stop after the interrupted turn stream ends', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new TurnEndsBeforeStopDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-
-    terminal.input('run');
-    terminal.input('\r');
-    await waitFor(() => terminal.progressStates.at(-1) === true);
-    terminal.input('\x03');
-    await waitFor(() => driver.stopCalls === 1);
-    await waitFor(() => driver.turnStreamEnded);
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-    exitMaka(terminal);
-    await delay(0);
-
-    try {
-      assert.equal(driver.stopCalls, 1);
-      assert.equal(settled, false);
-    } finally {
-      driver.releaseStops();
-      await run;
-    }
-  });
-
-  test('blocks the next turn until interrupt cleanup settles', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new TurnEndsBeforeStopDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-
-    terminal.input('first');
-    terminal.input('\r');
-    await waitFor(() => terminal.progressStates.at(-1) === true);
-    terminal.input('\x03');
-    await waitFor(() => driver.stopCalls === 1);
-    await waitFor(() => driver.turnStreamEnded);
-    terminal.input('second');
-    terminal.input('\r');
-    await delay(20);
-
-    try {
-      assert.deepEqual(driver.prompts, ['first']);
-    } finally {
-      driver.releaseStops();
-      await waitFor(() => terminal.progressStates.at(-1) === false);
-      if (driver.prompts.length === 1) {
-        terminal.input('\r');
-        await waitFor(() => driver.prompts.length === 2);
-      }
-      exitMaka(terminal);
-      await run;
-    }
-  });
-
-  test('waits for turn finalization when stop settles first', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new StopEndsBeforeTurnDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-
-    terminal.input('run');
-    terminal.input('\r');
-    await waitFor(() => terminal.progressStates.at(-1) === true);
-    terminal.input('\x03');
-    await waitFor(() => driver.stopCalls === 1);
-    await delay(0);
-    exitMaka(terminal);
-    await delay(0);
-
-    try {
-      assert.equal(terminal.stopCalls, 1);
-      assert.equal(driver.turnStreamEnded, false);
-      assert.equal(settled, false);
-    } finally {
-      driver.releaseTurn();
       await run;
     }
   });
@@ -350,43 +190,6 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
-  });
-
-  test('waits for an in-flight permission response before completing close', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new PermissionPromptDriver({ deferResponse: true });
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-
-    terminal.input('run');
-    terminal.input('\r');
-    await waitFor(() => driver.permissionRequests === 1);
-    await waitFor(() => terminal.output().includes('Permission required'));
-    terminal.input('y');
-    await waitFor(() => driver.permissionResponses.length === 1);
-    exitMaka(terminal);
-    await delay(0);
-
-    try {
-      assert.equal(driver.stopCalls, 1);
-      assert.equal(terminal.stopCalls, 1);
-      assert.equal(settled, false);
-    } finally {
-      driver.releasePermissionResponse();
-      await run;
-    }
   });
 
   test('toggles tool detail globally with Ctrl-O', async () => {
@@ -1074,6 +877,63 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.stopCalls, 1);
   });
 
+  test('keeps Maka open when Ctrl-D is pressed during a control command', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    terminal.input('\x04');
+    await delay(20);
+
+    try {
+      assert.equal(terminal.stopCalls, 0);
+    } finally {
+      driver.releaseSetModel();
+      if (terminal.stopCalls === 0) exitMaka(terminal);
+      await run;
+    }
+  });
+
+  test('keeps Maka open when Ctrl-C is pressed during a control command', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    terminal.input('\x03');
+    terminal.input('\x03');
+    await delay(20);
+
+    try {
+      assert.equal(terminal.stopCalls, 0);
+    } finally {
+      driver.releaseSetModel();
+      if (terminal.stopCalls === 0) exitMaka(terminal);
+      await run;
+    }
+  });
+
   test('handles /compact through the runtime compact API and progress loader', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredCompactDriver();
@@ -1107,38 +967,6 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
-  });
-
-  test('does not retry a failed compact cancel during close', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new RejectOnceCompactDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'deepseek-v4-flash',
-      connectionSlug: 'deepseek',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/compact');
-    terminal.input('\r');
-    await waitFor(() => driver.compactCalls === 1);
-    exitMaka(terminal);
-    await waitFor(() => driver.stopCalls === 1);
-
-    try {
-      driver.rejectFirstStop();
-      await delay(10);
-      assert.equal(driver.stopCalls, 1);
-      driver.releaseCompact();
-      await run;
-      assert.equal(terminal.stopCalls, 1);
-    } finally {
-      driver.releaseCompact();
-      await run;
-    }
   });
 
   test('applies the selected slash command from autocomplete', async () => {
@@ -1873,98 +1701,6 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('waits for an in-flight control command without stopping the session', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new DeferredControlDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-
-    terminal.input('/model claude-opus-4-1');
-    terminal.input('\r');
-    await waitFor(() => driver.models.length === 1);
-    exitMaka(terminal);
-    await delay(0);
-
-    try {
-      assert.equal(terminal.stopCalls, 1);
-      assert.equal(driver.stopCalls, 0);
-      assert.equal(driver.status, 'active');
-      assert.equal(settled, false);
-    } finally {
-      driver.releaseSetModel();
-      await run;
-    }
-  });
-
-  test('keeps Maka open when Ctrl-D is pressed during a control command', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new DeferredControlDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/model claude-opus-4-1');
-    terminal.input('\r');
-    await waitFor(() => driver.models.length === 1);
-    terminal.input('\x04');
-    await delay(20);
-
-    try {
-      assert.equal(terminal.stopCalls, 0);
-    } finally {
-      driver.releaseSetModel();
-      if (terminal.stopCalls === 0) exitMaka(terminal);
-      await run;
-    }
-  });
-
-  test('keeps Maka open when Ctrl-C is pressed during a control command', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new DeferredControlDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'ask',
-      terminal,
-    });
-
-    terminal.input('/model claude-opus-4-1');
-    terminal.input('\r');
-    await waitFor(() => driver.models.length === 1);
-    terminal.input('\x03');
-    terminal.input('\x03');
-    await delay(20);
-
-    try {
-      assert.equal(terminal.stopCalls, 0);
-    } finally {
-      driver.releaseSetModel();
-      if (terminal.stopCalls === 0) exitMaka(terminal);
-      await run;
-    }
-  });
-
   test('keeps the permission prompt visible when responding rejects', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectingPermissionDriver();
@@ -2678,23 +2414,19 @@ function exitMaka(_terminal: FakeTerminal): void {
   process.exitCode = previousExitCode;
 }
 
-class CompletedSessionDriver implements MakaSessionDriver {
-  readonly prompts: string[] = [];
+class RejectingStopDriver implements MakaSessionDriver {
   stopCalls = 0;
-  status: 'active' | 'aborted' = 'active';
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
 
-  async *sendPrompt(prompt: string): AsyncIterable<never> {
-    this.prompts.push(prompt);
-  }
+  async *sendPrompt(_prompt: string): AsyncIterable<never> {}
   async *compactSession(): AsyncIterable<never> {}
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
-    this.status = 'aborted';
+    throw new Error('stop failed');
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
@@ -2723,10 +2455,6 @@ class PermissionPromptDriver implements MakaSessionDriver {
   permissionRequests = 0;
   stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
-  private resolvePermissionResponse: (() => void) | null = null;
-  private stopped = false;
-
-  constructor(private readonly options: { deferResponse?: boolean } = {}) {}
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -2751,16 +2479,6 @@ class PermissionPromptDriver implements MakaSessionDriver {
     await new Promise<void>((resolve) => {
       this.continueAfterPermission = resolve;
     });
-    if (this.stopped) {
-      yield {
-        type: 'abort',
-        id: 'event-abort',
-        turnId: 'turn-1',
-        ts: 2,
-        reason: 'user_stop',
-      };
-      return;
-    }
     yield {
       type: 'permission_decision_ack',
       id: 'event-decision',
@@ -2782,23 +2500,11 @@ class PermissionPromptDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
-    this.stopped = true;
-    this.continueAfterPermission?.();
   }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
-    if (this.options.deferResponse) {
-      await new Promise<void>((resolve) => {
-        this.resolvePermissionResponse = resolve;
-      });
-    }
     this.continueAfterPermission?.();
-  }
-
-  releasePermissionResponse(): void {
-    this.resolvePermissionResponse?.();
-    this.resolvePermissionResponse = null;
   }
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}
@@ -3127,154 +2833,20 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
 }
 
-class HangingInterruptDriver extends SlashCommandDriver {
+class HangingCloseDriver extends SlashCommandDriver {
   stopCalls = 0;
   private resolveStop: (() => void) | null = null;
-  private resolveTurn: (() => void) | null = null;
-
-  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
-    await new Promise<void>((resolve) => {
-      this.resolveTurn = resolve;
-    });
-    yield {
-      type: 'abort',
-      id: 'event-abort',
-      turnId: 'turn-1',
-      ts: 1,
-      reason: 'user_stop',
-    };
-  }
 
   override async stop(): Promise<void> {
     this.stopCalls += 1;
     await new Promise<void>((resolve) => {
       this.resolveStop = resolve;
     });
-    this.resolveTurn?.();
-    this.resolveTurn = null;
   }
 
   releaseStop(): void {
     this.resolveStop?.();
     this.resolveStop = null;
-  }
-}
-
-class RejectOnceInterruptDriver extends SlashCommandDriver {
-  stopCalls = 0;
-  private rejectPendingStop: (() => void) | null = null;
-  private resolveTurn: (() => void) | null = null;
-
-  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
-    await new Promise<void>((resolve) => {
-      this.resolveTurn = resolve;
-    });
-    yield {
-      type: 'abort',
-      id: 'event-abort',
-      turnId: 'turn-1',
-      ts: 1,
-      reason: 'user_stop',
-    };
-  }
-
-  override async stop(): Promise<void> {
-    this.stopCalls += 1;
-    if (this.stopCalls === 1) {
-      await new Promise<void>((resolve) => {
-        this.rejectPendingStop = resolve;
-      });
-      throw new Error('interrupt stop failed');
-    }
-    this.releaseTurn();
-  }
-
-  rejectFirstStop(): void {
-    this.rejectPendingStop?.();
-    this.rejectPendingStop = null;
-  }
-
-  releaseTurn(): void {
-    this.resolveTurn?.();
-    this.resolveTurn = null;
-  }
-}
-
-class TurnEndsBeforeStopDriver extends SlashCommandDriver {
-  stopCalls = 0;
-  turnStreamEnded = false;
-  private resolveTurn: (() => void) | null = null;
-  private readonly stopResolvers: Array<() => void> = [];
-
-  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
-    if (this.prompts.length > 1) {
-      yield {
-        type: 'complete',
-        id: 'event-complete',
-        turnId: 'turn-2',
-        ts: 2,
-        stopReason: 'end_turn',
-      };
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      this.resolveTurn = resolve;
-    });
-    yield {
-      type: 'abort',
-      id: 'event-abort',
-      turnId: 'turn-1',
-      ts: 1,
-      reason: 'user_stop',
-    };
-    this.turnStreamEnded = true;
-  }
-
-  override async stop(): Promise<void> {
-    this.stopCalls += 1;
-    this.resolveTurn?.();
-    this.resolveTurn = null;
-    if (this.stopCalls > 1) return;
-    await new Promise<void>((resolve) => {
-      this.stopResolvers.push(resolve);
-    });
-  }
-
-  releaseStops(): void {
-    for (const resolve of this.stopResolvers.splice(0)) resolve();
-  }
-}
-
-class StopEndsBeforeTurnDriver extends SlashCommandDriver {
-  stopCalls = 0;
-  turnStreamEnded = false;
-  private resolveTurn: (() => void) | null = null;
-
-  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    this.prompts.push(prompt);
-    await new Promise<void>((resolve) => {
-      this.resolveTurn = resolve;
-    });
-    this.turnStreamEnded = true;
-    yield {
-      type: 'abort',
-      id: 'event-abort',
-      turnId: 'turn-1',
-      ts: 1,
-      reason: 'user_stop',
-    };
-  }
-
-  override async stop(): Promise<void> {
-    this.stopCalls += 1;
-  }
-
-  releaseTurn(): void {
-    this.resolveTurn?.();
-    this.resolveTurn = null;
   }
 }
 
@@ -3348,46 +2920,9 @@ class DeferredCompactDriver extends SlashCommandDriver {
   }
 }
 
-class RejectOnceCompactDriver extends SlashCommandDriver {
-  compactCalls = 0;
-  stopCalls = 0;
-  private rejectPendingStop: (() => void) | null = null;
-  private resolveCompact: (() => void) | null = null;
-
-  override async *compactSession(): AsyncIterable<never> {
-    this.compactCalls += 1;
-    await new Promise<void>((resolve) => {
-      this.resolveCompact = resolve;
-    });
-  }
-
-  override async stop(): Promise<void> {
-    this.stopCalls += 1;
-    if (this.stopCalls === 1) {
-      await new Promise<void>((resolve) => {
-        this.rejectPendingStop = resolve;
-      });
-      throw new Error('compact stop failed');
-    }
-    this.releaseCompact();
-  }
-
-  rejectFirstStop(): void {
-    this.rejectPendingStop?.();
-    this.rejectPendingStop = null;
-  }
-
-  releaseCompact(): void {
-    this.resolveCompact?.();
-    this.resolveCompact = null;
-  }
-}
-
 class DeferredControlDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
-  stopCalls = 0;
-  status: 'active' | 'aborted' = 'active';
   private resolveSetModel: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -3407,10 +2942,7 @@ class DeferredControlDriver implements MakaSessionDriver {
     };
   }
 
-  async stop(): Promise<void> {
-    this.stopCalls += 1;
-    this.status = 'aborted';
-  }
+  async stop(): Promise<void> {}
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
 
   async setModel(model: string): Promise<void> {
@@ -3446,7 +2978,6 @@ class DeferredControlDriver implements MakaSessionDriver {
 
 class RejectingPermissionDriver implements MakaSessionDriver {
   readonly responses: PermissionResponse[] = [];
-  private resolveTurn: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -3468,15 +2999,10 @@ class RejectingPermissionDriver implements MakaSessionDriver {
       args: { command: 'npm test' },
     };
     // The turn stays parked while the permission is unresolved.
-    await new Promise<void>((resolve) => {
-      this.resolveTurn = resolve;
-    });
+    await new Promise<void>(() => {});
   }
 
-  async stop(): Promise<void> {
-    this.resolveTurn?.();
-    this.resolveTurn = null;
-  }
+  async stop(): Promise<void> {}
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.responses.push(response);
@@ -3753,7 +3279,6 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
   });
   let stdout = '';
   let signalSent = false;
-  const killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
     stdout += chunk;
@@ -3764,7 +3289,6 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
   });
 
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
-  clearTimeout(killTimer);
   return { code, signal, stdout };
 }
 

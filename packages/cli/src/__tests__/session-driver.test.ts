@@ -43,84 +43,6 @@ describe('Maka session driver', () => {
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
   });
 
-  test('stops immediately while session creation is pending', async () => {
-    const runtime = new DeferredSessionCreationRuntime();
-    const driver = createMakaSessionDriver({
-      runtime,
-      cwd: '/repo',
-      llmConnectionSlug: 'anthropic',
-      model: 'claude-sonnet-4-5',
-      newId: nextId('turn'),
-    });
-    const turn = collect(driver.sendPrompt('please inspect this workspace'));
-    await runtime.createStarted;
-    let stopSettled = false;
-    const stop = driver.stop().then(() => {
-      stopSettled = true;
-    });
-    await Promise.resolve();
-
-    assert.equal(stopSettled, true);
-    assert.deepEqual(runtime.stopped, []);
-
-    runtime.releaseCreate();
-    await stop;
-    await turn;
-    assert.deepEqual(runtime.stopped, []);
-    assert.deepEqual(runtime.sent, []);
-    assert.deepEqual(runtime.removed, ['session-1']);
-    assert.equal(driver.getSessionId(), null);
-
-    await collect(driver.sendPrompt('try again'));
-    assert.equal(driver.getSessionId(), 'session-2');
-    assert.deepEqual(runtime.sent.map(({ sessionId }) => sessionId), ['session-2']);
-  });
-
-  test('cancels every prompt waiting on the same session creation', async () => {
-    const runtime = new DeferredSessionCreationRuntime();
-    const driver = createMakaSessionDriver({
-      runtime,
-      cwd: '/repo',
-      llmConnectionSlug: 'anthropic',
-      model: 'claude-sonnet-4-5',
-      newId: nextId('turn'),
-    });
-    const firstTurn = collect(driver.sendPrompt('first'));
-    const secondTurn = collect(driver.sendPrompt('second'));
-    await runtime.createStarted;
-    const stop = driver.stop();
-
-    runtime.releaseCreate();
-    await Promise.all([stop, firstTurn, secondTurn]);
-
-    assert.equal(runtime.created.length, 1);
-    assert.deepEqual(runtime.stopped, []);
-    assert.deepEqual(runtime.sent, []);
-    assert.deepEqual(runtime.removed, ['session-1']);
-  });
-
-  test('startNewSession invalidates and removes a pending session creation', async () => {
-    const runtime = new DeferredSessionCreationRuntime();
-    const driver = createMakaSessionDriver({
-      runtime,
-      cwd: '/repo',
-      llmConnectionSlug: 'anthropic',
-      model: 'claude-sonnet-4-5',
-      newId: nextId('turn'),
-    });
-    const firstTurn = collect(driver.sendPrompt('first'));
-    await runtime.createStarted;
-
-    driver.startNewSession();
-    runtime.releaseCreate();
-    await firstTurn;
-    await collect(driver.sendPrompt('second'));
-
-    assert.deepEqual(runtime.removed, ['session-1']);
-    assert.equal(driver.getSessionId(), 'session-2');
-    assert.deepEqual(runtime.sent.map(({ sessionId }) => sessionId), ['session-2']);
-  });
-
   test('can still create a bypass session when explicitly requested', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -735,15 +657,13 @@ class RecordingRuntime {
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly branchedBefore: Array<{ sessionId: string; sourceTurnId: string }> = [];
-  readonly stopped: string[] = [];
-  readonly removed: string[] = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
     return {
-      id: `session-${this.created.length}`,
+      id: 'session-1',
       name: input.name ?? 'New Chat',
       isFlagged: false,
       isArchived: false,
@@ -787,13 +707,7 @@ class RecordingRuntime {
     };
   }
 
-  async stopSession(sessionId: string): Promise<void> {
-    this.stopped.push(sessionId);
-  }
-
-  async remove(sessionId: string): Promise<void> {
-    this.removed.push(sessionId);
-  }
+  async stopSession(_sessionId: string): Promise<void> {}
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });
@@ -861,36 +775,6 @@ class RecordingRuntime {
     this.sessionSummaries = [...this.sessionSummaries, branch];
     this.sessionMessages.set(branch.id, this.sessionMessages.get(sessionId) ?? []);
     return branch;
-  }
-}
-
-class DeferredSessionCreationRuntime extends RecordingRuntime {
-  readonly createStarted: Promise<void>;
-  private resolveCreateStarted: (() => void) | null = null;
-  private resolveCreate: (() => void) | null = null;
-  private deferNextCreate = true;
-
-  constructor() {
-    super();
-    this.createStarted = new Promise<void>((resolve) => {
-      this.resolveCreateStarted = resolve;
-    });
-  }
-
-  override async createSession(input: CreateSessionInput): Promise<SessionSummary> {
-    if (!this.deferNextCreate) return super.createSession(input);
-    this.deferNextCreate = false;
-    this.resolveCreateStarted?.();
-    this.resolveCreateStarted = null;
-    await new Promise<void>((resolve) => {
-      this.resolveCreate = resolve;
-    });
-    return super.createSession(input);
-  }
-
-  releaseCreate(): void {
-    this.resolveCreate?.();
-    this.resolveCreate = null;
   }
 }
 

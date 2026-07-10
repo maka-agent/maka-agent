@@ -67,7 +67,6 @@ import { SENSITIVE_PLACEHOLDER } from '@maka/core/settings/network-settings';
 import { err, ok, tryResult, type Result } from '@maka/core/settings/result';
 import {
   AiSdkBackend,
-  AutomationFireOutcome,
   BackendRegistry,
   FakeBackend,
   PermissionEngine,
@@ -351,24 +350,20 @@ const automationWiring = createMainAutomationWiring({
     });
   },
   // Heartbeat: inject into the automation's own session; resolve after the stream.
-  async injectTurn(sessionId: string, prompt: string, automationId: string, signal: AbortSignal) {
+  async injectTurn(sessionId: string, prompt: string, automationId: string) {
     const turnId = randomUUID();
     const iterator = runtime.sendMessage(sessionId, {
       turnId, text: prompt, origin: { kind: 'automation', automationId },
-    }, { signal });
+    });
     const r = await streamEvents(sessionId, iterator, turnId);
     return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
   // Cron: spawn a FRESH session (explore mode — no unapproved side effects) and
   // run the prompt there, so each fire is a first-class session + run.
-  async createFreshRun(prompt: string, automationId: string, signal: AbortSignal) {
-    signal.throwIfAborted();
+  async createFreshRun(prompt: string, automationId: string) {
     const slug = await connectionStore.getDefault();
-    signal.throwIfAborted();
     const { connection, model } = await getReadyConnection(slug, undefined);
-    signal.throwIfAborted();
     const cwd = await resolveCurrentProjectRoot();
-    signal.throwIfAborted();
     const session = await runtime.createSession({
       cwd,
       backend: 'ai-sdk',
@@ -379,20 +374,17 @@ const automationWiring = createMainAutomationWiring({
       labels: ['automation', 'cron'],
     });
     emitSessionsChanged('created', session.id);
-    try {
-      signal.throwIfAborted();
-      const turnId = randomUUID();
-      const iterator = runtime.sendMessage(session.id, {
-        turnId, text: prompt, origin: { kind: 'automation', automationId },
-      }, { signal });
-      const r = await streamEvents(session.id, iterator, turnId);
-      return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
-    } finally {
-      // Every cron session is retained as an archived diagnostic, including a
-      // session whose startup or turn was cancelled during app shutdown.
-      await runtime.archive(session.id).catch(() => {});
-      emitSessionsChanged('archived', session.id);
-    }
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(session.id, {
+      turnId, text: prompt, origin: { kind: 'automation', automationId },
+    });
+    const r = await streamEvents(session.id, iterator, turnId);
+    // Archive the fresh cron session after its run finalizes so recurring crons
+    // do not accumulate an unbounded pile of active sessions. The session (with
+    // its run/trace) is preserved under the archive, labelled automation/cron.
+    await runtime.archive(session.id).catch(() => {});
+    emitSessionsChanged('archived', session.id);
+    return { runId: r.turnId, ok: r.ok, ...(r.error ? { error: r.error } : {}) };
   },
 });
 
@@ -1683,15 +1675,21 @@ async function streamEvents(
 ): Promise<{ turnId: string; ok: boolean; error?: string }> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
+  let turnAborted = false;
+  let turnError: string | undefined;
   const turnId = fallbackTurnId ?? randomUUID();
-  const outcome = new AutomationFireOutcome(turnId);
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      outcome.observe(event);
+      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+        turnAborted = true;
+      }
+      if (event.type === 'error') {
+        turnError = event.message ?? event.reason ?? 'turn error';
+      }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
@@ -1705,12 +1703,7 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
-    const result = outcome.result();
-    return {
-      turnId,
-      ok: result.ok,
-      ...(result.error ? { error: result.error } : {}),
-    };
+    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
     const event = {
       type: 'error',
@@ -2067,12 +2060,10 @@ app.on('before-quit', (event) => {
 });
 
 async function runBeforeQuitCleanup(): Promise<void> {
+  automationWiring.scheduler.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();
-  await automationWiring.scheduler.dispose().catch((error) => {
-    console.error('[shutdown] automation cleanup failed:', error);
-  });
   const results = await Promise.allSettled([
     botRegistry.stopAll(),
     openGateway.stop(),

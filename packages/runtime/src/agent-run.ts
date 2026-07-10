@@ -121,7 +121,7 @@ export class AgentRun {
   private sawCompletion = false;
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
-  private finalizePromise: Promise<void> | undefined;
+  private finalized = false;
   private terminalRuntimeEventRecorded = false;
   private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
   private terminalRunHeaderCommitted = false;
@@ -146,8 +146,7 @@ export class AgentRun {
 
   stop(source: StopSessionInput['source'] | undefined): void {
     this.stopped = true;
-    const nextAbortSource = normalizeStopSessionSource(source);
-    if (nextAbortSource || !this.abortSource) this.abortSource = nextAbortSource;
+    this.abortSource = normalizeStopSessionSource(source);
   }
 
   isStopped(): boolean {
@@ -158,19 +157,6 @@ export class AgentRun {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.enqueueRunStore('append trace event', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, traceToRunEvent(event, this.runId));
-    });
-  }
-
-  recordCancellationCleanupFailure(error: unknown): void {
-    this.recordRunTrace({
-      id: this.input.newId(),
-      sessionId: this.sessionId,
-      turnId: this.turnId,
-      ts: this.input.now(),
-      phase: 'abort',
-      type: 'abort_requested',
-      message: 'Backend stop cleanup failed',
-      data: { error: errorMessage(error) },
     });
   }
 
@@ -363,11 +349,10 @@ export class AgentRun {
     }
 
     this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
+    this.input.hooks.registerRun(this.active, this);
     await this.markRunStarted(startedAt);
 
     await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, startedAt);
-    if (this.stopped) throw new Error('Agent operation stopped before active registration');
-    this.input.hooks.registerRun(this.active, this);
 
     const priorRuntimeContext = await this.buildPriorRuntimeContext();
     return {
@@ -510,12 +495,9 @@ export class AgentRun {
     this.markRunFailed(error instanceof Error ? error.name : 'unknown', errorMessage(error), this.input.now());
   }
 
-  finalize(): Promise<void> {
-    this.finalizePromise ??= this.finalizeOnce();
-    return this.finalizePromise;
-  }
-
-  private async finalizeOnce(): Promise<void> {
+  async finalize(): Promise<void> {
+    if (this.finalized) return;
+    this.finalized = true;
     const lastTs = this.lastTs || this.input.now();
     if (this.active) {
       await this.input.hooks.unregisterRun(this.active, this);

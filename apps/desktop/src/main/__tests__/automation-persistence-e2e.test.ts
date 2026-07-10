@@ -142,8 +142,8 @@ describe('E2E: durable cron persistence + cross-session query/management', () =>
     const afterDelete = await waitForStore(workspaceRoot, (rows) => rows.every((r) => r.id !== cronId));
     assert.ok(afterDelete.every((r) => r.id !== cronId), 'deleted cron must be gone from disk');
 
-    await wiring1.scheduler.dispose();
-    await wiring2.scheduler.dispose();
+    wiring1.scheduler.dispose();
+    wiring2.scheduler.dispose();
   });
 
   it('a non-durable heartbeat does NOT leak into another session and is not persisted', async () => {
@@ -167,51 +167,9 @@ describe('E2E: durable cron persistence + cross-session query/management', () =>
       const rows = await waitForStore(ws, () => false, 300); // give sync a chance, expect empty
       assert.equal(rows.length, 0, 'a non-durable heartbeat must not be persisted');
 
-      await wiring.scheduler.dispose();
+      wiring.scheduler.dispose();
     } finally {
-      await rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
-    }
-  });
-});
-
-describe('desktop automation shutdown', () => {
-  it('forwards the scheduler AbortSignal to the cron executor and joins it', async () => {
-    const ws = await mkdtemp(join(tmpdir(), 'maka-automation-abort-'));
-    const originalNow = Date.now;
-    let dispatchSignal: AbortSignal | undefined;
-    try {
-      const startedAt = originalNow();
-      Date.now = () => startedAt;
-      const wiring = createMainAutomationWiring({
-        workspaceRoot: ws,
-        canFire: async () => true,
-        injectTurn: async () => ({ runId: 'heartbeat', ok: true }),
-        createFreshRun: async (_prompt, _automationId, signal) => {
-          dispatchSignal = signal;
-          return new Promise((resolve) => {
-            signal.addEventListener('abort', () => resolve({ ok: false, error: 'aborted' }), { once: true });
-          });
-        },
-      });
-      const automation = wiring.manager.create({
-        kind: 'cron',
-        name: 'shutdown test',
-        prompt: 'run',
-        sessionId: 'session-1',
-        schedule: { type: 'once', delaySeconds: 10 },
-      });
-      assert.ok(!('error' in automation));
-      Date.now = () => startedAt + 11_000;
-
-      await (wiring.scheduler as unknown as { checkAndFire(): Promise<void> }).checkAndFire();
-      assert.ok(dispatchSignal);
-      await wiring.scheduler.dispose();
-
-      assert.equal(dispatchSignal.aborted, true);
-    } finally {
-      Date.now = originalNow;
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await rm(ws, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+      await rm(ws, { recursive: true, force: true });
     }
   });
 });
@@ -228,7 +186,7 @@ describe('E2E: a cron-disabled host (CLI) sharing the workspace never clobbers d
       }, ctx('desktop-session')) as string;
       const persisted = await waitForStore(ws, (rows) => rows.some(r => r.name === 'daily backup'));
       assert.equal(persisted.length, 1);
-      await owner.scheduler.dispose();
+      owner.scheduler.dispose();
 
       // ── a cron-disabled host (CLI) boots on the SAME workspace ────────────
       const cli = makeCronDisabledWiring(ws);
@@ -251,7 +209,7 @@ describe('E2E: a cron-disabled host (CLI) sharing the workspace never clobbers d
       await new Promise(r => setTimeout(r, 200));
       const after = await readStore(ws);
       assert.deepEqual(after.map(r => r.name), ['daily backup'], 'CLI must not overwrite/erase the desktop\'s durable cron');
-      await cli.scheduler.dispose();
+      cli.scheduler.dispose();
     } finally {
       await rm(ws, { recursive: true, force: true });
     }

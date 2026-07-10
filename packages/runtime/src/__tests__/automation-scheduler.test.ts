@@ -1,57 +1,7 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AutomationManager } from '../automation-state.js';
-import {
-  AutomationFireOutcome,
-  AutomationScheduler,
-  DEFER_WINDOW_MS,
-  type AutomationFireResult,
-} from '../automation-scheduler.js';
-
-describe('AutomationFireOutcome', () => {
-  test('treats abort and missing terminal as failed outcomes', () => {
-    const aborted = new AutomationFireOutcome('run-1');
-    aborted.observe({
-      type: 'abort',
-      id: 'abort-1',
-      turnId: 'run-1',
-      ts: 1,
-      reason: 'user_stop',
-    });
-
-    assert.deepEqual(aborted.result(), { runId: 'run-1', ok: false, error: 'Automation run aborted' });
-    assert.deepEqual(
-      new AutomationFireOutcome('run-2').result(),
-      { runId: 'run-2', ok: false, error: 'Automation run ended without a terminal event' },
-    );
-  });
-
-  test('accepts only successful completion terminals', () => {
-    const completed = new AutomationFireOutcome('run-1');
-    completed.observe({
-      type: 'complete',
-      id: 'complete-1',
-      turnId: 'run-1',
-      ts: 1,
-      stopReason: 'end_turn',
-    });
-    const waiting = new AutomationFireOutcome('run-2');
-    waiting.observe({
-      type: 'complete',
-      id: 'complete-2',
-      turnId: 'run-2',
-      ts: 1,
-      stopReason: 'permission_handoff',
-    });
-
-    assert.deepEqual(completed.result(), { runId: 'run-1', ok: true });
-    assert.deepEqual(waiting.result(), {
-      runId: 'run-2',
-      ok: false,
-      error: 'Automation run requires user input',
-    });
-  });
-});
+import { AutomationScheduler, DEFER_WINDOW_MS, type AutomationFireResult } from '../automation-scheduler.js';
 
 function createTestSetup() {
   let idCounter = 0;
@@ -298,57 +248,8 @@ describe('AutomationScheduler', () => {
     const t = createTestSetup();
     t.scheduler.start();
     assert.ok(t.timers.length > 0);
-    await t.scheduler.dispose();
+    t.scheduler.dispose();
     assert.equal(t.timers.length, 0);
-  });
-
-  test('dispose aborts and waits for an in-flight dispatch', async () => {
-    let now = 1_700_000_000_000;
-    let tick: (() => void) | undefined;
-    let dispatchSignal: AbortSignal | undefined;
-    let resolveDispatch: ((result: AutomationFireResult) => void) | undefined;
-    const manager = new AutomationManager({
-      generateId: () => 'auto-1',
-      now: () => now,
-      random: () => 0,
-    });
-    const scheduler = new AutomationScheduler({
-      automationManager: manager,
-      canFire: async () => true,
-      injectTurn: (...args: unknown[]) => {
-        dispatchSignal = args[3] as AbortSignal;
-        return new Promise<AutomationFireResult>((resolve) => {
-          resolveDispatch = resolve;
-        });
-      },
-      setTimeout: (fn) => {
-        tick = fn;
-        return 1;
-      },
-      clearTimeout: () => {
-        tick = undefined;
-      },
-      now: () => now,
-    });
-    manager.create({
-      kind: 'heartbeat', name: 'test', prompt: 'p',
-      sessionId: 'sess-1', schedule: { type: 'interval', seconds: 30 },
-    });
-    now += 31_000;
-    scheduler.start();
-    tick?.();
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    assert.ok(dispatchSignal);
-
-    let settled = false;
-    const shutdown = scheduler.dispose().then(() => { settled = true; });
-    assert.equal(dispatchSignal.aborted, true);
-    await Promise.resolve();
-    assert.equal(settled, false);
-
-    resolveDispatch?.({ runId: 'run-1', ok: false, error: 'aborted' });
-    await shutdown;
-    assert.equal(settled, true);
   });
 
   test('does not fire expired automations', async () => {

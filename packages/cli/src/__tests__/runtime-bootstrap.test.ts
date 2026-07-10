@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -65,51 +65,6 @@ describe('Maka CLI runtime bootstrap', () => {
         'Edit must be registered (regression: it was once filtered out of the TUI runtime)',
       );
       assert.equal(edit?.permissionRequired, true);
-    });
-  });
-
-  test('close aborts and waits for in-flight automation dispatches', async () => {
-    await withWorkspace(async (workspaceRoot) => {
-      const connectionStore = createConnectionStore(workspaceRoot);
-      await connectionStore.create({
-        slug: 'local',
-        name: 'Local Ollama',
-        providerType: 'ollama',
-        defaultModel: 'llama3.2',
-      });
-      let dispatchSignal: AbortSignal | undefined;
-      let resolveDispatch: ((result: { runId: string; ok: false; error: string }) => void) | undefined;
-      const context = await createMakaCliRuntimeContext({
-        workspaceRoot,
-        cwd: '/repo',
-        automationCreateFreshRun: (...args: unknown[]) => {
-          dispatchSignal = args[2] as AbortSignal | undefined;
-          return new Promise((resolve) => {
-            resolveDispatch = resolve;
-          });
-        },
-      });
-      const automation = context.automationManager.create({
-        kind: 'cron',
-        name: 'in-flight',
-        prompt: 'keep working',
-        sessionId: 'session-1',
-        schedule: { type: 'once', delaySeconds: 0 },
-      });
-      assert.ok(!('error' in automation));
-      await (context.automationScheduler as unknown as {
-        attemptFire(input: unknown): Promise<void>;
-      }).attemptFire(automation);
-      await waitForFile(join(workspaceRoot, 'automations.json'));
-
-      let closeSettled = false;
-      const close = context.close().then(() => { closeSettled = true; });
-      await new Promise<void>((resolve) => setImmediate(resolve));
-      assert.equal(dispatchSignal?.aborted, true);
-      assert.equal(closeSettled, false);
-      resolveDispatch?.({ runId: 'run-1', ok: false, error: 'aborted' });
-      await close;
-      assert.equal(closeSettled, true);
     });
   });
 
@@ -357,18 +312,6 @@ function backgroundTaskId(ref: string): string {
   const id = new URL(ref).pathname.split('/').pop();
   if (!id) throw new Error(`Invalid background task ref: ${ref}`);
   return decodeURIComponent(id);
-}
-
-async function waitForFile(path: string): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    try {
-      await readFile(path);
-      return;
-    } catch {
-      await new Promise<void>((resolve) => setTimeout(resolve, 5));
-    }
-  }
-  throw new Error(`Timed out waiting for ${path}`);
 }
 
 async function withCleanContextBudgetEnv(fn: () => Promise<void>): Promise<void> {

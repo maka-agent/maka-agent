@@ -94,13 +94,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let permissionInFlight = false;
   let turnRunning = false;
-  const activeWork = new Set<Promise<void>>();
-  let currentOperation: {
-    cancelPromise?: Promise<boolean>;
-  } | undefined;
+  let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
+  let terminalRestored = false;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
   const closedPromise = new Promise<void>((resolve, reject) => {
@@ -150,19 +148,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  const trackActiveWork = (workPromise: Promise<void>): Promise<void> => {
-    activeWork.add(workPromise);
-    void workPromise.then(
-      () => activeWork.delete(workPromise),
-      () => activeWork.delete(workPromise),
-    );
-    return workPromise;
-  };
-
   // Control commands (model/session/permission switches) mutate session state.
   // Run them through a single serial lock so a prompt submitted mid-switch can
   // not race the switch and land on the old session/model/permission mode.
-  const executeControl = async (action: () => Promise<void>): Promise<void> => {
+  const runControl = async (action: () => Promise<void>): Promise<void> => {
+    // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
+    // so without this guard a switch could start while a prompt is still running.
+    if (busy) return;
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -181,13 +173,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
   };
 
-  const runControl = (action: () => Promise<void>): Promise<void> => {
-    // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
-    // so without this guard a switch could start while a prompt is still running.
-    if (busy) return Promise.resolve();
-    return trackActiveWork(executeControl(action));
-  };
-
   const removeProcessHandlers = () => {
     process.off('SIGINT', handleSigint);
     process.off('SIGTERM', handleSigterm);
@@ -197,6 +182,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const restoreTerminal = () => {
+    if (terminalRestored) return;
+    terminalRestored = true;
     removeProcessHandlers();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
@@ -207,33 +194,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     tui.stop();
   };
 
-  const cancelCurrentOperation = (onError?: (error: unknown) => void): Promise<boolean> => {
-    const operation = currentOperation;
-    if (!operation) return Promise.resolve(true);
-    if (operation.cancelPromise) return operation.cancelPromise;
-    operation.cancelPromise = Promise.resolve()
-      .then(() => input.driver.stop())
-      .then(() => true)
-      .catch((error) => {
-        onError?.(error);
-        return false;
-      });
-    return operation.cancelPromise;
-  };
-
   const beginClose = (error?: Error) => {
     if (closed) return;
     closed = true;
     restoreTerminal();
-    void (async () => {
-      // Restore the shell first, but preserve the caller contract that close is
-      // complete only after the runtime stop path settles.
-      const workPromises = [...activeWork];
-      if (currentOperation) await cancelCurrentOperation();
-      await Promise.all(workPromises);
-      if (error) rejectClosed(error);
-      else resolveClosed();
-    })();
+    if (error) rejectClosed(error);
+    else resolveClosed();
+    // Runtime stop is best-effort after the shell has its terminal back. A
+    // double-Escape/Ctrl-C interrupt may already have one in flight; reuse it.
+    if (!interruptRequested) void input.driver.stop().catch(() => {});
   };
 
   const close = () => beginClose();
@@ -275,7 +244,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     permissionInFlight = true;
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck.
-    const permissionPromise = input.driver.respondToPermission({
+    void input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
       ...(decision === 'allow' ? { rememberForTurn: true } : {}),
@@ -298,14 +267,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         permissionInFlight = false;
         reportError(error);
       });
-    trackActiveWork(permissionPromise);
     return true;
   };
 
   const requestTurnInterrupt = () => {
-    if (currentOperation?.cancelPromise) return;
-    void cancelCurrentOperation((error) => {
-      if (!closed) reportError(error);
+    if (interruptRequested) return;
+    interruptRequested = true;
+    void input.driver.stop().catch((error) => {
+      interruptRequested = false;
+      reportError(error);
     });
   };
 
@@ -323,6 +293,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
+    interruptRequested = false;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -330,9 +301,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    const operation: NonNullable<typeof currentOperation> = {};
-    currentOperation = operation;
-    const turnPromise = submitPromptToTranscript({
+    void submitPromptToTranscript({
       state,
       driver: input.driver,
       prompt,
@@ -353,17 +322,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         }
         requestRender();
       },
-    }).finally(async () => {
-      await operation.cancelPromise;
-      if (currentOperation === operation) currentOperation = undefined;
+    }).finally(() => {
       busy = false;
       turnRunning = false;
+      interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.promptTurnEnded();
       requestRender();
     });
-    trackActiveWork(turnPromise);
   }
 
   const setModel = async (nextModel: string) => {
@@ -492,18 +459,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       text: 'Compacting context…',
     });
     requestRender();
-    const operation: NonNullable<typeof currentOperation> = {};
-    currentOperation = operation;
-    try {
-      await submitCompactToTranscript({
-        state,
-        driver: input.driver,
-        onChange: requestRender,
-      });
-    } finally {
-      await operation.cancelPromise;
-      if (currentOperation === operation) currentOperation = undefined;
-    }
+    await submitCompactToTranscript({
+      state,
+      driver: input.driver,
+      onChange: requestRender,
+    });
   };
 
   const showSessionList = async () => {
@@ -930,7 +890,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Once an interrupt is issued, swallow further Escapes until the turn
       // ends so a still-settling stop is not requested twice. A rejected stop
       // re-arms interruption so the user can retry within the same turn.
-      if (currentOperation?.cancelPromise) return { consume: true };
+      if (interruptRequested) return { consume: true };
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
