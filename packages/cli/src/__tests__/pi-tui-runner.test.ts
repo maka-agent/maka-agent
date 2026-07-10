@@ -605,6 +605,29 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(terminal.stopCalls, 1);
   });
 
+  test('does not count a Kitty Ctrl-C repeat as the second press', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new SlashCommandDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('\x1b[99;5u');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('Press Ctrl+C again to exit.'));
+    terminal.input('\x1b[99;5:2u');
+    await delay(20);
+
+    assert.equal(terminal.stopCalls, 0);
+    terminal.input('\x1b[99;5u');
+    await run;
+  });
+
   test('keeps Maka open when Ctrl-D is pressed with a draft', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();

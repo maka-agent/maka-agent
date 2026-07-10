@@ -857,6 +857,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
+    if (matchesKey(data, Key.ctrl('c')) && isKeyRepeat(data)) return { consume: true };
     if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
     // The idle rewind gesture requires two *consecutive* Escapes. Any other key
     // in between breaks it, so a stale first Escape never pairs with a much later
