@@ -98,7 +98,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let activeTurnPromise: Promise<void> | null = null;
   let activeControlPromise: Promise<void> | null = null;
   let activePermissionPromise: Promise<void> | null = null;
-  const pendingDriverStops = new Set<Promise<void>>();
+  const pendingDriverStops = new Set<Promise<boolean>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -211,11 +211,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     tui.stop();
   };
 
-  const stopDriver = (onError?: (error: unknown) => void): Promise<void> => {
+  const stopDriver = (onError?: (error: unknown) => void): Promise<boolean> => {
     const stopPromise = Promise.resolve()
       .then(() => input.driver.stop())
+      .then(() => true)
       .catch((error) => {
         onError?.(error);
+        return false;
       });
     pendingDriverStops.add(stopPromise);
     void stopPromise.then(() => pendingDriverStops.delete(stopPromise));
@@ -237,7 +239,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       if (needsStop) {
         stopPromises.push(stopDriver());
       }
-      await Promise.all(stopPromises);
+      const stopResults = await Promise.all(stopPromises);
+      if (turnRunning && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
+        await stopDriver();
+      }
       if (turnPromise) await turnPromise;
       if (controlPromise) await controlPromise;
       if (permissionPromise) await permissionPromise;
@@ -319,7 +324,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     interruptRequested = true;
     void stopDriver((error) => {
       interruptRequested = false;
-      reportError(error);
+      if (!closed) reportError(error);
     });
   };
 

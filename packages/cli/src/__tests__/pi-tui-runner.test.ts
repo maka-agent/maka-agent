@@ -173,6 +173,37 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('retries stop when an in-flight turn interrupt fails during close', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RejectOnceInterruptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    exitMaka(terminal);
+
+    try {
+      driver.rejectFirstStop();
+      await waitFor(() => driver.stopCalls === 2);
+      await run;
+      assert.equal(terminal.stopCalls, 1);
+    } finally {
+      driver.releaseTurn();
+      await run;
+    }
+  });
+
   test('reuses a pending stop after the interrupted turn stream ends', async () => {
     const terminal = new FakeTerminal();
     const driver = new TurnEndsBeforeStopDriver();
@@ -3143,6 +3174,47 @@ class HangingInterruptDriver extends SlashCommandDriver {
   releaseStop(): void {
     this.resolveStop?.();
     this.resolveStop = null;
+  }
+}
+
+class RejectOnceInterruptDriver extends SlashCommandDriver {
+  stopCalls = 0;
+  private rejectPendingStop: (() => void) | null = null;
+  private resolveTurn: (() => void) | null = null;
+
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    await new Promise<void>((resolve) => {
+      this.resolveTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    if (this.stopCalls === 1) {
+      await new Promise<void>((resolve) => {
+        this.rejectPendingStop = resolve;
+      });
+      throw new Error('interrupt stop failed');
+    }
+    this.releaseTurn();
+  }
+
+  rejectFirstStop(): void {
+    this.rejectPendingStop?.();
+    this.rejectPendingStop = null;
+  }
+
+  releaseTurn(): void {
+    this.resolveTurn?.();
+    this.resolveTurn = null;
   }
 }
 
