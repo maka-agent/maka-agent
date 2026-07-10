@@ -40,6 +40,121 @@ import {
   WEB_RESEARCH_AGENT_ID,
 } from '../agent-catalog.js';
 
+describe('SessionManager turn cancellation', () => {
+  test('aborts a turn while it is waiting to register as active', async () => {
+    const store = new MemorySessionStore();
+    const readStarted = makeGate();
+    const releaseRead = makeGate();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_000) });
+    const session = await manager.createSession(makeInput());
+    store.interleaveBeforeMarkSessionReadWriteFor.set(session.id, async () => {
+      readStarted.release();
+      await releaseRead.promise;
+    });
+    const controller = new AbortController();
+    const sendMessage = manager.sendMessage.bind(manager) as unknown as (
+      sessionId: string,
+      input: { turnId: string; text: string },
+      options: { signal: AbortSignal },
+    ) => AsyncIterable<SessionEvent>;
+    const turn = collectSessionEvents(sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await readStarted.promise;
+
+    controller.abort();
+    releaseRead.release();
+
+    expect(await turn).toEqual([]);
+    expect(backend).toBeUndefined();
+    expect(await store.readMessages(session.id)).toEqual([]);
+    expect((await store.readHeader(session.id)).status).toBe('active');
+  });
+
+  test('aborts a turn that is cancelled before active registration completes', async () => {
+    const store = new MemorySessionStore();
+    const appendStarted = makeGate();
+    const releaseAppend = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_500) });
+    const session = await manager.createSession(makeInput());
+    store.interleaveBeforeAppendFor.set(session.id, async () => {
+      appendStarted.release();
+      await releaseAppend.promise;
+    });
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await appendStarted.promise;
+
+    controller.abort();
+    releaseAppend.release();
+
+    expect(await turn).toEqual([]);
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+    expect((await store.readMessages(session.id)).some((message) =>
+      message.type === 'system_note' && message.kind === 'abort'
+    )).toBe(true);
+  });
+
+  test('does not abort an idle session with a cached backend', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_800) });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    const messagesBeforeStop = await store.readMessages(session.id);
+
+    await manager.stopSession(session.id, { source: 'stop_button' });
+
+    expect((await store.readHeader(session.id)).status).toBe('active');
+    expect(await store.readMessages(session.id)).toEqual(messagesBeforeStop);
+  });
+
+  test('stops and finalizes a turn aborted after active registration', async () => {
+    const store = new MemorySessionStore();
+    const sendStarted = makeGate();
+    const releaseSend = makeGate();
+    const backends = new BackendRegistry();
+    let backend: AbortableTestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new AbortableTestBackend(ctx, sendStarted, releaseSend);
+      return backend;
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_900) });
+    const session = await manager.createSession(makeInput());
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await sendStarted.promise;
+
+    controller.abort();
+    await turn;
+
+    expect(backend?.stopCalls).toBe(1);
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+    expect((await store.readMessages(session.id)).some((message) =>
+      message.type === 'system_note' && message.kind === 'abort'
+    )).toBe(true);
+  });
+});
+
 describe('SessionManager manual compaction', () => {
   test('runs backend history compaction as a runtime turn and persists diagnostics', async () => {
     const store = new MemorySessionStore();
@@ -4720,6 +4835,29 @@ class TestBackend implements AgentBackend {
   }
 }
 
+class AbortableTestBackend extends TestBackend {
+  stopCalls = 0;
+
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly sendStarted: Gate,
+    private readonly releaseSend: Gate,
+  ) {
+    super(ctx);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendStarted.release();
+    await this.releaseSend.promise;
+    yield* super.send(input);
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.releaseSend.release();
+  }
+}
+
 class CompactingTestBackend extends TestBackend {
   constructor(
     ctx: BackendFactoryContext,
@@ -5175,6 +5313,7 @@ class MemorySessionStore implements SessionStore {
   readonly failListTurnsFor = new Set<string>();
   readonly failUpdateHeaderFor = new Set<string>();
   readonly interleaveBeforeMarkSessionReadWriteFor = new Map<string, () => Promise<void> | void>();
+  readonly interleaveBeforeAppendFor = new Map<string, () => Promise<void> | void>();
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -5239,6 +5378,11 @@ class MemorySessionStore implements SessionStore {
   }
 
   async appendMessages(sessionId: string, messages: StoredMessage[]): Promise<void> {
+    const hook = this.interleaveBeforeAppendFor.get(sessionId);
+    if (hook) {
+      this.interleaveBeforeAppendFor.delete(sessionId);
+      await hook();
+    }
     this.messages.set(sessionId, [...(this.messages.get(sessionId) ?? []), ...messages]);
   }
 

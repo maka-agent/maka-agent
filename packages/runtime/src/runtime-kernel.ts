@@ -15,7 +15,13 @@ import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from './tool-runtime.js';
 import type { InvocationContext, InvocationResult, InvocationSource } from './invocation-context.js';
 import { RuntimeRunner } from './runtime-runner.js';
-import type { BackendRegistry, CompactSessionInput, SessionStore, StopSessionInput } from './session-manager.js';
+import type {
+  BackendRegistry,
+  CompactSessionInput,
+  SendMessageOptions,
+  SessionStore,
+  StopSessionInput,
+} from './session-manager.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import {
   buildStatusPatch,
@@ -30,7 +36,7 @@ import {
 } from './agent-catalog.js';
 
 export interface RuntimeKernelLike {
-  startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
+  startTurn(sessionId: string, input: UserMessageInput, options?: SendMessageOptions): AsyncIterable<SessionEvent>;
   compactSession(sessionId: string, input?: CompactSessionInput): AsyncIterable<SessionEvent>;
   startChildTurn(sessionId: string, input: ChildAgentTurnInput): AsyncIterable<SessionEvent>;
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
@@ -75,8 +81,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
   async *startTurn(
     sessionId: string,
     input: UserMessageInput,
+    options: SendMessageOptions = {},
   ): AsyncIterable<SessionEvent> {
+    if (options.signal?.aborted) return;
     const header = await this.deps.store.readHeader(sessionId);
+    if (options.signal?.aborted) return;
     const run = new AgentRun({
       sessionId,
       header,
@@ -99,7 +108,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
     });
 
-    yield* this.runAgentTurn(sessionId, input, run);
+    yield* this.runAgentTurn(sessionId, input, run, options.signal);
   }
 
   async *compactSession(
@@ -253,17 +262,36 @@ export class RuntimeKernel implements RuntimeKernelLike {
     sessionId: string,
     input: UserMessageInput,
     run: AgentRun,
+    signal?: AbortSignal,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
+    let abortStopPromise: Promise<void> | null = null;
+    const stopForAbort = () => {
+      abortStopPromise ??= this.stopSession(sessionId);
+    };
+    signal?.addEventListener('abort', stopForAbort, { once: true });
+    if (signal?.aborted) stopForAbort();
     let flowDone = false;
     let begin: AgentRunBeginResult;
     try {
       begin = await run.begin();
     } catch (error) {
+      signal?.removeEventListener('abort', stopForAbort);
       await run.recordFailure(error);
       await run.finalize();
       throw error;
+    }
+
+    if (signal?.aborted) {
+      try {
+        await abortStopPromise;
+        if (!run.isStopped()) await this.stopSession(sessionId);
+        await run.finalize();
+        return;
+      } finally {
+        signal.removeEventListener('abort', stopForAbort);
+      }
     }
 
     const aiSdkFlow = new AiSdkFlow({
@@ -324,11 +352,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
       }
       await runnerResult;
     } finally {
+      signal?.removeEventListener('abort', stopForAbort);
       if (!flowDone) {
         abortController.abort();
         sessionEvents.close();
       }
       await runnerResult.catch(() => undefined);
+      await abortStopPromise;
     }
   }
 
@@ -365,6 +395,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (activeSessions.length === 0) return;
     const abortSource = normalizeStopSessionSource(input.source);
     const activeRuns = activeSessions.flatMap((active) => [...active.activeRuns.values()]);
+    if (activeRuns.length === 0) return;
     for (const run of activeRuns) {
       run.stop(input.source);
     }

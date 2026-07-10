@@ -90,6 +90,10 @@ export interface StopSessionInput {
   source?: 'stop_button';
 }
 
+export interface SendMessageOptions {
+  signal?: AbortSignal;
+}
+
 export interface CompactSessionInput {
   turnId?: string;
 }
@@ -474,8 +478,9 @@ export class SessionManager {
   async *sendMessage(
     sessionId: string,
     input: UserMessageInput,
+    options: SendMessageOptions = {},
   ): AsyncIterable<SessionEvent> {
-    yield* this.runtimeKernel.startTurn(sessionId, input);
+    yield* this.runtimeKernel.startTurn(sessionId, input, options);
   }
 
   async *compactSession(
