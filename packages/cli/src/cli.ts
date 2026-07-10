@@ -41,11 +41,14 @@ export function formatMakaCliFatalError(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
 
+let processExitTimer: NodeJS.Timeout | undefined;
+
 export function completeMakaCliExit(commandExitCode: number): void {
   const exitCode = resolveMakaCliExitCode(commandExitCode, process.exitCode);
   process.exitCode = exitCode;
-  const timer = setTimeout(() => process.exit(exitCode), PROCESS_EXIT_GRACE_MS);
-  timer.unref();
+  if (processExitTimer) return;
+  processExitTimer = setTimeout(() => process.exit(process.exitCode ?? 0), PROCESS_EXIT_GRACE_MS);
+  processExitTimer.unref();
 }
 
 function helpText(): string {
@@ -169,7 +172,9 @@ if (isMainModule()) {
   );
 }
 
-const PROCESS_EXIT_GRACE_MS = 1_000;
+// ShellRun escalates SIGTERM to SIGKILL after two seconds. Keep the CLI alive
+// long enough for that cleanup to finish before the final process fallback.
+const PROCESS_EXIT_GRACE_MS = 3_000;
 
 function isMainModule(): boolean {
   if (!process.argv[1]) return false;

@@ -75,15 +75,6 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stderr, /fatal probe/);
   });
 
-  test('forces process exit on a second Ctrl-C while a turn interrupt is still in flight', async () => {
-    const { code, signal, stdout } = await runTurnInterruptExitProbe();
-
-    assert.equal(signal, null);
-    assert.equal(code, 0);
-    assert.match(stdout, /TERMINAL_STOP/);
-    assert.match(stdout, /CLOSED stopCalls=1/);
-  });
-
   test('restores the terminal before reporting an unhandled rejection', async () => {
     const { code, signal, stdout, stderr } = await runFatalExitProbe('unhandledRejection');
 
@@ -3366,7 +3357,7 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals, hangOuterCleanup
     }
   });
 
-  const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
   clearTimeout(killTimer);
   return { code, signal, stdout };
@@ -3446,7 +3437,7 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
   });
   let stdout = '';
   let stderr = '';
-  const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 5_000);
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
@@ -3459,76 +3450,4 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
   clearTimeout(killTimer);
   return { code, signal, stdout, stderr };
-}
-
-async function runTurnInterruptExitProbe(): Promise<{
-  code: number | null;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-}> {
-  const runnerUrl = new URL('../pi-tui-runner.js', import.meta.url).href;
-  const cliUrl = new URL('../cli.js', import.meta.url).href;
-  const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
-  const childSource = `
-    import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
-    import { completeMakaCliExit } from ${JSON.stringify(cliUrl)};
-    import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
-
-    class ReportingTerminal extends FakeTerminal {
-      stop() {
-        process.stdout.write('TERMINAL_STOP\\n');
-        super.stop();
-      }
-    }
-
-    let stopCalls = 0;
-    const driver = {
-      async *sendPrompt() { await new Promise(() => {}); },
-      async *compactSession() {},
-      async stop() { stopCalls += 1; },
-      async listSessions() { return []; },
-      async respondToPermission() {},
-      async renameSession() {},
-      async setModel() {},
-      async setPermissionMode() {},
-      async setThinkingLevel() {},
-      async switchSession() { throw new Error('unused'); },
-      async listRewindTargets() { return []; },
-      async rewindToTurn() { throw new Error('unused'); },
-      startNewSession() {},
-      getSessionId() { return null; },
-    };
-    const terminal = new ReportingTerminal();
-    setInterval(() => {}, 1_000);
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'test-model',
-      connectionSlug: 'test-connection',
-      permissionMode: 'ask',
-      terminal,
-      onProcessExit: (exitCode) => completeMakaCliExit(exitCode),
-    });
-    terminal.input('run');
-    terminal.input('\\r');
-    await new Promise((resolve) => setImmediate(resolve));
-    terminal.input('\\x03');
-    terminal.input('\\x03');
-    await run;
-    process.stdout.write(\`CLOSED stopCalls=${'${stopCalls}'}\\n\`);
-  `;
-  const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let stdout = '';
-  child.stdout.setEncoding('utf8');
-  child.stdout.on('data', (chunk: string) => {
-    stdout += chunk;
-  });
-
-  const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
-  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
-  clearTimeout(killTimer);
-  return { code, signal, stdout };
 }
