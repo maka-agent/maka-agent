@@ -8,7 +8,7 @@
 
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { deriveTurnLineageMap, materializeTurns } from '@maka/ui';
+import { deriveTurnLineageMap, materializeTurns, overlayLiveTurn, type LiveTurnProjection } from '@maka/ui';
 import type { StoredMessage } from '@maka/core';
 
 function userMsg(turnId: string, ts: number, text: string, id?: string): StoredMessage {
@@ -35,7 +35,41 @@ function toolResultMsg(turnId: string, ts: number, toolUseId: string, isError = 
   };
 }
 
+function materializeWithLive(messages: StoredMessage[], liveTurn: LiveTurnProjection) {
+  return overlayLiveTurn(materializeTurns(messages), liveTurn);
+}
+
 describe('materializeTurns', () => {
+  it('preserves settled turn identities while overlaying a live turn', () => {
+    const settled = materializeTurns([
+      userMsg('t1', 100, 'q1'),
+      assistantMsg('t1', 101, 'a1'),
+      userMsg('t2', 200, 'q2'),
+    ]);
+    const overlaid = overlayLiveTurn(settled, {
+      turnId: 't2',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'step-live',
+        text: { text: 'streaming answer', truncated: false, complete: false },
+        tools: [],
+      }],
+    });
+
+    assert.notEqual(overlaid, settled);
+    assert.equal(overlaid[0], settled[0]);
+    assert.notEqual(overlaid[1], settled[1]);
+    assert.deepEqual(overlaid[1]?.timeline.at(-1), {
+      kind: 'text',
+      text: 'streaming answer',
+      messageId: 'step-live',
+      live: true,
+      complete: false,
+      truncated: false,
+    });
+    assert.equal(settled[1]?.timeline.length, 0);
+  });
+
   it('groups one full turn into user → tools → assistant', () => {
     const turns = materializeTurns([
       userMsg('t1', 100, 'hello'),
@@ -124,7 +158,7 @@ describe('materializeTurns', () => {
     // Scenario: user sent a message, server hasn't persisted the tool_call
     // yet, but a live event stream surfaced a "running" tool. It should
     // land inside the active turn, not float at the bottom.
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [userMsg('t1', 100, 'q'), assistantMsg('t1', 999, 'placeholder')],
       {
         turnId: 't1', phase: 'streamed', steps: [{ stepId: 'tool:live-1', tools: [{
@@ -292,7 +326,7 @@ describe('materializeTurns', () => {
     // it's actually still running. UI should prefer the live status so a
     // late-completing tool doesn't show stale "completed" while the user
     // is still seeing the in-flight spinner elsewhere.
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [
         userMsg('t1', 100, 'q'),
         toolCallMsg('t1', 101, 'c1'),
@@ -322,7 +356,7 @@ describe('materializeTurns', () => {
     // in-flight (pending / running / waiting_permission) — if live has
     // already moved to `completed` or `errored`, live wins per the
     // general rule.
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [
         userMsg('t1', 100, 'q'),
         toolCallMsg('t1', 101, 'c1'),
@@ -371,7 +405,7 @@ function assistantStep(
 
 describe('materializeTurns timeline', () => {
   it('keeps a live step in thinking -> tools order before its assistant row is committed', () => {
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [userMsg('t1', 100, 'q')],
       {
         turnId: 't1',
@@ -394,7 +428,7 @@ describe('materializeTurns timeline', () => {
   });
 
   it('appends the current live step after earlier committed steps in thinking -> text -> tools order', () => {
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [userMsg('t1', 100, 'q'), assistantStep('t1', 101, 'a1', 'first answer')],
       {
         turnId: 't1',
@@ -415,7 +449,7 @@ describe('materializeTurns timeline', () => {
   });
 
   it('keeps multiple uncommitted live steps in production order', () => {
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [userMsg('t1', 100, 'q')],
       {
         turnId: 't1',
@@ -502,7 +536,7 @@ describe('materializeTurns timeline', () => {
   });
 
   it('appends live-only in-flight tools to the timeline tail', () => {
-    const turns = materializeTurns(
+    const turns = materializeWithLive(
       [userMsg('t1', 100, 'q'), assistantStep('t1', 103, 'a1', 'hi')],
       {
         turnId: 't1', phase: 'streamed', steps: [{

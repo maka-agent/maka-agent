@@ -1,6 +1,6 @@
 import { deriveTurnRecords } from '@maka/core';
 import type { AttachmentRef, StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
-import type { LiveTurnProjection, LiveTurnStepProjection } from './live-turn-projection.js';
+import type { LiveTurnProjection } from './live-turn-projection.js';
 
 export interface ChatItem {
   id: string;
@@ -255,15 +255,84 @@ export interface TurnViewModel {
   };
 }
 
+export function overlayLiveTurn(
+  turns: readonly TurnViewModel[],
+  liveTurn: LiveTurnProjection | undefined,
+): readonly TurnViewModel[] {
+  if (!liveTurn) return turns;
+  const targetIndex = turns.findIndex((turn) => turn.turnId === liveTurn.turnId);
+  if (targetIndex >= 0 && liveTurn.steps.length === 0) return turns;
+  const current = targetIndex >= 0
+    ? turns[targetIndex]!
+    : {
+        turnId: liveTurn.turnId,
+        status: 'completed' as const,
+        partialOutputRetained: false,
+        tools: [],
+        notes: [],
+        timeline: [],
+        startedAt: Date.now(),
+      } satisfies TurnViewModel;
+  const tools = [...current.tools];
+  const toolByUseId = new Map(tools.map((tool) => [tool.toolUseId, tool]));
+  const liveToolIds = new Set<string>();
+  for (const step of liveTurn.steps) {
+    for (const liveTool of step.tools) {
+      liveToolIds.add(liveTool.toolUseId);
+      const persisted = toolByUseId.get(liveTool.toolUseId);
+      const merged = persisted ? mergeLiveOverPersisted(persisted, liveTool) : liveTool;
+      toolByUseId.set(merged.toolUseId, merged);
+      const toolIndex = tools.findIndex((tool) => tool.toolUseId === merged.toolUseId);
+      if (toolIndex >= 0) tools[toolIndex] = merged;
+      else tools.push(merged);
+    }
+  }
+  const timeline: TurnTimelineItem[] = [];
+  for (const item of current.timeline) {
+    if (item.kind !== 'tools') {
+      timeline.push(item);
+      continue;
+    }
+    const settledItems = item.items.filter((tool) => !liveToolIds.has(tool.toolUseId));
+    if (settledItems.length > 0) timeline.push({ kind: 'tools', items: settledItems });
+  }
+  for (const step of liveTurn.steps) {
+    if (step.thinking?.text) {
+      timeline.push({
+        kind: 'thinking',
+        text: step.thinking.text,
+        messageId: step.stepId,
+        live: step.thinking.complete !== true,
+        truncated: step.thinking.truncated,
+      });
+    }
+    if (step.text?.text) {
+      timeline.push({
+        kind: 'text',
+        text: step.text.text,
+        messageId: step.stepId,
+        live: true,
+        complete: step.text.complete,
+        truncated: step.text.truncated,
+      });
+    }
+    const stepTools = step.tools.flatMap((tool) => {
+      const projected = toolByUseId.get(tool.toolUseId);
+      return projected ? [projected] : [];
+    });
+    if (stepTools.length > 0) timeline.push({ kind: 'tools', items: stepTools });
+  }
+  const next = { ...current, tools, timeline: mergeAdjacentTimeline(timeline) };
+  if (targetIndex < 0) return [...turns, next];
+  return turns.map((turn, index) => index === targetIndex ? next : turn);
+}
+
 /**
  * Group materialized chat + tool items by `turnId` into ordered turns. Items
  * without a turnId (e.g. fake-backend echo, or older sessions) fall into a
  * synthetic `__loose` bucket rendered first so they remain visible.
  */
-export function materializeTurns(
-  messages: StoredMessage[],
-  liveTurn?: LiveTurnProjection,
-): TurnViewModel[] {
+export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
   const turnRecords = deriveTurnRecords(messages);
   const turnRecordById = new Map(turnRecords.map((turn) => [turn.turnId, turn]));
   const turnsByMsg = new Map<string, string>();
@@ -374,10 +443,9 @@ export function materializeTurns(
     }
   }
 
-  // Second pass: tools, persisted then live. Tools land in the turn matching
-  // their tool_call's turnId. Live tools without a matching persisted call
-  // (e.g. streaming-in-flight before persistence) attach to the latest
-  // active turn so they still surface in the right turn.
+  // Second pass: persisted tools land in the turn matching their tool_call's
+  // turnId. Live tools are applied separately by overlayLiveTurn so streaming
+  // deltas never force settled history to rematerialize.
   const persistedTools = materializeTools(messages);
   // toolItemByUseId feeds the timeline pass: the fully merged (persisted+live)
   // item keyed by toolUseId, so replaying tool_call rows in storage order
@@ -389,20 +457,6 @@ export function materializeTurns(
     turn.tools.push(tool);
     toolItemByUseId.set(tool.toolUseId, tool);
   }
-  if (liveTurn) {
-    const turn = ensureTurn(liveTurn.turnId, Date.now());
-    for (const liveStep of liveTurn.steps) {
-      for (const liveTool of liveStep.tools) {
-        const persisted = toolItemByUseId.get(liveTool.toolUseId);
-        const merged = persisted ? mergeLiveOverPersisted(persisted, liveTool) : liveTool;
-        toolItemByUseId.set(merged.toolUseId, merged);
-        const existingIndex = turn.tools.findIndex((tool) => tool.toolUseId === merged.toolUseId);
-        if (existingIndex >= 0) turn.tools[existingIndex] = merged;
-        else turn.tools.push(merged);
-      }
-    }
-  }
-
   // Third pass: rebuild each turn's render timeline from its storage-ordered
   // messages, interleaving a step's thinking/text with its paired tools.
   for (const turnId of order) {
@@ -410,7 +464,6 @@ export function materializeTurns(
     turn.timeline = buildTurnTimeline(
       messagesByTurn.get(turnId) ?? [],
       toolItemByUseId,
-      liveTurn?.turnId === turnId ? liveTurn.steps : [],
     );
   }
 
@@ -445,7 +498,6 @@ export function materializeTurns(
 function buildTurnTimeline(
   turnMessages: readonly StoredMessage[],
   toolItemByUseId: ReadonlyMap<string, ToolActivityItem>,
-  liveSteps: readonly LiveTurnStepProjection[],
 ): TurnTimelineItem[] {
   const raw: TurnTimelineItem[] = [];
   let pending: ToolActivityItem[] = [];
@@ -477,47 +529,7 @@ function buildTurnTimeline(
       flushTools(matched);
     }
   }
-  const settledStepIds = new Set(
-    turnMessages.flatMap((message) => message.type === 'assistant' ? [message.id] : []),
-  );
-  const unsettledLiveSteps = liveSteps.filter((step) => !settledStepIds.has(step.stepId));
-  if (unsettledLiveSteps.length > 0) {
-    const liveStepIds = new Set(unsettledLiveSteps.map((step) => step.stepId));
-    flushTools(pending.filter((tool) => tool.stepId === undefined || !liveStepIds.has(tool.stepId)));
-    for (const liveStep of unsettledLiveSteps) {
-      if (liveStep.thinking?.text) {
-        raw.push({
-          kind: 'thinking',
-          text: liveStep.thinking.text,
-          messageId: liveStep.stepId,
-          live: liveStep.thinking.complete !== true,
-          truncated: liveStep.thinking.truncated,
-        });
-      }
-      if (liveStep.text?.text) {
-        raw.push({
-          kind: 'text',
-          text: liveStep.text.text,
-          messageId: liveStep.stepId,
-          live: true,
-          complete: liveStep.text.complete,
-          truncated: liveStep.text.truncated,
-        });
-      }
-      const currentStepToolsById = new Map<string, ToolActivityItem>();
-      for (const tool of pending) {
-        if (tool.stepId === liveStep.stepId) {
-          currentStepToolsById.set(tool.toolUseId, toolItemByUseId.get(tool.toolUseId) ?? tool);
-        }
-      }
-      for (const tool of liveStep.tools) {
-        currentStepToolsById.set(tool.toolUseId, toolItemByUseId.get(tool.toolUseId) ?? tool);
-      }
-      flushTools([...currentStepToolsById.values()]);
-    }
-  } else {
-    flushTools(pending);
-  }
+  flushTools(pending);
   return mergeAdjacentTimeline(raw);
 }
 

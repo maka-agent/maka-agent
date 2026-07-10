@@ -29,7 +29,7 @@ import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
 import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
-import { materializeChat, materializeTurns, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
+import { materializeChat, materializeTurns, overlayLiveTurn, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 import { Button as UiButton } from './ui.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
@@ -286,11 +286,9 @@ export function ChatView(props: {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
-  // Memoized derivation chain (vercel rerender rules): during PLAIN-TEXT
-  // streaming — the hottest path, dozens of state updates per second —
-  // `messages` and `tools` don't change, so every turn object keeps its
-  // identity and the memoized TurnViews below skip re-rendering entirely.
-  // Tool-activity updates legitimately invalidate the chain.
+  // Persisted history and the live overlay are separate projections. Plain-text
+  // deltas only clone the active turn; settled turn identities stay stable so
+  // memoized TurnViews skip reconciliation on the hottest update path.
   const drainingMessageIds = useMemo(
     () => new Set(props.liveTurn?.steps.flatMap((step) => step.text?.complete ? [step.stepId] : []) ?? []),
     [props.liveTurn],
@@ -302,9 +300,13 @@ export function ChatView(props: {
     [drainingMessageIds, props.messages],
   );
   const chat = useMemo(() => materializeChat(visibleMessages), [visibleMessages]);
+  const settledTurns = useMemo(
+    () => materializeTurns(visibleMessages),
+    [visibleMessages],
+  );
   const turns = useMemo(
-    () => materializeTurns(visibleMessages, props.liveTurn),
-    [visibleMessages, props.liveTurn],
+    () => overlayLiveTurn(settledTurns, props.liveTurn),
+    [settledTurns, props.liveTurn],
   );
   // #642 single render path: the in-flight answer is injected into the tail
   // turn's TurnView (the SAME node as the eventual committed turn) instead of a

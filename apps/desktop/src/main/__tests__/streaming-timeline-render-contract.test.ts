@@ -21,6 +21,11 @@ it('renders live thinking and text from timeline items instead of a trailing liv
     source,
     /turn\.timeline\.map[\s\S]*?props\.liveStreaming[\s\S]*?<LiveStreamingEntries/,
   );
+  assert.match(
+    source,
+    /const settledTurns = useMemo\([\s\S]*?materializeTurns\(visibleMessages\)[\s\S]*?\[visibleMessages\][\s\S]*?const turns = useMemo\([\s\S]*?overlayLiveTurn\(settledTurns, props\.liveTurn\)/,
+  );
+  assert.doesNotMatch(source, /materializeTurns\(visibleMessages, props\.liveTurn\)/);
 
   const shell = await readFile(
     resolve(import.meta.dirname, '../../../../../apps/desktop/src/renderer/app-shell.tsx'),
