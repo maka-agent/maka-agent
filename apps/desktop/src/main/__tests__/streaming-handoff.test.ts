@@ -102,6 +102,34 @@ describe('single live-turn handoff', () => {
     assert.equal(markup.split(finalText).length - 1, 1);
   });
 
+  it('keeps an incomplete live answer as the only owner after early persistence', () => {
+    const text = 'persisted before a slow tool finishes';
+    const markup = renderToStaticMarkup(createElement(ChatView, {
+      activeSession: {
+        id: 'session-1', name: 'streaming', lastMessageAt: 1, status: 'running', backend: 'pi-agent',
+        labels: [], isFlagged: false, isArchived: false, hasUnread: false,
+        llmConnectionSlug: 'conn', model: 'model', permissionMode: 'ask',
+      },
+      messages: [
+        { type: 'user', id: 'user-1', turnId: 'turn-1', ts: 1, text: 'go' },
+        { type: 'assistant', id: 'assistant-1', turnId: 'turn-1', ts: 2, text, modelId: 'model' },
+      ],
+      liveTurn: {
+        turnId: 'turn-1',
+        phase: 'streamed',
+        steps: [{
+          stepId: 'assistant-1',
+          text: { text, truncated: false, complete: false },
+          tools: [{ toolUseId: 'tool-1', toolName: 'Bash', stepId: 'assistant-1', status: 'running', args: {} }],
+        }],
+      },
+      mode: 'sessions',
+      onNew() {},
+    } satisfies Parameters<typeof ChatView>[0]));
+
+    assert.equal(markup.split(text).length - 1, 1);
+  });
+
   it('reduces events into the projection and settles only after committed history refreshes', async () => {
     const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({
       'session-1': armLiveTurn('turn-1'),

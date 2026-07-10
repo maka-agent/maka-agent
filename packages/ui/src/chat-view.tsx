@@ -291,7 +291,7 @@ export function ChatView(props: {
   // deltas only clone the active turn; settled turn identities stay stable so
   // memoized TurnViews skip reconciliation on the hottest update path.
   const drainingMessageIds = useMemo(
-    () => new Set(props.liveTurn?.steps.flatMap((step) => step.text?.complete ? [step.stepId] : []) ?? []),
+    () => new Set(props.liveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? []),
     [props.liveTurn],
   );
   const visibleMessages = useMemo(
