@@ -20,11 +20,25 @@ export type TrowActivityKind = ToolActivityKind;
  * Prefer a declared semantic category. Legacy rows fall back to the canonical
  * tool name (case-insensitive); unknown names use the generic `tool` bucket.
  */
+const KNOWN_ACTIVITY_KINDS: ReadonlySet<string> = new Set<TrowActivityKind>([
+  'read',
+  'search',
+  'websearch',
+  'webfetch',
+  'edit',
+  'command',
+  'explore',
+  'browser',
+  'tool',
+]);
+
 export function trowActivityKind(
   toolName: string,
   activityKind?: ToolActivityKind,
 ): TrowActivityKind {
-  if (activityKind) return activityKind;
+  // Trust only known kinds — corrupted/future persisted values must not crash
+  // KIND_CLAUSE[kind] during summarize.
+  if (activityKind && KNOWN_ACTIVITY_KINDS.has(activityKind)) return activityKind;
   const name = toolName.toLowerCase();
   if (name.startsWith('browser_')) return 'browser';
   switch (name) {

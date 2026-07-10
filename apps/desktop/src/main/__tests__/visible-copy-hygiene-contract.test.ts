@@ -305,13 +305,23 @@ describe('terminal truncation handoff contract', () => {
     );
     assert.match(
       src,
-      /\{hiddenLines > 0 && \(/,
-      'The truncation note should only render when at least one terminal output stream is capped.',
+      /runtimeTruncated \|\| hiddenLines > 0/,
+      'The truncation note should honor runtime stream flags as well as UI line caps.',
     );
     assert.match(
       src,
-      /输出已截断 · 每路仅展示前 \{TOOL_LINE_CAP\} 行/,
+      /输出已截断 · 每路仅展示前 \$\{TOOL_LINE_CAP\} 行/,
       'The truncation note should state the line cap without a copy button.',
+    );
+    assert.match(
+      src,
+      /stdoutTruncated|stderrTruncated/,
+      'Terminal preview must receive runtime truncated flags from the result content.',
+    );
+    assert.match(
+      src,
+      /data-kind="shell_run"|ShellRunPreview/,
+      'Background shell_run results need a dedicated quiet presenter, not [shell_run].',
     );
     assert.doesNotMatch(
       src,

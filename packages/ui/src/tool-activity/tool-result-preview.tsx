@@ -57,8 +57,15 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
         exitCode={content.exitCode}
         stdout={content.stdout}
         stderr={content.stderr}
+        status={content.status}
+        stdoutTruncated={content.stdoutTruncated}
+        stderrTruncated={content.stderrTruncated}
       />
     );
+  }
+
+  if (content.kind === 'shell_run') {
+    return <ShellRunPreview result={content} />;
   }
 
   if (content.kind === 'office_document') {
@@ -164,8 +171,7 @@ function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'ctx' {
 
 /**
  * Terminal output preview — quiet single well: command (no $) + stdout/stderr.
- * No cwd bar, no exit-code badge chrome, no copy control. Failure and
- * truncation are one-line notes. Empty output keeps an explicit placeholder.
+ * Honors runtime `status` and stream truncated flags (not only UI line caps).
  */
 function TerminalPreview(props: {
   cwd: string;
@@ -173,8 +179,12 @@ function TerminalPreview(props: {
   exitCode: number;
   stdout: string;
   stderr: string;
+  status?: string;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }) {
-  const succeeded = props.exitCode === 0;
+  const succeeded = props.exitCode === 0 && !isCancelledStatus(props.status);
+  const cancelled = isCancelledStatus(props.status);
   const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
   // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
   // provider can dump megabytes of stderr; we keep the first TOOL_LINE_CAP
@@ -185,14 +195,14 @@ function TerminalPreview(props: {
   // arg into the chat without masking it.
   const safeCmd = redactSecrets(props.cmd);
   const hiddenLines = stdout.capped + stderr.capped;
+  const runtimeTruncated = props.stdoutTruncated === true || props.stderrTruncated === true;
+  const attention = !succeeded || cancelled;
 
-  // Codex-like single well: command (no $) + body. No cwd / exit badge chrome,
-  // no always-on copy control. Failure and truncation are one quiet note each.
   return (
     <div
       data-slot="tool-output"
       data-kind="terminal"
-      className={cn(TOOL_OUTPUT_PANEL_CLASS, !succeeded && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+      className={cn(TOOL_OUTPUT_PANEL_CLASS, attention && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
     >
       {safeCmd.length > 0 && (
         <code className={TOOL_OUTPUT_COMMAND_CLASS}>{safeCmd}</code>
@@ -215,18 +225,115 @@ function TerminalPreview(props: {
           {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
         </pre>
       )}
-      {!succeeded && (
+      {cancelled && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          已取消 · 退出码 {props.exitCode}
+        </p>
+      )}
+      {!succeeded && !cancelled && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
           失败 · 退出码 {props.exitCode}
         </p>
       )}
-      {hiddenLines > 0 && (
+      {(runtimeTruncated || hiddenLines > 0) && (
         <p className={TOOL_OUTPUT_NOTE_CLASS}>
-          输出已截断 · 每路仅展示前 {TOOL_LINE_CAP} 行
+          {hiddenLines > 0
+            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
+            : '输出已截断'}
         </p>
       )}
     </div>
   );
+}
+
+/**
+ * Background shell-run result (desktop Bash after yield). Keep cmd, status,
+ * ref, and any captured streams — never collapse to `[shell_run]`.
+ */
+function ShellRunPreview(props: {
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+}) {
+  const { result } = props;
+  const safeCmd = redactSecrets(result.cmd);
+  const safeRef = redactSecrets(result.ref);
+  const stdout = capLines(redactSecrets(result.stdout ?? ''));
+  const stderr = capLines(redactSecrets(result.stderr ?? ''));
+  const hasOutput = (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
+  const runtimeTruncated = result.stdoutTruncated === true || result.stderrTruncated === true;
+  const hiddenLines = stdout.capped + stderr.capped;
+  const statusLabel = shellRunStatusLabel(result.status);
+  const attention = result.status === 'failed' || result.status === 'orphaned' || (result.exitCode !== undefined && result.exitCode !== 0);
+
+  return (
+    <div
+      data-slot="tool-output"
+      data-kind="shell_run"
+      className={cn(TOOL_OUTPUT_PANEL_CLASS, attention && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+    >
+      {safeCmd.length > 0 && (
+        <code className={TOOL_OUTPUT_COMMAND_CLASS}>{safeCmd}</code>
+      )}
+      <p className={TOOL_OUTPUT_NOTE_CLASS}>
+        {statusLabel}
+        {result.exitCode !== undefined ? ` · 退出码 ${result.exitCode}` : ''}
+        {safeRef ? ` · ${safeRef}` : ''}
+      </p>
+      {result.failureMessage && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          {redactSecrets(result.failureMessage)}
+        </p>
+      )}
+      {!hasOutput && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>（尚无输出）</p>
+      )}
+      {(result.stdout?.length ?? 0) > 0 && (
+        <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
+          {stdout.body}
+          {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
+        </pre>
+      )}
+      {(result.stderr?.length ?? 0) > 0 && (
+        <pre
+          className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')}
+          data-stream="stderr"
+        >
+          {stderr.body}
+          {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
+        </pre>
+      )}
+      {(runtimeTruncated || hiddenLines > 0) && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>
+          {hiddenLines > 0
+            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
+            : '输出已截断'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function isCancelledStatus(status: string | undefined): boolean {
+  if (!status) return false;
+  return status === 'cancelled' || status === 'canceled' || status === 'canceled_partial' || status === 'interrupted';
+}
+
+function shellRunStatusLabel(status: string): string {
+  switch (status) {
+    case 'running':
+      return '后台运行中';
+    case 'completed':
+      return '后台已完成';
+    case 'failed':
+      return '后台失败';
+    case 'timed_out':
+      return '后台超时';
+    case 'cancelled':
+      return '后台已取消';
+    case 'orphaned':
+      return '后台任务已断开';
+    default:
+      return `后台 · ${status}`;
+  }
 }
 
 function OfficeDocumentPreview(props: {

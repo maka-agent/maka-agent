@@ -106,11 +106,11 @@ function AutomationResultPreview(props: { text: string }) {
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
           <Icon size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          自动化任务已创建：{created[1]}
+          自动化任务已创建：{redactSecrets(created[1] ?? '')}
         </p>
-        {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{schedule}</p>}
-        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{nextFire}</p>}
-        <p className={previewVariants({ part: 'load-tool-footer' })}>{created[2]}</p>
+        {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{redactSecrets(schedule)}</p>}
+        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{redactSecrets(nextFire)}</p>}
+        <p className={previewVariants({ part: 'load-tool-footer' })}>{redactSecrets(created[2] ?? '')}</p>
       </div>
     );
   }
@@ -146,7 +146,7 @@ function AutomationResultPreview(props: { text: string }) {
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
               <BlockIcon size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
-              {head}
+              {redactSecrets(head)}
             </p>
           );
         })}

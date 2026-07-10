@@ -3,7 +3,8 @@
  *
  * Built-in tools (Read/Grep/…) still persist as `kind: 'json'`. The quiet panel
  * must never dump pretty-printed JSON with escaped newlines — always plain
- * headline + body text, for every tool name.
+ * headline + body text. Primary fields win the main body, but remaining fields
+ * are always appended so diagnostics (error/ok/truncated) cannot disappear.
  */
 import { redactSecrets } from '../redact.js';
 import type { ToolActivityItem } from '../materialize.js';
@@ -48,6 +49,24 @@ const HEADLINE_KEYS = [
   'ref',
 ] as const;
 
+/** Diagnostic / meta fields shown after the primary body when still present. */
+const REMAINDER_PRIORITY = [
+  'error',
+  'reason',
+  'ok',
+  'truncated',
+  'status',
+  'code',
+  'message',
+] as const;
+
+/**
+ * Property names whose values must never be shown raw — structural redaction
+ * beyond the string-pattern safety net in redactSecrets.
+ */
+const SENSITIVE_KEY_RE =
+  /(password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|^auth$|credential|private[_-]?key)/i;
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -61,6 +80,16 @@ function stringField(record: Record<string, unknown> | undefined, key: string): 
 function numberField(record: Record<string, unknown> | undefined, key: string): number | undefined {
   const raw = record?.[key];
   return typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+}
+
+function isSensitiveKey(key: string): boolean {
+  return SENSITIVE_KEY_RE.test(key);
+}
+
+function maskSensitiveValue(key: string, value: unknown): unknown {
+  if (!isSensitiveKey(key)) return value;
+  if (value === undefined) return undefined;
+  return '<redacted>';
 }
 
 function formatRangeSuffix(args: Record<string, unknown>): string {
@@ -114,6 +143,7 @@ export function formatToolInvocationLine(
   if (query) return redactSecrets(query);
 
   for (const key of HEADLINE_KEYS) {
+    if (isSensitiveKey(key)) continue;
     const value = stringField(args, key);
     if (value) return redactSecrets(value);
   }
@@ -132,6 +162,9 @@ export interface QuietPreview {
  * Format any tool JSON/result payload for the quiet panel.
  * Always returns a body — never `undefined` for object values so callers
  * cannot fall back to `JSON.stringify`.
+ *
+ * Primary list/text fields become the main body; remaining fields (error, ok,
+ * truncated, …) are appended so diagnostics cannot vanish.
  */
 export function formatQuietJsonValue(value: unknown): QuietPreview {
   if (value === null || value === undefined) {
@@ -155,23 +188,35 @@ export function formatQuietJsonValue(value: unknown): QuietPreview {
   // Known list payloads (Grep/Glob/load_tools/…).
   for (const key of LIST_KEYS) {
     if (!Array.isArray(record[key])) continue;
-    const body = formatArrayAsBody(record[key] as unknown[]);
-    const headline = pickHeadline(record, new Set<string>([key]));
+    const consumed = new Set<string>([key]);
+    const primary = formatArrayAsBody(record[key] as unknown[]);
+    const headline = pickHeadline(record, consumed);
+    if (headline) consumed.add(headlineSourceKey(record, headline) ?? '');
+    const rest = formatRemainder(record, consumed);
+    const body = rest ? `${primary}\n${rest}` : primary;
     return headline ? { headline, body } : { body };
   }
 
   // Dominant text payload (Read content, messages, …).
   for (const key of BODY_KEYS) {
     if (typeof record[key] !== 'string') continue;
-    const body = redactSecrets(record[key] as string);
-    // Prefer path/title from sibling fields as headline; do not restate the body key.
-    const headline = pickHeadline(record, new Set<string>([key]));
+    if (isSensitiveKey(key)) continue;
+    const consumed = new Set<string>([key]);
+    const primary = redactSecrets(record[key] as string);
+    const headline = pickHeadline(record, consumed);
+    if (headline) {
+      const hk = headlineSourceKey(record, headline);
+      if (hk) consumed.add(hk);
+    }
+    const rest = formatRemainder(record, consumed);
+    const body = rest ? `${primary}\n${rest}` : primary;
     return headline ? { headline, body } : { body };
   }
 
   // Write / Edit style { ok, path, bytes, … }.
   const path = stringField(record, 'path');
-  if (path && (record.ok === true || numberField(record, 'bytes') !== undefined || numberField(record, 'replacements') !== undefined)) {
+  if (path && (record.ok === true || record.ok === false || numberField(record, 'bytes') !== undefined || numberField(record, 'replacements') !== undefined)) {
+    const consumed = new Set<string>(['path', 'ok', 'bytes', 'replacements', 'startLine', 'endLine', 'matchedVia']);
     const bytes = numberField(record, 'bytes');
     const replacements = numberField(record, 'replacements');
     const startLine = numberField(record, 'startLine');
@@ -182,9 +227,11 @@ export function formatQuietJsonValue(value: unknown): QuietPreview {
     if (bytes !== undefined) parts.push(`${bytes} B`);
     if (replacements !== undefined) parts.push(`${replacements} 处`);
     if (startLine !== undefined && endLine !== undefined) parts.push(`L${startLine}–${endLine}`);
+    const primary = parts.length > 0 ? parts.join(' · ') : '已写入';
+    const rest = formatRemainder(record, consumed);
     return {
       headline: redactSecrets(path),
-      body: parts.length > 0 ? parts.join(' · ') : '已写入',
+      body: rest ? `${primary}\n${rest}` : primary,
     };
   }
 
@@ -201,11 +248,45 @@ function pickHeadline(
   skip: ReadonlySet<string>,
 ): string | undefined {
   for (const key of HEADLINE_KEYS) {
-    if (skip.has(key)) continue;
+    if (skip.has(key) || isSensitiveKey(key)) continue;
     const value = stringField(record, key);
     if (value) return redactSecrets(value);
   }
   return undefined;
+}
+
+function headlineSourceKey(
+  record: Record<string, unknown>,
+  headline: string,
+): string | undefined {
+  for (const key of HEADLINE_KEYS) {
+    const value = stringField(record, key);
+    if (value && redactSecrets(value) === headline) return key;
+  }
+  return undefined;
+}
+
+/**
+ * Remaining fields after a primary body was chosen — always keep diagnostics.
+ * Order: REMAINDER_PRIORITY first, then the rest alphabetically stable via Object.entries.
+ */
+function formatRemainder(
+  record: Record<string, unknown>,
+  consumed: ReadonlySet<string>,
+): string {
+  const rest: Record<string, unknown> = {};
+  const prioritized: Record<string, unknown> = {};
+  for (const key of REMAINDER_PRIORITY) {
+    if (consumed.has(key) || record[key] === undefined) continue;
+    prioritized[key] = record[key];
+  }
+  for (const [key, value] of Object.entries(record)) {
+    if (consumed.has(key) || value === undefined) continue;
+    if (key in prioritized) continue;
+    rest[key] = value;
+  }
+  const ordered = { ...prioritized, ...rest };
+  return formatAsKeyValueLines(ordered);
 }
 
 function formatArrayAsBody(values: unknown[]): string {
@@ -227,8 +308,8 @@ function formatArrayAsBody(values: unknown[]): string {
 
 /**
  * Plain `key: value` lines — never JSON braces or escaped `\n` sequences.
- * Keys and whole lines pass through `redactSecrets` so dynamic property names
- * carrying credentials (e.g. `api_key=sk-…`) cannot bypass value-only redaction.
+ * Keys and whole lines pass through `redactSecrets`; sensitive key names force
+ * value masking even when the value itself is a short non-token secret.
  */
 export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0): string {
   if (depth > 3) return redactSecrets(String(record));
@@ -240,51 +321,51 @@ export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0
   for (const [key, raw] of Object.entries(record)) {
     if (raw === undefined) continue;
     const safeKey = redactSecrets(key);
-    if (raw === null) {
+    const value = maskSensitiveValue(key, raw);
+    if (value === null) {
       push(`${indent}${safeKey}: null`);
       continue;
     }
-    if (typeof raw === 'string') {
-      // Multi-line strings get a block, not a quoted escape soup.
-      if (raw.includes('\n')) {
+    if (typeof value === 'string') {
+      if (value.includes('\n') && value !== '<redacted>') {
         push(`${indent}${safeKey}:`);
-        for (const line of redactSecrets(raw).split('\n')) {
+        for (const line of redactSecrets(value).split('\n')) {
           push(`${indent}  ${line}`);
         }
       } else {
-        push(`${indent}${safeKey}: ${redactSecrets(raw)}`);
+        push(`${indent}${safeKey}: ${redactSecrets(value)}`);
       }
       continue;
     }
-    if (typeof raw === 'number' || typeof raw === 'boolean') {
-      push(`${indent}${safeKey}: ${raw}`);
+    if (typeof value === 'number' || typeof value === 'boolean') {
+      push(`${indent}${safeKey}: ${value}`);
       continue;
     }
-    if (Array.isArray(raw)) {
-      if (raw.length === 0) {
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
         push(`${indent}${safeKey}: （空）`);
-      } else if (raw.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
+      } else if (value.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
         push(`${indent}${safeKey}:`);
-        for (const item of raw) {
+        for (const item of value) {
           push(`${indent}  - ${typeof item === 'string' ? redactSecrets(item) : String(item)}`);
         }
       } else {
         push(`${indent}${safeKey}:`);
-        for (const line of formatArrayAsBody(raw).split('\n')) {
+        for (const line of formatArrayAsBody(value).split('\n')) {
           push(`${indent}  ${line}`);
         }
       }
       continue;
     }
-    if (typeof raw === 'object') {
+    if (typeof value === 'object') {
       push(`${indent}${safeKey}:`);
-      const nested = formatAsKeyValueLines(raw as Record<string, unknown>, depth + 1);
+      const nested = formatAsKeyValueLines(value as Record<string, unknown>, depth + 1);
       if (nested) {
         for (const line of nested.split('\n')) push(line);
       }
       continue;
     }
-    push(`${indent}${safeKey}: ${redactSecrets(String(raw))}`);
+    push(`${indent}${safeKey}: ${redactSecrets(String(value))}`);
   }
   return lines.join('\n');
 }

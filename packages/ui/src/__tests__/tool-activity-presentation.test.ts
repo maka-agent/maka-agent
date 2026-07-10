@@ -314,6 +314,43 @@ describe('tool activity presentation', () => {
     assert.match(markup, /redacted|api_key|&lt;redacted&gt;|ok/i);
   });
 
+  it('redacts short secrets under sensitive keys like password', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-password',
+        toolName: 'CustomInspect',
+        status: 'waiting_permission',
+        args: { password: 'correct-horse' },
+        result: {
+          kind: 'json',
+          value: { token: 'short-secret', ok: true },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.doesNotMatch(markup, /correct-horse/);
+    assert.doesNotMatch(markup, /short-secret/);
+    assert.match(markup, /redacted|password|token/i);
+  });
+
+  it('keeps error diagnostics when a list field is also present', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-mixed',
+        toolName: 'CustomInspect',
+        status: 'errored',
+        args: {},
+        result: {
+          kind: 'json',
+          value: { results: [], error: 'permission denied', ok: false },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /permission denied/);
+    assert.match(markup, /ok:\s*false|未完成|false/);
+  });
+
   it('keeps the Write path when args and result headlines match', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
@@ -331,5 +368,81 @@ describe('tool activity presentation', () => {
 
     assert.match(markup, /packages\/ui\/src\/secret\.ts/);
     assert.match(markup, /已完成|1 B/);
+  });
+
+  it('renders shell_run with command, status, and captured output', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-shell-run',
+        toolName: 'Bash',
+        activityKind: 'command',
+        status: 'waiting_permission',
+        args: { command: 'npm test' },
+        result: {
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/bg-1',
+          status: 'running',
+          cwd: '/repo',
+          cmd: 'npm test',
+          startedAt: 1,
+          updatedAt: 2,
+          stdout: 'starting\n',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /npm test/);
+    assert.match(markup, /后台运行中|background-tasks/);
+    assert.match(markup, /starting/);
+    assert.doesNotMatch(markup, /\[shell_run\]/);
+  });
+
+  it('surfaces terminal cancel and runtime truncation flags', () => {
+    const cancelled = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-cancel',
+        toolName: 'Bash',
+        status: 'errored',
+        args: { command: 'sleep 99' },
+        result: {
+          kind: 'terminal',
+          cwd: '/repo',
+          cmd: 'sleep 99',
+          status: 'cancelled',
+          exitCode: 130,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+    assert.match(cancelled, /已取消/);
+    assert.doesNotMatch(cancelled, /失败 · 退出码 130/);
+
+    const truncated = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-trunc',
+        toolName: 'Bash',
+        status: 'waiting_permission',
+        args: { command: 'run' },
+        result: {
+          kind: 'terminal',
+          cwd: '/repo',
+          cmd: 'run',
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'tail only',
+          stderr: '',
+          stdoutTruncated: true,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+    assert.match(truncated, /tail only/);
+    assert.match(truncated, /输出已截断/);
   });
 });
