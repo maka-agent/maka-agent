@@ -334,7 +334,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         }
         requestRender();
       },
-    }).finally(() => {
+    }).finally(async () => {
+      await Promise.all([...pendingDriverStops]);
       busy = false;
       turnRunning = false;
       interruptRequested = false;

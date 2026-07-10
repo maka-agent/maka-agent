@@ -191,14 +191,57 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => terminal.progressStates.at(-1) === true);
     terminal.input('\x03');
     await waitFor(() => driver.stopCalls === 1);
-    await waitFor(() => terminal.progressStates.at(-1) === false);
+    await waitFor(() => driver.turnStreamEnded);
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
     exitMaka(terminal);
     await delay(0);
 
     try {
       assert.equal(driver.stopCalls, 1);
+      assert.equal(settled, false);
     } finally {
       driver.releaseStops();
+      await run;
+    }
+  });
+
+  test('blocks the next turn until interrupt cleanup settles', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new TurnEndsBeforeStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    terminal.input('first');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => driver.turnStreamEnded);
+    terminal.input('second');
+    terminal.input('\r');
+    await delay(20);
+
+    try {
+      assert.deepEqual(driver.prompts, ['first']);
+    } finally {
+      driver.releaseStops();
+      await waitFor(() => terminal.progressStates.at(-1) === false);
+      if (driver.prompts.length === 1) {
+        terminal.input('\r');
+        await waitFor(() => driver.prompts.length === 2);
+      }
+      exitMaka(terminal);
       await run;
     }
   });
@@ -2972,11 +3015,22 @@ class HangingInterruptDriver extends SlashCommandDriver {
 
 class TurnEndsBeforeStopDriver extends SlashCommandDriver {
   stopCalls = 0;
+  turnStreamEnded = false;
   private resolveTurn: (() => void) | null = null;
   private readonly stopResolvers: Array<() => void> = [];
 
   override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
+    if (this.prompts.length > 1) {
+      yield {
+        type: 'complete',
+        id: 'event-complete',
+        turnId: 'turn-2',
+        ts: 2,
+        stopReason: 'end_turn',
+      };
+      return;
+    }
     await new Promise<void>((resolve) => {
       this.resolveTurn = resolve;
     });
@@ -2987,12 +3041,14 @@ class TurnEndsBeforeStopDriver extends SlashCommandDriver {
       ts: 1,
       reason: 'user_stop',
     };
+    this.turnStreamEnded = true;
   }
 
   override async stop(): Promise<void> {
     this.stopCalls += 1;
     this.resolveTurn?.();
     this.resolveTurn = null;
+    if (this.stopCalls > 1) return;
     await new Promise<void>((resolve) => {
       this.stopResolvers.push(resolve);
     });
