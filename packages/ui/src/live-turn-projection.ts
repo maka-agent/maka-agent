@@ -72,7 +72,8 @@ export function applyLiveTurnEvent(
     || event.type === 'thinking_complete'
     || event.type === 'text_delta'
     || event.type === 'text_complete';
-  const existingToolStep = event.type === 'tool_output_delta'
+  const existingToolStep = event.type === 'tool_start'
+    || event.type === 'tool_output_delta'
     || event.type === 'tool_result'
     || event.type === 'permission_request'
     || event.type === 'permission_decision_ack'
@@ -81,7 +82,7 @@ export function applyLiveTurnEvent(
   const stepId = messageEvent
     ? event.messageId
     : event.type === 'tool_start'
-      ? event.stepId ?? `tool:${event.toolUseId}`
+      ? event.stepId ?? existingToolStep?.stepId ?? `tool:${event.toolUseId}`
       : existingToolStep?.stepId ?? `tool:${event.toolUseId}`;
   const stepIndex = prior.steps.findIndex((step) => step.stepId === stepId);
   const step = stepIndex >= 0 ? prior.steps[stepIndex]! : { stepId, tools: [] };
@@ -127,7 +128,7 @@ export function applyLiveTurnEvent(
       },
     };
   } else if (event.type === 'tool_start') {
-    const tool: ToolActivityItem = {
+    const startedTool: ToolActivityItem = {
       toolUseId: event.toolUseId,
       toolName: event.toolName,
       ...(event.displayName !== undefined ? { displayName: event.displayName } : {}),
@@ -136,6 +137,10 @@ export function applyLiveTurnEvent(
       status: 'pending',
       args: event.args,
     };
+    const existingTool = existingToolStep?.tools.find((candidate) => candidate.toolUseId === event.toolUseId);
+    const tool: ToolActivityItem = existingTool
+      ? { ...existingTool, ...startedTool, status: existingTool.status }
+      : startedTool;
     const toolIndex = step.tools.findIndex((candidate) => candidate.toolUseId === event.toolUseId);
     nextStep = {
       ...step,
@@ -207,9 +212,32 @@ export function applyLiveTurnEvent(
         : [...step.tools, tool],
     };
   }
-  const steps = stepIndex >= 0
-    ? prior.steps.map((candidate, index) => index === stepIndex ? nextStep : candidate)
-    : [...prior.steps, nextStep];
+  let steps: LiveTurnStepProjection[];
+  if (existingToolStep && existingToolStep.stepId !== stepId && !messageEvent) {
+    const sourceIndex = prior.steps.findIndex((candidate) => candidate.stepId === existingToolStep.stepId);
+    const sourceWithoutTool = {
+      ...existingToolStep,
+      tools: existingToolStep.tools.filter((tool) => tool.toolUseId !== event.toolUseId),
+    };
+    const sourceIsEmpty = !sourceWithoutTool.thinking && !sourceWithoutTool.text && sourceWithoutTool.tools.length === 0;
+    steps = [];
+    for (let index = 0; index < prior.steps.length; index += 1) {
+      const candidate = prior.steps[index]!;
+      if (index === sourceIndex) {
+        if (!sourceIsEmpty) steps.push(sourceWithoutTool);
+        if (stepIndex < 0 && sourceIsEmpty) steps.push(nextStep);
+      } else if (index === stepIndex) {
+        steps.push(nextStep);
+      } else {
+        steps.push(candidate);
+      }
+    }
+    if (stepIndex < 0 && !sourceIsEmpty) steps.push(nextStep);
+  } else {
+    steps = stepIndex >= 0
+      ? prior.steps.map((candidate, index) => index === stepIndex ? nextStep : candidate)
+      : [...prior.steps, nextStep];
+  }
   return { ...prior, phase: 'streamed', steps };
 }
 

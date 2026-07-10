@@ -218,6 +218,51 @@ describe('applyLiveTurnEvent', () => {
     }]);
   });
 
+  it('moves an output-first tool into its real step without duplicating or regressing it', () => {
+    const output = applyLiveTurnEvent(undefined, {
+      type: 'tool_output_delta',
+      id: 'event-1',
+      turnId: 'turn-1',
+      sessionId: 'session-1',
+      toolCallId: 'tool-1',
+      toolUseId: 'tool-1',
+      seq: 0,
+      stream: 'stdout',
+      chunk: 'hello\n',
+      redacted: false,
+      createdAt: 100,
+      ts: 100,
+    });
+    const projection = applyLiveTurnEvent(output, {
+      type: 'tool_start',
+      id: 'event-2',
+      turnId: 'turn-1',
+      stepId: 'step-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: { command: 'printf hello' },
+      ts: 101,
+    });
+
+    assert.equal(projection.steps.length, 1);
+    assert.equal(projection.steps[0]?.stepId, 'step-1');
+    assert.deepEqual(projection.steps[0]?.tools, [{
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      stepId: 'step-1',
+      status: 'running',
+      args: { command: 'printf hello' },
+      outputChunks: [{
+        seq: 0,
+        stream: 'stdout',
+        text: 'hello\n',
+        redacted: false,
+        createdAt: 100,
+      }],
+      outputTruncated: false,
+    }]);
+  });
+
   it('keeps permission status on the same live tool', () => {
     const started = applyLiveTurnEvent(undefined, {
       type: 'tool_start',
