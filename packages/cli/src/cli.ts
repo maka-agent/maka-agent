@@ -114,6 +114,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',
+          onProcessExit: (exitCode, error) => {
+            if (error) process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
+            completeMakaCliExit(exitCode);
+          },
         });
         return 0;
       } finally {

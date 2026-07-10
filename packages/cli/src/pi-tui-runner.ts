@@ -67,6 +67,8 @@ export interface MakaPiTuiInput {
   providerType?: ProviderType;
   permissionMode: PermissionMode;
   terminal?: Terminal;
+  /** Starts the CLI process-exit deadline after terminal restore, before outer cleanup. */
+  onProcessExit?: (exitCode: number, error?: Error) => void;
   /**
    * How long a prompt turn must run before its completion rings the terminal
    * BEL when unfocused. Injectable so tests exercise the long / short split
@@ -207,29 +209,30 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const close = () => beginClose();
 
+  const handleProcessExit = (exitCode: number, error?: Error): void => {
+    process.exitCode = exitCode;
+    beginClose(input.onProcessExit ? undefined : error);
+    input.onProcessExit?.(exitCode, error);
+  };
+
   function handleSigint(): void {
-    process.exitCode = 128 + 2;
-    beginClose();
+    handleProcessExit(128 + 2);
   }
 
   function handleSigterm(): void {
-    process.exitCode = 128 + 15;
-    beginClose();
+    handleProcessExit(128 + 15);
   }
 
   function handleSighup(): void {
-    process.exitCode = 128 + 1;
-    beginClose();
+    handleProcessExit(128 + 1);
   }
 
   function handleUncaughtException(error: Error): void {
-    process.exitCode = 1;
-    beginClose(error);
+    handleProcessExit(1, error);
   }
 
   function handleUnhandledRejection(reason: unknown): void {
-    process.exitCode = 1;
-    beginClose(reason instanceof Error ? reason : new Error(String(reason)));
+    handleProcessExit(1, reason instanceof Error ? reason : new Error(String(reason)));
   }
 
   process.once('SIGINT', handleSigint);

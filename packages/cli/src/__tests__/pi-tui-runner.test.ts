@@ -46,7 +46,7 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stdout, /CLOSED/);
   });
 
-  test('forces signal exit when another active handle remains after terminal restoration', async () => {
+  test('forces signal exit when outer cleanup never settles after terminal restoration', async () => {
     const { code, signal, stdout } = await runSignalExitProbe('SIGTERM', true);
 
     assert.equal(signal, null);
@@ -57,6 +57,16 @@ describe('Maka Pi TUI runner', () => {
 
   test('restores the terminal before reporting an uncaught exception', async () => {
     const { code, signal, stdout, stderr } = await runFatalExitProbe('uncaughtException');
+
+    assert.equal(signal, null);
+    assert.equal(code, 1);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+    assert.match(stderr, /fatal probe/);
+  });
+
+  test('reports and forces fatal exit when outer cleanup never settles', async () => {
+    const { code, signal, stdout, stderr } = await runFatalExitProbe('uncaughtException', true);
 
     assert.equal(signal, null);
     assert.equal(code, 1);
@@ -3269,7 +3279,7 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
   };
 }
 
-async function runSignalExitProbe(signalToSend: NodeJS.Signals, retainHandleAfterClose = false): Promise<{
+async function runSignalExitProbe(signalToSend: NodeJS.Signals, hangOuterCleanup = false): Promise<{
   code: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
@@ -3315,12 +3325,13 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals, retainHandleAfte
       connectionSlug: 'test-connection',
       permissionMode: 'ask',
       terminal,
+      onProcessExit: (exitCode) => completeMakaCliExit(exitCode),
     });
     process.stdout.write('READY\\n');
     await run;
-    completeMakaCliExit(0);
     process.stdout.write('CLOSED\\n');
-    if (!${retainHandleAfterClose}) clearInterval(hold);
+    if (${hangOuterCleanup}) await new Promise(() => {});
+    clearInterval(hold);
   `;
   const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -3342,19 +3353,21 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals, retainHandleAfte
   return { code, signal, stdout };
 }
 
-async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection'): Promise<{
+async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection', hangOuterCleanup = false): Promise<{
   code: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
   stderr: string;
 }> {
   const runnerUrl = new URL('../pi-tui-runner.js', import.meta.url).href;
+  const cliUrl = new URL('../cli.js', import.meta.url).href;
   const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
   const trigger = kind === 'uncaughtException'
     ? "setImmediate(() => { throw new Error('fatal probe'); });"
     : "void Promise.reject(new Error('fatal probe'));";
   const childSource = `
     import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
+    import { completeMakaCliExit, formatMakaCliFatalError } from ${JSON.stringify(cliUrl)};
     import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
 
     class ReportingTerminal extends FakeTerminal {
@@ -3382,6 +3395,7 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
       getSessionId() { return null; },
     };
     const hold = setInterval(() => {}, 1_000);
+    let fatalError;
     try {
       const run = runMakaPiTui({
         title: 'Maka',
@@ -3391,16 +3405,21 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
         connectionSlug: 'test-connection',
         permissionMode: 'ask',
         terminal,
+        onProcessExit: (exitCode, error) => {
+          if (error) process.stderr.write(\`${'${formatMakaCliFatalError(error)}'}\\n\`);
+          completeMakaCliExit(exitCode);
+        },
       });
       process.stdout.write('READY\\n');
       ${trigger}
       await run;
     } catch (error) {
-      process.stderr.write(\`${'${error instanceof Error ? error.stack ?? error.message : String(error)}'}\\n\`);
-    } finally {
-      clearInterval(hold);
-      process.stdout.write('CLOSED\\n');
+      fatalError = error;
     }
+    process.stdout.write('CLOSED\\n');
+    if (${hangOuterCleanup}) await new Promise(() => {});
+    if (fatalError) process.stderr.write(\`${'${formatMakaCliFatalError(fatalError)}'}\\n\`);
+    clearInterval(hold);
   `;
   const nodeArgs = kind === 'unhandledRejection' ? ['--unhandled-rejections=warn'] : [];
   const child = spawn(process.execPath, [...nodeArgs, '--input-type=module', '-e', childSource], {
@@ -3408,7 +3427,7 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
   });
   let stdout = '';
   let stderr = '';
-  const killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
   child.stdout.setEncoding('utf8');
   child.stderr.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
