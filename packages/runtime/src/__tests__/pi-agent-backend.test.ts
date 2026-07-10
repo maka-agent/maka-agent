@@ -106,6 +106,31 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(stepIds[1], stepIds[0]);
   });
 
+  test('rotates the local step id when Pi repeats a provider message id after tools', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_900) }),
+      transport: frames([
+        { type: 'text_delta', messageId: 'provider-message-1', text: 'before' },
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read', args: {} },
+        { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'ok' } },
+        { type: 'text_delta', messageId: 'provider-message-1', text: 'after' },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(2_900),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
+    const assistants = messages.filter((message) => message.type === 'assistant');
+
+    assert.deepEqual(assistants.map((message) => message.text), ['before', 'after']);
+    assert.notEqual(assistants[1]?.id, assistants[0]?.id);
+  });
+
   test('normalizes token usage frames to Maka events and storage records', async () => {
     const messages: StoredMessage[] = [];
     const backend = new PiAgentBackend({

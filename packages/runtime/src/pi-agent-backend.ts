@@ -129,6 +129,16 @@ export class PiAgentBackend implements AgentBackend {
         text: assistantText,
       };
     };
+    const prepareTextStep = (providerMessageId?: string): void => {
+      if (providerMessageId && providerMessageId !== messageId) {
+        beginStep(providerMessageId);
+      } else if (textCompleteEmitted || (stepHasTools && activeToolUseIds.size === 0)) {
+        // Some transports reuse one provider message id across tool-loop
+        // steps. Once the current local step is terminal, reusing that id
+        // would create duplicate AssistantMessage ids, so rotate locally.
+        beginStep();
+      }
+    };
 
     try {
       for await (const rawFrame of this.input.transport.send({
@@ -148,13 +158,7 @@ export class PiAgentBackend implements AgentBackend {
 
         switch (frame.type) {
           case 'text_delta': {
-            if (
-              (frame.messageId && frame.messageId !== messageId)
-              || textCompleteEmitted
-              || (stepHasTools && activeToolUseIds.size === 0)
-            ) {
-              beginStep(frame.messageId);
-            }
+            prepareTextStep(frame.messageId);
             const text = redactBoundedText(frame.text);
             assistantText += text;
             yield {
@@ -168,13 +172,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'text_complete': {
-            if (
-              (frame.messageId && frame.messageId !== messageId)
-              || textCompleteEmitted
-              || (stepHasTools && activeToolUseIds.size === 0)
-            ) {
-              beginStep(frame.messageId);
-            }
+            prepareTextStep(frame.messageId);
             const text = redactBoundedText(frame.text ?? assistantText);
             assistantText = text;
             const complete = await completeStepText();
