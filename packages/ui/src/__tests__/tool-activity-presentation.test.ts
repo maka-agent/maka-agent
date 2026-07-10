@@ -269,4 +269,29 @@ describe('tool activity presentation', () => {
     assert.doesNotMatch(markup, /&quot;pattern&quot;\s*:|"pattern"\s*:/);
     assert.doesNotMatch(markup, /&quot;matches&quot;\s*:|"matches"\s*:/);
   });
+
+  it('never dumps pretty JSON for an arbitrary tool result object', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-custom',
+        toolName: 'CustomInspect',
+        status: 'waiting_permission',
+        args: { target: 'packages/ui', depth: 2 },
+        result: {
+          kind: 'json',
+          value: {
+            ok: true,
+            notes: 'looks fine',
+            detail: 'line one\nline two',
+          },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /packages\/ui|target: packages\/ui/);
+    assert.match(markup, /looks fine|notes:/);
+    assert.match(markup, /line one/);
+    assert.doesNotMatch(markup, /\{\s*&quot;ok&quot;/);
+    assert.doesNotMatch(markup, /line one\\nline two/);
+  });
 });

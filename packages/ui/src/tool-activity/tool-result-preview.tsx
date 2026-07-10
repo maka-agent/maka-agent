@@ -3,6 +3,7 @@ import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { cn } from '../ui.js';
 import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
+import { formatQuietJsonValue } from './builtin-preview.js';
 import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText } from './preview-utils.js';
 
 /**
@@ -77,17 +78,16 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
   }
 
   if (content.kind === 'json') {
-    let body: string;
-    try {
-      body = JSON.stringify(content.value, null, 2);
-    } catch {
-      body = String(content.value);
-    }
-    // JSON shouldn't contain secrets persisted by Maka (settings + telemetry
-    // are sanitized at write-time), but apply the renderer redactor as a
-    // second-layer defense in case a tool returned raw provider response.
-    // Body-only: parent ToolCardBody owns the quiet panel shell.
-    return <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind="json">{formatUserVisibleToolText(redactSecrets(body))}</pre>;
+    // Never pretty-print JSON with escaped newlines — quiet plain text only.
+    const quiet = formatQuietJsonValue(content.value);
+    return (
+      <div className="grid gap-1.5" data-kind="json">
+        {quiet.headline ? (
+          <code className={TOOL_OUTPUT_COMMAND_CLASS}>{formatUserVisibleToolText(quiet.headline)}</code>
+        ) : null}
+        <pre className={TOOL_OUTPUT_BODY_CLASS}>{formatUserVisibleToolText(quiet.body)}</pre>
+      </div>
+    );
   }
 
   if (content.kind === 'text') {

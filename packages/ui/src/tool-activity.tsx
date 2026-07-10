@@ -41,10 +41,10 @@ import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/
 import { previewVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
-import { describeLoadToolResult, formatRedactedJson, formatToolIntent } from './tool-format.js';
+import { describeLoadToolResult, formatToolIntent } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
 import {
-  formatBuiltinJsonResult,
+  formatQuietJsonValue,
   formatToolInvocationLine,
 } from './tool-activity/builtin-preview.js';
 import {
@@ -183,12 +183,11 @@ function extractErrorText(result: ToolActivityItem['result']): string {
   switch (result.kind) {
     case 'text':
       return result.text;
-    case 'json':
-      try {
-        return JSON.stringify(result.value, null, 2);
-      } catch {
-        return String(result.value);
-      }
+    case 'json': {
+      // Same quiet formatter as the panel — never dump escaped JSON braces.
+      const quiet = formatQuietJsonValue(result.value);
+      return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
+    }
     case 'terminal':
       return result.stderr || result.stdout || `exit ${result.exitCode}`;
     case 'file_diff':
@@ -262,31 +261,34 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const running = item.status === 'running' || item.status === 'pending';
   // Terminal result already includes the command line inside its quiet panel.
   const resultIsTerminal = item.result?.kind === 'terminal';
-  // Prefer a human invocation line (path / pattern / shell command) over a
-  // pretty-printed args object — Read/Grep were dumping raw tool-call JSON.
+  // Every tool: human invocation line from args — never pretty-printed JSON.
   const invocationLine = !permissionDenied && !resultIsTerminal
     ? formatToolInvocationLine(item)
     : undefined;
-  const showArgsFallback =
-    !permissionDenied
-    && !resultIsTerminal
-    && invocationLine === undefined
-    && item.args !== undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
   const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
   const showResult = !!item.result && !permissionDenied;
-  const builtinJson =
+  const quietJson =
     showResult && item.result?.kind === 'json'
-      ? formatBuiltinJsonResult(item.toolName, item.result.value)
+      ? formatQuietJsonValue(item.result.value)
       : undefined;
-  // When the builtin result already carries a path headline (Write/Edit), skip
-  // duplicating the args invocation line.
-  const showInvocation = invocationLine !== undefined && !(builtinJson?.headline);
+  // Result headline (e.g. Write path) wins over args when both would restate path.
+  const showInvocation = invocationLine !== undefined
+    && !(quietJson?.headline && quietJson.headline === invocationLine);
+  // Prefer args headline when result has no headline of its own.
+  const resultHeadline = quietJson?.headline
+    && quietJson.headline !== invocationLine
+    ? quietJson.headline
+    : undefined;
   // Terminal results own their own quiet panel (command + body + failure note).
   // Other results share one panel with any in-flight command/args/live stream.
   const hasSharedPanelContent =
-    showInvocation || showArgsFallback || showLiveStream || (showResult && !resultIsTerminal);
+    showInvocation
+    || !!resultHeadline
+    || showLiveStream
+    || (showResult && !resultIsTerminal)
+    || (!!item.args && !permissionDenied && !resultIsTerminal && !invocationLine && !showResult && !showLiveStream);
 
   return (
     <div className="mt-1 flex flex-col gap-1.5">
@@ -300,11 +302,14 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
           {showInvocation && (
             <code className={TOOL_OUTPUT_COMMAND_CLASS}>{invocationLine}</code>
           )}
-          {builtinJson?.headline && (
-            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{builtinJson.headline}</code>
+          {resultHeadline && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{resultHeadline}</code>
           )}
-          {showArgsFallback && (
-            <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>{formatRedactedJson(item.args)}</pre>
+          {/* No formatRedactedJson dump — if invocation failed, quiet-format args. */}
+          {!showInvocation && !resultHeadline && item.args !== undefined && !permissionDenied && !resultIsTerminal && !showResult && (
+            <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>
+              {formatQuietJsonValue(item.args).body}
+            </pre>
           )}
           {showLiveStream && (
             <ToolOutputStream
@@ -318,8 +323,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               <LoadToolResultPreview args={item.args} value={item.result!.value} />
             ) : isAutomationTool(item.toolName) && item.result!.kind === 'text' ? (
               <AutomationResultPreview text={(item.result as { text: string }).text} />
-            ) : builtinJson ? (
-              <pre className={TOOL_OUTPUT_BODY_CLASS}>{builtinJson.body}</pre>
+            ) : quietJson ? (
+              <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
               <ToolResultPreview content={item.result!} />
             )
