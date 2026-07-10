@@ -58,6 +58,7 @@ export interface RuntimeKernelDeps {
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   shellRuns?: ShellRunProcessManager;
+  cancellationCleanupTimeoutMs?: number;
 }
 
 interface ActiveSession extends AgentRunActiveSession {
@@ -71,6 +72,8 @@ interface ActiveSession extends AgentRunActiveSession {
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
+  private readonly operations = new SessionOperationCoordinator();
+  private readonly runCancellations = new Map<string, (source?: StopSessionInput['source']) => Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -84,31 +87,41 @@ export class RuntimeKernel implements RuntimeKernelLike {
     options: SendMessageOptions = {},
   ): AsyncIterable<SessionEvent> {
     if (options.signal?.aborted) return;
-    const header = await this.deps.store.readHeader(sessionId);
-    if (options.signal?.aborted) return;
-    const run = new AgentRun({
+    const operation = await this.operations.acquire(
       sessionId,
-      header,
-      userInput: input,
-      store: this.deps.store,
-      runStore: this.deps.runStore,
-      runtimeEventStore: this.deps.runtimeEventStore,
-      repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
-      newId: this.deps.newId,
-      now: this.deps.now,
-      hooks: {
-        ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
-        updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
-        updateStatus: (targetSessionId, status, blockedReason, ts) =>
-          this.updateStatus(targetSessionId, status, blockedReason, ts),
-        appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
-          this.appendTurnState(targetSessionId, turnId, status, lineage, options),
-      },
-    });
+      input.origin?.kind === 'automation' ? 'automation' : 'user',
+      options.signal,
+    );
+    if (!operation) return;
+    try {
+      const header = await this.deps.store.readHeader(sessionId);
+      if (operation.signal.aborted) return;
+      const run = new AgentRun({
+        sessionId,
+        header,
+        userInput: input,
+        store: this.deps.store,
+        runStore: this.deps.runStore,
+        runtimeEventStore: this.deps.runtimeEventStore,
+        repairRunRuntimeLedger: this.deps.repairRunRuntimeLedger,
+        newId: this.deps.newId,
+        now: this.deps.now,
+        hooks: {
+          ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
+          registerRun: (active, activeRun) => this.registerRun(active, activeRun),
+          unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+          updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
+          updateStatus: (targetSessionId, status, blockedReason, ts) =>
+            this.updateStatus(targetSessionId, status, blockedReason, ts),
+          appendTurnState: (targetSessionId, turnId, status, lineage, options) =>
+            this.appendTurnState(targetSessionId, turnId, status, lineage, options),
+        },
+      });
 
-    yield* this.runAgentTurn(sessionId, input, run, options.signal);
+      yield* this.runAgentTurn(sessionId, input, run, operation.signal);
+    } finally {
+      operation.release();
+    }
   }
 
   async *compactSession(
@@ -266,55 +279,80 @@ export class RuntimeKernel implements RuntimeKernelLike {
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
-    let abortStopPromise: Promise<
-      { ok: true } | { ok: false; error: unknown }
-    > | null = null;
-    const stopForAbort = () => {
-      abortStopPromise ??= this.stopSession(sessionId).then(
-        () => ({ ok: true as const }),
-        (error: unknown) => ({ ok: false as const, error }),
-      );
+    let backend: AgentBackend | undefined;
+    let backendStopPromise: Promise<CancellationCleanupResult> | undefined;
+    let beginSettled = false;
+    let cancellationPromise: Promise<void> | undefined;
+    const finalizeCancellation = (source?: StopSessionInput['source']) => {
+      if (!beginSettled) return cancellationPromise;
+      cancellationPromise ??= (async () => {
+        const cleanup = await backendStopPromise;
+        if (cleanup?.error !== undefined) run.recordCancellationCleanupFailure(cleanup.error);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        sessionEvents.close();
+        await this.finalizeRunCancellation(sessionId, run, source);
+      })();
+      return cancellationPromise;
     };
-    const waitForAbortStop = async () => {
-      const result = await abortStopPromise;
-      if (result?.ok === false) throw result.error;
+    const stopForAbort = (source?: StopSessionInput['source']) => {
+      run.stop(source);
+      abortController.abort();
+      if (backend && !backendStopPromise) {
+        backendStopPromise = settleWithin(
+          backend.stop('user_stop'),
+          this.deps.cancellationCleanupTimeoutMs ?? 5_000,
+        );
+      }
+      for (const child of this.childActive.values()) {
+        for (const childRun of child.activeRuns.values()) {
+          if (childRun.lineage.parentRunId !== run.runId) continue;
+          void this.runCancellations.get(childRun.runId)?.(source);
+        }
+      }
+      return finalizeCancellation(source) ?? Promise.resolve();
     };
-    signal?.addEventListener('abort', stopForAbort, { once: true });
-    if (signal?.aborted) stopForAbort();
+    const onAbort = () => { void stopForAbort(); };
+    this.runCancellations.set(run.runId, stopForAbort);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (signal?.aborted) void stopForAbort();
     let flowDone = false;
     let begin: AgentRunBeginResult;
     try {
       begin = await run.begin();
+      backend = begin.backend;
+      beginSettled = true;
     } catch (error) {
-      signal?.removeEventListener('abort', stopForAbort);
-      try {
-        await waitForAbortStop();
-        await run.recordFailure(error);
-      } finally {
+      beginSettled = true;
+      signal?.removeEventListener('abort', onAbort);
+      this.runCancellations.delete(run.runId);
+      if (run.isStopped()) {
         await run.finalize();
+        return;
       }
+      await run.recordFailure(error);
+      await run.finalize();
       throw error;
     }
 
     if (signal?.aborted) {
-      try {
-        await waitForAbortStop();
-        if (!run.isStopped()) await this.stopSession(sessionId);
-      } finally {
-        signal.removeEventListener('abort', stopForAbort);
-        await run.finalize();
-      }
+      stopForAbort();
+      signal.removeEventListener('abort', onAbort);
+      this.runCancellations.delete(run.runId);
+      await cancellationPromise;
       return;
     }
 
     const aiSdkFlow = new AiSdkFlow({
       backend: begin.backend,
       drainAfterTerminal: true,
+      stopOnAbort: false,
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
         await run.acceptMappedEvent(sessionEvent, runtimeEvent, {
           requireTerminalWrite: Boolean(this.deps.runtimeEventStore),
         });
-        await sessionEvents.push(sessionEvent);
+        if (!run.isStopped() || sessionEvent.type === 'abort') {
+          await sessionEvents.push(sessionEvent);
+        }
       },
       onError: async (error) => {
         if (!isAsyncEventQueueClosed(error)) {
@@ -358,21 +396,49 @@ export class RuntimeKernel implements RuntimeKernelLike {
       sessionEvents.fail(error);
       throw error;
     });
+    void runnerResult.catch(() => {});
 
     try {
       for await (const event of sessionEvents) {
         yield event;
       }
-      await runnerResult;
+      if (run.isStopped()) await cancellationPromise;
+      else await runnerResult;
     } finally {
-      signal?.removeEventListener('abort', stopForAbort);
+      signal?.removeEventListener('abort', onAbort);
+      this.runCancellations.delete(run.runId);
       if (!flowDone) {
         abortController.abort();
         sessionEvents.close();
       }
-      await runnerResult.catch(() => undefined);
-      await waitForAbortStop();
+      if (run.isStopped()) await cancellationPromise;
+      else await runnerResult.catch(() => undefined);
     }
+  }
+
+  private async finalizeRunCancellation(
+    sessionId: string,
+    run: AgentRun,
+    source?: StopSessionInput['source'],
+  ): Promise<void> {
+    if (!run.lineage.parentRunId) {
+      const abortSource = normalizeStopSessionSource(source);
+      await this.appendTurnState(
+        sessionId,
+        run.turnId,
+        'aborted',
+        run.lineage,
+        { ts: this.deps.now(), ...(abortSource ? { abortSource } : {}) },
+      ).catch(() => {});
+      await this.deps.store.appendMessage(sessionId, {
+        type: 'system_note',
+        id: this.deps.newId(),
+        ts: this.deps.now(),
+        kind: 'abort',
+        ...(abortSource ? { data: { source: abortSource } } : {}),
+      } satisfies SystemNoteMessage).catch(() => {});
+    }
+    await run.finalize();
   }
 
   private compactInvocationContext(input: {
@@ -405,16 +471,37 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
-    if (activeSessions.length === 0) return;
+    if (activeSessions.length === 0) {
+      this.operations.cancelSession(sessionId);
+      return;
+    }
     const abortSource = normalizeStopSessionSource(input.source);
     const activeRuns = activeSessions.flatMap((active) => [...active.activeRuns.values()]);
-    if (activeRuns.length === 0) return;
-    for (const run of activeRuns) {
+    if (activeRuns.length === 0) {
+      this.operations.cancelSession(sessionId);
+      return;
+    }
+    const controlled = activeRuns.flatMap((run) => {
+      const cancel = this.runCancellations.get(run.runId);
+      return cancel ? [{ run, cancel }] : [];
+    });
+    const controlledRunIds = new Set(controlled.map(({ run }) => run.runId));
+    const uncontrolled = activeRuns.filter((run) => !controlledRunIds.has(run.runId));
+    const controlledCancellations = controlled.map(({ cancel }) => cancel(input.source));
+    this.operations.cancelSession(sessionId);
+    for (const run of uncontrolled) {
       run.stop(input.source);
     }
-    await Promise.all(activeSessions.map((active) => active.backend.stop('user_stop')));
+    const uncontrolledSessions = activeSessions.filter((active) =>
+      [...active.activeRuns.keys()].some((runId) => !controlledRunIds.has(runId))
+    );
+    await Promise.all([
+      ...controlledCancellations,
+      ...uncontrolledSessions.map((active) => active.backend.stop('user_stop')),
+    ]);
+    if (uncontrolled.length === 0) return;
     await this.updateStatus(sessionId, 'aborted');
-    for (const run of activeRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
+    for (const run of uncontrolled.filter((activeRun) => !activeRun.lineage.parentRunId)) {
       await this.appendTurnState(
         sessionId,
         run.turnId,
@@ -641,6 +728,29 @@ function childActiveKey(sessionId: string, turnId: string): string {
   return `${sessionId}:${turnId}`;
 }
 
+interface CancellationCleanupResult {
+  error?: unknown;
+}
+
+function settleWithin(operation: Promise<void>, timeoutMs: number): Promise<CancellationCleanupResult> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(
+      () => resolve({ error: new Error(`Backend stop cleanup timed out after ${timeoutMs}ms`) }),
+      timeoutMs,
+    );
+    operation.then(
+      () => {
+        clearTimeout(timer);
+        resolve({});
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        resolve({ error });
+      },
+    );
+  });
+}
+
 class AsyncEventQueueClosed extends Error {
   constructor() {
     super('Async event queue closed');
@@ -726,3 +836,104 @@ class AsyncEventQueue<T> implements AsyncIterable<T> {
 }
 
 export type { AgentRunLineage };
+
+type SessionOperationKind = 'user' | 'automation';
+
+interface SessionOperationLease {
+  signal: AbortSignal;
+  release(): void;
+}
+
+interface PendingSessionOperation {
+  kind: SessionOperationKind;
+  controller: AbortController;
+  resolve: (lease: SessionOperationLease | undefined) => void;
+  removeExternalAbort?: () => void;
+}
+
+interface SessionOperationState {
+  active?: PendingSessionOperation;
+  queue: PendingSessionOperation[];
+}
+
+class SessionOperationCoordinator {
+  private readonly sessions = new Map<string, SessionOperationState>();
+
+  acquire(
+    sessionId: string,
+    kind: SessionOperationKind,
+    externalSignal?: AbortSignal,
+  ): Promise<SessionOperationLease | undefined> {
+    if (externalSignal?.aborted) return Promise.resolve(undefined);
+    const state = this.sessions.get(sessionId) ?? { queue: [] };
+    this.sessions.set(sessionId, state);
+    return new Promise((resolve) => {
+      const operation: PendingSessionOperation = {
+        kind,
+        controller: new AbortController(),
+        resolve,
+      };
+      if (externalSignal) {
+        const onAbort = () => this.cancelPending(sessionId, state, operation);
+        externalSignal.addEventListener('abort', onAbort, { once: true });
+        operation.removeExternalAbort = () => externalSignal.removeEventListener('abort', onAbort);
+      }
+      if (kind === 'user') {
+        const firstAutomation = state.queue.findIndex((queued) => queued.kind === 'automation');
+        if (firstAutomation === -1) state.queue.push(operation);
+        else state.queue.splice(firstAutomation, 0, operation);
+        if (state.active?.kind === 'automation') state.active.controller.abort();
+      } else {
+        state.queue.push(operation);
+      }
+      this.activateNext(sessionId, state);
+    });
+  }
+
+  cancelSession(sessionId: string): void {
+    const state = this.sessions.get(sessionId);
+    if (!state) return;
+    for (const operation of state.queue.splice(0)) {
+      operation.removeExternalAbort?.();
+      operation.resolve(undefined);
+    }
+    state.active?.controller.abort();
+    if (!state.active) this.sessions.delete(sessionId);
+  }
+
+  private cancelPending(
+    sessionId: string,
+    state: SessionOperationState,
+    operation: PendingSessionOperation,
+  ): void {
+    if (state.active === operation) {
+      operation.controller.abort();
+      return;
+    }
+    const index = state.queue.indexOf(operation);
+    if (index === -1) return;
+    state.queue.splice(index, 1);
+    operation.removeExternalAbort?.();
+    operation.resolve(undefined);
+    if (!state.active && state.queue.length === 0) this.sessions.delete(sessionId);
+  }
+
+  private activateNext(sessionId: string, state: SessionOperationState): void {
+    if (state.active) return;
+    const operation = state.queue.shift();
+    if (!operation) {
+      this.sessions.delete(sessionId);
+      return;
+    }
+    state.active = operation;
+    operation.resolve({
+      signal: operation.controller.signal,
+      release: () => {
+        if (state.active !== operation) return;
+        operation.removeExternalAbort?.();
+        state.active = undefined;
+        this.activateNext(sessionId, state);
+      },
+    });
+  }
+}

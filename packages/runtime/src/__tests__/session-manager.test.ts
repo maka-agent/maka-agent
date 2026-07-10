@@ -41,6 +41,132 @@ import {
 } from '../agent-catalog.js';
 
 describe('SessionManager turn cancellation', () => {
+  test('cancelling queued automation does not stop the active user turn', async () => {
+    const store = new MemorySessionStore();
+    const userStarted = makeGate();
+    const releaseUser = makeGate();
+    const automationStarted = makeGate();
+    const releaseAutomation = makeGate();
+    const backends = new BackendRegistry();
+    let backend: CoordinatedTurnsBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new CoordinatedTurnsBackend(ctx, {
+        userStarted,
+        releaseUser,
+        automationStarted,
+        releaseAutomation,
+      });
+      return backend;
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(8_000) });
+    const session = await manager.createSession(makeInput());
+    const userTurn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'user-turn', text: 'user' },
+    ));
+    await userStarted.promise;
+
+    const controller = new AbortController();
+    const automationTurn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      {
+        turnId: 'automation-turn',
+        text: 'automation',
+        origin: { kind: 'automation', automationId: 'automation-1' },
+      },
+      { signal: controller.signal },
+    ));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort();
+    releaseUser.release();
+
+    expect(await automationTurn).toEqual([]);
+    expect((await userTurn).at(-1)?.type).toBe('complete');
+    expect(backend?.sendInputs.map((input) => input.turnId)).toEqual(['user-turn']);
+    expect((await store.readHeader(session.id)).status).toBe('active');
+  });
+
+  test('a user turn preempts active automation before taking the session lease', async () => {
+    const store = new MemorySessionStore();
+    const userStarted = makeGate();
+    const releaseUser = makeGate();
+    const automationStarted = makeGate();
+    const releaseAutomation = makeGate();
+    const backends = new BackendRegistry();
+    let backend: CoordinatedTurnsBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new CoordinatedTurnsBackend(ctx, {
+        userStarted,
+        releaseUser,
+        automationStarted,
+        releaseAutomation,
+      });
+      return backend;
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(8_500) });
+    const session = await manager.createSession(makeInput());
+    const automationTurn = collectSessionEvents(manager.sendMessage(session.id, {
+      turnId: 'automation-turn',
+      text: 'automation',
+      origin: { kind: 'automation', automationId: 'automation-1' },
+    }));
+    await automationStarted.promise;
+
+    const userTurn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'user-turn', text: 'user' },
+    ));
+    await userStarted.promise;
+    releaseUser.release();
+
+    expect((await automationTurn).some((event) => event.type === 'complete')).toBe(false);
+    expect((await userTurn).at(-1)?.type).toBe('complete');
+    expect(backend?.sendInputs.map((input) => input.turnId)).toEqual([
+      'automation-turn',
+      'user-turn',
+    ]);
+    expect((await store.readHeader(session.id)).status).toBe('active');
+  });
+
+  test('stopSession cancels queued operations instead of starting them after the active turn stops', async () => {
+    const store = new MemorySessionStore();
+    const userStarted = makeGate();
+    const releaseUser = makeGate();
+    const automationStarted = makeGate();
+    const releaseAutomation = makeGate();
+    const backends = new BackendRegistry();
+    let backend: CoordinatedTurnsBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new CoordinatedTurnsBackend(ctx, {
+        userStarted,
+        releaseUser,
+        automationStarted,
+        releaseAutomation,
+      });
+      return backend;
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(8_750) });
+    const session = await manager.createSession(makeInput());
+    const userTurn = collectSessionEvents(manager.sendMessage(session.id, {
+      turnId: 'user-turn',
+      text: 'user',
+    }));
+    await userStarted.promise;
+    const automationTurn = collectSessionEvents(manager.sendMessage(session.id, {
+      turnId: 'automation-turn',
+      text: 'automation',
+      origin: { kind: 'automation', automationId: 'automation-1' },
+    }));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    await manager.stopSession(session.id, { source: 'stop_button' });
+
+    await userTurn;
+    expect(await automationTurn).toEqual([]);
+    expect(backend?.sendInputs.map((input) => input.turnId)).toEqual(['user-turn']);
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+  });
+
   test('aborts a turn while it is waiting to register as active', async () => {
     const store = new MemorySessionStore();
     const readStarted = makeGate();
@@ -154,7 +280,46 @@ describe('SessionManager turn cancellation', () => {
     )).toBe(true);
   });
 
-  test('finalizes an aborted turn when stopping the backend fails', async () => {
+  test('finalizes cancellation when backend stop rejects and the stream never ends', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const sendStarted = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new NeverEndingRejectingStopBackend(ctx, sendStarted));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_925),
+    });
+    const session = await manager.createSession(makeInput());
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await sendStarted.promise;
+
+    controller.abort();
+
+    const outcome = await Promise.race([
+      turn.then(() => 'settled' as const),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+    expect(outcome).toBe('settled');
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+    const [run] = await runStore.listSessionRuns(session.id);
+    const runEvents = await runStore.readEvents(session.id, run!.runId);
+    expect(runEvents.some((event) =>
+      event.type === 'abort_requested' && event.message === 'Backend stop cleanup failed'
+    )).toBe(true);
+    await manager.updateSession(session.id, { model: 'next-model' });
+  });
+
+  test('does not surface backend stop failure after finalizing cancellation', async () => {
     const store = new MemorySessionStore();
     const appendStarted = makeGate();
     const releaseAppend = makeGate();
@@ -177,14 +342,12 @@ describe('SessionManager turn cancellation', () => {
     controller.abort();
     releaseAppend.release();
 
-    let turnError: unknown;
-    await turn.catch((error) => { turnError = error; });
-    expect(turnError instanceof Error ? turnError.message : String(turnError)).toContain('stop failed');
+    await turn;
     await manager.updateSession(session.id, { model: 'next-model' });
     expect((await store.readHeader(session.id)).model).toBe('next-model');
   });
 
-  test('observes a stop rejection while run registration is still settling', async () => {
+  test('finalizes cancellation when stop rejects while run registration is settling', async () => {
     const store = new MemorySessionStore();
     const readStarted = makeGate();
     const releaseRead = makeGate();
@@ -221,9 +384,7 @@ describe('SessionManager turn cancellation', () => {
     await new Promise<void>((resolve) => setImmediate(resolve));
     releaseRead.release();
 
-    let turnError: unknown;
-    await turn.catch((error) => { turnError = error; });
-    expect(turnError instanceof Error ? turnError.message : String(turnError)).toContain('stop failed');
+    await turn;
     await manager.updateSession(session.id, { model: 'next-model' });
   });
 });
@@ -435,25 +596,39 @@ describe('SessionManager permission mode updates', () => {
     await iterator.next();
   });
 
-  test('keeps mode changes blocked until all overlapping turns finish', async () => {
+  test('serializes turns and keeps mode changes blocked until the queued turn finishes', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
     const firstGate = makeGate();
     const secondGate = makeGate();
-    const gates = [firstGate, secondGate];
-    backends.register('fake', (ctx) => new TestBackend(ctx, gates.shift()));
+    let backend: TurnGateBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TurnGateBackend(ctx, new Map([
+        ['turn-1', firstGate],
+        ['turn-2', secondGate],
+      ]));
+      return backend;
+    });
     const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(4_000) });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     const first = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'first' })[Symbol.asyncIterator]();
     await first.next();
     const second = manager.sendMessage(session.id, { turnId: 'turn-2', text: 'second' })[Symbol.asyncIterator]();
-    await second.next();
+    const secondFirstEvent = second.next();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(backend?.sendInputs.map((input) => input.turnId)).toEqual(['turn-1']);
+
+    await expectRejects(
+      manager.setPermissionMode(session.id, 'execute'),
+      /当前对话正在运行/,
+    );
 
     firstGate.release();
     await first.next();
     await first.next();
+    expect((await secondFirstEvent).value?.type).toBe('text_delta');
     expect((await store.readHeader(session.id)).status).toBe('running');
     const afterFirstRuns = await runStore.listSessionRuns(session.id);
     expect(afterFirstRuns.find((run) => run.turnId === 'turn-1')?.status).toBe('completed');
@@ -4931,7 +5106,89 @@ class AbortableTestBackend extends TestBackend {
   }
 }
 
+class CoordinatedTurnsBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly turns: {
+      userStarted: Gate;
+      releaseUser: Gate;
+      automationStarted: Gate;
+      releaseAutomation: Gate;
+    },
+  ) {
+    super(ctx);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendInputs.push(input);
+    const automation = input.turnId === 'automation-turn';
+    (automation ? this.turns.automationStarted : this.turns.userStarted).release();
+    yield {
+      type: 'text_delta',
+      id: `${input.turnId}-delta`,
+      turnId: input.turnId,
+      ts: 1,
+      messageId: `${input.turnId}-m`,
+      text: 'ok',
+    };
+    await (automation ? this.turns.releaseAutomation : this.turns.releaseUser).promise;
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    this.turns.releaseUser.release();
+    this.turns.releaseAutomation.release();
+  }
+}
+
+class TurnGateBackend extends TestBackend {
+  constructor(ctx: BackendFactoryContext, private readonly turnGates: Map<string, Gate>) {
+    super(ctx);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendInputs.push(input);
+    yield {
+      type: 'text_delta',
+      id: `${input.turnId}-delta`,
+      turnId: input.turnId,
+      ts: 1,
+      messageId: `${input.turnId}-m`,
+      text: 'ok',
+    };
+    await this.turnGates.get(input.turnId)?.promise;
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 2,
+      stopReason: 'end_turn',
+    };
+  }
+}
+
 class RejectingStopBackend extends TestBackend {
+  override async stop(): Promise<void> {
+    throw new Error('stop failed');
+  }
+}
+
+class NeverEndingRejectingStopBackend extends TestBackend {
+  constructor(ctx: BackendFactoryContext, private readonly sendStarted: Gate) {
+    super(ctx);
+  }
+
+  override async *send(_input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendStarted.release();
+    await new Promise<never>(() => {});
+  }
+
   override async stop(): Promise<void> {
     throw new Error('stop failed');
   }

@@ -146,7 +146,8 @@ export class AgentRun {
 
   stop(source: StopSessionInput['source'] | undefined): void {
     this.stopped = true;
-    this.abortSource = normalizeStopSessionSource(source);
+    const nextAbortSource = normalizeStopSessionSource(source);
+    if (nextAbortSource || !this.abortSource) this.abortSource = nextAbortSource;
   }
 
   isStopped(): boolean {
@@ -157,6 +158,19 @@ export class AgentRun {
     if (!this.input.runStore || !this.runStoreAvailable) return;
     this.enqueueRunStore('append trace event', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, traceToRunEvent(event, this.runId));
+    });
+  }
+
+  recordCancellationCleanupFailure(error: unknown): void {
+    this.recordRunTrace({
+      id: this.input.newId(),
+      sessionId: this.sessionId,
+      turnId: this.turnId,
+      ts: this.input.now(),
+      phase: 'abort',
+      type: 'abort_requested',
+      message: 'Backend stop cleanup failed',
+      data: { error: errorMessage(error) },
     });
   }
 

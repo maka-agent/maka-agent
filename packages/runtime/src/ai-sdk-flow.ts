@@ -428,6 +428,8 @@ export interface AiSdkFlowInput {
    * are not sent through onSessionEvent.
    */
   drainAfterTerminal?: boolean;
+  /** RuntimeKernel can own abort cleanup when it needs to observe stop settlement. */
+  stopOnAbort?: boolean;
 }
 
 /**
@@ -451,6 +453,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
   private readonly onError: AiSdkFlowInput['onError'];
   private readonly onFinally: AiSdkFlowInput['onFinally'];
   private readonly drainAfterTerminal: boolean;
+  private readonly stopOnAbort: boolean;
 
   constructor(input: AiSdkFlowInput) {
     this.backend = input.backend;
@@ -460,6 +463,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
     this.onError = input.onError;
     this.onFinally = input.onFinally;
     this.drainAfterTerminal = input.drainAfterTerminal ?? false;
+    this.stopOnAbort = input.stopOnAbort ?? true;
   }
 
   /** The wrapped backend (exposed for runners that need the raw control surface). */
@@ -474,12 +478,9 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
       );
     }
 
-    // Bridge the FlowInput.abortSignal seam onto the backend's stop() control.
-    // The legacy backend owns its own AbortController; this just routes an
-    // external signal to the existing steering method.
     const abortSignal = input.abortSignal;
     let onAbort: (() => void) | null = null;
-    if (abortSignal) {
+    if (abortSignal && this.stopOnAbort) {
       if (abortSignal.aborted) {
         await this.stop('user_stop').catch(() => {});
       } else {
