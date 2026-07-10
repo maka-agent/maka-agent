@@ -436,6 +436,91 @@ describe('SessionManager turn cancellation', () => {
 });
 
 describe('SessionManager manual compaction', () => {
+  test('operation cancellation releases compact while its session header read is blocked', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const readStarted = makeGate();
+    const releaseRead = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_970),
+    });
+    const session = await manager.createSession(makeInput());
+    store.interleaveBeforeMarkSessionReadWriteFor.set(session.id, async () => {
+      readStarted.release();
+      await releaseRead.promise;
+    });
+    const compact = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await readStarted.promise;
+
+    try {
+      await manager.stopSession(session.id, { source: 'stop_button' });
+      const compactOutcome = await Promise.race([
+        compact.then(() => 'settled' as const),
+        new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+      ]);
+
+      expect(compactOutcome).toBe('settled');
+    } finally {
+      releaseRead.release();
+    }
+  });
+
+  test('bounded cancellation covers compact after active registration but before context read finishes', async () => {
+    const store = new MemorySessionStore();
+    const readStarted = makeGate();
+    const releaseRead = makeGate();
+    let blockRuntimeRead = false;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventRead: async () => {
+        if (!blockRuntimeRead) return;
+        readStarted.release();
+        await releaseRead.promise;
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HangingStopCompactBackend(ctx, makeGate()));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_980),
+      cancellationCleanupTimeoutMs: 10,
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'seed', text: 'seed' }));
+    blockRuntimeRead = true;
+    const compact = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await readStarted.promise;
+
+    try {
+      const stopOutcome = await Promise.race([
+        manager.stopSession(session.id, { source: 'stop_button' }).then(() => 'settled' as const),
+        new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+      ]);
+      const compactOutcome = await Promise.race([
+        compact.then(() => 'settled' as const),
+        new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+      ]);
+
+      expect(stopOutcome).toBe('settled');
+      expect(compactOutcome).toBe('settled');
+      expect((await store.readHeader(session.id)).status).toBe('aborted');
+      const compactRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'turn-compact');
+      expect(compactRun?.status).toBe('cancelled');
+    } finally {
+      releaseRead.release();
+    }
+  });
+
   test('bounded cancellation finalizes compact when backend stop rejects and compact never ends', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

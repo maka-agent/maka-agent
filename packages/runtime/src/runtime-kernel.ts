@@ -152,9 +152,55 @@ export class RuntimeKernel implements RuntimeKernelLike {
       throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
     }
 
-    const header = await this.deps.store.readHeader(sessionId);
+    let resolveHeaderAbort!: () => void;
+    const headerAbort = new Promise<void>((resolve) => { resolveHeaderAbort = resolve; });
+    const onHeaderAbort = () => resolveHeaderAbort();
+    signal.addEventListener('abort', onHeaderAbort, { once: true });
+    const headerOutcome = await Promise.race([
+      this.deps.store.readHeader(sessionId).then(
+        (header) => ({ kind: 'result' as const, header }),
+        (error: unknown) => ({ kind: 'error' as const, error }),
+      ),
+      headerAbort.then(() => ({ kind: 'cancelled' as const })),
+    ]);
+    signal.removeEventListener('abort', onHeaderAbort);
+    if (headerOutcome.kind === 'cancelled') return;
+    if (headerOutcome.kind === 'error') throw headerOutcome.error;
+    const { header } = headerOutcome;
     const turnId = input.turnId ?? this.deps.newId();
-    const run = new AgentRun({
+    let run!: AgentRun;
+    let backend: AgentBackend | undefined;
+    let registered = false;
+    let compactTask: Promise<Awaited<ReturnType<NonNullable<AgentBackend['compactHistory']>>>> | undefined;
+    let cancellationPromise: Promise<void> | undefined;
+    let cancellationFinalization: Promise<void> | undefined;
+    let cancellationSource: StopSessionInput['source'] | undefined;
+    let resolveCancelled!: () => void;
+    const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
+    const finalizeCancellation = (): Promise<void> => {
+      cancellationFinalization ??= this.finalizeRunCancellation(sessionId, run, cancellationSource);
+      return cancellationFinalization;
+    };
+    const cancel = (source?: StopSessionInput['source']): Promise<void> => {
+      if (source) cancellationSource = source;
+      run.stop(source);
+      cancellationPromise ??= (async () => {
+        const cleanupTasks: Promise<unknown>[] = [];
+        if (backend) cleanupTasks.push(Promise.resolve().then(() => backend!.stop('user_stop')));
+        if (compactTask) cleanupTasks.push(compactTask);
+        const cleanup = await settleWithin(
+          Promise.all(cleanupTasks).then(() => {}),
+          this.deps.cancellationCleanupTimeoutMs ?? 5_000,
+        );
+        if (cleanup.error !== undefined) {
+          run.recordCancellationCleanupFailure(cleanup.error);
+          if (backend) this.retireBackend(sessionId, backend);
+        }
+        if (registered) await finalizeCancellation();
+      })().finally(resolveCancelled);
+      return cancellationPromise;
+    };
+    run = new AgentRun({
       sessionId,
       header,
       userInput: { turnId, text: '' },
@@ -166,7 +212,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       now: this.deps.now,
       hooks: {
         ensureActive: (targetSessionId, nextHeader) => this.ensureActive(targetSessionId, nextHeader),
-        registerRun: (active, activeRun) => this.registerRun(active, activeRun),
+        registerRun: (active, activeRun) => {
+          backend = active.backend;
+          this.runCancellations.set(activeRun.runId, cancel);
+          this.registerRun(active, activeRun);
+          registered = true;
+        },
         unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
         updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
         updateStatus: (targetSessionId, status, blockedReason, ts) =>
@@ -176,45 +227,45 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
     });
 
-    let begin: Awaited<ReturnType<typeof run.beginOperation>>;
-    try {
-      begin = await run.beginOperation();
-    } catch (error) {
-      await run.recordFailure(error);
-      await run.finalize();
-      throw error;
-    }
-
-    let compactTask: Promise<Awaited<ReturnType<NonNullable<AgentBackend['compactHistory']>>>> | undefined;
-    let cancellationPromise: Promise<void> | undefined;
-    let resolveCancelled!: () => void;
-    const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
-    const cancel = (source?: StopSessionInput['source']): Promise<void> => {
-      run.stop(source);
-      cancellationPromise ??= (async () => {
-        const cleanupTasks: Promise<unknown>[] = [
-          Promise.resolve().then(() => begin.backend.stop('user_stop')),
-        ];
-        if (compactTask) cleanupTasks.push(compactTask);
-        const cleanup = await settleWithin(
-          Promise.all(cleanupTasks).then(() => {}),
-          this.deps.cancellationCleanupTimeoutMs ?? 5_000,
-        );
-        if (cleanup.error !== undefined) {
-          run.recordCancellationCleanupFailure(cleanup.error);
-          this.retireBackend(sessionId, begin.backend);
-        }
-        await this.finalizeRunCancellation(sessionId, run, source);
-      })().finally(resolveCancelled);
-      return cancellationPromise;
-    };
     const onAbort = () => { void cancel(); };
-    this.runCancellations.set(run.runId, cancel);
     signal.addEventListener('abort', onAbort, { once: true });
+    const beginOutcomePromise = run.beginOperation().then(
+      (result) => ({ kind: 'result' as const, result }),
+      (error: unknown) => ({ kind: 'error' as const, error }),
+    );
+    let deferFinalization = false;
 
     try {
       if (signal.aborted) {
         await cancel();
+        if (!registered) {
+          deferFinalization = true;
+          void beginOutcomePromise.then(() => finalizeCancellation()).catch(() => {});
+        }
+        return;
+      }
+      const beginOutcome = await Promise.race([
+        beginOutcomePromise,
+        cancelled.then(() => ({ kind: 'cancelled' as const })),
+      ]);
+      if (beginOutcome.kind === 'cancelled') {
+        if (!registered) {
+          deferFinalization = true;
+          void beginOutcomePromise.then(() => finalizeCancellation()).catch(() => {});
+        }
+        return;
+      }
+      if (beginOutcome.kind === 'error') {
+        if (run.isStopped()) {
+          await finalizeCancellation();
+          return;
+        }
+        await run.recordFailure(beginOutcome.error);
+        throw beginOutcome.error;
+      }
+      const begin = beginOutcome.result;
+      if (run.isStopped()) {
+        await cancellationPromise;
         return;
       }
       if (!begin.backend.compactHistory) throw new Error(`Backend ${header.backend} does not support runtime compaction`);
@@ -276,7 +327,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     } finally {
       signal.removeEventListener('abort', onAbort);
       this.runCancellations.delete(run.runId);
-      await run.finalize();
+      if (!deferFinalization) await run.finalize();
     }
   }
 

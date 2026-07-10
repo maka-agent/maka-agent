@@ -363,10 +363,11 @@ export class AgentRun {
     }
 
     this.active = await this.input.hooks.ensureActive(this.sessionId, this.header);
-    this.input.hooks.registerRun(this.active, this);
     await this.markRunStarted(startedAt);
 
     await this.input.hooks.updateStatus(this.sessionId, 'running', undefined, startedAt);
+    if (this.stopped) throw new Error('Agent operation stopped before active registration');
+    this.input.hooks.registerRun(this.active, this);
 
     const priorRuntimeContext = await this.buildPriorRuntimeContext();
     return {
