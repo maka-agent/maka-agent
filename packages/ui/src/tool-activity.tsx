@@ -361,14 +361,12 @@ const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphasized)_v
 /**
  * Codex-style tool trow (streaming UI rework): one contiguous run of tool
  * activity rendered as a single flat, borderless disclosure — replacing the
- * boxed "工具调用 N" card stack inside a turn. A single-tool group is just that
- * tool's own row (no double nesting); a multi-tool group adds a summary line
- * (shimmering active-tool description while running; bucketed counts once
- * settled) that expands to the flat-stacked tool rows.
+ * boxed "工具调用 N" card stack inside a turn. The summary disclosure is the
+ * stable root for both one and many tools, so a second call appends inside the
+ * same component instead of replacing an expanded row with a collapsed group.
  */
 export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
   if (items.length === 0) return null;
-  if (items.length === 1) return <ToolTrowRow item={items[0]!} />;
   return <ToolTrowGroup items={items} />;
 }
 
@@ -415,29 +413,33 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
         />
       </CollapsibleTrigger>
       <CollapsiblePanel>
-        <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
-          {items.map((item) => (
-            <ToolTrowRow key={item.toolUseId} item={item} />
-          ))}
-        </div>
+        {items.length === 1 ? (
+          <ToolCardBody item={items[0]!} />
+        ) : (
+          <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
+            {items.map((item) => (
+              <ToolTrowRow key={item.toolUseId} item={item} />
+            ))}
+          </div>
+        )}
       </CollapsiblePanel>
     </Collapsible>
   );
 }
 
 /**
- * A single flat, borderless tool row inside a trow (or a whole single-tool
- * trow). A caption/mono weak-color header (status dot + name + duration/status)
- * expands to the shared `ToolCardBody`. Controlled open by status —
- * waiting_permission / running / errored open, settled collapsed — so a
- * permission prompt is never hidden. No card frame (`toolVariants({item})`),
- * per the flat trow visual language.
+ * A single flat, borderless tool row inside a multi-tool trow. Its header
+ * expands to the shared `ToolCardBody`. Permission and error force it open;
+ * normal running stays height-stable, and a user's manual choice survives
+ * later status changes. No card frame (`toolVariants({item})`), per the flat
+ * trow visual language.
  */
 function ToolTrowRow({ item }: { item: ToolActivityItem }) {
-  const [open, setOpen] = useState(isOpenByDefault(item.status));
+  const attention = trowNeedsAttention([item]);
+  const [open, setOpen] = useState(attention);
   useEffect(() => {
-    setOpen(isOpenByDefault(item.status));
-  }, [item.status]);
+    if (attention) setOpen(true);
+  }, [attention]);
   const duration = formatDuration(item.durationMs);
   // #646 run→done seam: `everRunning` is sticky across this row's renders so the
   // settle fade fires only for a tool that ran here, never for a replayed row
