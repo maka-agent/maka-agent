@@ -456,3 +456,5 @@
    order. */
 .maka-prose > :first-child { margin-top: 0; }
 .maka-prose > :last-child { margin-bottom: 0; }
+.maka-prose > .maka-markdown-root > :first-child { margin-top: 0; }
+.maka-prose > .maka-markdown-root > :last-child { margin-bottom: 0; }

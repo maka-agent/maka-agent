@@ -32,7 +32,9 @@ import { MakaUriContext } from './markdown.js';
 
 const MARKDOWN_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [
-  ...Object.values(defaultRehypePlugins),
+  ...Object.entries(defaultRehypePlugins)
+    .filter(([name]) => name !== 'raw')
+    .map(([, plugin]) => plugin),
   [rehypeHighlight, { detect: true, ignoreMissing: true }] as [
     typeof rehypeHighlight,
     { detect: boolean; ignoreMissing: boolean },
@@ -42,6 +44,7 @@ const MARKDOWN_REHYPE_PLUGINS = [
 export function MarkdownBody(props: { text: string; streaming?: boolean }) {
   return (
     <Streamdown
+      className="maka-markdown-root"
       mode={props.streaming ? 'streaming' : 'static'}
       parseIncompleteMarkdown={props.streaming}
       controls={false}
