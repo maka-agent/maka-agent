@@ -97,6 +97,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
+  let lastIdleCtrlCAt = 0;
   let terminalRestored = false;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
@@ -199,7 +200,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (error) rejectClosed(error);
     else resolveClosed();
     // Runtime stop is best-effort after the shell has its terminal back. A
-    // double-Escape interrupt may already have one in flight; reuse it.
+    // double-Escape/Ctrl-C interrupt may already have one in flight; reuse it.
     if (!interruptRequested) void input.driver.stop().catch(() => {});
   };
 
@@ -260,6 +261,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         reportError(error);
       });
     return true;
+  };
+
+  const requestTurnInterrupt = () => {
+    if (interruptRequested) return;
+    interruptRequested = true;
+    void input.driver.stop().catch((error) => {
+      interruptRequested = false;
+      reportError(error);
+    });
   };
 
   editor.onSubmit = (prompt) => {
@@ -533,7 +543,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       '  Scroll the transcript with your terminal or trackpad',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
-      '  Ctrl+C / Ctrl+D — exit Maka',
+      '  Ctrl+C — stop the turn, clear input, or press twice to exit',
+      '  Ctrl+D — exit when input is empty',
     ].join('\n');
     state.entries.push({
       kind: 'notice',
@@ -833,6 +844,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
+    if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
     // The idle rewind gesture requires two *consecutive* Escapes. Any other key
     // in between breaks it, so a stale first Escape never pairs with a much later
     // one (e.g. `Esc`, type, `Esc`).
@@ -859,6 +871,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
+    if (turnRunning && matchesKey(data, Key.ctrl('c'))) {
+      requestTurnInterrupt();
+      return { consume: true };
+    }
     // Double Escape interrupts the running turn. This must sit below the
     // permission branch so Escape keeps meaning "deny" while a prompt is
     // pending, and it only arms while a prompt turn is actually running.
@@ -870,11 +886,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
-        interruptRequested = true;
-        void input.driver.stop().catch((error) => {
-          interruptRequested = false;
-          reportError(error);
-        });
+        requestTurnInterrupt();
       } else {
         lastTurnEscapeAt = now;
       }
@@ -902,9 +914,30 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       lastIdleEscapeAt = now;
       return undefined;
     }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      void close();
+    if (!turnRunning && matchesKey(data, Key.ctrl('c')) && editor.getText().length > 0) {
+      lastIdleCtrlCAt = 0;
+      editor.setText('');
+      requestRender();
       return { consume: true };
+    }
+    if (!turnRunning && matchesKey(data, Key.ctrl('c'))) {
+      const now = Date.now();
+      if (lastIdleCtrlCAt && now - lastIdleCtrlCAt <= DOUBLE_CTRL_C_EXIT_WINDOW_MS) {
+        lastIdleCtrlCAt = 0;
+        void close();
+      } else {
+        lastIdleCtrlCAt = now;
+        state.entries.push({ kind: 'notice', level: 'info', text: 'Press Ctrl+C again to exit.' });
+        requestRender();
+      }
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl('d'))) {
+      if (!turnRunning && editor.getText().length === 0) {
+        void close();
+        return { consume: true };
+      }
+      return undefined;
     }
     return undefined;
   });
@@ -952,3 +985,4 @@ function shortSessionId(id: string): string {
 
 // Two Escapes this close together read as one deliberate "stop the turn".
 const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;
+const DOUBLE_CTRL_C_EXIT_WINDOW_MS = 1_000;
