@@ -8,6 +8,7 @@ import { describe, test } from 'node:test';
 import {
   parseMakaCliArgs,
   formatStartupConnectionError,
+  formatMakaCliFatalError,
   resolveMakaCliExitCode,
 } from '../cli.js';
 
@@ -47,6 +48,16 @@ describe('Maka CLI args', () => {
 
   test('preserves an exit code already set by a process signal', () => {
     assert.equal(resolveMakaCliExitCode(0, 143), 143);
+  });
+
+  test('formats non-Error fatal reasons as text', () => {
+    assert.equal(formatMakaCliFatalError('fatal reason'), 'fatal reason');
+  });
+
+  test('preserves the stack for fatal errors', () => {
+    const error = new Error('fatal reason');
+
+    assert.equal(formatMakaCliFatalError(error), error.stack);
   });
 
   test('prints version from the executable entrypoint', async () => {

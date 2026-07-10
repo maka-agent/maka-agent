@@ -37,6 +37,10 @@ export function resolveMakaCliExitCode(
     : pendingExitCode;
 }
 
+export function formatMakaCliFatalError(error: unknown): string {
+  return error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
 function helpText(): string {
   return [
     'Usage: maka',
@@ -148,7 +152,7 @@ if (isMainModule()) {
       process.exitCode = resolveMakaCliExitCode(code, process.exitCode);
     },
     (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
       process.exitCode = 1;
     },
   );
