@@ -43,6 +43,32 @@ describe('Maka session driver', () => {
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
   });
 
+  test('waits for pending session creation before stopping', async () => {
+    const runtime = new DeferredSessionCreationRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+    const turn = collect(driver.sendPrompt('please inspect this workspace'));
+    await runtime.createStarted;
+    let stopSettled = false;
+    const stop = driver.stop().then(() => {
+      stopSettled = true;
+    });
+    await Promise.resolve();
+
+    assert.equal(stopSettled, false);
+    assert.deepEqual(runtime.stopped, []);
+
+    runtime.releaseCreate();
+    await stop;
+    await turn;
+    assert.deepEqual(runtime.stopped, ['session-1']);
+  });
+
   test('can still create a bypass session when explicitly requested', async () => {
     const runtime = new RecordingRuntime();
     const driver = createMakaSessionDriver({
@@ -657,6 +683,7 @@ class RecordingRuntime {
   readonly sessionUpdates: Array<{ sessionId: string; patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: import('@maka/core/model-thinking').ThinkingLevel | undefined; name?: string } }> = [];
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly branchedBefore: Array<{ sessionId: string; sourceTurnId: string }> = [];
+  readonly stopped: string[] = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
@@ -707,7 +734,9 @@ class RecordingRuntime {
     };
   }
 
-  async stopSession(_sessionId: string): Promise<void> {}
+  async stopSession(sessionId: string): Promise<void> {
+    this.stopped.push(sessionId);
+  }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
     this.permissionResponses.push({ sessionId, response });
@@ -775,6 +804,33 @@ class RecordingRuntime {
     this.sessionSummaries = [...this.sessionSummaries, branch];
     this.sessionMessages.set(branch.id, this.sessionMessages.get(sessionId) ?? []);
     return branch;
+  }
+}
+
+class DeferredSessionCreationRuntime extends RecordingRuntime {
+  readonly createStarted: Promise<void>;
+  private resolveCreateStarted: (() => void) | null = null;
+  private resolveCreate: (() => void) | null = null;
+
+  constructor() {
+    super();
+    this.createStarted = new Promise<void>((resolve) => {
+      this.resolveCreateStarted = resolve;
+    });
+  }
+
+  override async createSession(input: CreateSessionInput): Promise<SessionSummary> {
+    this.resolveCreateStarted?.();
+    this.resolveCreateStarted = null;
+    await new Promise<void>((resolve) => {
+      this.resolveCreate = resolve;
+    });
+    return super.createSession(input);
+  }
+
+  releaseCreate(): void {
+    this.resolveCreate?.();
+    this.resolveCreate = null;
   }
 }
 

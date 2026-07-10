@@ -88,6 +88,7 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
+  private sessionCreation: Promise<string> | null = null;
   private model: string;
   // The connection the active/next session runs on. Mutable so a cross-provider
   // /model switch can rebind it; new sessions are created on this connection.
@@ -127,8 +128,9 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async stop(): Promise<void> {
-    if (!this.sessionId) return;
-    await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
+    const sessionId = this.sessionId ?? (this.sessionCreation ? await this.sessionCreation : null);
+    if (!sessionId) return;
+    await this.input.runtime.stopSession(sessionId, { source: 'stop_button' });
   }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
@@ -254,7 +256,8 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
 
   private async ensureSession(prompt: string): Promise<string> {
     if (this.sessionId) return this.sessionId;
-    const session = await this.input.runtime.createSession({
+    if (this.sessionCreation) return this.sessionCreation;
+    const sessionCreation = this.input.runtime.createSession({
       cwd: this.input.cwd,
       name: prompt.slice(0, 42) || '新建对话',
       backend: 'ai-sdk',
@@ -262,9 +265,16 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       model: this.model,
       permissionMode: this.permissionMode,
       ...(this.thinkingLevel !== undefined ? { thinkingLevel: this.thinkingLevel } : {}),
+    }).then((session) => {
+      this.sessionId = session.id;
+      return session.id;
     });
-    this.sessionId = session.id;
-    return session.id;
+    this.sessionCreation = sessionCreation;
+    try {
+      return await sessionCreation;
+    } finally {
+      if (this.sessionCreation === sessionCreation) this.sessionCreation = null;
+    }
   }
 }
 
