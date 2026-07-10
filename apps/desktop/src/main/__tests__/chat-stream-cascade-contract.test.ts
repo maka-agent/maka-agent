@@ -19,16 +19,20 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  * by before/after screenshots rather than the computed-style diff harness.
  */
 describe('chat tool-output stream migration contract (#332 PR3)', () => {
-  it('keeps the computed-style fixture aligned with production diagnostic flags', async () => {
+  it('keeps the computed-style fixture aligned with the quiet tool-output panel', async () => {
     const harness = await readFile(
       resolve(REPO_ROOT, 'scripts', 'check-chat-marker-computed-style.mjs'),
       'utf8',
     );
 
-    assert.match(harness, /sv\('flags'\)/);
-    assert.match(harness, /sv\('flag'\)/);
-    assert.doesNotMatch(harness, /sv\('counts?'\)/);
-    assert.doesNotMatch(harness, /stdout 1/);
+    // Stream variants are no longer the production tool body; the quiet panel is.
+    assert.match(harness, /TOOL_OUTPUT_PANEL_CLASS/);
+    assert.match(harness, /TOOL_OUTPUT_BODY_CLASS/);
+    assert.match(harness, /data-slot="tool-output"/);
+    // Live code must not still import/call streamVariants (comments may mention history).
+    assert.doesNotMatch(harness, /streamVariants\s*\(/);
+    assert.doesNotMatch(harness, /from\s+.*primitives\/chat.*streamVariants|streamVariants\s*\}/);
+    assert.doesNotMatch(harness, /toolOutputPanel[\s\S]*maka-tool-output-stream|sv\s*\(/);
   });
 
   it('keeps the computed-style fixture aligned with production disclosure defaults', async () => {
