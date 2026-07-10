@@ -1209,6 +1209,20 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(rendered, /\[stderr\]/);
   });
 
+  test('renders the redaction marker for an empty redacted output delta', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'redacted-empty', toolName: 'Bash', args: { command: 'secret' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'redacted-empty', seq: 1,
+      stream: 'stdout', chunk: '', redacted: true,
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /\[redacted\]/);
+  });
+
   test('caps a long live stream group in the expanded card', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
@@ -1273,6 +1287,28 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /chunk-512\b/);
   });
 
+  test('ignores empty output without displacing retained output', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'output-empty', toolName: 'Bash', args: { command: 'verbose' },
+    }));
+    for (let i = 0; i < 512; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_output_delta', toolUseId: 'output-empty', seq: i,
+        stream: i % 2 === 0 ? 'stdout' : 'stderr', chunk: `chunk-${i}\n`, redacted: false,
+      }));
+    }
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_output_delta', toolUseId: 'output-empty', seq: 512,
+      stream: 'stdout', chunk: '', redacted: false,
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /chunk-0\b/);
+    assert.match(expanded, /chunk-511\b/);
+  });
+
   test('retains the newest progress when progress text exceeds its buffer limit', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
@@ -1311,6 +1347,26 @@ describe('Maka Pi TUI transcript', () => {
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.doesNotMatch(expanded, /progress-0\b/);
     assert.match(expanded, /progress-512\b/);
+  });
+
+  test('ignores empty progress without displacing retained progress', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'progress-empty', toolName: 'Workflow', args: {},
+    }));
+    for (let i = 0; i < 512; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_progress', toolUseId: 'progress-empty', chunk: `progress-${i}\n`,
+      }));
+    }
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_progress', toolUseId: 'progress-empty', chunk: '',
+    }));
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(expanded, /progress-0\b/);
+    assert.match(expanded, /progress-511\b/);
   });
 });
 

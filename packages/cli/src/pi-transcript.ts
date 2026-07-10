@@ -255,16 +255,19 @@ export function applyMakaSessionEventToTranscript(
     case 'tool_progress': {
       const tool = findToolEntry(state, event.toolUseId);
       if (tool) {
-        tool.progress.append(
-          typeof event.chunk === 'string' ? event.chunk : `[${event.chunk.kind}] ${event.chunk.text}`,
-        );
+        const progress = typeof event.chunk === 'string'
+          ? event.chunk
+          : event.chunk.text
+            ? `[${event.chunk.kind}] ${event.chunk.text}`
+            : '';
+        if (progress) tool.progress.append(progress);
       }
       break;
     }
 
     case 'tool_output_delta': {
       const tool = findToolEntry(state, event.toolUseId);
-      if (tool) {
+      if (tool && (event.chunk || event.redacted)) {
         tool.outputDeltas.append({
           seq: event.seq,
           stream: event.stream,
