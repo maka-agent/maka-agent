@@ -297,6 +297,93 @@ describe('PiAgentBackend skeleton', () => {
     assert.equal(disposed, true);
   });
 
+  test('persists partial Pi text before aborting an active stream', async () => {
+    const messages: StoredMessage[] = [];
+    let releaseTransport!: () => void;
+    const transportReleased = new Promise<void>((resolve) => { releaseTransport = resolve; });
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(7_000) }),
+      transport: {
+        async *send() {
+          yield { type: 'text_delta', text: 'partial answer' };
+          await transportReleased;
+          yield { type: 'complete' };
+        },
+        stop: async () => { releaseTransport(); },
+      },
+      newId: nextId('id'),
+      now: nextNow(8_000),
+    });
+
+    const iterator = backend.send({ turnId: 'turn-1', text: 'answer', context: [] })[Symbol.asyncIterator]();
+    assert.equal((await iterator.next()).value?.type, 'text_delta');
+
+    await backend.stop('user_stop');
+    const terminalEvents = [
+      (await iterator.next()).value,
+      (await iterator.next()).value,
+    ].filter(Boolean) as SessionEvent[];
+
+    assert.deepEqual(terminalEvents.map((event) => event.type), ['abort', 'complete']);
+    assert.deepEqual(
+      messages.filter((message) => message.type === 'assistant').map((message) => message.text),
+      ['partial answer'],
+    );
+  });
+
+  test('persists partial Pi text before a reported terminal error', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(9_000) }),
+      transport: frames([
+        { type: 'text_delta', text: 'partial answer' },
+        { type: 'error', message: 'provider failed' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(10_000),
+    });
+
+    const events = await drain(backend.send({ turnId: 'turn-1', text: 'answer', context: [] }));
+
+    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.deepEqual(
+      messages.filter((message) => message.type === 'assistant').map((message) => message.text),
+      ['partial answer'],
+    );
+  });
+
+  test('persists partial Pi text before a transport failure', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('permission'), now: nextNow(11_000) }),
+      transport: {
+        async *send() {
+          yield { type: 'text_delta', text: 'partial answer' };
+          throw new Error('transport failed');
+        },
+      },
+      newId: nextId('id'),
+      now: nextNow(12_000),
+    });
+
+    const events = await drain(backend.send({ turnId: 'turn-1', text: 'answer', context: [] }));
+
+    assert.deepEqual(events.map((event) => event.type), ['text_delta', 'error', 'complete']);
+    assert.deepEqual(
+      messages.filter((message) => message.type === 'assistant').map((message) => message.text),
+      ['partial answer'],
+    );
+  });
+
   test('frame guard ignores unknown ACP frames before they reach renderer event code', () => {
     assert.equal(normalizePiAgentFrame({ type: 'session/update', raw: true }), null);
     assert.deepEqual(

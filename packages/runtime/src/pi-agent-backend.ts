@@ -155,6 +155,7 @@ export class PiAgentBackend implements AgentBackend {
         text: input.text,
       })) {
         if (this.stopped) {
+          await persistAssistant();
           yield this.abortEvent(turnId);
           yield this.completeEvent(turnId, 'user_stop');
           return;
@@ -258,6 +259,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'error': {
+            await persistAssistant();
             yield {
               type: 'error',
               id: this.newId(),
@@ -286,10 +288,12 @@ export class PiAgentBackend implements AgentBackend {
       yield this.completeEvent(turnId, 'end_turn');
     } catch (error) {
       if (this.stopped) {
+        await persistAssistant();
         yield this.abortEvent(turnId);
         yield this.completeEvent(turnId, 'user_stop');
         return;
       }
+      await persistAssistant();
       yield {
         type: 'error',
         id: this.newId(),
