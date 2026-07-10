@@ -64,10 +64,10 @@ describe('Maka CLI args', () => {
   test('coordinates repeated exit requests through the shell cleanup grace period', async () => {
     const cliUrl = new URL('../cli.js', import.meta.url).href;
     const childSource = `
-      import { completeMakaCliExit } from ${JSON.stringify(cliUrl)};
+      import { beginMakaCliExit } from ${JSON.stringify(cliUrl)};
       setInterval(() => {}, 1_000);
-      completeMakaCliExit(0);
-      setTimeout(() => completeMakaCliExit(1), 100);
+      beginMakaCliExit(0);
+      setTimeout(() => beginMakaCliExit(1), 100);
     `;
     const startedAt = Date.now();
     const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {

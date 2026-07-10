@@ -3299,7 +3299,7 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals, hangOuterCleanup
   const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
   const childSource = `
     import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
-    import { completeMakaCliExit } from ${JSON.stringify(cliUrl)};
+    import { beginMakaCliExit } from ${JSON.stringify(cliUrl)};
     import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
 
     class ReportingTerminal extends FakeTerminal {
@@ -3335,7 +3335,7 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals, hangOuterCleanup
       connectionSlug: 'test-connection',
       permissionMode: 'ask',
       terminal,
-      onProcessExit: (exitCode) => completeMakaCliExit(exitCode),
+      onProcessExit: (exitCode) => beginMakaCliExit(exitCode),
     });
     process.stdout.write('READY\\n');
     await run;
@@ -3377,7 +3377,7 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
     : "void Promise.reject(new Error('fatal probe'));";
   const childSource = `
     import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
-    import { completeMakaCliExit, formatMakaCliFatalError } from ${JSON.stringify(cliUrl)};
+    import { beginMakaCliExit, formatMakaCliFatalError } from ${JSON.stringify(cliUrl)};
     import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
 
     class ReportingTerminal extends FakeTerminal {
@@ -3417,7 +3417,7 @@ async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection
         terminal,
         onProcessExit: (exitCode, error) => {
           if (error) process.stderr.write(\`${'${formatMakaCliFatalError(error)}'}\\n\`);
-          completeMakaCliExit(exitCode);
+          beginMakaCliExit(exitCode);
         },
       });
       process.stdout.write('READY\\n');

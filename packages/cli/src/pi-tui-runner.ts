@@ -100,7 +100,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
-  let terminalRestored = false;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
   const closedPromise = new Promise<void>((resolve, reject) => {
@@ -184,8 +183,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const restoreTerminal = () => {
-    if (terminalRestored) return;
-    terminalRestored = true;
     removeProcessHandlers();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to

@@ -43,7 +43,7 @@ export function formatMakaCliFatalError(error: unknown): string {
 
 let processExitTimer: NodeJS.Timeout | undefined;
 
-export function completeMakaCliExit(commandExitCode: number): void {
+export function beginMakaCliExit(commandExitCode: number): void {
   const exitCode = resolveMakaCliExitCode(commandExitCode, process.exitCode);
   process.exitCode = exitCode;
   if (processExitTimer) return;
@@ -118,7 +118,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           permissionMode: 'ask',
           onProcessExit: (exitCode, error) => {
             if (error) process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
-            completeMakaCliExit(exitCode);
+            beginMakaCliExit(exitCode);
           },
         });
         return 0;
@@ -163,11 +163,11 @@ async function readPackageVersion(): Promise<string> {
 if (isMainModule()) {
   runMakaCli().then(
     (code) => {
-      completeMakaCliExit(code);
+      beginMakaCliExit(code);
     },
     (error) => {
       process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
-      completeMakaCliExit(1);
+      beginMakaCliExit(1);
     },
   );
 }
