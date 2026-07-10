@@ -478,6 +478,40 @@ describe('tool activity presentation', () => {
     assert.equal(panels.length, 1);
   });
 
+  it('keeps redacted/truncated meta when live chunks are empty bodies', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-shell-run-empty-meta',
+        toolName: 'Bash',
+        activityKind: 'command',
+        status: 'waiting_permission',
+        args: { command: 'npm test' },
+        outputChunks: [
+          { seq: 1, stream: 'stdout', text: '', redacted: true, createdAt: 1 },
+        ],
+        outputTruncated: true,
+        result: {
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/bg-meta',
+          status: 'running',
+          cwd: '/repo',
+          cmd: 'npm test',
+          startedAt: 1,
+          updatedAt: 2,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /已脱敏/);
+    assert.match(markup, /输出已截断/);
+    const panels = markup.match(/data-slot="tool-output"/g) ?? [];
+    assert.equal(panels.length, 1);
+  });
+
   it('does not wrap subagent preview in an outer quiet panel', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{

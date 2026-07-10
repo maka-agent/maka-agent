@@ -256,36 +256,44 @@ function withLiveStreamFallback(
   chunks: ToolActivityItem['outputChunks'] | undefined,
   options?: { truncated?: boolean },
 ): NonNullable<ToolActivityItem['result']> {
-  if (!chunks?.length) return result;
   if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
   if (resultHasCapturedStreams(result)) return result;
+
   let stdout = '';
   let stderr = '';
   let anyRedacted = false;
-  for (const chunk of chunks) {
+  for (const chunk of chunks ?? []) {
     if (chunk.redacted) anyRedacted = true;
     if (chunk.stream === 'stderr') stderr += chunk.text;
     else stdout += chunk.text;
   }
-  if (!stdout && !stderr) return result;
-  // Match live stream's "[已脱敏]" marker when a chunk was redacted.
+  const truncated = result.stdoutTruncated === true || options?.truncated === true;
+  // Empty redacted/truncated live buffer still carries diagnosis — do not
+  // early-return and drop "已脱敏" / "输出已截断".
+  if (!stdout && !stderr && !anyRedacted && !truncated) return result;
+
+  // Match live stream's "[已脱敏]" marker when a chunk was redacted
+  // (including empty bodies that only suppressed secrets).
   if (anyRedacted) {
     if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
-    else stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+    else stdout = '[已脱敏]';
   }
   return {
     ...result,
     stdout,
     stderr,
-    stdoutTruncated: result.stdoutTruncated === true || options?.truncated === true,
+    stdoutTruncated: truncated,
   };
 }
 
 function toolStatusLabel(item: ToolActivityItem): string {
-  if (isCancelledToolResult(item.result)) return '已取消';
+  // Outer label follows call status. Panel notes still show task cancel state.
+  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return '已取消';
   if (
     (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
     && item.result.status === 'timed_out'
+    && item.status !== 'completed'
   ) {
     return '已超时';
   }

@@ -176,6 +176,40 @@ describe('materializeSession', () => {
     expect(liveItem.item.status).toBe('interrupted');
   });
 
+  test('successful shell_run cancelled observation stays completed', () => {
+    // StopBackgroundTask returns isError:false + shell_run.status cancelled —
+    // the stop call succeeded; do not map to interrupted/error.
+    const observed: ToolResultMessage = {
+      type: 'tool_result',
+      id: 'r-stop',
+      turnId,
+      ts: ts + 4,
+      toolUseId: 't-stop',
+      isError: false,
+      content: {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/bg',
+        status: 'cancelled',
+        cwd: '/repo',
+        cmd: 'sleep 99',
+        startedAt: 1,
+        updatedAt: 2,
+        exitCode: 130,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    };
+    const vm = materializeSession([
+      toolCall('t-stop', 'StopBackgroundTask'),
+      observed,
+    ]);
+    const item = vm.items[0];
+    if (item?.kind !== 'tool') throw new Error('wrong kind');
+    expect(item.item.status).toBe('completed');
+  });
+
   test('orphan tool_call (no matching result) → interrupted', () => {
     const vm = materializeSession([toolCall('t-orphan', 'Bash')]);
     expect(vm.items).toHaveLength(1);
