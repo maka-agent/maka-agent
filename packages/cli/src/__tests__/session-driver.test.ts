@@ -67,6 +67,7 @@ describe('Maka session driver', () => {
     await stop;
     await turn;
     assert.deepEqual(runtime.stopped, ['session-1']);
+    assert.deepEqual(runtime.sent, []);
   });
 
   test('can still create a bypass session when explicitly requested', async () => {

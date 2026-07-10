@@ -89,6 +89,7 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
   private sessionCreation: Promise<string> | null = null;
+  private pendingTurnStart: { cancelled: boolean } | null = null;
   private model: string;
   // The connection the active/next session runs on. Mutable so a cross-provider
   // /model switch can rebind it; new sessions are created on this connection.
@@ -105,11 +106,19 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    const sessionId = await this.ensureSession(prompt);
-    yield* this.input.runtime.sendMessage(sessionId, {
-      turnId: this.newId(),
-      text: prompt,
-    });
+    const turnStart = { cancelled: false };
+    this.pendingTurnStart = turnStart;
+    try {
+      const sessionId = await this.ensureSession(prompt);
+      if (turnStart.cancelled) return;
+      if (this.pendingTurnStart === turnStart) this.pendingTurnStart = null;
+      yield* this.input.runtime.sendMessage(sessionId, {
+        turnId: this.newId(),
+        text: prompt,
+      });
+    } finally {
+      if (this.pendingTurnStart === turnStart) this.pendingTurnStart = null;
+    }
   }
 
   async *compactSession(): AsyncIterable<SessionEvent> {
@@ -128,6 +137,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async stop(): Promise<void> {
+    if (this.pendingTurnStart) this.pendingTurnStart.cancelled = true;
     const sessionId = this.sessionId ?? (this.sessionCreation ? await this.sessionCreation : null);
     if (!sessionId) return;
     await this.input.runtime.stopSession(sessionId, { source: 'stop_button' });
