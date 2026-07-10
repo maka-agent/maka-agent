@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ChatDefaultPermissionMode,
   ConnectionEvent,
@@ -1022,7 +1022,7 @@ export function AppShell({
     toastApi,
   });
 
-  const { handleEvent, settleAssistantStreaming } = createAppShellSessionEventHandlers({
+  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = createAppShellSessionEventHandlers({
     activeIdRef,
     liveTurnBySessionRef,
     refreshMessages,
@@ -1038,6 +1038,16 @@ export function AppShell({
       void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
     },
   });
+
+  // A terminal tool/thinking projection may survive when its event-triggered
+  // refresh fails. Reconcile from durable evidence whenever either side
+  // changes, so a later poll, manual retry, or session refresh closes the
+  // handoff without deleting text that the smoother still owns.
+  const reconcilePersistedMessagesEffect = useEffectEvent(reconcilePersistedMessages);
+  useEffect(() => {
+    if (!activeId) return;
+    reconcilePersistedMessagesEffect(activeId, messages);
+  }, [activeId, activeLiveTurn, messages]);
 
   // Streaming-settle handoff, FALLBACK path only. The primary settle signal
   // is the bubble's own `onStreamingSettled` (ChatView below): it fires once

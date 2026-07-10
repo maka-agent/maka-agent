@@ -1,6 +1,12 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
-import { applyLiveTurnEvent, armLiveTurn, settleLiveTurnStep } from '../live-turn-projection.js';
+import {
+  applyLiveTurnEvent,
+  armLiveTurn,
+  reconcileTerminalLiveTurn,
+  settleLiveTurnStep,
+  type LiveTurnProjection,
+} from '../live-turn-projection.js';
 import { overlayLiveTurn } from '../materialize.js';
 
 describe('applyLiveTurnEvent', () => {
@@ -422,5 +428,42 @@ describe('settleLiveTurnStep', () => {
       settleLiveTurnStep({ turnId: 'turn-1', phase: 'streamed', steps: [{ stepId: 'step-1', tools: [] }] }, 'step-1'),
       { turnId: 'turn-1', phase: 'streamed', steps: [] },
     );
+  });
+});
+
+describe('reconcileTerminalLiveTurn', () => {
+  const toolOnly: LiveTurnProjection = {
+    turnId: 'turn-1',
+    phase: 'streamed' as const,
+    terminal: true,
+    steps: [{
+      stepId: 'step-1',
+      tools: [{ toolUseId: 'tool-1', toolName: 'Bash', status: 'completed' as const, args: {} }],
+    }],
+  };
+
+  it('settles a tool-only terminal step once persisted history covers it', () => {
+    assert.equal(reconcileTerminalLiveTurn(toolOnly, [
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 2, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
+    ]), undefined);
+  });
+
+  it('retains terminal evidence while persisted history does not cover it', () => {
+    assert.equal(reconcileTerminalLiveTurn(toolOnly, []), toolOnly);
+  });
+
+  it('leaves text steps to the smoother handoff', () => {
+    const textTurn: LiveTurnProjection = {
+      ...toolOnly,
+      steps: [{
+        ...toolOnly.steps[0]!,
+        text: { text: 'answer', truncated: false, complete: true },
+      }],
+    };
+    assert.equal(reconcileTerminalLiveTurn(textTurn, [
+      { type: 'assistant', id: 'step-1', turnId: 'turn-1', ts: 1, text: 'answer', modelId: 'm' },
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 2, toolName: 'Bash', args: {} },
+    ]), textTurn);
   });
 });

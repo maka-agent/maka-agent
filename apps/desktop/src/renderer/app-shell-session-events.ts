@@ -1,10 +1,11 @@
-import type { SessionEvent } from '@maka/core';
+import type { SessionEvent, StoredMessage } from '@maka/core';
 import {
   applyLiveTurnEvent,
   clearPermissions,
   dequeuePermission,
   dequeuePermissionByToolUseId,
   enqueuePermission,
+  reconcileTerminalLiveTurn,
   settleLiveTurnStep,
   type LiveTurnProjection,
   type PermissionQueues,
@@ -26,6 +27,7 @@ type ToastApi = {
 
 export interface AppShellSessionEventHandlers {
   handleEvent(sessionId: string, event: SessionEvent): void;
+  reconcilePersistedMessages(sessionId: string, messages: readonly StoredMessage[]): void;
   settleAssistantStreaming(sessionId: string, messageId?: string): Promise<void>;
 }
 
@@ -63,16 +65,6 @@ export function createAppShellSessionEventHandlers(options: {
     });
   }
 
-  function clearTerminalProjection(sessionId: string, turnId: string): void {
-    setLiveTurnBySession((current) => {
-      const projection = current[sessionId];
-      if (!projection?.terminal || projection.turnId !== turnId) return current;
-      const next = { ...current };
-      delete next[sessionId];
-      return next;
-    });
-  }
-
   function settleLiveStep(sessionId: string, stepId: string): void {
     setLiveTurnBySession((current) => {
       const projection = current[sessionId];
@@ -96,14 +88,14 @@ export function createAppShellSessionEventHandlers(options: {
     settleLiveStep(sessionId, messageId);
   }
 
-  function settleNonTextTerminalStepsAfterRefresh(sessionId: string, turnId: string): void {
+  function reconcilePersistedMessages(sessionId: string, messages: readonly StoredMessage[]): void {
     setLiveTurnBySession((current) => {
       const projection = current[sessionId];
-      if (!projection?.terminal || projection.turnId !== turnId) return current;
-      const steps = projection.steps.filter((step) => step.text);
-      if (steps.length === projection.steps.length) return current;
+      if (!projection?.terminal) return current;
+      const reconciled = reconcileTerminalLiveTurn(projection, messages);
+      if (reconciled === projection) return current;
       const next = { ...current };
-      if (steps.length > 0) next[sessionId] = { ...projection, steps };
+      if (reconciled) next[sessionId] = reconciled;
       else delete next[sessionId];
       return next;
     });
@@ -112,16 +104,6 @@ export function createAppShellSessionEventHandlers(options: {
   function terminalRefreshOptions(projection: LiveTurnProjection | undefined): RefreshMessagesOptions | undefined {
     const messageId = [...(projection?.steps ?? [])].reverse().find((step) => step.text)?.stepId;
     return messageId ? { requiredAssistantMessageId: messageId } : undefined;
-  }
-
-  async function refreshTerminalProjection(
-    sessionId: string,
-    turnId: string,
-    projection: LiveTurnProjection | undefined,
-    settle: (sessionId: string, turnId: string) => void,
-  ): Promise<void> {
-    const refreshed = await refreshMessages(sessionId, terminalRefreshOptions(projection)).catch(() => false);
-    if (refreshed) settle(sessionId, turnId);
   }
 
   function handleEvent(sessionId: string, event: SessionEvent): void {
@@ -154,12 +136,12 @@ export function createAppShellSessionEventHandlers(options: {
         }
         notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
         void refreshSessions();
-        void refreshTerminalProjection(sessionId, event.turnId, before, clearTerminalProjection);
+        void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
       case 'abort':
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         void refreshSessions();
-        void refreshTerminalProjection(sessionId, event.turnId, before, clearTerminalProjection);
+        void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
       case 'complete': {
         if (event.stopReason !== 'permission_handoff') {
@@ -173,12 +155,7 @@ export function createAppShellSessionEventHandlers(options: {
         if (event.stopReason === 'permission_handoff') {
           void refreshMessages(sessionId, terminalRefreshOptions(before));
         } else {
-          void refreshTerminalProjection(
-            sessionId,
-            event.turnId,
-            before,
-            settleNonTextTerminalStepsAfterRefresh,
-          );
+          void refreshMessages(sessionId, terminalRefreshOptions(before));
         }
         break;
       }
@@ -187,5 +164,5 @@ export function createAppShellSessionEventHandlers(options: {
     }
   }
 
-  return { handleEvent, settleAssistantStreaming };
+  return { handleEvent, reconcilePersistedMessages, settleAssistantStreaming };
 }

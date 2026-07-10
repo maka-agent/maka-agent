@@ -1,4 +1,4 @@
-import type { SessionEvent } from '@maka/core';
+import type { SessionEvent, StoredMessage } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
 import type { ToolActivityItem } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
@@ -297,5 +297,33 @@ export function settleLiveTurnStep(
   const steps = current.steps.filter((step) => step.stepId !== stepId);
   if (steps.length === current.steps.length) return current;
   if (steps.length === 0 && current.terminal) return undefined;
+  return { ...current, steps };
+}
+
+/**
+ * Removes terminal non-text steps only when the persisted transcript can
+ * render the same durable evidence. Text steps remain owned by the smoother,
+ * whose completion callback performs their handoff after the tail is visible.
+ */
+export function reconcileTerminalLiveTurn(
+  current: LiveTurnProjection,
+  messages: readonly StoredMessage[],
+): LiveTurnProjection | undefined {
+  if (!current.terminal) return current;
+  const turnMessages = messages.filter((message) => message.turnId === current.turnId);
+  const assistantIds = new Set(turnMessages.flatMap((message) => message.type === 'assistant' ? [message.id] : []));
+  const toolCallIds = new Set(turnMessages.flatMap((message) => message.type === 'tool_call' ? [message.id] : []));
+  const toolResultIds = new Set(turnMessages.flatMap((message) => message.type === 'tool_result' ? [message.toolUseId] : []));
+  const steps = current.steps.filter((step) => {
+    if (step.text) return true;
+    if (step.thinking && !assistantIds.has(step.stepId)) return true;
+    const toolsCovered = step.tools.every((tool) => {
+      if (!toolCallIds.has(tool.toolUseId)) return false;
+      return tool.status === 'interrupted' || toolResultIds.has(tool.toolUseId);
+    });
+    return !toolsCovered;
+  });
+  if (steps.length === current.steps.length) return current;
+  if (steps.length === 0) return undefined;
   return { ...current, steps };
 }

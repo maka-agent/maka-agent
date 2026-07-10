@@ -186,7 +186,7 @@ describe('single live-turn handoff', () => {
     assert.equal(permissions.get()['session-1']?.[0]?.requestId, 'request-1');
   });
 
-  it('hands an aborted projection to persisted history only after refresh succeeds', async () => {
+  it('hands an aborted projection over only after persisted messages cover it', async () => {
     const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({
       'session-1': {
         turnId: 'turn-1',
@@ -232,6 +232,10 @@ describe('single live-turn handoff', () => {
 
     resolveRefresh(true);
     await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(liveTurns.get()['session-1']?.terminal, true);
+    handlers.reconcilePersistedMessages('session-1', [
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 2, toolName: 'Bash', args: {} },
+    ]);
     assert.equal(liveTurns.get()['session-1'], undefined);
   });
 
@@ -275,6 +279,11 @@ describe('single live-turn handoff', () => {
     assert.equal(liveTurns.get()['session-1']?.terminal, true);
     assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.status, 'interrupted');
     assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.outputChunks?.[0]?.text, 'partial output');
+
+    handlers.reconcilePersistedMessages('session-1', [
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 3, toolName: 'Bash', args: {} },
+    ]);
+    assert.equal(liveTurns.get()['session-1'], undefined);
   });
 
   it('settles a tool-only terminal projection after persisted history refreshes', async () => {
@@ -315,6 +324,10 @@ describe('single live-turn handoff', () => {
 
     resolveRefresh(true);
     await new Promise<void>((resolve) => setImmediate(resolve));
+    handlers.reconcilePersistedMessages('session-1', [
+      { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'tool:tool-1', ts: 2, toolName: 'Bash', args: {} },
+      { type: 'tool_result', id: 'result-1', turnId: 'turn-1', ts: 3, toolUseId: 'tool-1', isError: false, content: { kind: 'text', text: 'ok' } },
+    ]);
     assert.equal(liveTurns.get()['session-1'], undefined);
   });
 });
