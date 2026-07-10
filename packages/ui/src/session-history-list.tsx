@@ -81,7 +81,7 @@ export function SessionHistoryList(props: {
   /**
    * Per-session-id boolean flag: true when the session has a live streaming
    * delta in flight. Rendered as a small pulsing accent dot on the row.
-   * Caller (main.tsx) derives this from `streamingBySession` so the sidebar
+   * Caller derives this from the live-turn projection so the sidebar
    * shows live activity without subscribing to the stream itself.
    */
   streamingSessionIds?: Set<string>;

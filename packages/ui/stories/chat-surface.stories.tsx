@@ -92,8 +92,6 @@ function turnState(turnId: string, status: Extract<StoredMessage, { type: 'turn_
 
 const baseChatProps: ChatViewProps = {
   messages: [],
-  streamingText: '',
-  tools: [],
   activeSession: session(),
   activeConnectionLabel: 'Anthropic',
   activeModel: 'claude-sonnet-4-5',
@@ -413,7 +411,13 @@ export const StreamingResponse: Story = {
           user('msg-user-streaming', 'turn-streaming', 6, '用三句话说明这个 PR 的 review 重点。'),
           turnState('turn-streaming', 'running'),
         ],
-        streamingText: '第一，状态覆盖要完整。第二，fixture 要小，不复制 app shell。第三，验证以 Storybook build 和 typecheck 为准。',
+        liveTurn: {
+          turnId: 'turn-streaming', phase: 'streamed', steps: [{
+            stepId: 'msg-assistant-streaming',
+            text: { text: '第一，状态覆盖要完整。第二，fixture 要小，不复制 app shell。第三，验证以 Storybook build 和 typecheck 为准。', truncated: false, complete: false },
+            tools: [],
+          }],
+        },
       }}
       composer={{
         streaming: true,

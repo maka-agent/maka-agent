@@ -214,8 +214,8 @@ export function isMakaUriCandidate(href: string): boolean {
  *
  * Without this gate, `MarkdownLink` would render any non-`maka:`
  * href as `<a href=... target=_blank>` — including `javascript:`,
- * `data:`, `file:`. Even though react-markdown's pipeline may
- * sanitize some of these, the link chokepoint should not depend
+ * `data:`, `file:`. Even though the Markdown pipeline may sanitize
+ * some of these, the link chokepoint should not depend
  * on that. Explicit allowlist here makes the boundary visible
  * and inspectable in visual-smoke baselines.
  *

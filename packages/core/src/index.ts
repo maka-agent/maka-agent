@@ -94,6 +94,7 @@ export type {
   StoredMessage,
   UserMessage,
   AssistantMessage,
+  AssistantStepContentKind,
   ToolCallMessage,
   ToolResultMessage,
   PermissionDecisionMessage,

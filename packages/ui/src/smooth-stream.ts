@@ -20,10 +20,9 @@
  *     Falls back to codepoint slicing (`Array.from`) when the
  *     environment lacks `Intl.Segmenter`. Never slices on raw code
  *     unit indices, which would cut surrogate pairs.
- *   - **Backlog snap**: if displayed lags raw by more than
- *     `maxBacklogGraphemes`, snap to raw. This handles history
- *     hydration (initial mount with non-empty raw) and "the network
- *     dumped 5KB in one chunk" without infinite catch-up.
+ *   - **Continuous backlog catch-up**: a large live burst raises the
+ *     frame speed enough to drain within a bounded budget, but never
+ *     changes the displayed position outside RAF advancement.
  *   - **Complete flush budget**: when `streaming` flips to false,
  *     raise the catch-up speed so the remaining tail drains within
  *     `completeFlushBudgetMs` instead of snapping to the final text.
@@ -36,7 +35,7 @@
  *     (review blocker #4 from @kenji).
  *
  * The pure helpers (`segmentGraphemes`, `computeFrameAdvance`,
- * `shouldSnapForBacklog`, `updateEma`, `resolveInitialDisplayedCount`)
+ * `resolveLiveBacklogCps`, `updateEma`, `resolveInitialDisplayedCount`)
  * are exported so they can be unit-tested without a DOM. The React
  * hook is a thin shell over them.
  */
@@ -46,7 +45,7 @@ import { redactSecrets } from './redact.js';
 
 const DEFAULT_MIN_CPS = 30;
 const DEFAULT_MAX_CPS = 400;
-const DEFAULT_MAX_BACKLOG_GRAPHEMES = 800;
+const DEFAULT_LIVE_CATCH_UP_BUDGET_MS = 2_000;
 const DEFAULT_COMPLETE_FLUSH_BUDGET_MS = 600;
 const EMA_ALPHA = 0.3;
 /**
@@ -75,12 +74,8 @@ export interface SmoothStreamOptions {
    *     already finished — there is nothing to "smoothly" replay).
    */
   snap?: boolean;
-  /**
-   * Cap on how far displayed may lag raw before we snap to raw.
-   * Defaults to 800 graphemes (~one paragraph). Set higher only if
-   * you want very long catch-up animations.
-   */
-  maxBacklogGraphemes?: number;
+  /** Target time for draining a live burst without snapping. Default 2000ms. */
+  liveCatchUpBudgetMs?: number;
   /**
    * Floor on emit speed in graphemes-per-second. A slow upstream
    * still feels alive at this rate. Default 30.
@@ -171,41 +166,45 @@ export function computeFrameAdvance(inputs: FrameAdvanceInputs): number {
   return Math.min(advance, backlog);
 }
 
-export interface BacklogSnapInputs {
-  rawGraphemeCount: number;
-  displayedGraphemeCount: number;
-  maxBacklogGraphemes: number;
-  /** Backlog snap is only for live network bursts, not completion drain. */
-  streaming?: boolean;
+function clampedEmaCps(inputs: { emaCps: number; minCps: number; maxCps: number }): number {
+  return Math.min(Math.max(inputs.emaCps, inputs.minCps), inputs.maxCps);
 }
 
-/**
- * Pure: should we snap to raw because the backlog is too large?
- * True when (raw - displayed) > threshold.
- */
-export function shouldSnapForBacklog(inputs: BacklogSnapInputs): boolean {
-  if (inputs.streaming === false) return false;
-  return inputs.rawGraphemeCount - inputs.displayedGraphemeCount > inputs.maxBacklogGraphemes;
+export function resolveLiveBacklogCps(inputs: {
+  backlog: number;
+  elapsedMs: number;
+  budgetMs: number;
+  emaCps: number;
+  minCps: number;
+  maxCps: number;
+}): number {
+  const normalCps = clampedEmaCps(inputs);
+  if (inputs.backlog <= 0) return normalCps;
+  const remainingMs = Math.max(1, inputs.budgetMs - inputs.elapsedMs);
+  return Math.max(normalCps, Math.ceil((inputs.backlog * 1000) / remainingMs));
 }
 
-export interface CompletionMaxCpsInputs {
+export interface CompletionCpsInputs {
   rawGraphemeCount: number;
   displayedGraphemeCount: number;
   elapsedMs: number;
   budgetMs: number;
+  emaCps: number;
+  minCps: number;
   maxCps: number;
 }
 
 /**
- * Pure: while a stream is completing, raise the frame speed enough to drain
+ * Pure: while a stream is completing, choose the frame speed needed to drain
  * the remaining tail inside the completion budget. This keeps the completion
  * handoff fast without a visible end-of-budget snap.
  */
-export function resolveCompletionMaxCps(inputs: CompletionMaxCpsInputs): number {
+export function resolveCompletionCps(inputs: CompletionCpsInputs): number {
   const backlog = inputs.rawGraphemeCount - inputs.displayedGraphemeCount;
-  if (backlog <= 0) return inputs.maxCps;
+  const normalCps = clampedEmaCps(inputs);
+  if (backlog <= 0) return normalCps;
   const remainingMs = Math.max(1, inputs.budgetMs - inputs.elapsedMs);
-  return Math.max(inputs.maxCps, Math.ceil((backlog * 1000) / remainingMs));
+  return Math.max(normalCps, Math.ceil((backlog * 1000) / remainingMs));
 }
 
 export interface EmaUpdateInputs {
@@ -255,7 +254,7 @@ export function useSmoothStreamContent(
 ): SmoothStreamResult {
   const minCps = options.minCps ?? DEFAULT_MIN_CPS;
   const maxCps = options.maxCps ?? DEFAULT_MAX_CPS;
-  const maxBacklog = options.maxBacklogGraphemes ?? DEFAULT_MAX_BACKLOG_GRAPHEMES;
+  const liveCatchUpBudget = options.liveCatchUpBudgetMs ?? DEFAULT_LIVE_CATCH_UP_BUDGET_MS;
   const completeBudget = options.completeFlushBudgetMs ?? DEFAULT_COMPLETE_FLUSH_BUDGET_MS;
   const snap = !!options.snap;
 
@@ -276,6 +275,7 @@ export function useSmoothStreamContent(
     emaCps: SEED_CPS,
     lastObservedRawLength: rawLength,
     lastArrivalAt: nowMs(),
+    liveCatchUpStartedAt: 0,
     completeStartedAt: 0,
     initialized: false,
   });
@@ -303,11 +303,12 @@ export function useSmoothStreamContent(
       // typewriter the new chunk instead of insta-snapping.
       s.completeStartedAt = 0;
     } else if (rawLength < s.lastObservedRawLength) {
-      // Raw shrunk: session switch / clearStreaming. Reset the EMA
+      // Raw shrunk: session switch / source reset. Reset the EMA
       // and the typewriter cursor. The displayedCount reset is
       // handled in the snap/initial effect below.
       s.lastObservedRawLength = rawLength;
       s.emaCps = SEED_CPS;
+      s.liveCatchUpStartedAt = 0;
       s.completeStartedAt = 0;
       setDisplayedCount(
         resolveInitialDisplayedCount({ rawGraphemeCount: rawLength, streaming: options.streaming, snap }),
@@ -328,6 +329,7 @@ export function useSmoothStreamContent(
   useEffect(() => {
     if (snap) return;
     if (displayedCount >= rawLength) {
+      refs.current.liveCatchUpStartedAt = 0;
       // Caught up. If we're still streaming, the next arrival will
       // trigger the EMA effect; this effect will re-run and schedule
       // the next frame. If streaming finished, we're truly done.
@@ -345,33 +347,34 @@ export function useSmoothStreamContent(
     const tick = (now: number) => {
       if (cancelled) return;
 
-      // Backlog snap — handles history paste, network burst, etc.
-      // Only applies to live streams; history hydration is already
-      // pre-snapped via resolveInitialDisplayedCount.
-      if (
-        shouldSnapForBacklog({
-          rawGraphemeCount: rawLength,
-          displayedGraphemeCount: displayedCount,
-          maxBacklogGraphemes: maxBacklog,
-          streaming: options.streaming,
-        })
-      ) {
-        setDisplayedCount(rawLength);
-        return;
-      }
-
       // Stream-end bounded flush. Once streaming flips false and we
       // still have backlog, raise the speed enough to drain inside
       // completeBudget instead of snapping the tail all at once.
-      let frameMaxCps = maxCps;
-      if (!options.streaming) {
-        const s = refs.current;
+      const s = refs.current;
+      let frameCps: number;
+      if (options.streaming) {
+        if (s.liveCatchUpStartedAt === 0 || s.completeStartedAt !== 0) {
+          s.liveCatchUpStartedAt = now;
+          s.completeStartedAt = 0;
+        }
+        frameCps = resolveLiveBacklogCps({
+          backlog: rawLength - displayedCount,
+          elapsedMs: now - s.liveCatchUpStartedAt,
+          budgetMs: liveCatchUpBudget,
+          emaCps: s.emaCps,
+          minCps,
+          maxCps,
+        });
+      } else {
+        s.liveCatchUpStartedAt = 0;
         if (s.completeStartedAt === 0) s.completeStartedAt = now;
-        frameMaxCps = resolveCompletionMaxCps({
+        frameCps = resolveCompletionCps({
           rawGraphemeCount: rawLength,
           displayedGraphemeCount: displayedCount,
           elapsedMs: now - s.completeStartedAt,
           budgetMs: completeBudget,
+          emaCps: refs.current.emaCps,
+          minCps,
           maxCps,
         });
       }
@@ -380,10 +383,10 @@ export function useSmoothStreamContent(
       const advance = computeFrameAdvance({
         rawGraphemeCount: rawLength,
         displayedGraphemeCount: displayedCount,
-        emaCps: refs.current.emaCps,
+        emaCps: frameCps,
         dtMs,
         minCps,
-        maxCps: frameMaxCps,
+        maxCps: frameCps,
       });
       if (advance > 0) {
         setDisplayedCount((cur) => Math.min(cur + advance, rawLength));
@@ -399,7 +402,7 @@ export function useSmoothStreamContent(
       cancelled = true;
       cancelAnimationFrame(handle);
     };
-  }, [rawLength, displayedCount, options.streaming, snap, minCps, maxCps, maxBacklog, completeBudget]);
+  }, [rawLength, displayedCount, options.streaming, snap, minCps, maxCps, liveCatchUpBudget, completeBudget]);
 
   const displayed = useMemo(() => {
     if (displayedCount >= rawLength) return rawText;

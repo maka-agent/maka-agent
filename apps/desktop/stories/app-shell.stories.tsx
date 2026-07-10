@@ -107,8 +107,6 @@ const conversation: StoredMessage[] = [
 
 const baseChatProps: ChatViewProps = {
   messages: conversation,
-  streamingText: '',
-  tools: [],
   activeSession,
   activeConnectionLabel: 'Anthropic',
   activeModel: 'claude-sonnet-4-5',
@@ -240,7 +238,13 @@ export const StreamingTurn: Story = {
           user('msg-s-1', 'turn-s', 3, '顶层布局的 story 怎么做最稳？'),
           { type: 'turn_state', id: 'state-s', turnId: 'turn-s', ts: NOW - 30_000, status: 'running', partialOutputRetained: false },
         ],
-        streamingText: '用真实的子组件拼出 2 栏布局，不整体挂载 AppShell，避开 IPC 耦合。',
+        liveTurn: {
+          turnId: 'turn-s', phase: 'streamed', steps: [{
+            stepId: 'msg-assistant-s',
+            text: { text: '用真实的子组件拼出 2 栏布局，不整体挂载 AppShell，避开 IPC 耦合。', truncated: false, complete: false },
+            tools: [],
+          }],
+        },
       }}
       composer={{ streaming: true }}
     />

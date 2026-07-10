@@ -10,8 +10,7 @@
  *   - frame advance respects EMA × dt with min/max CPS clamp, never
  *     overshoots the backlog, and always emits ≥1 char when work
  *     remains
- *   - backlog snap triggers above threshold (review blocker #3, live
- *     stream burst case)
+ *   - live backlog raises the speed continuously instead of snapping
  *   - EMA ignores degenerate observations so a stalled arrival can't
  *     poison the typewriter speed
  *   - initial displayed count handles the three modes: snap=true,
@@ -29,10 +28,10 @@ import { describe, it } from 'node:test';
 import {
   computeFrameAdvance,
   prepareSmoothStreamText,
-  resolveCompletionMaxCps,
+  resolveCompletionCps,
   resolveInitialDisplayedCount,
+  resolveLiveBacklogCps,
   segmentGraphemes,
-  shouldSnapForBacklog,
   updateEma,
 } from '@maka/ui/smooth-stream';
 
@@ -249,63 +248,57 @@ describe('computeFrameAdvance', () => {
   });
 });
 
-describe('shouldSnapForBacklog', () => {
-  it('false when displayed equals raw', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 100,
-        displayedGraphemeCount: 100,
-        maxBacklogGraphemes: 800,
-      }),
-      false,
-    );
+describe('resolveLiveBacklogCps', () => {
+  it('uses the required catch-up speed when the backlog fits the budget', () => {
+    assert.equal(resolveLiveBacklogCps({ backlog: 800, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 400);
   });
 
-  it('false at the threshold (strict greater-than)', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 800,
-        displayedGraphemeCount: 0,
-        maxBacklogGraphemes: 800,
-      }),
-      false,
-    );
+  it('raises speed continuously above the budget instead of snapping position', () => {
+    assert.equal(resolveLiveBacklogCps({ backlog: 801, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 401);
+    assert.equal(resolveLiveBacklogCps({ backlog: 5_000, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 2_500);
   });
 
-  it('true when backlog exceeds the threshold', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 801,
-        displayedGraphemeCount: 0,
-        maxBacklogGraphemes: 800,
-      }),
-      true,
-    );
+  it('still advances only one frame at a time for a large burst', () => {
+    const frameCps = resolveLiveBacklogCps({ backlog: 5_000, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 });
+    assert.equal(computeFrameAdvance({
+      rawGraphemeCount: 5_000,
+      displayedGraphemeCount: 0,
+      emaCps: frameCps,
+      dtMs: 16,
+      minCps: 30,
+      maxCps: frameCps,
+    }), 40);
   });
 
-  it('catches the network-burst case', () => {
-    // The smoother was caught up; a 5KB chunk lands in one delta.
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        maxBacklogGraphemes: 800,
-        streaming: true,
-      }),
-      true,
-    );
-  });
+  it('drains one live burst inside a single catch-up budget', () => {
+    const rawGraphemeCount = 5_000;
+    const budgetMs = 2_000;
+    const frameMs = 16;
+    let displayedGraphemeCount = 0;
+    let elapsedMs = 0;
 
-  it('does not snap a completion-drain backlog just because the final text arrived at once', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        maxBacklogGraphemes: 800,
-        streaming: false,
-      }),
-      false,
-    );
+    while (displayedGraphemeCount < rawGraphemeCount && elapsedMs < 20_000) {
+      const frameCps = resolveLiveBacklogCps({
+        backlog: rawGraphemeCount - displayedGraphemeCount,
+        elapsedMs,
+        budgetMs,
+        emaCps: 80,
+        minCps: 30,
+        maxCps: 400,
+      });
+      displayedGraphemeCount += computeFrameAdvance({
+        rawGraphemeCount,
+        displayedGraphemeCount,
+        emaCps: frameCps,
+        dtMs: frameMs,
+        minCps: 30,
+        maxCps: frameCps,
+      });
+      elapsedMs += frameMs;
+    }
+
+    assert.equal(displayedGraphemeCount, rawGraphemeCount);
+    assert.ok(elapsedMs <= budgetMs + frameMs * 2, `catch-up took ${elapsedMs}ms`);
   });
 });
 
@@ -329,30 +322,40 @@ describe('updateEma', () => {
   });
 });
 
-describe('resolveCompletionMaxCps', () => {
-  it('raises the completion ceiling so a large final tail can drain inside the budget', () => {
-    assert.equal(
-      resolveCompletionMaxCps({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        elapsedMs: 0,
-        budgetMs: 500,
-        maxCps: 400,
-      }),
-      10_000,
-    );
+describe('resolveCompletionCps', () => {
+  it('raises the actual completion speed so a large final tail drains inside the budget', () => {
+    const frameCps = resolveCompletionCps({
+      rawGraphemeCount: 5_200,
+      displayedGraphemeCount: 200,
+      elapsedMs: 0,
+      budgetMs: 500,
+      emaCps: 80,
+      minCps: 30,
+      maxCps: 400,
+    });
+    assert.equal(frameCps, 10_000);
+    assert.equal(computeFrameAdvance({
+      rawGraphemeCount: 5_200,
+      displayedGraphemeCount: 200,
+      emaCps: frameCps,
+      dtMs: 16,
+      minCps: 30,
+      maxCps: frameCps,
+    }), 160);
   });
 
-  it('keeps the normal max when the final tail already fits the budget', () => {
+  it('uses only the required catch-up speed when the final tail fits the budget', () => {
     assert.equal(
-      resolveCompletionMaxCps({
+      resolveCompletionCps({
         rawGraphemeCount: 260,
         displayedGraphemeCount: 200,
         elapsedMs: 0,
         budgetMs: 500,
+        emaCps: 80,
+        minCps: 30,
         maxCps: 400,
       }),
-      400,
+      120,
     );
   });
 });

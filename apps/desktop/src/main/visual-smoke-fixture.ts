@@ -320,8 +320,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: streamingState(),
-        liveToolsBySession: streamingTools(),
+        liveTurnBySession: streamingLiveTurns(),
       };
     case 'streaming-answer':
       // Active session = the committed turn-narrative session, PLUS a live
@@ -331,10 +330,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: { [TURN_SESSION_ID]: STREAMING_ANSWER_MARKDOWN },
+        liveTurnBySession: streamingAnswerLiveTurns(),
       };
     case 'model-processing':
-      // #646: a running session whose turn is armed (turnActiveBySession) with
+      // #646: a running session whose live projection is armed with
       // NO streaming / thinking / tool seeded, so the derivation fires and the
       // "正在处理…" indicator rides the tail user turn while the composer shows
       // Stop. The session's on-disk status is `running` so the status gate self-
@@ -342,14 +341,14 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: PROCESSING_SESSION_ID,
-        turnActiveBySession: { [PROCESSING_SESSION_ID]: 'waiting' },
+        liveTurnBySession: processingLiveTurns(),
       };
     case 'permission-destructive':
       return {
         ...state,
         activeSessionId: PERMISSION_SESSION_ID,
         permissionBySession: permissionState(),
-        liveToolsBySession: permissionTools(),
+        liveTurnBySession: permissionLiveTurns(),
       };
     case 'stale-sessions':
       // Active session intentionally a stale one — verifies the @kenji
@@ -474,11 +473,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: streamingState(),
         permissionBySession: permissionState(),
-        liveToolsBySession: {
-          ...streamingTools(),
-          ...permissionTools(),
+        liveTurnBySession: {
+          ...streamingLiveTurns(),
+          ...permissionLiveTurns(),
         },
       };
   }
@@ -1087,7 +1085,7 @@ function turnMessages(now: number): StoredMessage[] {
 
 // #646: a running session whose latest turn is a lone user prompt with no
 // assistant reply yet — the on-disk shape of "just sent, awaiting first token".
-// Paired with `turnActiveBySession` + status `running`, the renderer derives the
+// Paired with a waiting live projection + status `running`, the renderer derives the
 // "正在处理…" model-wait indicator on the tail turn and the composer shows Stop.
 function processingSession(now: number): SessionHeader {
   return header({
@@ -2213,24 +2211,53 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
-function streamingState(): NonNullable<VisualSmokeState['streamingBySession']> {
+function streamingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   return {
-    [STREAMING_SESSION_ID]: '正在检查日志、模型配置和最近的工具输出…',
+    [STREAMING_SESSION_ID]: {
+      turnId: 'turn-streaming',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'stream-live-step',
+        text: {
+          text: '正在检查日志、模型配置和最近的工具输出…',
+          truncated: false,
+          complete: false,
+        },
+        tools: [{
+          toolUseId: 'stream-live-tool',
+          toolName: 'Bash',
+          stepId: 'stream-live-step',
+          displayName: '运行中的诊断',
+          intent: '模拟后台 stream 中的 tool activity',
+          status: 'running',
+          args: { cmd: 'npm run visual-smoke:fixture' },
+        }],
+      }],
+    },
   };
 }
 
-function streamingTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
+function streamingAnswerLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   return {
-    [STREAMING_SESSION_ID]: [
-      {
-        toolUseId: 'stream-live-tool',
-        toolName: 'Bash',
-        displayName: '运行中的诊断',
-        intent: '模拟后台 stream 中的 tool activity',
-        status: 'running',
-        args: { cmd: 'npm run visual-smoke:fixture' },
-      },
-    ],
+    [TURN_SESSION_ID]: {
+      turnId: 'turn-fixture-2',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'msg-assistant-2c',
+        text: { text: STREAMING_ANSWER_MARKDOWN, truncated: false, complete: false },
+        tools: [],
+      }],
+    },
+  };
+}
+
+function processingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
+  return {
+    [PROCESSING_SESSION_ID]: {
+      turnId: 'turn-processing-1',
+      phase: 'waiting',
+      steps: [],
+    },
   };
 }
 
@@ -2240,19 +2267,24 @@ function permissionState(): NonNullable<VisualSmokeState['permissionBySession']>
   };
 }
 
-function permissionTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
+function permissionLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   const request = permissionRequest(VISUAL_SMOKE_NOW);
   return {
-    [PERMISSION_SESSION_ID]: [
-      {
-        toolUseId: request.toolUseId,
-        toolName: request.toolName,
-        displayName: '模拟删除命令',
-        intent: request.hint,
-        status: 'waiting_permission',
-        args: request.args,
-      },
-    ],
+    [PERMISSION_SESSION_ID]: {
+      turnId: 'turn-permission',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'tool:permission-tool',
+        tools: [{
+          toolUseId: request.toolUseId,
+          toolName: request.toolName,
+          displayName: '模拟删除命令',
+          intent: request.hint,
+          status: 'waiting_permission',
+          args: request.args,
+        }],
+      }],
+    },
   };
 }
 

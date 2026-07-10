@@ -4,8 +4,7 @@
  * This module is intentionally lightweight: it only owns the
  * `MakaUriContext` (which the renderer installs once at the App root)
  * and a thin `Markdown` wrapper that `React.lazy`-loads the heavy
- * `react-markdown` + `remark-*` + `rehype-highlight` (highlight.js)
- * pipeline from `./markdown-body.js` on first use.
+ * streaming Markdown pipeline from `./markdown-body.js` on first use.
  *
  * Why the split: the markdown pipeline is by far the heaviest thing the
  * chat shell transitively imports, yet it's only needed once a message
@@ -17,8 +16,7 @@
  *
  * The trust-boundary contract (URI allowlist, safe-scheme external
  * gate, broken-link inline errors) lives in `markdown-body.tsx`
- * alongside the `Markdown` body it overrides `react-markdown` with —
- * see that file for the routing rationale.
+ * alongside the `Markdown` body; see that file for the routing rationale.
  *
  * PR-UI-LIB-EXTRACT-6 (WAWQAQ msg `510fef52`, round 7/10): pulled out
  * of `components.tsx`. `MakaUriContext` was already a public export
@@ -29,12 +27,11 @@
  */
 
 import { createContext, lazy, Suspense, type ReactNode } from 'react';
-import type { StreamFade } from './stream-fade.js';
 
 // Heavy pipeline — parsed on first `<Markdown>` mount, not at app boot.
 const MarkdownBody = lazy(() => import('./markdown-body.js').then((m) => ({ default: m.MarkdownBody })));
 
-export function Markdown(props: { text: string; streamFade?: StreamFade }) {
+export function Markdown(props: { text: string; streaming?: boolean }) {
   return (
     <Suspense
       // Plain-text fallback so message content is visible immediately while
@@ -46,7 +43,7 @@ export function Markdown(props: { text: string; streamFade?: StreamFade }) {
         </div>
       }
     >
-      <MarkdownBody text={props.text} streamFade={props.streamFade} />
+      <MarkdownBody text={props.text} streaming={props.streaming} />
     </Suspense>
   );
 }

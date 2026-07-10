@@ -12,8 +12,8 @@
  *    `boundaryOffset` (graphemes before it are stable — never wrapped) and the
  *    age of any offset (drives the CSS `animation-delay`).
  *  - `useStreamFade`, a thin React wrapper holding the ring in a ref, plus
- *    `tokenizeFade`, the pure word/char splitter the Markdown rehype pass and
- *    the plain-text renderer share.
+ *    `tokenizeFade`, the pure word/char splitter used by the plain-text
+ *    reasoning renderer.
  *
  * Offsets are GRAPHEME offsets (via `segmentGraphemes`, same as the smoother)
  * so we never split an emoji / surrogate pair. The negative `animation-delay`
@@ -115,13 +115,6 @@ export function fadeAgeAt(state: FadeRingState, offset: number, now: number): nu
 /** Snapshot the fade state for one render: a stable boundary + an age lookup. */
 export interface StreamFade {
   boundaryOffset: number;
-  /**
-   * Total grapheme length of the raw source buffer the ring measured
-   * (`displayed`). The rehype pass renders markdown, which hides syntax
-   * (link URLs, emphasis markers, fence chars), so visible-text offsets lag
-   * raw offsets; this anchors the two coordinate systems at the tail.
-   */
-  rawLength: number;
   ageAt(offset: number): number;
 }
 
@@ -155,7 +148,6 @@ export function useStreamFade(displayed: string, active: boolean): StreamFade | 
   const snapshotRing: FadeRingState = { batches: ring.batches.slice(), len: ring.len, seeded: ring.seeded };
   return {
     boundaryOffset,
-    rawLength: len,
     ageAt: (offset: number) => fadeAgeAt(snapshotRing, offset, now),
   };
 }
@@ -178,91 +170,6 @@ export interface FadeToken {
   offset: number;
   /** True when this token should fade in (non-space and at/after the boundary). */
   fade: boolean;
-}
-
-// Minimal hast shapes — typed loosely so stream-fade takes no `hast` dep.
-export interface HastNode {
-  type: string;
-  tagName?: string;
-  value?: string;
-  properties?: Record<string, unknown>;
-  children?: HastNode[];
-}
-
-/**
- * A rehype plugin factory that wraps freshly streamed words/chars in
- * `.maka-stream-fade` spans (streaming UI rework). Runs AFTER rehype-highlight,
- * so code is already tokenized under `<pre>`/`<code>`. Walks text nodes in
- * document order tracking a visible-grapheme `cursor`; text inside code advances
- * the cursor but is NOT wrapped (leaving highlight DOM untouched avoids
- * fade-driven re-highlight jitter). Outside code, each token at/after the fade
- * boundary is wrapped with a negative `animation-delay` (= -age) so the entrance
- * resumes mid-flight instead of re-flashing on each streaming re-render. Only
- * the post-boundary tail is wrapped (zero cost for the stable body).
- *
- * The ring measures offsets in RAW buffer graphemes, but this pass walks
- * rendered VISIBLE text, which is shorter by every hidden markdown character
- * (link URLs alone can hide dozens). The two coordinate systems are anchored
- * at the tail: count the visible graphemes, shift the boundary and the age
- * lookups by the total hidden amount. Exact for tokens after the last hidden
- * syntax — the streaming tail, where fades live; tokens straddling hidden
- * syntax near the boundary wrap slightly eagerly (errs toward motion).
- *
- * Pure (no react-markdown dep) so the offset behavior is unit-tested directly.
- */
-export function streamFadeRehypePlugin(fade: StreamFade) {
-  return () => (tree: HastNode): void => {
-    const visibleTotal = countVisibleGraphemes(tree);
-    const shift = Math.max(0, fade.rawLength - visibleTotal);
-    const boundary = Math.max(0, fade.boundaryOffset - shift);
-    let cursor = 0;
-    const walk = (node: HastNode, inCode: boolean): void => {
-      if (!Array.isArray(node.children)) return;
-      const nextInCode =
-        inCode || (node.type === 'element' && (node.tagName === 'code' || node.tagName === 'pre'));
-      const out: HastNode[] = [];
-      for (const child of node.children) {
-        if (child.type === 'text') {
-          const value = child.value ?? '';
-          if (nextInCode) {
-            cursor += segmentGraphemes(value).length;
-            out.push(child);
-            continue;
-          }
-          const { tokens, length } = tokenizeFade(value, cursor, boundary);
-          cursor += length;
-          for (const token of tokens) {
-            if (token.fade) {
-              out.push({
-                type: 'element',
-                tagName: 'span',
-                properties: {
-                  className: ['maka-stream-fade'],
-                  style: `animation-delay:-${Math.round(fade.ageAt(token.offset + shift))}ms`,
-                },
-                children: [{ type: 'text', value: token.text }],
-              });
-            } else {
-              out.push({ type: 'text', value: token.text });
-            }
-          }
-        } else {
-          walk(child, nextInCode);
-          out.push(child);
-        }
-      }
-      node.children = out;
-    };
-    walk(tree, false);
-  };
-}
-
-/** Total graphemes across all text nodes — the same accounting walk() uses. */
-function countVisibleGraphemes(node: HastNode): number {
-  if (node.type === 'text') return segmentGraphemes(node.value ?? '').length;
-  let total = 0;
-  for (const child of node.children ?? []) total += countVisibleGraphemes(child);
-  return total;
 }
 
 /**

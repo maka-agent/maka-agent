@@ -1,7 +1,7 @@
 /**
  * PR-UI-Cx (@kenji C1 residual note msg aa2d26a7) — pure
  * trust-boundary helper for the assistant `text_delta` stream the
- * renderer accumulates into `streamingBySession[sessionId]`.
+ * renderer accumulates into the active `LiveTurnProjection`.
  *
  * Mirrors A3 `tool-output-stream` / C0 `thinking-stream` exactly:
  *   - pure helper `applyAssistantDelta`
@@ -11,7 +11,7 @@
  *     stream)
  *   - secondary `redactSecrets` BEFORE state — the renderer cannot
  *     trust upstream to have masked every secret, and a raw
- *     `Authorization: Bearer …` prefix sitting in `streamingBySession`
+ *     `Authorization: Bearer …` prefix sitting in the live projection
  *     would expose the secret via React DevTools snapshot, the
  *     "copy message" affordance, and any future serialization that
  *     walks the streaming state.
@@ -75,15 +75,6 @@ export interface ApplyAssistantResult {
   truncated: boolean;
 }
 
-export interface AssistantStreamSlot {
-  text: string;
-  truncated: boolean;
-  phase: 'streaming' | 'draining';
-  messageId?: string;
-}
-
-export type AssistantStreamSlots = Record<string, AssistantStreamSlot>;
-
 /**
  * Apply a single `text_delta` to the prior accumulated assistant
  * text. Pure: no React state, no DOM, no IPC.
@@ -104,7 +95,7 @@ export type AssistantStreamSlots = Record<string, AssistantStreamSlot>;
  *      alone can't catch a secret spanning the seam. This second
  *      pass over the freshly-appended candidate is the chokepoint
  *      that lets us assert: NO raw secret EVER enters
- *      `streamingBySession` state. @kenji review @msg 3c01e901
+ *      live projection state. @kenji review @msg 3c01e901
  *      Blocker 1 — this MUST run before total-cap + setState.
  *   5. If the safe-appended exceeds `maxTotalChars`, head-keep
  *      the prefix and append a trailing marker. (User reads the
@@ -223,61 +214,4 @@ export function applyAssistantComplete(
     redacted: redactionHappened,
     truncated: totalTruncated,
   };
-}
-
-export function drainAssistantStreamSlot(
-  current: AssistantStreamSlots,
-  sessionId: string,
-  applied: ApplyAssistantResult,
-  messageId?: string,
-): AssistantStreamSlots {
-  return {
-    ...current,
-    [sessionId]: {
-      text: applied.text,
-      truncated: applied.truncated,
-      phase: 'draining',
-      ...(messageId ? { messageId } : {}),
-    },
-  };
-}
-
-export function markAssistantStreamSlotDraining(
-  current: AssistantStreamSlots,
-  sessionId: string,
-): AssistantStreamSlots {
-  const prev = current[sessionId];
-  if (!prev?.text || prev.phase === 'draining') return current;
-  return {
-    ...current,
-    [sessionId]: { ...prev, phase: 'draining' },
-  };
-}
-
-export function clearSettledAssistantStreamSlot(
-  current: AssistantStreamSlots,
-  sessionId: string,
-  settledSlot: AssistantStreamSlot,
-  messageId?: string,
-): AssistantStreamSlots {
-  const currentSlot = current[sessionId];
-  if (!isEquivalentSettledSlot(currentSlot, settledSlot, messageId)) return current;
-  return { ...current, [sessionId]: { text: '', truncated: false, phase: 'streaming' } };
-}
-
-function isEquivalentSettledSlot(
-  slot: AssistantStreamSlot | undefined,
-  settledSlot: AssistantStreamSlot,
-  messageId?: string,
-): slot is AssistantStreamSlot {
-  if (!slot || slot.phase !== 'draining' || settledSlot.phase !== 'draining') return false;
-  if (slot === settledSlot) return true;
-
-  const expectedMessageId = messageId ?? settledSlot.messageId;
-  if (!expectedMessageId) return false;
-
-  return slot.messageId === expectedMessageId &&
-    settledSlot.messageId === expectedMessageId &&
-    slot.text === settledSlot.text &&
-    slot.truncated === settledSlot.truncated;
 }

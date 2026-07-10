@@ -90,15 +90,62 @@ export class PiAgentBackend implements AgentBackend {
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const turnId = input.turnId;
-    const messageId = this.newId();
+    let messageId = this.newId();
+    let currentProviderMessageId: string | undefined;
+    const usedMessageIds = new Set([messageId]);
     let assistantText = '';
-    let completedText = false;
+    let assistantPersisted = false;
+    let textCompleteEmitted = false;
+    let stepHasTools = false;
+    const activeToolUseIds = new Set<string>();
     this.stopped = false;
     this.currentTurnId = turnId;
     this.outputSeqByTool = new Map();
     this.writtenToolCalls = new Set();
     this.suppressedToolUseIds = new Set();
     this.input.permissionEngine.beginTurn(turnId);
+
+    const beginStep = (preferredMessageId?: string, nextProviderMessageId?: string): void => {
+      let nextMessageId = preferredMessageId;
+      while (!nextMessageId || usedMessageIds.has(nextMessageId)) nextMessageId = this.newId();
+      messageId = nextMessageId;
+      currentProviderMessageId = nextProviderMessageId;
+      usedMessageIds.add(messageId);
+      assistantText = '';
+      assistantPersisted = false;
+      textCompleteEmitted = false;
+      stepHasTools = false;
+      activeToolUseIds.clear();
+    };
+    const persistAssistant = async (): Promise<void> => {
+      if (assistantPersisted || assistantText.length === 0) return;
+      await this.appendAssistant(turnId, messageId, assistantText);
+      assistantPersisted = true;
+    };
+    const completeStepText = async (): Promise<Extract<SessionEvent, { type: 'text_complete' }> | undefined> => {
+      if (textCompleteEmitted || assistantText.length === 0) return undefined;
+      await persistAssistant();
+      textCompleteEmitted = true;
+      return {
+        type: 'text_complete',
+        id: this.newId(),
+        turnId,
+        ts: this.now(),
+        messageId,
+        text: assistantText,
+      };
+    };
+    const prepareTextStep = (providerMessageId?: string): void => {
+      const stepEnded = textCompleteEmitted || (stepHasTools && activeToolUseIds.size === 0);
+      if (stepEnded) {
+        const preferredMessageId = providerMessageId !== currentProviderMessageId
+          ? providerMessageId
+          : undefined;
+        beginStep(preferredMessageId, providerMessageId);
+      } else if (providerMessageId && providerMessageId !== currentProviderMessageId) {
+        beginStep(providerMessageId, providerMessageId);
+      }
+    };
 
     try {
       for await (const rawFrame of this.input.transport.send({
@@ -108,6 +155,7 @@ export class PiAgentBackend implements AgentBackend {
         text: input.text,
       })) {
         if (this.stopped) {
+          await persistAssistant();
           yield this.abortEvent(turnId);
           yield this.completeEvent(turnId, 'user_stop');
           return;
@@ -118,6 +166,7 @@ export class PiAgentBackend implements AgentBackend {
 
         switch (frame.type) {
           case 'text_delta': {
+            prepareTextStep(frame.messageId);
             const text = redactBoundedText(frame.text);
             assistantText += text;
             yield {
@@ -125,28 +174,25 @@ export class PiAgentBackend implements AgentBackend {
               id: this.newId(),
               turnId,
               ts: this.now(),
-              messageId: frame.messageId ?? messageId,
+              messageId,
               text,
             };
             break;
           }
           case 'text_complete': {
+            prepareTextStep(frame.messageId);
             const text = redactBoundedText(frame.text ?? assistantText);
-            completedText = true;
-            await this.appendAssistant(turnId, frame.messageId ?? messageId, text);
-            yield {
-              type: 'text_complete',
-              id: this.newId(),
-              turnId,
-              ts: this.now(),
-              messageId: frame.messageId ?? messageId,
-              text,
-            };
+            assistantText = text;
+            const complete = await completeStepText();
+            if (complete) yield complete;
             break;
           }
           case 'tool_start': {
             if (this.suppressedToolUseIds.has(frame.toolUseId)) break;
-            await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, frame.args, frame.displayName, frame.intent);
+            await persistAssistant();
+            stepHasTools = true;
+            activeToolUseIds.add(frame.toolUseId);
+            await this.ensureToolCall(turnId, frame.toolUseId, frame.toolName, frame.args, frame.displayName, frame.intent, messageId);
             yield {
               type: 'tool_start',
               id: this.newId(),
@@ -157,6 +203,7 @@ export class PiAgentBackend implements AgentBackend {
               args: redactUnknown(frame.args),
               ...(frame.displayName ? { displayName: frame.displayName } : {}),
               ...(frame.intent ? { intent: redactBoundedText(frame.intent, 240) } : {}),
+              stepId: messageId,
             };
             break;
           }
@@ -194,6 +241,11 @@ export class PiAgentBackend implements AgentBackend {
               isError: Boolean(frame.isError),
               content,
             };
+            activeToolUseIds.delete(frame.toolUseId);
+            if (stepHasTools && activeToolUseIds.size === 0) {
+              const complete = await completeStepText();
+              if (complete) yield complete;
+            }
             break;
           }
           case 'token_usage': {
@@ -207,6 +259,7 @@ export class PiAgentBackend implements AgentBackend {
             break;
           }
           case 'error': {
+            await persistAssistant();
             yield {
               type: 'error',
               id: this.newId(),
@@ -222,41 +275,25 @@ export class PiAgentBackend implements AgentBackend {
             return;
           }
           case 'complete': {
-            if (!completedText && assistantText.length > 0) {
-              await this.appendAssistant(turnId, messageId, assistantText);
-              yield {
-                type: 'text_complete',
-                id: this.newId(),
-                turnId,
-                ts: this.now(),
-                messageId,
-                text: assistantText,
-              };
-            }
+            const complete = await completeStepText();
+            if (complete) yield complete;
             yield this.completeEvent(turnId, frame.stopReason ?? 'end_turn');
             return;
           }
         }
       }
 
-      if (!completedText && assistantText.length > 0) {
-        await this.appendAssistant(turnId, messageId, assistantText);
-        yield {
-          type: 'text_complete',
-          id: this.newId(),
-          turnId,
-          ts: this.now(),
-          messageId,
-          text: assistantText,
-        };
-      }
+      const complete = await completeStepText();
+      if (complete) yield complete;
       yield this.completeEvent(turnId, 'end_turn');
     } catch (error) {
       if (this.stopped) {
+        await persistAssistant();
         yield this.abortEvent(turnId);
         yield this.completeEvent(turnId, 'user_stop');
         return;
       }
+      await persistAssistant();
       yield {
         type: 'error',
         id: this.newId(),
@@ -374,6 +411,7 @@ export class PiAgentBackend implements AgentBackend {
     args: unknown,
     displayName?: string,
     intent?: string,
+    stepId?: string,
   ): Promise<void> {
     if (this.writtenToolCalls.has(toolUseId)) return;
     this.writtenToolCalls.add(toolUseId);
@@ -386,6 +424,7 @@ export class PiAgentBackend implements AgentBackend {
       ...(displayName ? { displayName } : {}),
       ...(intent ? { intent: redactBoundedText(intent, 240) } : {}),
       args: redactUnknown(args),
+      ...(stepId ? { stepId } : {}),
     } satisfies ToolCallMessage);
   }
 

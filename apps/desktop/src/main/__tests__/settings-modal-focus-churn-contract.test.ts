@@ -5,7 +5,7 @@
  * Bug 1 (focus churn): the modal's focus-on-open effect was keyed on
  * `[props.onClose]`. `onClose` (app-shell.tsx's `closeSettings`) is a
  * plain function recreated on every AppShell render, and AppShell
- * re-renders on every streamed token (`streamingBySession` state). So
+ * re-renders on every streamed token (`liveTurnBySession` state). So
  * while a session streamed, the effect tore down and re-ran per token,
  * each run calling `.focus()` -- yanking focus back to the settings nav
  * dozens of times a second and closing any focus-managed popup opened
