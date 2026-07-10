@@ -95,14 +95,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let permissionInFlight = false;
   let turnRunning = false;
   let interruptRequested = false;
-  let activeTurnPromise: Promise<void> | null = null;
-  let activeControlPromise: Promise<void> | null = null;
-  let activePermissionPromise: Promise<void> | null = null;
+  const activeWork = new Set<Promise<void>>();
   const pendingDriverStops = new Set<Promise<boolean>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
-  let terminalRestored = false;
   let resolveClosed: () => void;
   let rejectClosed: (error: Error) => void;
   const closedPromise = new Promise<void>((resolve, reject) => {
@@ -152,6 +149,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
+  const trackActiveWork = (workPromise: Promise<void>): Promise<void> => {
+    activeWork.add(workPromise);
+    void workPromise.then(
+      () => activeWork.delete(workPromise),
+      () => activeWork.delete(workPromise),
+    );
+    return workPromise;
+  };
+
   // Control commands (model/session/permission switches) mutate session state.
   // Run them through a single serial lock so a prompt submitted mid-switch can
   // not race the switch and land on the old session/model/permission mode.
@@ -178,17 +184,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
     // so without this guard a switch could start while a prompt is still running.
     if (busy) return Promise.resolve();
-    const controlPromise = executeControl(action);
-    activeControlPromise = controlPromise;
-    void controlPromise.then(
-      () => {
-        if (activeControlPromise === controlPromise) activeControlPromise = null;
-      },
-      () => {
-        if (activeControlPromise === controlPromise) activeControlPromise = null;
-      },
-    );
-    return controlPromise;
+    return trackActiveWork(executeControl(action));
   };
 
   const removeProcessHandlers = () => {
@@ -199,8 +195,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const restoreTerminal = () => {
-    if (terminalRestored) return;
-    terminalRestored = true;
     removeProcessHandlers();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
@@ -231,22 +225,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void (async () => {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
-      const turnPromise = activeTurnPromise;
-      const controlPromise = activeControlPromise;
-      const permissionPromise = activePermissionPromise;
+      const workPromises = [...activeWork];
       const stopPromises = [...pendingDriverStops];
       const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
       if (needsStop) {
         stopPromises.push(stopDriver());
       }
       const stopResults = await Promise.all(stopPromises);
-      const runtimeWorkActive = turnRunning || (controlPromise !== null && activeControlPromise === controlPromise);
-      if (runtimeWorkActive && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
+      if (busy && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
         await stopDriver();
       }
-      if (turnPromise) await turnPromise;
-      if (controlPromise) await controlPromise;
-      if (permissionPromise) await permissionPromise;
+      await Promise.all(workPromises);
       if (error) rejectClosed(error);
       else resolveClosed();
     })();
@@ -308,15 +297,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         permissionInFlight = false;
         reportError(error);
       });
-    activePermissionPromise = permissionPromise;
-    void permissionPromise.then(
-      () => {
-        if (activePermissionPromise === permissionPromise) activePermissionPromise = null;
-      },
-      () => {
-        if (activePermissionPromise === permissionPromise) activePermissionPromise = null;
-      },
-    );
+    trackActiveWork(permissionPromise);
     return true;
   };
 
@@ -382,10 +363,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       attention.promptTurnEnded();
       requestRender();
     });
-    activeTurnPromise = turnPromise;
-    void turnPromise.then(() => {
-      if (activeTurnPromise === turnPromise) activeTurnPromise = null;
-    });
+    trackActiveWork(turnPromise);
   }
 
   const setModel = async (nextModel: string) => {
