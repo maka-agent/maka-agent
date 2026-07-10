@@ -173,6 +173,36 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('reuses a pending stop after the interrupted turn stream ends', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new TurnEndsBeforeStopDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
+    exitMaka(terminal);
+    await delay(0);
+
+    try {
+      assert.equal(driver.stopCalls, 1);
+    } finally {
+      driver.releaseStops();
+      await run;
+    }
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -2937,6 +2967,39 @@ class HangingInterruptDriver extends SlashCommandDriver {
   releaseStop(): void {
     this.resolveStop?.();
     this.resolveStop = null;
+  }
+}
+
+class TurnEndsBeforeStopDriver extends SlashCommandDriver {
+  stopCalls = 0;
+  private resolveTurn: (() => void) | null = null;
+  private readonly stopResolvers: Array<() => void> = [];
+
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    await new Promise<void>((resolve) => {
+      this.resolveTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.resolveTurn?.();
+    this.resolveTurn = null;
+    await new Promise<void>((resolve) => {
+      this.stopResolvers.push(resolve);
+    });
+  }
+
+  releaseStops(): void {
+    for (const resolve of this.stopResolvers.splice(0)) resolve();
   }
 }
 

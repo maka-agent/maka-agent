@@ -95,7 +95,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let permissionInFlight = false;
   let turnRunning = false;
   let interruptRequested = false;
-  let interruptStopPromise: Promise<void> | null = null;
+  const pendingDriverStops = new Set<Promise<void>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -194,6 +194,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     tui.stop();
   };
 
+  const stopDriver = (onError?: (error: unknown) => void): Promise<void> => {
+    const stopPromise = Promise.resolve()
+      .then(() => input.driver.stop())
+      .catch((error) => {
+        onError?.(error);
+      });
+    pendingDriverStops.add(stopPromise);
+    void stopPromise.then(() => pendingDriverStops.delete(stopPromise));
+    return stopPromise;
+  };
+
   const beginClose = (error?: Error) => {
     if (closed) return;
     closed = true;
@@ -201,12 +212,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void (async () => {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
-      const stopPromise = interruptStopPromise ?? Promise.resolve().then(() => input.driver.stop());
-      try {
-        await stopPromise;
-      } catch {
-        // Terminal restoration must still win when runtime cleanup fails.
+      const stopPromises = [...pendingDriverStops];
+      const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
+      if (needsStop) {
+        stopPromises.push(stopDriver());
       }
+      await Promise.all(stopPromises);
       if (error) rejectClosed(error);
       else resolveClosed();
     })();
@@ -274,13 +285,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const requestTurnInterrupt = () => {
     if (interruptRequested) return;
     interruptRequested = true;
-    interruptStopPromise = Promise.resolve()
-      .then(() => input.driver.stop())
-      .catch((error) => {
-        interruptRequested = false;
-        interruptStopPromise = null;
-        reportError(error);
-      });
+    void stopDriver((error) => {
+      interruptRequested = false;
+      reportError(error);
+    });
   };
 
   editor.onSubmit = (prompt) => {
@@ -298,7 +306,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     busy = true;
     turnRunning = true;
     interruptRequested = false;
-    interruptStopPromise = null;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -331,7 +338,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       busy = false;
       turnRunning = false;
       interruptRequested = false;
-      interruptStopPromise = null;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.promptTurnEnded();
