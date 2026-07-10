@@ -936,7 +936,7 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
-  test('keeps Maka open when Ctrl-C is pressed during a control command', async () => {
+  test('exits on the second Ctrl-C during a control command', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredControlDriver();
     const run = runMakaPiTui({
@@ -953,11 +953,18 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
     await waitFor(() => driver.models.length === 1);
     terminal.input('\x03');
-    terminal.input('\x03');
     await delay(20);
 
     try {
       assert.equal(terminal.stopCalls, 0);
+      terminal.input('\x03');
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close after the second Ctrl-C');
+        }),
+      ]);
+      assert.equal(terminal.stopCalls, 1);
     } finally {
       driver.releaseSetModel();
       if (terminal.stopCalls === 0) exitMaka(terminal);
