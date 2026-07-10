@@ -1146,6 +1146,36 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('retries stop when shutdown interrupts an active compact command', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new RejectOnceCompactDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'deepseek-v4-flash',
+      connectionSlug: 'deepseek',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/compact');
+    terminal.input('\r');
+    await waitFor(() => driver.compactCalls === 1);
+    exitMaka(terminal);
+    await waitFor(() => driver.stopCalls === 1);
+
+    try {
+      driver.rejectFirstStop();
+      await waitFor(() => driver.stopCalls === 2);
+      await run;
+      assert.equal(terminal.stopCalls, 1);
+    } finally {
+      driver.releaseCompact();
+      await run;
+    }
+  });
+
   test('applies the selected slash command from autocomplete', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
@@ -3356,6 +3386,41 @@ class DeferredCompactDriver extends SlashCommandDriver {
       ts: 2,
       stopReason: 'end_turn',
     };
+  }
+
+  releaseCompact(): void {
+    this.resolveCompact?.();
+    this.resolveCompact = null;
+  }
+}
+
+class RejectOnceCompactDriver extends SlashCommandDriver {
+  compactCalls = 0;
+  stopCalls = 0;
+  private rejectPendingStop: (() => void) | null = null;
+  private resolveCompact: (() => void) | null = null;
+
+  override async *compactSession(): AsyncIterable<never> {
+    this.compactCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveCompact = resolve;
+    });
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    if (this.stopCalls === 1) {
+      await new Promise<void>((resolve) => {
+        this.rejectPendingStop = resolve;
+      });
+      throw new Error('compact stop failed');
+    }
+    this.releaseCompact();
+  }
+
+  rejectFirstStop(): void {
+    this.rejectPendingStop?.();
+    this.rejectPendingStop = null;
   }
 
   releaseCompact(): void {

@@ -240,7 +240,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         stopPromises.push(stopDriver());
       }
       const stopResults = await Promise.all(stopPromises);
-      if (turnRunning && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
+      const runtimeWorkActive = turnRunning || (controlPromise !== null && activeControlPromise === controlPromise);
+      if (runtimeWorkActive && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
         await stopDriver();
       }
       if (turnPromise) await turnPromise;
