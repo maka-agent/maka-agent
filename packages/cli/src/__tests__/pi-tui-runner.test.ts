@@ -134,7 +134,7 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
-  test('retries stop when an in-flight turn interrupt fails during close', async () => {
+  test('does not retry a failed turn cancel during close', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectOnceInterruptDriver();
     const run = runMakaPiTui({
@@ -156,7 +156,9 @@ describe('Maka Pi TUI runner', () => {
 
     try {
       driver.rejectFirstStop();
-      await waitFor(() => driver.stopCalls === 2);
+      await delay(10);
+      assert.equal(driver.stopCalls, 1);
+      driver.releaseTurn();
       await run;
       assert.equal(terminal.stopCalls, 1);
     } finally {
@@ -1107,7 +1109,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('retries stop when shutdown interrupts an active compact command', async () => {
+  test('does not retry a failed compact cancel during close', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectOnceCompactDriver();
     const run = runMakaPiTui({
@@ -1128,7 +1130,9 @@ describe('Maka Pi TUI runner', () => {
 
     try {
       driver.rejectFirstStop();
-      await waitFor(() => driver.stopCalls === 2);
+      await delay(10);
+      assert.equal(driver.stopCalls, 1);
+      driver.releaseCompact();
       await run;
       assert.equal(terminal.stopCalls, 1);
     } finally {

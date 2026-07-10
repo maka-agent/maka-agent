@@ -96,7 +96,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let turnRunning = false;
   let compactRunning = false;
   const activeWork = new Set<Promise<void>>();
-  let retainedStopPromise: Promise<boolean> | null = null;
+  let currentOperation: {
+    work: Promise<void>;
+    cancelPromise?: Promise<boolean>;
+  } | undefined;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -206,17 +209,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     tui.stop();
   };
 
-  const stopDriver = (onError?: (error: unknown) => void): Promise<boolean> => {
-    const stopPromise = Promise.resolve()
+  const cancelCurrentOperation = (onError?: (error: unknown) => void): Promise<boolean> => {
+    const operation = currentOperation;
+    if (!operation) return Promise.resolve(true);
+    if (operation.cancelPromise) return operation.cancelPromise;
+    operation.cancelPromise = Promise.resolve()
       .then(() => input.driver.stop())
       .then(() => true)
       .catch((error) => {
-        if (retainedStopPromise === stopPromise) retainedStopPromise = null;
         onError?.(error);
         return false;
       });
-    retainedStopPromise = stopPromise;
-    return stopPromise;
+    return operation.cancelPromise;
   };
 
   const beginClose = (error?: Error) => {
@@ -227,11 +231,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
       const workPromises = [...activeWork];
-      const stopPromise = retainedStopPromise ?? (turnRunning || compactRunning ? stopDriver() : null);
-      const stopped = stopPromise ? await stopPromise : true;
-      if ((turnRunning || compactRunning) && !stopped) {
-        await stopDriver();
-      }
+      if (currentOperation) await cancelCurrentOperation();
       await Promise.all(workPromises);
       if (error) rejectClosed(error);
       else resolveClosed();
@@ -305,8 +305,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const requestTurnInterrupt = () => {
-    if (retainedStopPromise) return;
-    void stopDriver((error) => {
+    if (currentOperation?.cancelPromise) return;
+    void cancelCurrentOperation((error) => {
       if (!closed) reportError(error);
     });
   };
@@ -332,6 +332,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
+    const operation: NonNullable<typeof currentOperation> = { work: Promise.resolve() };
+    currentOperation = operation;
     const turnPromise = submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -354,11 +356,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         requestRender();
       },
     }).finally(async () => {
-      while (retainedStopPromise) {
-        const stopPromise = retainedStopPromise;
-        await stopPromise;
-        if (retainedStopPromise === stopPromise) retainedStopPromise = null;
-      }
+      await operation.cancelPromise;
+      if (currentOperation === operation) currentOperation = undefined;
       busy = false;
       turnRunning = false;
       editor.disableSubmit = false;
@@ -366,6 +365,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       attention.promptTurnEnded();
       requestRender();
     });
+    operation.work = turnPromise;
     trackActiveWork(turnPromise);
   }
 
@@ -496,13 +496,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       text: 'Compacting context…',
     });
     requestRender();
+    const operation: NonNullable<typeof currentOperation> = { work: Promise.resolve() };
+    currentOperation = operation;
     try {
-      await submitCompactToTranscript({
+      operation.work = submitCompactToTranscript({
         state,
         driver: input.driver,
         onChange: requestRender,
       });
+      await operation.work;
     } finally {
+      await operation.cancelPromise;
+      if (currentOperation === operation) currentOperation = undefined;
       compactRunning = false;
     }
   };
@@ -931,7 +936,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Once an interrupt is issued, swallow further Escapes until the turn
       // ends so a still-settling stop is not requested twice. A rejected stop
       // re-arms interruption so the user can retry within the same turn.
-      if (retainedStopPromise) return { consume: true };
+      if (currentOperation?.cancelPromise) return { consume: true };
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
