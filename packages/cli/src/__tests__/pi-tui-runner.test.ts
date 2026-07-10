@@ -37,6 +37,15 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stdout, /CLOSED/);
   });
 
+  test('restores the terminal before exiting on SIGINT', async () => {
+    const { code, signal, stdout } = await runSignalExitProbe('SIGINT');
+
+    assert.equal(signal, null);
+    assert.equal(code, 130);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+  });
+
   test('restores the terminal before reporting an uncaught exception', async () => {
     const { code, signal, stdout, stderr } = await runFatalExitProbe('uncaughtException');
 

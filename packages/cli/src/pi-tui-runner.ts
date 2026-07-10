@@ -188,6 +188,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const removeProcessHandlers = () => {
+    process.off('SIGINT', handleSigint);
     process.off('SIGTERM', handleSigterm);
     process.off('SIGHUP', handleSighup);
     process.off('uncaughtException', handleUncaughtException);
@@ -243,6 +244,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const close = () => beginClose();
 
+  function handleSigint(): void {
+    process.exitCode = 128 + 2;
+    beginClose();
+  }
+
   function handleSigterm(): void {
     process.exitCode = 128 + 15;
     beginClose();
@@ -263,6 +269,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     beginClose(reason instanceof Error ? reason : new Error(String(reason)));
   }
 
+  process.once('SIGINT', handleSigint);
   process.once('SIGTERM', handleSigterm);
   process.once('SIGHUP', handleSighup);
   process.once('uncaughtException', handleUncaughtException);
