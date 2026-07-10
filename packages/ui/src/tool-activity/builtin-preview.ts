@@ -227,54 +227,64 @@ function formatArrayAsBody(values: unknown[]): string {
 
 /**
  * Plain `key: value` lines — never JSON braces or escaped `\n` sequences.
+ * Keys and whole lines pass through `redactSecrets` so dynamic property names
+ * carrying credentials (e.g. `api_key=sk-…`) cannot bypass value-only redaction.
  */
 export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0): string {
   if (depth > 3) return redactSecrets(String(record));
   const indent = '  '.repeat(depth);
   const lines: string[] = [];
+  const push = (line: string) => {
+    lines.push(redactSecrets(line));
+  };
   for (const [key, raw] of Object.entries(record)) {
     if (raw === undefined) continue;
+    const safeKey = redactSecrets(key);
     if (raw === null) {
-      lines.push(`${indent}${key}: null`);
+      push(`${indent}${safeKey}: null`);
       continue;
     }
     if (typeof raw === 'string') {
       // Multi-line strings get a block, not a quoted escape soup.
       if (raw.includes('\n')) {
-        lines.push(`${indent}${key}:`);
+        push(`${indent}${safeKey}:`);
         for (const line of redactSecrets(raw).split('\n')) {
-          lines.push(`${indent}  ${line}`);
+          push(`${indent}  ${line}`);
         }
       } else {
-        lines.push(`${indent}${key}: ${redactSecrets(raw)}`);
+        push(`${indent}${safeKey}: ${redactSecrets(raw)}`);
       }
       continue;
     }
     if (typeof raw === 'number' || typeof raw === 'boolean') {
-      lines.push(`${indent}${key}: ${raw}`);
+      push(`${indent}${safeKey}: ${raw}`);
       continue;
     }
     if (Array.isArray(raw)) {
       if (raw.length === 0) {
-        lines.push(`${indent}${key}: （空）`);
+        push(`${indent}${safeKey}: （空）`);
       } else if (raw.every((item) => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean')) {
-        lines.push(`${indent}${key}:`);
+        push(`${indent}${safeKey}:`);
         for (const item of raw) {
-          lines.push(`${indent}  - ${typeof item === 'string' ? redactSecrets(item) : String(item)}`);
+          push(`${indent}  - ${typeof item === 'string' ? redactSecrets(item) : String(item)}`);
         }
       } else {
-        lines.push(`${indent}${key}:`);
-        lines.push(formatArrayAsBody(raw).split('\n').map((line) => `${indent}  ${line}`).join('\n'));
+        push(`${indent}${safeKey}:`);
+        for (const line of formatArrayAsBody(raw).split('\n')) {
+          push(`${indent}  ${line}`);
+        }
       }
       continue;
     }
     if (typeof raw === 'object') {
-      lines.push(`${indent}${key}:`);
+      push(`${indent}${safeKey}:`);
       const nested = formatAsKeyValueLines(raw as Record<string, unknown>, depth + 1);
-      if (nested) lines.push(nested);
+      if (nested) {
+        for (const line of nested.split('\n')) push(line);
+      }
       continue;
     }
-    lines.push(`${indent}${key}: ${redactSecrets(String(raw))}`);
+    push(`${indent}${safeKey}: ${redactSecrets(String(raw))}`);
   }
   return lines.join('\n');
 }

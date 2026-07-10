@@ -252,8 +252,8 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 /**
  * The tool detail body — error banner + one Codex-like output well for
  * command/args, live stream, and structured results. Shared by the boxed
- * `ToolActivityCard` and flat trow rows. Args still route through
- * `formatRedactedJson` (tool-args-redaction-contract).
+ * `ToolActivityCard` and flat trow rows. Args/results route through
+ * quiet formatters (tool-args-redaction-contract / quiet-panel contracts).
  */
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
@@ -273,10 +273,10 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     showResult && item.result?.kind === 'json'
       ? formatQuietJsonValue(item.result.value)
       : undefined;
-  // Result headline (e.g. Write path) wins over args when both would restate path.
-  const showInvocation = invocationLine !== undefined
-    && !(quietJson?.headline && quietJson.headline === invocationLine);
-  // Prefer args headline when result has no headline of its own.
+  // Keep the invocation line whenever args yield one. Only add a result
+  // headline when it says something different (avoids dropping Write/Edit paths
+  // when path === path).
+  const showInvocation = invocationLine !== undefined;
   const resultHeadline = quietJson?.headline
     && quietJson.headline !== invocationLine
     ? quietJson.headline

@@ -294,4 +294,42 @@ describe('tool activity presentation', () => {
     assert.doesNotMatch(markup, /\{\s*&quot;ok&quot;/);
     assert.doesNotMatch(markup, /line one\\nline two/);
   });
+
+  it('redacts credential-bearing property names in quiet key/value output', () => {
+    const secret = 'sk-1234567890abcdefghi';
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-secret-key',
+        toolName: 'CustomInspect',
+        status: 'waiting_permission',
+        args: { [`api_key=${secret}`]: true },
+        result: {
+          kind: 'json',
+          value: { nested: { [`token=${secret}`]: 'ok' } },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.doesNotMatch(markup, new RegExp(secret));
+    assert.match(markup, /redacted|api_key|&lt;redacted&gt;|ok/i);
+  });
+
+  it('keeps the Write path when args and result headlines match', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-write',
+        toolName: 'Write',
+        activityKind: 'edit',
+        status: 'waiting_permission',
+        args: { path: 'packages/ui/src/secret.ts', content: 'x' },
+        result: {
+          kind: 'json',
+          value: { ok: true, path: 'packages/ui/src/secret.ts', bytes: 1 },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /packages\/ui\/src\/secret\.ts/);
+    assert.match(markup, /已完成|1 B/);
+  });
 });
