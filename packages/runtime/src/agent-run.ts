@@ -121,7 +121,7 @@ export class AgentRun {
   private sawCompletion = false;
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
-  private finalized = false;
+  private finalizePromise: Promise<void> | undefined;
   private terminalRuntimeEventRecorded = false;
   private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
   private terminalRunHeaderCommitted = false;
@@ -509,9 +509,12 @@ export class AgentRun {
     this.markRunFailed(error instanceof Error ? error.name : 'unknown', errorMessage(error), this.input.now());
   }
 
-  async finalize(): Promise<void> {
-    if (this.finalized) return;
-    this.finalized = true;
+  finalize(): Promise<void> {
+    this.finalizePromise ??= this.finalizeOnce();
+    return this.finalizePromise;
+  }
+
+  private async finalizeOnce(): Promise<void> {
     const lastTs = this.lastTs || this.input.now();
     if (this.active) {
       await this.input.hooks.unregisterRun(this.active, this);

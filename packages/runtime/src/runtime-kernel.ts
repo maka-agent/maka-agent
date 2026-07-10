@@ -282,6 +282,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let backend: AgentBackend | undefined;
     let backendStopPromise: Promise<CancellationCleanupResult> | undefined;
     let beginSettled = false;
+    let acceptingFlowEvents = true;
     let cancellationPromise: Promise<void> | undefined;
     const finalizeCancellation = (source?: StopSessionInput['source']) => {
       if (!beginSettled) return cancellationPromise;
@@ -289,6 +290,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const cleanup = await backendStopPromise;
         if (cleanup?.error !== undefined) run.recordCancellationCleanupFailure(cleanup.error);
         await new Promise<void>((resolve) => setImmediate(resolve));
+        acceptingFlowEvents = false;
+        if (cleanup?.error !== undefined && backend) this.retireBackend(sessionId, backend);
         sessionEvents.close();
         await this.finalizeRunCancellation(sessionId, run, source);
       })();
@@ -347,6 +350,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       drainAfterTerminal: true,
       stopOnAbort: false,
       onSessionEvent: async (sessionEvent, runtimeEvent) => {
+        if (!acceptingFlowEvents) return;
         await run.acceptMappedEvent(sessionEvent, runtimeEvent, {
           requireTerminalWrite: Boolean(this.deps.runtimeEventStore),
         });
@@ -355,6 +359,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         }
       },
       onError: async (error) => {
+        if (!acceptingFlowEvents) return;
         if (!isAsyncEventQueueClosed(error)) {
           await run.recordFailure(error);
           sessionEvents.fail(error);
@@ -546,6 +551,15 @@ export class RuntimeKernel implements RuntimeKernelLike {
         // best-effort
       }
     }
+  }
+
+  private retireBackend(sessionId: string, backend: AgentBackend): void {
+    const active = this.active.get(sessionId);
+    if (active?.backend === backend) this.active.delete(sessionId);
+    for (const [key, child] of this.childActive.entries()) {
+      if (child.sessionId === sessionId && child.backend === backend) this.childActive.delete(key);
+    }
+    void backend.dispose().catch(() => {});
   }
 
   private activeSessionsFor(sessionId: string): ActiveSession[] {

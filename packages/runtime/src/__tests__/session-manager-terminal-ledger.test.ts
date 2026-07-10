@@ -540,6 +540,10 @@ describe('SessionManager terminal ledger invariants', () => {
     const backend = new ScriptBackend({ sessionId: session.id } as BackendFactoryContext, []);
     const activeRuns = new Map<string, AgentRun>();
     const turnToRunId = new Map<string, string>();
+    let releaseFinalHeader!: () => void;
+    const finalHeaderGate = new Promise<void>((resolve) => { releaseFinalHeader = resolve; });
+    let finalHeaderStarted!: () => void;
+    const finalHeaderStartedPromise = new Promise<void>((resolve) => { finalHeaderStarted = resolve; });
     const run = new AgentRun({
       sessionId: session.id,
       header: session,
@@ -559,7 +563,13 @@ describe('SessionManager terminal ledger invariants', () => {
           activeRuns.delete(activeRun.runId);
           turnToRunId.delete(activeRun.turnId);
         },
-        updateHeader: (sessionId, patch) => store.updateHeader(sessionId, patch),
+        updateHeader: async (sessionId, patch) => {
+          if (patch.status === 'aborted') {
+            finalHeaderStarted();
+            await finalHeaderGate;
+          }
+          return store.updateHeader(sessionId, patch);
+        },
         updateStatus: async () => {},
         appendTurnState: async () => {},
       },
@@ -567,7 +577,14 @@ describe('SessionManager terminal ledger invariants', () => {
 
     const begin = await run.begin();
     run.stop('stop_button');
-    await run.finalize();
+    const firstFinalize = run.finalize();
+    await finalHeaderStartedPromise;
+    let secondFinalizeSettled = false;
+    const secondFinalize = run.finalize().then(() => { secondFinalizeSettled = true; });
+    await Promise.resolve();
+    expect(secondFinalizeSettled).toBe(false);
+    releaseFinalHeader();
+    await Promise.all([firstFinalize, secondFinalize]);
 
     const header = await runStore.readRun(session.id, run.runId);
     expect(header.status).toBe('cancelled');

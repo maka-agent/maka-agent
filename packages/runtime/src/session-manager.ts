@@ -252,6 +252,7 @@ export interface SessionManagerDeps {
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
   shellRuns?: ShellRunProcessManager;
+  cancellationCleanupTimeoutMs?: number;
 }
 
 export class SessionManager {

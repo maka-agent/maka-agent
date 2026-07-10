@@ -319,6 +319,52 @@ describe('SessionManager turn cancellation', () => {
     await manager.updateSession(session.id, { model: 'next-model' });
   });
 
+  test('drops backend events that arrive after cancellation cleanup times out', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const sendStarted = makeGate();
+    const releaseLateEvents = makeGate();
+    const backends = new BackendRegistry();
+    let backendBuilds = 0;
+    backends.register('fake', (ctx) => {
+      backendBuilds += 1;
+      return backendBuilds === 1
+        ? new LateAfterStopTimeoutBackend(ctx, sendStarted, releaseLateEvents)
+        : new TestBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_940),
+      cancellationCleanupTimeoutMs: 10,
+    });
+    const session = await manager.createSession(makeInput());
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await sendStarted.promise;
+
+    controller.abort();
+    await turn;
+    const [run] = await runStore.listSessionRuns(session.id);
+    const before = await runStore.readRuntimeEvents(session.id, run!.runId);
+    releaseLateEvents.release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    const after = await runStore.readRuntimeEvents(session.id, run!.runId);
+
+    expect(after).toEqual(before);
+    expect(after.filter(isTerminalRuntimeEvent)).toHaveLength(1);
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'next' }));
+    expect(backendBuilds).toBe(2);
+  });
+
   test('does not surface backend stop failure after finalizing cancellation', async () => {
     const store = new MemorySessionStore();
     const appendStarted = makeGate();
@@ -5191,6 +5237,40 @@ class NeverEndingRejectingStopBackend extends TestBackend {
 
   override async stop(): Promise<void> {
     throw new Error('stop failed');
+  }
+}
+
+class LateAfterStopTimeoutBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly sendStarted: Gate,
+    private readonly releaseLateEvents: Gate,
+  ) {
+    super(ctx);
+  }
+
+  override async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    this.sendStarted.release();
+    await this.releaseLateEvents.promise;
+    yield {
+      type: 'text_delta',
+      id: `${input.turnId}-late`,
+      turnId: input.turnId,
+      ts: 3,
+      messageId: `${input.turnId}-late-message`,
+      text: 'late',
+    };
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-late-complete`,
+      turnId: input.turnId,
+      ts: 4,
+      stopReason: 'end_turn',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    await new Promise<never>(() => {});
   }
 }
 
