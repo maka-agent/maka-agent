@@ -278,8 +278,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       begin = await run.begin();
     } catch (error) {
       signal?.removeEventListener('abort', stopForAbort);
-      await run.recordFailure(error);
-      await run.finalize();
+      try {
+        await abortStopPromise;
+        await run.recordFailure(error);
+      } finally {
+        await run.finalize();
+      }
       throw error;
     }
 
@@ -287,11 +291,11 @@ export class RuntimeKernel implements RuntimeKernelLike {
       try {
         await abortStopPromise;
         if (!run.isStopped()) await this.stopSession(sessionId);
-        await run.finalize();
-        return;
       } finally {
         signal.removeEventListener('abort', stopForAbort);
+        await run.finalize();
       }
+      return;
     }
 
     const aiSdkFlow = new AiSdkFlow({

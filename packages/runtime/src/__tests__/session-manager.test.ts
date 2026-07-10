@@ -153,6 +153,36 @@ describe('SessionManager turn cancellation', () => {
       message.type === 'system_note' && message.kind === 'abort'
     )).toBe(true);
   });
+
+  test('finalizes an aborted turn when stopping the backend fails', async () => {
+    const store = new MemorySessionStore();
+    const appendStarted = makeGate();
+    const releaseAppend = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new RejectingStopBackend(ctx));
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(9_950) });
+    const session = await manager.createSession(makeInput());
+    store.interleaveBeforeAppendFor.set(session.id, async () => {
+      appendStarted.release();
+      await releaseAppend.promise;
+    });
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-1', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await appendStarted.promise;
+
+    controller.abort();
+    releaseAppend.release();
+
+    let turnError: unknown;
+    await turn.catch((error) => { turnError = error; });
+    expect(turnError instanceof Error ? turnError.message : String(turnError)).toContain('stop failed');
+    await manager.updateSession(session.id, { model: 'next-model' });
+    expect((await store.readHeader(session.id)).model).toBe('next-model');
+  });
 });
 
 describe('SessionManager manual compaction', () => {
@@ -4855,6 +4885,12 @@ class AbortableTestBackend extends TestBackend {
   override async stop(): Promise<void> {
     this.stopCalls += 1;
     this.releaseSend.release();
+  }
+}
+
+class RejectingStopBackend extends TestBackend {
+  override async stop(): Promise<void> {
+    throw new Error('stop failed');
   }
 }
 
