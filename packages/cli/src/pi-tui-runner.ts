@@ -95,6 +95,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let permissionInFlight = false;
   let turnRunning = false;
   let interruptRequested = false;
+  let interruptStopPromise: Promise<void> | null = null;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -197,11 +198,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (closed) return;
     closed = true;
     restoreTerminal();
-    if (error) rejectClosed(error);
-    else resolveClosed();
-    // Runtime stop is best-effort after the shell has its terminal back. A
-    // double-Escape/Ctrl-C interrupt may already have one in flight; reuse it.
-    if (!interruptRequested) void input.driver.stop().catch(() => {});
+    void (async () => {
+      // Restore the shell first, but preserve the caller contract that close is
+      // complete only after the runtime stop path settles.
+      const stopPromise = interruptStopPromise ?? Promise.resolve().then(() => input.driver.stop());
+      try {
+        await stopPromise;
+      } catch {
+        // Terminal restoration must still win when runtime cleanup fails.
+      }
+      if (error) rejectClosed(error);
+      else resolveClosed();
+    })();
   };
 
   const close = () => beginClose();
@@ -266,10 +274,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const requestTurnInterrupt = () => {
     if (interruptRequested) return;
     interruptRequested = true;
-    void input.driver.stop().catch((error) => {
-      interruptRequested = false;
-      reportError(error);
-    });
+    interruptStopPromise = Promise.resolve()
+      .then(() => input.driver.stop())
+      .catch((error) => {
+        interruptRequested = false;
+        interruptStopPromise = null;
+        reportError(error);
+      });
   };
 
   editor.onSubmit = (prompt) => {
@@ -287,6 +298,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     busy = true;
     turnRunning = true;
     interruptRequested = false;
+    interruptStopPromise = null;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -319,6 +331,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       busy = false;
       turnRunning = false;
       interruptRequested = false;
+      interruptStopPromise = null;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.promptTurnEnded();

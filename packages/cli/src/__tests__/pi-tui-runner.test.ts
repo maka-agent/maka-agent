@@ -108,6 +108,71 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('waits for driver stop before completing close', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingCloseDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    terminal.input('/exit');
+    terminal.input('\r');
+    await waitFor(() => driver.stopCalls === 1);
+    await delay(0);
+    try {
+      assert.equal(settled, false);
+    } finally {
+      driver.releaseStop();
+      await run;
+    }
+  });
+
+  test('waits for an in-flight turn interrupt before completing close', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingInterruptDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    exitMaka(terminal);
+    await delay(0);
+    try {
+      assert.equal(terminal.stopCalls, 1);
+      assert.equal(settled, false);
+      assert.equal(driver.stopCalls, 1);
+    } finally {
+      driver.releaseStop();
+      await run;
+    }
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -2753,6 +2818,40 @@ class HangingCloseDriver extends SlashCommandDriver {
     await new Promise<void>((resolve) => {
       this.resolveStop = resolve;
     });
+  }
+
+  releaseStop(): void {
+    this.resolveStop?.();
+    this.resolveStop = null;
+  }
+}
+
+class HangingInterruptDriver extends SlashCommandDriver {
+  stopCalls = 0;
+  private resolveStop: (() => void) | null = null;
+  private resolveTurn: (() => void) | null = null;
+
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    await new Promise<void>((resolve) => {
+      this.resolveTurn = resolve;
+    });
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveStop = resolve;
+    });
+    this.resolveTurn?.();
+    this.resolveTurn = null;
   }
 
   releaseStop(): void {
