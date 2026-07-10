@@ -23,6 +23,7 @@ import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
+import { createPinnedBottomFollower } from './pinned-bottom.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
@@ -369,24 +370,32 @@ export function ChatView(props: {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const pinnedToBottomRef = useRef(true);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
 
   // Reset to "pinned at bottom" whenever the active session changes. Without
   // this, switching from a long history to a fresh chat would keep the
   // previous scrollTop and the user wouldn't see their last message.
   useEffect(() => {
+    pinnedToBottomRef.current = true;
     setPinnedToBottom(true);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [props.activeSession?.id]);
 
-  // Auto-scroll on new content if the user is already at (or near) the
-  // bottom. If they've scrolled up to read history we don't yank them back.
+  // Follow the content's actual layout clock. The smoother reveals raw text
+  // on later RAF frames, so a state-driven scroll effect runs too early and
+  // leaves the viewport behind until the next upstream event.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !pinnedToBottom) return;
-    el.scrollTop = el.scrollHeight;
-  }, [chat.length, props.liveTurn, props.processingIndicator, props.continuingIndicator, pinnedToBottom]);
+    const viewport = scrollRef.current;
+    const content = viewport?.querySelector(':scope > [data-overlayscrollbars-content]');
+    if (!viewport || !content) return;
+    return createPinnedBottomFollower({
+      viewport,
+      content,
+      isPinned: () => pinnedToBottomRef.current,
+    });
+  }, [props.activeSession?.id, props.mode]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
@@ -403,6 +412,7 @@ export function ChatView(props: {
         block: 'center',
       });
       targetEl.focus({ preventScroll: true });
+      pinnedToBottomRef.current = false;
       setPinnedToBottom(false);
       setHighlightedTurnId(target.turnId);
     });
@@ -419,13 +429,16 @@ export function ChatView(props: {
     const el = scrollRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setPinnedToBottom(distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD);
+    const pinned = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
+    pinnedToBottomRef.current = pinned;
+    setPinnedToBottom(pinned);
   }
 
   function scrollToBottom() {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: props.scrollBehavior ?? 'smooth' });
+    pinnedToBottomRef.current = true;
     setPinnedToBottom(true);
   }
 
