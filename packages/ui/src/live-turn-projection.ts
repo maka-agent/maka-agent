@@ -319,6 +319,7 @@ export function reconcileTerminalLiveTurn(
     if (step.thinking && !assistantIds.has(step.stepId)) return true;
     const toolsCovered = step.tools.every((tool) => {
       if (!toolCallIds.has(tool.toolUseId)) return false;
+      if (tool.outputChunks?.length && !toolResultIds.has(tool.toolUseId)) return false;
       return tool.status === 'interrupted' || toolResultIds.has(tool.toolUseId);
     });
     return !toolsCovered;

@@ -453,6 +453,25 @@ describe('reconcileTerminalLiveTurn', () => {
     assert.equal(reconcileTerminalLiveTurn(toolOnly, []), toolOnly);
   });
 
+  it('retains interrupted live output until a persisted result covers it', () => {
+    const withOutput: LiveTurnProjection = {
+      ...toolOnly,
+      steps: [{
+        ...toolOnly.steps[0]!,
+        tools: [{
+          ...toolOnly.steps[0]!.tools[0]!,
+          status: 'interrupted',
+          outputChunks: [{ seq: 0, stream: 'stdout', text: 'partial evidence', redacted: false, createdAt: 1 }],
+        }],
+      }],
+    };
+    const toolCallOnly = [
+      { type: 'tool_call' as const, id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+    ];
+
+    assert.equal(reconcileTerminalLiveTurn(withOutput, toolCallOnly), withOutput);
+  });
+
   it('leaves text steps to the smoother handoff', () => {
     const textTurn: LiveTurnProjection = {
       ...toolOnly,
