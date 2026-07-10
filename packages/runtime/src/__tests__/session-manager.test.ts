@@ -521,6 +521,54 @@ describe('SessionManager manual compaction', () => {
     }
   });
 
+  test('keeps a cancelled compact setup lease until its late header write is contained', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const appendStarted = makeGate();
+    const releaseAppend = makeGate();
+    const headerWriteStarted = makeGate();
+    const releaseHeaderWrite = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_985),
+    });
+    const session = await manager.createSession(makeInput());
+    store.interleaveBeforeAppendFor.set(session.id, async () => {
+      appendStarted.release();
+      await releaseAppend.promise;
+    });
+    const compact = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await appendStarted.promise;
+    store.interleaveBeforeMarkSessionReadWriteFor.set(session.id, async () => {
+      headerWriteStarted.release();
+      await releaseHeaderWrite.promise;
+    });
+    releaseAppend.release();
+    await headerWriteStarted.promise;
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    await compact;
+
+    let userSettled = false;
+    const userTurn = collectSessionEvents(manager.sendMessage(session.id, { turnId: 'turn-user', text: 'next' }));
+    void userTurn.then(
+      () => { userSettled = true; },
+      () => { userSettled = true; },
+    );
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(userSettled).toBe(false);
+    releaseHeaderWrite.release();
+    expect((await userTurn).at(-1)?.type).toBe('complete');
+    expect((await store.readHeader(session.id)).status).toBe('active');
+  });
+
   test('bounded cancellation finalizes compact when backend stop rejects and compact never ends', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

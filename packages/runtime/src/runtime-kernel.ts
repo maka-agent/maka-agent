@@ -136,10 +136,20 @@ export class RuntimeKernel implements RuntimeKernelLike {
     }
     const operation = await this.operations.acquire(sessionId, 'user');
     if (!operation) return;
+    let deferredRelease: Promise<void> | undefined;
     try {
-      yield* this.runCompactSession(sessionId, input, operation.signal);
+      yield* this.runCompactSession(
+        sessionId,
+        input,
+        operation.signal,
+        (pending) => { deferredRelease = pending; },
+      );
     } finally {
-      operation.release();
+      if (deferredRelease) {
+        void deferredRelease.then(operation.release, operation.release);
+      } else {
+        operation.release();
+      }
     }
   }
 
@@ -147,6 +157,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     sessionId: string,
     input: CompactSessionInput,
     signal: AbortSignal,
+    deferOperationRelease: (pending: Promise<void>) => void,
   ): AsyncIterable<SessionEvent> {
     if (this.hasActiveRuns(sessionId)) {
       throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
@@ -233,15 +244,17 @@ export class RuntimeKernel implements RuntimeKernelLike {
       (result) => ({ kind: 'result' as const, result }),
       (error: unknown) => ({ kind: 'error' as const, error }),
     );
-    let deferFinalization = false;
+    let deferredFinalization: Promise<void> | undefined;
+    const deferCancellationFinalization = () => {
+      deferredFinalization ??= beginOutcomePromise.then(() => finalizeCancellation());
+      deferOperationRelease(deferredFinalization);
+      void deferredFinalization.catch(() => {});
+    };
 
     try {
       if (signal.aborted) {
         await cancel();
-        if (!registered) {
-          deferFinalization = true;
-          void beginOutcomePromise.then(() => finalizeCancellation()).catch(() => {});
-        }
+        if (!registered) deferCancellationFinalization();
         return;
       }
       const beginOutcome = await Promise.race([
@@ -249,10 +262,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         cancelled.then(() => ({ kind: 'cancelled' as const })),
       ]);
       if (beginOutcome.kind === 'cancelled') {
-        if (!registered) {
-          deferFinalization = true;
-          void beginOutcomePromise.then(() => finalizeCancellation()).catch(() => {});
-        }
+        if (!registered) deferCancellationFinalization();
         return;
       }
       if (beginOutcome.kind === 'error') {
@@ -327,7 +337,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     } finally {
       signal.removeEventListener('abort', onAbort);
       this.runCancellations.delete(run.runId);
-      if (!deferFinalization) await run.finalize();
+      if (!deferredFinalization) await run.finalize();
     }
   }
 
