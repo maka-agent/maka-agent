@@ -67,7 +67,7 @@ describe('single live-turn handoff', () => {
       }],
     });
 
-    assert.ok(markup.indexOf('先检查') < markup.indexOf('Bash'));
+    assert.ok(markup.indexOf('先检查') < markup.indexOf('data-trow="group"'));
     assert.match(markup, /最终答案/);
     assert.equal((markup.match(/data-turn-id=/g) ?? []).length, 1);
   });
