@@ -35,7 +35,7 @@
  *     (review blocker #4 from @kenji).
  *
  * The pure helpers (`segmentGraphemes`, `computeFrameAdvance`,
- * `resolveLiveBacklogMaxCps`, `updateEma`, `resolveInitialDisplayedCount`)
+ * `resolveLiveBacklogCps`, `updateEma`, `resolveInitialDisplayedCount`)
  * are exported so they can be unit-tested without a DOM. The React
  * hook is a thin shell over them.
  */
@@ -166,33 +166,43 @@ export function computeFrameAdvance(inputs: FrameAdvanceInputs): number {
   return Math.min(advance, backlog);
 }
 
-export function resolveLiveBacklogMaxCps(inputs: {
-  backlog: number;
-  budgetMs: number;
-  maxCps: number;
-}): number {
-  if (inputs.backlog <= 0) return inputs.maxCps;
-  return Math.max(inputs.maxCps, Math.ceil((inputs.backlog * 1000) / Math.max(1, inputs.budgetMs)));
+function clampedEmaCps(inputs: { emaCps: number; minCps: number; maxCps: number }): number {
+  return Math.min(Math.max(inputs.emaCps, inputs.minCps), inputs.maxCps);
 }
 
-export interface CompletionMaxCpsInputs {
+export function resolveLiveBacklogCps(inputs: {
+  backlog: number;
+  budgetMs: number;
+  emaCps: number;
+  minCps: number;
+  maxCps: number;
+}): number {
+  const normalCps = clampedEmaCps(inputs);
+  if (inputs.backlog <= 0) return normalCps;
+  return Math.max(normalCps, Math.ceil((inputs.backlog * 1000) / Math.max(1, inputs.budgetMs)));
+}
+
+export interface CompletionCpsInputs {
   rawGraphemeCount: number;
   displayedGraphemeCount: number;
   elapsedMs: number;
   budgetMs: number;
+  emaCps: number;
+  minCps: number;
   maxCps: number;
 }
 
 /**
- * Pure: while a stream is completing, raise the frame speed enough to drain
+ * Pure: while a stream is completing, choose the frame speed needed to drain
  * the remaining tail inside the completion budget. This keeps the completion
  * handoff fast without a visible end-of-budget snap.
  */
-export function resolveCompletionMaxCps(inputs: CompletionMaxCpsInputs): number {
+export function resolveCompletionCps(inputs: CompletionCpsInputs): number {
   const backlog = inputs.rawGraphemeCount - inputs.displayedGraphemeCount;
-  if (backlog <= 0) return inputs.maxCps;
+  const normalCps = clampedEmaCps(inputs);
+  if (backlog <= 0) return normalCps;
   const remainingMs = Math.max(1, inputs.budgetMs - inputs.elapsedMs);
-  return Math.max(inputs.maxCps, Math.ceil((backlog * 1000) / remainingMs));
+  return Math.max(normalCps, Math.ceil((backlog * 1000) / remainingMs));
 }
 
 export interface EmaUpdateInputs {
@@ -335,21 +345,25 @@ export function useSmoothStreamContent(
       // Stream-end bounded flush. Once streaming flips false and we
       // still have backlog, raise the speed enough to drain inside
       // completeBudget instead of snapping the tail all at once.
-      let frameMaxCps = options.streaming
-        ? resolveLiveBacklogMaxCps({
+      let frameCps = options.streaming
+        ? resolveLiveBacklogCps({
             backlog: rawLength - displayedCount,
             budgetMs: liveCatchUpBudget,
+            emaCps: refs.current.emaCps,
+            minCps,
             maxCps,
           })
-        : maxCps;
+        : clampedEmaCps({ emaCps: refs.current.emaCps, minCps, maxCps });
       if (!options.streaming) {
         const s = refs.current;
         if (s.completeStartedAt === 0) s.completeStartedAt = now;
-        frameMaxCps = resolveCompletionMaxCps({
+        frameCps = resolveCompletionCps({
           rawGraphemeCount: rawLength,
           displayedGraphemeCount: displayedCount,
           elapsedMs: now - s.completeStartedAt,
           budgetMs: completeBudget,
+          emaCps: refs.current.emaCps,
+          minCps,
           maxCps,
         });
       }
@@ -358,10 +372,10 @@ export function useSmoothStreamContent(
       const advance = computeFrameAdvance({
         rawGraphemeCount: rawLength,
         displayedGraphemeCount: displayedCount,
-        emaCps: refs.current.emaCps,
+        emaCps: frameCps,
         dtMs,
         minCps,
-        maxCps: frameMaxCps,
+        maxCps: frameCps,
       });
       if (advance > 0) {
         setDisplayedCount((cur) => Math.min(cur + advance, rawLength));

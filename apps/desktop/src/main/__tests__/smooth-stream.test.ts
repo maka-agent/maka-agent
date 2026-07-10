@@ -28,9 +28,9 @@ import { describe, it } from 'node:test';
 import {
   computeFrameAdvance,
   prepareSmoothStreamText,
-  resolveCompletionMaxCps,
+  resolveCompletionCps,
   resolveInitialDisplayedCount,
-  resolveLiveBacklogMaxCps,
+  resolveLiveBacklogCps,
   segmentGraphemes,
   updateEma,
 } from '@maka/ui/smooth-stream';
@@ -248,25 +248,25 @@ describe('computeFrameAdvance', () => {
   });
 });
 
-describe('resolveLiveBacklogMaxCps', () => {
-  it('keeps the normal ceiling while the backlog fits the catch-up budget', () => {
-    assert.equal(resolveLiveBacklogMaxCps({ backlog: 800, budgetMs: 2_000, maxCps: 400 }), 400);
+describe('resolveLiveBacklogCps', () => {
+  it('uses the required catch-up speed when the backlog fits the budget', () => {
+    assert.equal(resolveLiveBacklogCps({ backlog: 800, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 400);
   });
 
   it('raises speed continuously above the budget instead of snapping position', () => {
-    assert.equal(resolveLiveBacklogMaxCps({ backlog: 801, budgetMs: 2_000, maxCps: 400 }), 401);
-    assert.equal(resolveLiveBacklogMaxCps({ backlog: 5_000, budgetMs: 2_000, maxCps: 400 }), 2_500);
+    assert.equal(resolveLiveBacklogCps({ backlog: 801, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 401);
+    assert.equal(resolveLiveBacklogCps({ backlog: 5_000, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 2_500);
   });
 
   it('still advances only one frame at a time for a large burst', () => {
-    const frameMaxCps = resolveLiveBacklogMaxCps({ backlog: 5_000, budgetMs: 2_000, maxCps: 400 });
+    const frameCps = resolveLiveBacklogCps({ backlog: 5_000, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 });
     assert.equal(computeFrameAdvance({
       rawGraphemeCount: 5_000,
       displayedGraphemeCount: 0,
-      emaCps: 10_000,
+      emaCps: frameCps,
       dtMs: 16,
       minCps: 30,
-      maxCps: frameMaxCps,
+      maxCps: frameCps,
     }), 40);
   });
 });
@@ -291,30 +291,40 @@ describe('updateEma', () => {
   });
 });
 
-describe('resolveCompletionMaxCps', () => {
-  it('raises the completion ceiling so a large final tail can drain inside the budget', () => {
-    assert.equal(
-      resolveCompletionMaxCps({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        elapsedMs: 0,
-        budgetMs: 500,
-        maxCps: 400,
-      }),
-      10_000,
-    );
+describe('resolveCompletionCps', () => {
+  it('raises the actual completion speed so a large final tail drains inside the budget', () => {
+    const frameCps = resolveCompletionCps({
+      rawGraphemeCount: 5_200,
+      displayedGraphemeCount: 200,
+      elapsedMs: 0,
+      budgetMs: 500,
+      emaCps: 80,
+      minCps: 30,
+      maxCps: 400,
+    });
+    assert.equal(frameCps, 10_000);
+    assert.equal(computeFrameAdvance({
+      rawGraphemeCount: 5_200,
+      displayedGraphemeCount: 200,
+      emaCps: frameCps,
+      dtMs: 16,
+      minCps: 30,
+      maxCps: frameCps,
+    }), 160);
   });
 
-  it('keeps the normal max when the final tail already fits the budget', () => {
+  it('uses only the required catch-up speed when the final tail fits the budget', () => {
     assert.equal(
-      resolveCompletionMaxCps({
+      resolveCompletionCps({
         rawGraphemeCount: 260,
         displayedGraphemeCount: 200,
         elapsedMs: 0,
         budgetMs: 500,
+        emaCps: 80,
+        minCps: 30,
         maxCps: 400,
       }),
-      400,
+      120,
     );
   });
 });
