@@ -57,9 +57,9 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stderr, /fatal probe/);
   });
 
-  test('restores the terminal when driver stop rejects during close', async () => {
+  test('keeps a completed session active on clean close', async () => {
     const terminal = new FakeTerminal();
-    const driver = new RejectingStopDriver();
+    const driver = new CompletedSessionDriver();
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -69,6 +69,11 @@ describe('Maka Pi TUI runner', () => {
       permissionMode: 'bypass',
       terminal,
     });
+
+    terminal.input('hello');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    await waitFor(() => terminal.progressStates.at(-1) === false);
 
     exitMaka(terminal);
 
@@ -79,63 +84,10 @@ describe('Maka Pi TUI runner', () => {
       }),
     ]);
 
-    assert.equal(driver.stopCalls, 1);
+    assert.equal(driver.stopCalls, 0);
+    assert.equal(driver.status, 'active');
     assert.equal(terminal.stopCalls, 1);
     assert.equal(terminal.progressStates.at(-1), false);
-  });
-
-  test('restores the terminal before a slow driver stop settles', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new HangingCloseDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-
-    terminal.input('/exit');
-    terminal.input('\r');
-    await waitFor(() => driver.stopCalls === 1);
-    try {
-      assert.equal(terminal.stopCalls, 1);
-    } finally {
-      driver.releaseStop();
-      await run;
-    }
-  });
-
-  test('waits for driver stop before completing close', async () => {
-    const terminal = new FakeTerminal();
-    const driver = new HangingCloseDriver();
-    const run = runMakaPiTui({
-      title: 'Maka',
-      driver,
-      cwd: '/repo',
-      model: 'claude-sonnet-4-5',
-      connectionSlug: 'claude-subscription',
-      permissionMode: 'bypass',
-      terminal,
-    });
-    let settled = false;
-    void run.then(
-      () => { settled = true; },
-      () => { settled = true; },
-    );
-
-    terminal.input('/exit');
-    terminal.input('\r');
-    await waitFor(() => driver.stopCalls === 1);
-    await delay(0);
-    try {
-      assert.equal(settled, false);
-    } finally {
-      driver.releaseStop();
-      await run;
-    }
   });
 
   test('waits for an in-flight turn interrupt before completing close', async () => {
@@ -2711,19 +2663,23 @@ function exitMaka(_terminal: FakeTerminal): void {
   process.exitCode = previousExitCode;
 }
 
-class RejectingStopDriver implements MakaSessionDriver {
+class CompletedSessionDriver implements MakaSessionDriver {
+  readonly prompts: string[] = [];
   stopCalls = 0;
+  status: 'active' | 'aborted' = 'active';
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
   }
 
-  async *sendPrompt(_prompt: string): AsyncIterable<never> {}
+  async *sendPrompt(prompt: string): AsyncIterable<never> {
+    this.prompts.push(prompt);
+  }
   async *compactSession(): AsyncIterable<never> {}
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
-    throw new Error('stop failed');
+    this.status = 'aborted';
   }
 
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
@@ -3153,23 +3109,6 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
   getSessionId(): string {
     return this.sessionId;
-  }
-}
-
-class HangingCloseDriver extends SlashCommandDriver {
-  stopCalls = 0;
-  private resolveStop: (() => void) | null = null;
-
-  override async stop(): Promise<void> {
-    this.stopCalls += 1;
-    await new Promise<void>((resolve) => {
-      this.resolveStop = resolve;
-    });
-  }
-
-  releaseStop(): void {
-    this.resolveStop?.();
-    this.resolveStop = null;
   }
 }
 

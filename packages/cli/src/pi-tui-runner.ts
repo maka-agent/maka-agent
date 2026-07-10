@@ -227,7 +227,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // complete only after the runtime stop path settles.
       const workPromises = [...activeWork];
       const stopPromises = [...pendingDriverStops];
-      const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
+      const needsStop = busy && (turnRunning ? !interruptRequested : stopPromises.length === 0);
       if (needsStop) {
         stopPromises.push(stopDriver());
       }
