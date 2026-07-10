@@ -91,6 +91,8 @@ export class PiAgentBackend implements AgentBackend {
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     const turnId = input.turnId;
     let messageId = this.newId();
+    let currentProviderMessageId: string | undefined;
+    const usedMessageIds = new Set([messageId]);
     let assistantText = '';
     let assistantPersisted = false;
     let textCompleteEmitted = false;
@@ -103,8 +105,12 @@ export class PiAgentBackend implements AgentBackend {
     this.suppressedToolUseIds = new Set();
     this.input.permissionEngine.beginTurn(turnId);
 
-    const beginStep = (nextMessageId = this.newId()): void => {
+    const beginStep = (preferredMessageId?: string, nextProviderMessageId?: string): void => {
+      let nextMessageId = preferredMessageId;
+      while (!nextMessageId || usedMessageIds.has(nextMessageId)) nextMessageId = this.newId();
       messageId = nextMessageId;
+      currentProviderMessageId = nextProviderMessageId;
+      usedMessageIds.add(messageId);
       assistantText = '';
       assistantPersisted = false;
       textCompleteEmitted = false;
@@ -130,13 +136,14 @@ export class PiAgentBackend implements AgentBackend {
       };
     };
     const prepareTextStep = (providerMessageId?: string): void => {
-      if (providerMessageId && providerMessageId !== messageId) {
-        beginStep(providerMessageId);
-      } else if (textCompleteEmitted || (stepHasTools && activeToolUseIds.size === 0)) {
-        // Some transports reuse one provider message id across tool-loop
-        // steps. Once the current local step is terminal, reusing that id
-        // would create duplicate AssistantMessage ids, so rotate locally.
-        beginStep();
+      const stepEnded = textCompleteEmitted || (stepHasTools && activeToolUseIds.size === 0);
+      if (stepEnded) {
+        const preferredMessageId = providerMessageId !== currentProviderMessageId
+          ? providerMessageId
+          : undefined;
+        beginStep(preferredMessageId, providerMessageId);
+      } else if (providerMessageId && providerMessageId !== currentProviderMessageId) {
+        beginStep(providerMessageId, providerMessageId);
       }
     };
 
