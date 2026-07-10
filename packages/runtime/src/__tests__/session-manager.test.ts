@@ -436,6 +436,69 @@ describe('SessionManager turn cancellation', () => {
 });
 
 describe('SessionManager manual compaction', () => {
+  test('bounded cancellation finalizes compact when backend stop rejects and compact never ends', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const compactStarted = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new RejectingBlockingCompactBackend(ctx, compactStarted));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_990),
+      cancellationCleanupTimeoutMs: 10,
+    });
+    const session = await manager.createSession(makeInput());
+    const compact = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await compactStarted.promise;
+
+    const stopOutcome = await manager.stopSession(session.id, { source: 'stop_button' }).then(
+      () => 'settled' as const,
+      () => 'rejected' as const,
+    );
+    const compactOutcome = await Promise.race([
+      compact.then(() => 'settled' as const),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+
+    expect(stopOutcome).toBe('settled');
+    expect(compactOutcome).toBe('settled');
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+    await manager.updateSession(session.id, { model: 'next-model' });
+  });
+
+  test('bounded cancellation finalizes compact when backend stop and compact both hang', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const compactStarted = makeGate();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HangingStopCompactBackend(ctx, compactStarted));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_995),
+      cancellationCleanupTimeoutMs: 10,
+    });
+    const session = await manager.createSession(makeInput());
+    const compact = collectSessionEvents(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+    await compactStarted.promise;
+
+    await manager.stopSession(session.id, { source: 'stop_button' });
+    const outcome = await Promise.race([
+      compact.then(() => 'settled' as const),
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 100)),
+    ]);
+
+    expect(outcome).toBe('settled');
+    expect((await store.readHeader(session.id)).status).toBe('aborted');
+  });
+
   test('runs backend history compaction as a runtime turn and persists diagnostics', async () => {
     const store = new MemorySessionStore();
     const runStore = new OrderingAgentRunStore();
@@ -533,6 +596,7 @@ describe('SessionManager manual compaction', () => {
       backends,
       newId: nextId(),
       now: nextNow(20_000),
+      cancellationCleanupTimeoutMs: 10,
     });
     const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
     await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
@@ -5309,6 +5373,27 @@ class BlockingCompactBackend extends TestBackend {
 
   override async stop(): Promise<void> {
     this.stopCalls += 1;
+  }
+}
+
+class RejectingBlockingCompactBackend extends TestBackend {
+  constructor(ctx: BackendFactoryContext, private readonly compactStarted: Gate) {
+    super(ctx);
+  }
+
+  async compactHistory(_input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    this.compactStarted.release();
+    return new Promise<never>(() => {});
+  }
+
+  override async stop(): Promise<void> {
+    throw new Error('stop failed');
+  }
+}
+
+class HangingStopCompactBackend extends RejectingBlockingCompactBackend {
+  override async stop(): Promise<void> {
+    await new Promise<never>(() => {});
   }
 }
 

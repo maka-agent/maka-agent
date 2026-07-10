@@ -131,6 +131,23 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (!this.deps.runStore || !this.deps.runtimeEventStore) {
       throw new Error('Runtime compaction requires AgentRunStore and RuntimeEventStore');
     }
+    if (this.hasActiveRuns(sessionId) && this.operations.activeKind(sessionId) !== 'automation') {
+      throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
+    }
+    const operation = await this.operations.acquire(sessionId, 'user');
+    if (!operation) return;
+    try {
+      yield* this.runCompactSession(sessionId, input, operation.signal);
+    } finally {
+      operation.release();
+    }
+  }
+
+  private async *runCompactSession(
+    sessionId: string,
+    input: CompactSessionInput,
+    signal: AbortSignal,
+  ): AsyncIterable<SessionEvent> {
     if (this.hasActiveRuns(sessionId)) {
       throw new Error('Cannot compact while a turn is running; wait for the turn to finish.');
     }
@@ -168,10 +185,50 @@ export class RuntimeKernel implements RuntimeKernelLike {
       throw error;
     }
 
+    let compactTask: Promise<Awaited<ReturnType<NonNullable<AgentBackend['compactHistory']>>>> | undefined;
+    let cancellationPromise: Promise<void> | undefined;
+    let resolveCancelled!: () => void;
+    const cancelled = new Promise<void>((resolve) => { resolveCancelled = resolve; });
+    const cancel = (source?: StopSessionInput['source']): Promise<void> => {
+      run.stop(source);
+      cancellationPromise ??= (async () => {
+        const cleanupTasks: Promise<unknown>[] = [
+          Promise.resolve().then(() => begin.backend.stop('user_stop')),
+        ];
+        if (compactTask) cleanupTasks.push(compactTask);
+        const cleanup = await settleWithin(
+          Promise.all(cleanupTasks).then(() => {}),
+          this.deps.cancellationCleanupTimeoutMs ?? 5_000,
+        );
+        if (cleanup.error !== undefined) {
+          run.recordCancellationCleanupFailure(cleanup.error);
+          this.retireBackend(sessionId, begin.backend);
+        }
+        await this.finalizeRunCancellation(sessionId, run, source);
+      })().finally(resolveCancelled);
+      return cancellationPromise;
+    };
+    const onAbort = () => { void cancel(); };
+    this.runCancellations.set(run.runId, cancel);
+    signal.addEventListener('abort', onAbort, { once: true });
+
     try {
-      if (run.isStopped()) return;
+      if (signal.aborted) {
+        await cancel();
+        return;
+      }
       if (!begin.backend.compactHistory) throw new Error(`Backend ${header.backend} does not support runtime compaction`);
-      const result = await begin.backend.compactHistory({ turnId: run.turnId, runtimeContext: begin.runtimeContext });
+      compactTask = begin.backend.compactHistory({ turnId: run.turnId, runtimeContext: begin.runtimeContext });
+      const outcome = await Promise.race([
+        compactTask.then(
+          (result) => ({ kind: 'result' as const, result }),
+          (error: unknown) => ({ kind: 'error' as const, error }),
+        ),
+        cancelled.then(() => ({ kind: 'cancelled' as const })),
+      ]);
+      if (outcome.kind === 'cancelled') return;
+      if (outcome.kind === 'error') throw outcome.error;
+      const { result } = outcome;
       if (run.isStopped()) return;
       const tokenUsageEvent: TokenUsageEvent = {
         type: 'token_usage',
@@ -213,9 +270,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       if (run.isStopped()) return;
       yield completeEvent;
     } catch (error) {
+      if (run.isStopped()) return;
       await run.recordFailure(error);
       throw error;
     } finally {
+      signal.removeEventListener('abort', onAbort);
+      this.runCancellations.delete(run.runId);
       await run.finalize();
     }
   }
@@ -902,6 +962,10 @@ class SessionOperationCoordinator {
       }
       this.activateNext(sessionId, state);
     });
+  }
+
+  activeKind(sessionId: string): SessionOperationKind | undefined {
+    return this.sessions.get(sessionId)?.active?.kind;
   }
 
   cancelSession(sessionId: string): void {

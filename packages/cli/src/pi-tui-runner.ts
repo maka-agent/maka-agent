@@ -94,10 +94,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let permissionInFlight = false;
   let turnRunning = false;
-  let compactRunning = false;
   const activeWork = new Set<Promise<void>>();
   let currentOperation: {
-    work: Promise<void>;
     cancelPromise?: Promise<boolean>;
   } | undefined;
   let lastTurnEscapeAt = 0;
@@ -332,7 +330,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    const operation: NonNullable<typeof currentOperation> = { work: Promise.resolve() };
+    const operation: NonNullable<typeof currentOperation> = {};
     currentOperation = operation;
     const turnPromise = submitPromptToTranscript({
       state,
@@ -365,7 +363,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       attention.promptTurnEnded();
       requestRender();
     });
-    operation.work = turnPromise;
     trackActiveWork(turnPromise);
   }
 
@@ -489,26 +486,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const compactSession = async () => {
-    compactRunning = true;
     state.entries.push({
       kind: 'notice',
       level: 'info',
       text: 'Compacting context…',
     });
     requestRender();
-    const operation: NonNullable<typeof currentOperation> = { work: Promise.resolve() };
+    const operation: NonNullable<typeof currentOperation> = {};
     currentOperation = operation;
     try {
-      operation.work = submitCompactToTranscript({
+      await submitCompactToTranscript({
         state,
         driver: input.driver,
         onChange: requestRender,
       });
-      await operation.work;
     } finally {
       await operation.cancelPromise;
       if (currentOperation === operation) currentOperation = undefined;
-      compactRunning = false;
     }
   };
 
