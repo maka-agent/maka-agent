@@ -310,38 +310,68 @@ describe('applyLiveTurnEvent', () => {
       ts: 100,
       text: 'answer',
     });
-    const terminal = applyLiveTurnEvent(streaming, {
-      type: 'complete',
-      id: 'event-2',
-      turnId: 'turn-1',
-      ts: 101,
-      stopReason: 'end_turn',
-    });
-
-    assert.equal(terminal?.terminal, true);
-    assert.equal(settleLiveTurnStep(terminal!, 'step-1'), undefined);
-  });
-
-  it('marks an aborted projection terminal with in-flight tools interrupted', () => {
-    const running = applyLiveTurnEvent(undefined, {
+    const running = applyLiveTurnEvent(streaming, {
       type: 'tool_start',
-      id: 'event-1',
+      id: 'event-2',
       turnId: 'turn-1',
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Bash',
       args: {},
+      ts: 101,
+    });
+    const terminal = applyLiveTurnEvent(running, {
+      type: 'complete',
+      id: 'event-3',
+      turnId: 'turn-1',
+      ts: 102,
+      stopReason: 'end_turn',
+    });
+
+    assert.equal(terminal?.terminal, true);
+    assert.equal(terminal?.steps[0]?.text?.complete, true);
+    assert.equal(terminal?.steps[0]?.tools[0]?.status, 'interrupted');
+    assert.equal(settleLiveTurnStep(terminal!, 'step-1'), undefined);
+  });
+
+  it('marks an aborted projection terminal with in-flight tools interrupted', () => {
+    const thinking = applyLiveTurnEvent(undefined, {
+      type: 'thinking_delta',
+      id: 'event-1',
+      turnId: 'turn-1',
+      messageId: 'step-1',
+      text: 'partial reasoning',
       ts: 100,
+    });
+    const streaming = applyLiveTurnEvent(thinking, {
+      type: 'text_delta',
+      id: 'event-2',
+      turnId: 'turn-1',
+      messageId: 'step-1',
+      text: 'partial answer',
+      ts: 101,
+    });
+    const running = applyLiveTurnEvent(streaming, {
+      type: 'tool_start',
+      id: 'event-3',
+      turnId: 'turn-1',
+      stepId: 'step-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: {},
+      ts: 102,
     });
     const aborted = applyLiveTurnEvent(running, {
       type: 'abort',
-      id: 'event-2',
+      id: 'event-4',
       turnId: 'turn-1',
-      ts: 101,
+      ts: 103,
       reason: 'user_stop',
     });
 
     assert.equal(aborted?.terminal, true);
+    assert.equal(aborted?.steps[0]?.thinking?.complete, true);
+    assert.equal(aborted?.steps[0]?.text?.complete, true);
     assert.equal(aborted?.steps[0]?.tools[0]?.status, 'interrupted');
   });
 });

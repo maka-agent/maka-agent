@@ -32,6 +32,19 @@ export interface LiveTurnProjection {
   steps: LiveTurnStepProjection[];
 }
 
+function terminalizeLiveSteps(steps: readonly LiveTurnStepProjection[]): LiveTurnStepProjection[] {
+  return steps.map((step) => ({
+    ...step,
+    ...(step.thinking ? { thinking: { ...step.thinking, complete: true } } : {}),
+    ...(step.text ? { text: { ...step.text, complete: true } } : {}),
+    tools: step.tools.map((tool) => (
+      tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'
+        ? { ...tool, status: 'interrupted' as const }
+        : tool
+    )),
+  }));
+}
+
 export function armLiveTurn(turnId: string): LiveTurnProjection {
   return { turnId, phase: 'waiting', steps: [] };
 }
@@ -50,19 +63,14 @@ export function applyLiveTurnEvent(
 ): LiveTurnProjection | undefined {
   if (event.type === 'error' || event.type === 'abort') {
     if (!current || current.turnId !== event.turnId) return current;
-    const steps = current.steps.map((step) => ({
-      ...step,
-      tools: step.tools.map((tool) => (
-        tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'
-          ? { ...tool, status: 'interrupted' as const }
-          : tool
-      )),
-    }));
+    const steps = terminalizeLiveSteps(current.steps);
     return steps.length > 0 ? { ...current, terminal: true, steps } : undefined;
   }
   if (event.type === 'complete') {
     if (event.stopReason === 'permission_handoff' || !current || current.turnId !== event.turnId) return current;
-    return current.steps.length > 0 ? { ...current, terminal: true } : undefined;
+    return current.steps.length > 0
+      ? { ...current, terminal: true, steps: terminalizeLiveSteps(current.steps) }
+      : undefined;
   }
   if (
     event.type !== 'thinking_delta'
