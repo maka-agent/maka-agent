@@ -1,7 +1,57 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AutomationManager } from '../automation-state.js';
-import { AutomationScheduler, DEFER_WINDOW_MS, type AutomationFireResult } from '../automation-scheduler.js';
+import {
+  AutomationFireOutcome,
+  AutomationScheduler,
+  DEFER_WINDOW_MS,
+  type AutomationFireResult,
+} from '../automation-scheduler.js';
+
+describe('AutomationFireOutcome', () => {
+  test('treats abort and missing terminal as failed outcomes', () => {
+    const aborted = new AutomationFireOutcome('run-1');
+    aborted.observe({
+      type: 'abort',
+      id: 'abort-1',
+      turnId: 'run-1',
+      ts: 1,
+      reason: 'user_stop',
+    });
+
+    assert.deepEqual(aborted.result(), { runId: 'run-1', ok: false, error: 'Automation run aborted' });
+    assert.deepEqual(
+      new AutomationFireOutcome('run-2').result(),
+      { runId: 'run-2', ok: false, error: 'Automation run ended without a terminal event' },
+    );
+  });
+
+  test('accepts only successful completion terminals', () => {
+    const completed = new AutomationFireOutcome('run-1');
+    completed.observe({
+      type: 'complete',
+      id: 'complete-1',
+      turnId: 'run-1',
+      ts: 1,
+      stopReason: 'end_turn',
+    });
+    const waiting = new AutomationFireOutcome('run-2');
+    waiting.observe({
+      type: 'complete',
+      id: 'complete-2',
+      turnId: 'run-2',
+      ts: 1,
+      stopReason: 'permission_handoff',
+    });
+
+    assert.deepEqual(completed.result(), { runId: 'run-1', ok: true });
+    assert.deepEqual(waiting.result(), {
+      runId: 'run-2',
+      ok: false,
+      error: 'Automation run requires user input',
+    });
+  });
+});
 
 function createTestSetup() {
   let idCounter = 0;

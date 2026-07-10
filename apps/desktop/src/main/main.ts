@@ -67,6 +67,7 @@ import { SENSITIVE_PLACEHOLDER } from '@maka/core/settings/network-settings';
 import { err, ok, tryResult, type Result } from '@maka/core/settings/result';
 import {
   AiSdkBackend,
+  AutomationFireOutcome,
   BackendRegistry,
   FakeBackend,
   PermissionEngine,
@@ -1682,21 +1683,15 @@ async function streamEvents(
 ): Promise<{ turnId: string; ok: boolean; error?: string }> {
   let userAppendBroadcasted = false;
   let finalAppendBroadcasted = false;
-  let turnAborted = false;
-  let turnError: string | undefined;
   const turnId = fallbackTurnId ?? randomUUID();
+  const outcome = new AutomationFireOutcome(turnId);
   try {
     for await (const event of iterator) {
       if (!userAppendBroadcasted) {
         emitSessionsChanged('message-appended', sessionId);
         userAppendBroadcasted = true;
       }
-      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
-        turnAborted = true;
-      }
-      if (event.type === 'error') {
-        turnError = event.message ?? event.reason ?? 'turn error';
-      }
+      outcome.observe(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
@@ -1710,7 +1705,12 @@ async function streamEvents(
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
     }
-    return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
+    const result = outcome.result();
+    return {
+      turnId,
+      ok: result.ok,
+      ...(result.error ? { error: result.error } : {}),
+    };
   } catch (error) {
     const event = {
       type: 'error',

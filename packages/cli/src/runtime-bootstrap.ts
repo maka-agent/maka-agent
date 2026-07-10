@@ -3,6 +3,7 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   AiSdkBackend,
+  AutomationFireOutcome,
   AutomationManager,
   AutomationScheduler,
   BackendRegistry,
@@ -236,12 +237,13 @@ export async function createMakaCliRuntimeContext(
     // createFreshRun is omitted, so the tool advertises heartbeat only.
     injectTurn: async (sessionId, prompt, automationId, signal) => {
       const turnId = randomUUID();
+      const outcome = new AutomationFireOutcome(turnId);
       const iterator = runtime.sendMessage(sessionId, {
         turnId, text: prompt, origin: { kind: 'automation', automationId },
       }, { signal });
       try {
-        for await (const _ of iterator) { /* drain */ }
-        return { runId: turnId, ok: true };
+        for await (const event of iterator) outcome.observe(event);
+        return outcome.result();
       } catch (err) {
         return { runId: turnId, ok: false, error: err instanceof Error ? err.message : String(err) };
       }

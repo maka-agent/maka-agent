@@ -13,6 +13,7 @@
  */
 
 import type { AutomationDefinition, AutomationManager } from './automation-state.js';
+import type { SessionEvent } from '@maka/core/events';
 
 /** Outcome of a dispatched fire, decided only after the run's stream finishes. */
 export interface AutomationFireResult {
@@ -22,6 +23,53 @@ export interface AutomationFireResult {
   ok: boolean;
   /** Failure reason when !ok. */
   error?: string;
+}
+
+export class AutomationFireOutcome {
+  private terminal: { ok: true } | { ok: false; error: string } | undefined;
+
+  constructor(private readonly runId: string) {}
+
+  observe(event: SessionEvent): void {
+    if (event.type === 'error') {
+      this.terminal = { ok: false, error: event.message || event.reason || 'Automation run failed' };
+      return;
+    }
+    if (event.type === 'abort') {
+      this.terminal = { ok: false, error: 'Automation run aborted' };
+      return;
+    }
+    if (event.type !== 'complete' || this.terminal?.ok === false) return;
+    switch (event.stopReason) {
+      case 'end_turn':
+      case 'max_tokens':
+      case 'plan_handoff':
+        this.terminal = { ok: true };
+        break;
+      case 'permission_handoff':
+        this.terminal = { ok: false, error: 'Automation run requires user input' };
+        break;
+      case 'user_stop':
+        this.terminal = { ok: false, error: 'Automation run aborted' };
+        break;
+      case 'error':
+        this.terminal = { ok: false, error: 'Automation run failed' };
+        break;
+    }
+  }
+
+  result(): AutomationFireResult {
+    if (!this.terminal) {
+      return {
+        runId: this.runId,
+        ok: false,
+        error: 'Automation run ended without a terminal event',
+      };
+    }
+    return this.terminal.ok
+      ? { runId: this.runId, ok: true }
+      : { runId: this.runId, ok: false, error: this.terminal.error };
+  }
 }
 
 export interface AutomationSchedulerDeps {
@@ -84,7 +132,6 @@ const DEFER_WINDOW_MS = 45 * 60 * 1000;
 /** Per-automation defer bookkeeping for the current pending fire. */
 interface DeferState {
   firstDeferredAt: number;
-  count: number;
 }
 
 export class AutomationScheduler {
@@ -212,7 +259,7 @@ export class AutomationScheduler {
       const state = this.deferStates.get(automation.id);
       if (!state) {
         // First deferral for this pending fire — open the retry window.
-        this.deferStates.set(automation.id, { firstDeferredAt: now, count: 1 });
+        this.deferStates.set(automation.id, { firstDeferredAt: now });
         return;
       }
       if (now - state.firstDeferredAt >= DEFER_WINDOW_MS) {
@@ -224,7 +271,6 @@ export class AutomationScheduler {
         this.deps.onStateChange?.();
         return;
       }
-      state.count++;
       return;
     }
 

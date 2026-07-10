@@ -673,7 +673,7 @@ export type {
   AutomationStatus,
   AutomationManagerDeps,
 } from './automation-state.js';
-export { AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
+export { AutomationFireOutcome, AutomationScheduler, FIRE_CHECK_INTERVAL_MS, DEFER_WINDOW_MS } from './automation-scheduler.js';
 export type { AutomationSchedulerDeps, AutomationFireResult } from './automation-scheduler.js';
 export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js';
 export type { AutomationToolDeps } from './automation-tools.js';
