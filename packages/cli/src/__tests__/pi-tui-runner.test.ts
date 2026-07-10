@@ -358,6 +358,43 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('waits for an in-flight permission response before completing close', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new PermissionPromptDriver({ deferResponse: true });
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => driver.permissionRequests === 1);
+    await waitFor(() => terminal.output().includes('Permission required'));
+    terminal.input('y');
+    await waitFor(() => driver.permissionResponses.length === 1);
+    exitMaka(terminal);
+    await delay(0);
+
+    try {
+      assert.equal(driver.stopCalls, 1);
+      assert.equal(terminal.stopCalls, 1);
+      assert.equal(settled, false);
+    } finally {
+      driver.releasePermissionResponse();
+      await run;
+    }
+  });
+
   test('toggles tool detail globally with Ctrl-O', async () => {
     const terminal = new FakeTerminal();
     const driver = new ToolOutputDriver();
@@ -2654,6 +2691,10 @@ class PermissionPromptDriver implements MakaSessionDriver {
   permissionRequests = 0;
   stopCalls = 0;
   private continueAfterPermission: (() => void) | null = null;
+  private resolvePermissionResponse: (() => void) | null = null;
+  private stopped = false;
+
+  constructor(private readonly options: { deferResponse?: boolean } = {}) {}
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -2678,6 +2719,16 @@ class PermissionPromptDriver implements MakaSessionDriver {
     await new Promise<void>((resolve) => {
       this.continueAfterPermission = resolve;
     });
+    if (this.stopped) {
+      yield {
+        type: 'abort',
+        id: 'event-abort',
+        turnId: 'turn-1',
+        ts: 2,
+        reason: 'user_stop',
+      };
+      return;
+    }
     yield {
       type: 'permission_decision_ack',
       id: 'event-decision',
@@ -2699,11 +2750,23 @@ class PermissionPromptDriver implements MakaSessionDriver {
 
   async stop(): Promise<void> {
     this.stopCalls += 1;
+    this.stopped = true;
+    this.continueAfterPermission?.();
   }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.permissionResponses.push(response);
+    if (this.options.deferResponse) {
+      await new Promise<void>((resolve) => {
+        this.resolvePermissionResponse = resolve;
+      });
+    }
     this.continueAfterPermission?.();
+  }
+
+  releasePermissionResponse(): void {
+    this.resolvePermissionResponse?.();
+    this.resolvePermissionResponse = null;
   }
   async renameSession(): Promise<void> {}
   async setModel(): Promise<void> {}

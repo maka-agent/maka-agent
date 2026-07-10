@@ -97,6 +97,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let interruptRequested = false;
   let activeTurnPromise: Promise<void> | null = null;
   let activeControlPromise: Promise<void> | null = null;
+  let activePermissionPromise: Promise<void> | null = null;
   const pendingDriverStops = new Set<Promise<void>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
@@ -230,6 +231,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // complete only after the runtime stop path settles.
       const turnPromise = activeTurnPromise;
       const controlPromise = activeControlPromise;
+      const permissionPromise = activePermissionPromise;
       const stopPromises = [...pendingDriverStops];
       const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
       if (needsStop) {
@@ -238,6 +240,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       await Promise.all(stopPromises);
       if (turnPromise) await turnPromise;
       if (controlPromise) await controlPromise;
+      if (permissionPromise) await permissionPromise;
       if (error) rejectClosed(error);
       else resolveClosed();
     })();
@@ -276,7 +279,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     permissionInFlight = true;
     // Keep the prompt visible until the driver accepts the response. If it
     // rejects, the user can retry with y/n instead of being stuck.
-    void input.driver.respondToPermission({
+    const permissionPromise = input.driver.respondToPermission({
       requestId: request.requestId,
       decision,
       ...(decision === 'allow' ? { rememberForTurn: true } : {}),
@@ -299,6 +302,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         permissionInFlight = false;
         reportError(error);
       });
+    activePermissionPromise = permissionPromise;
+    void permissionPromise.then(
+      () => {
+        if (activePermissionPromise === permissionPromise) activePermissionPromise = null;
+      },
+      () => {
+        if (activePermissionPromise === permissionPromise) activePermissionPromise = null;
+      },
+    );
     return true;
   };
 
