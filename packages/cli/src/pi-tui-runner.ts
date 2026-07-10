@@ -883,7 +883,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
     }
     if (turnRunning && matchesKey(data, Key.ctrl('c'))) {
-      if (interruptRequested) void close();
+      if (interruptRequested) handleProcessExit(0);
       else requestTurnInterrupt();
       return { consume: true };
     }

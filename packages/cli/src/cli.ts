@@ -44,7 +44,6 @@ export function formatMakaCliFatalError(error: unknown): string {
 export function completeMakaCliExit(commandExitCode: number): void {
   const exitCode = resolveMakaCliExitCode(commandExitCode, process.exitCode);
   process.exitCode = exitCode;
-  if (exitCode === 0 || exitCode === '0') return;
   const timer = setTimeout(() => process.exit(exitCode), PROCESS_EXIT_GRACE_MS);
   timer.unref();
 }
