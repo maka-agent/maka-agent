@@ -1511,14 +1511,9 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
     props.onSettled?.();
   }, [props.live, catchingUp, props.onSettled]);
 
-  // Per-word fade-in over the freshly revealed tail (replaces the ▎ caret).
-  // Skipped under snap (reduced-motion / visual-smoke) so the deterministic
-  // capture shows the final text at full opacity with no fade spans.
-  const streamFade = useStreamFade(displayed, !snap);
-
   return (
     <Bubble variant="assistant" className="maka-bubble-streaming">
-      <Markdown text={displayed} streamFade={streamFade} />
+      <Markdown text={displayed} streaming />
       {props.truncated && (
         <div
           className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"

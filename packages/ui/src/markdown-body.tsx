@@ -1,8 +1,7 @@
 /**
  * Heavy markdown rendering pipeline — split out of `markdown.tsx` so the
- * initial renderer chunk doesn't have to parse `react-markdown` +
- * `remark-gfm` / `remark-breaks` + `rehype-highlight` (which bundles the
- * highlight.js grammars) before React can mount the chat shell.
+ * initial renderer chunk doesn't have to parse the streaming Markdown
+ * pipeline before React can mount the chat shell.
  *
  * This module is loaded on demand via `React.lazy` from `markdown.tsx`
  * the first time a message actually needs to be rendered. On a fresh
@@ -11,16 +10,16 @@
  *
  * Everything security-sensitive (the `maka://` URI allowlist, the safe-
  * scheme external-link gate, the broken-link inline errors) lives here
- * alongside the `Markdown` body it overrides `react-markdown` with —
- * see `markdown.tsx` for the trust-boundary rationale.
+ * alongside the `Markdown` body so renderer choice cannot bypass the
+ * routing policy. See `markdown.tsx` for the trust-boundary rationale.
  */
 
 import { useContext, type ReactNode } from 'react';
 import * as React from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
+import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown } from 'streamdown';
+import 'streamdown/styles.css';
 import rehypeHighlight from 'rehype-highlight';
+import remarkBreaks from 'remark-breaks';
 import { Check, Copy } from './icons.js';
 
 import { Button as UiButton } from './ui.js';
@@ -31,23 +30,26 @@ import {
 } from './maka-uri.js';
 import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { MakaUriContext } from './markdown.js';
-import { streamFadeRehypePlugin, type StreamFade } from './stream-fade.js';
 
-const MARKDOWN_REMARK_PLUGINS = [remarkGfm, remarkBreaks];
+const MARKDOWN_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkBreaks];
 const MARKDOWN_REHYPE_PLUGINS = [
-  // `detect: true` lets hljs guess the language when the fence didn't tag one;
-  // `ignoreMissing: true` keeps bogus tags like ```mermaid from throwing.
-  [rehypeHighlight, { detect: true, ignoreMissing: true }],
-] as const;
+  ...Object.values(defaultRehypePlugins),
+  [rehypeHighlight, { detect: true, ignoreMissing: true }] as [
+    typeof rehypeHighlight,
+    { detect: boolean; ignoreMissing: boolean },
+  ],
+];
 
-export function MarkdownBody(props: { text: string; streamFade?: StreamFade }) {
-  const rehypePlugins = props.streamFade
-    ? [...MARKDOWN_REHYPE_PLUGINS, streamFadeRehypePlugin(props.streamFade)]
-    : MARKDOWN_REHYPE_PLUGINS;
+export function MarkdownBody(props: { text: string; streaming?: boolean }) {
   return (
-    <ReactMarkdown
+    <Streamdown
+      mode={props.streaming ? 'streaming' : 'static'}
+      parseIncompleteMarkdown={props.streaming}
+      controls={false}
+      lineNumbers={false}
       remarkPlugins={MARKDOWN_REMARK_PLUGINS}
-      rehypePlugins={rehypePlugins as never}
+      rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
+      urlTransform={markdownUrlTransform}
       components={{
         // PR-UI-RENDER-2: route `maka://` links through the internal
         // URI parser so the assistant can drop in-app navigation
@@ -86,8 +88,12 @@ export function MarkdownBody(props: { text: string; streamFade?: StreamFade }) {
       }}
     >
       {props.text}
-    </ReactMarkdown>
+    </Streamdown>
   );
+}
+
+function markdownUrlTransform(url: string): string {
+  return isMakaUriCandidate(url) || isSafeExternalScheme(url) ? url : '';
 }
 
 /**
