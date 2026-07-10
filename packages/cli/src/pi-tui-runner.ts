@@ -96,6 +96,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let turnRunning = false;
   let interruptRequested = false;
   let activeTurnPromise: Promise<void> | null = null;
+  let activeControlPromise: Promise<void> | null = null;
   const pendingDriverStops = new Set<Promise<void>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
@@ -153,10 +154,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Control commands (model/session/permission switches) mutate session state.
   // Run them through a single serial lock so a prompt submitted mid-switch can
   // not race the switch and land on the old session/model/permission mode.
-  const runControl = async (action: () => Promise<void>): Promise<void> => {
-    // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
-    // so without this guard a switch could start while a prompt is still running.
-    if (busy) return;
+  const executeControl = async (action: () => Promise<void>): Promise<void> => {
     busy = true;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -173,6 +171,23 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       attention.controlEnded();
       requestRender();
     }
+  };
+
+  const runControl = (action: () => Promise<void>): Promise<void> => {
+    // Refuse nested control actions: an overlay onSelect bypasses editor.onSubmit,
+    // so without this guard a switch could start while a prompt is still running.
+    if (busy) return Promise.resolve();
+    const controlPromise = executeControl(action);
+    activeControlPromise = controlPromise;
+    void controlPromise.then(
+      () => {
+        if (activeControlPromise === controlPromise) activeControlPromise = null;
+      },
+      () => {
+        if (activeControlPromise === controlPromise) activeControlPromise = null;
+      },
+    );
+    return controlPromise;
   };
 
   const removeProcessHandlers = () => {
@@ -214,6 +229,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
       const turnPromise = activeTurnPromise;
+      const controlPromise = activeControlPromise;
       const stopPromises = [...pendingDriverStops];
       const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
       if (needsStop) {
@@ -221,6 +237,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
       await Promise.all(stopPromises);
       if (turnPromise) await turnPromise;
+      if (controlPromise) await controlPromise;
       if (error) rejectClosed(error);
       else resolveClosed();
     })();

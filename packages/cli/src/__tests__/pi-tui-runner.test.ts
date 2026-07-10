@@ -1810,6 +1810,39 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('waits for an in-flight control command before completing close', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    exitMaka(terminal);
+    await delay(0);
+
+    try {
+      assert.equal(terminal.stopCalls, 1);
+      assert.equal(settled, false);
+    } finally {
+      driver.releaseSetModel();
+      await run;
+    }
+  });
+
   test('keeps Maka open when Ctrl-D is pressed during a control command', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredControlDriver();
