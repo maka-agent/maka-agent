@@ -18,6 +18,7 @@ import type {
   PermissionDecisionMessage,
   TokenUsageMessage,
   SystemNoteMessage,
+  ToolActivityKind,
   ToolResultContent,
 } from '@maka/core';
 
@@ -28,6 +29,7 @@ import type {
 export interface ToolActivityItem {
   toolUseId: string;
   toolName: string;
+  activityKind?: ToolActivityKind;
   displayName?: string;
   intent?: string;
   status:
@@ -150,6 +152,7 @@ function toolActivityFromPair(
     return {
       toolUseId: call.id,
       toolName: call.toolName,
+      ...(call.activityKind !== undefined ? { activityKind: call.activityKind } : {}),
       ...(call.displayName !== undefined ? { displayName: call.displayName } : {}),
       ...(call.intent !== undefined ? { intent: call.intent } : {}),
       status: 'interrupted',
@@ -160,6 +163,7 @@ function toolActivityFromPair(
   return {
     toolUseId: call.id,
     toolName: call.toolName,
+    ...(call.activityKind !== undefined ? { activityKind: call.activityKind } : {}),
     ...(call.displayName !== undefined ? { displayName: call.displayName } : {}),
     ...(call.intent !== undefined ? { intent: call.intent } : {}),
     status: result.isError ? 'errored' : 'completed',
@@ -198,6 +202,7 @@ export function applyAppendedMessage(
       const item: ToolActivityItem = {
         toolUseId: message.id,
         toolName: message.toolName,
+        ...(message.activityKind !== undefined ? { activityKind: message.activityKind } : {}),
         ...(message.displayName !== undefined ? { displayName: message.displayName } : {}),
         ...(message.intent !== undefined ? { intent: message.intent } : {}),
         status: 'pending',

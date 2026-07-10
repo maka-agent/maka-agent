@@ -12,6 +12,33 @@ import {
   type WorkspaceExecutorFacts,
 } from '../workspace-executor.js';
 
+describe('builtin tool activity kinds', () => {
+  test('declares stable semantic categories independently of tool names', () => {
+    const kinds = Object.fromEntries(buildBuiltinTools().map((tool) => [tool.name, tool.activityKind]));
+
+    expect(kinds).toEqual({
+      Bash: 'command',
+      Read: 'read',
+      Write: 'edit',
+      Edit: 'edit',
+      Glob: 'search',
+      Grep: 'search',
+    });
+  });
+
+  test('categorizes background task controls as command activity', () => {
+    const shellRuns = {
+      runBash: () => Promise.reject(new Error('not used')),
+      readResource: () => Promise.reject(new Error('not used')),
+      stopResource: () => Promise.reject(new Error('not used')),
+    } satisfies ShellRunToolController;
+    const kinds = Object.fromEntries(buildBuiltinTools({ shellRuns }).map((tool) => [tool.name, tool.activityKind]));
+
+    expect(kinds.Bash).toBe('command');
+    expect(kinds.StopBackgroundTask).toBe('command');
+  });
+});
+
 describe('builtin tool executor facts', () => {
   test('attaches executor facts to every built-in tool', () => {
     const facts: WorkspaceExecutorFacts = {

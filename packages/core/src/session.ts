@@ -9,7 +9,7 @@
  * documented in spec §5.2.
  */
 
-import type { AttachmentRef, ToolResultContent } from './events.js';
+import type { AttachmentRef, ToolActivityKind, ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
 import type {
   CacheMissInputSource,
@@ -215,6 +215,8 @@ export interface ToolCallMessage {
   turnId: string;
   ts: number;
   toolName: string;
+  /** Stable semantic category for presentation; absent on legacy rows. */
+  activityKind?: ToolActivityKind;
   displayName?: string;
   intent?: string;
   args: unknown;

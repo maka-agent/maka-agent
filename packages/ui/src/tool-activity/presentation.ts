@@ -29,7 +29,7 @@ export function resolveToolDisplayName(item: ToolActivityItem): string {
 
 export function deriveToolActivityPresentation(item: ToolActivityItem): ToolActivityPresentation {
   return {
-    kind: trowActivityKind(item.toolName),
+    kind: trowActivityKind(item.toolName, item.activityKind),
     summary: formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item),
     needsAttention: item.status === 'waiting_permission' || item.status === 'errored',
   };

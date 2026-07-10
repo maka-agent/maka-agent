@@ -200,8 +200,9 @@ export function mapSessionEventToRuntimeEvent(
           ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
         },
       };
-      if (event.displayName !== undefined || event.intent !== undefined) {
+      if (event.activityKind !== undefined || event.displayName !== undefined || event.intent !== undefined) {
         const stateDelta: Record<string, unknown> = {};
+        if (event.activityKind !== undefined) stateDelta.activityKind = event.activityKind;
         if (event.displayName !== undefined) stateDelta.displayName = event.displayName;
         if (event.intent !== undefined) stateDelta.intent = event.intent;
         ev.actions = { stateDelta };

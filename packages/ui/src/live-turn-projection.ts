@@ -170,6 +170,7 @@ export function applyLiveTurnEvent(
     const startedTool: ToolActivityItem = {
       toolUseId: event.toolUseId,
       toolName: event.toolName,
+      ...(event.activityKind !== undefined ? { activityKind: event.activityKind } : {}),
       ...(event.displayName !== undefined ? { displayName: event.displayName } : {}),
       ...(event.intent !== undefined ? { intent: event.intent } : {}),
       ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),

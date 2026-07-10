@@ -1,5 +1,5 @@
 import { deriveTurnRecords } from '@maka/core';
-import type { AttachmentRef, StoredMessage, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
+import type { AttachmentRef, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 
 export interface ChatItem {
@@ -32,6 +32,7 @@ export interface ToolOutputChunk {
 export interface ToolActivityItem {
   toolUseId: string;
   toolName: string;
+  activityKind?: ToolActivityKind;
   displayName?: string;
   intent?: string;
   /**
@@ -120,6 +121,7 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
       return {
         toolUseId: call.id,
         toolName: call.toolName,
+        activityKind: call.activityKind,
         displayName: call.displayName,
         intent: call.intent,
         ...(call.stepId !== undefined ? { stepId: call.stepId } : {}),

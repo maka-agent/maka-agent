@@ -1,5 +1,6 @@
 import type {
   SessionEvent,
+  ToolActivityKind,
   ToolOutputStream,
   ToolResultContent,
   ToolResultEvent,
@@ -43,6 +44,8 @@ export interface MakaTool<P = any, R = unknown> {
   permissionRequired?: boolean;
   /** Optional UI display name. */
   displayName?: string;
+  /** Stable semantic category used by UI presentation; never carries styling. */
+  activityKind?: ToolActivityKind;
   /** Optional trusted category override for custom tools. */
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
@@ -251,6 +254,7 @@ export class ToolRuntime {
       turnId,
       ts: now,
       toolName: tool.name,
+      ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       args,
@@ -266,6 +270,7 @@ export class ToolRuntime {
       ts: now,
       toolUseId,
       toolName: tool.name,
+      ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       args,
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),

@@ -58,6 +58,7 @@ export function buildForegroundBashTool(options: BuildForegroundBashToolOptions)
   const maxTimeoutMs = options.maxTimeoutMs ?? 600_000;
   return {
     name: 'Bash',
+    activityKind: 'command',
     description: options.description,
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
@@ -108,6 +109,7 @@ export function buildBackgroundBashTool(
   const shell = options.shell ?? defaultShellPlan();
   return {
     name: 'Bash',
+    activityKind: 'command',
     description:
       withShellGuidance('Run a shell command in the session cwd.', shell)
       + ' Commands that outlive yield_time_ms continue as runtime background tasks; use the returned ref with Read to inspect them. Subject to permission policy.',
@@ -142,6 +144,7 @@ export function withShellGuidance(lead: string, shell: ShellPlan): string {
 export function buildStopBackgroundTaskTool(shellRuns: ShellRunToolController): MakaTool {
   return {
     name: 'StopBackgroundTask',
+    activityKind: 'command',
     description:
       'Stop a background task by runtime ref. Currently supports background shell run refs returned by Bash and shown in the turn tail.',
     parameters: z.object({

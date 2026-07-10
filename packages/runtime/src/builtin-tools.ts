@@ -59,6 +59,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     ...bashTools,
     {
       name: 'Read',
+      activityKind: 'read',
       description: readDescription,
       parameters: z.object({
         path: z.string(),
@@ -84,6 +85,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Write',
+      activityKind: 'edit',
       description: 'Write content to a file (creates or overwrites). Subject to permission policy.',
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
@@ -98,6 +100,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Edit',
+      activityKind: 'edit',
       description:
         'Replace old_string with new_string in a file. Prefers an exact, unique match; '
         + 'if exact fails it tolerates limited whitespace/indentation/escape drift in old_string, '
@@ -131,6 +134,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Glob',
+      activityKind: 'search',
       description:
         'Find files matching a glob pattern (case-insensitive, capped at 200, sorted by walk order).',
       parameters: z.object({
@@ -151,6 +155,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Grep',
+      activityKind: 'search',
       description: 'Search file contents with a regex via ripgrep.',
       parameters: z.object({
         pattern: z.string(),
@@ -187,6 +192,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
 function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): MakaTool {
   return {
     name: 'Bash',
+    activityKind: 'command',
     description: withShellGuidance('Run a shell command in the session cwd.', shell)
       + ' Subject to permission policy.',
     parameters: z.object({

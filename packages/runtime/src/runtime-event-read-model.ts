@@ -4,10 +4,12 @@ import type {
   RuntimeEvent,
   RuntimeEventStatus,
   StoredMessage,
+  ToolActivityKind,
   ToolResultContent,
   TurnStatus,
 } from '@maka/core';
 import {
+  TOOL_ACTIVITY_KINDS,
   isPartialRuntimeEvent,
   isTerminalRuntimeEvent,
   isTerminalRuntimeEventStatus,
@@ -501,6 +503,9 @@ function projectFunctionCall(
     turnId: event.turnId,
     ts: event.ts,
     toolName: event.content.name,
+    ...(toolActivityKindStateDelta(event) !== undefined
+      ? { activityKind: toolActivityKindStateDelta(event) }
+      : {}),
     ...(stringStateDelta(event, 'displayName') !== undefined
       ? { displayName: stringStateDelta(event, 'displayName') }
       : {}),
@@ -814,6 +819,11 @@ function stringStateDelta(event: RuntimeEvent, key: string): string | undefined 
   return typeof value === 'string' ? value : undefined;
 }
 
+function toolActivityKindStateDelta(event: RuntimeEvent): ToolActivityKind | undefined {
+  const value = stringStateDelta(event, 'activityKind');
+  return TOOL_ACTIVITY_KINDS.find((kind) => kind === value);
+}
+
 function numberStateDelta(event: RuntimeEvent, key: string): number | undefined {
   const value = event.actions?.stateDelta?.[key];
   return typeof value === 'number' ? value : undefined;
@@ -940,6 +950,7 @@ function semanticMessage(message: StoredMessage): unknown {
         turnId: message.turnId,
         toolUseId: message.id,
         toolName: message.toolName,
+        activityKind: message.activityKind,
         displayName: message.displayName,
         intent: message.intent,
         args: message.args,

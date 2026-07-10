@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import type { StoredMessage } from '@maka/core';
 import { ToolActivity, ToolTrow } from '../tool-activity.js';
 import {
   createToolDisclosureState,
@@ -9,13 +10,39 @@ import {
   setToolDisclosureOpen,
   syncToolDisclosureState,
 } from '../tool-activity/presentation.js';
-import type { ToolActivityItem } from '../materialize.js';
+import { materializeTools, type ToolActivityItem } from '../materialize.js';
 
 function renderTool(item: ToolActivityItem): string {
   return renderToStaticMarkup(createElement(ToolTrow, { items: [item] }));
 }
 
 describe('tool activity presentation', () => {
+  it('prefers a declared semantic kind over the legacy tool-name fallback', () => {
+    const item: ToolActivityItem = {
+      toolUseId: 'tool-kind',
+      toolName: 'Read',
+      activityKind: 'command',
+      status: 'running',
+      args: {},
+    };
+
+    assert.equal(deriveToolActivityPresentation(item).kind, 'command');
+  });
+
+  it('materializes a persisted activity kind for replay', () => {
+    const messages: StoredMessage[] = [{
+      type: 'tool_call',
+      id: 'tool-replay',
+      turnId: 'turn-replay',
+      ts: 1,
+      toolName: 'CustomPatch',
+      activityKind: 'edit',
+      args: {},
+    }];
+
+    assert.equal(materializeTools(messages)[0]?.activityKind, 'edit');
+  });
+
   it('keeps a running command detail collapsed by default', () => {
     const markup = renderTool({
       toolUseId: 'tool-running',

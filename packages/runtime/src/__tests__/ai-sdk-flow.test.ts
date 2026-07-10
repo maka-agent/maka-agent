@@ -624,6 +624,22 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(b.role, 'tool');
   });
 
+  test('tool_start maps its semantic activity kind into runtime state', () => {
+    const event = mapSessionEventToRuntimeEvent(
+      ev({
+        type: 'tool_start',
+        toolUseId: 'tu-kind',
+        toolName: 'CustomCommand',
+        activityKind: 'command',
+        args: {},
+      }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
+
+    assert.equal(event.actions?.stateDelta?.activityKind, 'command');
+  });
+
   test('plan_submitted maps to an agent-authored state delta', () => {
     const a = mapSessionEventToRuntimeEvent(
       ev({ type: 'plan_submitted', planId: 'p1', title: 'T', markdownPath: '/p.md' }),

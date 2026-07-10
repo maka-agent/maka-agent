@@ -64,6 +64,7 @@ describe('applyLiveTurnEvent', () => {
       stepId: 'step-1',
       toolUseId: 'tool-1',
       toolName: 'Task List',
+      activityKind: 'command',
       args: {},
       ts: 101,
     });
@@ -72,6 +73,7 @@ describe('applyLiveTurnEvent', () => {
     assert.deepEqual(projection.steps[0]?.tools, [{
       toolUseId: 'tool-1',
       toolName: 'Task List',
+      activityKind: 'command',
       stepId: 'step-1',
       status: 'pending',
       args: {},

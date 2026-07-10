@@ -20,6 +20,18 @@ import type {
 
 export const TOOL_OUTPUT_STREAMS = ['stdout', 'stderr'] as const;
 export const TOOL_OUTPUT_DELTA_MAX_CHARS = 8192;
+export const TOOL_ACTIVITY_KINDS = [
+  'read',
+  'search',
+  'websearch',
+  'webfetch',
+  'edit',
+  'command',
+  'explore',
+  'browser',
+  'tool',
+] as const;
+export type ToolActivityKind = typeof TOOL_ACTIVITY_KINDS[number];
 type TerminalToolResultStatus = Exclude<ShellRunTerminalStatus, 'orphaned'>;
 
 // ============================================================================
@@ -99,6 +111,8 @@ export interface ToolStartEvent extends BaseEvent {
   type: 'tool_start';
   toolUseId: string;
   toolName: string;
+  /** Stable semantic category for presentation; absent on legacy events. */
+  activityKind?: ToolActivityKind;
   args: unknown;
   displayName?: string;
   intent?: string;

@@ -196,6 +196,18 @@ describe('materializeSession', () => {
 // ---------- applyAppendedMessage ----------
 
 describe('applyAppendedMessage', () => {
+  test('preserves a semantic activity kind during reload and live append', () => {
+    const call = { ...toolCall('t', 'custom_shell'), activityKind: 'command' as const };
+    const reloaded = materializeSession([call]);
+    const appended = applyAppendedMessage([], call);
+
+    const reloadedItem = reloaded.items[0];
+    const appendedItem = appended.items[0];
+    if (reloadedItem?.kind !== 'tool' || appendedItem?.kind !== 'tool') throw new Error('wrong kind');
+    expect(reloadedItem.item.activityKind).toBe('command');
+    expect(appendedItem.item.activityKind).toBe('command');
+  });
+
   test('append user → adds bubble', () => {
     const next = applyAppendedMessage([], user('u', 'hi'));
     expect(next.items).toHaveLength(1);

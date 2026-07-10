@@ -16,6 +16,7 @@ export type {
   ThinkingDeltaEvent,
   ThinkingCompleteEvent,
   ToolStartEvent,
+  ToolActivityKind,
   ToolOutputDeltaEvent,
   ToolOutputStream,
   ToolProgressEvent,
@@ -34,6 +35,7 @@ export type {
   AttachmentIngestItem,
 } from './events.js';
 export {
+  TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,
 } from './events.js';

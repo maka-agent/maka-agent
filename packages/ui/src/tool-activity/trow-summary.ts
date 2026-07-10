@@ -11,25 +11,20 @@
  * kind to an icon.
  */
 
+import type { ToolActivityKind } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
 
-export type TrowActivityKind =
-  | 'read'
-  | 'search'
-  | 'websearch'
-  | 'webfetch'
-  | 'edit'
-  | 'command'
-  | 'explore'
-  | 'browser'
-  | 'tool';
+export type TrowActivityKind = ToolActivityKind;
 
 /**
- * Bucket a maka tool by its canonical name (case-insensitive). `browser_*`
- * tools collapse to one `browser` bucket; anything unrecognized falls back to
- * the generic `tool` bucket so the summary always renders.
+ * Prefer a declared semantic category. Legacy rows fall back to the canonical
+ * tool name (case-insensitive); unknown names use the generic `tool` bucket.
  */
-export function trowActivityKind(toolName: string): TrowActivityKind {
+export function trowActivityKind(
+  toolName: string,
+  activityKind?: ToolActivityKind,
+): TrowActivityKind {
+  if (activityKind) return activityKind;
   const name = toolName.toLowerCase();
   if (name.startsWith('browser_')) return 'browser';
   switch (name) {
@@ -89,7 +84,7 @@ export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
   const counts = new Map<TrowActivityKind, number>();
   let failed = 0;
   for (const item of items) {
-    const kind = trowActivityKind(item.toolName);
+    const kind = trowActivityKind(item.toolName, item.activityKind);
     if (!counts.has(kind)) order.push(kind);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
     if (isFailed(item.status)) failed += 1;
