@@ -94,9 +94,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let permissionInFlight = false;
   let turnRunning = false;
-  let interruptRequested = false;
   const activeWork = new Set<Promise<void>>();
-  const pendingDriverStops = new Set<Promise<boolean>>();
+  let retainedStopPromise: Promise<boolean> | null = null;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
   let lastIdleCtrlCAt = 0;
@@ -211,11 +210,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       .then(() => input.driver.stop())
       .then(() => true)
       .catch((error) => {
+        if (retainedStopPromise === stopPromise) retainedStopPromise = null;
         onError?.(error);
         return false;
       });
-    pendingDriverStops.add(stopPromise);
-    void stopPromise.then(() => pendingDriverStops.delete(stopPromise));
+    retainedStopPromise = stopPromise;
     return stopPromise;
   };
 
@@ -227,13 +226,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
       const workPromises = [...activeWork];
-      const stopPromises = [...pendingDriverStops];
-      const needsStop = busy && (turnRunning ? !interruptRequested : stopPromises.length === 0);
-      if (needsStop) {
-        stopPromises.push(stopDriver());
-      }
-      const stopResults = await Promise.all(stopPromises);
-      if (busy && stopResults.length > 0 && stopResults.every((stopped) => !stopped)) {
+      const stopPromise = retainedStopPromise ?? (busy ? stopDriver() : null);
+      const stopped = stopPromise ? await stopPromise : true;
+      if (busy && !stopped) {
         await stopDriver();
       }
       await Promise.all(workPromises);
@@ -309,10 +304,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const requestTurnInterrupt = () => {
-    if (interruptRequested) return;
-    interruptRequested = true;
+    if (retainedStopPromise) return;
     void stopDriver((error) => {
-      interruptRequested = false;
       if (!closed) reportError(error);
     });
   };
@@ -331,7 +324,6 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
-    interruptRequested = false;
     lastTurnEscapeAt = 0;
     editor.disableSubmit = true;
     terminal.setProgress(true);
@@ -361,10 +353,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         requestRender();
       },
     }).finally(async () => {
-      await Promise.all([...pendingDriverStops]);
+      while (retainedStopPromise) {
+        const stopPromise = retainedStopPromise;
+        await stopPromise;
+        if (retainedStopPromise === stopPromise) retainedStopPromise = null;
+      }
       busy = false;
       turnRunning = false;
-      interruptRequested = false;
       editor.disableSubmit = false;
       terminal.setProgress(false);
       attention.promptTurnEnded();
@@ -930,7 +925,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Once an interrupt is issued, swallow further Escapes until the turn
       // ends so a still-settling stop is not requested twice. A rejected stop
       // re-arms interruption so the user can retry within the same turn.
-      if (interruptRequested) return { consume: true };
+      if (retainedStopPromise) return { consume: true };
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
