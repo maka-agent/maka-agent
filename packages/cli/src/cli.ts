@@ -51,6 +51,15 @@ export function beginMakaCliExit(commandExitCode: number): void {
   processExitTimer.unref();
 }
 
+export function handleMakaCliProcessExit(
+  exitCode: number,
+  error?: unknown,
+  writeFatal: (message: string) => unknown = (message) => process.stderr.write(message),
+): void {
+  beginMakaCliExit(exitCode);
+  if (error) writeFatal(`${formatMakaCliFatalError(error)}\n`);
+}
+
 function helpText(): string {
   return [
     'Usage: maka',
@@ -116,10 +125,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',
-          onProcessExit: (exitCode, error) => {
-            if (error) process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
-            beginMakaCliExit(exitCode);
-          },
+          onProcessExit: handleMakaCliProcessExit,
         });
         return 0;
       } finally {
@@ -166,8 +172,7 @@ if (isMainModule()) {
       beginMakaCliExit(code);
     },
     (error) => {
-      process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
-      beginMakaCliExit(1);
+      handleMakaCliProcessExit(1, error);
     },
   );
 }
