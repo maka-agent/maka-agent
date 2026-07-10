@@ -207,13 +207,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (!interruptRequested) void input.driver.stop().catch(() => {});
   };
 
-  const close = () => beginClose();
-
   const handleProcessExit = (exitCode: number, error?: Error): void => {
     process.exitCode = exitCode;
     beginClose(input.onProcessExit ? undefined : error);
     input.onProcessExit?.(exitCode, error);
   };
+
+  const beginGracefulClose = () => beginClose();
 
   function handleSigint(): void {
     handleProcessExit(128 + 2);
@@ -670,7 +670,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       name: 'exit',
       description: 'Exit Maka',
       run: () => {
-        void close();
+        beginGracefulClose();
       },
     },
     {
@@ -936,7 +936,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       const now = Date.now();
       if (lastIdleCtrlCAt && now - lastIdleCtrlCAt <= DOUBLE_CTRL_C_EXIT_WINDOW_MS) {
         lastIdleCtrlCAt = 0;
-        void close();
+        handleProcessExit(0);
       } else {
         lastIdleCtrlCAt = now;
         state.entries.push({ kind: 'notice', level: 'info', text: 'Press Ctrl+C again to exit.' });
@@ -947,7 +947,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     if (matchesKey(data, Key.ctrl('d'))) {
       if (busy || turnRunning) return { consume: true };
       if (editor.getText().length === 0) {
-        void close();
+        beginGracefulClose();
         return { consume: true };
       }
       return undefined;

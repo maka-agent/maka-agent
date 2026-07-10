@@ -580,6 +580,7 @@ describe('Maka Pi TUI runner', () => {
   test('requires a second idle Ctrl-C to exit Maka', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
+    const processExitCodes: number[] = [];
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -588,6 +589,7 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'deepseek',
       permissionMode: 'ask',
       terminal,
+      onProcessExit: (exitCode) => processExitCodes.push(exitCode),
     });
 
     terminal.input('\x03');
@@ -597,6 +599,7 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\x03');
     await run;
     assert.equal(terminal.stopCalls, 1);
+    assert.deepEqual(processExitCodes, [0]);
   });
 
   test('does not count a Kitty Ctrl-C repeat as the second press', async () => {
@@ -958,6 +961,7 @@ describe('Maka Pi TUI runner', () => {
   test('exits on the second Ctrl-C during a control command', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredControlDriver();
+    const processExitCodes: number[] = [];
     const run = runMakaPiTui({
       title: 'Maka',
       driver,
@@ -966,6 +970,7 @@ describe('Maka Pi TUI runner', () => {
       connectionSlug: 'claude-subscription',
       permissionMode: 'ask',
       terminal,
+      onProcessExit: (exitCode) => processExitCodes.push(exitCode),
     });
 
     terminal.input('/model claude-opus-4-1');
@@ -984,6 +989,7 @@ describe('Maka Pi TUI runner', () => {
         }),
       ]);
       assert.equal(terminal.stopCalls, 1);
+      assert.deepEqual(processExitCodes, [0]);
     } finally {
       driver.releaseSetModel();
       if (terminal.stopCalls === 0) exitMaka(terminal);
