@@ -68,6 +68,12 @@ describe('Maka session driver', () => {
     await turn;
     assert.deepEqual(runtime.stopped, []);
     assert.deepEqual(runtime.sent, []);
+    assert.deepEqual(runtime.removed, ['session-1']);
+    assert.equal(driver.getSessionId(), null);
+
+    await collect(driver.sendPrompt('try again'));
+    assert.equal(driver.getSessionId(), 'session-2');
+    assert.deepEqual(runtime.sent.map(({ sessionId }) => sessionId), ['session-2']);
   });
 
   test('cancels every prompt waiting on the same session creation', async () => {
@@ -90,6 +96,29 @@ describe('Maka session driver', () => {
     assert.equal(runtime.created.length, 1);
     assert.deepEqual(runtime.stopped, []);
     assert.deepEqual(runtime.sent, []);
+    assert.deepEqual(runtime.removed, ['session-1']);
+  });
+
+  test('startNewSession invalidates and removes a pending session creation', async () => {
+    const runtime = new DeferredSessionCreationRuntime();
+    const driver = createMakaSessionDriver({
+      runtime,
+      cwd: '/repo',
+      llmConnectionSlug: 'anthropic',
+      model: 'claude-sonnet-4-5',
+      newId: nextId('turn'),
+    });
+    const firstTurn = collect(driver.sendPrompt('first'));
+    await runtime.createStarted;
+
+    driver.startNewSession();
+    runtime.releaseCreate();
+    await firstTurn;
+    await collect(driver.sendPrompt('second'));
+
+    assert.deepEqual(runtime.removed, ['session-1']);
+    assert.equal(driver.getSessionId(), 'session-2');
+    assert.deepEqual(runtime.sent.map(({ sessionId }) => sessionId), ['session-2']);
   });
 
   test('can still create a bypass session when explicitly requested', async () => {
@@ -707,13 +736,14 @@ class RecordingRuntime {
   readonly branched: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly branchedBefore: Array<{ sessionId: string; sourceTurnId: string }> = [];
   readonly stopped: string[] = [];
+  readonly removed: string[] = [];
   readonly sessionMessages = new Map<string, StoredMessage[]>();
   sessionSummaries: SessionSummary[] = [];
 
   async createSession(input: CreateSessionInput): Promise<SessionSummary> {
     this.created.push(input);
     return {
-      id: 'session-1',
+      id: `session-${this.created.length}`,
       name: input.name ?? 'New Chat',
       isFlagged: false,
       isArchived: false,
@@ -759,6 +789,10 @@ class RecordingRuntime {
 
   async stopSession(sessionId: string): Promise<void> {
     this.stopped.push(sessionId);
+  }
+
+  async remove(sessionId: string): Promise<void> {
+    this.removed.push(sessionId);
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
@@ -834,6 +868,7 @@ class DeferredSessionCreationRuntime extends RecordingRuntime {
   readonly createStarted: Promise<void>;
   private resolveCreateStarted: (() => void) | null = null;
   private resolveCreate: (() => void) | null = null;
+  private deferNextCreate = true;
 
   constructor() {
     super();
@@ -843,6 +878,8 @@ class DeferredSessionCreationRuntime extends RecordingRuntime {
   }
 
   override async createSession(input: CreateSessionInput): Promise<SessionSummary> {
+    if (!this.deferNextCreate) return super.createSession(input);
+    this.deferNextCreate = false;
     this.resolveCreateStarted?.();
     this.resolveCreateStarted = null;
     await new Promise<void>((resolve) => {

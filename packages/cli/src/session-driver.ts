@@ -8,6 +8,7 @@ import type { ThinkingLevel } from '@maka/core/model-thinking';
 
 export interface MakaSessionRuntime {
   createSession(input: CreateSessionInput): Promise<SessionSummary>;
+  remove(sessionId: string): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
   getMessages(sessionId: string): Promise<StoredMessage[]>;
   sendMessage(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
@@ -88,8 +89,11 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
-  private sessionCreation: Promise<string> | null = null;
-  private stopGeneration = 0;
+  private sessionCreation: {
+    generation: number;
+    promise: Promise<string | null>;
+  } | null = null;
+  private sessionGeneration = 0;
   private model: string;
   // The connection the active/next session runs on. Mutable so a cross-provider
   // /model switch can rebind it; new sessions are created on this connection.
@@ -106,9 +110,9 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    const generation = this.stopGeneration;
-    const sessionId = await this.ensureSession(prompt);
-    if (generation !== this.stopGeneration) return;
+    const generation = this.sessionGeneration;
+    const sessionId = await this.ensureSession(prompt, generation);
+    if (!sessionId || generation !== this.sessionGeneration) return;
     yield* this.input.runtime.sendMessage(sessionId, {
       turnId: this.newId(),
       text: prompt,
@@ -131,7 +135,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async stop(): Promise<void> {
-    this.stopGeneration += 1;
+    this.sessionGeneration += 1;
     if (!this.sessionId) return;
     await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
   }
@@ -198,6 +202,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       throw new Error('Session uses a different connection; run Maka with that connection to resume it.');
     }
     const messages = await this.input.runtime.getMessages(summary.id);
+    this.sessionGeneration += 1;
     this.sessionId = summary.id;
     this.model = summary.model;
     this.llmConnectionSlug = summary.llmConnectionSlug;
@@ -250,6 +255,7 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     // Drop the active session id only. The current model / thinking / permission
     // stay put, so the next prompt lazily creates a fresh session that inherits
     // them (via ensureSession). The old session is left intact on disk.
+    this.sessionGeneration += 1;
     this.sessionId = null;
   }
 
@@ -257,10 +263,10 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     return this.sessionId;
   }
 
-  private async ensureSession(prompt: string): Promise<string> {
+  private async ensureSession(prompt: string, generation: number): Promise<string | null> {
     if (this.sessionId) return this.sessionId;
-    if (this.sessionCreation) return this.sessionCreation;
-    const sessionCreation = this.input.runtime.createSession({
+    if (this.sessionCreation?.generation === generation) return this.sessionCreation.promise;
+    const promise = this.input.runtime.createSession({
       cwd: this.input.cwd,
       name: prompt.slice(0, 42) || '新建对话',
       backend: 'ai-sdk',
@@ -268,13 +274,18 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       model: this.model,
       permissionMode: this.permissionMode,
       ...(this.thinkingLevel !== undefined ? { thinkingLevel: this.thinkingLevel } : {}),
-    }).then((session) => {
+    }).then(async (session) => {
+      if (generation !== this.sessionGeneration) {
+        await this.input.runtime.remove(session.id);
+        return null;
+      }
       this.sessionId = session.id;
       return session.id;
     });
+    const sessionCreation = { generation, promise };
     this.sessionCreation = sessionCreation;
     try {
-      return await sessionCreation;
+      return await promise;
     } finally {
       if (this.sessionCreation === sessionCreation) this.sessionCreation = null;
     }
