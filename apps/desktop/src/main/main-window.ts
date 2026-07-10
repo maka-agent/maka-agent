@@ -72,9 +72,11 @@ const MAIN_WINDOW_TRAFFIC_LIGHT_POSITION = { x: 14, y: 14 } as const;
 const HIDDEN_TRAFFIC_LIGHT_POSITION = { x: -100, y: -100 } as const;
 
 // PR-SHOW-AFTER-FIRST-COMMIT: fallback reveal delay for a renderer that never
-// signals its first commit (window:notifyRendererReady). main.tsx's onboarding
-// prefetch bails at 2500ms; the remainder is headroom for load + first paint,
-// so a wedged renderer can never leave the window invisible forever.
+// signals its first painted frame (window:notifyRendererReady). main.tsx's
+// onboarding prefetch bails at 2500ms; the remainder is headroom for React +
+// first paint. The timer is armed only after loadURL/loadFile resolves, so
+// Vite compilation and document loading do not consume this budget, while a
+// wedged renderer still cannot leave the window invisible forever.
 const SHOW_FALLBACK_TIMEOUT_MS = 4000;
 
 // PR-WINDOW-TITLEBAR-0: the Windows titleBarOverlay height matches the
@@ -345,22 +347,24 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       void writeSavedBounds(workspaceRoot, final);
     });
 
-    // PR-SHOW-AFTER-FIRST-COMMIT: reveal fallback. The window stays hidden
-    // until the renderer signals its first commit; if the renderer wedges and
-    // never signals, reveal it anyway after SHOW_FALLBACK_TIMEOUT_MS. Skipped
-    // for visual-smoke windows, which must stay hidden; cleared on
-    // renderer-ready (notifyRendererReady) and on close.
-    if (!keepHiddenForVisualSmoke) {
-      showFallbackTimer = setTimeout(() => {
-        showFallbackTimer = undefined;
-        revealGate.markReady(mainWindow);
-      }, SHOW_FALLBACK_TIMEOUT_MS);
-    }
-
     if (process.env.VITE_DEV_SERVER_URL) {
       await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     } else {
       await mainWindow.loadFile(join(import.meta.dirname, '..', '..', 'dist-renderer', 'index.html'));
+    }
+
+    // PR-SHOW-AFTER-FIRST-COMMIT: reveal fallback. Start this budget only once
+    // the renderer document has loaded. Starting it before loadURL/loadFile
+    // let a cold Vite transform or slow disk consume the whole timeout and
+    // reveal index.html's preload skeleton before React had a chance to paint.
+    // If renderer-ready arrived while loadURL/loadFile was resolving, the
+    // window is already visible and no timer is needed. Visual-smoke windows
+    // remain hidden for their whole lifecycle.
+    if (!keepHiddenForVisualSmoke && !mainWindow.isVisible()) {
+      showFallbackTimer = setTimeout(() => {
+        showFallbackTimer = undefined;
+        revealGate.markReady(mainWindow);
+      }, SHOW_FALLBACK_TIMEOUT_MS);
     }
     if (process.env.MAKA_REAL_WINDOW_SMOKE === '1') {
       emitRealWindowSmokeDiagnostic('after-load');
