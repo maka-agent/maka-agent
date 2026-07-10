@@ -23,39 +23,27 @@ import {
   activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
-  trowActivityKind,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
 import { deriveToolRowMotion, isToolRowRunning } from './tool-activity/tool-row-motion.js';
+import {
+  createToolDisclosureState,
+  deriveToolActivityPresentation,
+  isConnectorTool,
+  resolveToolDisplayName,
+  setToolDisclosureOpen,
+  syncToolDisclosureState,
+  type ToolActivityPresentation,
+} from './tool-activity/presentation.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { LiveIndicator, previewVariants, streamVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
-import { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
+import { describeLoadToolResult, formatRedactedJson, formatToolIntent } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
 import { ToolResultPreview } from './tool-activity/tool-result-preview.js';
-
-// Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
-// so the always-on group-activation connector's name is duplicated here as the
-// single hook for its friendly, locale-aware presentation. The pre-unification
-// name `load_tool` (PR #30) is also matched — it shipped and returns the same
-// `{ loaded: [...] }` shape, so replayed old sessions still render friendly.
-// `connect_tool_source` (PR #34) is intentionally NOT here: it never shipped and
-// its `{ tools: [...] }` result shape this card does not render.
-const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(['load_tools', 'load_tool']);
-
-function isConnectorTool(name: string): boolean {
-  return CONNECTOR_TOOL_NAMES.has(name);
-}
-
-/** Friendly tool name: an explicit displayName wins; the connector gets a localized name. */
-function resolveToolDisplayName(item: ToolActivityItem): string {
-  if (item.displayName) return item.displayName;
-  if (isConnectorTool(item.toolName)) return loadToolDisplayName(detectUiLocale());
-  return item.toolName;
-}
 
 /** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
@@ -169,16 +157,15 @@ const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
   interrupted: '已中断',
 };
 
-function isOpenByDefault(status: ToolActivityItem['status']): boolean {
-  // Show details inline while the call is in flight or blocking the user; also
-  // for errored calls so the failure is visible without an extra click. Settled
-  // success / interruption collapse so completed history doesn't drown the chat.
-  return (
-    status === 'pending' ||
-    status === 'waiting_permission' ||
-    status === 'running' ||
-    status === 'errored'
-  );
+function useToolDisclosure(presentation: ToolActivityPresentation) {
+  const [disclosure, setDisclosure] = useState(() => createToolDisclosureState(presentation));
+  useEffect(() => {
+    setDisclosure((current) => syncToolDisclosureState(current, presentation));
+  }, [presentation.needsAttention]);
+  return {
+    open: disclosure.open,
+    setOpen: (open: boolean) => setDisclosure((current) => setToolDisclosureOpen(current, open)),
+  };
 }
 
 function extractErrorText(result: ToolActivityItem['result']): string {
@@ -238,25 +225,19 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
 }
 
 function ToolActivityCard({ item }: { item: ToolActivityItem }) {
-  // Controlled open that follows item.status: a card that defaults open while
-  // pending/running auto-collapses when it settles to completed/interrupted
-  // (restoring the pre-Collapsible native-disclosure behavior, where
-  // open={isOpenByDefault(status)} re-evaluated every render). The user can
-  // still toggle in between — onOpenChange updates local state, and the next
-  // status change re-syncs. See disclosure-collapsible-contract: defaultOpen
-  // is banned here.
-  const [open, setOpen] = useState(isOpenByDefault(item.status));
-  useEffect(() => {
-    setOpen(isOpenByDefault(item.status));
-  }, [item.status]);
+  // Ordinary work stays summarized. A new permission/error state opens the
+  // diagnostics, while an explicit user toggle survives later ordinary status
+  // changes. See disclosure-collapsible-contract: defaultOpen is banned here.
+  const presentation = deriveToolActivityPresentation(item);
+  const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
   return (
     <Collapsible
       data-slot="tool"
       className={toolVariants({ part: 'item' })}
       data-status={item.status}
-      open={open}
-      onOpenChange={setOpen}
+      open={disclosure.open}
+      onOpenChange={disclosure.setOpen}
     >
       <CollapsibleTrigger className={toolVariants({ part: 'header' })}>
         <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
@@ -283,8 +264,9 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
   const permissionDenied = isPermissionDeniedToolResult(item.result);
+  const presentation = deriveToolActivityPresentation(item);
   const running = item.status === 'running' || item.status === 'pending';
-  const command = trowActivityKind(item.toolName) === 'command' ? extractToolCommand(item.args) : undefined;
+  const command = presentation.kind === 'command' ? extractToolCommand(item.args) : undefined;
   // A terminal result preview already prints `$ cmd` + cwd + exit in its head,
   // so the invocation line only fills the in-flight gap (and any non-terminal
   // result). The compact redacted-args fallback still routes through
@@ -345,10 +327,6 @@ const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
   tool: Settings,
 };
 
-function trowKindIcon(toolName: string): ComponentType<LucideProps> {
-  return TROW_KIND_ICON[trowActivityKind(toolName)];
-}
-
 // #646 run→done seam: the one-shot settle "landing". Reuses the whitelisted
 // `maka-stream-fade-in` keyframe (opacity 0→1, one-shot `both`) — no new keyframe
 // (design-406 governance) — and rides `var(--duration-emphasized)` /
@@ -374,17 +352,11 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const running = isTrowRunning(items);
   const attention = trowNeedsAttention(items);
   const active = activeTrowTool(items) ?? items[0]!;
-  // Controlled open: default collapsed, but a waiting_permission or errored
-  // tool forces the group open — a permission prompt must not hide behind the
-  // summary line, and an error banner must stay diagnosable (the old boxed
-  // cards kept errored tools expanded). The user's manual collapse sticks
-  // while `attention` stays true. No defaultOpen
-  // (disclosure-collapsible-contract) — controlled open re-syncs from status,
-  // like ToolActivityCard.
-  const [open, setOpen] = useState(attention);
-  useEffect(() => {
-    if (attention) setOpen(true);
-  }, [attention]);
+  const activePresentation = deriveToolActivityPresentation(active);
+  // Groups share the same disclosure state as a single row: ordinary work is
+  // summarized; a new permission/error state opens diagnostics; manual choice
+  // survives ordinary status changes.
+  const disclosure = useToolDisclosure({ ...activePresentation, needsAttention: attention });
   // #646: a group settles when all its tools do; the settle fade plays only if
   // the group was ever seen running here (not a replayed transcript). The
   // delayed shimmer de-flickers a group whose tools all finish sub-second.
@@ -393,12 +365,12 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const settled = !running;
   const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
-  const SummaryIcon = trowKindIcon(active.toolName);
+  const SummaryIcon = TROW_KIND_ICON[activePresentation.kind];
   const summary = running
-    ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
+    ? activePresentation.summary
     : summarizeTrowTools(items);
   return (
-    <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <SummaryIcon size={16} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
@@ -428,18 +400,14 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
 }
 
 /**
- * A single flat, borderless tool row inside a multi-tool trow. Its header
- * expands to the shared `ToolCardBody`. Permission and error force it open;
- * normal running stays height-stable, and a user's manual choice survives
- * later status changes. No card frame (`toolVariants({item})`), per the flat
- * trow visual language.
+ * A single flat, borderless tool row inside a multi-tool trow. Ordinary work
+ * is collapsed; permission prompts and errors open for attention, and a user's
+ * manual choice survives later ordinary status changes. No card frame
+ * (`toolVariants({item})`), per the flat trow visual language.
  */
 function ToolTrowRow({ item }: { item: ToolActivityItem }) {
-  const attention = trowNeedsAttention([item]);
-  const [open, setOpen] = useState(attention);
-  useEffect(() => {
-    if (attention) setOpen(true);
-  }, [attention]);
+  const presentation = deriveToolActivityPresentation(item);
+  const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
   // #646 run→done seam: `everRunning` is sticky across this row's renders so the
   // settle fade fires only for a tool that ran here, never for a replayed row
@@ -449,16 +417,15 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   if (isToolRowRunning(item.status)) everRunningRef.current = true;
   const motion = deriveToolRowMotion({ status: item.status, everRunning: everRunningRef.current });
   const errored = item.status === 'errored';
-  const RowIcon = trowKindIcon(item.toolName);
+  const RowIcon = TROW_KIND_ICON[presentation.kind];
   // One row language with the multi-tool summary row: a kind icon + a
   // user-language phrase, never the old status-dot + mono tool-name + status
   // word. Running shimmers the model's intent (or the friendly tool name);
   // settled prefers the intent, falls back to the display name.
-  const runningSummary = formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item);
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
   const settleFade = motion.settling ? SETTLE_FADE : undefined;
   return (
-    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={motion.settled ? 'true' : undefined} open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={motion.settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <RowIcon
           size={16}
@@ -466,7 +433,7 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
         {motion.shimmer ? (
-          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{runningSummary}</TextShimmer>
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{presentation.summary}</TextShimmer>
         ) : item.intent ? (
           <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone, settleFade)}>{formatToolIntent(item.intent)}</span>
         ) : (
@@ -531,9 +498,9 @@ function ToolOutputStream(props: {
     el.scrollTop = el.scrollHeight;
   }, [props.chunks, props.live]);
 
-  const stdoutCount = props.chunks.filter((c) => c.stream === 'stdout').length;
-  const stderrCount = props.chunks.filter((c) => c.stream === 'stderr').length;
-  const redactedCount = props.chunks.filter((c) => c.redacted).length;
+  const hasStderr = props.chunks.some((c) => c.stream === 'stderr');
+  const hasRedacted = props.chunks.some((c) => c.redacted);
+  const hasFlags = hasStderr || hasRedacted || props.truncated;
 
   return (
     <div className={streamVariants({ part: 'container' })} data-live={props.live ? 'true' : undefined}>
@@ -550,20 +517,21 @@ function ToolOutputStream(props: {
             <span>工具输出</span>
           )}
         </span>
-        <span className={streamVariants({ part: 'counts' })}>
-          {stdoutCount > 0 && <span className={streamVariants({ part: 'count' })}>stdout {stdoutCount}</span>}
-          {stderrCount > 0 && <span className={streamVariants({ part: 'count' })} data-stream="stderr">stderr {stderrCount}</span>}
-          {redactedCount > 0 && <span className={streamVariants({ part: 'count' })} data-redacted="true">已脱敏 {redactedCount}</span>}
-          {props.truncated && (
-            <span
-              className={streamVariants({ part: 'count' })}
-              data-truncated="true"
-              title="部分输出已截断；如需完整输出请查看对应工具结果或生成的 artifact"
-            >
-              已截断
-            </span>
-          )}
-        </span>
+        {hasFlags && (
+          <span className={streamVariants({ part: 'flags' })}>
+            {hasStderr && <span className={streamVariants({ part: 'flag' })} data-stream="stderr">stderr</span>}
+            {hasRedacted && <span className={streamVariants({ part: 'flag' })} data-redacted="true">已脱敏</span>}
+            {props.truncated && (
+              <span
+                className={streamVariants({ part: 'flag' })}
+                data-truncated="true"
+                title="部分输出已截断；如需完整输出请查看对应工具结果或生成的 artifact"
+              >
+                已截断
+              </span>
+            )}
+          </span>
+        )}
       </header>
       <pre ref={preRef} className={streamVariants({ part: 'body' })}>
         {props.chunks.map((chunk) => (

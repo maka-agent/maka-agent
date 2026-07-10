@@ -254,7 +254,7 @@ export function Marker({
  * Tool live-output stream shell (issue #332, PR3).
  *
  * Retires the bespoke `.maka-tool-output-stream-*` shell CSS (the panel,
- * header, counts row, scrolling body, and chunk/tag spans in
+ * header, diagnostic flags, scrolling body, and chunk/tag spans in
  * `styles/tool-stream.css`), moving each onto this Tailwind substrate. Every
  * value is a LITERAL arbitrary utility that compiles 1:1 to the declaration it
  * replaces, so the cva source string IS the computed-style proof (the cascade
@@ -286,16 +286,12 @@ const streamVariants = cva("", {
         "flex items-center justify-between gap-3 px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--foreground-3)] text-xs uppercase tracking-[0.06em] text-[color:var(--muted-foreground)]",
       // `.maka-tool-output-stream-label`
       label: "inline-flex items-center gap-1.5",
-      // `.maka-tool-output-stream-counts`
-      counts: "inline-flex items-center gap-2.5",
-      // `.maka-tool-output-stream-counts span` (tabular-nums on every count) plus
-      // the `[data-stream=stderr]` / `[data-redacted]` / `[data-truncated]`
-      // recolors. The `已截断` pill (`data-truncated`) gets the warning chrome the
-      // old `span[data-truncated="true"]` rule supplied; the inert
-      // `.maka-tool-output-stream-truncated-tag` class (no rule of its own) is
-      // dropped.
-      count:
-        "min-w-[5rem] [font-variant-numeric:tabular-nums]"
+      // Diagnostic flags replace transport chunk counts. A stream's internal
+      // delivery granularity is not user progress; only stderr, redaction, and
+      // truncation facts belong in this header.
+      flags: "inline-flex items-center gap-2.5",
+      flag:
+        "whitespace-nowrap"
         + " data-[stream=stderr]:text-[color:var(--destructive-text)]"
         + " data-[redacted=true]:text-[color:var(--warning-text,var(--info-text))]"
         + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-1 data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",

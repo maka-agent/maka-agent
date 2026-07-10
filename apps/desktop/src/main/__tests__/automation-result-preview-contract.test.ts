@@ -42,10 +42,10 @@ function renderAutomationResult(text: string): string {
   const item: ToolActivityItem = {
     toolUseId: 'tu-1',
     toolName: AUTOMATION_TOOL_NAME,
-    // 'running' keeps the collapsible card open by default so the static
-    // markup includes the body (a settled card collapses and Base UI unmounts
-    // closed panel content — nothing to assert on).
-    status: 'running',
+    // This test exercises the result parser, not disclosure defaults. Use an
+    // attention state so Base UI mounts the panel in static markup; ordinary
+    // running tools now stay collapsed until the user asks for diagnostics.
+    status: 'errored',
     args: { mode: 'create' },
     result: { kind: 'text', text },
   };
