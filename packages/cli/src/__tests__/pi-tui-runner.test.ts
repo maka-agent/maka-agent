@@ -3289,6 +3289,7 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
   });
   let stdout = '';
   let signalSent = false;
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
     stdout += chunk;
@@ -3299,6 +3300,7 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
   });
 
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+  clearTimeout(killTimer);
   return { code, signal, stdout };
 }
 
