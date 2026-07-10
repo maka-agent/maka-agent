@@ -40,6 +40,13 @@ export {
   TOOL_OUTPUT_STREAMS,
 } from './events.js';
 
+// tool-result-status.ts — settled tool activity status from tool_result
+export type { SettledToolActivityStatus } from './tool-result-status.js';
+export {
+  isCancelledToolResultContent,
+  toolResultActivityStatus,
+} from './tool-result-status.js';
+
 // runtime-event.ts — canonical Runtime v2 event contract.
 // Subpath `@maka/core/runtime-event` is the canonical import; these barrel
 // re-exports are for convenience.

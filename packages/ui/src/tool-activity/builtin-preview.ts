@@ -68,11 +68,12 @@ const SENSITIVE_KEY_RE =
   /(password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|^auth$|credential|private[_-]?key)/i;
 
 /**
- * Secret embedded in a key itself, e.g. `password=x`, `password: x`, `token x`.
- * Captures keyword + separator so only the payload is replaced with <redacted>.
+ * Secret embedded in a key itself, e.g. `password=x`, `password: x`,
+ * `Authorization: Bearer tok`. Captures keyword + separator; the remainder of
+ * the key (not just the first token) is replaced with <redacted>.
  */
 const SENSITIVE_KEY_PAYLOAD_RE =
-  /((?:password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|credential|private[_-]?key)[^\s=:]*)(\s*[=:]\s*|\s+)(\S+)/gi;
+  /((?:password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|credential|private[_-]?key)[^\s=:]*)(\s*[=:]\s*|\s+)(.+)$/gi;
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;

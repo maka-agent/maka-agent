@@ -142,6 +142,40 @@ describe('materializeSession', () => {
     expect(item.item.isError).toBe(true);
   });
 
+  test('cancelled terminal with isError=true → status interrupted', () => {
+    const cancelled: ToolResultMessage = {
+      type: 'tool_result',
+      id: 'r-cancel',
+      turnId,
+      ts: ts + 4,
+      toolUseId: 't-cancel',
+      isError: true,
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'sleep 99',
+        status: 'cancelled',
+        exitCode: 130,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    };
+    const vm = materializeSession([toolCall('t-cancel', 'Bash'), cancelled]);
+    const item = vm.items[0];
+    if (item?.kind !== 'tool') throw new Error('wrong kind');
+    expect(item.item.status).toBe('interrupted');
+
+    const live = applyAppendedMessage(
+      applyAppendedMessage([], toolCall('t-cancel', 'Bash')).items,
+      cancelled,
+    );
+    const liveItem = live.items[0];
+    if (liveItem?.kind !== 'tool') throw new Error('wrong kind');
+    expect(liveItem.item.status).toBe('interrupted');
+  });
+
   test('orphan tool_call (no matching result) → interrupted', () => {
     const vm = materializeSession([toolCall('t-orphan', 'Bash')]);
     expect(vm.items).toHaveLength(1);

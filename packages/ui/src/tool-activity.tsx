@@ -205,9 +205,29 @@ function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boole
   return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
 }
 
-/** Result kinds that own their own quiet panel (do not nest in the shared well). */
-function resultOwnsOwnPanel(result: ToolActivityItem['result']): boolean {
-  return result?.kind === 'terminal' || result?.kind === 'shell_run';
+/**
+ * Result kinds (or tool-specific cards) that already paint their own chrome —
+ * never nest them inside the shared quiet well.
+ */
+function resultOwnsOwnPanel(item: ToolActivityItem): boolean {
+  const result = item.result;
+  if (!result) return false;
+  if (isAutomationTool(item.toolName) && result.kind === 'text') return true;
+  if (isConnectorTool(item.toolName) && result.kind === 'json') return true;
+  switch (result.kind) {
+    case 'terminal':
+    case 'shell_run':
+    case 'subagent':
+    case 'explore_agent':
+    case 'web_search':
+    case 'web_search_error':
+    case 'file_diff':
+    case 'office_document':
+    case 'rive_workflow':
+      return true;
+    default:
+      return false;
+  }
 }
 
 function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
@@ -228,23 +248,37 @@ function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
 
 /**
  * Background Bash yields an empty shell_run body; keep the live chunks the
- * user already saw by filling empty stdout/stderr from outputChunks.
+ * user already saw by filling empty stdout/stderr from outputChunks. Also
+ * forward truncation / redaction hints so settled preview matches live.
  */
 function withLiveStreamFallback(
   result: NonNullable<ToolActivityItem['result']>,
   chunks: ToolActivityItem['outputChunks'] | undefined,
+  options?: { truncated?: boolean },
 ): NonNullable<ToolActivityItem['result']> {
   if (!chunks?.length) return result;
   if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
   if (resultHasCapturedStreams(result)) return result;
   let stdout = '';
   let stderr = '';
+  let anyRedacted = false;
   for (const chunk of chunks) {
+    if (chunk.redacted) anyRedacted = true;
     if (chunk.stream === 'stderr') stderr += chunk.text;
     else stdout += chunk.text;
   }
   if (!stdout && !stderr) return result;
-  return { ...result, stdout, stderr };
+  // Match live stream's "[已脱敏]" marker when a chunk was redacted.
+  if (anyRedacted) {
+    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+    else stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+  }
+  return {
+    ...result,
+    stdout,
+    stderr,
+    stdoutTruncated: result.stdoutTruncated === true || options?.truncated === true,
+  };
 }
 
 function toolStatusLabel(item: ToolActivityItem): string {
@@ -315,8 +349,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored' && !cancelled;
   const permissionDenied = isPermissionDeniedToolResult(item.result);
   const running = item.status === 'running' || item.status === 'pending';
-  // terminal / shell_run own a single quiet panel — never nest inside the shared well.
-  const ownsPanel = resultOwnsOwnPanel(item.result);
+  // Rich kinds + tool-specific cards own their chrome — never nest in the shared well.
+  const ownsPanel = resultOwnsOwnPanel(item);
   const showErrorBanner = errored;
   // Every tool: human invocation line from args — never pretty-printed JSON.
   // Skip when the result panel already prints the command (terminal/shell_run).
@@ -333,7 +367,9 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     && (running || !item.result);
   const showResult = !!item.result && !permissionDenied;
   const displayResult = showResult && item.result
-    ? withLiveStreamFallback(item.result, item.outputChunks)
+    ? withLiveStreamFallback(item.result, item.outputChunks, {
+      truncated: item.outputTruncated === true,
+    })
     : undefined;
   const quietJson =
     displayResult?.kind === 'json'
@@ -360,7 +396,15 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   return (
     <div className="mt-1 flex flex-col gap-1.5">
       {showErrorBanner && <ToolErrorBanner result={displayResult ?? item.result} />}
-      {showResult && ownsPanel && displayResult && <ToolResultPreview content={displayResult} />}
+      {showResult && ownsPanel && displayResult && (
+        isConnectorTool(item.toolName) && displayResult.kind === 'json' ? (
+          <LoadToolResultPreview args={item.args} value={displayResult.value} />
+        ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
+          <AutomationResultPreview text={displayResult.text} />
+        ) : (
+          <ToolResultPreview content={displayResult} />
+        )
+      )}
       {hasSharedPanelContent && (
         <div
           data-slot="tool-output"
@@ -386,11 +430,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             />
           )}
           {showResult && !ownsPanel && displayResult && (
-            isConnectorTool(item.toolName) && displayResult.kind === 'json' ? (
-              <LoadToolResultPreview args={item.args} value={displayResult.value} />
-            ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
-              <AutomationResultPreview text={displayResult.text} />
-            ) : quietJson ? (
+            quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
               <ToolResultPreview content={displayResult} />

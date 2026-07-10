@@ -21,6 +21,7 @@ import type {
   ToolActivityKind,
   ToolResultContent,
 } from '@maka/core';
+import { toolResultActivityStatus } from '@maka/core';
 
 // ============================================================================
 // View-model types (mirror packages/ui/src exports, lifted here for reuse)
@@ -140,7 +141,8 @@ export function materializeSession(messages: readonly StoredMessage[]): SessionV
 /**
  * Build a ToolActivityItem from a (ToolCallMessage, ToolResultMessage?) pair.
  *
- * - Missing result + isError-false-not-applicable → status 'interrupted' (orphan from crash)
+ * - Missing result → status 'interrupted' (orphan from crash)
+ * - Cancelled shell / aborted explore → 'interrupted' (not failure)
  * - Result with isError === true → 'errored' (includes permission deny/block)
  * - Result with isError === false → 'completed'
  */
@@ -166,7 +168,7 @@ function toolActivityFromPair(
     ...(call.activityKind !== undefined ? { activityKind: call.activityKind } : {}),
     ...(call.displayName !== undefined ? { displayName: call.displayName } : {}),
     ...(call.intent !== undefined ? { intent: call.intent } : {}),
-    status: result.isError ? 'errored' : 'completed',
+    status: toolResultActivityStatus(result.isError, result.content),
     args: call.args,
     result: result.content,
     isError: result.isError,
@@ -220,7 +222,7 @@ export function applyAppendedMessage(
           ...it,
           item: {
             ...it.item,
-            status: message.isError ? 'errored' as const : 'completed' as const,
+            status: toolResultActivityStatus(message.isError, message.content),
             result: message.content,
             isError: message.isError,
             ...(message.durationMs !== undefined ? { durationMs: message.durationMs } : {}),

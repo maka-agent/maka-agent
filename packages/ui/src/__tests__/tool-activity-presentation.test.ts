@@ -349,7 +349,13 @@ describe('tool activity presentation', () => {
   });
 
   it('redacts secrets in keys that use colon or space separators', () => {
-    for (const key of ['password: correct-horse', 'password correct-horse', 'token: short-secret']) {
+    for (const key of [
+      'password: correct-horse',
+      'password correct-horse',
+      'token: short-secret',
+      'Authorization: Bearer SENTINEL_TOKEN',
+      'password: correct horse',
+    ]) {
       const markup = renderToStaticMarkup(createElement(ToolActivity, {
         items: [{
           toolUseId: `tool-key-${key}`,
@@ -359,7 +365,7 @@ describe('tool activity presentation', () => {
           result: { kind: 'json', value: { ok: true } },
         } satisfies ToolActivityItem],
       }));
-      assert.doesNotMatch(markup, /correct-horse|short-secret/);
+      assert.doesNotMatch(markup, /correct-horse|short-secret|SENTINEL_TOKEN|\bhorse\b/);
       assert.match(markup, /redacted/i);
     }
   });
@@ -445,8 +451,9 @@ describe('tool activity presentation', () => {
         status: 'waiting_permission',
         args: { command: 'npm test' },
         outputChunks: [
-          { seq: 1, stream: 'stdout', text: 'starting-live-output\n', redacted: false, createdAt: 1 },
+          { seq: 1, stream: 'stdout', text: 'starting-live-output\n', redacted: true, createdAt: 1 },
         ],
+        outputTruncated: true,
         result: {
           kind: 'shell_run',
           ref: 'maka://runtime/background-tasks/bg-empty',
@@ -464,9 +471,36 @@ describe('tool activity presentation', () => {
     }));
 
     assert.match(markup, /starting-live-output/);
+    assert.match(markup, /已脱敏/);
+    assert.match(markup, /输出已截断/);
     assert.doesNotMatch(markup, /尚无输出/);
     const panels = markup.match(/data-slot="tool-output"/g) ?? [];
     assert.equal(panels.length, 1);
+  });
+
+  it('does not wrap subagent preview in an outer quiet panel', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-subagent',
+        toolName: 'Subagent',
+        status: 'waiting_permission',
+        args: {},
+        result: {
+          kind: 'subagent',
+          agentName: 'Review Agent',
+          turnId: 'turn',
+          status: 'completed',
+          permissionMode: 'ask',
+          summary: 'done',
+          artifactIds: [],
+          startedAt: 1,
+          durationMs: 1,
+        },
+      } satisfies ToolActivityItem],
+    }));
+    assert.match(markup, /data-kind="subagent"/);
+    // Subagent owns its surface — no outer tool-output well wrapping it.
+    assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
   });
 
   it('surfaces terminal cancel and runtime truncation flags', () => {

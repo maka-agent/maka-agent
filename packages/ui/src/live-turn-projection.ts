@@ -1,7 +1,7 @@
 import type { SessionEvent, StoredMessage } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
+import { toolResultActivityStatus } from '@maka/core';
 import type { ToolActivityItem } from './materialize.js';
-import { toolResultActivityStatus } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
 import { applyToolOutputChunk } from './tool-output-stream.js';
 
