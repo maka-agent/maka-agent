@@ -355,6 +355,12 @@ describe('tool activity presentation', () => {
       'token: short-secret',
       'Authorization: Bearer SENTINEL_TOKEN',
       'password: correct horse',
+      // Multi-word key names + bare auth= payloads
+      'api key: correct horse',
+      'private key: gamma delta',
+      'auth=correct horse',
+      'auth: short secret',
+      'access token: alpha beta',
     ]) {
       const markup = renderToStaticMarkup(createElement(ToolActivity, {
         items: [{
@@ -365,7 +371,10 @@ describe('tool activity presentation', () => {
           result: { kind: 'json', value: { ok: true } },
         } satisfies ToolActivityItem],
       }));
-      assert.doesNotMatch(markup, /correct-horse|short-secret|SENTINEL_TOKEN|\bhorse\b/);
+      assert.doesNotMatch(
+        markup,
+        /correct-horse|short-secret|SENTINEL_TOKEN|\bhorse\b|gamma|delta|alpha|beta/,
+      );
       assert.match(markup, /redacted/i);
     }
   });

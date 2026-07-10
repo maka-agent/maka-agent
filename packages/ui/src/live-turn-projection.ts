@@ -303,6 +303,31 @@ export function settleLiveTurnStep(
 }
 
 /**
+ * True when a persisted tool_result can replace live stream evidence for the
+ * same toolUseId. Empty shell_run/terminal bodies do not cover live chunks —
+ * background Bash yields an empty shell_run while live output is the only
+ * evidence the user already saw.
+ */
+function durableStreamEvidence(
+  messages: readonly StoredMessage[],
+  toolUseId: string,
+): boolean {
+  for (const message of messages) {
+    if (message.type !== 'tool_result' || message.toolUseId !== toolUseId) continue;
+    const content = message.content;
+    if (!content || typeof content !== 'object') return true;
+    if (content.kind === 'terminal' || content.kind === 'shell_run') {
+      return (content.stdout?.length ?? 0) > 0
+        || (content.stderr?.length ?? 0) > 0
+        || content.stdoutTruncated === true
+        || content.stderrTruncated === true;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Removes terminal non-text steps only when the persisted transcript can
  * render the same durable evidence. Text steps remain owned by the smoother,
  * whose completion callback performs their handoff after the tail is visible.
@@ -321,8 +346,13 @@ export function reconcileTerminalLiveTurn(
     if (step.thinking && !assistantIds.has(step.stepId)) return true;
     const toolsCovered = step.tools.every((tool) => {
       if (!toolCallIds.has(tool.toolUseId)) return false;
-      if (tool.outputChunks?.length && !toolResultIds.has(tool.toolUseId)) return false;
-      return tool.status === 'interrupted' || toolResultIds.has(tool.toolUseId);
+      const hasResult = toolResultIds.has(tool.toolUseId);
+      // Live stream evidence only hands off when durable result has streams/meta.
+      if (tool.outputChunks?.length) {
+        if (!hasResult) return false;
+        if (!durableStreamEvidence(turnMessages, tool.toolUseId)) return false;
+      }
+      return tool.status === 'interrupted' || hasResult;
     });
     return !toolsCovered;
   });
