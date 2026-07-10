@@ -1700,6 +1700,63 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('keeps Maka open when Ctrl-D is pressed during a control command', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    terminal.input('\x04');
+    await delay(20);
+
+    try {
+      assert.equal(terminal.stopCalls, 0);
+    } finally {
+      driver.releaseSetModel();
+      if (terminal.stopCalls === 0) exitMaka(terminal);
+      await run;
+    }
+  });
+
+  test('keeps Maka open when Ctrl-C is pressed during a control command', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new DeferredControlDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/model claude-opus-4-1');
+    terminal.input('\r');
+    await waitFor(() => driver.models.length === 1);
+    terminal.input('\x03');
+    terminal.input('\x03');
+    await delay(20);
+
+    try {
+      assert.equal(terminal.stopCalls, 0);
+    } finally {
+      driver.releaseSetModel();
+      if (terminal.stopCalls === 0) exitMaka(terminal);
+      await run;
+    }
+  });
+
   test('keeps the permission prompt visible when responding rejects', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectingPermissionDriver();

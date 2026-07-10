@@ -928,6 +928,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       lastIdleEscapeAt = now;
       return undefined;
     }
+    if (busy && matchesKey(data, Key.ctrl('c'))) {
+      lastIdleCtrlCAt = 0;
+      return { consume: true };
+    }
     if (!turnRunning && matchesKey(data, Key.ctrl('c')) && editor.getText().length > 0) {
       lastIdleCtrlCAt = 0;
       editor.setText('');
@@ -947,7 +951,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       return { consume: true };
     }
     if (matchesKey(data, Key.ctrl('d'))) {
-      if (!turnRunning && editor.getText().length === 0) {
+      if (busy || turnRunning) return { consume: true };
+      if (editor.getText().length === 0) {
         void close();
         return { consume: true };
       }
