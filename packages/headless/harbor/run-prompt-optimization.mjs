@@ -181,6 +181,7 @@ async function main() {
   // validation this runner exists to perform.
   const rounds = envPosInt('MAKA_PROMPT_ROUNDS', promptProfile.rounds);
   const baselineRuns = envInt('MAKA_PROMPT_BASELINE_RUNS', promptProfile.baselineRuns);
+  const zScore = envNum('MAKA_PROMPT_Z_SCORE', 1.96);
   const heldInCount = envInt('MAKA_PROMPT_HELD_IN', promptProfile.heldInCount);
   const heldOutCount = envInt('MAKA_PROMPT_HELD_OUT', promptProfile.heldOutCount);
   const runId = process.env.MAKA_PROMPT_RUN_ID || `prompt-opt-${Date.now()}`;
@@ -314,6 +315,7 @@ async function main() {
       model,
       rounds,
       baselineRuns,
+      zScore,
       costCeilingUsd,
       maxConcurrency,
       maxInfraFailureRate,
@@ -369,6 +371,7 @@ async function main() {
     runId,
     rounds,
     baselineRuns,
+    zScore,
     gitCwdPath: promptRepoDir,
     agentCwdPath,
     programPath,

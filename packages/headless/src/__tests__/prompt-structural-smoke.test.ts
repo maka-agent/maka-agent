@@ -64,6 +64,7 @@ describe('prompt structural smoke report', () => {
       'minimum_rounds_not_met',
       'cost_ceiling_exceeded',
       'plumbing_failures_present',
+      'reward_hack_quarantine_present',
     ]);
     assert.equal(report.observedRounds, 9);
     assert.equal(report.totalCostUsd, 37);
@@ -227,7 +228,7 @@ describe('prompt structural smoke report', () => {
     assert.deepEqual(report.failures, []);
   });
 
-  test('reports reward-hack scan quarantine without failing smoke', () => {
+  test('fails when reward-hack scan quarantine is present', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
@@ -245,12 +246,12 @@ describe('prompt structural smoke report', () => {
       costCeilingUsd: 30,
     });
 
-    assert.equal(report.status, 'pass');
+    assert.equal(report.status, 'fail');
     assert.equal(report.quarantineCount, 10);
-    assert.deepEqual(report.failures, []);
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
   });
 
-  test('reports unknown reward-hack scan decisions without failing smoke', () => {
+  test('fails closed on unknown reward-hack scan decisions', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
@@ -267,12 +268,12 @@ describe('prompt structural smoke report', () => {
       costCeilingUsd: 30,
     });
 
-    assert.equal(report.status, 'pass');
+    assert.equal(report.status, 'fail');
     assert.equal(report.quarantineCount, 10);
-    assert.deepEqual(report.failures, []);
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
   });
 
-  test('reports null reward-hack scan evidence without failing smoke', () => {
+  test('fails closed on null reward-hack scan evidence', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
       const roundId = `round-${index}`;
@@ -295,9 +296,9 @@ describe('prompt structural smoke report', () => {
       costCeilingUsd: 30,
     });
 
-    assert.equal(report.status, 'pass');
+    assert.equal(report.status, 'fail');
     assert.equal(report.quarantineCount, 10);
-    assert.deepEqual(report.failures, []);
+    assert.deepEqual(report.failures, ['reward_hack_quarantine_present']);
   });
 
   test('fails when task evidence is appended after decision rounds', () => {

@@ -180,6 +180,15 @@ describe('prompt optimization run manifest', () => {
     assert.notEqual(full.fingerprint, pilot.fingerprint);
   });
 
+  test('records the z-score in the resume fingerprint', () => {
+    const narrow = buildManifest('sha256:task-source', [], 'pilot', 1, 1);
+    const standard = buildManifest('sha256:task-source', [], 'pilot', 1, 1.96);
+
+    assert.equal('zScore' in narrow, true);
+    assert.equal('zScore' in standard, true);
+    assert.notEqual(standard.fingerprint, narrow.fingerprint);
+  });
+
   test('does not record an always-empty dropped held-in no-pattern field', () => {
     const manifest = buildManifest('sha256:task-source', []);
     assert.equal('droppedHeldInNoPatternTaskIds' in manifest, false);
@@ -191,6 +200,7 @@ function buildManifest(
   heldInTasks: FixedPromptTask[],
   profile: 'pilot' | 'full' = 'pilot',
   costCeilingUsd = 1,
+  zScore = 1.96,
 ) {
   return buildPromptOptimizationRunManifest({
     runId: 'rsi-test',
@@ -200,6 +210,7 @@ function buildManifest(
     model: 'deepseek/deepseek-v4-flash',
     rounds: 1,
     baselineRuns: 1,
+    zScore,
     costCeilingUsd,
     maxConcurrency: 1,
     maxInfraFailureRate: null,

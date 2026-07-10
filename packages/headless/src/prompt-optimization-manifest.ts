@@ -21,6 +21,7 @@ export interface PromptOptimizationRunManifest {
   model: string;
   rounds: number;
   baselineRuns: number;
+  zScore: number;
   costCeilingUsd: number | undefined;
   maxConcurrency: number | null;
   maxInfraFailureRate: number | null;
@@ -46,6 +47,7 @@ export interface PromptOptimizationRunManifestInput {
   model: string;
   rounds: number;
   baselineRuns: number;
+  zScore: number;
   costCeilingUsd?: number;
   maxConcurrency?: number;
   maxInfraFailureRate?: number | null;
@@ -81,6 +83,7 @@ export function buildPromptOptimizationRunManifest(
     model: input.model,
     rounds: input.rounds,
     baselineRuns: input.baselineRuns,
+    zScore: input.zScore,
     costCeilingUsd: input.costCeilingUsd,
     maxConcurrency: input.maxConcurrency ?? null,
     maxInfraFailureRate: input.maxInfraFailureRate ?? null,

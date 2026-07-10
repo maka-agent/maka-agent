@@ -82,6 +82,7 @@ export function promptStructuralSmokeReport(
   if (taskEvents.some((event) => event.type === 'task_plumbing_failed')) {
     failures.push('plumbing_failures_present');
   }
+  if (quarantineCount > 0) failures.push('reward_hack_quarantine_present');
   if (roundsWithoutRsiAttribution.length > 0) failures.push('rsi_attribution_missing');
   if (roundsWithMalformedRsiAttribution.length > 0) failures.push('rsi_attribution_malformed');
   if (roundsWithOutOfScopeRsiAttribution.length > 0) failures.push('rsi_attribution_task_scope_invalid');
