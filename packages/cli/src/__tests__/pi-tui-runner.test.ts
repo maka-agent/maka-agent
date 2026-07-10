@@ -246,6 +246,43 @@ describe('Maka Pi TUI runner', () => {
     }
   });
 
+  test('waits for turn finalization when stop settles first', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new StopEndsBeforeTurnDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+    let settled = false;
+    void run.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => terminal.progressStates.at(-1) === true);
+    terminal.input('\x03');
+    await waitFor(() => driver.stopCalls === 1);
+    await delay(0);
+    exitMaka(terminal);
+    await delay(0);
+
+    try {
+      assert.equal(terminal.stopCalls, 1);
+      assert.equal(driver.turnStreamEnded, false);
+      assert.equal(settled, false);
+    } finally {
+      driver.releaseTurn();
+      await run;
+    }
+  });
+
   test('allows a pending permission request from the terminal', async () => {
     const terminal = new FakeTerminal();
     const driver = new PermissionPromptDriver();
@@ -3059,6 +3096,36 @@ class TurnEndsBeforeStopDriver extends SlashCommandDriver {
   }
 }
 
+class StopEndsBeforeTurnDriver extends SlashCommandDriver {
+  stopCalls = 0;
+  turnStreamEnded = false;
+  private resolveTurn: (() => void) | null = null;
+
+  override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
+    this.prompts.push(prompt);
+    await new Promise<void>((resolve) => {
+      this.resolveTurn = resolve;
+    });
+    this.turnStreamEnded = true;
+    yield {
+      type: 'abort',
+      id: 'event-abort',
+      turnId: 'turn-1',
+      ts: 1,
+      reason: 'user_stop',
+    };
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
+
+  releaseTurn(): void {
+    this.resolveTurn?.();
+    this.resolveTurn = null;
+  }
+}
+
 class LongTranscriptDriver extends SlashCommandDriver {
   override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
@@ -3187,6 +3254,7 @@ class DeferredControlDriver implements MakaSessionDriver {
 
 class RejectingPermissionDriver implements MakaSessionDriver {
   readonly responses: PermissionResponse[] = [];
+  private resolveTurn: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
     return [];
@@ -3208,10 +3276,15 @@ class RejectingPermissionDriver implements MakaSessionDriver {
       args: { command: 'npm test' },
     };
     // The turn stays parked while the permission is unresolved.
-    await new Promise<void>(() => {});
+    await new Promise<void>((resolve) => {
+      this.resolveTurn = resolve;
+    });
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.resolveTurn?.();
+    this.resolveTurn = null;
+  }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
     this.responses.push(response);

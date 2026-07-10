@@ -95,6 +95,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let permissionInFlight = false;
   let turnRunning = false;
   let interruptRequested = false;
+  let activeTurnPromise: Promise<void> | null = null;
   const pendingDriverStops = new Set<Promise<void>>();
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
@@ -212,12 +213,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     void (async () => {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
+      const turnPromise = activeTurnPromise;
       const stopPromises = [...pendingDriverStops];
       const needsStop = turnRunning ? !interruptRequested : stopPromises.length === 0;
       if (needsStop) {
         stopPromises.push(stopDriver());
       }
       await Promise.all(stopPromises);
+      if (turnPromise) await turnPromise;
       if (error) rejectClosed(error);
       else resolveClosed();
     })();
@@ -313,7 +316,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
-    void submitPromptToTranscript({
+    const turnPromise = submitPromptToTranscript({
       state,
       driver: input.driver,
       prompt,
@@ -343,6 +346,10 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       terminal.setProgress(false);
       attention.promptTurnEnded();
       requestRender();
+    });
+    activeTurnPromise = turnPromise;
+    void turnPromise.then(() => {
+      if (activeTurnPromise === turnPromise) activeTurnPromise = null;
     });
   }
 
