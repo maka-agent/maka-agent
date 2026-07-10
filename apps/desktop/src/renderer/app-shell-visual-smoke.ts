@@ -46,34 +46,8 @@ export function createAppShellVisualSmokeActions(options: {
       Date.now = () => state.now!;
     }
     document.documentElement.setAttribute('data-maka-visual-smoke', 'true');
-    const liveSessionIds = new Set([
-      ...Object.keys(state.streamingBySession ?? {}),
-      ...Object.keys(state.thinkingBySession ?? {}),
-      ...Object.keys(state.liveToolsBySession ?? {}),
-      ...Object.keys(state.turnActiveBySession ?? {}),
-    ]);
-    if (liveSessionIds.size > 0) {
-      setLiveTurnBySession((current) => {
-        const next = { ...current };
-        for (const sessionId of liveSessionIds) {
-          const stepId = `visual-smoke-step:${sessionId}`;
-          const text = state.streamingBySession?.[sessionId];
-          const thinking = state.thinkingBySession?.[sessionId];
-          next[sessionId] = {
-            turnId: `visual-smoke-turn:${sessionId}`,
-            phase: state.turnActiveBySession?.[sessionId] ?? 'streamed',
-            steps: text || thinking || state.liveToolsBySession?.[sessionId]?.length
-              ? [{
-                  stepId,
-                  ...(thinking ? { thinking: { text: thinking, truncated: false, complete: false } } : {}),
-                  ...(text ? { text: { text, truncated: false, complete: false } } : {}),
-                  tools: (state.liveToolsBySession?.[sessionId] ?? []).map((tool) => ({ ...tool, stepId })),
-                }]
-              : [],
-          };
-        }
-        return next;
-      });
+    if (state.liveTurnBySession) {
+      setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
     if (state.permissionBySession) {
       const seeded: PermissionQueues = {};

@@ -113,12 +113,27 @@ export type VisualSmokeScenario =
 export interface VisualSmokeLiveTool {
   toolUseId: string;
   toolName: string;
+  stepId?: string;
   displayName?: string;
   intent?: string;
   status: 'pending' | 'waiting_permission' | 'running' | 'completed' | 'errored' | 'interrupted';
   args: unknown;
   result?: ToolResultContent;
   durationMs?: number;
+}
+
+export interface VisualSmokeLiveTurnStep {
+  stepId: string;
+  thinking?: { text: string; truncated: boolean; complete: boolean };
+  text?: { text: string; truncated: boolean; complete: boolean };
+  tools: VisualSmokeLiveTool[];
+}
+
+export interface VisualSmokeLiveTurnProjection {
+  turnId: string;
+  phase: 'waiting' | 'streamed';
+  terminal?: true;
+  steps: VisualSmokeLiveTurnStep[];
 }
 
 export interface VisualSmokeState {
@@ -133,25 +148,8 @@ export interface VisualSmokeState {
   now?: number;
   activeSessionId?: string;
   openSettingsSection?: SettingsSection;
-  streamingBySession?: Record<string, string>;
-  /**
-   * PR-UI-LAYOUT-42: per-session thinking buffer for fixtures that
-   * want to seed the ReasoningPanel mid-stream. Mirrors
-   * `streamingBySession` shape. Empty string = no live thinking
-   * (panel hidden). Set this in a fixture to capture the panel's
-   * live-streaming visual state in a screenshot.
-   */
-  thinkingBySession?: Record<string, string>;
+  liveTurnBySession?: Record<string, VisualSmokeLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
-  liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
-  /**
-   * #646: per-session turn phase, mirroring the renderer's `turnActiveBySession`.
-   * `'waiting'` = the connect-to-first-token wait (seed it for a running session
-   * with no live streaming/thinking/tools so the "正在处理…" indicator + composer
-   * Stop render); `'streamed'` = a mid-turn lull after content (the calm "继续中…"
-   * hint). Real users never receive a visual smoke state.
-   */
-  turnActiveBySession?: Record<string, 'waiting' | 'streamed'>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
    * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`
