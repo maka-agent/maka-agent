@@ -97,9 +97,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
+  let terminalRestored = false;
   let resolveClosed: () => void;
-  const closedPromise = new Promise<void>((resolve) => {
+  let rejectClosed: (error: Error) => void;
+  const closedPromise = new Promise<void>((resolve, reject) => {
     resolveClosed = resolve;
+    rejectClosed = reject;
   });
 
   const metadata = (): MakaPiTranscriptMetadata => ({
@@ -169,30 +172,63 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
   };
 
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    try {
-      // A double-Escape interrupt may already have a stop in flight for this
-      // turn; reuse it instead of firing a second stopSession that would append
-      // a duplicate abort note. Otherwise stop the runtime as part of closing.
-      if (!interruptRequested) {
-        await input.driver.stop();
-      }
-    } catch {
-      // Closing the terminal must win even if the runtime stop path
-      // has already failed or the session never fully started.
-    }
+  const removeProcessHandlers = () => {
+    process.off('SIGTERM', handleSigterm);
+    process.off('SIGHUP', handleSighup);
+    process.off('uncaughtException', handleUncaughtException);
+    process.off('unhandledRejection', handleUnhandledRejection);
+  };
+
+  const restoreTerminal = () => {
+    if (terminalRestored) return;
+    terminalRestored = true;
+    removeProcessHandlers();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
-    // the shell still marked busy when Ctrl-C exits mid-turn (before the turn
-    // finalizer runs). reset() also makes the controller inert.
+    // the shell still marked busy when the session exits.
     attention.reset();
     // Stop asking the terminal for focus reports before handing it back.
     terminal.write(DISABLE_FOCUS_REPORTING);
     tui.stop();
-    resolveClosed();
   };
+
+  const beginClose = (error?: Error) => {
+    if (closed) return;
+    closed = true;
+    restoreTerminal();
+    if (error) rejectClosed(error);
+    else resolveClosed();
+    // Runtime stop is best-effort after the shell has its terminal back. A
+    // double-Escape interrupt may already have one in flight; reuse it.
+    if (!interruptRequested) void input.driver.stop().catch(() => {});
+  };
+
+  const close = () => beginClose();
+
+  function handleSigterm(): void {
+    process.exitCode = 128 + 15;
+    beginClose();
+  }
+
+  function handleSighup(): void {
+    process.exitCode = 128 + 1;
+    beginClose();
+  }
+
+  function handleUncaughtException(error: Error): void {
+    process.exitCode = 1;
+    beginClose(error);
+  }
+
+  function handleUnhandledRejection(reason: unknown): void {
+    process.exitCode = 1;
+    beginClose(reason instanceof Error ? reason : new Error(String(reason)));
+  }
+
+  process.once('SIGTERM', handleSigterm);
+  process.once('SIGHUP', handleSighup);
+  process.once('uncaughtException', handleUncaughtException);
+  process.once('unhandledRejection', handleUnhandledRejection);
 
   const respondToPendingPermission = (decision: 'allow' | 'deny'): boolean => {
     const request = state.pendingPermission;
@@ -776,9 +812,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
 
   tui.addInputListener((data) => {
-    // Once closing has begun, swallow every key. A half-closed TUI still has a
-    // live listener while close() awaits the runtime stop; letting Escape or any
-    // other key through here would mutate state or fire a second stop.
+    // Once closing has begun, swallow any buffered input that reaches the
+    // listener while the terminal is being torn down.
     if (closed) return { consume: true };
     // DEC 1004 focus reports drive the attention layer. Consume them so they
     // never reach the editor as stray input; they are not user keystrokes.

@@ -28,6 +28,15 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   };
 }
 
+export function resolveMakaCliExitCode(
+  commandExitCode: number,
+  pendingExitCode: number | string | null | undefined,
+): number | string {
+  return pendingExitCode === undefined || pendingExitCode === null || pendingExitCode === 0
+    ? commandExitCode
+    : pendingExitCode;
+}
+
 function helpText(): string {
   return [
     'Usage: maka',
@@ -136,7 +145,7 @@ async function readPackageVersion(): Promise<string> {
 if (isMainModule()) {
   runMakaCli().then(
     (code) => {
-      process.exitCode = code;
+      process.exitCode = resolveMakaCliExitCode(code, process.exitCode);
     },
     (error) => {
       process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

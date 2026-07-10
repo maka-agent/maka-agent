@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
@@ -17,6 +19,44 @@ import {
 } from './tui-terminal-mock.js';
 
 describe('Maka Pi TUI runner', () => {
+  test('restores the terminal before exiting on SIGTERM', async () => {
+    const { code, signal, stdout } = await runSignalExitProbe('SIGTERM');
+
+    assert.equal(signal, null);
+    assert.equal(code, 143);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+  });
+
+  test('restores the terminal before exiting on SIGHUP', async () => {
+    const { code, signal, stdout } = await runSignalExitProbe('SIGHUP');
+
+    assert.equal(signal, null);
+    assert.equal(code, 129);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+  });
+
+  test('restores the terminal before reporting an uncaught exception', async () => {
+    const { code, signal, stdout, stderr } = await runFatalExitProbe('uncaughtException');
+
+    assert.equal(signal, null);
+    assert.equal(code, 1);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+    assert.match(stderr, /fatal probe/);
+  });
+
+  test('restores the terminal before reporting an unhandled rejection', async () => {
+    const { code, signal, stdout, stderr } = await runFatalExitProbe('unhandledRejection');
+
+    assert.equal(signal, null);
+    assert.equal(code, 1);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+    assert.match(stderr, /fatal probe/);
+  });
+
   test('restores the terminal when driver stop rejects during close', async () => {
     const terminal = new FakeTerminal();
     const driver = new RejectingStopDriver();
@@ -42,6 +82,30 @@ describe('Maka Pi TUI runner', () => {
     assert.equal(driver.stopCalls, 1);
     assert.equal(terminal.stopCalls, 1);
     assert.equal(terminal.progressStates.at(-1), false);
+  });
+
+  test('restores the terminal before a slow driver stop settles', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new HangingCloseDriver();
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'bypass',
+      terminal,
+    });
+
+    terminal.input('/exit');
+    terminal.input('\r');
+    await waitFor(() => driver.stopCalls === 1);
+    try {
+      assert.equal(terminal.stopCalls, 1);
+    } finally {
+      driver.releaseStop();
+      await run;
+    }
   });
 
   test('allows a pending permission request from the terminal', async () => {
@@ -2652,6 +2716,23 @@ class SlashCommandDriver implements MakaSessionDriver {
   }
 }
 
+class HangingCloseDriver extends SlashCommandDriver {
+  stopCalls = 0;
+  private resolveStop: (() => void) | null = null;
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    await new Promise<void>((resolve) => {
+      this.resolveStop = resolve;
+    });
+  }
+
+  releaseStop(): void {
+    this.resolveStop?.();
+    this.resolveStop = null;
+  }
+}
+
 class LongTranscriptDriver extends SlashCommandDriver {
   override async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
     this.prompts.push(prompt);
@@ -3024,4 +3105,153 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
     text,
     modelId: 'claude-sonnet-4-5',
   };
+}
+
+async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+}> {
+  const runnerUrl = new URL('../pi-tui-runner.js', import.meta.url).href;
+  const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
+  const childSource = `
+    import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
+    import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
+
+    class ReportingTerminal extends FakeTerminal {
+      stop() {
+        process.stdout.write('TERMINAL_STOP\\n');
+        super.stop();
+      }
+    }
+
+    const terminal = new ReportingTerminal();
+    const driver = {
+      async *sendPrompt() {},
+      async *compactSession() {},
+      async stop() {},
+      async listSessions() { return []; },
+      async respondToPermission() {},
+      async renameSession() {},
+      async setModel() {},
+      async setPermissionMode() {},
+      async setThinkingLevel() {},
+      async switchSession() { throw new Error('unused'); },
+      async listRewindTargets() { return []; },
+      async rewindToTurn() { throw new Error('unused'); },
+      startNewSession() {},
+      getSessionId() { return null; },
+    };
+    const hold = setInterval(() => {}, 1_000);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'test-model',
+      connectionSlug: 'test-connection',
+      permissionMode: 'ask',
+      terminal,
+    });
+    process.stdout.write('READY\\n');
+    await run;
+    clearInterval(hold);
+    process.stdout.write('CLOSED\\n');
+  `;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let signalSent = false;
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+    if (!signalSent && stdout.includes('READY')) {
+      signalSent = true;
+      child.kill(signalToSend);
+    }
+  });
+
+  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+  return { code, signal, stdout };
+}
+
+async function runFatalExitProbe(kind: 'uncaughtException' | 'unhandledRejection'): Promise<{
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  stdout: string;
+  stderr: string;
+}> {
+  const runnerUrl = new URL('../pi-tui-runner.js', import.meta.url).href;
+  const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
+  const trigger = kind === 'uncaughtException'
+    ? "setImmediate(() => { throw new Error('fatal probe'); });"
+    : "void Promise.reject(new Error('fatal probe'));";
+  const childSource = `
+    import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
+    import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
+
+    class ReportingTerminal extends FakeTerminal {
+      stop() {
+        process.stdout.write('TERMINAL_STOP\\n');
+        super.stop();
+      }
+    }
+
+    const terminal = new ReportingTerminal();
+    const driver = {
+      async *sendPrompt() {},
+      async *compactSession() {},
+      async stop() {},
+      async listSessions() { return []; },
+      async respondToPermission() {},
+      async renameSession() {},
+      async setModel() {},
+      async setPermissionMode() {},
+      async setThinkingLevel() {},
+      async switchSession() { throw new Error('unused'); },
+      async listRewindTargets() { return []; },
+      async rewindToTurn() { throw new Error('unused'); },
+      startNewSession() {},
+      getSessionId() { return null; },
+    };
+    const hold = setInterval(() => {}, 1_000);
+    try {
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'test-model',
+        connectionSlug: 'test-connection',
+        permissionMode: 'ask',
+        terminal,
+      });
+      process.stdout.write('READY\\n');
+      ${trigger}
+      await run;
+    } catch (error) {
+      process.stderr.write(\`${'${error instanceof Error ? error.stack ?? error.message : String(error)}'}\\n\`);
+    } finally {
+      clearInterval(hold);
+      process.stdout.write('CLOSED\\n');
+    }
+  `;
+  const nodeArgs = kind === 'unhandledRejection' ? ['--unhandled-rejections=warn'] : [];
+  const child = spawn(process.execPath, [...nodeArgs, '--input-type=module', '-e', childSource], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+
+  const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+  clearTimeout(killTimer);
+  return { code, signal, stdout, stderr };
 }

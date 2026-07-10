@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, test } from 'node:test';
-import { parseMakaCliArgs, formatStartupConnectionError } from '../cli.js';
+import {
+  parseMakaCliArgs,
+  formatStartupConnectionError,
+  resolveMakaCliExitCode,
+} from '../cli.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +39,14 @@ describe('Maka CLI args', () => {
       message: 'Unexpected argument: headless',
       exitCode: 2,
     });
+  });
+
+  test('uses the command exit code when no earlier exit reason exists', () => {
+    assert.equal(resolveMakaCliExitCode(2, undefined), 2);
+  });
+
+  test('preserves an exit code already set by a process signal', () => {
+    assert.equal(resolveMakaCliExitCode(0, 143), 143);
   });
 
   test('prints version from the executable entrypoint', async () => {
