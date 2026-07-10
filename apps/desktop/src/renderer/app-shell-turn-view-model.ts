@@ -3,7 +3,6 @@ import {
   deriveTurnLineageMap,
   formatTurnDuration,
   materializeTurns,
-  type ToolActivityItem,
   type TurnFooterActionMeta,
   type TurnLineageBadge,
 } from '@maka/ui';
@@ -21,11 +20,10 @@ export interface AppShellTurnViewModel {
 export function deriveAppShellTurnViewModel(input: {
   activeId: string | undefined;
   messages: StoredMessage[];
-  liveTools: ToolActivityItem[];
   pendingTurnActions: ReadonlySet<string>;
   pendingKeyOf(sessionId: string, turnId: string, actionId: TurnFooterActionMeta['id']): string;
 }): AppShellTurnViewModel {
-  const turnsForLineage = materializeTurns(input.messages, input.liveTools);
+  const turnsForLineage = materializeTurns(input.messages);
   const lineage = deriveTurnLineageMap(turnsForLineage);
   const turnsById = new Map(turnsForLineage.map((turn) => [turn.turnId, turn]));
   const footer: Record<string, ReadonlyArray<TurnFooterActionMeta>> = {};

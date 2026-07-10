@@ -1,9 +1,8 @@
 import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { NavSelection } from '@maka/ui';
+import { armLiveTurn, type LiveTurnProjection, type NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
-import type { TurnPhase } from './model-wait-state.js';
 
 export type PendingAttachment = {
   displayName: string;
@@ -29,7 +28,7 @@ type ComposerImportOwner = {
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
-type TurnPhaseRecordUpdater = (updater: (current: Record<string, TurnPhase>) => Record<string, TurnPhase>) => void;
+type LiveTurnRecordUpdater = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => void;
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
 type MessageLoadErrorUpdater = (updater: (current: Record<string, string>) => Record<string, string>) => void;
 
@@ -123,7 +122,7 @@ export function createAppShellChatActions(deps: {
   setNavSelection: (selection: NavSelection) => void;
   /** #646: arm the "正在处理…" indicator locally at send() — the model-wait
    * window opens before any SessionEvent arrives (turn_started is not one). */
-  setTurnActiveBySession: TurnPhaseRecordUpdater;
+  setLiveTurnBySession: LiveTurnRecordUpdater;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
@@ -145,7 +144,7 @@ export function createAppShellChatActions(deps: {
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
-    setTurnActiveBySession,
+    setLiveTurnBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -201,15 +200,17 @@ export function createAppShellChatActions(deps: {
   // (re)set to `'waiting'`: a fresh send is a new first-token wait, so it must
   // overwrite any `'streamed'` left by a prior turn whose terminal event was
   // missed — otherwise the new turn's head would never show the indicator.
-  function armTurnActive(sessionId: string): void {
-    setTurnActiveBySession((current) =>
-      current[sessionId] === 'waiting' ? current : { ...current, [sessionId]: 'waiting' },
-    );
+  function armTurnActive(sessionId: string, turnId: string): void {
+    setLiveTurnBySession((current) => {
+      const active = current[sessionId];
+      if (active?.turnId === turnId && active.phase === 'waiting') return current;
+      return { ...current, [sessionId]: armLiveTurn(turnId) };
+    });
   }
 
-  function disarmTurnActive(sessionId: string): void {
-    setTurnActiveBySession((current) => {
-      if (!current[sessionId]) return current;
+  function disarmTurnActive(sessionId: string, turnId: string): void {
+    setLiveTurnBySession((current) => {
+      if (current[sessionId]?.turnId !== turnId) return current;
       const next = { ...current };
       delete next[sessionId];
       return next;
@@ -238,7 +239,7 @@ export function createAppShellChatActions(deps: {
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
-        armTurnActive(session.id);
+        armTurnActive(session.id, turnId);
         restoreOptimisticStatus = markSessionRunningOptimistic(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
         const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
@@ -256,7 +257,7 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
-      armTurnActive(sessionId);
+      armTurnActive(sessionId, turnId);
       restoreOptimisticStatus = markSessionRunningOptimistic(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
@@ -272,7 +273,7 @@ export function createAppShellChatActions(deps: {
       // optimistic running status (no subscribeChanges event will reconcile it
       // for a send that never started) so the session doesn't keep a phantom
       // running dot / blocked permission-mode toggle.
-      if (optimisticSessionId) disarmTurnActive(optimisticSessionId);
+      if (optimisticSessionId && optimisticTurnId) disarmTurnActive(optimisticSessionId, optimisticTurnId);
       restoreOptimisticStatus?.();
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
       const sendStillOwnsCurrentSurface = feedbackSessionId

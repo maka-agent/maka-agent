@@ -200,24 +200,14 @@ export function AppShell({
   const [messageLoadPending, setMessageLoadPending] = useState(false);
   const messageRetryPendingRef = useRef<Set<string>>(new Set());
   const stopPendingRef = useRef<Set<string>>(new Set());
-  // #646: sessions whose textless / thinking-only completion is mid refresh-before-
-  // clear (#642). Shared between the event handlers (which set/clear it) and the
-  // status-driven reconcile (which skips them), so the reconcile can't wipe the
-  // held live thinking before the committed message lands.
-  const settlingBySessionRef = useRef<Set<string>>(new Set());
   const {
     state: sessionUiState,
-    streamingBySessionRef,
-    thinkingBySessionRef,
+    liveTurnBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
     setStopPendingBySession,
-    setStreamingBySession,
-    setThinkingBySession,
-    setThinkingTruncatedBySession,
-    setLiveToolsBySession,
-    setTurnActiveBySession,
+    setLiveTurnBySession,
     setPermissionBySession,
     setSessionEventHealthBySession,
     setPendingPermissionModeBySession,
@@ -229,10 +219,7 @@ export function AppShell({
     messageLoadErrorBySession,
     messageRetryPendingBySession,
     stopPendingBySession,
-    streamingBySession,
-    thinkingBySession,
-    thinkingTruncatedBySession,
-    liveToolsBySession,
+    liveTurnBySession,
     permissionBySession,
     sessionEventHealthBySession,
     pendingPermissionModeBySession,
@@ -309,20 +296,22 @@ export function AppShell({
   const rendererMountedRef = useRef(true);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
-  const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
-  const activeStreaming = activeStreamingSlot?.text ?? '';
-  const activeStreamingTruncated = activeStreamingSlot?.truncated === true;
-  const activeStreamingComplete = activeStreamingSlot?.phase === 'draining';
-  const activeStreamingLive = activeStreaming.length > 0 && activeStreamingSlot?.phase === 'streaming';
-  const activeStreamingMessageId = activeStreamingComplete ? activeStreamingSlot?.messageId : undefined;
-  const activeThinking = activeId ? thinkingBySession[activeId] ?? '' : '';
-  const activeThinkingTruncated = activeId ? thinkingTruncatedBySession[activeId] === true : false;
+  const activeLiveTurn = activeId ? liveTurnBySession[activeId] : undefined;
+  const activeTextStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.text);
+  const activeThinkingStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.thinking);
+  const activeStreaming = activeTextStep?.text?.text ?? '';
+  const activeStreamingComplete = activeTextStep?.text?.complete === true;
+  const activeStreamingLive = activeStreaming.length > 0 && !activeStreamingComplete;
+  const activeStreamingMessageId = activeStreamingComplete ? activeTextStep?.stepId : undefined;
+  const activeThinking = activeThinkingStep?.thinking?.text ?? '';
   // Set of session ids with a live streaming delta — drives the sidebar
-  // pulse indicator. Recomputed on every streamingBySession change; cheap
+  // pulse indicator. Recomputed on every live projection change; cheap
   // since the underlying map only has at most a handful of entries.
   const streamingSessionIds = useMemo(
-    () => new Set(Object.entries(streamingBySession).flatMap(([id, slot]) => (slot.text && slot.phase === 'streaming' ? [id] : []))),
-    [streamingBySession],
+    () => new Set(Object.entries(liveTurnBySession).flatMap(([id, projection]) => (
+      projection.steps.some((step) => step.text?.text && !step.text.complete) ? [id] : []
+    ))),
+    [liveTurnBySession],
   );
   // Set of session ids whose backend / connection is no longer usable —
   // drives the sidebar "已过期" pill (PR108g, paired with the PR108e chat
@@ -348,7 +337,7 @@ export function AppShell({
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
-  const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
+  const liveTools = useMemo(() => activeLiveTurn?.steps.flatMap((step) => step.tools) ?? [], [activeLiveTurn]);
   const hasInFlightLiveTools = useMemo(() => hasInFlightToolActivity(liveTools), [liveTools]);
   const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
@@ -371,7 +360,7 @@ export function AppShell({
   // self-heals a backgrounded session whose terminal event was missed while
   // inactive (its arm can't clear without the event). The rising-edge delays
   // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
-  const activeTurnPhase = activeId ? sessionUiState.turnActiveBySession[activeId] : undefined;
+  const activeTurnPhase = activeLiveTurn?.terminal ? undefined : activeLiveTurn?.phase;
   const turnInFlight = activeTurnPhase !== undefined;
   const modelWaitKind = deriveModelWait({
     turnPhase: activeTurnPhase,
@@ -633,11 +622,10 @@ export function AppShell({
     () => deriveAppShellTurnViewModel({
       activeId,
       messages,
-      liveTools,
       pendingTurnActions,
       pendingKeyOf,
     }),
-    [activeId, messages, liveTools, pendingTurnActions],
+    [activeId, messages, pendingTurnActions],
   );
 
   // PR109e-e: click handler for lineage badge → scroll target turn into
@@ -946,15 +934,12 @@ export function AppShell({
     openSettingsSection,
     refreshSessions,
     setActiveId,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setNavSelection,
     setPermissionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
-    setStreamingBySession,
     setThemePref,
-    setThinkingBySession,
-    setTurnActiveBySession,
   });
 
   const {
@@ -977,7 +962,7 @@ export function AppShell({
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
-    setTurnActiveBySession,
+    setLiveTurnBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -1039,18 +1024,12 @@ export function AppShell({
 
   const { handleEvent, settleAssistantStreaming } = createAppShellSessionEventHandlers({
     activeIdRef,
+    liveTurnBySessionRef,
     refreshMessages,
     refreshSessions,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setPermissionBySession,
-    setStreamingBySession,
-    setThinkingBySession,
-    setThinkingTruncatedBySession,
-    setTurnActiveBySession,
     showModelSetupToast,
-    streamingBySessionRef,
-    thinkingBySessionRef,
-    settlingBySessionRef,
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
@@ -1158,9 +1137,9 @@ export function AppShell({
     setSessionEventHealthBySession,
   });
   useSettledSessionTransientReconcile({
+    activeId,
     sessions,
-    streamingBySessionRef,
-    settlingBySessionRef,
+    liveTurnBySessionRef,
     clearTurnTransientState,
   });
 
@@ -1557,17 +1536,11 @@ export function AppShell({
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
               <ChatView
                 messages={messages}
+                liveTurn={activeLiveTurn}
                 messageLoading={activeMessageLoading}
-                streamingText={activeStreaming}
-                streamingComplete={activeStreamingComplete}
-                streamingMessageId={activeStreamingMessageId}
                 processingIndicator={showProcessingIndicator}
                 continuingIndicator={showContinuingIndicator}
-                onStreamingSettled={activeId ? () => settleAssistantStreaming(activeId, activeStreamingMessageId) : undefined}
-                streamingTruncated={activeStreamingTruncated}
-                thinkingText={activeThinking}
-                thinkingTruncated={activeThinkingTruncated}
-                tools={liveTools}
+                onStreamingSettled={activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined}
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}

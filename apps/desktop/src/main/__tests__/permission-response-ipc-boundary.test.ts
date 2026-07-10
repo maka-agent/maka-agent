@@ -289,7 +289,7 @@ describe('permission response IPC boundary', () => {
 
     assert.match(
       errorBranch,
-      /clearStreaming\(sessionId\);[\s\S]*setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*markInFlightToolsInterrupted\(sessionId\);[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId\);/,
+      /clearLiveTurn\(sessionId\);[\s\S]*setPermissionBySession[\s\S]*if \(activeIdRef\.current === sessionId\) \{[\s\S]*if \(isNoRealConnectionEvent\(event\)\) \{[\s\S]*const reason = noRealConnectionReasonFromEvent\(event\);[\s\S]*showModelSetupToast\(noRealConnectionSetupDescription\(reason\), reason\);[\s\S]*\} else \{[\s\S]*toastApi\.error\('对话出错', sessionEventErrorMessage\(event\)\);[\s\S]*\}[\s\S]*\}[\s\S]*refreshSessions\(\);[\s\S]*refreshMessages\(sessionId\);/,
       'background session error events may update stored state, but must not show toasts or open Settings on the active chat surface',
     );
     assert.doesNotMatch(

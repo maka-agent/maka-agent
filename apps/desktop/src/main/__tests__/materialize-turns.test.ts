@@ -126,14 +126,14 @@ describe('materializeTurns', () => {
     // land inside the active turn, not float at the bottom.
     const turns = materializeTurns(
       [userMsg('t1', 100, 'q'), assistantMsg('t1', 999, 'placeholder')],
-      [
-        {
+      {
+        turnId: 't1', phase: 'streamed', steps: [{ stepId: 'tool:live-1', tools: [{
           toolUseId: 'live-1',
           toolName: 'Bash',
           status: 'running',
           args: { command: 'pwd' },
-        },
-      ],
+        }] }],
+      },
     );
     assert.equal(turns.length, 1);
     assert.equal(turns[0]?.tools.length, 1);
@@ -298,14 +298,14 @@ describe('materializeTurns', () => {
         toolCallMsg('t1', 101, 'c1'),
         toolResultMsg('t1', 102, 'c1'),
       ],
-      [
-        {
+      {
+        turnId: 't1', phase: 'streamed', steps: [{ stepId: 'tool:c1', tools: [{
           toolUseId: 'c1',
           toolName: 'Bash',
           status: 'running',
           args: {},
-        },
-      ],
+        }] }],
+      },
     );
     assert.equal(turns[0]?.tools.length, 1);
     assert.equal(turns[0]?.tools[0]?.status, 'running');
@@ -328,8 +328,8 @@ describe('materializeTurns', () => {
         toolCallMsg('t1', 101, 'c1'),
         // no tool_result → persisted status === 'interrupted'
       ],
-      [
-        {
+      {
+        turnId: 't1', phase: 'streamed', steps: [{ stepId: 'tool:c1', tools: [{
           toolUseId: 'c1',
           toolName: 'Bash',
           status: 'running',
@@ -337,8 +337,8 @@ describe('materializeTurns', () => {
           outputChunks: [
             { seq: 0, stream: 'stdout', text: 'hello\n', redacted: false, createdAt: 100 },
           ],
-        },
-      ],
+        }] }],
+      },
     );
     assert.equal(turns[0]?.tools.length, 1);
     assert.equal(turns[0]?.tools[0]?.status, 'interrupted');
@@ -370,6 +370,77 @@ function assistantStep(
 }
 
 describe('materializeTurns timeline', () => {
+  it('keeps a live step in thinking -> tools order before its assistant row is committed', () => {
+    const turns = materializeTurns(
+      [userMsg('t1', 100, 'q')],
+      {
+        turnId: 't1',
+        phase: 'streamed',
+        steps: [{
+          stepId: 'a1',
+          thinking: { text: '先测试工具', truncated: false, complete: false },
+          tools: [{
+            toolUseId: 'c1',
+            toolName: 'Task List',
+            stepId: 'a1',
+            status: 'running',
+            args: {},
+          }],
+        }],
+      },
+    );
+
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['thinking', 'tools']);
+  });
+
+  it('appends the current live step after earlier committed steps in thinking -> text -> tools order', () => {
+    const turns = materializeTurns(
+      [userMsg('t1', 100, 'q'), assistantStep('t1', 101, 'a1', 'first answer')],
+      {
+        turnId: 't1',
+        phase: 'streamed',
+        steps: [{
+          stepId: 'a2',
+          thinking: { text: 'think two', truncated: false, complete: false },
+          text: { text: 'second answer', truncated: false, complete: false },
+          tools: [{
+            toolUseId: 'c2', toolName: 'Bash', stepId: 'a2', status: 'running', args: {},
+          }],
+        }],
+      },
+    );
+
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['text', 'thinking', 'text', 'tools']);
+    assert.equal((turns[0]?.timeline[2] as { text: string } | undefined)?.text, 'second answer');
+  });
+
+  it('keeps multiple uncommitted live steps in production order', () => {
+    const turns = materializeTurns(
+      [userMsg('t1', 100, 'q')],
+      {
+        turnId: 't1',
+        phase: 'streamed',
+        steps: [
+          {
+            stepId: 'a1',
+            thinking: { text: 'think one', truncated: false, complete: true },
+            tools: [{
+              toolUseId: 'c1', toolName: 'Bash', stepId: 'a1', status: 'completed', args: {},
+            }],
+          },
+          {
+            stepId: 'a2',
+            thinking: { text: 'think two', truncated: false, complete: false },
+            text: { text: 'answer two', truncated: false, complete: false },
+            tools: [],
+          },
+        ],
+      },
+    );
+
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['thinking', 'tools', 'thinking', 'text']);
+  });
+
   it('interleaves each step: thinking -> text -> that step’s tools', () => {
     const turns = materializeTurns([
       userMsg('t1', 100, 'q'),
@@ -433,7 +504,12 @@ describe('materializeTurns timeline', () => {
   it('appends live-only in-flight tools to the timeline tail', () => {
     const turns = materializeTurns(
       [userMsg('t1', 100, 'q'), assistantStep('t1', 103, 'a1', 'hi')],
-      [{ toolUseId: 'live-1', toolName: 'Bash', status: 'running', args: {} }],
+      {
+        turnId: 't1', phase: 'streamed', steps: [{
+          stepId: 'live-step',
+          tools: [{ toolUseId: 'live-1', toolName: 'Bash', status: 'running', args: {} }],
+        }],
+      },
     );
     const timeline = turns[0]!.timeline;
     assert.deepEqual(timeline.map((i) => i.kind), ['text', 'tools']);
