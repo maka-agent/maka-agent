@@ -30,7 +30,7 @@
  *
  * What this renders + diffs `main` vs head: the resting box / typography /
  * color / transition style of all 9 marker families and the PR3 stream shell
- * (panel / header / counts + its data-variant pills / body / chunk, resting AND
+ * (panel / header / flags + their data-variant pills / body / chunk, resting AND
  * with `data-live="true"` for the accent border + inset ring), plus the footer
  * action across resting / pending / copy-pending / copied / failed —
  * including `main`'s old pending `secondary` variant vs the new always-
@@ -112,9 +112,9 @@ const lb = pair(cn(bv('quiet', 'sm'), 'maka-turn-lineage-badge'), cn(bv('quiet',
 // shell got). The pulsing live DOT is the ONLY part NOT diffed here: its
 // `getComputedStyle` reads a phase-dependent animation value, so it is pinned by
 // the cascade contract's `@keyframes maka-pulse` frames + `LiveIndicator`
-// literals instead. `<el>` puts an empty class on the count spans on `main`
+// literals instead. `<el>` puts an empty class on the flag spans on `main`
 // (they were styled by the `.maka-tool-output-stream-counts span` DESCENDANT
-// rule, not their own class) and nests them inside the counts element so that
+// rule, not their own class) and nests them inside the old counts element so that
 // rule resolves exactly as in production.
 const sv = (part) => streamVariants({ part });
 // `el` is the side-bound local builder from TREE — passed in so this lives at
@@ -123,11 +123,10 @@ const streamPanel = (el, id, attrs) =>
   el('div', id, pair('maka-tool-output-stream', sv('container')), attrs,
     el('header', `${id}-header`, pair('maka-tool-output-stream-header', sv('header')), '',
       el('span', `${id}-label`, pair('maka-tool-output-stream-label', sv('label')), '', '<span>实时输出</span>')
-      + el('span', `${id}-counts`, pair('maka-tool-output-stream-counts', sv('counts')), '',
-          el('span', `${id}-count`, pair('', sv('count')), '', 'stdout 1')
-          + el('span', `${id}-count-stderr`, pair('', sv('count')), 'data-stream="stderr"', 'stderr 1')
-          + el('span', `${id}-count-redacted`, pair('', sv('count')), 'data-redacted="true"', '已脱敏 1')
-          + el('span', `${id}-count-truncated`, pair('', sv('count')), 'data-truncated="true"', '已截断')))
+      + el('span', `${id}-flags`, pair('maka-tool-output-stream-counts', sv('flags')), '',
+          el('span', `${id}-flag-stderr`, pair('', sv('flag')), 'data-stream="stderr"', 'stderr')
+          + el('span', `${id}-flag-redacted`, pair('', sv('flag')), 'data-redacted="true"', '已脱敏')
+          + el('span', `${id}-flag-truncated`, pair('', sv('flag')), 'data-truncated="true"', '已截断')))
     + el('pre', `${id}-body`, pair('maka-tool-output-stream-body', sv('body')), '',
         el('span', `${id}-chunk`, pair('maka-tool-output-stream-chunk', sv('chunk')), '', 'out')
         + el('span', `${id}-chunk-stderr`, pair('maka-tool-output-stream-chunk', sv('chunk')), 'data-stream="stderr"', 'err')
@@ -143,25 +142,24 @@ const streamPanel = (el, id, attrs) =>
 // body / intent, and the args `<pre>` override over the shared `.maka-code` base
 // — is static and diffed in full.
 //
-// Each card carries its REAL `isOpenByDefault` state (components.tsx): pending /
-// waiting_permission / running / errored render OPEN, completed / interrupted
-// render COLLAPSED. That matters — the most common historical card is a settled,
-// collapsed `completed` tool, whose `[open]>summary` divider is absent. So the
-// rich inner parts ride the (open) `errored` card, and a COLLAPSED `completed`
-// card is diffed too. The non-vacuous collapsed signal is the summary's
+// Each card carries the production disclosure default: waiting_permission /
+// errored render OPEN; ordinary pending / running / completed / interrupted
+// states render COLLAPSED. The rich inner parts ride the open `errored` card,
+// and a collapsed `completed` card is diffed too. The non-vacuous collapsed
+// signal is the summary's
 // border-bottom: 1px on the open card, 0px on the collapsed one (the `[open]`
 // gate), so the rows genuinely exercise both states. (The body is hidden via
 // Chromium's `::details-content` pseudo, so its child `display` stays `block`
 // either way — the collapsed body row still diffs its box / typography parity.)
 const tv = (part) => toolVariants({ part });
-const openByDefault = (s) => s === 'pending' || s === 'waiting_permission' || s === 'running' || s === 'errored';
+const openByDefault = (s) => s === 'waiting_permission' || s === 'errored';
 // The SINGLE source of truth for the tool-card fixture: every production
 // `ToolActivityItem['status']` (the keys of components.tsx's STATUS_LABEL). The
 // cards, the header count, and the diffed IDS all derive from this one list, so
 // they can't drift apart; the cascade contract asserts it stays complete, so a
 // new status can't silently escape the zero-visual proof. `pending` has NO
 // `data-[status=pending]` branch in toolVariants, so it falls back to the base
-// card border + gray dot; it renders OPEN (isOpenByDefault).
+// card border + gray dot; it renders collapsed by default.
 const STAT = ['pending', 'waiting_permission', 'running', 'completed', 'errored', 'interrupted'];
 const toolCardSection = (el) => {
   const item = pair('maka-tool toolItem', tv('item'));
@@ -271,9 +269,9 @@ const PROPS = ['display', 'height', 'minHeight', 'width', 'maxWidth', 'maxHeight
 const IDS = ['footer', 'footer-rest', 'footer-pending', 'footer-copy-pending', 'footer-copied', 'footer-failed', 'lineage-row', 'lineage-fwd', 'lineage-row-reverse', 'lineage-rev', 'aborted', 'failed-banner', 'failed-recovery',
   // PR3 stream shell (resting + live border ring). The pulse dot is excluded
   // (animated → phase-dependent computed style).
-  'stream', 'stream-header', 'stream-label', 'stream-counts', 'stream-count', 'stream-count-stderr', 'stream-count-redacted', 'stream-count-truncated', 'stream-body', 'stream-chunk', 'stream-chunk-stderr', 'stream-chunk-redacted', 'stream-redacted-tag', 'stream-live',
+  'stream', 'stream-header', 'stream-label', 'stream-flags', 'stream-flag-stderr', 'stream-flag-redacted', 'stream-flag-truncated', 'stream-body', 'stream-chunk', 'stream-chunk-stderr', 'stream-chunk-redacted', 'stream-redacted-tag', 'stream-live',
   // PR3b tool-card shell: section + count, all six `[data-status]` card
-  // containers at their REAL default open/collapsed state, the summary header
+  // containers at their production default open/collapsed state, the summary header
   // grid, the static dot colors (running dot excluded — animated ring), the
   // status-invariant inner parts (on the open `errored` card), and the COLLAPSED
   // `completed` default — its summary (no `[open]` divider) + UA-hidden body.

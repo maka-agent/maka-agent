@@ -41,9 +41,7 @@
  *    its onClick handler. The scan also requires every discovered button to
  *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
  *    can't bypass the value lock; the whitelist pins the exact value so a
- *    refactor can't shrink a real lock to the wrong value. Chat stream-count variant locks live in
- *    the variant definition, so they're pinned by their literal declaration
- *    substrings.
+ *    refactor can't shrink a real lock to the wrong value.
  */
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';

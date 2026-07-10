@@ -7,7 +7,7 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
 /**
  * Zero-visual governance contract for issue #332 PR3 — the tool live-output
  * stream (`ToolOutputStream`) moved onto the `@maka/ui` chat substrate: the
- * panel/header/counts/body/chunk shell onto the `streamVariants` literalize
+ * panel/header/flags/body/chunk shell onto the `streamVariants` literalize
  * table, and the pulsing "live" dot onto the governed `LiveIndicator` primitive.
  *
  * The shell halves of "zero visual change" are locked the same way as PR2: the
@@ -19,6 +19,30 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  * by before/after screenshots rather than the computed-style diff harness.
  */
 describe('chat tool-output stream migration contract (#332 PR3)', () => {
+  it('keeps the computed-style fixture aligned with production diagnostic flags', async () => {
+    const harness = await readFile(
+      resolve(REPO_ROOT, 'scripts', 'check-chat-marker-computed-style.mjs'),
+      'utf8',
+    );
+
+    assert.match(harness, /sv\('flags'\)/);
+    assert.match(harness, /sv\('flag'\)/);
+    assert.doesNotMatch(harness, /sv\('counts?'\)/);
+    assert.doesNotMatch(harness, /stdout 1/);
+  });
+
+  it('keeps the computed-style fixture aligned with production disclosure defaults', async () => {
+    const harness = await readFile(
+      resolve(REPO_ROOT, 'scripts', 'check-chat-marker-computed-style.mjs'),
+      'utf8',
+    );
+
+    assert.match(
+      harness,
+      /const openByDefault = \(s\) => s === 'waiting_permission' \|\| s === 'errored';/,
+    );
+  });
+
   it('retires the bespoke stream shell selectors + the per-feature pulse keyframe', async () => {
     const css = stripCssComments(await readAllRendererCss());
     for (const selector of [
@@ -65,8 +89,8 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
   });
 
   it('pins the live indicator dot — the one part the computed-style diff cannot cover', async () => {
-    // The stream SHELL (container/header/counts/body/chunk) is proven by the
-    // computed-style diff harness (38 rows, 0 delta), so this test does NOT
+    // The stream SHELL (container/header/flags/body/chunk) is proven by the
+    // computed-style diff harness (0 delta), so this test does NOT
     // re-assert those literals — that would just mirror the implementation. The
     // dot is the exception: an animation can't be a leaf-literal and
     // `getComputedStyle` reads a phase-dependent value, so the diff can't see it.
