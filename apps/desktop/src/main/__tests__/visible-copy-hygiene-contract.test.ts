@@ -627,8 +627,8 @@ describe('chat markdown copy feedback contract', () => {
     // `MarkdownLink`, and the helper functions). A later lazy-load
     // split then moved the heavy markdown pipeline (`Markdown`,
     // `MarkdownLink`, `CodeBlock`, helpers) into `markdown-body.tsx`
-    // so the initial renderer chunk doesn't parse react-markdown /
-    // remark / rehype-highlight (highlight.js) before first paint.
+    // so the initial renderer chunk doesn't parse the streaming Markdown
+    // pipeline / rehype-highlight (highlight.js) before first paint.
     // The behavioral assertions stay; we just read from the file where
     // the component now lives.
     const markdownPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'markdown-body.tsx');

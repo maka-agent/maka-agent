@@ -303,7 +303,7 @@ export function useSmoothStreamContent(
       // typewriter the new chunk instead of insta-snapping.
       s.completeStartedAt = 0;
     } else if (rawLength < s.lastObservedRawLength) {
-      // Raw shrunk: session switch / clearStreaming. Reset the EMA
+      // Raw shrunk: session switch / source reset. Reset the EMA
       // and the typewriter cursor. The displayedCount reset is
       // handled in the snap/initial effect below.
       s.lastObservedRawLength = rawLength;

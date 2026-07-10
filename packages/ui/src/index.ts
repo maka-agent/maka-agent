@@ -144,7 +144,6 @@ export {
 export {
   useStreamFade,
   tokenizeFade,
-  streamFadeRehypePlugin,
   updateFadeRing,
   createFadeRing,
   fadeBoundary,
@@ -155,5 +154,4 @@ export {
   type FadeToken,
   type FadeRingState,
   type FadeBatch,
-  type HastNode,
 } from './stream-fade.js';

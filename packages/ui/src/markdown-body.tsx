@@ -17,7 +17,6 @@
 import { useContext, type ReactNode } from 'react';
 import * as React from 'react';
 import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown } from 'streamdown';
-import 'streamdown/styles.css';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import { Check, Copy } from './icons.js';

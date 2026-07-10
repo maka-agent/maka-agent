@@ -324,17 +324,11 @@ export function ChatView(props: {
   // settled branch, whose derived status is `completed`, rendering an actionable
   // footer on a still-running answer (review P2-B). A tool-only tail renders the
   // running tool from its timeline with no empty live bubble.
-  const projectedLiveTools = props.liveTurn?.steps.flatMap((step) => step.tools) ?? [];
-  const hasInFlightTool = projectedLiveTools.some(
-    (tool) =>
-      tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
-  );
   // The model-wait indicator keeps the tail turn "live" too, so its footer stays
   // the non-actionable placeholder and the indicator injects into the tail turn
   // (not the fallback section) — it is, by derivation, only ever true when text /
   // thinking / tools are all absent.
-  const hasLiveStepContent = props.liveTurn?.steps.some((step) => step.thinking?.text || step.text?.text || step.tools.length > 0) === true;
-  const streamingActive = !!(props.liveTurn || hasLiveStepContent || hasInFlightTool || props.processingIndicator || props.continuingIndicator);
+  const streamingActive = !!(props.liveTurn || props.processingIndicator || props.continuingIndicator);
   const tailTurnId = props.liveTurn?.turnId ?? (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
