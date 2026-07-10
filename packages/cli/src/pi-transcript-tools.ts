@@ -53,10 +53,24 @@ function renderExpandedToolBlock(entry: MakaPiToolEntry, width: number): string[
   ];
   const inputSummary = toolInputSummary(entry);
   if (inputSummary) lines.push(...renderIndented(inputSummary, width, 2).map(ansi.dim));
-  if (entry.progress.length > 0) {
-    lines.push(...renderToolText(entry.progress.join(''), width).map(ansi.dim));
+  if (entry.progress.droppedChars > 0) {
+    lines.push(...renderIndented(
+      ansi.dim(`⋯ ${entry.progress.droppedChars} earlier progress chars truncated ⋯`),
+      width,
+      2,
+    ));
   }
-  lines.push(...renderToolStreams(entry.outputDeltas, width));
+  if (entry.progress.length > 0) {
+    lines.push(...renderCappedResultText(entry.progress.values().join(''), width, ansi.dim));
+  }
+  if (entry.outputDeltas.droppedChars > 0) {
+    lines.push(...renderIndented(
+      ansi.dim(`⋯ ${entry.outputDeltas.droppedChars} earlier live-output chars truncated ⋯`),
+      width,
+      2,
+    ));
+  }
+  lines.push(...renderToolStreams(entry.outputDeltas.values(), width));
   if (entry.result || entry.output) {
     lines.push(...renderToolResult(entry, width));
   }
@@ -184,12 +198,12 @@ function jsonArrayCount(entry: MakaPiToolEntry, key: string): number | undefined
 
 /** Latest non-empty output line from live deltas (redaction-aware), else progress. */
 function latestLiveOutputLine(entry: MakaPiToolEntry): string {
-  const groups = groupOutputDeltas(entry.outputDeltas);
+  const groups = groupOutputDeltas(entry.outputDeltas.values());
   if (groups.length > 0) {
     const fromDeltas = lastNonEmptyLine(groups.map((group) => group.text).join('\n'));
     if (fromDeltas) return fromDeltas;
   }
-  return lastNonEmptyLine(entry.progress.join(''));
+  return lastNonEmptyLine(entry.progress.values().join(''));
 }
 
 function lastNonEmptyLine(text: string): string {

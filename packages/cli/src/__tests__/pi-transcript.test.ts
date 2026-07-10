@@ -1230,6 +1230,88 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /lines hidden/);
     assert.doesNotMatch(expanded, /stream-line-5/); // a middle line the cap hides
   });
+
+  test('retains the newest live output when a stream exceeds its buffer limit', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bounded', toolName: 'Bash', args: { command: 'verbose' },
+    }));
+    const chunks = Array.from(
+      { length: 9 },
+      (_, i) => `chunk-${i}-start\n${'x\n'.repeat(4_090)}chunk-${i}-end\n`,
+    );
+    for (const [i, chunk] of chunks.entries()) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_output_delta', toolUseId: 'bash-bounded', seq: i, stream: 'stdout',
+        chunk, redacted: false,
+      }));
+    }
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(expanded, /chunk-0-start\b/);
+    assert.match(expanded, /chunk-8-end\b/);
+    const droppedChars = chunks.reduce((total, chunk) => total + chunk.length, 0) - 64 * 1024;
+    assert.match(expanded, new RegExp(`${droppedChars} earlier live-output chars truncated`));
+  });
+
+  test('drops the oldest live output when the chunk count reaches its limit', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-many-chunks', toolName: 'Bash', args: { command: 'verbose' },
+    }));
+    for (let i = 0; i < 513; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_output_delta', toolUseId: 'bash-many-chunks', seq: i,
+        stream: i % 2 === 0 ? 'stdout' : 'stderr', chunk: `chunk-${i}\n`, redacted: false,
+      }));
+    }
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(expanded, /chunk-0\b/);
+    assert.match(expanded, /chunk-512\b/);
+  });
+
+  test('retains the newest progress when progress text exceeds its buffer limit', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'progress-bounded', toolName: 'Workflow', args: {},
+    }));
+    const chunks = Array.from(
+      { length: 9 },
+      (_, i) => `progress-${i}-start\n${'x\n'.repeat(4_090)}progress-${i}-end\n`,
+    );
+    for (const chunk of chunks) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_progress', toolUseId: 'progress-bounded', chunk,
+      }));
+    }
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(expanded, /progress-0-start\b/);
+    assert.match(expanded, /progress-8-end\b/);
+    const droppedChars = chunks.reduce((total, chunk) => total + chunk.length, 0) - 64 * 1024;
+    assert.match(expanded, new RegExp(`${droppedChars} earlier progress chars truncated`));
+  });
+
+  test('drops the oldest progress when the chunk count reaches its limit', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'progress-many-chunks', toolName: 'Workflow', args: {},
+    }));
+    for (let i = 0; i < 513; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_progress', toolUseId: 'progress-many-chunks', chunk: `progress-${i}\n`,
+      }));
+    }
+
+    assert.equal(toggleAllToolExpansion(state), true);
+    const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.doesNotMatch(expanded, /progress-0\b/);
+    assert.match(expanded, /progress-512\b/);
+  });
 });
 
 describe('transcript entry render memoization', () => {
@@ -1273,6 +1355,28 @@ describe('transcript entry render memoization', () => {
     const expanded = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.notEqual(expanded, collapsed);
     assert.match(expanded, /beta/);
+  });
+
+  test('re-renders live progress after the bounded buffer reaches a stable length', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'progress-cache', toolName: 'Workflow', args: {},
+    }));
+    for (let i = 0; i < 512; i += 1) {
+      applyMakaSessionEventToTranscript(state, event({
+        type: 'tool_progress', toolUseId: 'progress-cache', chunk: `progress-${i}\n`,
+      }));
+    }
+    assert.equal(toggleAllToolExpansion(state), true);
+    const before = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(before, /progress-511\b/);
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_progress', toolUseId: 'progress-cache', chunk: 'progress-512\n',
+    }));
+    const after = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(after, /progress-512\b/);
+    assert.doesNotMatch(after, /progress-0\b/);
   });
 
   test('re-renders thinking when a same-length final replaces the streamed text', () => {

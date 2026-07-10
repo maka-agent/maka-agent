@@ -10,6 +10,7 @@ import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
+import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
 import { ansi } from './tui-ansi.js';
 import {
   fitLine,
@@ -43,6 +44,9 @@ export interface MakaPiToolOutputDelta {
   redacted: boolean;
 }
 
+const LIVE_TOOL_BUFFER_MAX_CHARS = 64 * 1024;
+const LIVE_TOOL_BUFFER_MAX_CHUNKS = 512;
+
 export type MakaPiTranscriptEntry =
   | { kind: 'user'; text: string }
   | { kind: 'assistant'; messageId: string; text: string }
@@ -57,8 +61,8 @@ export type MakaPiTranscriptEntry =
       result?: ToolResultContent;
       /** Flattened result text, kept as a fallback for text/json/unknown kinds. */
       output?: string;
-      progress: string[];
-      outputDeltas: MakaPiToolOutputDelta[];
+      progress: BoundedChunkBuffer<string>;
+      outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
       status: 'running' | 'done' | 'error';
     }
@@ -218,8 +222,8 @@ export function applyMakaSessionEventToTranscript(
         toolName: event.toolName,
         ...(event.displayName ? { title: event.displayName } : {}),
         input: event.args,
-        progress: [],
-        outputDeltas: [],
+        progress: createProgressBuffer(),
+        outputDeltas: createOutputBuffer(),
         status: 'running',
       });
       break;
@@ -237,8 +241,8 @@ export function applyMakaSessionEventToTranscript(
           toolUseId: event.toolUseId,
           toolName: event.toolUseId,
           input: undefined,
-          progress: [],
-          outputDeltas: [],
+          progress: createProgressBuffer(),
+          outputDeltas: createOutputBuffer(),
           result: event.content,
           output: formatToolResultContent(event.content),
           durationMs: event.durationMs,
@@ -251,7 +255,9 @@ export function applyMakaSessionEventToTranscript(
     case 'tool_progress': {
       const tool = findToolEntry(state, event.toolUseId);
       if (tool) {
-        tool.progress.push(typeof event.chunk === 'string' ? event.chunk : `[${event.chunk.kind}] ${event.chunk.text}`);
+        tool.progress.append(
+          typeof event.chunk === 'string' ? event.chunk : `[${event.chunk.kind}] ${event.chunk.text}`,
+        );
       }
       break;
     }
@@ -259,7 +265,7 @@ export function applyMakaSessionEventToTranscript(
     case 'tool_output_delta': {
       const tool = findToolEntry(state, event.toolUseId);
       if (tool) {
-        tool.outputDeltas.push({
+        tool.outputDeltas.append({
           seq: event.seq,
           stream: event.stream,
           chunk: event.chunk,
@@ -372,8 +378,8 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiTranscript
     toolName: item.toolName,
     ...(item.displayName ? { title: item.displayName } : {}),
     input: item.args,
-    progress: [],
-    outputDeltas: [],
+    progress: createProgressBuffer(),
+    outputDeltas: createOutputBuffer(),
     ...(item.result ? { result: item.result } : {}),
     ...(output ? { output } : {}),
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
@@ -580,8 +586,8 @@ function transcriptEntrySignature(
         entry.status,
         entry.durationMs ?? '',
         entry.title ?? entry.toolName,
-        entry.progress.length,
-        entry.outputDeltas.length,
+        entry.progress.version,
+        entry.outputDeltas.version,
         entry.output?.length ?? '',
         entry.result ? entry.result.kind : '',
       ].join('|');
@@ -648,6 +654,26 @@ function findToolEntry(state: MakaPiTranscriptState, toolUseId: string): MakaPiT
   return [...state.entries]
     .reverse()
     .find((entry): entry is MakaPiToolEntry => entry.kind === 'tool' && entry.toolUseId === toolUseId);
+}
+
+function createProgressBuffer(): BoundedChunkBuffer<string> {
+  return new BoundedChunkBuffer({
+    maxChars: LIVE_TOOL_BUFFER_MAX_CHARS,
+    maxChunks: LIVE_TOOL_BUFFER_MAX_CHUNKS,
+    textOf: (chunk) => chunk,
+    withText: (_chunk, text) => text,
+  });
+}
+
+function createOutputBuffer(): BoundedChunkBuffer<MakaPiToolOutputDelta> {
+  return new BoundedChunkBuffer({
+    maxChars: LIVE_TOOL_BUFFER_MAX_CHARS,
+    maxChunks: LIVE_TOOL_BUFFER_MAX_CHUNKS,
+    textOf: (delta) => delta.chunk,
+    withText: (delta, chunk) => ({ ...delta, chunk }),
+    compare: (left, right) => left.seq - right.seq,
+    same: (left, right) => left.seq === right.seq,
+  });
 }
 
 function renderTextBlock(
@@ -719,4 +745,3 @@ function permissionRequestSummary(request: PermissionRequestEvent): string {
   }
   return limitText(formatUnknown(request.args), 600);
 }
-
