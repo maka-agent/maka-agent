@@ -1869,7 +1869,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('waits for an in-flight control command before completing close', async () => {
+  test('waits for an in-flight control command without stopping the session', async () => {
     const terminal = new FakeTerminal();
     const driver = new DeferredControlDriver();
     const run = runMakaPiTui({
@@ -1895,6 +1895,8 @@ describe('Maka Pi TUI runner', () => {
 
     try {
       assert.equal(terminal.stopCalls, 1);
+      assert.equal(driver.stopCalls, 0);
+      assert.equal(driver.status, 'active');
       assert.equal(settled, false);
     } finally {
       driver.releaseSetModel();
@@ -3380,6 +3382,8 @@ class RejectOnceCompactDriver extends SlashCommandDriver {
 class DeferredControlDriver implements MakaSessionDriver {
   readonly prompts: string[] = [];
   readonly models: string[] = [];
+  stopCalls = 0;
+  status: 'active' | 'aborted' = 'active';
   private resolveSetModel: (() => void) | null = null;
 
   async listSessions(): Promise<SessionSummary[]> {
@@ -3399,7 +3403,10 @@ class DeferredControlDriver implements MakaSessionDriver {
     };
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.status = 'aborted';
+  }
   async respondToPermission(_response: PermissionResponse): Promise<void> {}
 
   async setModel(model: string): Promise<void> {

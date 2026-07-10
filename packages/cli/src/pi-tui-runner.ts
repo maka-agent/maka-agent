@@ -94,6 +94,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let closed = false;
   let permissionInFlight = false;
   let turnRunning = false;
+  let compactRunning = false;
   const activeWork = new Set<Promise<void>>();
   let retainedStopPromise: Promise<boolean> | null = null;
   let lastTurnEscapeAt = 0;
@@ -226,9 +227,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       // Restore the shell first, but preserve the caller contract that close is
       // complete only after the runtime stop path settles.
       const workPromises = [...activeWork];
-      const stopPromise = retainedStopPromise ?? (busy ? stopDriver() : null);
+      const stopPromise = retainedStopPromise ?? (turnRunning || compactRunning ? stopDriver() : null);
       const stopped = stopPromise ? await stopPromise : true;
-      if (busy && !stopped) {
+      if ((turnRunning || compactRunning) && !stopped) {
         await stopDriver();
       }
       await Promise.all(workPromises);
@@ -488,17 +489,22 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   };
 
   const compactSession = async () => {
+    compactRunning = true;
     state.entries.push({
       kind: 'notice',
       level: 'info',
       text: 'Compacting context…',
     });
     requestRender();
-    await submitCompactToTranscript({
-      state,
-      driver: input.driver,
-      onChange: requestRender,
-    });
+    try {
+      await submitCompactToTranscript({
+        state,
+        driver: input.driver,
+        onChange: requestRender,
+      });
+    } finally {
+      compactRunning = false;
+    }
   };
 
   const showSessionList = async () => {
