@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { describe, test } from 'node:test';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import type { PermissionMode, PermissionResponse, SessionEvent, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
+import type { ShellRunUpdate } from '@maka/runtime';
 import type { MakaSessionDriver, MakaSessionRewindResult, MakaSessionSwitchResult, RewindTarget } from '../session-driver.js';
 import { runMakaPiTui } from '../pi-tui-runner.js';
 import { BUSY_SPINNER_FRAMES } from '../tui-attention.js';
@@ -268,6 +269,40 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('renders a background ShellRun terminal update after the agent turn ends', async () => {
+    const terminal = new FakeTerminal();
+    const driver = new BackgroundShellRunDriver();
+    let listener: ((update: ShellRunUpdate) => void) | undefined;
+    let unsubscribed = false;
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      subscribeShellRunUpdates: (next) => {
+        listener = next;
+        return () => { listener = undefined; unsubscribed = true; };
+      },
+    });
+
+    terminal.input('run');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('running'));
+    assert.ok(listener);
+    listener({
+      sessionId: 'session-1', sourceToolCallId: 'tool-bg',
+      result: {
+        kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        status: 'completed', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+        stdout: 'done\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+      },
+    });
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
+
+    exitMaka(terminal);
+    await run;
+    assert.equal(unsubscribed, true);
   });
 
   test('keeps tool expansion when kitty protocol reports the Ctrl-O release', async () => {
@@ -2817,6 +2852,26 @@ class ToolOutputDriver implements MakaSessionDriver {
   startNewSession(): void {}
   getSessionId(): string {
     return 'session-1';
+  }
+}
+
+class BackgroundShellRunDriver extends ToolOutputDriver {
+  override async *sendPrompt(_prompt: string): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'tool_start', id: 'event-tool-start', turnId: 'turn-1', ts: 1,
+      toolUseId: 'tool-bg', toolName: 'Bash', args: { command: 'build' },
+    };
+    yield {
+      type: 'tool_result', id: 'event-tool-result', turnId: 'turn-1', ts: 2,
+      toolUseId: 'tool-bg', isError: false,
+      content: {
+        kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        status: 'running', cwd: '/repo', cmd: 'build',
+        startedAt: 1_000, updatedAt: 2_000,
+        stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+      },
+    };
+    yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
   }
 }
 

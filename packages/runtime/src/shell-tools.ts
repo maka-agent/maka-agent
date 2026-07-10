@@ -50,7 +50,7 @@ export interface ShellRunToolController {
   readResource(
     sessionId: string,
     ref: string,
-  ): Promise<{ content: string }>;
+  ): Promise<ShellRunToolResult>;
   stopResource(sessionId: string, ref: string): Promise<ShellRunToolResult>;
 }
 

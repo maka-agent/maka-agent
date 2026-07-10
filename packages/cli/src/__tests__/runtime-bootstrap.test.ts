@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { createConnectionStore, createFileCredentialStore, createShellRunStore } from '@maka/storage';
-import { BackendRegistry, type AiSdkBackendInput, type SessionStore } from '@maka/runtime';
+import { BackendRegistry, type AiSdkBackendInput, type SessionStore, type ShellRunUpdate } from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
   getOrCreateCliClaudeDeviceId,
@@ -121,14 +121,51 @@ describe('Maka CLI runtime bootstrap', () => {
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
           },
-        ) as { content?: string };
-        assert.match(detail.content ?? '', /stdout:\nstart/);
+        ) as { kind?: string; status?: string; stdout?: string };
+        assert.equal(detail.kind, 'shell_run');
+        assert.equal(detail.status, 'running');
+        assert.equal(detail.stdout, 'start');
 
         await context.close();
         const record = await createShellRunStore(workspaceRoot).readShellRun('session-1', backgroundTaskId(result.ref));
         assert.equal(record.status, 'cancelled');
         assert.equal(record.exitCode, 130);
       } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('publishes yielded ShellRun completion without a model resource read', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      const updates: ShellRunUpdate[] = [];
+      const unsubscribe = context.subscribeShellRunUpdates((update) => updates.push(update));
+      try {
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => process.stdout.write('done'), 500)"`;
+        const result = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { kind?: string; status?: string };
+        assert.equal(result.kind, 'shell_run');
+        assert.equal(result.status, 'running');
+
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        const terminal = updates.find((update) => update.result.status === 'completed');
+        assert.equal(terminal?.sourceToolCallId, 'tool-1');
+        assert.equal(terminal?.result.stdout, 'startdone');
+      } finally {
+        unsubscribe();
         await context.close();
       }
     });

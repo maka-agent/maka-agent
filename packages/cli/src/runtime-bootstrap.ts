@@ -20,6 +20,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
   type AutomationDefinition,
+  type ShellRunUpdate,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -46,6 +47,7 @@ export interface MakaCliRuntimeContext {
   tools: ReturnType<typeof buildBuiltinTools>;
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
+  subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
   close(): Promise<void>;
 }
 
@@ -91,10 +93,20 @@ export async function createMakaCliRuntimeContext(
   const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
+  const shellRunListeners = new Set<(update: ShellRunUpdate) => void>();
   const shellRuns = new ShellRunProcessManager({
     store: shellRunStore,
     newId: randomUUID,
     now: Date.now,
+    onShellRunUpdate: (update) => {
+      for (const listener of shellRunListeners) {
+        try {
+          listener(update);
+        } catch {
+          // One UI observer must not suppress updates for the rest.
+        }
+      }
+    },
   });
   const tools = buildBuiltinTools({ shellRuns });
   const automationManager = new AutomationManager({
@@ -266,11 +278,16 @@ export async function createMakaCliRuntimeContext(
     tools,
     automationManager,
     automationScheduler,
+    subscribeShellRunUpdates: (listener) => {
+      shellRunListeners.add(listener);
+      return () => shellRunListeners.delete(listener);
+    },
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.
       automationScheduler.dispose();
       await shellRuns.terminateAll();
+      shellRunListeners.clear();
     },
   };
 }

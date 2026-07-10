@@ -15,10 +15,12 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
+import type { ShellRunUpdate } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
+  applyShellRunUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   submitCompactToTranscript,
   submitPromptToTranscript,
@@ -28,6 +30,7 @@ import {
 } from './pi-transcript.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
+import { createShellRunElapsedTicker } from './shell-run-elapsed-ticker.js';
 import {
   AttentionController,
   DISABLE_FOCUS_REPORTING,
@@ -75,6 +78,7 @@ export interface MakaPiTuiInput {
    * without waiting real seconds; defaults to the attention layer's own value.
    */
   attentionLongTurnThresholdMs?: number;
+  subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -137,6 +141,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     transcript.invalidate();
     tui.requestRender();
   };
+  const shellRunElapsedTicker = createShellRunElapsedTicker({
+    state,
+    onTick: requestRender,
+  });
+  const unsubscribeShellRunUpdates = input.subscribeShellRunUpdates?.((update) => {
+    if (closed || input.driver.getSessionId() !== update.sessionId) return;
+    if (!applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result)) return;
+    shellRunElapsedTicker.sync();
+    requestRender();
+  });
 
   const reportError = (error: unknown) => {
     state.entries.push({
@@ -184,6 +198,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
 
   const restoreTerminal = () => {
     removeProcessHandlers();
+    unsubscribeShellRunUpdates?.();
+    shellRunElapsedTicker.dispose();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
     // the shell still marked busy when the session exits.
@@ -320,6 +336,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         } else {
           permissionAlerted = false;
         }
+        shellRunElapsedTicker.sync();
         requestRender();
       },
     }).finally(() => {
@@ -384,6 +401,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
+    shellRunElapsedTicker.sync();
   };
 
   // Folder/connection safety is enforced inside driver.switchSession(),
@@ -535,6 +553,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // session, send a prompt to begin" cue. A notice here would make entries
     // non-empty and suppress it.
     replaceTranscriptWithStoredMessages(state, []);
+    shellRunElapsedTicker.sync();
     requestRender();
   };
 

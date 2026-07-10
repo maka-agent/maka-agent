@@ -105,6 +105,7 @@ export {
 export type {
   ShellRunBashInput,
   ShellRunProcessManagerInput,
+  ShellRunUpdate,
 } from './shell-run-manager.js';
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
