@@ -43,7 +43,7 @@ describe('Maka session driver', () => {
     assert.deepEqual(events.map((event) => event.type), ['text_delta', 'complete']);
   });
 
-  test('waits for pending session creation before stopping', async () => {
+  test('stops immediately while session creation is pending', async () => {
     const runtime = new DeferredSessionCreationRuntime();
     const driver = createMakaSessionDriver({
       runtime,
@@ -60,13 +60,13 @@ describe('Maka session driver', () => {
     });
     await Promise.resolve();
 
-    assert.equal(stopSettled, false);
+    assert.equal(stopSettled, true);
     assert.deepEqual(runtime.stopped, []);
 
     runtime.releaseCreate();
     await stop;
     await turn;
-    assert.deepEqual(runtime.stopped, ['session-1']);
+    assert.deepEqual(runtime.stopped, []);
     assert.deepEqual(runtime.sent, []);
   });
 
@@ -88,7 +88,7 @@ describe('Maka session driver', () => {
     await Promise.all([stop, firstTurn, secondTurn]);
 
     assert.equal(runtime.created.length, 1);
-    assert.deepEqual(runtime.stopped, ['session-1']);
+    assert.deepEqual(runtime.stopped, []);
     assert.deepEqual(runtime.sent, []);
   });
 

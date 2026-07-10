@@ -89,7 +89,7 @@ export function createMakaSessionDriver(input: MakaSessionDriverInput): MakaSess
 class RuntimeMakaSessionDriver implements MakaSessionDriver {
   private sessionId: string | null = null;
   private sessionCreation: Promise<string> | null = null;
-  private readonly pendingTurnStarts = new Set<{ cancelled: boolean }>();
+  private stopGeneration = 0;
   private model: string;
   // The connection the active/next session runs on. Mutable so a cross-provider
   // /model switch can rebind it; new sessions are created on this connection.
@@ -106,19 +106,13 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async *sendPrompt(prompt: string): AsyncIterable<SessionEvent> {
-    const turnStart = { cancelled: false };
-    this.pendingTurnStarts.add(turnStart);
-    try {
-      const sessionId = await this.ensureSession(prompt);
-      if (turnStart.cancelled) return;
-      this.pendingTurnStarts.delete(turnStart);
-      yield* this.input.runtime.sendMessage(sessionId, {
-        turnId: this.newId(),
-        text: prompt,
-      });
-    } finally {
-      this.pendingTurnStarts.delete(turnStart);
-    }
+    const generation = this.stopGeneration;
+    const sessionId = await this.ensureSession(prompt);
+    if (generation !== this.stopGeneration) return;
+    yield* this.input.runtime.sendMessage(sessionId, {
+      turnId: this.newId(),
+      text: prompt,
+    });
   }
 
   async *compactSession(): AsyncIterable<SessionEvent> {
@@ -137,10 +131,9 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
   }
 
   async stop(): Promise<void> {
-    for (const turnStart of this.pendingTurnStarts) turnStart.cancelled = true;
-    const sessionId = this.sessionId ?? (this.sessionCreation ? await this.sessionCreation : null);
-    if (!sessionId) return;
-    await this.input.runtime.stopSession(sessionId, { source: 'stop_button' });
+    this.stopGeneration += 1;
+    if (!this.sessionId) return;
+    await this.input.runtime.stopSession(this.sessionId, { source: 'stop_button' });
   }
 
   async respondToPermission(response: PermissionResponse): Promise<void> {
