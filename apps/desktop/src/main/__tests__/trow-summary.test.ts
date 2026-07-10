@@ -33,6 +33,8 @@ describe('trowActivityKind', () => {
     assert.equal(trowActivityKind('Write'), 'edit');
     assert.equal(trowActivityKind('Edit'), 'edit');
     assert.equal(trowActivityKind('Bash'), 'command');
+    assert.equal(trowActivityKind('StopBackgroundTask'), 'command');
+    assert.equal(trowActivityKind('stop_background_task'), 'command');
     assert.equal(trowActivityKind('ExploreAgent'), 'explore');
     assert.equal(trowActivityKind('browser_click'), 'browser');
     assert.equal(trowActivityKind('OfficeDocument'), 'tool');

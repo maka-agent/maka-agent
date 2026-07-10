@@ -191,6 +191,40 @@ describe('applyLiveTurnEvent', () => {
     });
   });
 
+  it('maps cancelled terminal tool_result to interrupted, not errored', () => {
+    const started = applyLiveTurnEvent(undefined, {
+      type: 'tool_start',
+      id: 'event-1',
+      turnId: 'turn-1',
+      stepId: 'step-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: { command: 'sleep 99' },
+      ts: 100,
+    });
+    const projection = applyLiveTurnEvent(started, {
+      type: 'tool_result',
+      id: 'event-2',
+      turnId: 'turn-1',
+      toolUseId: 'tool-1',
+      isError: true,
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'sleep 99',
+        status: 'cancelled',
+        exitCode: 130,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+      ts: 101,
+    });
+
+    assert.equal(projection.steps[0]?.tools[0]?.status, 'interrupted');
+  });
+
   it('appends streamed tool output to the existing tool without changing its step', () => {
     const started = applyLiveTurnEvent(undefined, {
       type: 'tool_start',

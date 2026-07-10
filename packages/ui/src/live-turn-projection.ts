@@ -1,6 +1,7 @@
 import type { SessionEvent, StoredMessage } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
 import type { ToolActivityItem } from './materialize.js';
+import { toolResultActivityStatus } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
 import { applyToolOutputChunk } from './tool-output-stream.js';
 
@@ -219,7 +220,7 @@ export function applyLiveTurnEvent(
       : { toolUseId: event.toolUseId, toolName: 'Tool', status: 'pending', args: undefined };
     const tool: ToolActivityItem = {
       ...base,
-      status: event.isError ? 'errored' : 'completed',
+      status: toolResultActivityStatus(event.isError, event.content),
       result: event.content,
       ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
     };

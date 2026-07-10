@@ -61,6 +61,8 @@ export function trowActivityKind(
       return 'edit';
     case 'bash':
     case 'shell':
+    case 'stopbackgroundtask':
+    case 'stop_background_task':
       return 'command';
     case 'exploreagent':
     case 'explore_agent':

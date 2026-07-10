@@ -136,8 +136,31 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
 function materializeToolResultStatus(
   result: Extract<StoredMessage, { type: 'tool_result' }>,
 ): ToolActivityItem['status'] {
-  if (!result.isError) return 'completed';
-  if (result.content.kind === 'explore_agent' && result.content.reason === 'aborted') {
+  return toolResultActivityStatus(result.isError, result.content);
+}
+
+/** Terminal / shell_run results whose runtime status is explicit cancel. */
+export function isCancelledToolResultContent(
+  content: ToolResultContent | undefined,
+): boolean {
+  if (!content) return false;
+  if (content.kind === 'terminal' || content.kind === 'shell_run') {
+    return content.status === 'cancelled';
+  }
+  return false;
+}
+
+/**
+ * Map a tool_result onto ToolActivityItem.status. Cancel is interrupted
+ * (user stop), not errored — so cards/trows never say "失败" for cancel.
+ */
+export function toolResultActivityStatus(
+  isError: boolean,
+  content: ToolResultContent | undefined,
+): ToolActivityItem['status'] {
+  if (isCancelledToolResultContent(content)) return 'interrupted';
+  if (!isError) return 'completed';
+  if (content?.kind === 'explore_agent' && content.reason === 'aborted') {
     return 'interrupted';
   }
   return 'errored';

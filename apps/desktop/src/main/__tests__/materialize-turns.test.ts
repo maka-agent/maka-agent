@@ -121,6 +121,33 @@ describe('materializeTurns', () => {
     assert.equal(turns[0]?.tools[0]?.status, 'interrupted');
   });
 
+  it('surfaces cancelled terminal results as interrupted instead of failed', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallMsg('t1', 101, 'bash-cancel', 'Bash'),
+      {
+        type: 'tool_result',
+        id: 'r-bash-cancel',
+        turnId: 't1',
+        ts: 102,
+        toolUseId: 'bash-cancel',
+        isError: true,
+        content: {
+          kind: 'terminal',
+          cwd: '/repo',
+          cmd: 'sleep 99',
+          status: 'cancelled',
+          exitCode: 130,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } as StoredMessage,
+    ]);
+    assert.equal(turns[0]?.tools[0]?.status, 'interrupted');
+  });
+
   it('surfaces canceled ExploreAgent results as interrupted instead of failed', () => {
     const turns = materializeTurns([
       userMsg('t1', 100, 'q'),

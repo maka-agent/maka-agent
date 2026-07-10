@@ -67,6 +67,13 @@ const REMAINDER_PRIORITY = [
 const SENSITIVE_KEY_RE =
   /(password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|^auth$|credential|private[_-]?key)/i;
 
+/**
+ * Secret embedded in a key itself, e.g. `password=x`, `password: x`, `token x`.
+ * Captures keyword + separator so only the payload is replaced with <redacted>.
+ */
+const SENSITIVE_KEY_PAYLOAD_RE =
+  /((?:password|passwd|secret|token|api[_-]?key|access[_-]?token|authorization|credential|private[_-]?key)[^\s=:]*)(\s*[=:]\s*|\s+)(\S+)/gi;
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -86,23 +93,25 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_RE.test(key);
 }
 
+function maskSensitiveKeyPayload(key: string): string {
+  SENSITIVE_KEY_PAYLOAD_RE.lastIndex = 0;
+  return key.replace(SENSITIVE_KEY_PAYLOAD_RE, '$1$2<redacted>');
+}
+
 /**
- * Keys may themselves embed secrets (`password=correct-horse`). Mask the
- * assignment payload; never rely on redactSecrets alone for short passwords.
+ * Keys may themselves embed secrets (`password=x`, `password: x`). Mask the
+ * assignment payload for = / : / whitespace separators — never rely on
+ * redactSecrets alone for short passwords.
  */
 function safeKeyLabel(key: string): string {
-  if (isSensitiveKey(key) || /(?:password|passwd|secret|token|api[_-]?key)\s*=/i.test(key)) {
-    if (key.includes('=')) {
-      const left = key.slice(0, key.indexOf('='));
-      return redactSecrets(`${left}=<redacted>`);
-    }
-    return redactSecrets(key);
-  }
+  const masked = maskSensitiveKeyPayload(key);
+  if (masked !== key) return redactSecrets(masked);
   return redactSecrets(key);
 }
 
 function maskSensitiveValue(key: string, value: unknown): unknown {
-  if (!isSensitiveKey(key) && !/(?:password|passwd|secret|token|api[_-]?key)\s*=/i.test(key)) {
+  const keyHasEmbeddedSecret = maskSensitiveKeyPayload(key) !== key;
+  if (!isSensitiveKey(key) && !keyHasEmbeddedSecret) {
     return value;
   }
   if (value === undefined) return undefined;

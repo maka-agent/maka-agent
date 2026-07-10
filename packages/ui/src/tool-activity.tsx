@@ -211,8 +211,51 @@ function resultOwnsOwnPanel(result: ToolActivityItem['result']): boolean {
 }
 
 function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
-  if (!result || result.kind !== 'terminal') return false;
-  return result.status === 'cancelled';
+  if (!result) return false;
+  if (result.kind === 'terminal' || result.kind === 'shell_run') {
+    return result.status === 'cancelled';
+  }
+  return false;
+}
+
+function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
+  if (!result) return false;
+  if (result.kind === 'terminal' || result.kind === 'shell_run') {
+    return (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
+  }
+  return true;
+}
+
+/**
+ * Background Bash yields an empty shell_run body; keep the live chunks the
+ * user already saw by filling empty stdout/stderr from outputChunks.
+ */
+function withLiveStreamFallback(
+  result: NonNullable<ToolActivityItem['result']>,
+  chunks: ToolActivityItem['outputChunks'] | undefined,
+): NonNullable<ToolActivityItem['result']> {
+  if (!chunks?.length) return result;
+  if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
+  if (resultHasCapturedStreams(result)) return result;
+  let stdout = '';
+  let stderr = '';
+  for (const chunk of chunks) {
+    if (chunk.stream === 'stderr') stderr += chunk.text;
+    else stdout += chunk.text;
+  }
+  if (!stdout && !stderr) return result;
+  return { ...result, stdout, stderr };
+}
+
+function toolStatusLabel(item: ToolActivityItem): string {
+  if (isCancelledToolResult(item.result)) return '已取消';
+  if (
+    (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
+    && item.result.status === 'timed_out'
+  ) {
+    return '已超时';
+  }
+  return STATUS_LABEL[item.status];
 }
 
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
@@ -249,7 +292,7 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
         <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item)}</span>
         <span className={toolVariants({ part: 'meta' })}>
           {duration && <span className={toolVariants({ part: 'duration' })}>{duration}</span>}
-          <span className={toolVariants({ part: 'status-label' })}>{STATUS_LABEL[item.status]}</span>
+          <span className={toolVariants({ part: 'status-label' })}>{toolStatusLabel(item)}</span>
         </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -266,14 +309,15 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
  * quiet formatters (tool-args-redaction-contract / quiet-panel contracts).
  */
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
-  const errored = item.status === 'errored';
+  const cancelled = isCancelledToolResult(item.result);
+  // Cancel maps to interrupted at materialize/live-projection; keep defensive
+  // checks so a stale errored+cancelled item still does not look like failure.
+  const errored = item.status === 'errored' && !cancelled;
   const permissionDenied = isPermissionDeniedToolResult(item.result);
   const running = item.status === 'running' || item.status === 'pending';
   // terminal / shell_run own a single quiet panel — never nest inside the shared well.
   const ownsPanel = resultOwnsOwnPanel(item.result);
-  // Cancelled terminals still land as status=errored; skip the generic failure
-  // banner so the panel note ("已取消") is the only status story.
-  const showErrorBanner = errored && !isCancelledToolResult(item.result);
+  const showErrorBanner = errored;
   // Every tool: human invocation line from args — never pretty-printed JSON.
   // Skip when the result panel already prints the command (terminal/shell_run).
   const invocationLine = !permissionDenied && !ownsPanel
@@ -281,11 +325,19 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     : undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
-  const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
+  // Owned terminal/shell_run panels absorb empty-body yield via
+  // withLiveStreamFallback (never a second live panel).
+  const showLiveStream = !!item.outputChunks
+    && item.outputChunks.length > 0
+    && !ownsPanel
+    && (running || !item.result);
   const showResult = !!item.result && !permissionDenied;
+  const displayResult = showResult && item.result
+    ? withLiveStreamFallback(item.result, item.outputChunks)
+    : undefined;
   const quietJson =
-    showResult && item.result?.kind === 'json'
-      ? formatQuietJsonValue(item.result.value)
+    displayResult?.kind === 'json'
+      ? formatQuietJsonValue(displayResult.value)
       : undefined;
   // Keep the invocation line whenever args yield one. Only add a result
   // headline when it says something different (avoids dropping Write/Edit paths
@@ -307,8 +359,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
 
   return (
     <div className="mt-1 flex flex-col gap-1.5">
-      {showErrorBanner && <ToolErrorBanner result={item.result} />}
-      {showResult && ownsPanel && <ToolResultPreview content={item.result!} />}
+      {showErrorBanner && <ToolErrorBanner result={displayResult ?? item.result} />}
+      {showResult && ownsPanel && displayResult && <ToolResultPreview content={displayResult} />}
       {hasSharedPanelContent && (
         <div
           data-slot="tool-output"
@@ -333,15 +385,15 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               truncated={item.outputTruncated === true}
             />
           )}
-          {showResult && !ownsPanel && (
-            isConnectorTool(item.toolName) && item.result!.kind === 'json' ? (
-              <LoadToolResultPreview args={item.args} value={item.result!.value} />
-            ) : isAutomationTool(item.toolName) && item.result!.kind === 'text' ? (
-              <AutomationResultPreview text={(item.result as { text: string }).text} />
+          {showResult && !ownsPanel && displayResult && (
+            isConnectorTool(item.toolName) && displayResult.kind === 'json' ? (
+              <LoadToolResultPreview args={item.args} value={displayResult.value} />
+            ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
+              <AutomationResultPreview text={displayResult.text} />
             ) : quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
-              <ToolResultPreview content={item.result!} />
+              <ToolResultPreview content={displayResult} />
             )
           )}
         </div>

@@ -348,6 +348,22 @@ describe('tool activity presentation', () => {
     assert.match(markup, /password=&lt;redacted&gt;|password=&lt;redacted&gt;|password=&lt;redacted&gt;|password=<redacted>|redacted/i);
   });
 
+  it('redacts secrets in keys that use colon or space separators', () => {
+    for (const key of ['password: correct-horse', 'password correct-horse', 'token: short-secret']) {
+      const markup = renderToStaticMarkup(createElement(ToolActivity, {
+        items: [{
+          toolUseId: `tool-key-${key}`,
+          toolName: 'CustomInspect',
+          status: 'waiting_permission',
+          args: { [key]: true },
+          result: { kind: 'json', value: { ok: true } },
+        } satisfies ToolActivityItem],
+      }));
+      assert.doesNotMatch(markup, /correct-horse|short-secret/);
+      assert.match(markup, /redacted/i);
+    }
+  });
+
   it('keeps error diagnostics when a list field is also present', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
@@ -420,12 +436,45 @@ describe('tool activity presentation', () => {
     assert.equal(commands.length, 1);
   });
 
+  it('keeps pre-yield live output when shell_run lands with empty streams', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-shell-run-empty',
+        toolName: 'Bash',
+        activityKind: 'command',
+        status: 'waiting_permission',
+        args: { command: 'npm test' },
+        outputChunks: [
+          { seq: 1, stream: 'stdout', text: 'starting-live-output\n', redacted: false, createdAt: 1 },
+        ],
+        result: {
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/bg-empty',
+          status: 'running',
+          cwd: '/repo',
+          cmd: 'npm test',
+          startedAt: 1,
+          updatedAt: 2,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /starting-live-output/);
+    assert.doesNotMatch(markup, /尚无输出/);
+    const panels = markup.match(/data-slot="tool-output"/g) ?? [];
+    assert.equal(panels.length, 1);
+  });
+
   it('surfaces terminal cancel and runtime truncation flags', () => {
     const cancelled = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
         toolUseId: 'tool-cancel',
         toolName: 'Bash',
-        status: 'errored',
+        status: 'interrupted',
         args: { command: 'sleep 99' },
         result: {
           kind: 'terminal',
@@ -443,6 +492,31 @@ describe('tool activity presentation', () => {
     assert.match(cancelled, /已取消/);
     assert.doesNotMatch(cancelled, /失败 · 退出码 130/);
     assert.doesNotMatch(cancelled, /工具调用失败/);
+    // Outer status must not say 失败 either.
+    assert.doesNotMatch(cancelled, />失败</);
+
+    const cancelledTrow = renderToStaticMarkup(createElement(ToolTrow, {
+      items: [{
+        toolUseId: 'tool-cancel-trow',
+        toolName: 'Bash',
+        activityKind: 'command',
+        status: 'interrupted',
+        args: { command: 'sleep 99' },
+        result: {
+          kind: 'terminal',
+          cwd: '/repo',
+          cmd: 'sleep 99',
+          status: 'cancelled',
+          exitCode: 130,
+          stdout: '',
+          stderr: '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        },
+      } satisfies ToolActivityItem],
+    }));
+    assert.match(cancelledTrow, /运行 1 条命令/);
+    assert.doesNotMatch(cancelledTrow, /1 个失败/);
 
     const truncated = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
