@@ -38,12 +38,18 @@ import {
 } from './tool-activity/presentation.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { LiveIndicator, previewVariants, streamVariants, TextShimmer, toolVariants } from './primitives/chat.js';
+import { previewVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatRedactedJson, formatToolIntent } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
-import { ToolResultPreview } from './tool-activity/tool-result-preview.js';
+import {
+  TOOL_OUTPUT_BODY_CLASS,
+  TOOL_OUTPUT_COMMAND_CLASS,
+  TOOL_OUTPUT_NOTE_CLASS,
+  TOOL_OUTPUT_PANEL_CLASS,
+  ToolResultPreview,
+} from './tool-activity/tool-result-preview.js';
 
 /** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
@@ -255,11 +261,10 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 }
 
 /**
- * The tool detail body — error banner, intent, args, live output stream, and
- * result preview — shared by the boxed `ToolActivityCard` and the flat trow
- * rows. Extracted so the trow can render the same details without the card
- * frame. Args/intent stay routed through `formatRedactedJson` /
- * `formatToolIntent` (tool-args-redaction-contract).
+ * The tool detail body — error banner + one Codex-like output well for
+ * command/args, live stream, and structured results. Shared by the boxed
+ * `ToolActivityCard` and flat trow rows. Args still route through
+ * `formatRedactedJson` (tool-args-redaction-contract).
  */
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
@@ -267,47 +272,52 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const presentation = deriveToolActivityPresentation(item);
   const running = item.status === 'running' || item.status === 'pending';
   const command = presentation.kind === 'command' ? extractToolCommand(item.args) : undefined;
-  // A terminal result preview already prints `$ cmd` + cwd + exit in its head,
-  // so the invocation line only fills the in-flight gap (and any non-terminal
-  // result). The compact redacted-args fallback still routes through
-  // formatRedactedJson (tool-args-redaction-contract).
+  // Terminal result already includes the command line inside its quiet panel.
   const resultIsTerminal = item.result?.kind === 'terminal';
-  const showInvocation = !permissionDenied && !resultIsTerminal && (command !== undefined || item.args !== undefined);
+  const showCommand = !permissionDenied && !resultIsTerminal && command !== undefined;
+  const showArgsFallback =
+    !permissionDenied && !resultIsTerminal && command === undefined && item.args !== undefined;
   // While running the live stream is the output; once a structured result
-  // preview exists it is the single quiet output block — never render both
-  // (the old body double-printed stdout as stream + preview).
+  // preview exists it is the single quiet output block — never render both.
   const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
+  const showResult = !!item.result && !permissionDenied;
+  // Terminal results own their own quiet panel (command + body + failure note).
+  // Other results share one panel with any in-flight command/args/live stream.
+  const hasSharedPanelContent =
+    showCommand || showArgsFallback || showLiveStream || (showResult && !resultIsTerminal);
+
   return (
-    // Flat, left-border-indented detail area — one visual language with the
-    // 深度思考 disclosure body. No nested card frame, no per-row rounded boxes.
-    <div className="mt-1 ml-2 flex flex-col gap-1.5 border-l border-[var(--border)] pl-2.5 pb-1">
+    <div className="mt-1 flex flex-col gap-1.5">
       {errored && <ToolErrorBanner result={item.result} />}
-      {showInvocation && (
-        command !== undefined ? (
-          <code className="[font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">
-            <span className="select-none text-[color:var(--muted-foreground)]">$ </span>
-            {redactSecrets(command)}
-          </code>
-        ) : (
-          <pre className="m-0 max-h-40 overflow-auto [font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">{formatRedactedJson(item.args)}</pre>
-        )
-      )}
-      {showLiveStream && (
-        <ToolOutputStream
-          chunks={item.outputChunks!}
-          live={running}
-          interrupted={item.status === 'interrupted'}
-          truncated={item.outputTruncated === true}
-        />
-      )}
-      {item.result && !permissionDenied && (
-        isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
-          <LoadToolResultPreview args={item.args} value={item.result.value} />
-        ) : isAutomationTool(item.toolName) && item.result.kind === 'text' ? (
-          <AutomationResultPreview text={item.result.text} />
-        ) : (
-          <ToolResultPreview content={item.result} />
-        )
+      {showResult && resultIsTerminal && <ToolResultPreview content={item.result!} />}
+      {hasSharedPanelContent && (
+        <div
+          data-slot="tool-output"
+          className={cn(TOOL_OUTPUT_PANEL_CLASS, errored && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+        >
+          {showCommand && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{redactSecrets(command!)}</code>
+          )}
+          {showArgsFallback && (
+            <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>{formatRedactedJson(item.args)}</pre>
+          )}
+          {showLiveStream && (
+            <ToolOutputStream
+              chunks={item.outputChunks!}
+              live={running}
+              truncated={item.outputTruncated === true}
+            />
+          )}
+          {showResult && !resultIsTerminal && (
+            isConnectorTool(item.toolName) && item.result!.kind === 'json' ? (
+              <LoadToolResultPreview args={item.args} value={item.result!.value} />
+            ) : isAutomationTool(item.toolName) && item.result!.kind === 'text' ? (
+              <AutomationResultPreview text={(item.result as { text: string }).text} />
+            ) : (
+              <ToolResultPreview content={item.result!} />
+            )
+          )}
+        </div>
       )}
     </div>
   );
@@ -460,34 +470,19 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
 }
 
 /**
- * PR-UI-12 — live stdout/stderr stream from PR-REAL-4 `tool_output_delta`.
+ * Live stdout/stderr body for the unified tool-output panel.
  *
- * Renders chunks in their original seq order (already sorted in main.tsx
- * before this component sees them) so interleaved stdout+stderr reads
- * the way a human would expect from a real terminal. Each chunk keeps
- * its stream tag so stderr can render in a destructive tone — a
- * single mono `<pre>` would lose that visual signal.
+ * No second card shell and no "实时输出" header — the parent panel is the
+ * only chrome. Chunks keep stream tags so stderr can tint destructive.
+ * Redacted chunks still surface an inline "[已脱敏]" hint. Truncation is a
+ * quiet footer note, not a flag row.
  *
- * `redacted: true` chunks render as a small inline hint "[已脱敏]"
- * instead of pretending the chunk arrived clean. Empty redacted
- * chunks (runtime suppressed everything) collapse to just the hint.
- *
- * `truncated: true` (PR-UI-12 fixup #2, @kenji A3 msg 365ff8b9) flips
- * a "已截断" pill in the header counts row. This means
- * `applyToolOutputChunk` dropped chunks (per-tool count or
- * total-char cap) or tail-truncated a single oversize chunk. Users
- * see explicitly that the displayed stream is bounded — they should
- * use Finder / external viewer if they need the full output.
- *
- * Auto-scroll: while `live` is true, we anchor to the bottom on every
- * chunk update so users see the latest output. Once the tool reaches
- * terminal (`tool_result`), auto-scroll stops so users can scroll up
- * to read history without being yanked back.
+ * Auto-scroll: while `live` is true, anchor to the bottom on every chunk
+ * update; stop once the tool settles so the user can scroll history.
  */
 function ToolOutputStream(props: {
   chunks: ToolOutputChunk[];
   live: boolean;
-  interrupted: boolean;
   truncated: boolean;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
@@ -498,59 +493,33 @@ function ToolOutputStream(props: {
     el.scrollTop = el.scrollHeight;
   }, [props.chunks, props.live]);
 
-  const hasStderr = props.chunks.some((c) => c.stream === 'stderr');
-  const hasRedacted = props.chunks.some((c) => c.redacted);
-  const hasFlags = hasStderr || hasRedacted || props.truncated;
-
   return (
-    <div className={streamVariants({ part: 'container' })} data-live={props.live ? 'true' : undefined}>
-      <header className={streamVariants({ part: 'header' })}>
-        <span className={streamVariants({ part: 'label' })}>
-          {props.live ? (
-            <>
-              <LiveIndicator />
-              <span>实时输出</span>
-            </>
-          ) : props.interrupted ? (
-            <span>已中断 · 已收到的输出</span>
-          ) : (
-            <span>工具输出</span>
-          )}
-        </span>
-        {hasFlags && (
-          <span className={streamVariants({ part: 'flags' })}>
-            {hasStderr && <span className={streamVariants({ part: 'flag' })} data-stream="stderr">stderr</span>}
-            {hasRedacted && <span className={streamVariants({ part: 'flag' })} data-redacted="true">已脱敏</span>}
-            {props.truncated && (
-              <span
-                className={streamVariants({ part: 'flag' })}
-                data-truncated="true"
-                title="部分输出已截断；如需完整输出请查看对应工具结果或生成的 artifact"
-              >
-                已截断
-              </span>
-            )}
-          </span>
-        )}
-      </header>
-      <pre ref={preRef} className={streamVariants({ part: 'body' })}>
+    <>
+      <pre ref={preRef} className={TOOL_OUTPUT_BODY_CLASS} data-live={props.live ? 'true' : undefined}>
         {props.chunks.map((chunk) => (
           <span
             key={chunk.seq}
-            className={streamVariants({ part: 'chunk' })}
+            className={cn(
+              'contents',
+              chunk.stream === 'stderr' && 'text-[color:var(--destructive)]',
+              chunk.redacted && 'opacity-[0.65]',
+            )}
             data-stream={chunk.stream}
             data-redacted={chunk.redacted ? 'true' : undefined}
           >
             {chunk.text}
             {chunk.redacted && (
-              <span className={streamVariants({ part: 'redacted-tag' })} aria-label="已脱敏">
+              <span className="inline ml-0.5 text-[color:var(--warning-text,var(--info-text))]" aria-label="已脱敏">
                 {' '}[已脱敏]
               </span>
             )}
           </span>
         ))}
       </pre>
-    </div>
+      {props.truncated && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>输出已截断</p>
+      )}
+    </>
   );
 }
 

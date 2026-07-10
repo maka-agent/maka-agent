@@ -62,7 +62,7 @@ describe('ToolActivity result preview contract', () => {
           stdoutTruncated: false,
           stderrTruncated: false,
         },
-        expected: [/data-kind="terminal"/, /退出码 1/, /stdout 已隐藏 1 行/, /复制研读提示/],
+        expected: [/data-kind="terminal"/, /失败 · 退出码 1/, /stdout 已隐藏 1 行/, /输出已截断/],
       },
       {
         kind: 'office_document',

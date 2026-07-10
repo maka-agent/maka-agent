@@ -292,132 +292,53 @@ describe('visible-copy hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v2)', 
 });
 
 describe('terminal truncation handoff contract', () => {
-  it('shows a deep-research handoff when terminal output is capped', async () => {
+  it('shows a quiet truncation note without a copy control on the tool output well', async () => {
+    // Tool-output presentation: one Codex-like panel, no always-on copy chrome.
+    // Truncation is a one-line caption note; users select text to copy.
     const terminalPreviewPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'tool-activity', 'tool-result-preview.tsx');
     const src = await readFile(terminalPreviewPath, 'utf8');
 
     assert.match(
       src,
       /const hiddenLines = stdout\.capped \+ stderr\.capped;/,
-      'TerminalPreview should combine capped stdout/stderr counts into one visible handoff condition.',
+      'TerminalPreview should combine capped stdout/stderr counts into one visible note condition.',
     );
     assert.match(
       src,
       /\{hiddenLines > 0 && \(/,
-      'The handoff note should only render when at least one terminal output stream is capped.',
+      'The truncation note should only render when at least one terminal output stream is capped.',
     );
     assert.match(
       src,
-      /previewVariants\(\{ part: 'terminal-truncated-note' \}\)/,
-      'TerminalPreview should render the capped-output handoff through the governed previewVariants terminal-truncated-note part.',
-    );
-    assert.match(
-      src,
-      /前 \{TOOL_LINE_CAP\} 行/,
-      'The handoff note should reflect the actual terminal preview line cap instead of hard-coding a stale number.',
-    );
-    assert.match(
-      src,
-      /深度研究.*只读探索/,
-      'Long terminal output should point users toward the read-only deep-research workflow instead of ending at a dead truncated preview.',
-    );
-    assert.match(
-      src,
-      /const handoffText = \[/,
-      'TerminalPreview should build a copyable handoff prompt for capped terminal output.',
-    );
-    assert.match(
-      src,
-      /工作目录：\$\{safeCwd\}/,
-      'The capped-output handoff should include the redacted working directory.',
-    );
-    assert.match(
-      src,
-      /命令：\$\{safeCmd\}/,
-      'The capped-output handoff should include the redacted command.',
-    );
-    assert.match(
-      src,
-      /copyFeedback\.copy\('handoff', handoffText\)/,
-      'The capped-output handoff copy path must use the shared guarded clipboard feedback path.',
-    );
-    assert.match(
-      src,
-      /import \{ Button as UiButton[^}]*\} from '\.\.\/ui\.js';/,
-      'The capped-output handoff copy action should use the shared UiButton from ui.tsx.',
-    );
-    assert.match(
-      src,
-      /<UiButton[\s\S]*?variant="ghost"[\s\S]*?size="sm"[\s\S]*?className=\{previewVariants\(\{ part: 'terminal-copy' \}\)\}/,
-      'The capped-output handoff copy action should keep its ghost/sm affordance through UiButton props and the governed previewVariants terminal-copy part.',
+      /输出已截断 · 每路仅展示前 \{TOOL_LINE_CAP\} 行/,
+      'The truncation note should state the line cap without a copy button.',
     );
     assert.doesNotMatch(
       src,
-      /\bmaka-tool-terminal-copy\b/,
-      'The copy action must not reintroduce the retired bespoke maka-tool-terminal-copy class (it migrated onto previewVariants in #332 PR4).',
-    );
-    // PR-UI-LIB-EXTRACT-7 (round 8/10): the shared clipboard
-    // feedback hook moved from `components.tsx` into a sibling
-    // `clipboard-feedback.ts` leaf module. The behavioral
-    // contract is unchanged; we just read the hook from where
-    // it now lives.
-    const clipboardPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'clipboard-feedback.ts');
-    const clipboardSrc = await readFile(clipboardPath, 'utf8');
-    assert.match(
-      clipboardSrc,
-      /export function useClipboardCopyFeedback/,
-      'Clipboard copy actions should share one pending/failure feedback boundary instead of silently firing raw writes.',
-    );
-    assert.match(
-      clipboardSrc,
-      /navigator\.clipboard\.writeText\(options\.redact === false \? text : redactSecrets\(text\)\)/,
-      'The shared clipboard feedback helper must redact by default and require an explicit raw-copy opt-out.',
-    );
-    assert.match(
-      src,
-      /handoffCopyPhase === 'pending'/,
-      'The capped-output handoff copy button should expose a pending state while the clipboard write is running.',
-    );
-    assert.match(
-      src,
-      /data-copy-error=\{handoffCopyPhase === 'failed'/,
-      'The capped-output handoff copy button should expose clipboard failures in-place instead of silently failing.',
-    );
-    assert.match(
-      src,
       /复制研读提示/,
-      'The truncation handoff should expose a visible copy action for the deep-research prompt.',
+      'Tool output wells must not show an always-on copy action.',
+    );
+    assert.doesNotMatch(
+      src,
+      /copyFeedback\.copy\('handoff'/,
+      'Terminal truncation must not reintroduce a handoff clipboard control on the quiet panel.',
+    );
+    assert.match(
+      src,
+      /data-slot="tool-output"/,
+      'Terminal preview must use the unified tool-output panel slot.',
+    );
+    assert.match(
+      src,
+      /失败 · 退出码/,
+      'Failed terminals should expose a one-line failure note with the exit code.',
     );
   });
 
-  it('styles the terminal truncation handoff distinctly from raw terminal output', async () => {
-    // #332 PR4: the handoff note + copy-state styling moved off bespoke CSS onto
-    // the `@maka/ui` `previewVariants` literalize table. The distinguishing
-    // declarations are now literal utilities in chat.tsx — assert them where they
-    // live (the diff harness proves they render identically).
+  it('keeps explore-agent copy feedback on non-tool-output surfaces', async () => {
+    // Explore agent still has explicit copy affordances; only tool mono wells dropped them.
     const chatPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'primitives', 'chat.tsx');
     const chat = await readFile(chatPath, 'utf8');
-
-    assert.match(
-      chat,
-      /"terminal-truncated-note":\s*\n?\s*"[^"]*\[border-top:1px_solid_var\(--border\)\]/,
-      'The truncation handoff should be visually separated from terminal text (border-top).',
-    );
-    assert.match(
-      chat,
-      /"terminal-truncated-note":\s*\n?\s*"[^"]*bg-\[oklch\(from_var\(--warning\)/,
-      'The truncation handoff should use the warning token so it reads as a capped-output state.',
-    );
-    assert.match(
-      chat,
-      /"terminal-copy":\s*\n?\s*"\[flex:0_0_auto\]/,
-      'The copy action should keep a stable size inside the truncation handoff row.',
-    );
-    assert.match(
-      chat,
-      /"terminal-copy":[\s\S]*?data-\[copy-error=true\]:text-\[color:var\(--destructive\)\]/,
-      'The terminal handoff copy button should have a visible failed state.',
-    );
     assert.match(
       chat,
       /"agent-copy":[\s\S]*?data-\[pending=true\]:cursor-progress/,
