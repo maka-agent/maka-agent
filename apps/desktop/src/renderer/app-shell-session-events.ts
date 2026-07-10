@@ -63,9 +63,10 @@ export function createAppShellSessionEventHandlers(options: {
     });
   }
 
-  function clearLiveTurn(sessionId: string): void {
+  function clearTerminalProjection(sessionId: string, turnId: string): void {
     setLiveTurnBySession((current) => {
-      if (!current[sessionId]) return current;
+      const projection = current[sessionId];
+      if (!projection?.terminal || projection.turnId !== turnId) return current;
       const next = { ...current };
       delete next[sessionId];
       return next;
@@ -108,6 +109,21 @@ export function createAppShellSessionEventHandlers(options: {
     });
   }
 
+  function terminalRefreshOptions(projection: LiveTurnProjection | undefined): RefreshMessagesOptions | undefined {
+    const messageId = [...(projection?.steps ?? [])].reverse().find((step) => step.text)?.stepId;
+    return messageId ? { requiredAssistantMessageId: messageId } : undefined;
+  }
+
+  async function refreshTerminalProjection(
+    sessionId: string,
+    turnId: string,
+    projection: LiveTurnProjection | undefined,
+    settle: (sessionId: string, turnId: string) => void,
+  ): Promise<void> {
+    const refreshed = await refreshMessages(sessionId, terminalRefreshOptions(projection)).catch(() => false);
+    if (refreshed) settle(sessionId, turnId);
+  }
+
   function handleEvent(sessionId: string, event: SessionEvent): void {
     const before = liveTurnBySessionRef.current[sessionId];
     updateLiveTurn(sessionId, event);
@@ -127,7 +143,6 @@ export function createAppShellSessionEventHandlers(options: {
         void refreshMessages(sessionId);
         break;
       case 'error':
-        clearLiveTurn(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         if (activeIdRef.current === sessionId) {
           if (isNoRealConnectionEvent(event)) {
@@ -139,13 +154,12 @@ export function createAppShellSessionEventHandlers(options: {
         }
         notifyRunEnded?.({ kind: 'errored', sessionId, body: sessionEventErrorMessage(event) });
         void refreshSessions();
-        void refreshMessages(sessionId);
+        void refreshTerminalProjection(sessionId, event.turnId, before, clearTerminalProjection);
         break;
       case 'abort':
-        clearLiveTurn(sessionId);
         setPermissionBySession((current) => clearPermissions(current, sessionId));
         void refreshSessions();
-        void refreshMessages(sessionId);
+        void refreshTerminalProjection(sessionId, event.turnId, before, clearTerminalProjection);
         break;
       case 'complete': {
         if (event.stopReason !== 'permission_handoff') {
@@ -156,15 +170,16 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         void refreshSessions();
-        const requiredMessageId = [...(before?.steps ?? [])].reverse().find((step) => step.text)?.stepId;
-        const refreshOptions = requiredMessageId ? { requiredAssistantMessageId: requiredMessageId } : undefined;
-        void refreshMessages(sessionId, refreshOptions)
-          .catch(() => false)
-          .finally(() => {
-            if (event.stopReason !== 'permission_handoff') {
-              settleNonTextTerminalStepsAfterRefresh(sessionId, event.turnId);
-            }
-          });
+        if (event.stopReason === 'permission_handoff') {
+          void refreshMessages(sessionId, terminalRefreshOptions(before));
+        } else {
+          void refreshTerminalProjection(
+            sessionId,
+            event.turnId,
+            before,
+            settleNonTextTerminalStepsAfterRefresh,
+          );
+        }
         break;
       }
       default:

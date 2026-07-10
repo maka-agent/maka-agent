@@ -21,6 +21,7 @@ import {
   recordSessionEventStreamChange,
   recordSessionEventStreamEvent,
 } from './session-event-health';
+import { settledSessionTransientIds } from './settled-session-transients.js';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (
@@ -485,10 +486,13 @@ export function useSettledSessionTransientReconcile(options: {
   clearTurnTransientState: (sessionId: string) => void;
 }) {
   const reconcile = useEffectEvent(() => {
-    for (const session of options.sessions) {
-      if (session.status === 'running' || session.status === 'waiting_for_user') continue;
-      if (session.id === options.activeId && options.liveTurnBySessionRef.current[session.id]?.terminal) continue;
-      options.clearTurnTransientState(session.id);
+    const sessionIds = settledSessionTransientIds({
+      activeId: options.activeId,
+      sessions: options.sessions,
+      liveTurnBySession: options.liveTurnBySessionRef.current,
+    });
+    for (const sessionId of sessionIds) {
+      options.clearTurnTransientState(sessionId);
     }
   });
   useEffect(() => {

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { PermissionRequestEvent } from '@maka/core';
+import type { PermissionRequestEvent, SessionSummary } from '@maka/core';
 import { armLiveTurn } from '@maka/ui';
+import { settledSessionTransientIds } from '../../renderer/settled-session-transients.js';
 import {
   clearAppShellSessionUiStateForSession,
   createAppShellSessionUiStateController,
@@ -41,6 +42,22 @@ function seededState(): AppShellSessionUiState {
 }
 
 describe('app shell session UI state controller', () => {
+  it('selects background terminal sessions without cutting off the active handoff', () => {
+    const sessions = [
+      { id: 'running', status: 'running' },
+      { id: 'background', status: 'active' },
+      { id: 'active', status: 'active' },
+    ] as SessionSummary[];
+    const background = { ...armLiveTurn('turn-background'), terminal: true as const };
+    const active = { ...armLiveTurn('turn-active'), terminal: true as const };
+
+    assert.deepEqual(settledSessionTransientIds({
+      activeId: 'active',
+      sessions,
+      liveTurnBySession: { background, active },
+    }), ['background']);
+  });
+
   it('clears one session from every per-session UI map without touching other sessions', () => {
     const next = clearAppShellSessionUiStateForSession(seededState(), 'drop');
 

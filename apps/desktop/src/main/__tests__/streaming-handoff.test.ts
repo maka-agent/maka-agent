@@ -185,4 +185,136 @@ describe('single live-turn handoff', () => {
     assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.status, 'waiting_permission');
     assert.equal(permissions.get()['session-1']?.[0]?.requestId, 'request-1');
   });
+
+  it('hands an aborted projection to persisted history only after refresh succeeds', async () => {
+    const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({
+      'session-1': {
+        turnId: 'turn-1',
+        phase: 'streamed',
+        steps: [{
+          stepId: 'step-1',
+          tools: [{
+            toolUseId: 'tool-1',
+            toolName: 'Bash',
+            status: 'running',
+            args: {},
+          }],
+        }],
+      },
+    });
+    const ref = { current: liveTurns.get() };
+    const permissions = createStateSetter<PermissionQueues>({});
+    const setLiveTurnBySession = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => {
+      liveTurns.set(updater);
+      ref.current = liveTurns.get();
+    };
+    let resolveRefresh!: (value: boolean) => void;
+    const refresh = new Promise<boolean>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const handlers = createAppShellSessionEventHandlers({
+      activeIdRef: { current: 'session-1' },
+      liveTurnBySessionRef: ref,
+      refreshMessages: async () => refresh,
+      refreshSessions: async () => [],
+      setLiveTurnBySession,
+      setPermissionBySession: permissions.set,
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+    });
+
+    handlers.handleEvent('session-1', {
+      type: 'abort', id: 'event-1', turnId: 'turn-1', ts: 1, reason: 'user_stop',
+    });
+
+    assert.equal(liveTurns.get()['session-1']?.terminal, true);
+    assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.status, 'interrupted');
+
+    resolveRefresh(true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(liveTurns.get()['session-1'], undefined);
+  });
+
+  it('retains errored live evidence when persistence cannot be confirmed', async () => {
+    const projection: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'step-1',
+        tools: [{
+          toolUseId: 'tool-1', toolName: 'Bash', status: 'running', args: {},
+          outputChunks: [{
+            seq: 0, stream: 'stdout', text: 'partial output', redacted: false, createdAt: 1,
+          }],
+        }],
+      }],
+    };
+    const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({ 'session-1': projection });
+    const ref = { current: liveTurns.get() };
+    const permissions = createStateSetter<PermissionQueues>({});
+    const handlers = createAppShellSessionEventHandlers({
+      activeIdRef: { current: 'session-1' },
+      liveTurnBySessionRef: ref,
+      refreshMessages: async () => false,
+      refreshSessions: async () => [],
+      setLiveTurnBySession: (updater) => {
+        liveTurns.set(updater);
+        ref.current = liveTurns.get();
+      },
+      setPermissionBySession: permissions.set,
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+    });
+
+    handlers.handleEvent('session-1', {
+      type: 'error', id: 'event-1', turnId: 'turn-1', ts: 2,
+      code: 'TOOL_FAILED', reason: 'tool_failed', message: 'failed', recoverable: false,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    assert.equal(liveTurns.get()['session-1']?.terminal, true);
+    assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.status, 'interrupted');
+    assert.equal(liveTurns.get()['session-1']?.steps[0]?.tools[0]?.outputChunks?.[0]?.text, 'partial output');
+  });
+
+  it('settles a tool-only terminal projection after persisted history refreshes', async () => {
+    const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({
+      'session-1': {
+        turnId: 'turn-1',
+        phase: 'streamed',
+        steps: [{
+          stepId: 'tool:tool-1',
+          tools: [{ toolUseId: 'tool-1', toolName: 'Bash', status: 'completed', args: {} }],
+        }],
+      },
+    });
+    const ref = { current: liveTurns.get() };
+    const permissions = createStateSetter<PermissionQueues>({});
+    let resolveRefresh!: (value: boolean) => void;
+    const refresh = new Promise<boolean>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const handlers = createAppShellSessionEventHandlers({
+      activeIdRef: { current: 'session-1' },
+      liveTurnBySessionRef: ref,
+      refreshMessages: async () => refresh,
+      refreshSessions: async () => [],
+      setLiveTurnBySession: (updater) => {
+        liveTurns.set(updater);
+        ref.current = liveTurns.get();
+      },
+      setPermissionBySession: permissions.set,
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+    });
+
+    handlers.handleEvent('session-1', {
+      type: 'complete', id: 'event-1', turnId: 'turn-1', ts: 2, stopReason: 'end_turn',
+    });
+    assert.equal(liveTurns.get()['session-1']?.terminal, true);
+
+    resolveRefresh(true);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(liveTurns.get()['session-1'], undefined);
+  });
 });

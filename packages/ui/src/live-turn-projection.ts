@@ -48,6 +48,18 @@ export function applyLiveTurnEvent(
   current: LiveTurnProjection | undefined,
   event: SessionEvent,
 ): LiveTurnProjection | undefined {
+  if (event.type === 'error' || event.type === 'abort') {
+    if (!current || current.turnId !== event.turnId) return current;
+    const steps = current.steps.map((step) => ({
+      ...step,
+      tools: step.tools.map((tool) => (
+        tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'
+          ? { ...tool, status: 'interrupted' as const }
+          : tool
+      )),
+    }));
+    return steps.length > 0 ? { ...current, terminal: true, steps } : undefined;
+  }
   if (event.type === 'complete') {
     if (event.stopReason === 'permission_handoff' || !current || current.turnId !== event.turnId) return current;
     return current.steps.length > 0 ? { ...current, terminal: true } : undefined;

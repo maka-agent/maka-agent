@@ -321,6 +321,29 @@ describe('applyLiveTurnEvent', () => {
     assert.equal(terminal?.terminal, true);
     assert.equal(settleLiveTurnStep(terminal!, 'step-1'), undefined);
   });
+
+  it('marks an aborted projection terminal with in-flight tools interrupted', () => {
+    const running = applyLiveTurnEvent(undefined, {
+      type: 'tool_start',
+      id: 'event-1',
+      turnId: 'turn-1',
+      stepId: 'step-1',
+      toolUseId: 'tool-1',
+      toolName: 'Bash',
+      args: {},
+      ts: 100,
+    });
+    const aborted = applyLiveTurnEvent(running, {
+      type: 'abort',
+      id: 'event-2',
+      turnId: 'turn-1',
+      ts: 101,
+      reason: 'user_stop',
+    });
+
+    assert.equal(aborted?.terminal, true);
+    assert.equal(aborted?.steps[0]?.tools[0]?.status, 'interrupted');
+  });
 });
 
 describe('settleLiveTurnStep', () => {
