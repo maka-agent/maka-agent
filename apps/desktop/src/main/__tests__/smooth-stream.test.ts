@@ -250,16 +250,16 @@ describe('computeFrameAdvance', () => {
 
 describe('resolveLiveBacklogCps', () => {
   it('uses the required catch-up speed when the backlog fits the budget', () => {
-    assert.equal(resolveLiveBacklogCps({ backlog: 800, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 400);
+    assert.equal(resolveLiveBacklogCps({ backlog: 800, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 400);
   });
 
   it('raises speed continuously above the budget instead of snapping position', () => {
-    assert.equal(resolveLiveBacklogCps({ backlog: 801, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 401);
-    assert.equal(resolveLiveBacklogCps({ backlog: 5_000, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 2_500);
+    assert.equal(resolveLiveBacklogCps({ backlog: 801, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 401);
+    assert.equal(resolveLiveBacklogCps({ backlog: 5_000, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 }), 2_500);
   });
 
   it('still advances only one frame at a time for a large burst', () => {
-    const frameCps = resolveLiveBacklogCps({ backlog: 5_000, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 });
+    const frameCps = resolveLiveBacklogCps({ backlog: 5_000, elapsedMs: 0, budgetMs: 2_000, emaCps: 80, minCps: 30, maxCps: 400 });
     assert.equal(computeFrameAdvance({
       rawGraphemeCount: 5_000,
       displayedGraphemeCount: 0,
@@ -268,6 +268,37 @@ describe('resolveLiveBacklogCps', () => {
       minCps: 30,
       maxCps: frameCps,
     }), 40);
+  });
+
+  it('drains one live burst inside a single catch-up budget', () => {
+    const rawGraphemeCount = 5_000;
+    const budgetMs = 2_000;
+    const frameMs = 16;
+    let displayedGraphemeCount = 0;
+    let elapsedMs = 0;
+
+    while (displayedGraphemeCount < rawGraphemeCount && elapsedMs < 20_000) {
+      const frameCps = resolveLiveBacklogCps({
+        backlog: rawGraphemeCount - displayedGraphemeCount,
+        elapsedMs,
+        budgetMs,
+        emaCps: 80,
+        minCps: 30,
+        maxCps: 400,
+      });
+      displayedGraphemeCount += computeFrameAdvance({
+        rawGraphemeCount,
+        displayedGraphemeCount,
+        emaCps: frameCps,
+        dtMs: frameMs,
+        minCps: 30,
+        maxCps: frameCps,
+      });
+      elapsedMs += frameMs;
+    }
+
+    assert.equal(displayedGraphemeCount, rawGraphemeCount);
+    assert.ok(elapsedMs <= budgetMs + frameMs * 2, `catch-up took ${elapsedMs}ms`);
   });
 });
 

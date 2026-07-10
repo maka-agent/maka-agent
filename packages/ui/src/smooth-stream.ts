@@ -172,6 +172,7 @@ function clampedEmaCps(inputs: { emaCps: number; minCps: number; maxCps: number 
 
 export function resolveLiveBacklogCps(inputs: {
   backlog: number;
+  elapsedMs: number;
   budgetMs: number;
   emaCps: number;
   minCps: number;
@@ -179,7 +180,8 @@ export function resolveLiveBacklogCps(inputs: {
 }): number {
   const normalCps = clampedEmaCps(inputs);
   if (inputs.backlog <= 0) return normalCps;
-  return Math.max(normalCps, Math.ceil((inputs.backlog * 1000) / Math.max(1, inputs.budgetMs)));
+  const remainingMs = Math.max(1, inputs.budgetMs - inputs.elapsedMs);
+  return Math.max(normalCps, Math.ceil((inputs.backlog * 1000) / remainingMs));
 }
 
 export interface CompletionCpsInputs {
@@ -273,6 +275,7 @@ export function useSmoothStreamContent(
     emaCps: SEED_CPS,
     lastObservedRawLength: rawLength,
     lastArrivalAt: nowMs(),
+    liveCatchUpStartedAt: 0,
     completeStartedAt: 0,
     initialized: false,
   });
@@ -305,6 +308,7 @@ export function useSmoothStreamContent(
       // handled in the snap/initial effect below.
       s.lastObservedRawLength = rawLength;
       s.emaCps = SEED_CPS;
+      s.liveCatchUpStartedAt = 0;
       s.completeStartedAt = 0;
       setDisplayedCount(
         resolveInitialDisplayedCount({ rawGraphemeCount: rawLength, streaming: options.streaming, snap }),
@@ -325,6 +329,7 @@ export function useSmoothStreamContent(
   useEffect(() => {
     if (snap) return;
     if (displayedCount >= rawLength) {
+      refs.current.liveCatchUpStartedAt = 0;
       // Caught up. If we're still streaming, the next arrival will
       // trigger the EMA effect; this effect will re-run and schedule
       // the next frame. If streaming finished, we're truly done.
@@ -345,17 +350,23 @@ export function useSmoothStreamContent(
       // Stream-end bounded flush. Once streaming flips false and we
       // still have backlog, raise the speed enough to drain inside
       // completeBudget instead of snapping the tail all at once.
-      let frameCps = options.streaming
-        ? resolveLiveBacklogCps({
-            backlog: rawLength - displayedCount,
-            budgetMs: liveCatchUpBudget,
-            emaCps: refs.current.emaCps,
-            minCps,
-            maxCps,
-          })
-        : clampedEmaCps({ emaCps: refs.current.emaCps, minCps, maxCps });
-      if (!options.streaming) {
-        const s = refs.current;
+      const s = refs.current;
+      let frameCps: number;
+      if (options.streaming) {
+        if (s.liveCatchUpStartedAt === 0 || s.completeStartedAt !== 0) {
+          s.liveCatchUpStartedAt = now;
+          s.completeStartedAt = 0;
+        }
+        frameCps = resolveLiveBacklogCps({
+          backlog: rawLength - displayedCount,
+          elapsedMs: now - s.liveCatchUpStartedAt,
+          budgetMs: liveCatchUpBudget,
+          emaCps: s.emaCps,
+          minCps,
+          maxCps,
+        });
+      } else {
+        s.liveCatchUpStartedAt = 0;
         if (s.completeStartedAt === 0) s.completeStartedAt = now;
         frameCps = resolveCompletionCps({
           rawGraphemeCount: rawLength,
