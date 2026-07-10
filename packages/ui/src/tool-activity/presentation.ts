@@ -43,7 +43,9 @@ export function syncToolDisclosureState(
   current: ToolDisclosureState,
   presentation: ToolActivityPresentation,
 ): ToolDisclosureState {
-  if (presentation.needsAttention) return createToolDisclosureState(presentation);
+  if (presentation.needsAttention) {
+    return current.open ? current : createToolDisclosureState(presentation);
+  }
   if (current.manuallySet) return current;
   return createToolDisclosureState(presentation);
 }

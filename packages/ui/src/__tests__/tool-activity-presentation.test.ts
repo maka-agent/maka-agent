@@ -80,6 +80,32 @@ describe('tool activity presentation', () => {
     );
   });
 
+  it('preserves a manual expansion through a permission attention cycle', () => {
+    const running: ToolActivityItem = {
+      toolUseId: 'tool-permission',
+      toolName: 'Bash',
+      status: 'running',
+      args: { command: 'npm test' },
+    };
+    const waiting: ToolActivityItem = {
+      ...running,
+      status: 'waiting_permission',
+    };
+    const expanded = setToolDisclosureOpen(
+      createToolDisclosureState(deriveToolActivityPresentation(running)),
+      true,
+    );
+    const duringPermission = syncToolDisclosureState(
+      expanded,
+      deriveToolActivityPresentation(waiting),
+    );
+
+    assert.deepEqual(
+      syncToolDisclosureState(duringPermission, deriveToolActivityPresentation(running)),
+      { open: true, manuallySet: true },
+    );
+  });
+
   it('opens a newly errored tool even after an earlier manual collapse', () => {
     const running: ToolActivityItem = {
       toolUseId: 'tool-error',
