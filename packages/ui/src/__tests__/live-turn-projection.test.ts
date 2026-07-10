@@ -485,4 +485,22 @@ describe('reconcileTerminalLiveTurn', () => {
       { type: 'tool_call', id: 'tool-1', turnId: 'turn-1', stepId: 'step-1', ts: 2, toolName: 'Bash', args: {} },
     ]), textTurn);
   });
+
+  it('settles a persisted thinking-only step whose text slot is empty', () => {
+    const thinkingOnly: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      terminal: true,
+      steps: [{
+        stepId: 'step-1',
+        thinking: { text: 'reasoning', truncated: false, complete: true },
+        text: { text: '', truncated: false, complete: true },
+        tools: [],
+      }],
+    };
+
+    assert.equal(reconcileTerminalLiveTurn(thinkingOnly, [
+      { type: 'assistant', id: 'step-1', turnId: 'turn-1', ts: 1, text: '', thinking: { text: 'reasoning' }, modelId: 'm' },
+    ]), undefined);
+  });
 });

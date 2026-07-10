@@ -315,7 +315,7 @@ export function reconcileTerminalLiveTurn(
   const toolCallIds = new Set(turnMessages.flatMap((message) => message.type === 'tool_call' ? [message.id] : []));
   const toolResultIds = new Set(turnMessages.flatMap((message) => message.type === 'tool_result' ? [message.toolUseId] : []));
   const steps = current.steps.filter((step) => {
-    if (step.text) return true;
+    if (step.text?.text.length) return true;
     if (step.thinking && !assistantIds.has(step.stepId)) return true;
     const toolsCovered = step.tools.every((tool) => {
       if (!toolCallIds.has(tool.toolUseId)) return false;
