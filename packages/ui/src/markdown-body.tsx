@@ -31,10 +31,30 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { MakaUriContext } from './markdown.js';
 
 const MARKDOWN_REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkBreaks];
+type StreamdownRehypePlugin = (typeof defaultRehypePlugins)[string];
+
+function allowMakaHrefProtocol(plugin: StreamdownRehypePlugin): StreamdownRehypePlugin {
+  if (!Array.isArray(plugin)) return plugin;
+  const [transform, options] = plugin;
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return plugin;
+  const schema = options as {
+    protocols?: Record<string, string[] | null | undefined>;
+  };
+  return [transform, {
+    ...schema,
+    protocols: {
+      ...schema.protocols,
+      href: [...(schema.protocols?.href ?? []), 'maka'],
+    },
+  }] as StreamdownRehypePlugin;
+}
+
 const MARKDOWN_REHYPE_PLUGINS = [
   ...Object.entries(defaultRehypePlugins)
     .filter(([name]) => name !== 'raw')
-    .map(([, plugin]) => plugin),
+    .map(([name, plugin]) => name === 'sanitize'
+      ? allowMakaHrefProtocol(plugin)
+      : plugin),
   [rehypeHighlight, { detect: true, ignoreMissing: true }] as [
     typeof rehypeHighlight,
     { detect: boolean; ignoreMissing: boolean },
