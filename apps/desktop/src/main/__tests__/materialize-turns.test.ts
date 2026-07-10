@@ -496,6 +496,26 @@ describe('materializeTurns timeline', () => {
     assert.equal(turns[0]?.assistantThinking, 'think one\n\nthink two');
   });
 
+  it('preserves the first-observed order recorded by the runtime read model', () => {
+    const turns = materializeTurns([
+      userMsg('t1', 100, 'q'),
+      toolCallStep('t1', 101, 'c1', 'a1'),
+      toolResultMsg('t1', 102, 'c1'),
+      {
+        type: 'assistant',
+        id: 'a1',
+        turnId: 't1',
+        ts: 103,
+        text: 'answer',
+        thinking: { text: 'late reasoning' },
+        contentOrder: ['tools', 'thinking', 'text'],
+        modelId: 'm',
+      },
+    ]);
+
+    assert.deepEqual(turns[0]?.timeline.map((item) => item.kind), ['tools', 'thinking', 'text']);
+  });
+
   it('renders a pure-tool step’s orphan tools before the next step’s answer', () => {
     // The most common tool turn: step a1 only calls tools (no assistant row
     // is persisted for it), step a2 delivers the summary. The a1 tools carry

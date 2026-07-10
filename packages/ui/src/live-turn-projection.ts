@@ -14,10 +14,13 @@ export interface LiveThinkingProjection {
 
 export interface LiveTurnStepProjection {
   stepId: string;
+  contentOrder?: LiveTurnStepContentKind[];
   thinking?: LiveThinkingProjection;
   text?: LiveTextProjection;
   tools: ToolActivityItem[];
 }
+
+export type LiveTurnStepContentKind = 'thinking' | 'text' | 'tools';
 
 export interface LiveTextProjection {
   text: string;
@@ -43,6 +46,22 @@ function terminalizeLiveSteps(steps: readonly LiveTurnStepProjection[]): LiveTur
         : tool
     )),
   }));
+}
+
+function inferredContentOrder(step: LiveTurnStepProjection): LiveTurnStepContentKind[] {
+  return [
+    ...(step.thinking ? ['thinking' as const] : []),
+    ...(step.text ? ['text' as const] : []),
+    ...(step.tools.length > 0 ? ['tools' as const] : []),
+  ];
+}
+
+function appendContentKind(
+  step: LiveTurnStepProjection,
+  kind: LiveTurnStepContentKind,
+): LiveTurnStepContentKind[] {
+  const order = step.contentOrder ?? inferredContentOrder(step);
+  return order.includes(kind) ? order : [...order, kind];
 }
 
 export function armLiveTurn(turnId: string): LiveTurnProjection {
@@ -232,6 +251,13 @@ export function applyLiveTurnEvent(
         : [...step.tools, tool],
     };
   }
+  const contentKind: LiveTurnStepContentKind = messageEvent
+    ? event.type === 'thinking_delta' || event.type === 'thinking_complete' ? 'thinking' : 'text'
+    : 'tools';
+  nextStep = {
+    ...nextStep,
+    contentOrder: appendContentKind(step, contentKind),
+  };
   let steps: LiveTurnStepProjection[];
   if (existingToolStep && existingToolStep.stepId !== stepId && !messageEvent) {
     const sourceIndex = prior.steps.findIndex((candidate) => candidate.stepId === existingToolStep.stepId);
@@ -239,6 +265,9 @@ export function applyLiveTurnEvent(
       ...existingToolStep,
       tools: existingToolStep.tools.filter((tool) => tool.toolUseId !== event.toolUseId),
     };
+    if (sourceWithoutTool.tools.length === 0 && sourceWithoutTool.contentOrder) {
+      sourceWithoutTool.contentOrder = sourceWithoutTool.contentOrder.filter((kind) => kind !== 'tools');
+    }
     const sourceIsEmpty = !sourceWithoutTool.thinking && !sourceWithoutTool.text && sourceWithoutTool.tools.length === 0;
     steps = [];
     for (let index = 0; index < prior.steps.length; index += 1) {

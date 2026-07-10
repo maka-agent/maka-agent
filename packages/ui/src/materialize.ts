@@ -297,30 +297,37 @@ export function overlayLiveTurn(
     if (settledItems.length > 0) timeline.push({ kind: 'tools', items: settledItems });
   }
   for (const step of liveTurn.steps) {
-    if (step.thinking?.text) {
-      timeline.push({
-        kind: 'thinking',
-        text: step.thinking.text,
-        messageId: step.stepId,
-        live: step.thinking.complete !== true,
-        truncated: step.thinking.truncated,
-      });
+    const contentOrder = step.contentOrder ?? [
+      ...(step.thinking ? ['thinking' as const] : []),
+      ...(step.text ? ['text' as const] : []),
+      ...(step.tools.length > 0 ? ['tools' as const] : []),
+    ];
+    for (const kind of contentOrder) {
+      if (kind === 'thinking' && step.thinking?.text) {
+        timeline.push({
+          kind: 'thinking',
+          text: step.thinking.text,
+          messageId: step.stepId,
+          live: step.thinking.complete !== true,
+          truncated: step.thinking.truncated,
+        });
+      } else if (kind === 'text' && step.text?.text) {
+        timeline.push({
+          kind: 'text',
+          text: step.text.text,
+          messageId: step.stepId,
+          live: true,
+          complete: step.text.complete,
+          truncated: step.text.truncated,
+        });
+      } else if (kind === 'tools') {
+        const stepTools = step.tools.flatMap((tool) => {
+          const projected = toolByUseId.get(tool.toolUseId);
+          return projected ? [projected] : [];
+        });
+        if (stepTools.length > 0) timeline.push({ kind: 'tools', items: stepTools });
+      }
     }
-    if (step.text?.text) {
-      timeline.push({
-        kind: 'text',
-        text: step.text.text,
-        messageId: step.stepId,
-        live: true,
-        complete: step.text.complete,
-        truncated: step.text.truncated,
-      });
-    }
-    const stepTools = step.tools.flatMap((tool) => {
-      const projected = toolByUseId.get(tool.toolUseId);
-      return projected ? [projected] : [];
-    });
-    if (stepTools.length > 0) timeline.push({ kind: 'tools', items: stepTools });
   }
   const next = { ...current, tools, timeline: mergeAdjacentTimeline(timeline) };
   if (targetIndex < 0) return [...turns, next];
@@ -479,11 +486,9 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
  *  - tool_call rows buffer their (merged) ToolActivityItem into `pending`,
  *    tagged by the item's stepId.
  *  - an assistant row (id === a step's messageId) flushes the buffer around
- *    its own thinking/text: earlier-step orphan tools -> thinking -> legacy
- *    tools (no stepId) -> text -> this step's tools. Step order is
- *    think->say->call, so thinking and text precede the tools whose stepId
- *    matches this row; legacy tools (no stepId, pre-per-step persistence)
- *    keep the old tools-then-summary reading and sit before the text. Tools
+ *    its own thinking/text. New rows carry `contentOrder`, the first-observed
+ *    order recorded by the runtime; older rows retain the historical
+ *    thinking -> legacy tools -> text -> matched tools fallback. Tools
  *    whose stepId matches no assistant row are orphans of a pure-tool step
  *    (which persists no assistant message); ledger append order guarantees
  *    they ran BEFORE this row landed, so they flush ahead of this step's
@@ -519,14 +524,35 @@ function buildTurnTimeline(
       const orphaned = pending.filter((tool) => tool.stepId !== undefined && tool.stepId !== rowId);
       pending = [];
       flushTools(orphaned);
-      if (message.thinking?.text) {
-        raw.push({ kind: 'thinking', text: message.thinking.text, messageId: rowId });
+      if (message.contentOrder?.length) {
+        // Legacy calls cannot be associated with a step, so preserve their
+        // old pre-answer position without letting them disturb the recorded
+        // order of this row's own content.
+        flushTools(legacy);
+        const remaining = new Set<'thinking' | 'text' | 'tools'>(['thinking', 'text', 'tools']);
+        const append = (kind: 'thinking' | 'text' | 'tools'): void => {
+          if (!remaining.delete(kind)) return;
+          if (kind === 'thinking' && message.thinking?.text) {
+            raw.push({ kind: 'thinking', text: message.thinking.text, messageId: rowId });
+          } else if (kind === 'text' && message.text.length > 0) {
+            raw.push({ kind: 'text', text: message.text, messageId: rowId, ts: message.ts });
+          } else if (kind === 'tools') {
+            flushTools(matched);
+          }
+        };
+        for (const kind of message.contentOrder) append(kind);
+        // Malformed or partial metadata must never hide persisted content.
+        for (const kind of ['thinking', 'text', 'tools'] as const) append(kind);
+      } else {
+        if (message.thinking?.text) {
+          raw.push({ kind: 'thinking', text: message.thinking.text, messageId: rowId });
+        }
+        flushTools(legacy);
+        if (message.text.length > 0) {
+          raw.push({ kind: 'text', text: message.text, messageId: rowId, ts: message.ts });
+        }
+        flushTools(matched);
       }
-      flushTools(legacy);
-      if (message.text.length > 0) {
-        raw.push({ kind: 'text', text: message.text, messageId: rowId, ts: message.ts });
-      }
-      flushTools(matched);
     }
   }
   flushTools(pending);

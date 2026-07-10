@@ -286,6 +286,39 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
   });
 
+  test('projects first-observed step content order for stable live handoff', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        ts: ts + 1,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
+        refs: { toolCallId: 'tool-1', stepId: 'message-1' },
+      }),
+      ev({
+        ts: ts + 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'late reasoning' },
+        refs: { providerEventId: 'message-1' },
+      }),
+      ev({
+        ts: ts + 3,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'answer' },
+        refs: { providerEventId: 'message-1' },
+      }),
+    ], { runHeaders: [header] });
+
+    const assistant = out.messages.find((message) => message.type === 'assistant');
+    expect((assistant as unknown as { contentOrder?: string[] } | undefined)?.contentOrder).toEqual([
+      'tools',
+      'thinking',
+      'text',
+    ]);
+  });
+
   test('archived tool-result placeholders project to diagnostic tool-result rows', () => {
     const events = baseEvents();
     const toolResult = events.find((event) => event.id === 'evt-tool-result');

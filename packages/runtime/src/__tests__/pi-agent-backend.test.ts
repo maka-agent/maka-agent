@@ -37,13 +37,73 @@ describe('PiAgentBackend skeleton', () => {
       'tool_start',
       'tool_output_delta',
       'tool_result',
+      'text_complete',
       'text_delta',
       'text_complete',
       'complete',
     ]);
-    assert.equal(messages.some((message) => message.type === 'assistant' && message.text === 'hello world'), true);
+    assert.deepEqual(
+      messages.filter((message) => message.type === 'assistant').map((message) => message.text),
+      ['hello ', 'world'],
+    );
     assert.equal(messages.some((message) => message.type === 'tool_call' && message.toolName === 'Read'), true);
     assert.equal(messages.some((message) => message.type === 'tool_result' && message.toolUseId === 'tool-1'), true);
+  });
+
+  test('persists Pi text-tool-text as two stable assistant steps', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_500) }),
+      transport: frames([
+        { type: 'text_delta', text: 'before tool' },
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read', args: { path: 'README.md' } },
+        { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'file body' } },
+        { type: 'text_delta', text: 'after tool' },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(2_500),
+    });
+
+    const events = await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
+    const assistants = messages.filter((message) => message.type === 'assistant');
+    const toolCall = messages.find((message) => message.type === 'tool_call');
+    const toolStart = events.find((event) => event.type === 'tool_start');
+
+    assert.deepEqual(assistants.map((message) => message.text), ['before tool', 'after tool']);
+    assert.deepEqual(messages.map((message) => message.type), ['assistant', 'tool_call', 'tool_result', 'assistant']);
+    assert.equal(toolCall?.type === 'tool_call' ? toolCall.stepId : undefined, assistants[0]?.id);
+    assert.equal(toolStart?.type === 'tool_start' ? toolStart.stepId : undefined, assistants[0]?.id);
+  });
+
+  test('keeps sequential Pi tools in one step when no model text separates them', async () => {
+    const messages: StoredMessage[] = [];
+    const backend = new PiAgentBackend({
+      sessionId: 'session-1',
+      header: header({ permissionMode: 'execute' }),
+      appendMessage: async (message) => { messages.push(message); },
+      permissionEngine: new PermissionEngine({ newId: nextId('perm'), now: nextNow(1_700) }),
+      transport: frames([
+        { type: 'tool_start', toolUseId: 'tool-1', toolName: 'Read', args: { path: 'a' } },
+        { type: 'tool_result', toolUseId: 'tool-1', content: { kind: 'text', text: 'a' } },
+        { type: 'tool_start', toolUseId: 'tool-2', toolName: 'Read', args: { path: 'b' } },
+        { type: 'tool_result', toolUseId: 'tool-2', content: { kind: 'text', text: 'b' } },
+        { type: 'complete' },
+      ]),
+      newId: nextId('id'),
+      now: nextNow(2_700),
+    });
+
+    const events = await drain(backend.send({ turnId: 'turn-1', text: 'inspect', context: [] }));
+    const stepIds = events
+      .filter((event) => event.type === 'tool_start')
+      .map((event) => event.stepId);
+
+    assert.equal(stepIds.length, 2);
+    assert.equal(stepIds[1], stepIds[0]);
   });
 
   test('normalizes token usage frames to Maka events and storage records', async () => {

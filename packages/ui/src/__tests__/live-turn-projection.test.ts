@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { applyLiveTurnEvent, armLiveTurn, settleLiveTurnStep } from '../live-turn-projection.js';
+import { overlayLiveTurn } from '../materialize.js';
 
 describe('applyLiveTurnEvent', () => {
   it('moves an armed turn from waiting to streamed on its first content event', () => {
@@ -31,6 +32,7 @@ describe('applyLiveTurnEvent', () => {
     assert.equal(projection.turnId, 'turn-1');
     assert.deepEqual(projection.steps, [{
       stepId: 'step-1',
+      contentOrder: ['thinking'],
       thinking: {
         text: '先检查工具',
         truncated: false,
@@ -299,6 +301,30 @@ describe('applyLiveTurnEvent', () => {
     assert.equal(waiting?.steps[0]?.tools[0]?.status, 'waiting_permission');
     assert.equal(allowed?.steps[0]?.tools[0]?.status, 'running');
     assert.equal(allowed?.steps[0]?.stepId, 'step-1');
+  });
+
+  it('appends late thinking without moving an already visible tool', () => {
+    const tool = applyLiveTurnEvent(undefined, {
+      type: 'tool_start',
+      id: 'event-1',
+      turnId: 'turn-1',
+      stepId: 'step-1',
+      toolUseId: 'tool-1',
+      toolName: 'Read',
+      args: {},
+      ts: 100,
+    });
+    const withLateThinking = applyLiveTurnEvent(tool, {
+      type: 'thinking_complete',
+      id: 'event-2',
+      turnId: 'turn-1',
+      messageId: 'step-1',
+      text: 'late reasoning',
+      ts: 101,
+    });
+
+    const timeline = overlayLiveTurn([], withLateThinking)[0]?.timeline;
+    assert.deepEqual(timeline?.map((item) => item.kind), ['tools', 'thinking']);
   });
 
   it('drops a terminal projection only after its last live step settles', () => {
