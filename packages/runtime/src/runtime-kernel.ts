@@ -266,9 +266,18 @@ export class RuntimeKernel implements RuntimeKernelLike {
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new AsyncEventQueue<SessionEvent>();
     const abortController = new AbortController();
-    let abortStopPromise: Promise<void> | null = null;
+    let abortStopPromise: Promise<
+      { ok: true } | { ok: false; error: unknown }
+    > | null = null;
     const stopForAbort = () => {
-      abortStopPromise ??= this.stopSession(sessionId);
+      abortStopPromise ??= this.stopSession(sessionId).then(
+        () => ({ ok: true as const }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+    };
+    const waitForAbortStop = async () => {
+      const result = await abortStopPromise;
+      if (result?.ok === false) throw result.error;
     };
     signal?.addEventListener('abort', stopForAbort, { once: true });
     if (signal?.aborted) stopForAbort();
@@ -279,7 +288,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     } catch (error) {
       signal?.removeEventListener('abort', stopForAbort);
       try {
-        await abortStopPromise;
+        await waitForAbortStop();
         await run.recordFailure(error);
       } finally {
         await run.finalize();
@@ -289,7 +298,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
     if (signal?.aborted) {
       try {
-        await abortStopPromise;
+        await waitForAbortStop();
         if (!run.isStopped()) await this.stopSession(sessionId);
       } finally {
         signal.removeEventListener('abort', stopForAbort);
@@ -362,7 +371,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         sessionEvents.close();
       }
       await runnerResult.catch(() => undefined);
-      await abortStopPromise;
+      await waitForAbortStop();
     }
   }
 

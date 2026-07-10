@@ -183,6 +183,49 @@ describe('SessionManager turn cancellation', () => {
     await manager.updateSession(session.id, { model: 'next-model' });
     expect((await store.readHeader(session.id)).model).toBe('next-model');
   });
+
+  test('observes a stop rejection while run registration is still settling', async () => {
+    const store = new MemorySessionStore();
+    const readStarted = makeGate();
+    const releaseRead = makeGate();
+    let blockRuntimeRead = false;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventRead: async () => {
+        if (!blockRuntimeRead) return;
+        readStarted.release();
+        await releaseRead.promise;
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new RejectingStopBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(9_975),
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'seed', text: 'seed' }));
+    blockRuntimeRead = true;
+    const controller = new AbortController();
+    const turn = collectSessionEvents(manager.sendMessage(
+      session.id,
+      { turnId: 'turn-2', text: 'hello' },
+      { signal: controller.signal },
+    ));
+    await readStarted.promise;
+
+    controller.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    releaseRead.release();
+
+    let turnError: unknown;
+    await turn.catch((error) => { turnError = error; });
+    expect(turnError instanceof Error ? turnError.message : String(turnError)).toContain('stop failed');
+    await manager.updateSession(session.id, { model: 'next-model' });
+  });
 });
 
 describe('SessionManager manual compaction', () => {
