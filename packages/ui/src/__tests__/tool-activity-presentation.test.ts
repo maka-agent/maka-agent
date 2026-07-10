@@ -213,4 +213,60 @@ describe('tool activity presentation', () => {
     assert.match(markup, /bg-\[var\(--foreground-3\)\]|data-slot="tool-output"/);
     assert.match(markup, /max-h-64/);
   });
+
+  it('renders Read as path + file text, not tool-call/result JSON', () => {
+    // waiting_permission opens the panel without the error banner (which would
+    // otherwise stringify the JSON result for copy).
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-read',
+        toolName: 'Read',
+        activityKind: 'read',
+        intent: '读取 tool-runtime',
+        status: 'waiting_permission',
+        args: { path: 'packages/runtime/src/tool-runtime.ts', limit: 100 },
+        result: {
+          kind: 'json',
+          value: {
+            content: 'import type {\n  SessionEvent,\n  ToolOutputStream,\n} from \'@maka/core/events\';\n',
+          },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /packages\/runtime\/src\/tool-runtime\.ts/);
+    assert.match(markup, /SessionEvent/);
+    assert.match(markup, /ToolOutputStream/);
+    assert.doesNotMatch(markup, /&quot;path&quot;\s*:|"path"\s*:/);
+    assert.doesNotMatch(markup, /&quot;limit&quot;\s*:|"limit"\s*:/);
+    assert.doesNotMatch(markup, /&quot;content&quot;\s*:|"content"\s*:/);
+    assert.doesNotMatch(markup, /import type \{\\n/);
+  });
+
+  it('renders Grep as pattern + match lines, not raw JSON', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-grep',
+        toolName: 'Grep',
+        activityKind: 'search',
+        intent: '搜索 ToolOutputStream',
+        status: 'waiting_permission',
+        args: { pattern: 'ToolOutputStream', path: 'packages/ui/src' },
+        result: {
+          kind: 'json',
+          value: {
+            matches: [
+              'packages/ui/src/tool-activity.tsx:10:function ToolOutputStream',
+              'packages/ui/src/tool-activity.tsx:20:  chunks',
+            ],
+          },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /ToolOutputStream/);
+    assert.match(markup, /packages\/ui\/src\/tool-activity\.tsx:10/);
+    assert.doesNotMatch(markup, /&quot;pattern&quot;\s*:|"pattern"\s*:/);
+    assert.doesNotMatch(markup, /&quot;matches&quot;\s*:|"matches"\s*:/);
+  });
 });

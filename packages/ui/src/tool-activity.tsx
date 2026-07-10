@@ -44,6 +44,10 @@ import { Button as UiButton, cn } from './ui.js';
 import { describeLoadToolResult, formatRedactedJson, formatToolIntent } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
 import {
+  formatBuiltinJsonResult,
+  formatToolInvocationLine,
+} from './tool-activity/builtin-preview.js';
+import {
   TOOL_OUTPUT_BODY_CLASS,
   TOOL_OUTPUT_COMMAND_CLASS,
   TOOL_OUTPUT_NOTE_CLASS,
@@ -202,20 +206,6 @@ function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boole
   return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
 }
 
-/**
- * Pull the shell command string out of a command-tool's args (bash / shell).
- * Used to render a single `$ <command>` invocation line while the tool is in
- * flight — the settled terminal result preview already prints the command in
- * its header, so this only fills the running gap. Returns undefined for a
- * non-command shape so the caller falls back to the compact redacted-args view.
- */
-function extractToolCommand(args: unknown): string | undefined {
-  if (!args || typeof args !== 'object') return undefined;
-  const record = args as Record<string, unknown>;
-  const raw = record.command ?? record.cmd ?? record.script;
-  return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
-}
-
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
   return (
     <section className={toolVariants({ part: 'container' })} aria-label="工具调用记录">
@@ -269,22 +259,34 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
   const permissionDenied = isPermissionDeniedToolResult(item.result);
-  const presentation = deriveToolActivityPresentation(item);
   const running = item.status === 'running' || item.status === 'pending';
-  const command = presentation.kind === 'command' ? extractToolCommand(item.args) : undefined;
   // Terminal result already includes the command line inside its quiet panel.
   const resultIsTerminal = item.result?.kind === 'terminal';
-  const showCommand = !permissionDenied && !resultIsTerminal && command !== undefined;
+  // Prefer a human invocation line (path / pattern / shell command) over a
+  // pretty-printed args object — Read/Grep were dumping raw tool-call JSON.
+  const invocationLine = !permissionDenied && !resultIsTerminal
+    ? formatToolInvocationLine(item)
+    : undefined;
   const showArgsFallback =
-    !permissionDenied && !resultIsTerminal && command === undefined && item.args !== undefined;
+    !permissionDenied
+    && !resultIsTerminal
+    && invocationLine === undefined
+    && item.args !== undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
   const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
   const showResult = !!item.result && !permissionDenied;
+  const builtinJson =
+    showResult && item.result?.kind === 'json'
+      ? formatBuiltinJsonResult(item.toolName, item.result.value)
+      : undefined;
+  // When the builtin result already carries a path headline (Write/Edit), skip
+  // duplicating the args invocation line.
+  const showInvocation = invocationLine !== undefined && !(builtinJson?.headline);
   // Terminal results own their own quiet panel (command + body + failure note).
   // Other results share one panel with any in-flight command/args/live stream.
   const hasSharedPanelContent =
-    showCommand || showArgsFallback || showLiveStream || (showResult && !resultIsTerminal);
+    showInvocation || showArgsFallback || showLiveStream || (showResult && !resultIsTerminal);
 
   return (
     <div className="mt-1 flex flex-col gap-1.5">
@@ -295,8 +297,11 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
           data-slot="tool-output"
           className={cn(TOOL_OUTPUT_PANEL_CLASS, errored && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
         >
-          {showCommand && (
-            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{redactSecrets(command!)}</code>
+          {showInvocation && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{invocationLine}</code>
+          )}
+          {builtinJson?.headline && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{builtinJson.headline}</code>
           )}
           {showArgsFallback && (
             <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>{formatRedactedJson(item.args)}</pre>
@@ -313,6 +318,8 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               <LoadToolResultPreview args={item.args} value={item.result!.value} />
             ) : isAutomationTool(item.toolName) && item.result!.kind === 'text' ? (
               <AutomationResultPreview text={(item.result as { text: string }).text} />
+            ) : builtinJson ? (
+              <pre className={TOOL_OUTPUT_BODY_CLASS}>{builtinJson.body}</pre>
             ) : (
               <ToolResultPreview content={item.result!} />
             )
