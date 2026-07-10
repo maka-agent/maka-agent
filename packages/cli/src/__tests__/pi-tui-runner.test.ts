@@ -46,6 +46,15 @@ describe('Maka Pi TUI runner', () => {
     assert.match(stdout, /CLOSED/);
   });
 
+  test('forces signal exit when another active handle remains after terminal restoration', async () => {
+    const { code, signal, stdout } = await runSignalExitProbe('SIGTERM', true);
+
+    assert.equal(signal, null);
+    assert.equal(code, 143);
+    assert.match(stdout, /TERMINAL_STOP/);
+    assert.match(stdout, /CLOSED/);
+  });
+
   test('restores the terminal before reporting an uncaught exception', async () => {
     const { code, signal, stdout, stderr } = await runFatalExitProbe('uncaughtException');
 
@@ -3224,15 +3233,17 @@ function storedAssistantMessage(id: string, turnId: string, text: string): Store
   };
 }
 
-async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
+async function runSignalExitProbe(signalToSend: NodeJS.Signals, retainHandleAfterClose = false): Promise<{
   code: number | null;
   signal: NodeJS.Signals | null;
   stdout: string;
 }> {
   const runnerUrl = new URL('../pi-tui-runner.js', import.meta.url).href;
+  const cliUrl = new URL('../cli.js', import.meta.url).href;
   const terminalUrl = new URL('./tui-terminal-mock.js', import.meta.url).href;
   const childSource = `
     import { runMakaPiTui } from ${JSON.stringify(runnerUrl)};
+    import { completeMakaCliExit } from ${JSON.stringify(cliUrl)};
     import { FakeTerminal } from ${JSON.stringify(terminalUrl)};
 
     class ReportingTerminal extends FakeTerminal {
@@ -3271,8 +3282,9 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
     });
     process.stdout.write('READY\\n');
     await run;
-    clearInterval(hold);
+    completeMakaCliExit(0);
     process.stdout.write('CLOSED\\n');
+    if (!${retainHandleAfterClose}) clearInterval(hold);
   `;
   const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -3288,7 +3300,9 @@ async function runSignalExitProbe(signalToSend: NodeJS.Signals): Promise<{
     }
   });
 
+  const killTimer = setTimeout(() => child.kill('SIGKILL'), 2_000);
   const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+  clearTimeout(killTimer);
   return { code, signal, stdout };
 }
 

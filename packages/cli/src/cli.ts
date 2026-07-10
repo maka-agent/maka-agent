@@ -41,6 +41,14 @@ export function formatMakaCliFatalError(error: unknown): string {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
 
+export function completeMakaCliExit(commandExitCode: number): void {
+  const exitCode = resolveMakaCliExitCode(commandExitCode, process.exitCode);
+  process.exitCode = exitCode;
+  if (exitCode === 0 || exitCode === '0') return;
+  const timer = setTimeout(() => process.exit(exitCode), PROCESS_EXIT_GRACE_MS);
+  timer.unref();
+}
+
 function helpText(): string {
   return [
     'Usage: maka',
@@ -149,14 +157,16 @@ async function readPackageVersion(): Promise<string> {
 if (isMainModule()) {
   runMakaCli().then(
     (code) => {
-      process.exitCode = resolveMakaCliExitCode(code, process.exitCode);
+      completeMakaCliExit(code);
     },
     (error) => {
       process.stderr.write(`${formatMakaCliFatalError(error)}\n`);
-      process.exitCode = 1;
+      completeMakaCliExit(1);
     },
   );
 }
+
+const PROCESS_EXIT_GRACE_MS = 1_000;
 
 function isMainModule(): boolean {
   if (!process.argv[1]) return false;
