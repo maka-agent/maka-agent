@@ -1668,7 +1668,7 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
           {props.live ? (
             <pre
               ref={bodyRef}
-              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]"
+              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]"
             >
               <DeepThinkingBody text={displayed} streamFade={streamFade} />
             </pre>
@@ -1677,8 +1677,9 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
               {/* Same `max-h-64 overflow-y-auto` bound as the live `<pre>` above
                   so an expanded panel doesn't jump taller the frame thinking
                   settles (live→settled swaps this body in place). Long reasoning
-                  stays a compact scroll box in both states. */}
-              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)]">
+                  stays a compact scroll box in both states. Body uses base 13px
+                  so tool output and thinking share one reading size. */}
+              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]">
                 {props.text}
               </div>
               <div className="absolute right-0 top-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/reasoning:opacity-100 focus-within:opacity-100">
