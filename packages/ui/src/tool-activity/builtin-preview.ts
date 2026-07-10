@@ -86,8 +86,25 @@ function isSensitiveKey(key: string): boolean {
   return SENSITIVE_KEY_RE.test(key);
 }
 
+/**
+ * Keys may themselves embed secrets (`password=correct-horse`). Mask the
+ * assignment payload; never rely on redactSecrets alone for short passwords.
+ */
+function safeKeyLabel(key: string): string {
+  if (isSensitiveKey(key) || /(?:password|passwd|secret|token|api[_-]?key)\s*=/i.test(key)) {
+    if (key.includes('=')) {
+      const left = key.slice(0, key.indexOf('='));
+      return redactSecrets(`${left}=<redacted>`);
+    }
+    return redactSecrets(key);
+  }
+  return redactSecrets(key);
+}
+
 function maskSensitiveValue(key: string, value: unknown): unknown {
-  if (!isSensitiveKey(key)) return value;
+  if (!isSensitiveKey(key) && !/(?:password|passwd|secret|token|api[_-]?key)\s*=/i.test(key)) {
+    return value;
+  }
   if (value === undefined) return undefined;
   return '<redacted>';
 }
@@ -320,7 +337,7 @@ export function formatAsKeyValueLines(record: Record<string, unknown>, depth = 0
   };
   for (const [key, raw] of Object.entries(record)) {
     if (raw === undefined) continue;
-    const safeKey = redactSecrets(key);
+    const safeKey = safeKeyLabel(key);
     const value = maskSensitiveValue(key, raw);
     if (value === null) {
       push(`${indent}${safeKey}: null`);

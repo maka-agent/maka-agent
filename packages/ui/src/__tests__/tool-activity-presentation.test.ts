@@ -333,6 +333,21 @@ describe('tool activity presentation', () => {
     assert.match(markup, /redacted|password|token/i);
   });
 
+  it('redacts secrets embedded in property names', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-password-key',
+        toolName: 'CustomInspect',
+        status: 'waiting_permission',
+        args: { 'password=correct-horse': true },
+        result: { kind: 'json', value: { ok: true } },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.doesNotMatch(markup, /correct-horse/);
+    assert.match(markup, /password=&lt;redacted&gt;|password=&lt;redacted&gt;|password=&lt;redacted&gt;|password=<redacted>|redacted/i);
+  });
+
   it('keeps error diagnostics when a list field is also present', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
@@ -398,6 +413,11 @@ describe('tool activity presentation', () => {
     assert.match(markup, /后台运行中|background-tasks/);
     assert.match(markup, /starting/);
     assert.doesNotMatch(markup, /\[shell_run\]/);
+    // One quiet well only — not nested shared + shell_run panels.
+    const panels = markup.match(/data-slot="tool-output"/g) ?? [];
+    assert.equal(panels.length, 1);
+    const commands = markup.match(/npm test/g) ?? [];
+    assert.equal(commands.length, 1);
   });
 
   it('surfaces terminal cancel and runtime truncation flags', () => {
@@ -422,6 +442,7 @@ describe('tool activity presentation', () => {
     }));
     assert.match(cancelled, /已取消/);
     assert.doesNotMatch(cancelled, /失败 · 退出码 130/);
+    assert.doesNotMatch(cancelled, /工具调用失败/);
 
     const truncated = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{

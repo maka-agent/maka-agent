@@ -183,8 +183,9 @@ function TerminalPreview(props: {
   stdoutTruncated?: boolean;
   stderrTruncated?: boolean;
 }) {
-  const succeeded = props.exitCode === 0 && !isCancelledStatus(props.status);
   const cancelled = isCancelledStatus(props.status);
+  const timedOut = props.status === 'timed_out';
+  const succeeded = props.exitCode === 0 && !cancelled && !timedOut;
   const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
   // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
   // provider can dump megabytes of stderr; we keep the first TOOL_LINE_CAP
@@ -196,7 +197,7 @@ function TerminalPreview(props: {
   const safeCmd = redactSecrets(props.cmd);
   const hiddenLines = stdout.capped + stderr.capped;
   const runtimeTruncated = props.stdoutTruncated === true || props.stderrTruncated === true;
-  const attention = !succeeded || cancelled;
+  const attention = !succeeded || cancelled || timedOut;
 
   return (
     <div
@@ -230,7 +231,12 @@ function TerminalPreview(props: {
           已取消 · 退出码 {props.exitCode}
         </p>
       )}
-      {!succeeded && !cancelled && (
+      {timedOut && !cancelled && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          已超时 · 退出码 {props.exitCode}
+        </p>
+      )}
+      {!succeeded && !cancelled && !timedOut && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
           失败 · 退出码 {props.exitCode}
         </p>
@@ -313,8 +319,7 @@ function ShellRunPreview(props: {
 }
 
 function isCancelledStatus(status: string | undefined): boolean {
-  if (!status) return false;
-  return status === 'cancelled' || status === 'canceled' || status === 'canceled_partial' || status === 'interrupted';
+  return status === 'cancelled';
 }
 
 function shellRunStatusLabel(status: string): string {

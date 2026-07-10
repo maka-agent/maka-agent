@@ -205,6 +205,16 @@ function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boole
   return result?.kind === 'text' && formatUserVisibleToolText(result.text).trim() === '用户已拒绝权限请求';
 }
 
+/** Result kinds that own their own quiet panel (do not nest in the shared well). */
+function resultOwnsOwnPanel(result: ToolActivityItem['result']): boolean {
+  return result?.kind === 'terminal' || result?.kind === 'shell_run';
+}
+
+function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
+  if (!result || result.kind !== 'terminal') return false;
+  return result.status === 'cancelled';
+}
+
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
   return (
     <section className={toolVariants({ part: 'container' })} aria-label="工具调用记录">
@@ -259,10 +269,14 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
   const errored = item.status === 'errored';
   const permissionDenied = isPermissionDeniedToolResult(item.result);
   const running = item.status === 'running' || item.status === 'pending';
-  // Terminal result already includes the command line inside its quiet panel.
-  const resultIsTerminal = item.result?.kind === 'terminal';
+  // terminal / shell_run own a single quiet panel — never nest inside the shared well.
+  const ownsPanel = resultOwnsOwnPanel(item.result);
+  // Cancelled terminals still land as status=errored; skip the generic failure
+  // banner so the panel note ("已取消") is the only status story.
+  const showErrorBanner = errored && !isCancelledToolResult(item.result);
   // Every tool: human invocation line from args — never pretty-printed JSON.
-  const invocationLine = !permissionDenied && !resultIsTerminal
+  // Skip when the result panel already prints the command (terminal/shell_run).
+  const invocationLine = !permissionDenied && !ownsPanel
     ? formatToolInvocationLine(item)
     : undefined;
   // While running the live stream is the output; once a structured result
@@ -281,19 +295,20 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     && quietJson.headline !== invocationLine
     ? quietJson.headline
     : undefined;
-  // Terminal results own their own quiet panel (command + body + failure note).
-  // Other results share one panel with any in-flight command/args/live stream.
+  // Owned-panel kinds render alone. Everything else shares one quiet well.
   const hasSharedPanelContent =
-    showInvocation
-    || !!resultHeadline
-    || showLiveStream
-    || (showResult && !resultIsTerminal)
-    || (!!item.args && !permissionDenied && !resultIsTerminal && !invocationLine && !showResult && !showLiveStream);
+    !ownsPanel && (
+      showInvocation
+      || !!resultHeadline
+      || showLiveStream
+      || showResult
+      || (!!item.args && !permissionDenied && !invocationLine && !showResult && !showLiveStream)
+    );
 
   return (
     <div className="mt-1 flex flex-col gap-1.5">
-      {errored && <ToolErrorBanner result={item.result} />}
-      {showResult && resultIsTerminal && <ToolResultPreview content={item.result!} />}
+      {showErrorBanner && <ToolErrorBanner result={item.result} />}
+      {showResult && ownsPanel && <ToolResultPreview content={item.result!} />}
       {hasSharedPanelContent && (
         <div
           data-slot="tool-output"
@@ -306,7 +321,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             <code className={TOOL_OUTPUT_COMMAND_CLASS}>{resultHeadline}</code>
           )}
           {/* No formatRedactedJson dump — if invocation failed, quiet-format args. */}
-          {!showInvocation && !resultHeadline && item.args !== undefined && !permissionDenied && !resultIsTerminal && !showResult && (
+          {!showInvocation && !resultHeadline && item.args !== undefined && !permissionDenied && !showResult && (
             <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>
               {formatQuietJsonValue(item.args).body}
             </pre>
@@ -318,7 +333,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               truncated={item.outputTruncated === true}
             />
           )}
-          {showResult && !resultIsTerminal && (
+          {showResult && !ownsPanel && (
             isConnectorTool(item.toolName) && item.result!.kind === 'json' ? (
               <LoadToolResultPreview args={item.args} value={item.result!.value} />
             ) : isAutomationTool(item.toolName) && item.result!.kind === 'text' ? (
