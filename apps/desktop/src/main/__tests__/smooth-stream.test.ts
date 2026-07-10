@@ -10,8 +10,7 @@
  *   - frame advance respects EMA × dt with min/max CPS clamp, never
  *     overshoots the backlog, and always emits ≥1 char when work
  *     remains
- *   - backlog snap triggers above threshold (review blocker #3, live
- *     stream burst case)
+ *   - live backlog raises the speed continuously instead of snapping
  *   - EMA ignores degenerate observations so a stalled arrival can't
  *     poison the typewriter speed
  *   - initial displayed count handles the three modes: snap=true,
@@ -31,8 +30,8 @@ import {
   prepareSmoothStreamText,
   resolveCompletionMaxCps,
   resolveInitialDisplayedCount,
+  resolveLiveBacklogMaxCps,
   segmentGraphemes,
-  shouldSnapForBacklog,
   updateEma,
 } from '@maka/ui/smooth-stream';
 
@@ -249,63 +248,26 @@ describe('computeFrameAdvance', () => {
   });
 });
 
-describe('shouldSnapForBacklog', () => {
-  it('false when displayed equals raw', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 100,
-        displayedGraphemeCount: 100,
-        maxBacklogGraphemes: 800,
-      }),
-      false,
-    );
+describe('resolveLiveBacklogMaxCps', () => {
+  it('keeps the normal ceiling while the backlog fits the catch-up budget', () => {
+    assert.equal(resolveLiveBacklogMaxCps({ backlog: 800, budgetMs: 2_000, maxCps: 400 }), 400);
   });
 
-  it('false at the threshold (strict greater-than)', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 800,
-        displayedGraphemeCount: 0,
-        maxBacklogGraphemes: 800,
-      }),
-      false,
-    );
+  it('raises speed continuously above the budget instead of snapping position', () => {
+    assert.equal(resolveLiveBacklogMaxCps({ backlog: 801, budgetMs: 2_000, maxCps: 400 }), 401);
+    assert.equal(resolveLiveBacklogMaxCps({ backlog: 5_000, budgetMs: 2_000, maxCps: 400 }), 2_500);
   });
 
-  it('true when backlog exceeds the threshold', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 801,
-        displayedGraphemeCount: 0,
-        maxBacklogGraphemes: 800,
-      }),
-      true,
-    );
-  });
-
-  it('catches the network-burst case', () => {
-    // The smoother was caught up; a 5KB chunk lands in one delta.
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        maxBacklogGraphemes: 800,
-        streaming: true,
-      }),
-      true,
-    );
-  });
-
-  it('does not snap a completion-drain backlog just because the final text arrived at once', () => {
-    assert.equal(
-      shouldSnapForBacklog({
-        rawGraphemeCount: 5_200,
-        displayedGraphemeCount: 200,
-        maxBacklogGraphemes: 800,
-        streaming: false,
-      }),
-      false,
-    );
+  it('still advances only one frame at a time for a large burst', () => {
+    const frameMaxCps = resolveLiveBacklogMaxCps({ backlog: 5_000, budgetMs: 2_000, maxCps: 400 });
+    assert.equal(computeFrameAdvance({
+      rawGraphemeCount: 5_000,
+      displayedGraphemeCount: 0,
+      emaCps: 10_000,
+      dtMs: 16,
+      minCps: 30,
+      maxCps: frameMaxCps,
+    }), 40);
   });
 });
 
