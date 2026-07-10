@@ -671,8 +671,7 @@ function createOutputBuffer(): BoundedChunkBuffer<MakaPiToolOutputDelta> {
     maxChunks: LIVE_TOOL_BUFFER_MAX_CHUNKS,
     textOf: (delta) => delta.chunk,
     withText: (delta, chunk) => ({ ...delta, chunk }),
-    compare: (left, right) => left.seq - right.seq,
-    same: (left, right) => left.seq === right.seq,
+    sequence: (delta) => delta.seq,
   });
 }
 

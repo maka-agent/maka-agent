@@ -3,16 +3,16 @@ export interface BoundedChunkBufferOptions<T> {
   maxChunks: number;
   textOf: (chunk: T) => string;
   withText: (chunk: T, text: string) => T;
-  compare?: (left: T, right: T) => number;
-  same?: (left: T, right: T) => boolean;
+  sequence?: (chunk: T) => number;
 }
 
 /** A tail buffer bounded by both retained text and retained chunk objects. */
 export class BoundedChunkBuffer<T> {
-  private chunks: T[] = [];
+  private chunks: Array<T | undefined> = [];
   private head = 0;
   private retainedChars = 0;
   private cachedValues: readonly T[] | undefined;
+  private discardedThroughSequence: number | undefined;
   private dropped = 0;
   private revision = 0;
 
@@ -31,16 +31,20 @@ export class BoundedChunkBuffer<T> {
   }
 
   values(): readonly T[] {
-    this.cachedValues ??= this.chunks.slice(this.head);
+    this.cachedValues ??= this.chunks.slice(this.head) as T[];
     return this.cachedValues;
   }
 
   append(chunk: T): boolean {
-    const same = this.options.same;
-    if (same) {
+    const sequenceOf = this.options.sequence;
+    if (sequenceOf) {
+      const sequence = sequenceOf(chunk);
+      if (this.discardedThroughSequence !== undefined && sequence <= this.discardedThroughSequence) {
+        return false;
+      }
       for (let index = this.head; index < this.chunks.length; index += 1) {
         const candidate = this.chunks[index];
-        if (candidate !== undefined && same(candidate, chunk)) return false;
+        if (candidate !== undefined && sequenceOf(candidate) === sequence) return false;
       }
     }
 
@@ -53,15 +57,17 @@ export class BoundedChunkBuffer<T> {
   }
 
   private insert(chunk: T): void {
-    const compare = this.options.compare;
+    const sequenceOf = this.options.sequence;
     const last = this.chunks[this.chunks.length - 1];
-    if (!compare || last === undefined || compare(last, chunk) <= 0) {
+    if (!sequenceOf || last === undefined || sequenceOf(last) <= sequenceOf(chunk)) {
       this.chunks.push(chunk);
       return;
     }
 
     this.compactStorage(true);
-    const index = this.chunks.findIndex((candidate) => compare(candidate, chunk) > 0);
+    const index = this.chunks.findIndex(
+      (candidate) => candidate !== undefined && sequenceOf(candidate) > sequenceOf(chunk),
+    );
     this.chunks.splice(index < 0 ? this.chunks.length : index, 0, chunk);
   }
 
@@ -72,23 +78,32 @@ export class BoundedChunkBuffer<T> {
       if (first === undefined) break;
       const text = this.options.textOf(first);
       if (text.length <= excess) {
-        this.dropFirst(text.length);
+        this.dropFirst(first, text.length);
         excess -= text.length;
         continue;
       }
-      this.chunks[this.head] = this.options.withText(first, text.slice(excess));
-      this.retainedChars -= excess;
-      this.dropped += excess;
+      const cut = unicodeSafePrefixLength(text, excess);
+      this.chunks[this.head] = this.options.withText(first, text.slice(cut));
+      this.retainedChars -= cut;
+      this.dropped += cut;
       excess = 0;
     }
     while (this.length > this.options.maxChunks) {
       const first = this.chunks[this.head];
-      this.dropFirst(first === undefined ? 0 : this.options.textOf(first).length);
+      if (first === undefined) break;
+      this.dropFirst(first, this.options.textOf(first).length);
     }
     this.compactStorage(false);
   }
 
-  private dropFirst(chars: number): void {
+  private dropFirst(chunk: T, chars: number): void {
+    const sequence = this.options.sequence?.(chunk);
+    if (sequence !== undefined && (
+      this.discardedThroughSequence === undefined || this.discardedThroughSequence < sequence
+    )) {
+      this.discardedThroughSequence = sequence;
+    }
+    this.chunks[this.head] = undefined;
     this.head += 1;
     this.retainedChars -= chars;
     this.dropped += chars;
@@ -100,4 +115,12 @@ export class BoundedChunkBuffer<T> {
     this.chunks.splice(0, this.head);
     this.head = 0;
   }
+}
+
+function unicodeSafePrefixLength(text: string, minimum: number): number {
+  const before = text.charCodeAt(minimum - 1);
+  const after = text.charCodeAt(minimum);
+  const splitsSurrogatePair = before >= 0xd800 && before <= 0xdbff
+    && after >= 0xdc00 && after <= 0xdfff;
+  return splitsSurrogatePair ? minimum + 1 : minimum;
 }
