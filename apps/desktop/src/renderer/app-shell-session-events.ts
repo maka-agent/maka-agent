@@ -152,11 +152,7 @@ export function createAppShellSessionEventHandlers(options: {
           }
         }
         void refreshSessions();
-        if (event.stopReason === 'permission_handoff') {
-          void refreshMessages(sessionId, terminalRefreshOptions(before));
-        } else {
-          void refreshMessages(sessionId, terminalRefreshOptions(before));
-        }
+        void refreshMessages(sessionId, terminalRefreshOptions(before));
         break;
       }
       default:
