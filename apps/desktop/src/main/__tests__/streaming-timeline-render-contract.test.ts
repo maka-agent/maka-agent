@@ -34,3 +34,21 @@ it('renders live thinking and text from timeline items instead of a trailing liv
   assert.match(shell, /const activeLiveTurn = activeId \? liveTurnBySession\[activeId\] : undefined;/);
   assert.match(shell, /<ChatView[\s\S]*?liveTurn=\{activeLiveTurn\}/);
 });
+
+it('keeps persisted turn materialization stable while live text grows', async () => {
+  const source = await readFile(
+    resolve(import.meta.dirname, '../../../../../packages/ui/src/chat-view.tsx'),
+    'utf8',
+  );
+
+  assert.match(
+    source,
+    /const drainingMessageIdsKey = JSON\.stringify\([\s\S]*?step\.text \? \[step\.stepId\] : \[\][\s\S]*?const drainingMessageIds = useMemo\([\s\S]*?JSON\.parse\(drainingMessageIdsKey\)[\s\S]*?\[drainingMessageIdsKey\]/,
+    'the persisted-message exclusion set must depend on live text ownership, not the changing liveTurn object',
+  );
+  assert.doesNotMatch(
+    source,
+    /const drainingMessageIds = useMemo\([\s\S]*?\[props\.liveTurn\]/,
+    'a text delta must not invalidate every settled TurnView through full rematerialization',
+  );
+});

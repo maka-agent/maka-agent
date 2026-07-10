@@ -290,9 +290,12 @@ export function ChatView(props: {
   // Persisted history and the live overlay are separate projections. Plain-text
   // deltas only clone the active turn; settled turn identities stay stable so
   // memoized TurnViews skip reconciliation on the hottest update path.
+  const drainingMessageIdsKey = JSON.stringify(
+    props.liveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? [],
+  );
   const drainingMessageIds = useMemo(
-    () => new Set(props.liveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? []),
-    [props.liveTurn],
+    () => new Set<string>(JSON.parse(drainingMessageIdsKey) as string[]),
+    [drainingMessageIdsKey],
   );
   const visibleMessages = useMemo(
     () => drainingMessageIds.size > 0
