@@ -1,17 +1,19 @@
 /**
  * Radius governance contract (#406 gap 4).
  *
- * Per docs/design-system.md §1.4:
- *   - control  6px  — button / input / chip / kbd / inline code / tab trigger / nav row
- *   - surface  8px  — card / popover / menu popup / alert / toolbar / tab list / select popup
- *   - modal   12px — Settings / Confirm / Permission modal / floating card
+ * Per docs/design-system.md §1.4 (MOBBIN-RESTYLE-0 values,
+ * notes/mobbin-design-language.md §3 — controls are capsules, containers
+ * step up to Mobbin's 12/20 language; tier structure unchanged):
+ *   - control  999px — button / input / chip / kbd / tab trigger / nav row (capsule)
+ *   - surface  12px — card / popover / menu popup / alert / toolbar / tab list / select popup
+ *   - modal   20px — Settings / Confirm / Permission modal / floating card
  *   - pill    999px — pill / badge / round dot / switch / checkbox / radio / progress
  *
  * Tailwind alias map (styles.css):
- *   rounded-sm → --radius-control (6px)
- *   rounded-md → --radius-surface (8px)
- *   rounded-lg → --radius-surface (8px)  [deprecated, kept for compat]
- *   rounded-xl → --radius-modal (12px)
+ *   rounded-sm → --radius-control (999px capsule)
+ *   rounded-md → --radius-surface (12px)
+ *   rounded-lg → --radius-surface (12px)  [deprecated, kept for compat]
+ *   rounded-xl → --radius-modal (20px)
  *   rounded-full → --radius-pill (999px)
  *
  * Contract rules:
@@ -389,7 +391,9 @@ describe('radius token governance (#406 gap 4)', () => {
       '.settingsWechatQrFrame': '--radius-surface',
       '.settingsWechatQrState': '--radius-surface',
       '.providerUnavailableNotice': '--radius-surface',
-      '.enabledEmptyChip': '--radius-control',
+      // MOBBIN-RESTYLE-0: flex-column empty-state CTA card — multi-line,
+      // so it keeps container corners under the capsule control tier.
+      '.enabledEmptyChip': '--radius-surface',
       '.maka-firstrun-list': '--radius-surface',
       '.maka-onboarding-quickchat-submit': '--radius-control',
       '.maka-first-run-checklist': '--radius-surface',
@@ -437,12 +441,12 @@ describe('radius token governance (#406 gap 4)', () => {
     assert.deepEqual(offenders, [], `Selector tier violations:\n  ${offenders.join('\n  ')}`);
   });
 
-  it('radius token values are pinned to 6/8/12/999px', async () => {
+  it('radius token values are pinned to 999/12/20/999px (MOBBIN-RESTYLE-0)', async () => {
     const tokens = await parseRadiusTokenValues();
     const expected: Record<string, string> = {
-      '--radius-control': '6px',
-      '--radius-surface': '8px',
-      '--radius-modal': '12px',
+      '--radius-control': '999px',
+      '--radius-surface': '12px',
+      '--radius-modal': '20px',
       '--radius-pill': '999px',
     };
     for (const [tok, val] of Object.entries(expected)) {

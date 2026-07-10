@@ -10,11 +10,12 @@
      - All other colors are derived: alpha overlays (foreground/N) or solid mixes (foreground-N).
      - Borders / dividers / hovers / muted text never use a "gray" — they're foreground at low alpha.
 
-   Why this looks "premium":
-     - Sharp 0px radius corners + 1px subtle border rings (--shadow-minimal-flat).
-     - Multi-layer soft shadows with very low opacity (0.06) instead of one heavy shadow.
+   Why this looks "premium" (MOBBIN-RESTYLE-0, notes/mobbin-design-language.md):
+     - Pill capsules for every one-line control; 12/20px container corners.
+     - One big soft blur (0 8px 40px @4%) + 1px border rings — not shadow stacks.
+     - Monochrome ink CTAs: emphasis via shape + contrast, not hue.
      - System UI fonts with optical antialiasing.
-      - 15px base font, 4px spacing unit → dense but readable.
+      - 13px base font, 4px spacing unit → dense but readable.
 ============================================================================ */
 
 /* =============================================================================
@@ -93,38 +94,38 @@
      (connected/ok semantics); running/focus-ring/link/nav-active/selection
      all follow --accent. */
   --accent: oklch(0.70 0.135 250);
-  /* The primary CTA (--action) is a pale blue chip (L0.85, low chroma) with
-     deep-blue text — a light, fresh button instead of a heavy solid. Checked
-     controls (--control) use a slightly deeper blue (L0.65, one step below
-     the accent) so the near-white glyph clears WCAG 1.4.11 non-text contrast
-     3:1 (3.09:1); the logo L0.70 only reaches 2.55:1. */
-  /* PALETTE-LEAK-0: derive hue/chroma from --accent instead of hardcoding
-     blue h250 — palettes only override the base tokens, so literals here
-     kept the send button, onboarding CTA and every checked control blue
-     after a palette switch (same bug --brand-deep already had and fixed).
-     Lightness anchors stay literal to preserve the WCAG 1.4.11 tuning;
-     min(c, …) keeps the default palette byte-identical while following
-     low-chroma palettes down. */
-  --action: oklch(from var(--accent) 0.85 min(c, 0.08) h);
-  --action-foreground: oklch(from var(--accent) 0.30 min(c, 0.06) h);
-  --control: oklch(from var(--accent) 0.65 min(c, 0.135) h);
-  --control-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
+  /* MOBBIN-RESTYLE-0 (notes/mobbin-design-language.md §1): primary actions
+     go monochrome — Mobbin's CTA is an ink-solid pill (#141414 on white),
+     emphasis carried by shape + contrast, not hue. --action/--control
+     derive from --foreground/--background so every palette (and dark
+     mode, where the pair inverts to a light pill on dark ink) keeps the
+     same mono philosophy automatically. WCAG: ink-on-paper is ≥15:1 for
+     text and non-text alike, far above the old blue chip's 3.09:1 tuning.
+     Accent keeps its remaining jobs: links, focus ring, running status. */
+  --action: var(--foreground);
+  --action-foreground: var(--background);
+  --control: var(--foreground);
+  --control-foreground: var(--background);
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
-  --nav-active: var(--accent);
-  --toast-accent: var(--accent);
+  /* MOBBIN-RESTYLE-0: active nav is ink, not brand blue — mono selection
+     language (selected wash + full-strength foreground) per
+     notes/mobbin-design-language.md §1. Running status stays accent:
+     it is a genuine live-state semantic, not an emphasis choice. */
+  --nav-active: var(--foreground);
+  --toast-accent: var(--foreground);
   --info: oklch(0.75 0.16 70);          /* amber — "ask" mode, warnings */
   --success: oklch(0.55 0.17 145);      /* green — connected, ok */
   --destructive: oklch(0.58 0.24 28);   /* red — errors, denied */
 
   /* Legacy brand affordance for a few emphasized surfaces. New CTA and checked
      control states use --action / --control instead.
-     PR-THEME-APPLY-AND-DONE-POLISH-0 (WAWQAQ msg `dec85e5b`): was a static
-     "Solarpunk deep" green, which made palette switching invisible on the
-     Done CTA and made every palette read as olive-green. */
-  --brand-deep: var(--accent);
-  --brand-deep-hover: oklch(from var(--accent) calc(l - 0.06) c h);
+     MOBBIN-RESTYLE-0: joins the mono CTA family (was var(--accent)) — the
+     Done/onboarding CTAs read as ink pills like every other primary action.
+     Hover lightens toward the background (ink can only get lighter). */
+  --brand-deep: var(--foreground);
+  --brand-deep-hover: oklch(from var(--foreground) calc(l + 0.18) c h);
   --bot-brand-default: var(--accent);
   /* PALETTE-LEAK-0: semantic alias for informational system banners (the
      plan-reminders 系统提醒 banner) — component CSS derives its tint family
@@ -224,12 +225,17 @@
      reads as a dirty smudge (taste-skill ban). Every layer now derives
      from the warm foreground so shadow, border ring, and ink share one
      light source. Dark mode collapses these to border rings below. */
+  /* MOBBIN-RESTYLE-0 (notes/mobbin-design-language.md §4): the 3-5 layer
+     stacked glows collapse to Mobbin's two measured recipes — a chip
+     shadow (0 1px 2px @4%) and a floating-card shadow (0 8px 40px @4%,
+     one big soft blur instead of a stack). Modal keeps a second deep
+     layer so overlays still separate from the backdrop. Ring layer and
+     foreground-derived color (palette-aware) are unchanged. */
   --shadow-minimal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
     oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
-    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 1px 1px -0.5px,
-    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 3px 3px -1.5px;
+    oklch(from var(--foreground) l c h / var(--shadow-blur-opacity)) 0 1px 2px 0;
 
   --shadow-minimal-flat:
     rgba(0,0,0,0) 0 0 0 0,
@@ -240,20 +246,15 @@
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
     oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
-    oklch(from var(--foreground) l c h / 0.06) 0 1px 1px -0.5px,
-    oklch(from var(--foreground) l c h / 0.06) 0 3px 3px -1.5px,
-    oklch(from var(--foreground) l c h / 0.06) 0 6px 6px -3px,
-    oklch(from var(--foreground) l c h / 0.04) 0 12px 12px -6px;
+    oklch(from var(--foreground) l c h / 0.04) 0 1px 2px 0,
+    oklch(from var(--foreground) l c h / 0.04) 0 8px 40px 0;
 
   --shadow-modal:
     rgba(0,0,0,0) 0 0 0 0,
     rgba(0,0,0,0) 0 0 0 0,
     oklch(from var(--foreground) l c h / 0.06) 0 0 0 1px,
-    oklch(from var(--foreground) l c h / 0.04) 0 1px 1px -0.5px,
-    oklch(from var(--foreground) l c h / 0.04) 0 3px 3px 0,
-    oklch(from var(--foreground) l c h / 0.02) 0 6px 6px 0,
-    oklch(from var(--foreground) l c h / 0.02) 0 12px 12px 0,
-    oklch(from var(--foreground) l c h / 0.02) 0 24px 24px 0;
+    oklch(from var(--foreground) l c h / 0.05) 0 8px 40px 0,
+    oklch(from var(--foreground) l c h / 0.05) 0 24px 80px 0;
 
   /* === z-index scale (semantic) === */
   --z-base: 0;
@@ -361,18 +362,24 @@
      between them, the inner radius = outer radius − padding so the two
      curves share a center and read as one machined shell. Two forms:
        1. If outer − padding lands on a tier, pick that tier directly —
-          e.g. a settings card (8px surface) inside a 12px modal with 4px
-          padding: 12 − 4 = 8 = --radius-surface. The radius-converge
+          e.g. a settings card (12px surface) inside a 20px modal with 8px
+          padding: 20 − 8 = 12 = --radius-surface. The radius-converge
           contract's SELECTOR_TIER already pins this.
        2. If outer − padding does NOT land on a tier, use
-          `calc(var(--radius-*) - Npx)` — e.g. an input inside a 12px modal
-          with 8px inset: 12 − 8 = 4px (not a tier), so
-          `border-radius: calc(var(--radius-modal) - 8px)`. The radius
-          contract's calc allowlist permits only this shrink form. */
+          `calc(var(--radius-*) - Npx)` — the radius contract's calc
+          allowlist permits only this shrink form.
+
+     MOBBIN-RESTYLE-0 (2026-07-11, notes/mobbin-design-language.md §3):
+     controls become pills (Mobbin's signature shape — every one-line
+     interactive element is a full capsule; radius clamps to half-height
+     so a 32px button lands at 16px corners), surfaces step 8 → 12 and
+     modals 12 → 20 to match Mobbin's 16-24px container language. Tier
+     STRUCTURE and selector→tier assignments are unchanged — only the
+     values move; the radius contract pins the new triple. */
   --radius: 0rem;
-  --radius-control: 6px;
-  --radius-surface: 8px;
-  --radius-modal: 12px;
+  --radius-control: 999px;
+  --radius-surface: 12px;
+  --radius-modal: 20px;
   --radius-pill: 999px;
 
   /* PR-SPACING-CONVERGE-0 (issue #430 PR3, 2026-07-03):
@@ -590,26 +597,19 @@
   --foreground: oklch(0.92 0.004 286);
 
   --accent: oklch(0.74 0.15 250);
-  /* Dark mode keeps the same pale-blue CTA chip + deep-blue text as light
-     mode, so the "light, fresh button" reads consistently across themes;
-     --control uses the same L0.65 blue as light so the white glyph clears
-     WCAG 1.4.11 non-text contrast 3:1 (3.09:1) in both themes. */
-  /* PALETTE-LEAK-0: derive hue/chroma from --accent instead of hardcoding
-     blue h250 — palettes only override the base tokens, so literals here
-     kept the send button, onboarding CTA and every checked control blue
-     after a palette switch (same bug --brand-deep already had and fixed).
-     Lightness anchors stay literal to preserve the WCAG 1.4.11 tuning;
-     min(c, …) keeps the default palette byte-identical while following
-     low-chroma palettes down. */
-  --action: oklch(from var(--accent) 0.85 min(c, 0.08) h);
-  --action-foreground: oklch(from var(--accent) 0.30 min(c, 0.06) h);
-  --control: oklch(from var(--accent) 0.65 min(c, 0.135) h);
-  --control-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
+  /* MOBBIN-RESTYLE-0: dark mode re-derives the mono action pair against
+     the dark bases — the CTA inverts to a light pill on dark ink, the
+     Mobbin dark-surface convention. Explicit redefinition kept so the
+     pair stays adjacent to the other dark accent overrides. */
+  --action: var(--foreground);
+  --action-foreground: var(--background);
+  --control: var(--foreground);
+  --control-foreground: var(--background);
   --link: var(--accent);
   --focus-ring: var(--accent);
   --status-running: var(--accent);
-  --nav-active: var(--accent);
-  --toast-accent: var(--accent);
+  --nav-active: var(--foreground);
+  --toast-accent: var(--foreground);
   --info: oklch(0.70 0.16 70);
   --success: oklch(0.60 0.17 145);
   --destructive: oklch(0.70 0.19 22);
@@ -647,10 +647,10 @@
   /* foreground-N variants re-derive automatically via color-mix(), so the
      :root definitions above remain correct — no need to redefine here. */
 
-  /* Brand deep follows accent in dark mode too; hover is a brighter
-     variant for the darker surface. */
-  --brand-deep: var(--accent);
-  --brand-deep-hover: oklch(from var(--accent) calc(l + 0.06) c h);
+  /* MOBBIN-RESTYLE-0: mono in dark mode too — the CTA is a light ink
+     pill on the dark shell; hover dips toward the background. */
+  --brand-deep: var(--foreground);
+  --brand-deep-hover: oklch(from var(--foreground) calc(l - 0.10) c h);
   --bot-brand-default: var(--accent);
 }
 

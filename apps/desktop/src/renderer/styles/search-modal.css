@@ -85,7 +85,7 @@
   display: grid;
   gap: var(--space-0-5);
   padding: var(--space-2-5) var(--space-3);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: oklch(from var(--foreground) l c h / 0.03);
   margin: var(--space-1-5) var(--space-1);
 }
@@ -129,7 +129,7 @@
   width: 100%;
   text-align: left;
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground);
   padding: var(--space-1-5) var(--space-2-5);

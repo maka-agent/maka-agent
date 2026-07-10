@@ -115,7 +115,7 @@ background / foreground / accent (logo blue) / info (amber) / success (green) / 
 | `--state-hover-bg` | sidebar row / button ghost hover 填充 | 不要用作 selected/pressed（那是 `--state-selected-bg`） |
 | `--state-selected-bg` | sidebar row selected / button :active (pressed) | 不要做 hover（那是 `--state-hover-bg`，视觉会“提前”） |
 
-主操作是浅蓝片 + 深蓝字：`--action oklch(0.85 0.08 250)` 配 `--action-foreground oklch(0.30 0.06 250)`（8.64:1，light/fresh CTA，不再是深色实心按钮）。选中/进度用 `--control oklch(0.65 0.135 250)`——比 accent L0.70 低一档，让近白 glyph 过 WCAG 1.4.11 非文本 3:1（3.09:1；logo L0.70 只到 2.55:1，故 control 单独取 L0.65）。链接、focus ring、在线点、nav active、toast accent 走 `--accent`（logo 蓝 `oklch(0.70 0.135 250)`，emphasis alias 族）。`--success` 是独立绿 token（connected/ok 语义），不挂 accent，迁蓝后仍保持绿色。
+MOBBIN-RESTYLE-0（2026-07-11，notes/mobbin-design-language.md §1）：主操作与选中控件走**单色墨对**——`--action: var(--foreground)` 配 `--action-foreground: var(--background)`（墨色药丸 + 纸色文字），`--control`/`--control-foreground` 同对。强调靠形状（capsule）与明度对比，不靠色相；dark mode 自动反相为深底上的浅色药丸（Mobbin 深色惯例）。墨/纸对比 ≥15:1，同时覆盖 4.5:1 文本线与 WCAG 1.4.11 非文本 3:1 线（勾选、开关旋钮、进度条）。链接、focus ring、运行态在线点仍走 `--accent`（logo 蓝，真语义 emphasis）；`--nav-active`/`--toast-accent` 并入单色墨族。`--success` 是独立绿 token（connected/ok 语义），不挂 accent。
 | `--chat-user-bg` / `--user-message-bubble` | user 气泡背景（slate，区别于 accent） | 不要用作 assistant 气泡（assistant 不要气泡） |
 | `--chat-user-foreground` | user 气泡文字 | 仅在 user-bubble 内部 |
 | `--selection` | text selection 高亮 | 不要做 hover |
@@ -170,21 +170,25 @@ Tailwind alias：`--text-xs`→caption(11px), `--text-sm`→ui(13px), `--text-ba
 
 ### 1.4 圆角（Radius）
 
+MOBBIN-RESTYLE-0（2026-07-11，notes/mobbin-design-language.md §3）：单行交互控件
+一律药丸（capsule，999px 由高度截断——32px 按钮实际呈现 16px 圆头），容器走
+Mobbin 的 12/20 大圆角语言。tier 结构与 selector→tier 映射不变，只动数值。
+
 | Token | 值 | 用法 |
 |---|---|---|
 | `--radius` | 0rem | 默认；page、layout 容器 |
-| `--radius-control` | 6px | button / input / small chip / sidebar row / kbd / inline code |
-| `--radius-surface` | 8px | card / popover / code block / toast / notice / table |
-| `--radius-modal` | 12px | Settings / Confirm / Permission modal / composer / floating card |
+| `--radius-control` | 999px（capsule） | button / input / small chip / sidebar row / kbd / tab trigger |
+| `--radius-surface` | 12px | card / popover / code block / toast / notice / table |
+| `--radius-modal` | 20px | Settings / Confirm / Permission modal / composer / floating card |
 | `--radius-pill` | 999px | pill / badge / round dot / skeleton-line |
 | `smooth-corners` utility | superellipse（iOS 风） | 选用，浏览器支持自动 fallback |
 
 Tailwind alias：`--radius-sm`→control, `--radius-md`/`--radius-lg`→surface, `--radius-xl`→modal。
 
-> 这是有意的反规范：Maka 整体 0px 直角 + 关键交互组件 6/8/12px + 大面板上限 12px。
-> 新 PR 不要引入 "更柔和" 的 14/16/18/20px，那会破坏 sharp 视觉。
-> `radius-converge-contract.test.ts` 锁住两条规则：(1) `border-radius` 不准 > 12px
-> （`999px` 圆头例外）；(2) 所有 `border-radius` 和 `rounded-[...]` 必须引用
+> 可交互 = 药丸；容器 = 12/20。不要引入 4-8px 的"小圆角"中间态——Mobbin 语言里
+> 没有它（提取实测：按钮/搜索/chip 全部 r999，卡片 16-24）。
+> `radius-converge-contract.test.ts` 锁住两条规则：(1) token 值钉死为
+> 999/12/20/999；(2) 所有 `border-radius` 和 `rounded-[...]` 必须引用
 > `--radius-*` token，不准裸写 `Npx` 字面量（`0`/`50%`/`inherit` 例外）。
 
 ### 1.5 间距（Spacing）

@@ -118,7 +118,7 @@
 }
 
 .enabledConnRow {
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
 }
 
 /* The default-connection selected wash now rides the Item `selected` prop
@@ -170,7 +170,7 @@
 }
 
 .providerCatalogRow {
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
 }
 
 .providerMarketGrid .providerCatalogRow + .providerCatalogRow,

@@ -147,7 +147,7 @@ export const Checkbox = forwardRef<
     <BaseCheckbox.Root
       ref={ref}
       className={cn(
-        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[var(--radius-control)] border border-input bg-background text-foreground shadow-sm transition-colors',
+        'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-[calc(var(--radius-surface)-8px)] border border-input bg-background text-foreground shadow-sm transition-colors',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
         'data-[checked]:border-control data-[checked]:bg-control data-[checked]:text-control-foreground',
         'data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50',

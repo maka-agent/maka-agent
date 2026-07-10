@@ -132,7 +132,7 @@
      sit on the theme-independent banner), so their border/copy must
      not follow --foreground or they wash out in dark mode. */
   border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.2 min(c, 0.01) h / 0.09);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: linear-gradient(180deg, oklch(100% 0 0), oklch(98.2% 0.006 96));
   color: oklch(from var(--brand-deep) 0.44 min(c, 0.015) h);
   box-shadow:
@@ -297,7 +297,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   flex-direction: column;
   gap: var(--space-3);
   border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background);
   padding: var(--space-4);
   transition:
@@ -467,7 +467,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   align-items: center;
   padding: var(--space-1) var(--space-2);
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: transparent;
   transition: background-color var(--duration-base) var(--ease-out-strong);
 }
@@ -486,7 +486,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   height: 18px;
   display: inline-grid;
   place-items: center;
-  border-radius: var(--radius-control);
+  border-radius: calc(var(--radius-surface)-6px);
   background: oklch(from var(--link) l c h / 0.08);
   color: var(--link);
 }
@@ -536,7 +536,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   align-content: start;
   gap: 0;
   border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background);
 }
 
@@ -711,7 +711,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   display: grid;
   gap: var(--space-2);
   border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background);
   padding: var(--space-3);
 }
@@ -740,7 +740,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 .maka-skill-governance-warning {
   margin: 0;
   border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.22);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);
@@ -773,7 +773,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
   overflow: auto;
   margin: 0;
   border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--foreground-2);
   color: var(--foreground);
   font-family: var(--font-mono);

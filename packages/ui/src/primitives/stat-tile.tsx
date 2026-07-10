@@ -73,7 +73,7 @@ export function StatTile({
         'flex min-w-0 flex-col items-start gap-1',
         emphasis === 'outline'
           ? 'rounded-[var(--radius-surface)] border border-[var(--card-border-color,var(--border))] bg-[var(--card-bg,var(--background))] p-3 shadow-[var(--card-shadow,none)]'
-          : 'rounded-[var(--radius-control)] bg-[var(--foreground-5)] p-3',
+          : 'rounded-[var(--radius-surface)] bg-[var(--foreground-5)] p-3',
         emphasis === 'outline' ? TONE_BORDER_CLASS[effectiveTone] : '',
         isEmptyCount ? 'opacity-[var(--opacity-disabled)]' : '',
         className,

@@ -46,7 +46,7 @@
   height: 14px;
   margin: 0 var(--space-2) 0 0;
   border: var(--border-width-hairline) solid var(--muted-foreground);
-  border-radius: var(--radius-control);
+  border-radius: calc(var(--radius-surface)-8px);
   background: transparent;
   vertical-align: text-bottom;
   cursor: not-allowed; /* read-only — editing markdown isn't supported here */

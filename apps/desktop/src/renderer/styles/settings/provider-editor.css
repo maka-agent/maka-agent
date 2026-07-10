@@ -89,7 +89,9 @@
   color: var(--muted-foreground);
 }
 
-/* category / preview / login badges — compact squared corners, never pills */
+/* category / preview / login badges — MOBBIN-RESTYLE-0: badge chips ride
+   the capsule control tier (Mobbin's New/Updated chips are pills); the old
+   "compact squared, never pills" doctrine is retired with the restyle. */
 .providerCatalogBadge {
   flex: 0 0 auto;
   width: fit-content;
@@ -621,7 +623,7 @@
   align-items: flex-start;
   gap: var(--space-1-5);
   border: var(--border-width-hairline) solid var(--border-subtle);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background-elevated);
   color: var(--foreground);
   padding: var(--space-4) var(--space-4);

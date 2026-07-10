@@ -23,7 +23,9 @@
 }
 
 .settingsField textarea {
-  border-radius: var(--radius-control);
+  /* MOBBIN-RESTYLE-0: capsule control radius is for one-line fields —
+     a multi-line textarea keeps container corners. */
+  border-radius: var(--radius-surface);
   padding: var(--space-2) var(--space-2-5);
   line-height: var(--leading-normal);
   font-family: inherit;

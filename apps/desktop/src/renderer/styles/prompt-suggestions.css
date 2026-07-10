@@ -24,7 +24,7 @@
    * background to transparent (inherits warm panel bg); hover uses
    * neutral `--state-hover-bg` + `--border-strong` (no brand tint). */
   border: var(--border-width-hairline) solid var(--foreground-8);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground);
   padding: var(--space-2-5) var(--space-3);

@@ -158,12 +158,17 @@ describe('issue #406 design-system governance contract', () => {
     assert.deepEqual(violations, []);
   });
 
-  it('splits action and control semantics without foreground-as-primary', async () => {
+  it('splits action and control semantics on the mono ink CTA pair (MOBBIN-RESTYLE-0)', async () => {
     const styles = await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles.css'), 'utf8');
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    const emphasisTokens = ['link', 'focus-ring', 'status-running', 'nav-active', 'toast-accent'];
+    // MOBBIN-RESTYLE-0 (notes/mobbin-design-language.md §1): primary actions
+    // and checked controls are the monochrome ink pair — emphasis by shape +
+    // contrast, not hue. Accent keeps only the genuinely-semantic emphasis
+    // jobs (links, focus ring, live running status); nav-active/toast-accent
+    // joined the mono family.
+    const emphasisTokens = ['link', 'focus-ring', 'status-running'];
+    const monoTokens = ['nav-active', 'toast-accent'];
     for (const selector of [':root', '.dark'] as const) {
-      const accent = parseOklch(readCssToken(tokens, selector, 'accent'));
       const action = readCssToken(tokens, selector, 'action');
       const actionForeground = readCssToken(tokens, selector, 'action-foreground');
       const control = readCssToken(tokens, selector, 'control');
@@ -171,32 +176,26 @@ describe('issue #406 design-system governance contract', () => {
 
       assert.notEqual(action, 'var(--accent)', `${selector} action must be independently tunable`);
       assert.notEqual(control, 'var(--accent)', `${selector} control must be independently tunable`);
-      // PALETTE-LEAK-0: the CTA family keeps its tuned lightness anchors but
-      // derives hue/chroma from --accent so palette switches reach the send
-      // button and checked controls (they used to stay hardcoded-blue). The
-      // anchors stay pinned inside the derived form.
-      assert.match(actionForeground, /^oklch\(from var\(--accent\) 0\.30 min\(c, 0\.06\) h\)$/);
-      assert.match(controlForeground, /^oklch\(from var\(--accent\) 0\.985 min\(c, 0\.003\) h\)$/);
+      // The mono pair derives from foreground/background so every palette and
+      // dark mode (light pill on ink) keep the philosophy automatically.
+      assert.equal(action, 'var(--foreground)', `${selector} action is the ink CTA`);
+      assert.equal(actionForeground, 'var(--background)', `${selector} action text is paper`);
+      assert.equal(control, 'var(--foreground)', `${selector} control is ink`);
+      assert.equal(controlForeground, 'var(--background)', `${selector} control glyph is paper`);
+      // Ink-on-paper covers both the 4.5:1 text bar (action label) and the
+      // WCAG 2.1 SC 1.4.11 non-text 3:1 bar (checkbox check, switch knob,
+      // progress fill) with one measurement.
+      const fg = parseOklch(readCssToken(tokens, selector, 'foreground'));
+      const bg = parseOklch(readCssToken(tokens, selector, 'background'));
       assert.ok(
-        contrastRatio(
-          oklchToSrgb(resolveAccentDerived(action, accent)),
-          oklchToSrgb(resolveAccentDerived(actionForeground, accent)),
-        ) >= 4.5,
-        `${selector} action/action-foreground contrast must clear 4.5:1`,
-      );
-      // control/foreground paints graphical objects (checkbox check, switch
-      // knob, radio dot, progress fill), not text — so the WCAG 2.1 SC 1.4.11
-      // non-text contrast bar (3:1) applies, not the 4.5:1 text bar used for
-      // action above. --control is tuned (L0.65) to clear 3:1 with a small margin.
-      assert.ok(
-        contrastRatio(
-          oklchToSrgb(resolveAccentDerived(control, accent)),
-          oklchToSrgb(resolveAccentDerived(controlForeground, accent)),
-        ) >= 3.0,
-        `${selector} control/control-foreground contrast must clear 3:1 (WCAG 1.4.11 non-text)`,
+        contrastRatio(oklchToSrgb(fg), oklchToSrgb(bg)) >= 4.5,
+        `${selector} ink/paper contrast must clear 4.5:1`,
       );
       for (const token of emphasisTokens) {
         assert.equal(readCssToken(tokens, selector, token), 'var(--accent)', `${selector} ${token} must start as a thin accent alias`);
+      }
+      for (const token of monoTokens) {
+        assert.equal(readCssToken(tokens, selector, token), 'var(--foreground)', `${selector} ${token} must ride the mono ink family`);
       }
     }
     assert.match(styles, /--color-primary:\s*var\(--action\);/);
@@ -205,7 +204,7 @@ describe('issue #406 design-system governance contract', () => {
     assert.match(styles, /--color-control-foreground:\s*var\(--control-foreground\);/);
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--accent\);/);
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--foreground\);/);
-    for (const token of emphasisTokens) {
+    for (const token of [...emphasisTokens, ...monoTokens]) {
       assert.match(tokens, new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`));
     }
 
@@ -223,11 +222,10 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(tabs, /bg-primary data-\[orientation=horizontal\]:h-0\.5/);
 
     const docs = await readFile(resolve(REPO_ROOT, 'docs/design-system.md'), 'utf8');
-    // Direction A: pale-blue CTA chip + deep-blue text (8.64:1) and control
-    // L0.65 for WCAG 1.4.11 non-text 3:1 (3.09:1) replace the old
-    // "don't flip to --foreground / 2.46:1" rationale.
-    assert.match(docs, /8\.64:1/);
-    assert.match(docs, /3\.09:1/);
+    // MOBBIN-RESTYLE-0: the mono ink CTA rationale replaces the pale-blue
+    // chip (8.64:1) tuning — docs must document the ink/paper pair and the
+    // WCAG 1.4.11 note.
+    assert.match(docs, /MOBBIN-RESTYLE-0/);
     assert.match(docs, /WCAG 1\.4\.11/);
   });
 
@@ -272,7 +270,7 @@ describe('issue #406 design-system governance contract', () => {
 
   it('uses radius tokens for preview card surfaces', async () => {
     const tokens = await readFile(TOKENS_FILE, 'utf8');
-    for (const token of ['--radius-control: 6px', '--radius-surface: 8px', '--radius-modal: 12px', '--radius-pill: 999px']) {
+    for (const token of ['--radius-control: 999px', '--radius-surface: 12px', '--radius-modal: 20px', '--radius-pill: 999px']) {
       assert.ok(tokens.includes(token), `${token} must be defined in maka-tokens.css`);
     }
 
@@ -289,7 +287,10 @@ describe('issue #406 design-system governance contract', () => {
     );
     assert.match(previewBlock, /diff:\s*"[^"]*rounded-\[var\(--radius-surface\)\]/);
     assert.match(previewBlock, /terminal:\s*"[^"]*rounded-\[var\(--radius-surface\)\]/);
-    assert.match(previewBlock, /"load-tool":\s*"[^"]*rounded-\[var\(--radius-control\)\]/);
+    // MOBBIN-RESTYLE-0: the load-tool result card is a multi-line card
+    // (title + count + tool list) — under the capsule control tier it
+    // re-tiered to surface with the other multi-line blocks.
+    assert.match(previewBlock, /"load-tool":\s*"[^"]*rounded-\[var\(--radius-surface\)\]/);
     assert.doesNotMatch(previewBlock, /diff:\s*"[^"]*rounded-\[(?:8|6)px\]/);
     assert.doesNotMatch(previewBlock, /terminal:\s*"[^"]*rounded-\[(?:8|6)px\]/);
     assert.doesNotMatch(previewBlock, /"load-tool":\s*"[^"]*rounded-\[(?:8|6)px\]/);

@@ -118,7 +118,7 @@
    selected-state border accent. `data-selected` is Item's selected hook. */
 .maka-daily-review-archive-row {
   border: var(--border-width-hairline) solid transparent;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   min-width: 0;
   padding: var(--space-1-5) var(--space-2);
 }

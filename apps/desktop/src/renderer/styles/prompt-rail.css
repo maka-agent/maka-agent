@@ -71,7 +71,7 @@
   width: max-content;
   max-width: 280px;
   padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   border: var(--border-width-hairline) solid var(--border);
   background: var(--card-bg);
   box-shadow: var(--card-shadow);

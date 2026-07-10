@@ -411,7 +411,7 @@
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   border: var(--border-width-hairline) solid var(--border);
   background: var(--foreground-3);
 }

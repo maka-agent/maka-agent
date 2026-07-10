@@ -115,7 +115,7 @@
   min-height: 0;
   justify-content: stretch;
   border: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: transparent;
   color: var(--foreground);
   padding: var(--space-1-5) var(--space-2);
@@ -163,7 +163,7 @@
   height: 18px;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-control);
+  border-radius: calc(var(--radius-surface)-6px);
   background: var(--foreground-3);
   color: var(--foreground-secondary);
 }
@@ -394,7 +394,7 @@
   display: grid;
   gap: var(--space-2-5);
   border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background);
   padding: var(--space-4);
 }
@@ -546,6 +546,12 @@
   resize: vertical;
 }
 
+/* MOBBIN-RESTYLE-0: capsule is for the one-line input — the multi-line
+   textarea keeps container corners. */
+.maka-plan-field textarea {
+  border-radius: var(--radius-surface);
+}
+
 .maka-plan-field input:focus,
 .maka-plan-field textarea:focus {
   border-color: oklch(from var(--focus-ring) l c h / 0.55);
@@ -574,7 +580,7 @@
 .maka-plan-validation {
   margin: 0;
   border: var(--border-width-hairline) solid oklch(from var(--warning) l c h / 0.34);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: oklch(from var(--warning) l c h / 0.08);
   color: var(--foreground-secondary);
   font-size: var(--font-size-caption);

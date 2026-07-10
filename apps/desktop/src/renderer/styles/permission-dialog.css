@@ -16,7 +16,7 @@
   height: 24px;
   display: grid;
   place-items: center;
-  border-radius: var(--radius-control);
+  border-radius: calc(var(--radius-surface)-6px);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
 }
@@ -103,7 +103,7 @@
 }
 
 .maka-permission-hint {
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: oklch(from var(--info) l c h / 0.10);
   color: var(--info-text);
   padding: var(--space-1-5) var(--space-2-5);
@@ -125,7 +125,7 @@
 
 .maka-permission-stale-note {
   margin: 0;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   padding: var(--space-1-5) var(--space-2-5);
   font-size: var(--font-size-caption);
   line-height: var(--leading-snug);
@@ -174,7 +174,7 @@
 
 .maka-permission-raw {
   border: var(--border-width-hairline) solid var(--border);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--foreground-2);
 }
 
@@ -212,7 +212,7 @@
 .maka-permission-raw .maka-code {
   margin: 0;
   border: 0;
-  border-radius: 0 0 var(--radius-control) var(--radius-control);
+  border-radius: 0 0 var(--radius-surface) var(--radius-control);
   background: var(--foreground-2);
   max-height: 180px;
   overflow: auto;

@@ -150,7 +150,7 @@ const markerVariants = cva("", {
         "inline-flex w-fit items-center gap-1 self-end mx-0 mb-1 px-1.5 py-0.5 rounded-[var(--radius-control)] bg-[var(--foreground-5)] text-[color:var(--muted-foreground)] text-xs",
       // `.maka-turn-failed-banner` — fault state, destructive tone.
       "failed-banner":
-        "inline-flex w-fit flex-wrap items-center gap-1.5 mx-0 mt-0.5 mb-1.5 px-2 py-1 rounded-[var(--radius-control)] border border-[oklch(from_var(--destructive)_l_c_h_/_0.28)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] text-[color:var(--destructive)] text-xs",
+        "inline-flex w-fit flex-wrap items-center gap-1.5 mx-0 mt-0.5 mb-1.5 px-2 py-1 rounded-[var(--radius-surface)] border border-[oklch(from_var(--destructive)_l_c_h_/_0.28)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.10)] text-[color:var(--destructive)] text-xs",
       // `.maka-turn-failed-icon`
       "failed-icon": "inline-flex items-center",
       // `.maka-turn-failed-recovery` (+ `::before` middot separator).
@@ -650,14 +650,14 @@ const previewVariants = cva("", {
         "min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[color:var(--foreground-secondary)] bg-transparent text-xs",
       // `.maka-office-document-message` (+ its `small` caption).
       "office-message":
-        "grid gap-0.5 px-2.5 py-2 rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] [font-family:var(--font-sans)] text-xs"
+        "grid gap-0.5 px-2.5 py-2 rounded-[var(--radius-surface)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] [font-family:var(--font-sans)] text-xs"
         + " [&_small]:text-xs [&_small]:text-[color:var(--muted-foreground)] [&_small]:uppercase [&_small]:tracking-[0.04em]",
       // `.maka-office-document-empty`
       "office-empty":
         "m-0 text-[color:var(--muted-foreground)] [font-family:var(--font-mono)] text-xs italic",
       // `.maka-office-document-stream` (+ the `[data-stream=stderr]` tone).
       "office-stream":
-        "m-0 px-2.5 py-2 max-h-50 overflow-auto [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-control)] bg-[var(--background)] [font-family:var(--font-mono)] [font-variant-ligatures:none] text-xs [white-space:pre-wrap] [word-break:break-word]"
+        "m-0 px-2.5 py-2 max-h-50 overflow-auto [border:1px_solid_var(--foreground-10)] rounded-[var(--radius-surface)] bg-[var(--background)] [font-family:var(--font-mono)] [font-variant-ligatures:none] text-xs [white-space:pre-wrap] [word-break:break-word]"
         + " data-[stream=stderr]:bg-[oklch(from_var(--destructive)_l_c_h_/_0.04)] data-[stream=stderr]:text-[color:var(--destructive)]",
 
       // ── explore agent / subagent (shared shell) ───────────────────────────
@@ -683,7 +683,7 @@ const previewVariants = cva("", {
       "agent-actions": "flex items-center justify-end gap-1.5 mt-1",
       // `.maka-explore-agent-message`
       "agent-message":
-        "px-2.5 py-2 rounded-[var(--radius-control)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] text-xs",
+        "px-2.5 py-2 rounded-[var(--radius-surface)] bg-[oklch(from_var(--destructive)_l_c_h_/_0.07)] text-[color:var(--destructive)] text-xs",
       // `.maka-explore-agent-meta` (+ its `div` cells, `dt` labels, `dd` values).
       "agent-meta":
         "grid grid-cols-[repeat(2,minmax(0,1fr))] gap-2 m-0"
@@ -747,7 +747,7 @@ const previewVariants = cva("", {
       // ── load-tool result card (separate base; not an overlay) ─────────────
       // `.maka-load-tool-preview` (+ its `p` margin reset).
       "load-tool":
-        "mt-1 mx-0 mb-0 px-2 py-1 grid gap-0.5 rounded-[var(--radius-control)] bg-[var(--background)] text-xs [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
+        "mt-1 mx-0 mb-0 px-2 py-1 grid gap-0.5 rounded-[var(--radius-surface)] bg-[var(--background)] text-xs [box-shadow:var(--shadow-minimal-flat)] [&_p]:m-0",
       // `.maka-load-tool-title`
       "load-tool-title": "font-semibold",
       // `.maka-load-tool-count`

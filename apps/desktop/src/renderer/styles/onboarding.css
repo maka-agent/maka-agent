@@ -761,7 +761,7 @@
   min-height: var(--h-control-sm);
   padding: 0 var(--space-2);
   border: var(--border-width-hairline) solid oklch(from var(--warning, var(--info)) l c h / 0.28);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   background: var(--background);
   color: var(--warning-text, var(--info-text));
   font-size: var(--font-size-ui);
@@ -795,7 +795,7 @@
   min-height: var(--h-control-xl);
   background: var(--background);
   border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.07);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-surface);
   padding: var(--space-1-5) var(--space-2-5) var(--space-1-5) var(--space-2);
   display: inline-grid;
   grid-template-columns: 20px max-content 0;

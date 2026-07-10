@@ -26,7 +26,7 @@ export function AttachmentFileCard(props: {
         props.className,
       )}
     >
-      <span className="h-9 w-9 shrink-0 rounded-sm bg-[var(--foreground-alpha-10)] grid place-items-center text-foreground-secondary">
+      <span className="h-9 w-9 shrink-0 rounded-md bg-[var(--foreground-alpha-10)] grid place-items-center text-foreground-secondary">
         <AttachmentKindIcon kind={props.kind} className="h-5 w-5" />
       </span>
       <span className="min-w-0 flex-1 leading-tight">

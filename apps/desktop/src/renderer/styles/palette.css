@@ -181,7 +181,7 @@
   place-items: center;
   width: 18px;
   height: 18px;
-  border-radius: var(--radius-control);
+  border-radius: calc(var(--radius-surface)-6px);
   color: var(--muted-foreground);
   transition:
     background-color var(--duration-base) var(--ease-out-strong),

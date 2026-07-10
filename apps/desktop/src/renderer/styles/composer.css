@@ -216,7 +216,12 @@
      second rest rule (composer-container-single-source-contract). In dark
      the composer and pane share the same bg, and 3.5% of the near-white
      foreground vanished — the card lost its outline (designer audit P1-6). */
-  box-shadow: 0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035));
+  /* MOBBIN-RESTYLE-0: the composer is the app's signature floating field —
+     it gets the measured Mobbin card shadow (0 8px 40px @4%) on top of the
+     ring so it lifts off the chat surface like Mobbin's search capsule. */
+  box-shadow:
+    0 0 0 1px oklch(from var(--foreground) l c h / var(--composer-ring-alpha, 0.035)),
+    0 8px 40px oklch(from var(--foreground) l c h / 0.04);
   transition:
     border-color var(--duration-emphasized) var(--ease-out-strong),
     box-shadow var(--duration-emphasized) var(--ease-out-strong);
@@ -224,7 +229,11 @@
 
 .composer .maka-composer-inner:focus-within {
   border-color: oklch(from var(--focus-ring) l c h / 0.45);
-  box-shadow: 0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30);
+  /* Keep the Mobbin lift under the focus ring so the card doesn't drop
+     flat the moment it's focused. */
+  box-shadow:
+    0 0 0 var(--focus-ring-width) oklch(from var(--focus-ring) l c h / 0.30),
+    0 8px 40px oklch(from var(--foreground) l c h / 0.04);
 }
 
 /* D6 spectrum #2 (Command Input processing): while the assistant is
