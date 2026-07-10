@@ -883,7 +883,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       }
     }
     if (turnRunning && matchesKey(data, Key.ctrl('c'))) {
-      requestTurnInterrupt();
+      if (interruptRequested) void close();
+      else requestTurnInterrupt();
       return { consume: true };
     }
     // Double Escape interrupts the running turn. This must sit below the

@@ -2114,7 +2114,7 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('does not stop again when Ctrl-C arrives during an in-flight interrupt', async () => {
+  test('exits on a second Ctrl-C while a turn interrupt is still in flight', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlowStopDriver();
     const run = runMakaPiTui({
@@ -2131,21 +2131,25 @@ describe('Maka Pi TUI runner', () => {
     terminal.input('\r');
     await waitFor(() => terminal.progressStates.at(-1) === true);
 
-    terminal.input('\x1b');
-    terminal.input('\x1b');
-    await waitFor(() => driver.stopCalls === 1);
-
-    // Ctrl-C shares the same idempotent interrupt gate as double Escape. It
-    // must not fire a second stopSession while the first one is still settling.
     terminal.input('\x03');
-    await delay(30);
-    assert.equal(driver.stopCalls, 1);
+    await waitFor(() => driver.stopCalls === 1);
     assert.equal(terminal.stopCalls, 0);
 
-    driver.endTurn();
-    await waitFor(() => terminal.progressStates.at(-1) === false);
-    exitMaka(terminal);
-    await run;
+    terminal.input('\x03');
+    try {
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close after a second Ctrl-C');
+        }),
+      ]);
+      assert.equal(driver.stopCalls, 1);
+      assert.equal(terminal.stopCalls, 1);
+    } finally {
+      driver.endTurn();
+      if (terminal.stopCalls === 0) exitMaka(terminal);
+      await run;
+    }
   });
 
   test('keeps Escape as permission deny while a permission prompt is pending', async () => {
