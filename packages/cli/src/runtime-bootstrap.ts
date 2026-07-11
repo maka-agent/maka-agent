@@ -33,6 +33,7 @@ import {
   createSettingsStore,
   createShellRunStore,
 } from '@maka/storage';
+import type { ToolResultContent } from '@maka/core/events';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -48,6 +49,7 @@ export interface MakaCliRuntimeContext {
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
+  readShellRun(sessionId: string, ref: string): Promise<Extract<ToolResultContent, { kind: 'shell_run' }>>;
   close(): Promise<void>;
 }
 
@@ -282,6 +284,7 @@ export async function createMakaCliRuntimeContext(
       shellRunListeners.add(listener);
       return () => shellRunListeners.delete(listener);
     },
+    readShellRun: (sessionId, ref) => shellRuns.readResource(sessionId, ref),
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.

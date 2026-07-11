@@ -15,6 +15,7 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
+import type { ToolResultContent } from '@maka/core/events';
 import type { ShellRunUpdate } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
@@ -22,6 +23,7 @@ import {
   createMakaPiTranscriptState,
   applyShellRunUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
+  runningShellRunsInTranscript,
   submitCompactToTranscript,
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
@@ -79,6 +81,10 @@ export interface MakaPiTuiInput {
    */
   attentionLongTurnThresholdMs?: number;
   subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
+  readShellRun?: (
+    sessionId: string,
+    ref: string,
+  ) => Promise<Extract<ToolResultContent, { kind: 'shell_run' }>>;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -394,13 +400,26 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Adopt a switch/rewind result: the active session is now `summary` with
   // `messages`. Shared by switchSession and rewindToTurn so both land the same
   // runner state (model/connection/thinking/transcript/scroll).
-  const applySwitchResult = ({ summary, messages }: MakaSessionSwitchResult): void => {
+  const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
+    if (input.readShellRun) {
+      const sessionId = summary.id;
+      await Promise.all(runningShellRunsInTranscript(state).map(async ({ sourceToolCallId, ref }) => {
+        try {
+          const result = await input.readShellRun?.(sessionId, ref);
+          if (!result || closed || input.driver.getSessionId() !== sessionId) return;
+          applyShellRunUpdateToTranscript(state, sourceToolCallId, result);
+        } catch {
+          // Missing legacy records must not make an otherwise valid session
+          // impossible to resume. Keep the stored card and let live updates win.
+        }
+      }));
+    }
     shellRunElapsedTicker.sync();
   };
 
@@ -409,7 +428,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // active session untouched and the next prompt still lands on the old one.
   const switchSession = async (sessionId: string) => {
     const result = await input.driver.switchSession(sessionId);
-    applySwitchResult(result);
+    await applySwitchResult(result);
     if (result.messages.length === 0) {
       state.entries.push({
         kind: 'notice',
@@ -426,7 +445,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // non-destructive and inherits the branch's resume guarantees.
   const rewindToTurn = async (turnId: string) => {
     const result = await input.driver.rewindToTurn(turnId);
-    applySwitchResult(result);
+    await applySwitchResult(result);
     // Refill the editor with the discarded turn's prompt so the user can edit
     // and resend it. The picker only arms when the editor is neutral (empty
     // draft, no autocomplete), so overwriting the text loses no in-progress work.

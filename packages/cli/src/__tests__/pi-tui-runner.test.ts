@@ -1566,6 +1566,53 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('hydrates a resumed background Bash card from durable shell-run state', async () => {
+    const terminal = new FakeTerminal();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    const driver = new SlashCommandDriver(
+      [fakeSessionSummary('session-2', '/repo')],
+      new Map([
+        ['session-2', [
+          {
+            type: 'tool_call', id: 'tool-bg', turnId: 'turn-1', ts: 1,
+            toolName: 'Bash', args: { command: 'build' },
+          },
+          {
+            type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
+            toolUseId: 'tool-bg', isError: false,
+            content: {
+              kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+              startedAt: 1_000, updatedAt: 2_000,
+              stdout: 'starting\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+            },
+          },
+        ] satisfies StoredMessage[]],
+      ]),
+    );
+    const reads: Array<{ sessionId: string; ref: string }> = [];
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      readShellRun: async (sessionId, requestedRef) => {
+        reads.push({ sessionId, ref: requestedRef });
+        return {
+          kind: 'shell_run', ref, status: 'completed', cwd: '/repo', cmd: 'build',
+          startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+          stdout: 'starting\ndone\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        };
+      },
+    });
+
+    terminal.input('/session session-2');
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
+    assert.deepEqual(reads, [{ sessionId: 'session-2', ref }]);
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('shows only current-cwd sessions in the session picker', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver([

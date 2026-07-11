@@ -106,6 +106,17 @@ export function refreshRunningShellRunElapsed(
   return found;
 }
 
+export function runningShellRunsInTranscript(
+  state: MakaPiTranscriptState,
+): Array<{ sourceToolCallId: string; ref: string }> {
+  return state.entries.flatMap((entry) => entry.kind === 'tool'
+    && entry.toolName === 'Bash'
+    && entry.result?.kind === 'shell_run'
+    && entry.result.status === 'running'
+    ? [{ sourceToolCallId: entry.toolUseId, ref: entry.result.ref }]
+    : []);
+}
+
 export function applyShellRunUpdateToTranscript(
   state: MakaPiTranscriptState,
   sourceToolCallId: string,
