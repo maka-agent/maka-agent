@@ -82,8 +82,7 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
       });
       return result.text;
     } catch {
-      // Fail-open: a summarizer failure returns undefined so the runtime
-      // keeps the deterministic draft summary instead of aborting the compact.
+      // Fail-open: the caller chooses the safe fallback for an initial or rolling summary failure.
       return undefined;
     }
   };
