@@ -157,8 +157,12 @@ function decisionLabel(decision: AbDecision): string {
       return 'B non-inferior';
     case 'inferior':
       return 'B inferior';
-    case 'inconclusive':
-      return 'inconclusive';
+    case 'not_cleared':
+      return 'not cleared';
+    case 'diagnostic':
+      return 'diagnostic only';
+    case 'invalid':
+      return 'invalid';
   }
 }
 

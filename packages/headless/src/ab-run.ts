@@ -98,7 +98,8 @@ async function runComparisonTaskArm(
   arm: AbArmSpec,
   pair: { rep: number; task: FixedPromptTask },
 ): Promise<FixedPromptTaskWalEvent> {
-  const roundId = `ab-${roundIdArmSuffix(arm.id)}-r${pair.rep}-${roundIdTaskSuffix(pair.task.id)}`;
+  const prefix = input.roundIdPrefix ? `${roundIdArmSuffix(input.roundIdPrefix)}-` : '';
+  const roundId = `${prefix}ab-${roundIdArmSuffix(arm.id)}-r${pair.rep}-${roundIdTaskSuffix(pair.task.id)}`;
   const event = await input.runArm({
     runId: input.runId,
     roundId,

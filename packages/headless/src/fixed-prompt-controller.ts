@@ -158,7 +158,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'execution_identity_mismatch';
+  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'missing_execution_identity' | 'execution_identity_mismatch';
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
@@ -290,6 +290,8 @@ export interface RunFixedPromptControllerInput {
   costCeilingUsd?: number;
   maxConcurrency?: number;
   resumeFingerprint?: string;
+  requireExecutionIdentity?: boolean;
+  expectedPricingProfile?: string;
   harborRunner: HarborTaskRunner;
   now?: () => number;
   newId?: () => string;
@@ -369,6 +371,8 @@ export async function runFixedPromptController(
         config,
         systemPrompt,
         expectedPromptHash,
+        requireExecutionIdentity: input.requireExecutionIdentity,
+        expectedPricingProfile: input.expectedPricingProfile,
         resumeFingerprint: input.resumeFingerprint,
         id: newId(),
         ts: now(),
@@ -500,6 +504,8 @@ async function runTaskAndBuildEvent(input: {
   config: Config;
   systemPrompt: string;
   expectedPromptHash: string;
+  requireExecutionIdentity?: boolean;
+  expectedPricingProfile?: string;
   resumeFingerprint?: string;
   id: string;
   ts: number;
@@ -565,6 +571,8 @@ async function runTaskAndBuildEvent(input: {
     output,
     expectedConfig: input.config,
     expectedPromptHash: input.expectedPromptHash,
+    requireExecutionIdentity: input.requireExecutionIdentity,
+    expectedPricingProfile: input.expectedPricingProfile,
     resumeFingerprint: input.resumeFingerprint,
     taskId: input.task.id,
     runId: input.input.runId,
@@ -578,6 +586,8 @@ function taskEventFromOutput(input: {
   output: HarborTaskRunOutput;
   expectedConfig: Config;
   expectedPromptHash: string;
+  requireExecutionIdentity?: boolean;
+  expectedPricingProfile?: string;
   resumeFingerprint?: string;
   taskId: string;
   runId: string;
@@ -592,7 +602,13 @@ function taskEventFromOutput(input: {
       error: `Harbor cell failed with ${input.output.cell.errorClass}`,
     });
   }
-  const plumbingFailure = classifyPlumbingFailure(input.output, input.expectedPromptHash, input.expectedConfig);
+  const plumbingFailure = classifyPlumbingFailure(
+    input.output,
+    input.expectedPromptHash,
+    input.expectedConfig,
+    input.requireExecutionIdentity ?? false,
+    input.expectedPricingProfile,
+  );
   if (plumbingFailure) {
     return taskPlumbingFailedEvent({
       ...input,
@@ -703,11 +719,17 @@ function taskPlumbingFailedEvent(input: {
   };
 }
 
-function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash: string, expectedConfig: Config): {
+function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash: string, expectedConfig: Config, requireExecutionIdentity: boolean, expectedPricingProfile: string | undefined): {
   errorClass: FixedPromptTaskPlumbingFailedEvent['errorClass'];
   error: string;
 } | undefined {
   const identity = output.cell.executionIdentity;
+  if (requireExecutionIdentity && !identity) {
+    return {
+      errorClass: 'missing_execution_identity',
+      error: 'Harbor cell did not attest the connection, model, prompt, and pricing profile that executed',
+    };
+  }
   if (identity) {
     const modelPrefix = `${expectedConfig.llmConnectionSlug}/`;
     const expectedModel = expectedConfig.model?.startsWith(modelPrefix)
@@ -717,6 +739,7 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
       identity.llmConnectionSlug !== expectedConfig.llmConnectionSlug
       || identity.model !== expectedModel
       || identity.systemPromptHash !== expectedPromptHash
+      || (expectedPricingProfile !== undefined && identity.pricingProfile !== expectedPricingProfile)
     ) {
       return {
         errorClass: 'execution_identity_mismatch',

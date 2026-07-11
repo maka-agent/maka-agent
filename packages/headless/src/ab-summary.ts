@@ -509,17 +509,20 @@ function decide(
   nonInferiorityMargin: number,
 ): { decision: AbDecision; reason: string } {
   const coverage = Math.min(baseline.coverageRate, candidate.coverageRate);
-  if (coverage < 0.9) return { decision: 'inconclusive', reason: 'low_effective_coverage' };
-  if (pairedAttempts.missingPairIds.length > 0) return { decision: 'inconclusive', reason: 'missing_attempt_pair' };
+  if (baseline.infraFailed + candidate.infraFailed > 0) return { decision: 'invalid', reason: 'infra_failure_observed' };
+  if (baseline.plumbingFailed + candidate.plumbingFailed > 0) return { decision: 'invalid', reason: 'plumbing_failure_observed' };
+  if (pairedAttempts.budgetDiscordantPairIds.length > 0) return { decision: 'invalid', reason: 'asymmetric_budget_exhaustion' };
+  if (coverage < 0.9) return { decision: 'not_cleared', reason: 'low_effective_coverage' };
+  if (pairedAttempts.missingPairIds.length > 0) return { decision: 'not_cleared', reason: 'missing_attempt_pair' };
   if (pairedAttempts.infraOrPlumbingDiscordantPairIds.length > 0) {
-    return { decision: 'inconclusive', reason: 'asymmetric_infra_or_plumbing' };
+    return { decision: 'invalid', reason: 'asymmetric_infra_or_plumbing' };
   }
-  if (passRateDelta === null) return { decision: 'inconclusive', reason: 'missing_pass_rate_delta' };
+  if (passRateDelta === null) return { decision: 'not_cleared', reason: 'missing_pass_rate_delta' };
   if (passRateDelta < -nonInferiorityMargin) return { decision: 'inferior', reason: 'pass_rate_delta_below_non_inferiority_margin' };
   if (nonInferiority.lowerBound !== null && nonInferiority.lowerBound >= -nonInferiorityMargin) {
     return { decision: 'non_inferior', reason: 'non_inferiority_lower_bound_within_margin' };
   }
-  return { decision: 'inconclusive', reason: 'non_inferiority_confidence_interval_crosses_margin' };
+  return { decision: 'not_cleared', reason: 'non_inferiority_confidence_interval_crosses_margin' };
 }
 
 function summarizeNonInferiority(

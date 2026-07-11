@@ -29,6 +29,7 @@ export interface RunAbComparisonInput {
   reps?: number;
   maxConcurrency?: number;
   costCeilingUsd?: number;
+  roundIdPrefix?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
   runArm: AbArmRunner;
@@ -47,7 +48,9 @@ export type AbArmRunner = (input: AbArmRunInput) => Promise<FixedPromptTaskWalEv
 export type AbDecision =
   | 'non_inferior'
   | 'inferior'
-  | 'inconclusive';
+  | 'not_cleared'
+  | 'diagnostic'
+  | 'invalid';
 
 export interface AbArmSummary {
   attempts: number;
@@ -263,6 +266,7 @@ export interface AbRunManifestInput {
   costCeilingUsd?: number;
   selectionMode?: 'explicit' | 'metadata';
   candidateTaskIds?: readonly string[];
+  pilotTaskIds?: readonly string[];
   maxExpertTimeEstimateMin?: number | null;
   targetEvaluationTaskCount?: number | null;
   nonInferiorityMargin?: number;
@@ -274,4 +278,5 @@ export type AbRunManifest = AbRunManifestInput & {
   arms: [AbArmSpec, AbArmSpec];
   evaluationTaskIds: string[];
   candidateTaskIds?: string[];
+  pilotTaskIds?: string[];
 };

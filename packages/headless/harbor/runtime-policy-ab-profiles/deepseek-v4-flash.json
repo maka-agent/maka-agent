@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "deepseek-v4-flash",
+  "llmConnectionSlug": "deepseek",
+  "provider": "deepseek",
+  "baseUrl": "https://api.deepseek.com",
+  "model": "deepseek/deepseek-v4-flash",
+  "pricing": {
+    "inputUsdPer1M": 0.145,
+    "outputUsdPer1M": 0.29,
+    "cacheReadUsdPer1M": 0.0029,
+    "cacheWriteUsdPer1M": 0,
+    "source": "deepseek-v4-flash"
+  },
+  "taskBudgetSec": 1800,
+  "harborTimeoutMs": 2100000,
+  "costCeilingUsd": 20,
+  "maxConcurrentAttempts": 4
+}

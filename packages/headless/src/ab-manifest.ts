@@ -29,6 +29,7 @@ export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
     costCeilingUsd: input.costCeilingUsd,
     selectionMode: input.selectionMode,
     candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
+    pilotTaskIds: input.pilotTaskIds ? [...input.pilotTaskIds] : undefined,
     maxExpertTimeEstimateMin: input.maxExpertTimeEstimateMin,
     targetEvaluationTaskCount: input.targetEvaluationTaskCount,
     nonInferiorityMargin: input.nonInferiorityMargin,

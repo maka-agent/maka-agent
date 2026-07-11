@@ -72,8 +72,8 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.decision, 'inferior');
-    assert.equal(result.reason, 'pass_rate_delta_below_non_inferiority_margin');
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
     assert.equal(result.candidate.passRate, 0);
     assert.equal(result.candidate.budgetExhausted, 1);
     assert.equal(result.candidate.infraFailed, 0);
@@ -560,7 +560,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.taskLevel.wins, 9);
     assert.equal(result.taskLevel.losses, 7);
     assert.equal(result.taskLevel.signTestPValue !== null && result.taskLevel.signTestPValue > 0.05, true);
-    assert.equal(result.decision, 'inconclusive');
+    assert.equal(result.decision, 'not_cleared');
     assert.equal(result.reason, 'non_inferiority_confidence_interval_crosses_margin');
     assert.equal(result.nonInferiority.lowerBound !== null && result.nonInferiority.lowerBound < -0.1, true);
   });
@@ -600,7 +600,7 @@ describe('summarizeAbComparison', () => {
     });
     assert.equal(underpoweredNinePointLoss.nonInferiorityMargin, 0.1);
     assert.equal(underpoweredNinePointLoss.passRateDelta, -0.09);
-    assert.equal(underpoweredNinePointLoss.decision, 'inconclusive');
+    assert.equal(underpoweredNinePointLoss.decision, 'not_cleared');
     assert.equal(underpoweredNinePointLoss.reason, 'non_inferiority_confidence_interval_crosses_margin');
     assert.equal(underpoweredNinePointLoss.nonInferiority.lowerBound !== null && underpoweredNinePointLoss.nonInferiority.lowerBound < -0.1, true);
     const poweredFivePointLoss = summarizeAbComparison({
@@ -644,7 +644,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(onePairTie.passRateDelta, 0);
     assert.equal(onePairTie.nonInferiority.method, 'newcombe_wilson');
     assert.equal(onePairTie.nonInferiority.lowerBound !== null && onePairTie.nonInferiority.lowerBound < -0.1, true);
-    assert.equal(onePairTie.decision, 'inconclusive');
+    assert.equal(onePairTie.decision, 'not_cleared');
     assert.equal(onePairTie.reason, 'non_inferiority_confidence_interval_crosses_margin');
 
     const tieTaskIds = Array.from({ length: 10 }, (_, index) => `tie-${index}`);
@@ -660,7 +660,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(allTieSmallSample.passRateDelta, 0);
     assert.equal(allTieSmallSample.nonInferiority.method, 'newcombe_wilson');
     assert.equal(allTieSmallSample.nonInferiority.lowerBound !== null && allTieSmallSample.nonInferiority.lowerBound < -0.1, true);
-    assert.equal(allTieSmallSample.decision, 'inconclusive');
+    assert.equal(allTieSmallSample.decision, 'not_cleared');
 
     const poweredTaskIds = Array.from({ length: 1000 }, (_, index) => `powered-${index}`);
     const powered = summarizeAbComparison({
@@ -694,7 +694,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(underpowered.passRateDelta, -0.05);
     assert.equal(underpowered.nonInferiority.method, 'newcombe_wilson');
     assert.equal(underpowered.nonInferiority.lowerBound !== null && underpowered.nonInferiority.lowerBound < -0.1, true);
-    assert.equal(underpowered.decision, 'inconclusive');
+    assert.equal(underpowered.decision, 'not_cleared');
     assert.equal(underpowered.reason, 'non_inferiority_confidence_interval_crosses_margin');
 
     const inferiorTaskIds = Array.from({ length: 100 }, (_, index) => `inferior-${index}`);
@@ -728,8 +728,8 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.passed, 1);
     assert.equal(result.pairedAttempts.wins, 1);
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0']);
-    assert.equal(result.decision, 'inconclusive');
-    assert.equal(result.reason, 'non_inferiority_confidence_interval_crosses_margin');
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
   });
 
   test('counts baseline pass and candidate timeout as an effective B loss', () => {
@@ -747,11 +747,11 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.budgetExhausted, 1);
     assert.equal(result.pairedAttempts.losses, 1);
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t1#r0']);
-    assert.equal(result.decision, 'inferior');
-    assert.equal(result.reason, 'pass_rate_delta_below_non_inferiority_margin');
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
   });
 
-  test('reports budget-discordant refs without blocking a powered non-inferiority decision', () => {
+  test('reports budget-discordant refs and invalidates a powered non-inferiority decision', () => {
     const taskIds = Array.from({ length: 100 }, (_, index) => `t${index}`);
     const result = summarizeAbComparison({
       runId: 'ab-run',
@@ -765,7 +765,7 @@ describe('summarizeAbComparison', () => {
 
     assert.deepEqual(result.pairedAttempts.budgetDiscordantPairIds, ['t0#r0']);
     assert.equal(result.investigationRefs.budgetDiscordantPairs[0]?.pairId, 't0#r0');
-    assert.equal(result.decision, 'non_inferior');
-    assert.equal(result.reason, 'non_inferiority_lower_bound_within_margin');
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'asymmetric_budget_exhaustion');
   });
 });

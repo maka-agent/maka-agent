@@ -11,12 +11,27 @@ import {
 } from '../fixed-prompt-controller.js';
 import { buildRuntimePolicyAbRunManifest, runRuntimePolicyAbComparison } from '../runtime-policy-ab-run.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
+import type { RuntimePolicyAbExecutionProfile } from '../runtime-policy-ab-profile.js';
 
 const config: Config = {
   id: 'cfg-runtime-policy-ab',
   backend: 'fake',
   llmConnectionSlug: 'deepseek',
   model: 'deepseek/deepseek-v4-flash',
+};
+
+const executionProfile: RuntimePolicyAbExecutionProfile = {
+  schemaVersion: 1,
+  id: 'test-profile',
+  llmConnectionSlug: 'deepseek',
+  provider: 'deepseek',
+  baseUrl: 'https://api.deepseek.com',
+  model: 'deepseek/deepseek-v4-flash',
+  pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'test-profile' },
+  taskBudgetSec: 1800,
+  harborTimeoutMs: 2_100_000,
+  costCeilingUsd: 20,
+  maxConcurrentAttempts: 2,
 };
 
 describe('runRuntimePolicyAbComparison', () => {
@@ -27,19 +42,13 @@ describe('runRuntimePolicyAbComparison', () => {
         { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
       ],
       promptHash: sha256('p'),
-      provider: 'deepseek',
-      baseUrl: 'https://api.deepseek.com',
-      model: 'deepseek/deepseek-v4-flash',
-      taskBudgetSec: 1800,
-      harborTimeoutMs: 2_100_000,
+      executionProfile: { ...executionProfile, maxConcurrentAttempts: 4 },
       subjectFingerprint: sha256('s'),
       taskSourceFingerprint: sha256('t'),
       toolchainFingerprint: sha256('c'),
       evaluationTaskIds: ['t1', 't2'],
       reps: 3,
       candidateLimit: null,
-      maxConcurrentAttempts: 4,
-      costCeilingUsd: 20,
       nonInferiorityMargin: 0.1,
       sharedAgentEnv: {
         MAKA_HARBOR_CONTINUATION: 'on',
@@ -85,19 +94,13 @@ describe('runRuntimePolicyAbComparison', () => {
       const manifest = buildRuntimePolicyAbRunManifest({
         arms: [taskToolsOff, taskToolsOn],
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrentAttempts: 2,
-        costCeilingUsd: 20,
       });
       const calls: string[] = [];
 
@@ -110,8 +113,7 @@ describe('runRuntimePolicyAbComparison', () => {
         evaluationTasks: [{ id: 't1', path: '/bench/t1' }],
         reps: 1,
         arms: [taskToolsOff, taskToolsOn],
-        costCeilingUsd: 20,
-        maxConcurrentAttempts: 2,
+        executionProfile,
         resumeFingerprint: 'caller-salt',
         harborRunner: async (input) => {
           calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
@@ -140,20 +142,14 @@ describe('runRuntimePolicyAbComparison', () => {
           { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
           { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on', MAKA_CONTEXT_FOO: '1' } as never },
         ],
-        costCeilingUsd: 20,
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrentAttempts: 2,
       }),
       /unsupported Harbor context env key: MAKA_CONTEXT_FOO/,
     );
@@ -168,19 +164,13 @@ describe('runRuntimePolicyAbComparison', () => {
         ],
         sharedAgentEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } as never,
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrentAttempts: 2,
-        costCeilingUsd: 20,
       }),
       /unsupported runtime policy shared agent env key: MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE/,
     );
@@ -210,8 +200,7 @@ describe('runRuntimePolicyAbComparison', () => {
             },
           },
         ],
-        costCeilingUsd: 20,
-        maxConcurrentAttempts: 2,
+        executionProfile,
         harborRunner: async (input) => {
           calls.push(input);
           return harborOutput(input);
@@ -291,8 +280,7 @@ describe('runRuntimePolicyAbComparison', () => {
           evaluationTasks: [task],
           reps: 1,
           arms,
-          costCeilingUsd: 20,
-          maxConcurrentAttempts: 2,
+          executionProfile,
           sharedAgentEnv: { MAKA_HARBOR_CONTINUATION: 'on' },
           resumeFingerprint: 'caller-salt',
           harborRunner: async (input) => {
@@ -327,8 +315,7 @@ describe('runRuntimePolicyAbComparison', () => {
         evaluationTasks: [task],
         reps: 1,
         arms: [pruneOff, pruneOnChanged],
-        costCeilingUsd: 20,
-        maxConcurrentAttempts: 2,
+        executionProfile,
         sharedAgentEnv: {
           MAKA_HARBOR_CONTINUATION: 'on',
           MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
@@ -358,6 +345,12 @@ function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {
       schemaVersion: 1,
       status: 'completed',
       promptHash: hashSystemPrompt(input.systemPrompt),
+      executionIdentity: {
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-v4-flash',
+        systemPromptHash: hashSystemPrompt(input.systemPrompt),
+        pricingProfile: 'test-profile',
+      },
       tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
       contextBudgetPolicy: pruneOn
         ? {
