@@ -341,90 +341,49 @@
   text-align: left;
 }
 
-.maka-list-row-actions {
-  /* PR-SIDEBAR-IA-0 Phase 3 (xuan `2d4526b5` + kenji `e949119d`):
-   * actions overlay via absolute positioning instead of occupying
-   * a reserved flex column. In a 280px narrow sidebar a 126px
-   * reserved area left only ~74px for the title — kenji's math
-   * showed long Chinese names like "Artifact Pane 验收" would
-   * truncate too early. Absolute overlay gives the title the
-   * row's full content width in every state, so a narrow row never
-   * loses more title characters than the icons actually cover.
-   *
-   * Bug fix: the gradient below is what's supposed to visually hide
-   * the tail of the title/meta text this cluster paints over. It used
-   * to fade into `var(--state-hover-bg)` / `var(--state-selected-bg)`
-   * directly — those are a 4%/6.5%-alpha tint of `--foreground`, i.e.
-   * partially SEE-THROUGH. A translucent layer can't occlude the
-   * full-opacity text underneath it, so the icons rendered visibly on
-   * top of fully-legible title text (session-row title/actions overlap
-   * bug). Reserving layout space instead (shrinking the title column on
-   * hover) was tried and reverted — on the app's actual narrow sidebar
-   * width it truncated titles far more aggressively than the original
-   * bug's readable-but-smudged tail, which read as a worse regression.
-   * The fix that keeps maximum title length AND fully hides the
-   * covered portion: flatten the translucent tint into an opaque
-   * color via `color-mix()` against the real surface it sits on
-   * (`--background`) — same visual tint, zero transparency, so
-   * whatever text is under the buttons is actually gone, not just
-   * dimmed.
-   *
-   * Layout shift invariant still holds: actions don't participate
-   * in row flex layout in either state, so showing/hiding them
-   * never resizes the title column.
-   *
-   * A short leading fade (16px) softens the cut-off where the title
-   * text disappears under the action cluster. This works because the
-   * opaque stop is genuinely opaque (color-mix flattened) — the
-   * previous version's fade used a 4%-alpha tint as the "opaque" end
-   * and couldn't actually hide anything. With a real solid color,
-   * the fade zone shows the title tail dissolving smoothly instead of
-   * a hard vertical edge, and anything past the 16px mark is fully
-   * occluded. */
+.maka-list-row-menu-trigger {
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-0-5);
-  padding: 0 var(--space-2);
-  /* Opaque re-derivation of --state-hover-bg's tint (4% of --foreground
-   * over --background) — NOT `color-mix(..., var(--state-hover-bg) ..., ...)`,
-   * which would just mix an already-4%-alpha color at some percentage of
-   * itself and stay translucent. Recreating the tint from the opaque
-   * --foreground/--background pair is what actually removes the alpha. */
-  background: linear-gradient(
-    to right,
-    transparent 0,
-    color-mix(in oklch, var(--foreground) 4%, var(--background)) 16px,
-    color-mix(in oklch, var(--foreground) 4%, var(--background)) 100%
-  );
+  top: var(--space-0-5);
+  right: var(--space-1);
+  width: var(--h-control-sm);
+  height: var(--h-control-sm);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground-secondary);
   opacity: 0;
-  transform: translateX(8px);
+  transform: translateX(var(--space-1));
   transition:
     opacity var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-base) var(--ease-out-strong);
+    transform var(--duration-base) var(--ease-out-strong),
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
   pointer-events: none;
 }
 
-.maka-list-row:hover .maka-list-row-actions,
-.maka-list-row:focus-within .maka-list-row-actions {
+.maka-list-row-menu-trigger:hover,
+.maka-list-row-menu-trigger:focus-visible,
+.maka-list-row-menu-trigger[data-popup-open] {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-list-row-menu-trigger:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.maka-list-row:hover .maka-list-row-menu-trigger,
+.maka-list-row:focus-within .maka-list-row-menu-trigger,
+.maka-list-row-menu-trigger[data-visible="true"] {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
 }
 
-/* PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
- * when row actions appear, hide the meta (time) and unread dot so
- * they don't show through the absolute-positioned actions overlay.
- * The gradient bg below was supposed to mask them visually but
- * couldn't match every row state (transparent default vs hover bg
- * vs accent-tinted selected bg), so the time text leaked through
- * the actions cluster on selected rows ("9m ago" overlapping with
- * 📌 ✏️ 📦 🗑️). `visibility: hidden` preserves layout (the auto
- * grid column still reserves the time slot), so the actions slide
- * in without shifting anything around them. */
 .maka-list-row:hover .maka-list-row-meta,
 .maka-list-row:hover .maka-list-row-unread,
 .maka-list-row:focus-within .maka-list-row-meta,
@@ -432,22 +391,9 @@
   visibility: hidden;
 }
 
-.maka-list-row[data-active="true"] .maka-list-row-actions {
-  /* Opaque re-derivation of --state-selected-bg's tint (6.5% of
-   * --foreground over --background) — see the hover variant above for
-   * why this can't just be color-mix(..., var(--state-selected-bg), ...),
-   * and why there's no leading fade. */
-  background: linear-gradient(
-    to right,
-    transparent 0,
-    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 16px,
-    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 100%
-  );
+.maka-list-row-menu {
+  min-width: 144px;
 }
-
-/* Row action buttons: visual via rowActionVariants cva.
-   .maka-list-row-action class kept as a stable hook for the
-   action overlay positioning + reveal animation on the parent. */
 
 .maka-list-row-rename-input {
   width: 100%;

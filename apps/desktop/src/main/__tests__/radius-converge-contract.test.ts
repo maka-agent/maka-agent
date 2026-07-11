@@ -192,7 +192,6 @@ const COMPONENT_RADIUS: ComponentRadiusCheck[] = [
   { file: 'packages/ui/src/primitives/toolbar.tsx', name: 'Toolbar', tier: 'surface' },
   { file: 'packages/ui/src/session-sidebar-nav.tsx', name: 'navRowVariants', tier: 'control' },
   { file: 'packages/ui/src/session-sidebar-nav.tsx', name: 'settingsButtonClass', tier: 'control' },
-  { file: 'packages/ui/src/session-history-list.tsx', name: 'rowActionVariants', tier: 'control' },
 ];
 
 /** Extract the body of a component declaration by brace-matching from the

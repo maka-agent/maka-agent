@@ -659,7 +659,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action overlay shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
+  it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action trigger shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
     // reuses the 60-session seed so the sidebar is identical to
@@ -667,7 +667,7 @@ describe('visual smoke fixture mode', () => {
     // `VisualSmokeState.focusActiveRow=true`, which the renderer
     // reads to focus the active row's button after mount. That
     // triggers `:focus-within` and reveals the
-    // `.maka-list-row-actions` overlay — the screenshot then proves
+    // `.maka-list-row-menu-trigger` — the screenshot then proves
     // the time meta / unread dot are correctly hidden underneath.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-row-actions-'));
     try {

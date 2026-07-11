@@ -122,13 +122,13 @@ const ALL_SCENARIOS = [
   // InputGroup input shell; reuses the 60-session sidebar seed.
   'command-palette-open',
   // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
-  // kenji `b3d156e9`): baseline gate proving the row action overlay
+  // kenji `b3d156e9`): baseline gate proving the row action trigger
   // does NOT overlap the time meta / unread dot on the focused
   // (or active) row. Reuses the 60-session seed and sets
   // `VisualSmokeState.focusActiveRow=true` so the renderer focuses
   // the active row's button after mount, making `:focus-within`
-  // trigger and the `.maka-list-row-actions` overlay become visible.
-  // Reviewers should see the 4 action icons cleanly painted with
+  // trigger and the `.maka-list-row-menu-trigger` become visible.
+  // Reviewers should see the single overflow trigger cleanly painted with
   // NO `Nm ago` peeking through and NO unread dot stacked behind.
   'sidebar-row-actions-visible',
 ];
