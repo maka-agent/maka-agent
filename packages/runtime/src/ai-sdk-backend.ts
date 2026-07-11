@@ -146,6 +146,7 @@ import {
   buildHistorySearchSource,
   buildPromptSegmentEstimates,
   collectStaleToolResultArchiveCandidates,
+  evaluateHistoryCompactCheckpointReplay,
   estimateRuntimeEventsTokens,
   mergeContextBudgetDiagnostic,
   mergeContextBudgetDiagnosticPatches,
@@ -2260,26 +2261,15 @@ export class AiSdkBackend implements AgentBackend {
     const newlyFoldedRuntimeEvents = previousCheckpoint
       ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
       : foldedRuntimeEvents;
-    const maxCheckpointTokensInput = input.contextBudget.historyCompact?.maxBlockEstimatedTokens
-      ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens;
-    const maxCheckpointTokens = typeof maxCheckpointTokensInput === 'number'
-      && Number.isFinite(maxCheckpointTokensInput)
-      && maxCheckpointTokensInput > 0
-      ? maxCheckpointTokensInput
-      : 1_024;
     const retainedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
       !foldedIds.has(event.id) && !event.id.startsWith('history-compact:')
     );
-    const maxHistoryEstimatedTokens = input.contextBudget.maxHistoryEstimatedTokens;
     const previousCheckpointFitsCurrentLimits = previousCheckpoint !== undefined
-      && previousCheckpoint.estimatedTokens <= maxCheckpointTokens
-      && (
-        maxHistoryEstimatedTokens === undefined
-        || estimateRuntimeEventsTokens([
-          historyCompactCheckpointToRuntimeEvent(previousCheckpoint),
-          ...retainedRuntimeEvents,
-        ], input.contextBudget.charsPerToken ?? 4) <= maxHistoryEstimatedTokens
-      );
+      && evaluateHistoryCompactCheckpointReplay(
+        previousCheckpoint,
+        retainedRuntimeEvents,
+        input.contextBudget,
+      ).fits;
     if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0 && previousCheckpointFitsCurrentLimits) {
       return {
         fallbackCheckpoint: previousCheckpoint,
@@ -2355,6 +2345,13 @@ export class AiSdkBackend implements AgentBackend {
         charsPerToken: input.contextBudget.charsPerToken,
         now: this.now(),
       });
+      if (!evaluateHistoryCompactCheckpointReplay(
+        checkpoint,
+        retainedRuntimeEvents,
+        input.contextBudget,
+      ).fits) {
+        throw new Error('History compact checkpoint exceeds current replay limits');
+      }
       await Promise.resolve(recorder(checkpoint, input.turnId));
       return {
         replacementCheckpoint: checkpoint,
@@ -2962,7 +2959,10 @@ function buildHistoryCompactCheckpointFailOpenContext(
     selectedGroups.unshift(group);
     selectedTokens += groupTokens;
   }
-  return [checkpointEvent, ...selectedGroups.flat()];
+  const replayTail = selectedGroups.flat();
+  return evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy).fits
+    ? [checkpointEvent, ...replayTail]
+    : [...retainedCandidates];
 }
 
 function incrementRecord(counts: Record<string, number>, key: string): void {

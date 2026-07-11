@@ -63,6 +63,43 @@ export interface ContextBudgetPolicy {
   historyRewrite?: HistoryRewriteGatePolicy;
 }
 
+export type HistoryCompactCheckpointReplayFit =
+  | { fits: true; checkpointTokens: number; replayTokens: number }
+  | {
+      fits: false;
+      checkpointTokens: number;
+      replayTokens: number;
+      reason: 'max_block_tokens' | 'max_total_tokens' | 'prefix_over_budget';
+    };
+
+/** The single current-policy gate for every checkpoint entering model replay. */
+export function evaluateHistoryCompactCheckpointReplay(
+  checkpoint: HistoryCompactCheckpoint,
+  replayTail: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy,
+): HistoryCompactCheckpointReplayFit {
+  const charsPerToken = policy.charsPerToken ?? 4;
+  const checkpointEvent = historyCompactCheckpointToRuntimeEvent(checkpoint);
+  const checkpointTokens = estimateRuntimeEventsTokens([checkpointEvent], charsPerToken);
+  const replayTokens = estimateRuntimeEventsTokens([checkpointEvent, ...replayTail], charsPerToken);
+  const compactPolicy = policy.historyCompact;
+  const maxBlockTokens = finitePositive(compactPolicy?.maxBlockEstimatedTokens)
+    ?? finitePositive(compactPolicy?.maxSummaryEstimatedTokens)
+    ?? 1_024;
+  if (checkpointTokens > maxBlockTokens) {
+    return { fits: false, checkpointTokens, replayTokens, reason: 'max_block_tokens' };
+  }
+  const maxTotalTokens = finitePositive(compactPolicy?.maxEstimatedTokens) ?? 2_048;
+  if (checkpointTokens > maxTotalTokens) {
+    return { fits: false, checkpointTokens, replayTokens, reason: 'max_total_tokens' };
+  }
+  const maxHistoryTokens = finitePositive(policy.maxHistoryEstimatedTokens);
+  if (maxHistoryTokens !== undefined && replayTokens > maxHistoryTokens) {
+    return { fits: false, checkpointTokens, replayTokens, reason: 'prefix_over_budget' };
+  }
+  return { fits: true, checkpointTokens, replayTokens };
+}
+
 export interface StaleToolResultPrunePolicy {
   enabled: boolean;
   /** Tool result payloads above this estimate are replaced with archive placeholders. Defaults to 2048. */
@@ -692,26 +729,15 @@ export function applyRuntimeEventHistoryCompact(
       increment(skippedReasonCounts, match.reason);
       continue;
     }
-    const checkpointText = renderHistoryCompactCheckpoint(checkpoint);
-    const checkpointTokens = checkpoint.estimatedTokens
-      ?? estimateTokens(checkpointText.length, charsPerToken);
-    const maxCheckpointTokens = finitePositive(compactPolicy.maxBlockEstimatedTokens)
-      ?? finitePositive(compactPolicy.maxSummaryEstimatedTokens)
-      ?? 1_024;
-    if (checkpointTokens > maxCheckpointTokens) {
-      increment(skippedReasonCounts, 'max_block_tokens');
-      continue;
-    }
     const uncoveredFoldedEvents = foldedEvents.slice(match.coveredEventCount);
-    const outputEvents = [
-      historyCompactCheckpointToRuntimeEvent(checkpoint),
-      ...uncoveredFoldedEvents,
-      ...retainedEvents,
-    ];
-    if (!fitsHistoryBudget(outputEvents, maxTokens, charsPerToken)) {
-      increment(skippedReasonCounts, 'prefix_over_budget');
+    const replayTail = [...uncoveredFoldedEvents, ...retainedEvents];
+    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!);
+    if (!fit.fits) {
+      increment(skippedReasonCounts, fit.reason);
       continue;
     }
+    const outputEvents = [historyCompactCheckpointToRuntimeEvent(checkpoint), ...replayTail];
+    const checkpointTokens = fit.checkpointTokens;
     return {
       events: outputEvents,
       blocks: [],

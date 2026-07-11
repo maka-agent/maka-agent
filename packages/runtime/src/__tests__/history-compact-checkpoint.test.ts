@@ -265,6 +265,34 @@ describe('history compact checkpoint', () => {
     assert.equal(replay.checkpoints[0]?.checkpointId, checkpoint.checkpointId);
   });
 
+  test('does not replay a checkpoint above the total compact budget', () => {
+    const events = Array.from({ length: 8 }, (_, index) => textEvent(index));
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: events.slice(0, 4),
+      summary: 'checkpoint summary '.repeat(20),
+      charsPerToken: 1,
+    });
+    assert.ok(checkpoint.estimatedTokens > 100);
+
+    const replay = applyRuntimeEventHistoryCompact(events, {
+      maxHistoryEstimatedTokens: 10_000,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true,
+        mode: 'read_write',
+        checkpoints: [checkpoint],
+        maxBlockEstimatedTokens: 10_000,
+        maxEstimatedTokens: 100,
+        highWaterRatio: 0.000001,
+        tailEstimatedTokens: 1,
+      },
+    });
+
+    assert.equal(replay.checkpoints.length, 0);
+    assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), false);
+  });
+
 });
 
 function textEvent(index: number): RuntimeEvent {
