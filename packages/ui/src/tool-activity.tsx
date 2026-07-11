@@ -503,8 +503,14 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
   const SummaryIcon = TROW_KIND_ICON[activePresentation.kind];
+  // Multi-tool running group shows the whole-group bucket aggregation with a
+  // "正在" prefix instead of the active tool's description, so the summary line
+  // stops cycling through each tool's intent as tools start/finish in
+  // parallel (the 1234567 jitter). Single-tool rows keep the tool's own
+  // description — the "what exactly is running" signal is useful when there is
+  // only one, and it is locked by existing tests.
   const summary = running
-    ? activePresentation.summary
+    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : activePresentation.summary)
     : summarizeTrowTools(items);
   return (
     <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>

@@ -95,7 +95,10 @@ function isFailed(status: ToolActivityItem['status']): boolean {
  * "N 个失败" clause when any tool errored. A failed tool still counts toward
  * its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
  */
-export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
+export function summarizeTrowTools(
+  items: readonly ToolActivityItem[],
+  options?: { live?: boolean },
+): string {
   const order: TrowActivityKind[] = [];
   const counts = new Map<TrowActivityKind, number>();
   let failed = 0;
@@ -106,8 +109,13 @@ export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
     if (isFailed(item.status)) failed += 1;
   }
   const clauses = order.map((kind) => KIND_CLAUSE[kind](counts.get(kind) ?? 0));
-  if (failed > 0) clauses.push(`${failed} 个失败`);
-  return clauses.join('，');
+  // Running summary prioritizes stability: the failed count changes as tools
+  // error mid-group, so it is shown only once the group settles. Errored tools
+  // still force-open their disclosure (trowNeedsAttention), so the failure
+  // signal is not lost — it just doesn't jitter the summary line mid-run.
+  if (!options?.live && failed > 0) clauses.push(`${failed} 个失败`);
+  const base = clauses.join('，');
+  return options?.live ? `正在${base}` : base;
 }
 
 /**
