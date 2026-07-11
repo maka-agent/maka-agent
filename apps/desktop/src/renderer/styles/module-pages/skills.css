@@ -827,3 +827,13 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Collision-only slug: revealed inline beside the name ONLY when two visible
+   skills share a display name (normal rows keep the slug in the tooltip). */
+.maka-skill-library-slug {
+  margin-left: var(--space-1-5);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-normal);
+}
