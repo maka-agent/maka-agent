@@ -17,6 +17,7 @@ import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-
 export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
 const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
+type UnscoredCellFailureClass = 'infra_failed' | 'setup_failed' | 'verification_error';
 
 export interface FixedPromptTask {
   id: string;
@@ -140,7 +141,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   eligible: boolean;
   errorClass: 'budget_exhausted';
   error: string;
-  evidenceErrorClass?: FixedPromptTaskPlumbingFailedEvent['errorClass'] | 'provider_billing' | 'auth';
+  evidenceErrorClass?: FixedPromptTaskPlumbingFailedEvent['errorClass'] | UnscoredCellFailureClass | 'provider_billing' | 'auth';
   evidenceError?: string;
   expectedPromptHash: string;
   runtimeEventsPath?: string;
@@ -673,7 +674,7 @@ function taskCompletedEvent(input: {
   };
 }
 
-function isUnscoredCellFailure(errorClass: string | undefined): boolean {
+function isUnscoredCellFailure(errorClass: string | undefined): errorClass is UnscoredCellFailureClass {
   return errorClass === 'infra_failed' || errorClass === 'setup_failed' || errorClass === 'verification_error';
 }
 
@@ -831,13 +832,18 @@ function taskBudgetExhaustedEvent(input: {
           errorClass: output.cell.errorClass,
           error: `Harbor cell failed with ${output.cell.errorClass}`,
         }
-      : classifyPlumbingFailure(
-          output,
-          input.expectedPromptHash,
-          input.expectedConfig,
-          input.requireExecutionIdentity ?? false,
-          input.expectedPricingProfile,
-        );
+      : isUnscoredCellFailure(output.cell.errorClass)
+        ? {
+            errorClass: output.cell.errorClass,
+            error: `Harbor cell failed with ${output.cell.errorClass}`,
+          }
+        : classifyPlumbingFailure(
+            output,
+            input.expectedPromptHash,
+            input.expectedConfig,
+            input.requireExecutionIdentity ?? false,
+            input.expectedPricingProfile,
+          );
   } else if (input.requireExecutionIdentity) {
     evidenceFailure = {
       errorClass: 'missing_execution_identity',
