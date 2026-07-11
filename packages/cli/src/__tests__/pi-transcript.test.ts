@@ -722,6 +722,26 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(rendered, /50%/);
   });
 
+  test('shows stdout as latest when it arrives after stderr', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'build' },
+    }));
+    const result = Object.assign(shellRun({
+      stdout: '99%\n',
+      stderr: 'warning\n',
+      updatedAt: 3_000,
+    }), { latestOutputStream: 'stdout' as const });
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false, content: result,
+    }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /99%/);
+    assert.doesNotMatch(rendered, /  warning \(Ctrl\+O\)/);
+  });
+
   test('re-renders a background Bash card when polling replaces output with the same length', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';

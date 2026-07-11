@@ -128,6 +128,46 @@ describe('ShellRunProcessManager', () => {
     assert.equal(terminal?.result.exitCode, 0);
   });
 
+  test('persists stdout as the latest output stream when it follows stderr', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "warning\\n" >&2; sleep 0.5; printf "99%%\\n"',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(600);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.equal(terminal?.result.latestOutputStream, 'stdout');
+    assert.equal(
+      (await store.readShellRun('session-1', 'shell-run-1')).latestOutputStream,
+      'stdout',
+    );
+  });
+
+  test('persists stderr as the latest output stream when it follows stdout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "99%%\\n"; sleep 0.5; printf "warning\\n" >&2',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(600);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.equal(terminal?.result.latestOutputStream, 'stderr');
+  });
+
   test('publishes retained output after a ShellRun yields', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();

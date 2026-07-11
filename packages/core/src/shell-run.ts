@@ -36,6 +36,7 @@ export interface ShellRunRecord {
   timeoutMs?: number;
   stdoutTail: string;
   stderrTail: string;
+  latestOutputStream?: 'stdout' | 'stderr';
   stdoutTruncated: boolean;
   stderrTruncated: boolean;
   observedAt?: number;

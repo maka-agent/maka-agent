@@ -99,7 +99,9 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   const hasLiveOutput = entry.outputDeltas.length > 0 || entry.progress.length > 0;
   const result = entry.result;
   if (result?.kind === 'shell_run') {
-    const latest = lastNonEmptyLine([result.stdout, result.stderr].filter(Boolean).join('\n'));
+    const latest = result.latestOutputStream
+      ? lastNonEmptyLine(result[result.latestOutputStream])
+      : lastNonEmptyLine([result.stdout, result.stderr].filter(Boolean).join('\n'));
     if (latest) return { text: latest, expandable: true };
     return {
       text: entry.status === 'detached'

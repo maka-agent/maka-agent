@@ -163,6 +163,7 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     (record.exitCode === undefined || isFiniteNumber(record.exitCode)) &&
     (record.observedAt === undefined || isFiniteNumber(record.observedAt)) &&
     (record.pid === undefined || isFiniteNumber(record.pid)) &&
+    (record.latestOutputStream === undefined || record.latestOutputStream === 'stdout' || record.latestOutputStream === 'stderr') &&
     typeof record.stdoutTruncated === 'boolean' &&
     typeof record.stderrTruncated === 'boolean' &&
     optionalStrings.every((item) => item === undefined || typeof item === 'string');

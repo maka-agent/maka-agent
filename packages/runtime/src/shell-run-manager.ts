@@ -83,6 +83,7 @@ interface LiveShellRun {
   stderrBuf: BashTailBuffer;
   stdoutChars: number;
   stderrChars: number;
+  latestOutputStream?: 'stdout' | 'stderr';
   pendingFlushChars: number;
   flushTimer?: NodeJS.Timeout;
   flushChain: Promise<void>;
@@ -327,6 +328,7 @@ export class ShellRunProcessManager {
 
   private append(live: LiveShellRun, stream: 'stdout' | 'stderr', chunk: string): void {
     if (live.settled || chunk.length === 0) return;
+    if (chunk.trim()) live.latestOutputStream = stream;
     if (stream === 'stdout') {
       live.stdoutBuf.push(chunk);
       live.stdoutChars += chunk.length;
@@ -421,13 +423,14 @@ export class ShellRunProcessManager {
 
   private tailPatch(live: LiveShellRun): Pick<
     ShellRunRecord,
-    'stdoutTail' | 'stderrTail' | 'stdoutTruncated' | 'stderrTruncated'
+    'stdoutTail' | 'stderrTail' | 'latestOutputStream' | 'stdoutTruncated' | 'stderrTruncated'
   > {
     const stdoutRawTail = shellTailValueWithUnsafeDropMarker(live.stdoutBuf);
     const stderrRawTail = shellTailValueWithUnsafeDropMarker(live.stderrBuf);
     return {
       stdoutTail: redactSecrets(stdoutRawTail),
       stderrTail: redactSecrets(stderrRawTail),
+      ...(live.latestOutputStream ? { latestOutputStream: live.latestOutputStream } : {}),
       stdoutTruncated: live.stdoutChars > stdoutRawTail.length || live.stdoutBuf.hasDroppedUnsafe(),
       stderrTruncated: live.stderrChars > stderrRawTail.length || live.stderrBuf.hasDroppedUnsafe(),
     };
@@ -574,6 +577,7 @@ function shellRunContent(record: ShellRunRecord, cancelled?: boolean): ShellRunT
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
     stdout: stdout.content,
     stderr: stderr.content,
+    ...(record.latestOutputStream ? { latestOutputStream: record.latestOutputStream } : {}),
     stdoutTruncated: record.stdoutTruncated || stdout.truncated,
     stderrTruncated: record.stderrTruncated || stderr.truncated,
     ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
