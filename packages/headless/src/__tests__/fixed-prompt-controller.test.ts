@@ -8,6 +8,7 @@ import { tokenSummary } from './helpers/cell-output-fixtures.js';
 import {
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
+  readFixedPromptWal,
   readHarborTaskRunOutput,
   runFixedPromptController,
   type FixedPromptWalEvent,
@@ -219,6 +220,8 @@ describe('fixed prompt controller', () => {
         expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
       })}\n`, 'utf8');
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
+      const projectedWal = await readFixedPromptWal(resultsJsonlPath);
+      assert.equal(projectedWal[0]?.type, 'task_budget_exhausted');
       let calls = 0;
 
       const result = await runFixedPromptController({

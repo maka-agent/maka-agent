@@ -329,7 +329,7 @@ export async function runFixedPromptController(
   const systemPrompt = await readFile(input.systemPromptPath, 'utf8');
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
   const config = { ...input.config, systemPrompt };
-  const events = (await readFixedPromptWal(input.resultsJsonlPath)).map(projectLegacyTimeoutOutcome);
+  const events = await readFixedPromptWal(input.resultsJsonlPath);
   const completed = terminalTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   const stopEvidence = roundTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   let stopReason = controllerStopReason({
@@ -449,7 +449,7 @@ export async function readFixedPromptWal(path: string): Promise<FixedPromptWalEv
       throw error;
     }
   }
-  return events;
+  return events.map(projectLegacyTimeoutOutcome);
 }
 
 export async function readHarborTaskRunOutput(

@@ -94,6 +94,18 @@ describe('prompt structural smoke report', () => {
     assert.deepEqual(report.failures, ['cost_ceiling_exceeded']);
   });
 
+  test('includes budget-exhausted task cost in the structural ceiling', () => {
+    const report = promptStructuralSmokeReport({
+      events: [budgetExhaustedEvent('round-1', 'task-1', 0.42)],
+      minimumRounds: 0,
+      costCeilingUsd: 0.4,
+    });
+
+    assert.equal(report.totalCostUsd, 0.42);
+    assert.equal(report.status, 'fail');
+    assert.deepEqual(report.failures, ['cost_ceiling_exceeded']);
+  });
+
   test('fails when decision rounds have no task evidence', () => {
     const events: FixedPromptWalEvent[] = [];
     for (let index = 1; index <= 10; index += 1) {
@@ -740,6 +752,26 @@ function completedEvent(
     durationMs: 10,
     runtimeEventsPath: `/logs/${roundId}/${taskId}.jsonl`,
     harbor: { reward: 0 },
+  };
+}
+
+function budgetExhaustedEvent(roundId: string, taskId: string, costUsd: number): FixedPromptWalEvent {
+  return {
+    schemaVersion: 1,
+    type: 'task_budget_exhausted',
+    id: `budget-${roundId}-${taskId}`,
+    ts: 1,
+    runId: 'run-1',
+    roundId,
+    taskId,
+    status: 'budget_exhausted',
+    passed: false,
+    scored: false,
+    eligible: true,
+    errorClass: 'budget_exhausted',
+    error: 'agent timed out',
+    expectedPromptHash: promptHashForRound(roundId),
+    tokenSummary: tokenSummary({ input: 1, output: 1, reasoning: 0, total: 2, costUsd }),
   };
 }
 
