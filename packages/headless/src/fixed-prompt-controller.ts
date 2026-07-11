@@ -136,9 +136,12 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   status: 'budget_exhausted';
   passed: false;
   scored: false;
-  eligible: true;
+  eligible: boolean;
   errorClass: 'budget_exhausted';
   error: string;
+  evidenceStatus?: 'not_required' | 'verified' | 'unverified';
+  evidenceErrorClass?: FixedPromptTaskPlumbingFailedEvent['errorClass'];
+  evidenceError?: string;
   expectedPromptHash: string;
   runtimeEventsPath?: string;
   traceEventsPath?: string;
@@ -815,54 +818,29 @@ function taskBudgetExhaustedEvent(input: {
   resumeFingerprint?: string;
   id: string;
   ts: number;
-}): FixedPromptTaskBudgetExhaustedEvent | FixedPromptTaskPlumbingFailedEvent {
+}): FixedPromptTaskBudgetExhaustedEvent {
   const artifactRefs = budgetExhaustedArtifactRefs(input.error);
-  if (input.requireExecutionIdentity && !artifactRefs.cellOutput) {
-    return {
-      schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
-      type: 'task_plumbing_failed',
-      id: input.id,
-      ts: input.ts,
-      runId: input.runId,
-      roundId: input.roundId,
-      ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
-      taskId: input.taskId,
-      status: 'plumbing_failed',
-      passed: false,
-      scored: false,
-      eligible: false,
-      errorClass: 'missing_execution_identity',
-      error: 'Timed-out Harbor attempt did not produce execution identity attestation',
-      expectedPromptHash: input.expectedPromptHash,
-      ...(artifactRefs.tokenSummary ? { tokenSummary: artifactRefs.tokenSummary } : {}),
-      ...(artifactRefs.runtimeEventsPath ? { runtimeEventsPath: artifactRefs.runtimeEventsPath } : {}),
-      ...(artifactRefs.traceEventsPath ? { traceEventsPath: artifactRefs.traceEventsPath } : {}),
-    };
-  }
+  let evidenceFailure: ReturnType<typeof classifyPlumbingFailure>;
   if (artifactRefs.cellOutput) {
     const output = { harbor: { reward: 0 }, cell: artifactRefs.cellOutput };
-    const plumbingFailure = classifyPlumbingFailure(
+    evidenceFailure = classifyPlumbingFailure(
       output,
       input.expectedPromptHash,
       input.expectedConfig,
       input.requireExecutionIdentity ?? false,
       input.expectedPricingProfile,
     );
-    if (plumbingFailure) {
-      return taskPlumbingFailedEvent({
-        output,
-        expectedPromptHash: input.expectedPromptHash,
-        resumeFingerprint: input.resumeFingerprint,
-        taskId: input.taskId,
-        runId: input.runId,
-        roundId: input.roundId,
-        id: input.id,
-        ts: input.ts,
-        errorClass: plumbingFailure.errorClass,
-        error: plumbingFailure.error,
-      });
-    }
+  } else if (input.requireExecutionIdentity) {
+    evidenceFailure = {
+      errorClass: 'missing_execution_identity',
+      error: 'Timed-out Harbor attempt did not produce execution identity attestation',
+    };
   }
+  const evidenceStatus = evidenceFailure
+    ? 'unverified'
+    : artifactRefs.cellOutput
+      ? 'verified'
+      : 'not_required';
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_budget_exhausted',
@@ -875,9 +853,14 @@ function taskBudgetExhaustedEvent(input: {
     status: 'budget_exhausted',
     passed: false,
     scored: false,
-    eligible: true,
+    eligible: evidenceFailure === undefined,
     errorClass: 'budget_exhausted',
     error: errorMessage(input.error),
+    evidenceStatus,
+    ...(evidenceFailure ? {
+      evidenceErrorClass: evidenceFailure.errorClass,
+      evidenceError: evidenceFailure.error,
+    } : {}),
     expectedPromptHash: input.expectedPromptHash,
     ...(artifactRefs.runtimeEventsPath ? { runtimeEventsPath: artifactRefs.runtimeEventsPath } : {}),
     ...(artifactRefs.traceEventsPath ? { traceEventsPath: artifactRefs.traceEventsPath } : {}),

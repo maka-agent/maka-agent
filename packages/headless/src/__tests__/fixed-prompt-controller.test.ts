@@ -443,7 +443,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('fails closed when an attested experiment times out before cell output exists', async () => {
+  test('keeps an unattested timeout as an ineligible budget exhaustion', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
@@ -464,8 +464,13 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
-      assert.equal(result.events[0]?.errorClass, 'missing_execution_identity');
+      const event = result.events[0];
+      assert.equal(event?.type, 'task_budget_exhausted');
+      if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+      assert.equal(event.status, 'budget_exhausted');
+      assert.equal(event.eligible, false);
+      assert.equal(event.evidenceStatus, 'unverified');
+      assert.equal(event.evidenceErrorClass, 'missing_execution_identity');
       assert.equal('tokenSummary' in result.events[0]!, false);
     });
   });
@@ -500,7 +505,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('invalidates a timed-out cell whose execution identity is wrong', async () => {
+  test('keeps an identity-mismatched timeout as an ineligible budget exhaustion', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
@@ -530,8 +535,13 @@ describe('fixed prompt controller', () => {
         newId: idFactory(),
       });
 
-      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
-      assert.equal(result.events[0]?.errorClass, 'execution_identity_mismatch');
+      const event = result.events[0];
+      assert.equal(event?.type, 'task_budget_exhausted');
+      if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+      assert.equal(event.status, 'budget_exhausted');
+      assert.equal(event.eligible, false);
+      assert.equal(event.evidenceStatus, 'unverified');
+      assert.equal(event.evidenceErrorClass, 'execution_identity_mismatch');
     });
   });
 
