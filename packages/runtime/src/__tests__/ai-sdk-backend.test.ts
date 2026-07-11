@@ -1794,6 +1794,86 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.reason, 'already_compacted');
   });
 
+  test('manual compactHistory rewrites a fully covered checkpoint that exceeds current limits', async () => {
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'manual-v2-refit-old-1',
+        turnId: 'manual-v2-refit-turn-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual v2 refit old alpha '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-v2-refit-old-2',
+        turnId: 'manual-v2-refit-turn-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual v2 refit old beta '.repeat(12),
+      }),
+    ];
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: oldEvents,
+      summary: 'OVERSIZED_PREVIOUS_SUMMARY '.repeat(100),
+      charsPerToken: 1,
+    });
+
+    for (const limits of [
+      { maxHistoryEstimatedTokens: 10_000, maxBlockEstimatedTokens: 500 },
+      { maxHistoryEstimatedTokens: 1_400, maxBlockEstimatedTokens: 10_000 },
+    ]) {
+      let summarizeCalls = 0;
+      const recorded: HistoryCompactCheckpoint[] = [];
+      const backend = new AiSdkBackend({
+        sessionId: 'session-1',
+        header: header(),
+        appendMessage: async () => {},
+        connection: connection(),
+        apiKey: 'sk-test',
+        modelId: 'mock-model-id',
+        permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+        modelFactory: () => completionModel(),
+        tools: [],
+        newId: idGenerator(),
+        now: monotonicClock(),
+        contextBudget: {
+          name: 'manual-v2-refit-test',
+          maxHistoryEstimatedTokens: limits.maxHistoryEstimatedTokens,
+          minRecentTurns: 1,
+          charsPerToken: 1,
+          historyCompact: {
+            enabled: true,
+            maxBlockEstimatedTokens: limits.maxBlockEstimatedTokens,
+          },
+        },
+        loadHistoryCompactCheckpoint: () => previous,
+        summarizeHistoryCompact: async () => {
+          summarizeCalls += 1;
+          return 'REFITTED_SUMMARY';
+        },
+        recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+      });
+
+      const result = await backend.compactHistory({
+        turnId: 'turn-compact',
+        runtimeContext: [
+          ...oldEvents,
+          runtimeTextEvent({
+            id: 'manual-v2-refit-recent',
+            turnId: 'manual-v2-refit-recent-turn',
+            role: 'user',
+            author: 'user',
+            text: 'manual v2 refit retained context',
+          }),
+        ],
+      });
+
+      assert.equal(summarizeCalls, 1);
+      assert.equal(recorded.length, 1);
+      assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+    }
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({

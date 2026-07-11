@@ -2260,7 +2260,27 @@ export class AiSdkBackend implements AgentBackend {
     const newlyFoldedRuntimeEvents = previousCheckpoint
       ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
       : foldedRuntimeEvents;
-    if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0) {
+    const maxCheckpointTokensInput = input.contextBudget.historyCompact?.maxBlockEstimatedTokens
+      ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens;
+    const maxCheckpointTokens = typeof maxCheckpointTokensInput === 'number'
+      && Number.isFinite(maxCheckpointTokensInput)
+      && maxCheckpointTokensInput > 0
+      ? maxCheckpointTokensInput
+      : 1_024;
+    const retainedRuntimeEvents = input.priorRuntimeContext.filter((event) =>
+      !foldedIds.has(event.id) && !event.id.startsWith('history-compact:')
+    );
+    const maxHistoryEstimatedTokens = input.contextBudget.maxHistoryEstimatedTokens;
+    const previousCheckpointFitsCurrentLimits = previousCheckpoint !== undefined
+      && previousCheckpoint.estimatedTokens <= maxCheckpointTokens
+      && (
+        maxHistoryEstimatedTokens === undefined
+        || estimateRuntimeEventsTokens([
+          historyCompactCheckpointToRuntimeEvent(previousCheckpoint),
+          ...retainedRuntimeEvents,
+        ], input.contextBudget.charsPerToken ?? 4) <= maxHistoryEstimatedTokens
+      );
+    if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0 && previousCheckpointFitsCurrentLimits) {
       return {
         fallbackCheckpoint: previousCheckpoint,
         diagnosticPatch: {
