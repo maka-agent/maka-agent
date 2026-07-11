@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { chainWrite } from './write-queue.js';
@@ -14,6 +14,12 @@ import {
 } from '@maka/core';
 
 const SAFE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+
+interface RuntimePartialSnapshot {
+  version: 1;
+  event: RuntimeEvent;
+  afterEventId?: string;
+}
 
 export function createAgentRunStore(workspaceRoot: string): AgentRunStore {
   return new FileAgentRunStore(workspaceRoot);
@@ -312,14 +318,55 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     assertSafeId(runId, 'Invalid run id');
     await this.withQueue(sessionId, runId, async () => {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
+      const partial = partialRuntimeStream(event);
+      if (partial) {
+        const partialPath = this.runtimePartialPath(sessionId, runId, partial.key);
+        try {
+          await readFile(partialPath, 'utf8');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+          const immutableEvents = await readRuntimeEventJsonl(
+            this.runtimeEventsPath(sessionId, runId),
+            runId,
+          );
+          if (immutableEvents.some((item) => completedPartialRuntimeStreamKey(item) === partial.key)) {
+            return;
+          }
+          const metadata: RuntimePartialSnapshot = {
+            version: 1,
+            event: partial.snapshot,
+            ...(immutableEvents.at(-1)?.id ? { afterEventId: immutableEvents.at(-1)!.id } : {}),
+          };
+          await writeAtomic(partialPath, JSON.stringify(metadata, sanitizeJson) + '\n');
+        }
+        if (partial.text) {
+          await appendFile(partialPath, partial.text, 'utf8');
+        }
+        return;
+      }
       await appendFile(this.runtimeEventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
+      const completedPartialKey = completedPartialRuntimeStreamKey(event);
+      if (completedPartialKey) {
+        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), { force: true }).catch(() => {
+          // The immutable final is already durable. Reads suppress any stale snapshot.
+        });
+      }
     });
   }
 
   async readRuntimeEvents(sessionId: string, runId: string): Promise<RuntimeEvent[]> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
-    return readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), runId);
+    const events = await readRuntimeEventJsonl(this.runtimeEventsPath(sessionId, runId), runId);
+    const partials = await this.readRuntimePartials(sessionId, runId);
+    const completedPartialKeys = new Set(
+      events.map(completedPartialRuntimeStreamKey).filter((key): key is string => key !== undefined),
+    );
+    const visiblePartials = partials.filter(({ event }) => {
+      const key = partialRuntimeStream(event)?.key;
+      return !key || !completedPartialKeys.has(key);
+    });
+    return mergeRuntimePartialSnapshots(events, visiblePartials);
   }
 
   async readSessionRuntimeEvents(sessionId: string): Promise<RuntimeEvent[]> {
@@ -363,11 +410,145 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     return join(this.runDir(sessionId, runId), 'runtime-events.jsonl');
   }
 
+  private runtimePartialsDir(sessionId: string, runId: string): string {
+    return join(this.runDir(sessionId, runId), 'runtime-partials');
+  }
+
+  private runtimePartialPath(sessionId: string, runId: string, key: string): string {
+    return join(this.runtimePartialsDir(sessionId, runId), `${key}.partial`);
+  }
+
+  private async readRuntimePartials(sessionId: string, runId: string): Promise<RuntimePartialSnapshot[]> {
+    let entries;
+    try {
+      entries = await readdir(this.runtimePartialsDir(sessionId, runId), { withFileTypes: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+      throw error;
+    }
+    const partials: RuntimePartialSnapshot[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.partial')) continue;
+      const key = entry.name.slice(0, -'.partial'.length);
+      try {
+        const stored = await readFile(this.runtimePartialPath(sessionId, runId, key), 'utf8');
+        const headerEnd = stored.indexOf('\n');
+        if (headerEnd < 0) continue;
+        const snapshot = JSON.parse(stored.slice(0, headerEnd)) as RuntimePartialSnapshot;
+        if (snapshot.version !== 1 || !snapshot.event?.partial) continue;
+        const event = snapshot.event;
+        if (event.content?.kind === 'text' || event.content?.kind === 'thinking') {
+          event.content = { ...event.content, text: stored.slice(headerEnd + 1) };
+        }
+        partials.push({ ...snapshot, event });
+      } catch {
+        // A replaceable partial snapshot must never make the immutable ledger unreadable.
+      }
+    }
+    return partials;
+  }
+
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
   }
+}
+
+function mergeRuntimePartialSnapshots(
+  immutableEvents: readonly RuntimeEvent[],
+  snapshots: readonly RuntimePartialSnapshot[],
+): RuntimeEvent[] {
+  const leading: RuntimePartialSnapshot[] = [];
+  const afterEvent = new Map<string, RuntimePartialSnapshot[]>();
+  for (const snapshot of snapshots) {
+    if (!snapshot.afterEventId) {
+      leading.push(snapshot);
+      continue;
+    }
+    const grouped = afterEvent.get(snapshot.afterEventId) ?? [];
+    grouped.push(snapshot);
+    afterEvent.set(snapshot.afterEventId, grouped);
+  }
+  const order = (a: RuntimePartialSnapshot, b: RuntimePartialSnapshot) =>
+    a.event.ts - b.event.ts || a.event.id.localeCompare(b.event.id);
+  const merged = leading.sort(order).map(({ event }) => event);
+  for (const event of immutableEvents) {
+    merged.push(event);
+    const anchored = afterEvent.get(event.id);
+    if (!anchored) continue;
+    merged.push(...anchored.sort(order).map((snapshot) => snapshot.event));
+    afterEvent.delete(event.id);
+  }
+  for (const orphaned of afterEvent.values()) {
+    merged.push(...orphaned.sort(order).map((snapshot) => snapshot.event));
+  }
+  return merged;
+}
+
+function partialRuntimeStream(event: RuntimeEvent): {
+  key: string;
+  snapshot: RuntimeEvent;
+  text: string;
+} | undefined {
+  if (!event.partial || event.status !== undefined || event.actions) return undefined;
+  const content = event.content;
+  let identity: string | undefined;
+  let text = '';
+  if (
+    content?.kind === 'text'
+    && content.attachments === undefined
+    && event.refs?.providerEventId
+    && hasOnlyKeys(event.refs, ['providerEventId'])
+  ) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+    text = content.text;
+  } else if (
+    content?.kind === 'thinking'
+    && content.signature === undefined
+    && event.refs?.providerEventId
+    && hasOnlyKeys(event.refs, ['providerEventId'])
+  ) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+    text = content.text;
+  } else if (!content && event.refs?.toolCallId && hasOnlyKeys(event.refs, ['toolCallId'])) {
+    identity = `tool:call:${event.refs.toolCallId}`;
+  }
+  if (!identity) return undefined;
+  const key = runtimePartialStreamKey(identity, event);
+  const snapshot = content?.kind === 'text' || content?.kind === 'thinking'
+    ? { ...event, content: { ...content, text: '' } }
+    : event;
+  return { key, snapshot, text };
+}
+
+function completedPartialRuntimeStreamKey(event: RuntimeEvent): string | undefined {
+  if (event.partial) return undefined;
+  const content = event.content;
+  let identity: string | undefined;
+  if ((content?.kind === 'text' || content?.kind === 'thinking') && event.refs?.providerEventId) {
+    identity = `${content.kind}:provider:${event.refs.providerEventId}`;
+  } else if (content?.kind === 'function_response' && event.refs?.toolCallId) {
+    identity = `tool:call:${event.refs.toolCallId}`;
+  }
+  return identity ? runtimePartialStreamKey(identity, event) : undefined;
+}
+
+function runtimePartialStreamKey(identity: string, event: RuntimeEvent): string {
+  return createHash('sha256').update(JSON.stringify([
+    identity,
+    event.sessionId,
+    event.invocationId,
+    event.runId,
+    event.turnId,
+    event.branch ?? null,
+    event.role,
+    event.author,
+  ])).digest('hex');
+}
+
+function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
 }
 
 async function readRuntimeEventJsonl(path: string, runId: string): Promise<RuntimeEvent[]> {
