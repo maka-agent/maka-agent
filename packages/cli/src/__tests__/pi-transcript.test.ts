@@ -5,6 +5,7 @@ import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import {
   appendUserPrompt,
+  applyDetachedShellRunToTranscript,
   applyMakaSessionEventToTranscript,
   applyShellRunUpdateToTranscript,
   createMakaPiTranscriptState,
@@ -666,6 +667,23 @@ describe('Maka Pi TUI transcript', () => {
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
     assert.match(rendered, /running 12s/);
     assert.match(rendered, /Ask Maka to stop this task/);
+  });
+
+  test('describes a detached background Bash card by ownership, not lifecycle', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
+      args: { command: 'build' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({ stdout: '', stderr: '' }),
+    }));
+    applyDetachedShellRunToTranscript(state, 'bash-bg', shellRun({ stdout: '', stderr: '' }));
+
+    const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(rendered, /owned by source session/);
+    assert.doesNotMatch(rendered, /continues in source session/);
   });
 
   test('folds a background-task Read result into its parent Bash card', () => {

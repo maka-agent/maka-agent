@@ -105,7 +105,7 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
     if (latest) return { text: latest, expandable: true };
     return {
       text: entry.status === 'detached'
-        ? ansi.dim('(continues in source session)')
+        ? ansi.dim('(owned by source session)')
         : result.status === 'running'
           ? ansi.dim('(waiting for output)')
           : ansi.dim('(no output)'),
