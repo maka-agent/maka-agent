@@ -465,6 +465,53 @@ describe('settleLiveTurnStep', () => {
       { turnId: 'turn-1', phase: 'streamed', steps: [] },
     );
   });
+
+  it('keeps co-located tool stream evidence when text handoff settles', () => {
+    const projection: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      terminal: true,
+      steps: [{
+        stepId: 'step-1',
+        text: { text: 'done', truncated: false, complete: true },
+        tools: [{
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          status: 'completed',
+          args: { command: 'npm test' },
+          outputChunks: [
+            { seq: 0, stream: 'stdout', text: 'starting-live-output\n', redacted: true, createdAt: 1 },
+          ],
+          outputTruncated: true,
+        }],
+      }],
+    };
+
+    const settled = settleLiveTurnStep(projection, 'step-1');
+    assert.ok(settled);
+    assert.equal(settled!.steps.length, 1);
+    assert.equal(settled!.steps[0]!.text, undefined);
+    assert.equal(settled!.steps[0]!.tools[0]!.outputChunks?.[0]?.text, 'starting-live-output\n');
+  });
+
+  it('still drops tools without live stream evidence on text settle', () => {
+    const projection: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      terminal: true,
+      steps: [{
+        stepId: 'step-1',
+        text: { text: 'done', truncated: false, complete: true },
+        tools: [{
+          toolUseId: 'tool-1',
+          toolName: 'Bash',
+          status: 'interrupted',
+          args: {},
+        }],
+      }],
+    };
+    assert.equal(settleLiveTurnStep(projection, 'step-1'), undefined);
+  });
 });
 
 describe('reconcileTerminalLiveTurn', () => {

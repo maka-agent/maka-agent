@@ -81,6 +81,13 @@ describe('chat status cluster layout contract', () => {
       /const showAssistantMessage = turn\.timeline\.length > 0 \|\| !!props\.liveStreaming;/,
       'the assistant Message must mount when the turn has timeline content OR is the live tail',
     );
+    // Terminal liveTurn is evidence-only (empty shell_run chunks). Footer must
+    // stay actionable — do not treat terminal projection as in-flight stream.
+    assert.match(
+      src,
+      /liveInFlight = !!\(props\.liveTurn && !props\.liveTurn\.terminal\)/,
+      'only non-terminal liveTurn blocks the footer as streaming',
+    );
   });
 
   it('uses an in-flow wrapping row instead of absolute positioning', async () => {

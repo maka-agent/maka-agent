@@ -332,8 +332,15 @@ export function ChatView(props: {
   // the non-actionable placeholder and the indicator injects into the tail turn
   // (not the fallback section) — it is, by derivation, only ever true when text /
   // thinking / tools are all absent.
-  const streamingActive = !!(props.liveTurn || props.processingIndicator || props.continuingIndicator);
-  const tailTurnId = props.liveTurn?.turnId ?? (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
+  //
+  // Terminal liveTurn is evidence overlay only (e.g. empty shell_run still needs
+  // pre-yield chunks). It must NOT block footer actions — keeping evidence and
+  // being in-flight are separate signals.
+  const liveInFlight = !!(props.liveTurn && !props.liveTurn.terminal);
+  const streamingActive = !!(liveInFlight || props.processingIndicator || props.continuingIndicator);
+  const tailTurnId = liveInFlight
+    ? props.liveTurn!.turnId
+    : (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
   // on every render.

@@ -292,12 +292,32 @@ export function applyLiveTurnEvent(
   return { ...prior, phase: 'streamed', steps };
 }
 
+/**
+ * Text smoother handoff: drop the committed text/thinking slots for `stepId`.
+ * Tools that still carry live stream evidence (outputChunks) stay — empty
+ * shell_run durable results do not cover them, and co-located Bash+answer
+ * steps must not lose pre-yield output when the answer settles.
+ */
 export function settleLiveTurnStep(
   current: LiveTurnProjection,
   stepId: string,
 ): LiveTurnProjection | undefined {
-  const steps = current.steps.filter((step) => step.stepId !== stepId);
-  if (steps.length === current.steps.length) return current;
+  const stepIndex = current.steps.findIndex((step) => step.stepId === stepId);
+  if (stepIndex < 0) return current;
+  const step = current.steps[stepIndex]!;
+  const retainedTools = step.tools.filter((tool) => (tool.outputChunks?.length ?? 0) > 0);
+  const steps = retainedTools.length > 0
+    ? current.steps.map((candidate, index) => (
+      index === stepIndex
+        ? {
+            stepId: candidate.stepId,
+            tools: retainedTools,
+            contentOrder: ['tools' as const],
+          }
+        : candidate
+    ))
+    : current.steps.filter((candidate) => candidate.stepId !== stepId);
+  if (steps.length === current.steps.length && retainedTools.length === 0) return current;
   if (steps.length === 0 && current.terminal) return undefined;
   return { ...current, steps };
 }
