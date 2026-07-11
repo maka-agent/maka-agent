@@ -121,8 +121,9 @@
 - No background-safe implementation exists for cursor position, split
   mouse-down/up, hold-key, Electron/unknown text without an explicit page/CDP
   target, or key chords.
-- PR #699 is open as a draft. Its body and CI status are stale until the local
-  branch is pushed.
+- PR #699 is open as a draft with merge state `CLEAN`.
+- The PR title/body reflect the verified focus-safe boundary.
+- GitHub CI is green: typecheck, test, and e2e all passed.
 
 ## Local WIP Signal
 

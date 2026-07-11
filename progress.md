@@ -63,9 +63,11 @@
   - E2E safety contract: 5/5
   - real-machine E2E: 25/25
   - cua-driver bundle check: passed
-- Remaining current phase:
-  - push `feat/cu-runtime-helper` to the fork
-  - update draft PR #699 body and wait for refreshed CI
+- Pushed `feat/cu-runtime-helper` to the fork.
+- Updated draft PR #699 title/body to remove the obsolete claim that Electron
+  `type/key` can succeed in the background.
+- Refreshed GitHub CI passed: typecheck, test, and e2e.
+- PR merge state is `CLEAN`; Draft status is intentionally preserved.
 
 ## 2026-07-12
 

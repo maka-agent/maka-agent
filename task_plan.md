@@ -22,7 +22,7 @@ AX-first background ladder modeled after Codex/Sky.
 - [x] Replace the real-machine E2E fixture with self-owned inactive windows.
 - [x] Integrate latest `origin/main`.
 - [x] Run full repository and real-machine verification.
-- [ ] Update and push draft PR #699.
+- [x] Update and push draft PR #699.
 
 ## Constraints
 
