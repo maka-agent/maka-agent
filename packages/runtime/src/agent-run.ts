@@ -182,9 +182,9 @@ export class AgentRun {
     });
   }
 
-  recordHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpoint): void {
-    if (!this.input.runStore || !this.runStoreAvailable) return;
-    this.enqueueRunStore('append history compact checkpoint', async () => {
+  recordHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpoint): Promise<void> {
+    if (!this.input.runStore || !this.runStoreAvailable) return Promise.resolve();
+    return this.enqueueRunStore('append history compact checkpoint', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
         type: 'history_compact_checkpoint_recorded',
         id: this.input.newId(),

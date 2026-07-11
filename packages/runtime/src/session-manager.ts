@@ -208,7 +208,7 @@ export interface BackendFactoryContext {
   tools?: readonly MakaTool[];
   recordRunTrace?: RunTraceRecorder;
   loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
-  recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => void;
+  recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => Promise<void>;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;

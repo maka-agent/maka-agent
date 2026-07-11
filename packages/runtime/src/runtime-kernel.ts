@@ -73,6 +73,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly childActive = new Map<string, ActiveSession>();
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
+  private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -487,6 +488,25 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return true;
   }
 
+  private recordHistoryCompactCheckpoint(
+    sessionId: string,
+    checkpoint: HistoryCompactCheckpoint,
+    run: AgentRun | undefined,
+  ): Promise<void> {
+    if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint) || !run) return Promise.resolve();
+    const previous = this.historyCompactCheckpointWrites.get(sessionId) ?? Promise.resolve();
+    let tracked: Promise<void>;
+    tracked = previous
+      .then(() => run.recordHistoryCompactCheckpoint(checkpoint))
+      .finally(() => {
+        if (this.historyCompactCheckpointWrites.get(sessionId) === tracked) {
+          this.historyCompactCheckpointWrites.delete(sessionId);
+        }
+      });
+    this.historyCompactCheckpointWrites.set(sessionId, tracked);
+    return tracked;
+  }
+
   private async ensureActive(
     sessionId: string,
     header: SessionHeader,
@@ -511,11 +531,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint)) return;
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;
-        run?.recordHistoryCompactCheckpoint(checkpoint);
+        return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
       },
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
@@ -572,11 +591,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint)) return;
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;
-        run?.recordHistoryCompactCheckpoint(checkpoint);
+        return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
       },
       recordActiveFullCompactBlock: (block) => {
         const active = this.childActive.get(activeKey);
