@@ -61,6 +61,8 @@ export type MakaPiTranscriptEntry =
       result?: ToolResultContent;
       /** Flattened result text, kept as a fallback for text/json/unknown kinds. */
       output?: string;
+      /** In-memory revision for render-cache invalidation when a result is replaced. */
+      resultVersion: number;
       progress: BoundedChunkBuffer<string>;
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
@@ -274,6 +276,7 @@ export function applyMakaSessionEventToTranscript(
         toolName: event.toolName,
         ...(event.displayName ? { title: event.displayName } : {}),
         input: event.args,
+        resultVersion: 0,
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),
         status: 'running',
@@ -299,6 +302,7 @@ export function applyMakaSessionEventToTranscript(
           tool.result = event.content;
           tool.output = formatToolResultContent(event.content);
           tool.durationMs = event.durationMs;
+          tool.resultVersion += 1;
         }
       } else {
         state.entries.push({
@@ -310,6 +314,7 @@ export function applyMakaSessionEventToTranscript(
           outputDeltas: createOutputBuffer(),
           result: event.content,
           output: formatToolResultContent(event.content),
+          resultVersion: 1,
           durationMs: event.durationMs,
           status: event.isError ? 'error' : 'done',
         });
@@ -450,6 +455,7 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     outputDeltas: createOutputBuffer(),
     ...(item.result ? { result: item.result } : {}),
     ...(output ? { output } : {}),
+    resultVersion: item.result ? 1 : 0,
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
   };
@@ -518,6 +524,7 @@ function applyShellRunResult(
   entry.result = result;
   entry.output = formatToolResultContent(result);
   entry.durationMs = Math.max(0, (result.completedAt ?? result.updatedAt) - result.startedAt);
+  entry.resultVersion += 1;
   return true;
 }
 
@@ -704,10 +711,10 @@ function transcriptEntrySignature(
     case 'notice':
       return `notice|${width}|${entry.level}|${entry.text.length}`;
     case 'tool':
-      // A tool entry mutates in place as it runs: status/duration flip on the
-      // result, progress/output deltas append, and background snapshots can
-      // replace the result without changing its timestamp or text lengths.
-      // Count the fields that change rendering. `input` and
+      // A tool entry mutates in place as it runs: status/duration flip,
+      // progress/output deltas append, and resultVersion advances whenever a
+      // result is accepted. Count those revisions instead of duplicating the
+      // result's rendering contract in this cache key. `input` and
       // `toolName` are omitted deliberately: both are set once at `tool_start`,
       // before the first render, and never change, so they can't go stale.
       return [
@@ -719,10 +726,7 @@ function transcriptEntrySignature(
         entry.title ?? entry.toolName,
         entry.progress.version,
         entry.outputDeltas.version,
-        entry.output?.length ?? '',
-        entry.result ? entry.result.kind : '',
-        entry.result?.kind === 'shell_run' ? entry.result.updatedAt : '',
-        entry.result?.kind === 'shell_run' ? entry.result.latestOutputStream ?? '' : '',
+        entry.resultVersion,
       ].join('|');
   }
 }
