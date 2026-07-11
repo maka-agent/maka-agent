@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type {
   ArtifactBinaryReadResult,
   ArtifactKind,
@@ -157,10 +157,33 @@ class FileArtifactStore implements ArtifactStore {
       const ids = new Set(artifactIds);
       const records = this.records.filter((record) => ids.has(record.id));
       if (records.length === 0) return;
+      const root = await ensureRealDirectory(this.artifactRoot);
+      const paths = new Map<string, ArtifactRecord>();
+      const relativePaths = new Map(records.map((record) => [record.relativePath, record] as const));
       for (const record of records) {
         validateRelativeArtifactPath(record.relativePath);
-        await rm(join(this.artifactRoot, record.relativePath), { force: true });
+        const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
+        if (!path) continue;
+        if (!isInsideOrSamePath(root, dirname(path))) {
+          throw new Error(`Artifact ${record.id} resolves outside the artifact root`);
+        }
+        paths.set(path, record);
       }
+      for (const record of this.records) {
+        if (ids.has(record.id)) continue;
+        const exactTarget = relativePaths.get(record.relativePath);
+        if (exactTarget) {
+          throw new Error(
+            `Artifact ${exactTarget.id} path is still referenced by artifact ${record.id}`,
+          );
+        }
+        const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
+        const target = path ? paths.get(path) : undefined;
+        if (target) {
+          throw new Error(`Artifact ${target.id} path is still referenced by artifact ${record.id}`);
+        }
+      }
+      for (const path of paths.keys()) await rm(path, { force: true });
       const previous = this.records;
       this.records = this.records.filter((record) => !ids.has(record.id));
       try {
@@ -306,6 +329,20 @@ async function ensureRealDirectory(path: string): Promise<string> {
   await mkdir(path, { recursive: true });
   await access(path, fsConstants.R_OK);
   return realpath(path);
+}
+
+async function resolveArtifactRemovalEntry(
+  artifactRoot: string,
+  relativePath: string,
+): Promise<string | undefined> {
+  const target = join(artifactRoot, relativePath);
+  try {
+    const parent = await realpath(dirname(target));
+    return join(parent, basename(target));
+  } catch (error) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
 }
 
 function isInsideOrSamePath(root: string, target: string): boolean {

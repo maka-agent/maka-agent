@@ -267,6 +267,127 @@ describe('FileArtifactStore', () => {
     });
   });
 
+  test('purge rejects symlink escapes without deleting files or metadata', async (t) => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-artifact-store-'));
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'maka-artifact-outside-'));
+    try {
+      const artifactRoot = join(workspaceRoot, 'artifacts');
+      await mkdir(artifactRoot, { recursive: true });
+      const outsidePath = join(outsideRoot, 'victim.txt');
+      await writeFile(outsidePath, 'keep', 'utf8');
+      try {
+        await symlink(outsideRoot, join(artifactRoot, 'linked'));
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) {
+          t.skip('Windows symlink creation requires elevated privileges or Developer Mode');
+          return;
+        }
+        throw error;
+      }
+      const store = createArtifactStore(workspaceRoot);
+      const safe = await store.create({
+        id: 'artifact-safe',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'safe.txt',
+        kind: 'file',
+        content: 'safe',
+      });
+      await store.append({
+        id: 'artifact-escaped',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        createdAt: 1,
+        name: 'victim.txt',
+        kind: 'file',
+        relativePath: 'linked/victim.txt',
+        sizeBytes: 4,
+        status: 'live',
+      });
+
+      await assert.rejects(
+        () => store.purge(['artifact-safe', 'artifact-escaped']),
+        /outside the artifact root/,
+      );
+
+      assert.equal(await readFile(outsidePath, 'utf8'), 'keep');
+      assert.equal(
+        await readFile(join(workspaceRoot, 'artifacts', safe.relativePath), 'utf8'),
+        'safe',
+      );
+      assert.equal((await store.get('artifact-safe'))?.id, 'artifact-safe');
+      assert.equal((await store.get('artifact-escaped'))?.id, 'artifact-escaped');
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('purge removes a final symlink without deleting its in-root target', async (t) => {
+    await withWorkspace(async (workspaceRoot) => {
+      const artifactRoot = join(workspaceRoot, 'artifacts');
+      const sessionRoot = join(artifactRoot, 'session-1');
+      await mkdir(sessionRoot, { recursive: true });
+      const targetPath = join(sessionRoot, 'target.txt');
+      await writeFile(targetPath, 'keep target', 'utf8');
+      try {
+        await symlink('target.txt', join(sessionRoot, 'linked.txt'));
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES')) {
+          t.skip('Windows symlink creation requires elevated privileges or Developer Mode');
+          return;
+        }
+        throw error;
+      }
+      const store = createArtifactStore(workspaceRoot);
+      await store.append({
+        id: 'artifact-link',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        createdAt: 1,
+        name: 'linked.txt',
+        kind: 'file',
+        relativePath: 'session-1/linked.txt',
+        sizeBytes: 11,
+        status: 'live',
+      });
+
+      await store.purge(['artifact-link']);
+
+      assert.equal(await readFile(targetPath, 'utf8'), 'keep target');
+      await assert.rejects(
+        () => readFile(join(sessionRoot, 'linked.txt'), 'utf8'),
+        { code: 'ENOENT' },
+      );
+      assert.equal(await store.get('artifact-link'), null);
+    });
+  });
+
+  test('purge preserves files still referenced by a non-target record', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const first = await store.create({
+        id: 'artifact-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'shared.txt',
+        kind: 'file',
+        content: 'shared bytes',
+      });
+      await store.append({ ...first, id: 'artifact-2' });
+
+      await assert.rejects(
+        () => store.purge(['artifact-1']),
+        /still referenced by artifact artifact-2/,
+      );
+
+      assert.equal(await readFile(join(workspaceRoot, 'artifacts', first.relativePath), 'utf8'), 'shared bytes');
+      assert.equal((await store.get('artifact-1'))?.id, 'artifact-1');
+      assert.equal((await store.get('artifact-2'))?.id, 'artifact-2');
+    });
+  });
+
   test('retries purge after file removal is interrupted before metadata commit', async () => {
     await withStore(async (store, workspaceRoot) => {
       const record = await store.create({

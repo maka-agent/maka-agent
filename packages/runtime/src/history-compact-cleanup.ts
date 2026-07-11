@@ -25,12 +25,42 @@ export interface HistoryCompactCleanupResult {
   skipped: HistoryCompactCleanupSkip[];
 }
 
-export async function cleanupLegacyHistoryCompactArtifacts(input: {
+export type HistoryCompactCleanupDiagnostic =
+  | {
+      kind: 'skipped';
+      artifactCount: number;
+      reasonCounts: Record<string, number>;
+    }
+  | {
+      kind: 'failed';
+      message: string;
+    };
+
+interface HistoryCompactCleanupInput {
   sessionId: string;
   checkpoint: HistoryCompactCheckpoint;
   runtimeEvents: readonly RuntimeEvent[];
   artifactStore: Pick<HistoryCompactArtifactStore, 'list' | 'readText' | 'purge'>;
-}): Promise<HistoryCompactCleanupResult> {
+  onDiagnostic?: (diagnostic: HistoryCompactCleanupDiagnostic) => void;
+}
+
+export async function cleanupLegacyHistoryCompactArtifacts(
+  input: HistoryCompactCleanupInput,
+): Promise<HistoryCompactCleanupResult> {
+  try {
+    return await runLegacyHistoryCompactCleanup(input);
+  } catch (error) {
+    emitDiagnostic(input.onDiagnostic, {
+      kind: 'failed',
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+}
+
+async function runLegacyHistoryCompactCleanup(
+  input: HistoryCompactCleanupInput,
+): Promise<HistoryCompactCleanupResult> {
   const records = (await input.artifactStore.list(input.sessionId, { includeDeleted: true }))
     .filter((record) =>
       record.source === 'history_compact_block' || record.source === 'history_compact_source');
@@ -38,13 +68,13 @@ export async function cleanupLegacyHistoryCompactArtifacts(input: {
     estimateRuntimeEventsTokens([event], 4) > 0);
   const checkpointMatch = matchHistoryCompactCheckpointPrefix(input.checkpoint, compactableEvents);
   if (checkpointMatch.reason) {
-    return {
+    return reportCleanupResult(input.onDiagnostic, {
       purgedArtifactIds: [],
       skipped: records.map((record) => ({
         artifactId: record.id,
         reason: `checkpoint_${checkpointMatch.reason}`,
       })),
-    };
+    });
   }
 
   const recordsById = new Map(records.map((record) => [record.id, record] as const));
@@ -102,7 +132,7 @@ export async function cleanupLegacyHistoryCompactArtifacts(input: {
   }
   const purgedArtifactIds = [...eligibleIds].sort();
   if (purgedArtifactIds.length > 0) await input.artifactStore.purge(purgedArtifactIds);
-  return {
+  return reportCleanupResult(input.onDiagnostic, {
     purgedArtifactIds,
     skipped: records
       .filter((record) => !eligibleIds.has(record.id))
@@ -111,7 +141,35 @@ export async function cleanupLegacyHistoryCompactArtifacts(input: {
         reason: skipReasons.get(record.id) ?? 'unverified',
       }))
       .sort((a, b) => a.artifactId.localeCompare(b.artifactId)),
-  };
+  });
+}
+
+function reportCleanupResult(
+  onDiagnostic: ((diagnostic: HistoryCompactCleanupDiagnostic) => void) | undefined,
+  result: HistoryCompactCleanupResult,
+): HistoryCompactCleanupResult {
+  if (result.skipped.length === 0) return result;
+  const reasonCounts: Record<string, number> = {};
+  for (const item of result.skipped) {
+    reasonCounts[item.reason] = (reasonCounts[item.reason] ?? 0) + 1;
+  }
+  emitDiagnostic(onDiagnostic, {
+    kind: 'skipped',
+    artifactCount: result.skipped.length,
+    reasonCounts,
+  });
+  return result;
+}
+
+function emitDiagnostic(
+  onDiagnostic: ((diagnostic: HistoryCompactCleanupDiagnostic) => void) | undefined,
+  diagnostic: HistoryCompactCleanupDiagnostic,
+): void {
+  try {
+    onDiagnostic?.(diagnostic);
+  } catch {
+    // Reclaim diagnostics must not change cleanup or replay behavior.
+  }
 }
 
 function matchLegacyBlockPrefix(

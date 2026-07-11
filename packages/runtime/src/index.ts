@@ -327,10 +327,10 @@ export type {
 } from './history-compact-artifacts.js';
 export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
 export type {
+  HistoryCompactCleanupDiagnostic,
   HistoryCompactCleanupResult,
   HistoryCompactCleanupSkip,
 } from './history-compact-cleanup.js';
-export { buildHistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,

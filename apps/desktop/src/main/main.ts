@@ -859,7 +859,11 @@ const runtime = new SessionManager({
       artifact.turnId === turnId && artifact.status !== 'deleted'
     ),
   cleanupHistoryCompactArtifacts: async (input) => {
-    await cleanupLegacyHistoryCompactArtifacts({ ...input, artifactStore });
+    await cleanupLegacyHistoryCompactArtifacts({
+      ...input,
+      artifactStore,
+      onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+    });
   },
   newId: randomUUID,
   now: Date.now,

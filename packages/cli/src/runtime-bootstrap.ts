@@ -239,7 +239,11 @@ export async function createMakaCliRuntimeContext(
     shellRuns,
     backends,
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
-      await cleanupLegacyHistoryCompactArtifacts({ ...cleanupInput, artifactStore });
+      await cleanupLegacyHistoryCompactArtifacts({
+        ...cleanupInput,
+        artifactStore,
+        onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+      });
     },
     newId: randomUUID,
     now: Date.now,

@@ -129,18 +129,29 @@ describe('legacy history compact cleanup', () => {
       coveredRuntimeEvents: runtimeEvents,
       summary: 'valid V2 checkpoint',
     });
-
-    const result = await cleanupLegacyHistoryCompactArtifacts({
+    const diagnostics: unknown[] = [];
+    const cleanupInput = {
       sessionId: 'session-1',
       checkpoint,
       runtimeEvents,
       artifactStore: store,
-    });
+      onDiagnostic: (diagnostic: unknown) => diagnostics.push(diagnostic),
+    };
+
+    const result = await cleanupLegacyHistoryCompactArtifacts(cleanupInput);
 
     assert.deepEqual(result.purgedArtifactIds, []);
     assert.equal(result.skipped.find((item) => item.artifactId === block.id)?.reason, 'block_invalid_json');
     assert.equal(result.skipped.filter((item) => item.reason === 'source_unlinked').length, 3);
     assert.equal((await store.list('session-1', { includeDeleted: true })).length, 4);
+    assert.deepEqual(diagnostics, [{
+      kind: 'skipped',
+      artifactCount: 4,
+      reasonCounts: {
+        block_invalid_json: 1,
+        source_unlinked: 3,
+      },
+    }]);
   });
 
   test('preserves a V1 group when a linked source no longer matches the canonical event', async () => {
@@ -205,6 +216,37 @@ describe('legacy history compact cleanup', () => {
     assert.equal(first.purgedArtifactIds.length, 4);
     assert.deepEqual(first.skipped, []);
     assert.deepEqual(repeated, { purgedArtifactIds: [], skipped: [] });
+  });
+
+  test('reports one cleanup failure without changing the thrown error', async () => {
+    const store = memoryArtifactStore();
+    const runtimeEvents = [textEvent(0)];
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: runtimeEvents,
+      summary: 'valid V2 checkpoint',
+    });
+    const diagnostics: unknown[] = [];
+
+    await assert.rejects(
+      () => cleanupLegacyHistoryCompactArtifacts({
+        sessionId: 'session-1',
+        checkpoint,
+        runtimeEvents,
+        artifactStore: {
+          ...store,
+          async list() {
+            throw new Error('metadata unreadable');
+          },
+        },
+        onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+      }),
+      /metadata unreadable/,
+    );
+    assert.deepEqual(diagnostics, [{
+      kind: 'failed',
+      message: 'metadata unreadable',
+    }]);
   });
 });
 
