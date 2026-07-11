@@ -134,6 +134,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'FormatJson',
+      activityKind: 'edit',
       description:
         'Validate and normalize a JSON file in place. Reads the file at `path`, '
         + 'parses it (throwing a parse-error hint on invalid JSON), optionally sorts '

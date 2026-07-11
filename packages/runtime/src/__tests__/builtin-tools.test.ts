@@ -21,6 +21,7 @@ describe('builtin tool activity kinds', () => {
       Read: 'read',
       Write: 'edit',
       Edit: 'edit',
+      FormatJson: 'edit',
       Glob: 'search',
       Grep: 'search',
     });
