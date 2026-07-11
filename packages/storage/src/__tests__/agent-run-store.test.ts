@@ -129,6 +129,45 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader());
+      const checkpointEvent = (checkpointId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      await store.appendEvent('session-1', 'run-1', checkpointEvent('hcheckpoint-previous', 1));
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      await rm(eventsPath);
+      await mkdir(eventsPath);
+
+      await assert.rejects(() => store.appendEvent(
+        'session-1',
+        'run-1',
+        checkpointEvent('hcheckpoint-orphan', 2),
+      ));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
   it('recovers corrupt event lines without hiding later events', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());

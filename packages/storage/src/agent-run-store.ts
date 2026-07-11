@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { chainWrite } from './write-queue.js';
 import {
@@ -83,8 +83,19 @@ class FileAgentRunStore implements AgentRunStore {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     if (event.type === 'history_compact_checkpoint_recorded') {
-      await this.advanceEventProjection(sessionId, event.type, event);
+      await this.withProjectionQueue(sessionId, event.type, async () => {
+        await rm(this.eventProjectionPath(sessionId, event.type), { force: true });
+        await this.appendRunEvent(sessionId, runId, event);
+        await this.writeEventProjectionUnlocked(sessionId, event.type, event).catch(() => {
+          // The canonical event is durable; a missing derived projection safely replays raw history.
+        });
+      });
+      return;
     }
+    await this.appendRunEvent(sessionId, runId, event);
+  }
+
+  private async appendRunEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     await this.withQueue(sessionId, runId, async () => {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
       await appendFile(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
@@ -177,16 +188,6 @@ class FileAgentRunStore implements AgentRunStore {
     operation: () => Promise<void>,
   ): Promise<void> {
     return chainWrite(this.projectionWriteQueues, `${sessionId}:${type}`, operation);
-  }
-
-  private async advanceEventProjection(
-    sessionId: string,
-    type: AgentRunEventType,
-    candidate: AgentRunEvent,
-  ): Promise<void> {
-    await this.withProjectionQueue(sessionId, type, async () => {
-      await this.writeEventProjectionUnlocked(sessionId, type, candidate);
-    });
   }
 
   private async readEventProjectionUnlocked(
