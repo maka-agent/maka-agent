@@ -562,7 +562,7 @@ function wilsonScoreInterval(passed: number, total: number, z: number): { lower:
 function isValidBudgetedOutcome(
   event: FixedPromptTaskWalEvent,
 ): event is Extract<FixedPromptTaskWalEvent, { type: 'task_completed' | 'task_budget_exhausted' }> {
-  return event.type === 'task_completed' || (event.type === 'task_budget_exhausted' && event.eligible);
+  return event.eligible && (event.type === 'task_completed' || event.type === 'task_budget_exhausted');
 }
 
 function isBudgetExhaustedOutcome(event: FixedPromptTaskWalEvent): boolean {

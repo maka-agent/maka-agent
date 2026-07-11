@@ -16,6 +16,7 @@ import { assertFinitePositive, assertPositiveInt, assertRatio } from './numeric-
 
 export const FIXED_PROMPT_WAL_SCHEMA_VERSION = 1;
 export const BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON = 'budget_exhausted_before_cell_output';
+const LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR = 'Timed-out Harbor attempt did not produce execution identity attestation';
 
 export interface FixedPromptTask {
   id: string;
@@ -139,8 +140,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   eligible: boolean;
   errorClass: 'budget_exhausted';
   error: string;
-  evidenceStatus?: 'not_required' | 'verified' | 'unverified';
-  evidenceErrorClass?: FixedPromptTaskPlumbingFailedEvent['errorClass'];
+  evidenceErrorClass?: FixedPromptTaskPlumbingFailedEvent['errorClass'] | 'provider_billing' | 'auth';
   evidenceError?: string;
   expectedPromptHash: string;
   runtimeEventsPath?: string;
@@ -329,7 +329,7 @@ export async function runFixedPromptController(
   const systemPrompt = await readFile(input.systemPromptPath, 'utf8');
   const expectedPromptHash = hashSystemPrompt(systemPrompt);
   const config = { ...input.config, systemPrompt };
-  const events = await readFixedPromptWal(input.resultsJsonlPath);
+  const events = (await readFixedPromptWal(input.resultsJsonlPath)).map(projectLegacyTimeoutOutcome);
   const completed = terminalTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   const stopEvidence = roundTaskEvents(events, input.runId, input.roundId, expectedPromptHash, input.resumeFingerprint);
   let stopReason = controllerStopReason({
@@ -820,27 +820,31 @@ function taskBudgetExhaustedEvent(input: {
   ts: number;
 }): FixedPromptTaskBudgetExhaustedEvent {
   const artifactRefs = budgetExhaustedArtifactRefs(input.error);
-  let evidenceFailure: ReturnType<typeof classifyPlumbingFailure>;
+  let evidenceFailure: {
+    errorClass: NonNullable<FixedPromptTaskBudgetExhaustedEvent['evidenceErrorClass']>;
+    error: string;
+  } | undefined;
   if (artifactRefs.cellOutput) {
     const output = { harbor: { reward: 0 }, cell: artifactRefs.cellOutput };
-    evidenceFailure = classifyPlumbingFailure(
-      output,
-      input.expectedPromptHash,
-      input.expectedConfig,
-      input.requireExecutionIdentity ?? false,
-      input.expectedPricingProfile,
-    );
+    evidenceFailure = isSystemicProviderFailure(output.cell.errorClass)
+      ? {
+          errorClass: output.cell.errorClass,
+          error: `Harbor cell failed with ${output.cell.errorClass}`,
+        }
+      : classifyPlumbingFailure(
+          output,
+          input.expectedPromptHash,
+          input.expectedConfig,
+          input.requireExecutionIdentity ?? false,
+          input.expectedPricingProfile,
+        );
   } else if (input.requireExecutionIdentity) {
     evidenceFailure = {
       errorClass: 'missing_execution_identity',
-      error: 'Timed-out Harbor attempt did not produce execution identity attestation',
+      error: LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR,
     };
   }
-  const evidenceStatus = evidenceFailure
-    ? 'unverified'
-    : artifactRefs.cellOutput
-      ? 'verified'
-      : 'not_required';
+  const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_budget_exhausted',
@@ -856,7 +860,6 @@ function taskBudgetExhaustedEvent(input: {
     eligible: evidenceFailure === undefined,
     errorClass: 'budget_exhausted',
     error: errorMessage(input.error),
-    evidenceStatus,
     ...(evidenceFailure ? {
       evidenceErrorClass: evidenceFailure.errorClass,
       evidenceError: evidenceFailure.error,
@@ -867,7 +870,40 @@ function taskBudgetExhaustedEvent(input: {
     ...(artifactRefs.runtimeEventsUnavailableReason
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
-    ...(artifactRefs.tokenSummary ? { tokenSummary: artifactRefs.tokenSummary } : {}),
+    ...(tokenSummary ? { tokenSummary } : {}),
+  };
+}
+
+function projectLegacyTimeoutOutcome(event: FixedPromptWalEvent): FixedPromptWalEvent {
+  if (
+    event.type !== 'task_plumbing_failed'
+    || event.errorClass !== 'missing_execution_identity'
+    || event.error !== LEGACY_TIMEOUT_MISSING_EXECUTION_IDENTITY_ERROR
+    || event.expectedPromptHash === undefined
+  ) {
+    return event;
+  }
+  return {
+    schemaVersion: event.schemaVersion,
+    type: 'task_budget_exhausted',
+    id: event.id,
+    ts: event.ts,
+    runId: event.runId,
+    roundId: event.roundId,
+    ...(event.resumeFingerprint ? { resumeFingerprint: event.resumeFingerprint } : {}),
+    taskId: event.taskId,
+    status: 'budget_exhausted',
+    passed: false,
+    scored: false,
+    eligible: false,
+    errorClass: 'budget_exhausted',
+    error: 'Harbor attempt exhausted its configured time budget',
+    evidenceErrorClass: event.errorClass,
+    evidenceError: event.error,
+    expectedPromptHash: event.expectedPromptHash,
+    ...(event.tokenSummary ? { tokenSummary: event.tokenSummary } : {}),
+    ...(event.runtimeEventsPath ? { runtimeEventsPath: event.runtimeEventsPath } : {}),
+    ...(event.traceEventsPath ? { traceEventsPath: event.traceEventsPath } : {}),
   };
 }
 
@@ -955,7 +991,11 @@ function controllerStopReason(input: {
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
 }): FixedPromptControllerStopReason | undefined {
-  if (input.events.some((event) => event.type === 'task_infra_failed' && isSystemicProviderFailure(event.errorClass))) {
+  if (input.events.some((event) => (
+    event.type === 'task_infra_failed' && isSystemicProviderFailure(event.errorClass)
+  ) || (
+    event.type === 'task_budget_exhausted' && isSystemicProviderFailure(event.evidenceErrorClass)
+  ))) {
     return 'systemic_provider_failure';
   }
   if (

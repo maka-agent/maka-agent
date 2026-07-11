@@ -86,7 +86,6 @@ describe('summarizeAbComparison', () => {
     const unverifiedTimeout = {
       ...budgetExhausted('long-task'),
       eligible: false,
-      evidenceStatus: 'unverified' as const,
       evidenceErrorClass: 'missing_execution_identity' as const,
     };
     const result = summarizeAbComparison({
@@ -105,6 +104,26 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.baseline.coverageRate, 0);
     assert.equal(result.candidate.valid, 0);
     assert.equal(result.candidate.coverageRate, 0);
+  });
+
+  test('does not count ineligible completed attempts as valid A/B coverage', () => {
+    const ineligibleCompleted = { ...completed('task-a', false), eligible: false };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'maka-baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[ineligibleCompleted]],
+      candidateRuns: [[ineligibleCompleted]],
+      budgetMs: 600_000,
+    });
+
+    assert.equal(result.baseline.valid, 0);
+    assert.equal(result.baseline.coverageRate, 0);
+    assert.equal(result.candidate.valid, 0);
+    assert.equal(result.candidate.coverageRate, 0);
+    assert.equal(result.pairedAttempts.observedPairs, 0);
   });
 
   test('summarizes context budget activation in the A/B report', () => {
