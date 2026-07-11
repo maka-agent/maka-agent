@@ -92,6 +92,22 @@ function run(h: Harness, t: MakaTool) {
 }
 
 describe('tool-availability execute-boundary guard', () => {
+  test('projects a declared activity kind into persisted and live tool facts', async () => {
+    const h = makeHarness();
+    const implCalls: string[] = [];
+    const t = Object.assign(tool('CustomCommand', implCalls), {
+      activityKind: 'command' as const,
+      permissionRequired: false,
+    });
+
+    await run(h, t);
+
+    const call = h.appended.find((message) => message.type === 'tool_call') as unknown as { activityKind?: string };
+    const start = h.pushed.find((event) => event.type === 'tool_start') as unknown as { activityKind?: string };
+    assert.equal(call.activityKind, 'command');
+    assert.equal(start.activityKind, 'command');
+  });
+
   test('passes tool execution facts into permission evaluation', async () => {
     const h = makeHarness();
     const implCalls: string[] = [];

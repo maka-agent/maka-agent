@@ -21,6 +21,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'fallback-source',
   'fetched-empty',
   'connection-error',
+  // OAuth re-login affordance: a codex-subscription connection with a stored
+  // but expired OAuth token (hasSecret===true), focused so its detail sheet's
+  // 重新登录 button is visible.
+  'oauth-relogin',
   'turn-narrative',
   'artifact-pane',
   'artifact-errors',
@@ -29,6 +33,9 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // the main panel (below a committed turn) so the screenshot locks
   // streaming-vs-committed horizontal alignment.
   'streaming-answer',
+  // #646: a running session with an armed turn but nothing streaming yet —
+  // captures the "正在处理…" model-wait indicator + composer Stop.
+  'model-processing',
   'permission-destructive',
   'stale-sessions',
   // PR108j: per-Settings-section fixtures so the screenshot pipeline
@@ -51,6 +58,8 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'settings-voice',
   'settings-gateway',
   'settings-search',
+  'settings-usage',
+  'settings-health',
   'module-skills',
   'module-daily-review',
   // PR109b: workstation-statuses — seed one session per SessionStatus
@@ -296,6 +305,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'fallback-source':
     case 'fetched-empty':
+    case 'oauth-relogin':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'connection-error':
       return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
@@ -315,8 +325,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: streamingState(),
-        liveToolsBySession: streamingTools(),
+        liveTurnBySession: streamingLiveTurns(),
       };
     case 'streaming-answer':
       // Active session = the committed turn-narrative session, PLUS a live
@@ -326,14 +335,25 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: { [TURN_SESSION_ID]: STREAMING_ANSWER_MARKDOWN },
+        liveTurnBySession: streamingAnswerLiveTurns(),
+      };
+    case 'model-processing':
+      // #646: a running session whose live projection is armed with
+      // NO streaming / thinking / tool seeded, so the derivation fires and the
+      // "正在处理…" indicator rides the tail user turn while the composer shows
+      // Stop. The session's on-disk status is `running` so the status gate self-
+      // heals like the real backgrounded-session path.
+      return {
+        ...state,
+        activeSessionId: PROCESSING_SESSION_ID,
+        liveTurnBySession: processingLiveTurns(),
       };
     case 'permission-destructive':
       return {
         ...state,
         activeSessionId: PERMISSION_SESSION_ID,
         permissionBySession: permissionState(),
-        liveToolsBySession: permissionTools(),
+        liveTurnBySession: permissionLiveTurns(),
       };
     case 'stale-sessions':
       // Active session intentionally a stale one — verifies the @kenji
@@ -369,6 +389,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'open-gateway' };
     case 'settings-search':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'search' };
+    case 'settings-usage':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'usage' };
+    case 'settings-health':
+      return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'health' };
     case 'module-skills':
       return { ...state, activeSessionId: TURN_SESSION_ID, sidebarSection: 'skills', sidebarCollapsed: false };
     case 'module-daily-review':
@@ -454,11 +478,10 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return {
         ...state,
         activeSessionId: TURN_SESSION_ID,
-        streamingBySession: streamingState(),
         permissionBySession: permissionState(),
-        liveToolsBySession: {
-          ...streamingTools(),
-          ...permissionTools(),
+        liveTurnBySession: {
+          ...streamingLiveTurns(),
+          ...permissionLiveTurns(),
         },
       };
   }
@@ -480,6 +503,7 @@ export async function seedVisualSmokeFixture(input: {
     await input.credentialStore.setSecret(slug, 'api_key', `fixture-key-${slug}`);
   }
   await writeSession(input.workspaceRoot, turnSession(now), turnMessages(now));
+  await writeSession(input.workspaceRoot, processingSession(now), processingMessages(now));
   await writeSession(input.workspaceRoot, streamingSession(now), streamingMessages(now));
   await writeSession(input.workspaceRoot, permissionSession(now), permissionMessages(now));
   await writeSession(input.workspaceRoot, errorSession(now), errorMessages(now));
@@ -639,6 +663,7 @@ const TURN_CONTROL_SCENARIOS = new Set<VisualSmokeScenario>([
 ]);
 
 const TURN_SESSION_ID = 'visual-smoke-turn';
+const PROCESSING_SESSION_ID = 'visual-smoke-processing';
 const STREAMING_SESSION_ID = 'visual-smoke-streaming';
 // PR-STREAM-TURN-CENTER: realistic multi-block markdown (heading + paragraph +
 // list) for the `streaming-answer` scenario, so the captured streaming bubble
@@ -923,6 +948,29 @@ async function writeConnections(workspaceRoot: string, now: number, scenario: Vi
       updatedAt: now - 8 * 60_000,
     },
   ];
+  if (scenario === 'oauth-relogin') {
+    // A codex-subscription (OAuth) connection whose last test came back
+    // needs_reauth. Its detail sheet must offer an inline 登录 / 重新登录
+    // button (driven by the shared OAuth login flow) instead of the old dead
+    // prose. Credential presence for OAuth connections is resolved through the
+    // subscription token store (empty here), so the button reads 登录; the
+    // hasSecret===true → 重新登录 label is pinned by the detail-sheet contract.
+    connections.push({
+      slug: 'codex-oauth',
+      name: 'OpenAI Codex Fixture',
+      providerType: 'codex-subscription',
+      defaultModel: 'gpt-5.5',
+      enabled: true,
+      models: [model('gpt-5.5', { reasoning: true, functionCalling: true }, 200_000)],
+      modelSource: 'fetched',
+      modelsFetchedAt: now - 6 * 60_000,
+      lastTestStatus: 'needs_reauth',
+      lastTestAt: new Date(now - 6 * 60_000).toISOString(),
+      lastTestMessage: '需要重新登录',
+      createdAt: now - 3_100_000,
+      updatedAt: now - 6 * 60_000,
+    });
+  }
   const focusSlug = connectionFocusSlug(scenario);
   const ordered = focusSlug
     ? [
@@ -942,6 +990,8 @@ function connectionFocusSlug(scenario: VisualSmokeScenario): string | null {
       return 'relay-fallback';
     case 'fetched-empty':
       return 'empty-fetched';
+    case 'oauth-relogin':
+      return 'codex-oauth';
     case 'connection-error':
       return 'broken-provider';
     default:
@@ -1060,6 +1110,29 @@ function turnMessages(now: number): StoredMessage[] {
     // Locks the capture for the new timeline (contrast the legacy stepless turn
     // above, which renders tools-before-text).
     ...multiStepTurnMessages(now),
+  ];
+}
+
+// #646: a running session whose latest turn is a lone user prompt with no
+// assistant reply yet — the on-disk shape of "just sent, awaiting first token".
+// Paired with a waiting live projection + status `running`, the renderer derives the
+// "正在处理…" model-wait indicator on the tail turn and the composer shows Stop.
+function processingSession(now: number): SessionHeader {
+  return header({
+    id: PROCESSING_SESSION_ID,
+    name: '正在处理请求',
+    connection: 'zai-live',
+    model: 'glm-5.1',
+    now,
+    lastMessageAt: now - 2_000,
+    status: 'running',
+  });
+}
+
+function processingMessages(now: number): StoredMessage[] {
+  const turnId = 'turn-processing-1';
+  return [
+    { type: 'user', id: 'msg-processing-user', turnId, ts: now - 2_000, text: '把刚才那批改动整理成一份可交接的变更说明，并指出还需我确认的点。' },
   ];
 }
 
@@ -2168,24 +2241,53 @@ async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(path, JSON.stringify(value, null, 2) + '\n', 'utf8');
 }
 
-function streamingState(): NonNullable<VisualSmokeState['streamingBySession']> {
+function streamingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   return {
-    [STREAMING_SESSION_ID]: '正在检查日志、模型配置和最近的工具输出…',
+    [STREAMING_SESSION_ID]: {
+      turnId: 'turn-streaming',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'stream-live-step',
+        text: {
+          text: '正在检查日志、模型配置和最近的工具输出…',
+          truncated: false,
+          complete: false,
+        },
+        tools: [{
+          toolUseId: 'stream-live-tool',
+          toolName: 'Bash',
+          stepId: 'stream-live-step',
+          displayName: '运行中的诊断',
+          intent: '模拟后台 stream 中的 tool activity',
+          status: 'running',
+          args: { cmd: 'npm run visual-smoke:fixture' },
+        }],
+      }],
+    },
   };
 }
 
-function streamingTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
+function streamingAnswerLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   return {
-    [STREAMING_SESSION_ID]: [
-      {
-        toolUseId: 'stream-live-tool',
-        toolName: 'Bash',
-        displayName: '运行中的诊断',
-        intent: '模拟后台 stream 中的 tool activity',
-        status: 'running',
-        args: { cmd: 'npm run visual-smoke:fixture' },
-      },
-    ],
+    [TURN_SESSION_ID]: {
+      turnId: 'turn-fixture-2',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'msg-assistant-2c',
+        text: { text: STREAMING_ANSWER_MARKDOWN, truncated: false, complete: false },
+        tools: [],
+      }],
+    },
+  };
+}
+
+function processingLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
+  return {
+    [PROCESSING_SESSION_ID]: {
+      turnId: 'turn-processing-1',
+      phase: 'waiting',
+      steps: [],
+    },
   };
 }
 
@@ -2195,19 +2297,24 @@ function permissionState(): NonNullable<VisualSmokeState['permissionBySession']>
   };
 }
 
-function permissionTools(): NonNullable<VisualSmokeState['liveToolsBySession']> {
+function permissionLiveTurns(): NonNullable<VisualSmokeState['liveTurnBySession']> {
   const request = permissionRequest(VISUAL_SMOKE_NOW);
   return {
-    [PERMISSION_SESSION_ID]: [
-      {
-        toolUseId: request.toolUseId,
-        toolName: request.toolName,
-        displayName: '模拟删除命令',
-        intent: request.hint,
-        status: 'waiting_permission',
-        args: request.args,
-      },
-    ],
+    [PERMISSION_SESSION_ID]: {
+      turnId: 'turn-permission',
+      phase: 'streamed',
+      steps: [{
+        stepId: 'tool:permission-tool',
+        tools: [{
+          toolUseId: request.toolUseId,
+          toolName: request.toolName,
+          displayName: '模拟删除命令',
+          intent: request.hint,
+          status: 'waiting_permission',
+          args: request.args,
+        }],
+      }],
+    },
   };
 }
 

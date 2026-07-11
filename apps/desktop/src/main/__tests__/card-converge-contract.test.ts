@@ -27,7 +27,8 @@ import { REPO_ROOT } from './css-test-helpers.js';
 /** Sites whose top-level container becomes <Card>. */
 const CARD_SITES = [
   'apps/desktop/src/renderer/settings/settings-rows.tsx',
-  'apps/desktop/src/renderer/settings/settings-metric-card.tsx',
+  // settings-metric-card retired its Card wrapper in convergence R4 — it is
+  // a thin alias over the shared StatTile primitive now.
   'apps/desktop/src/renderer/error-boundary.tsx',
 ];
 

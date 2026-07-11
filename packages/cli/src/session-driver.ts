@@ -16,16 +16,27 @@ export interface MakaSessionRuntime {
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   setPermissionMode(sessionId: string, mode: PermissionMode): Promise<SessionSummary>;
   updateSession(sessionId: string, patch: { model?: string; llmConnectionSlug?: string; thinkingLevel?: ThinkingLevel | undefined; name?: string }): Promise<SessionSummary>;
-  // Rewind reuses the runtime's branch primitive: a non-destructive copy of the
-  // transcript + RuntimeEvent ledger through a turn boundary, so resume
-  // correctness is inherited and the original session's log is left intact.
+  // Rewind reuses the runtime's branch primitives: a non-destructive copy of the
+  // transcript + RuntimeEvent ledger at a turn boundary, so resume correctness is
+  // inherited and the original session's log is left intact. `branchBeforeTurn`
+  // is the exclusive dual — it keeps everything strictly before the turn.
   branchFromTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
+  branchBeforeTurn(sessionId: string, input: BranchFromTurnInput): Promise<SessionSummary>;
 }
 
 /** A turn the user can rewind to: its id plus a one-line label (its prompt). */
 export interface RewindTarget {
   turnId: string;
   label: string;
+}
+
+/**
+ * A rewind result: the branched session's summary + messages (as with a switch),
+ * plus the chosen turn's full prompt so the caller can refill the editor for the
+ * user to edit and resend.
+ */
+export interface MakaSessionRewindResult extends MakaSessionSwitchResult {
+  prompt: string;
 }
 
 export interface MakaSessionDriverInput {
@@ -57,10 +68,14 @@ export interface MakaSessionDriver {
   setPermissionMode(mode: PermissionMode): Promise<void>;
   renameSession(name: string): Promise<void>;
   switchSession(sessionId: string): Promise<MakaSessionSwitchResult>;
-  /** Earlier turns the user can rewind to (excludes the current, latest turn). */
+  /** Every prompted turn the user can rewind to, newest first. */
   listRewindTargets(): Promise<RewindTarget[]>;
-  /** Rewind to a turn: branch the session through it and switch onto the branch. */
-  rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult>;
+  /**
+   * Rewind to a turn: branch the session to the state just *before* that turn
+   * (discarding it and everything after), switch onto the branch, and return the
+   * turn's prompt so the caller can refill the editor for an edit-and-resend.
+   */
+  rewindToTurn(turnId: string): Promise<MakaSessionRewindResult>;
   /** Abandon the active session so the next prompt starts a fresh one. */
   startNewSession(): void;
   stop(): Promise<void>;
@@ -190,7 +205,10 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
     if (!this.sessionId) return [];
     const messages = await this.input.runtime.getMessages(this.sessionId);
     // One target per turn that has a user prompt, in send order. The prompt text
-    // is the label — it is what the user recognizes a turn by.
+    // is the label — it is what the user recognizes a turn by. Rewinding to a
+    // turn resets to just *before* it (see rewindToTurn), so the latest turn is
+    // itself a valid target (undo it, edit its prompt, resend) and no turn is
+    // excluded. Turns with no user prompt (e.g. a /compact turn) never appear.
     const promptByTurn = new Map<string, string>();
     const order: string[] = [];
     for (const message of messages) {
@@ -198,27 +216,29 @@ class RuntimeMakaSessionDriver implements MakaSessionDriver {
       promptByTurn.set(message.turnId, message.text);
       order.push(message.turnId);
     }
-    // Drop the turn at the conversation head: branching to it keeps everything,
-    // which is not a rewind. The head is the last message's turn, which is not
-    // always the last prompted turn — e.g. after /compact the head is the compact
-    // turn (no user message), so every prompted turn stays a valid rewind target
-    // (rewinding then discards the compact). Remaining turns, newest first, are
-    // the real "go back to" points.
-    const headTurnId = messages.length > 0 ? messages[messages.length - 1].turnId : undefined;
     return order
-      .filter((turnId) => turnId !== headTurnId)
       .reverse()
       .map((turnId) => ({ turnId, label: firstLine(promptByTurn.get(turnId) ?? '') }));
   }
 
-  async rewindToTurn(turnId: string): Promise<MakaSessionSwitchResult> {
+  async rewindToTurn(turnId: string): Promise<MakaSessionRewindResult> {
     if (!this.sessionId) throw new Error('Cannot rewind before a session starts.');
-    // Branch through the turn (copies transcript + ledger up to it), then switch
-    // onto the branch. switchSession re-validates folder/connection and loads the
-    // branched messages, so the branch inherits the same resume guarantees as any
-    // resumed session and the original session is left untouched.
-    const branch = await this.input.runtime.branchFromTurn(this.sessionId, { sourceTurnId: turnId });
-    return this.switchSession(branch.id);
+    // Read the turn's prompt from the *original* session before branching — the
+    // branch drops this turn, so it must be captured first. The full text (not
+    // the one-line label) is refilled into the editor for an edit-and-resend.
+    const messages = await this.input.runtime.getMessages(this.sessionId);
+    const prompt = messages.find(
+      (message): message is Extract<StoredMessage, { type: 'user' }> =>
+        message.type === 'user' && message.turnId === turnId,
+    )?.text;
+    if (prompt === undefined) throw new Error(`Cannot rewind to turn ${turnId}: no user prompt.`);
+    // Branch to the state just before the turn (copies transcript + ledger up to,
+    // but not including, it), then switch onto the branch. switchSession
+    // re-validates folder/connection and loads the branched messages, so the
+    // branch inherits the same resume guarantees as any resumed session and the
+    // original session — including the discarded turn — is left untouched.
+    const branch = await this.input.runtime.branchBeforeTurn(this.sessionId, { sourceTurnId: turnId });
+    return { ...(await this.switchSession(branch.id)), prompt };
   }
 
   startNewSession(): void {

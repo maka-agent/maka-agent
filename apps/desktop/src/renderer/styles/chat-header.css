@@ -145,6 +145,19 @@
   flex: 0 0 auto;
 }
 
+/* Goal kill-switch pill: an active autonomous loop is warning-tinted (not the
+   neutral info tone of the deep-research pill) and clears the goal on click.
+   No `cursor: pointer` — native convention reserves the hand for links; the
+   pill is a UiButton and uses the default arrow like every other control. */
+.maka-chat-header-mode-pill[data-mode="goal"] {
+  border-color: oklch(from var(--warning) l c h / 0.38);
+  background: oklch(from var(--warning) l c h / 0.12);
+  color: var(--warning-text);
+}
+.maka-chat-header-mode-pill[data-mode="goal"]:hover {
+  background: oklch(from var(--warning) l c h / 0.18);
+}
+
   .maka-chat-header-alert {
     display: inline-flex;
     align-items: center;

@@ -11,25 +11,34 @@
  * kind to an icon.
  */
 
+import type { ToolActivityKind } from '@maka/core';
 import type { ToolActivityItem } from '../materialize.js';
 
-export type TrowActivityKind =
-  | 'read'
-  | 'search'
-  | 'websearch'
-  | 'webfetch'
-  | 'edit'
-  | 'command'
-  | 'explore'
-  | 'browser'
-  | 'tool';
+export type TrowActivityKind = ToolActivityKind;
 
 /**
- * Bucket a maka tool by its canonical name (case-insensitive). `browser_*`
- * tools collapse to one `browser` bucket; anything unrecognized falls back to
- * the generic `tool` bucket so the summary always renders.
+ * Prefer a declared semantic category. Legacy rows fall back to the canonical
+ * tool name (case-insensitive); unknown names use the generic `tool` bucket.
  */
-export function trowActivityKind(toolName: string): TrowActivityKind {
+const KNOWN_ACTIVITY_KINDS: ReadonlySet<string> = new Set<TrowActivityKind>([
+  'read',
+  'search',
+  'websearch',
+  'webfetch',
+  'edit',
+  'command',
+  'explore',
+  'browser',
+  'tool',
+]);
+
+export function trowActivityKind(
+  toolName: string,
+  activityKind?: ToolActivityKind,
+): TrowActivityKind {
+  // Trust only known kinds — corrupted/future persisted values must not crash
+  // KIND_CLAUSE[kind] during summarize.
+  if (activityKind && KNOWN_ACTIVITY_KINDS.has(activityKind)) return activityKind;
   const name = toolName.toLowerCase();
   if (name.startsWith('browser_')) return 'browser';
   switch (name) {
@@ -52,6 +61,8 @@ export function trowActivityKind(toolName: string): TrowActivityKind {
       return 'edit';
     case 'bash':
     case 'shell':
+    case 'stopbackgroundtask':
+    case 'stop_background_task':
       return 'command';
     case 'exploreagent':
     case 'explore_agent':
@@ -79,40 +90,36 @@ function isFailed(status: ToolActivityItem['status']): boolean {
 }
 
 /**
- * Build the settled-state summary line for a trow: one clause per distinct
- * activity kind in first-seen order, joined with "，", then a trailing
- * "N 个失败" clause when any tool errored. A failed tool still counts toward
- * its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
+ * Build the summary line for a trow: one clause per distinct activity kind in
+ * first-seen order, joined with "，". With `{ live: true }` (a multi-tool
+ * running group) the line is prefixed with "正在" and the trailing "N 个失败"
+ * clause is suppressed — the failed count changes mid-group, and errored tools
+ * still force-open their disclosure (trowNeedsAttention), so the failure signal
+ * is not lost, just kept off the jittering summary line. Settled (default)
+ * includes the "N 个失败" clause when any tool errored. A failed tool still
+ * counts toward its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
  */
-export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
+export function summarizeTrowTools(
+  items: readonly ToolActivityItem[],
+  options?: { live?: boolean },
+): string {
   const order: TrowActivityKind[] = [];
   const counts = new Map<TrowActivityKind, number>();
   let failed = 0;
   for (const item of items) {
-    const kind = trowActivityKind(item.toolName);
+    const kind = trowActivityKind(item.toolName, item.activityKind);
     if (!counts.has(kind)) order.push(kind);
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
     if (isFailed(item.status)) failed += 1;
   }
   const clauses = order.map((kind) => KIND_CLAUSE[kind](counts.get(kind) ?? 0));
-  if (failed > 0) clauses.push(`${failed} 个失败`);
-  return clauses.join('，');
-}
-
-/**
- * The "active" tool in a running trow — the last one still in flight
- * (running / pending / waiting_permission). Its description drives the
- * shimmering summary line while the group is working. Falls back to the last
- * item so the summary is never empty.
- */
-export function activeTrowTool(items: readonly ToolActivityItem[]): ToolActivityItem | undefined {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    const status = items[i]!.status;
-    if (status === 'running' || status === 'pending' || status === 'waiting_permission') {
-      return items[i];
-    }
-  }
-  return items[items.length - 1];
+  // Running summary prioritizes stability: the failed count changes as tools
+  // error mid-group, so it is shown only once the group settles. Errored tools
+  // still force-open their disclosure (trowNeedsAttention), so the failure
+  // signal is not lost — it just doesn't jitter the summary line mid-run.
+  if (!options?.live && failed > 0) clauses.push(`${failed} 个失败`);
+  const base = clauses.join('，');
+  return options?.live ? `正在${base}` : base;
 }
 
 /** True when any tool in the group is still in flight. */

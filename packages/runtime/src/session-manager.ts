@@ -641,11 +641,35 @@ export class SessionManager {
     sessionId: string,
     input: BranchFromTurnInput,
   ): Promise<SessionSummary> {
-    const header = await this.deps.store.readHeader(sessionId);
     const sourceView = await this.getSessionView(sessionId);
-    const { messages } = sourceView;
-    const copied = copyMessagesThroughTurnBoundary(messages, input.sourceTurnId);
+    // Inclusive: keep everything up to and including the chosen turn. A found
+    // turn always has at least its own messages, so an empty copy means the
+    // turn does not exist.
+    const copied = copyMessagesThroughTurnBoundary(sourceView.messages, input.sourceTurnId);
     if (copied.length === 0) throw new Error(`Cannot branch from unknown turn ${input.sourceTurnId}`);
+    return this.createBranchSession(sessionId, sourceView, copied, input);
+  }
+
+  async branchBeforeTurn(
+    sessionId: string,
+    input: BranchFromTurnInput,
+  ): Promise<SessionSummary> {
+    const sourceView = await this.getSessionView(sessionId);
+    // Exclusive dual of branchFromTurn: keep everything strictly before the
+    // chosen turn, dropping it and every later turn. An empty copy is valid
+    // here (the turn is the first one) — it branches to a fresh, empty context.
+    const copied = copyMessagesBeforeTurn(sourceView.messages, input.sourceTurnId);
+    if (copied === null) throw new Error(`Cannot branch before unknown turn ${input.sourceTurnId}`);
+    return this.createBranchSession(sessionId, sourceView, copied, input);
+  }
+
+  private async createBranchSession(
+    sessionId: string,
+    sourceView: RuntimeReadModelSessionView,
+    copied: StoredMessage[],
+    input: BranchFromTurnInput,
+  ): Promise<SessionSummary> {
+    const header = await this.deps.store.readHeader(sessionId);
     const next = await this.deps.store.create({
       cwd: header.cwd,
       backend: header.backend,
@@ -660,7 +684,7 @@ export class SessionManager {
       status: 'active',
     });
     await this.cloneBranchRuntimeLedger(next.id, sourceView, copied);
-    await this.deps.store.appendMessages(next.id, copied);
+    if (copied.length > 0) await this.deps.store.appendMessages(next.id, copied);
     await this.deps.store.appendMessage(next.id, {
       type: 'system_note',
       id: this.deps.newId(),
@@ -1204,6 +1228,35 @@ function copyMessagesThroughTurnBoundary(messages: readonly StoredMessage[], tur
   return messages
     .slice(0, lastIndex + 1)
     .filter((message) => message.type !== 'turn_state');
+}
+
+// Exclusive dual of copyMessagesThroughTurnBoundary: every message belonging to
+// a turn strictly before the chosen one, dropping it and every later turn.
+// Returns null when the turn is absent (so the caller can reject an unknown
+// turn), and an empty array when the turn is the first one (a valid branch into
+// empty context). Membership, not array position, decides what to keep: the read
+// model does not guarantee a turn's messages are contiguous or that a user
+// prompt precedes its turn_state in array order, so a positional slice could
+// drop an earlier turn's prompt. turn_state is dropped for the same reason as in
+// the inclusive copy — lineage lives on the child header, not copied metadata.
+function copyMessagesBeforeTurn(messages: readonly StoredMessage[], turnId: string): StoredMessage[] | null {
+  const turnOrder: string[] = [];
+  const seen = new Set<string>();
+  for (const message of messages) {
+    const messageTurnId = (message as { turnId?: string }).turnId;
+    if (messageTurnId && !seen.has(messageTurnId)) {
+      seen.add(messageTurnId);
+      turnOrder.push(messageTurnId);
+    }
+  }
+  const cut = turnOrder.indexOf(turnId);
+  if (cut < 0) return null;
+  const keep = new Set(turnOrder.slice(0, cut));
+  return messages.filter((message) => {
+    if (message.type === 'turn_state') return false;
+    const messageTurnId = (message as { turnId?: string }).turnId;
+    return messageTurnId !== undefined && keep.has(messageTurnId);
+  });
 }
 
 function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { createConnectionStore, createFileCredentialStore, createShellRunStore } from '@maka/storage';
-import { BackendRegistry, type AiSdkBackendInput, type SessionStore } from '@maka/runtime';
+import { BackendRegistry, type AiSdkBackendInput, type SessionStore, type ShellRunUpdate } from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
   getOrCreateCliClaudeDeviceId,
@@ -121,13 +121,127 @@ describe('Maka CLI runtime bootstrap', () => {
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
           },
-        ) as { content?: string };
-        assert.match(detail.content ?? '', /stdout:\nstart/);
+        ) as { kind?: string; status?: string; stdout?: string };
+        assert.equal(detail.kind, 'shell_run');
+        assert.equal(detail.status, 'running');
+        assert.equal(detail.stdout, 'start');
 
         await context.close();
         const record = await createShellRunStore(workspaceRoot).readShellRun('session-1', backgroundTaskId(result.ref));
         assert.equal(record.status, 'cancelled');
         assert.equal(record.exitCode, 130);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('publishes yielded ShellRun completion without a model resource read', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      const updates: ShellRunUpdate[] = [];
+      const unsubscribe = context.subscribeShellRunUpdates((update) => updates.push(update));
+      try {
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => process.stdout.write('done'), 500)"`;
+        const result = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { kind?: string; status?: string };
+        assert.equal(result.kind, 'shell_run');
+        assert.equal(result.status, 'running');
+
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        const terminal = updates.find((update) => update.result.status === 'completed');
+        assert.equal(terminal?.sourceToolCallId, 'tool-1');
+        assert.equal(terminal?.result.stdout, 'startdone');
+      } finally {
+        unsubscribe();
+        await context.close();
+      }
+    });
+  });
+
+  test('resolves an inherited ShellRun through branch session lineage', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      try {
+        const parent = await context.runtime.createSession({
+          cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
+          model: 'llama3.2', permissionMode: 'bypass', name: 'parent',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const branch = await runtimeDeps.store.create({
+          cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
+          model: 'llama3.2', permissionMode: 'bypass', name: 'branch',
+          parentSessionId: parent.id,
+        });
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`;
+        const started = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: parent.id, runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { kind?: string; ref?: string; status?: string };
+        assert.equal(started.status, 'running');
+        assert.ok(started.ref);
+
+        const inherited = await context.readShellRun(branch.id, started.ref);
+        assert.equal(inherited.ownerSessionId, parent.id);
+        assert.equal(inherited.result.status, 'running');
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('hydrates terminal ShellRun state without marking it observed by the agent', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      try {
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 500)"`;
+        const started = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { ref?: string; status?: string };
+        assert.equal(started.status, 'running');
+        assert.ok(started.ref);
+
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        const hydrated = await context.readShellRun('session-1', started.ref);
+        assert.equal(hydrated.result.status, 'completed');
+        const stored = await createShellRunStore(workspaceRoot).readShellRun(
+          'session-1',
+          backgroundTaskId(started.ref),
+        );
+        assert.equal(stored.observedAt, undefined);
       } finally {
         await context.close();
       }

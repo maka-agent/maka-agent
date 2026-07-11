@@ -6,12 +6,14 @@ import {
   AutomationManager,
   AutomationScheduler,
   BackendRegistry,
+  GoalManager,
   PermissionEngine,
   SessionManager,
   ShellRunProcessManager,
   buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
+  buildGoalTools,
   buildLlmHistorySummarizer,
   buildProviderOptions,
   buildSubscriptionModelFetch,
@@ -20,6 +22,8 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
   type AutomationDefinition,
+  type GoalContinuationDeps,
+  type ShellRunUpdate,
 } from '@maka/runtime';
 import { selectComputerUseBackend } from '@maka/computer-use';
 import {
@@ -33,6 +37,7 @@ import {
   createSettingsStore,
   createShellRunStore,
 } from '@maka/storage';
+import type { ToolResultContent } from '@maka/core/events';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -47,6 +52,13 @@ export interface MakaCliRuntimeContext {
   tools: ReturnType<typeof buildBuiltinTools>;
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
+  subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
+  readShellRun(sessionId: string, ref: string): Promise<{
+    ownerSessionId: string;
+    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  }>;
+  goalManager: GoalManager;
+  goalContinuationDeps: GoalContinuationDeps;
   close(): Promise<void>;
 }
 
@@ -92,10 +104,20 @@ export async function createMakaCliRuntimeContext(
   const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
+  const shellRunListeners = new Set<(update: ShellRunUpdate) => void>();
   const shellRuns = new ShellRunProcessManager({
     store: shellRunStore,
     newId: randomUUID,
     now: Date.now,
+    onShellRunUpdate: (update) => {
+      for (const listener of shellRunListeners) {
+        try {
+          listener(update);
+        } catch {
+          // One UI observer must not suppress updates for the rest.
+        }
+      }
+    },
   });
   const tools = buildBuiltinTools({ shellRuns });
   const automationManager = new AutomationManager({
@@ -132,8 +154,6 @@ export async function createMakaCliRuntimeContext(
     cronEnabled,
   });
 
-  const allTools = [...tools, automationTool];
-
   // Load durable automations only on a host that can run them — a cron-disabled
   // host must not adopt/reconcile crons it doesn't own (see above).
   if (cronEnabled) {
@@ -145,6 +165,14 @@ export async function createMakaCliRuntimeContext(
       console.error('[runtime-bootstrap] durable automation store unreadable; persistence disabled to avoid data loss:', err);
     }
   }
+
+  const goalManager = new GoalManager({ generateId: () => randomUUID(), now: () => Date.now() });
+  const goalTokenCache = new Map<string, number>();
+  const goalTools = buildGoalTools({
+    goalManager,
+    getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
+  });
+  const allTools = [...tools, automationTool, ...goalTools];
 
   // Headless computer-use. The shared @maka/computer-use backend runs without an
   // overlay (the visual agent-cursor is Electron-only), so the CLI can drive the
@@ -216,7 +244,7 @@ export async function createMakaCliRuntimeContext(
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
       },
-      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager }),
+      turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
@@ -276,6 +304,108 @@ export async function createMakaCliRuntimeContext(
 
   automationScheduler.start();
 
+  const readShellRun = async (sessionId: string, ref: string) => {
+    let ownerSessionId: string | undefined = sessionId;
+    const visited = new Set<string>();
+    while (ownerSessionId && !visited.has(ownerSessionId)) {
+      visited.add(ownerSessionId);
+      try {
+        return {
+          ownerSessionId,
+          result: await shellRuns.inspectResource(ownerSessionId, ref),
+        };
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+        ownerSessionId = (await store.readHeader(ownerSessionId)).parentSessionId;
+        if (!ownerSessionId) throw error;
+      }
+    }
+    throw new Error(`Cannot resolve ShellRun owner for session ${sessionId}`);
+  };
+
+  // Goal execution — external-evaluator continuation, sharing the runtime
+  // sendMessage pipeline (so each continuation turn is a real, traced AgentRun).
+  const goalContinuationDeps: GoalContinuationDeps = {
+    goalManager,
+    inFlight: new Set<string>(),
+    evaluator: {
+      async evaluate(prompt: string, sessionId: string): Promise<string> {
+        const ai = await import('ai') as unknown as {
+          generateText(opts: Record<string, unknown>): Promise<{ text: string }>;
+        };
+        const header = await store.readHeader(sessionId);
+        const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
+          connectionStore,
+          credentialStore,
+          requestedModel: header.model,
+        });
+        const modelFetch = buildSubscriptionModelFetch({
+          connection: ready.connection,
+          sessionId: 'goal-evaluator',
+          modelId: ready.model,
+          ...(ready.connection.providerType === 'claude-subscription' ? {
+            claude: {
+              cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
+              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+              accountUuid: ready.oauthTokens?.account_uuid ?? '',
+            },
+          } : {}),
+        });
+        const result = await ai.generateText({
+          model: getAIModel({
+            connection: ready.connection,
+            apiKey: ready.apiKey ?? '',
+            modelId: ready.model,
+            fetch: modelFetch,
+          }),
+          prompt,
+          providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
+          // Ceiling, not a target — the verdict is tiny JSON. Kept well above the
+          // JSON size so any model-side reasoning before the JSON doesn't consume
+          // the whole budget and return empty text (finishReason=length). 250 was
+          // too tight once the cap is actually honored (AI SDK v6 maxOutputTokens).
+          maxOutputTokens: 1024,
+        });
+        return result.text;
+      },
+    },
+    async getRecentContext(sessionId: string): Promise<string> {
+      const messages = await runtime.getMessages(sessionId);
+      // Refresh the token snapshot while the session is open.
+      let total = 0;
+      for (const m of messages) {
+        if (m.type === 'token_usage') total += (m.total ?? (m.input + m.output));
+      }
+      goalTokenCache.set(sessionId, total);
+      return messages
+        .slice(-10)
+        .filter((m) => m.type === 'user' || m.type === 'assistant')
+        .slice(-6)
+        .map((m) => `[${m.type}]: ${(m.type === 'user' || m.type === 'assistant' ? m.text : '').slice(0, 500)}`)
+        .join('\n');
+    },
+    getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
+    injectTurn: (sessionId, text) => {
+      const turnId = randomUUID();
+      const iterator = runtime.sendMessage(sessionId, { turnId, text });
+      void (async () => { for await (const _ of iterator) { /* drain */ } })().catch(() => {});
+    },
+    canContinue: async (sessionId) => {
+      const header = await store.readHeader(sessionId);
+      if (!header || header.archivedAt) return false;
+      // Never auto-continue into a session that is running (mid-turn), aborted,
+      // blocked, or parked waiting on the user — injecting a turn there would
+      // race the live turn or override the human the agent is waiting on.
+      if (
+        header.status === 'running' ||
+        header.status === 'blocked' ||
+        header.status === 'aborted' ||
+        header.status === 'waiting_for_user'
+      ) return false;
+      return true;
+    },
+  };
+
   return {
     workspaceRoot: input.workspaceRoot,
     cwd: input.cwd,
@@ -285,11 +415,19 @@ export async function createMakaCliRuntimeContext(
     tools,
     automationManager,
     automationScheduler,
+    subscribeShellRunUpdates: (listener) => {
+      shellRunListeners.add(listener);
+      return () => shellRunListeners.delete(listener);
+    },
+    readShellRun,
+    goalManager,
+    goalContinuationDeps,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.
       automationScheduler.dispose();
       await shellRuns.terminateAll();
+      shellRunListeners.clear();
       // Release the cua-driver child process when headless computer-use was on.
       disposeComputerUse?.();
     },
@@ -336,6 +474,10 @@ function userOptedIntoSemanticCompact(env: Record<string, string | undefined>): 
   }
   const mode = env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE?.trim().toLowerCase();
   return mode === 'validate_only' || mode === 'prepare_step_dry_run' || mode === 'replace';
+}
+
+function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 export async function getOrCreateCliClaudeDeviceId(

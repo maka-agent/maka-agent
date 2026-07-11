@@ -458,6 +458,10 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
 
   for (let index = 1; index <= 99; index += 1) {
     const id = index === 1 ? 'starter-skill' : `starter-skill-${index}`;
+    // Display name follows the id's ordinal — three clicks used to mint
+    // three IDENTICAL 「示例技能」 rows (ids differed, names didn't, and the
+    // slug lives in the tooltip), leaving the list visually indistinguishable.
+    const name = index === 1 ? '示例技能' : `示例技能 ${index}`;
     const skillDir = join(skillsDir, id);
     try {
       await mkdir(skillDir, { mode: 0o700 });
@@ -473,13 +477,13 @@ export async function createStarterSkill(root: string): Promise<CreateStarterSki
       }
 
       const filePath = join(skillDir, 'SKILL.md');
-      await writeFile(filePath, starterSkillTemplate(id), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      await writeFile(filePath, starterSkillTemplate(id, name), { encoding: 'utf8', flag: 'wx', mode: 0o600 });
       return {
         ok: true,
         filePath,
         skill: {
           id,
-          name: '示例技能',
+          name,
           description: '把常用工作流写成可复用的本地指令。',
           path: skillDir,
           declaredTools: ['Read'],
@@ -1398,15 +1402,15 @@ function isSafeSkillId(value: string): boolean {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$/.test(value);
 }
 
-function starterSkillTemplate(id: string): string {
+function starterSkillTemplate(id: string, name: string): string {
   return `---
-name: 示例技能
+name: ${name}
 description: 把常用工作流写成可复用的本地指令。
 allowed-tools:
   - Read
 ---
 
-# 示例技能
+# ${name}
 
 当用户要求你按固定流程完成某类任务时，先加载这个技能。
 

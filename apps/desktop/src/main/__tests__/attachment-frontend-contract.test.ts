@@ -134,8 +134,6 @@ describe('attachment frontend contract', () => {
 
     const markup = renderToStaticMarkup(createElement(ChatView, {
       messages,
-      streamingText: '',
-      tools: [],
       activeSession,
       mode: 'sessions',
       onNew: () => {},

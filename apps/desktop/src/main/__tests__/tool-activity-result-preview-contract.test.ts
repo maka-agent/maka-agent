@@ -62,7 +62,7 @@ describe('ToolActivity result preview contract', () => {
           stdoutTruncated: false,
           stderrTruncated: false,
         },
-        expected: [/data-kind="terminal"/, /退出码 1/, /stdout 已隐藏 1 行/, /复制研读提示/],
+        expected: [/data-kind="terminal"/, /失败 · 退出码 1/, /stdout 已隐藏 1 行/, /输出已截断/],
       },
       {
         kind: 'office_document',
@@ -151,7 +151,9 @@ describe('ToolActivity result preview contract', () => {
 
     const json = renderPreview({ kind: 'json', value: { token: SECRET, ok: true } });
     assert.match(json, /data-kind="json"/);
-    assert.match(json, /&quot;ok&quot;: true/);
+    // Quiet panel: plain key:value lines, not pretty-printed JSON quotes.
+    assert.match(json, /ok:\s*true/);
+    assert.doesNotMatch(json, /&quot;ok&quot;:\s*true/);
     assert.doesNotMatch(json, new RegExp(SECRET));
 
     const fileWrite = renderPreview({ kind: 'file_write', path: 'out.txt', bytes: 12 });

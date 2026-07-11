@@ -38,6 +38,7 @@ import {
 import { registerFakeBackend } from './backends.js';
 import {
   buildHarborCellOutput,
+  hashHarborSystemPrompt,
   validateHarborCellOutput,
   type HarborCellContextBudgetPolicySnapshot,
   type HarborCellOutput,
@@ -66,6 +67,7 @@ export interface RunHarborCellInput {
   cwd: string;
   outputDir: string;
   storageRoot: string;
+  pricingProfile?: string;
   registerBackends?: (
     registry: BackendRegistry,
     context: HeadlessBackendContext,
@@ -364,6 +366,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
   const combinedInvocation = combineInvocations(invocations);
+  if (!config.model) throw new Error('Harbor cell config must include a model for execution identity');
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
@@ -375,6 +378,12 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const output = validateHarborCellOutput(buildHarborCellOutput({
     invocation: combinedInvocation,
     runtimeEventsPath,
+    executionIdentity: {
+      llmConnectionSlug: config.llmConnectionSlug,
+      model: config.model,
+      systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
+      pricingProfile: input.pricingProfile ?? 'unconfigured',
+    },
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...(continuationSummary ? { continuationSummary } : {}),
     ...(input.taskToolSummaryEnabled !== undefined ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled } : {}),
@@ -474,6 +483,7 @@ export async function runHarborCellFromEnv(
     cwd: resolvedEnv.MAKA_WORKDIR ?? process.cwd(),
     outputDir,
     storageRoot,
+    pricingProfile: resolvedEnv.MAKA_TRIAL_PRICING_SOURCE ?? 'unconfigured',
     ...(contextBudgetPolicy ? { contextBudgetPolicy } : {}),
     ...(continuationPolicy ? { continuationPolicy } : {}),
     ...(taskLedgerExperimentPolicy ? { taskToolSummaryEnabled: true } : {}),

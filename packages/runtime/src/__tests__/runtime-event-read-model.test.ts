@@ -286,6 +286,39 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
   });
 
+  test('projects first-observed step content order for stable live handoff', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        ts: ts + 1,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'function_call', id: 'tool-1', name: 'Read', args: {} },
+        refs: { toolCallId: 'tool-1', stepId: 'message-1' },
+      }),
+      ev({
+        ts: ts + 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'thinking', text: 'late reasoning' },
+        refs: { providerEventId: 'message-1' },
+      }),
+      ev({
+        ts: ts + 3,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'answer' },
+        refs: { providerEventId: 'message-1' },
+      }),
+    ], { runHeaders: [header] });
+
+    const assistant = out.messages.find((message) => message.type === 'assistant');
+    expect((assistant as unknown as { contentOrder?: string[] } | undefined)?.contentOrder).toEqual([
+      'tools',
+      'thinking',
+      'text',
+    ]);
+  });
+
   test('archived tool-result placeholders project to diagnostic tool-result rows', () => {
     const events = baseEvents();
     const toolResult = events.find((event) => event.id === 'evt-tool-result');
@@ -633,6 +666,28 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(legacyCall).toMatchObject({ type: 'tool_call', id: 'tool-legacy' });
     expect(legacyCall && 'stepId' in legacyCall).toBe(false);
   });
+
+  test('projects tool_call activityKind from runtime state for replay', () => {
+    const out = projectRuntimeEventsToStoredMessages([ev({
+      id: 'evt-tool-kind',
+      role: 'model',
+      author: 'agent',
+      content: {
+        kind: 'function_call',
+        id: 'tool-kind',
+        name: 'CustomCommand',
+        args: {},
+      },
+      actions: { stateDelta: { activityKind: 'command' } },
+      refs: { toolCallId: 'tool-kind' },
+    })], { runHeaders: [header] });
+
+    expect(out.messages[0]).toMatchObject({
+      type: 'tool_call',
+      id: 'tool-kind',
+      activityKind: 'command',
+    });
+  });
 });
 
 describe('compareRuntimeReadModelMessages', () => {
@@ -697,6 +752,24 @@ describe('compareRuntimeReadModelMessages', () => {
 
     expect(result.compatible).toBe(true);
     expect(result.diagnostics).toEqual([]);
+  });
+
+  test('rejects a mismatched tool activity kind', () => {
+    const projected: StoredMessage[] = [{
+      type: 'tool_call',
+      id: 'tool-kind',
+      turnId,
+      ts,
+      toolName: 'CustomTool',
+      activityKind: 'read',
+      args: {},
+    }];
+    const legacy: StoredMessage[] = [{
+      ...projected[0] as Extract<StoredMessage, { type: 'tool_call' }>,
+      activityKind: 'command',
+    }];
+
+    expect(compareRuntimeReadModelMessages(projected, legacy).compatible).toBe(false);
   });
 
   test('rejects missing tool result and assistant text cases', () => {

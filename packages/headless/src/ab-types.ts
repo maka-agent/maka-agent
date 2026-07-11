@@ -28,6 +28,8 @@ export interface RunAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
   maxConcurrency?: number;
+  observedCostStopUsd?: number;
+  roundIdPrefix?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
   runArm: AbArmRunner;
@@ -46,7 +48,9 @@ export type AbArmRunner = (input: AbArmRunInput) => Promise<FixedPromptTaskWalEv
 export type AbDecision =
   | 'non_inferior'
   | 'inferior'
-  | 'inconclusive';
+  | 'not_cleared'
+  | 'diagnostic'
+  | 'invalid';
 
 export interface AbArmSummary {
   attempts: number;
@@ -220,7 +224,7 @@ export interface AbInvestigationRefs {
 }
 
 export interface AbNonInferioritySummary {
-  method: 'newcombe_wilson' | 'unavailable';
+  method: 'paired_bonferroni_wilson' | 'unavailable';
   confidenceLevel: number;
   lowerBound: number | null;
 }
@@ -243,6 +247,7 @@ export interface AbComparisonSummary {
   taskLevel: AbTaskLevelSummary;
   pairedAttempts: AbAttemptPairSummary;
   investigationRefs: AbInvestigationRefs;
+  stopReason?: 'observed_cost_stop_reached' | 'systemic_provider_failure';
 }
 
 export interface AbRunManifestInput {
@@ -257,8 +262,11 @@ export interface AbRunManifestInput {
   reps: number;
   candidateLimit: number | null;
   maxConcurrency: number;
+  maxConcurrentAttempts?: number;
+  observedCostStopUsd?: number;
   selectionMode?: 'explicit' | 'metadata';
   candidateTaskIds?: readonly string[];
+  pilotTaskIds?: readonly string[];
   maxExpertTimeEstimateMin?: number | null;
   targetEvaluationTaskCount?: number | null;
   nonInferiorityMargin?: number;
@@ -270,4 +278,5 @@ export type AbRunManifest = AbRunManifestInput & {
   arms: [AbArmSpec, AbArmSpec];
   evaluationTaskIds: string[];
   candidateTaskIds?: string[];
+  pilotTaskIds?: string[];
 };

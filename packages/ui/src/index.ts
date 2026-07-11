@@ -12,6 +12,7 @@ export * from './locale-helpers.js';
 export * from './markdown.js';
 export * from './maka-uri.js';
 export * from './materialize.js';
+export * from './live-turn-projection.js';
 export * from './model-picker.js';
 export * from './permission-queue.js';
 export * from './redact.js';
@@ -59,6 +60,9 @@ export * from './primitives/spinner.js';
 export * from './primitives/kbd.js';
 export * from './primitives/menu.js';
 export * from './primitives/dialog-header.js';
+export * from './primitives/stat-tile.js';
+export * from './primitives/section-header.js';
+export { EmptyState } from './empty-state.js';
 export * from './primitives/choice-card.js';
 export * from './primitives/settings-segmented.js';
 export * from './primitives/settings-select.js';
@@ -121,18 +125,23 @@ export type { PageHeaderProps } from './primitives/page-header.js';
 export {
   summarizeTrowTools,
   trowActivityKind,
-  activeTrowTool,
   isTrowRunning,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
+// #646 run→done seam: a tool row shimmers while running and settles by the
+// light band stopping (no opacity fade — parallel settles don't stack).
+// Unit-tested.
+export {
+  isToolRowRunning,
+  isToolRowSettled,
+} from './tool-activity/tool-row-motion.js';
 // Streaming UI rework: per-word fade-in for streamed text (replaces the ▎
 // caret). Pure append-record ring + tokenizer are unit-tested; the hook feeds
 // markdown-body's rehype pass.
 export {
   useStreamFade,
   tokenizeFade,
-  streamFadeRehypePlugin,
   updateFadeRing,
   createFadeRing,
   fadeBoundary,
@@ -143,5 +152,4 @@ export {
   type FadeToken,
   type FadeRingState,
   type FadeBatch,
-  type HastNode,
 } from './stream-fade.js';

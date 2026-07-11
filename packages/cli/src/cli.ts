@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describeChatConfigurationReason, parseNoRealConnectionError } from '@maka/core';
+import { handleGoalContinuation } from '@maka/runtime';
 import { createMakaSessionDriver } from './session-driver.js';
 import { createMakaCliRuntimeContext } from './runtime-bootstrap.js';
 import { selectableModelIdsForTarget } from './connection-target.js';
@@ -26,6 +27,38 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
     message: `Unexpected argument: ${first ?? ''}`,
     exitCode: 2,
   };
+}
+
+export function resolveMakaCliExitCode(
+  commandExitCode: number,
+  pendingExitCode: number | string | null | undefined,
+): number | string {
+  return pendingExitCode === undefined || pendingExitCode === null || pendingExitCode === 0
+    ? commandExitCode
+    : pendingExitCode;
+}
+
+export function formatMakaCliFatalError(error: unknown): string {
+  return error instanceof Error ? error.stack ?? error.message : String(error);
+}
+
+let processExitTimer: NodeJS.Timeout | undefined;
+
+export function beginMakaCliExit(commandExitCode: number): void {
+  const exitCode = resolveMakaCliExitCode(commandExitCode, process.exitCode);
+  process.exitCode = exitCode;
+  if (processExitTimer) return;
+  processExitTimer = setTimeout(() => process.exit(process.exitCode ?? 0), PROCESS_EXIT_GRACE_MS);
+  processExitTimer.unref();
+}
+
+export function handleMakaCliProcessExit(
+  exitCode: number,
+  error?: unknown,
+  writeFatal: (message: string) => unknown = (message) => process.stderr.write(message),
+): void {
+  beginMakaCliExit(exitCode);
+  if (error) writeFatal(`${formatMakaCliFatalError(error)}\n`);
 }
 
 function helpText(): string {
@@ -93,6 +126,17 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
           connectionSlug: context.target.connection.slug,
           providerType: context.target.connection.providerType,
           permissionMode: 'ask',
+          subscribeShellRunUpdates: context.subscribeShellRunUpdates,
+          readShellRun: context.readShellRun,
+          onProcessExit: handleMakaCliProcessExit,
+          onTurnComplete: (injectTurn) => {
+            const sessionId = driver.getSessionId();
+            if (!sessionId) return;
+            void handleGoalContinuation(
+              { ...context.goalContinuationDeps, injectTurn: (_s, text) => injectTurn(text) },
+              sessionId,
+            ).catch(() => {});
+          },
         });
         return 0;
       } finally {
@@ -136,14 +180,17 @@ async function readPackageVersion(): Promise<string> {
 if (isMainModule()) {
   runMakaCli().then(
     (code) => {
-      process.exitCode = code;
+      beginMakaCliExit(code);
     },
     (error) => {
-      process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-      process.exitCode = 1;
+      handleMakaCliProcessExit(1, error);
     },
   );
 }
+
+// ShellRun escalates SIGTERM to SIGKILL after two seconds. Keep the CLI alive
+// long enough for that cleanup to finish before the final process fallback.
+const PROCESS_EXIT_GRACE_MS = 3_000;
 
 function isMainModule(): boolean {
   if (!process.argv[1]) return false;

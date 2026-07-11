@@ -58,8 +58,10 @@ already contract-governed — the work is moving STRUCTURE onto shared primitive
       title prop tripped english-aria-label). Verified: ui+desktop builds,
       2293 desktop / 46 ui tests, dead-css clean, alignment audit clean,
       5 CDP captures in notes/round3-page-header-captures/.
-- [ ] 4 StatTile
-- [ ] 5 SectionHeader/ActionRow
+- [x] 4 StatTile — SHIPPED #701 (inline after agent cancellation; --font-size-stat ladder step added)
+- [x] 5 SectionHeader (#703) + EmptyState inline (#704). ActionRow intentionally CLOSED: settingsActionRow already shared across 9 pages; the 3 module clusters carry distinct pinned layouts where a primitive adds a hook without removing duplication.
+
+CAMPAIGN COMPLETE 2026-07-10: every family has one primitive + contract pins + the CI alignment auditor.
 
 (Details per family — implementations with file:line, divergences, risks — are in the audit
 agent's report; the essentials are inlined above. Update checkboxes as rounds ship.)

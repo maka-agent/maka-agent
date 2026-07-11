@@ -1,11 +1,27 @@
 import { normalizeSearchUrl, type ToolResultContent } from '@maka/core';
-import { Check, Copy } from '../icons.js';
-import { useClipboardCopyFeedback } from '../clipboard-feedback.js';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
-import { Button as UiButton, cn } from '../ui.js';
+import { cn } from '../ui.js';
 import { ExploreAgentPreview, SubagentPreview } from './agent-preview.js';
+import { formatQuietJsonValue } from './builtin-preview.js';
 import { TOOL_LINE_CAP, capLines, formatUserVisibleToolText } from './preview-utils.js';
+
+/**
+ * Shared Codex-like tool output well — one surface for live and settled
+ * mono/command output. Tokens only: foreground-3 + border + radius-surface.
+ * Body type uses font-size-base (13px), not caption.
+ */
+export const TOOL_OUTPUT_PANEL_CLASS =
+  'mt-1 grid gap-2 rounded-[var(--radius-surface)] border border-[var(--border)] bg-[var(--foreground-3)] px-3 py-2.5';
+
+export const TOOL_OUTPUT_COMMAND_CLASS =
+  'block min-w-0 [font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-base)] leading-normal text-[color:var(--foreground)] [white-space:pre-wrap] [word-break:break-word]';
+
+export const TOOL_OUTPUT_BODY_CLASS =
+  'm-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]';
+
+export const TOOL_OUTPUT_NOTE_CLASS =
+  'm-0 text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
 export function ToolResultPreview(props: { content: ToolResultContent }) {
@@ -41,8 +57,15 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
         exitCode={content.exitCode}
         stdout={content.stdout}
         stderr={content.stderr}
+        status={content.status}
+        stdoutTruncated={content.stdoutTruncated}
+        stderrTruncated={content.stderrTruncated}
       />
     );
+  }
+
+  if (content.kind === 'shell_run') {
+    return <ShellRunPreview result={content} />;
   }
 
   if (content.kind === 'office_document') {
@@ -62,22 +85,22 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
   }
 
   if (content.kind === 'json') {
-    let body: string;
-    try {
-      body = JSON.stringify(content.value, null, 2);
-    } catch {
-      body = String(content.value);
-    }
-    // JSON shouldn't contain secrets persisted by Maka (settings + telemetry
-    // are sanitized at write-time), but apply the renderer redactor as a
-    // second-layer defense in case a tool returned raw provider response.
-    return <pre className={previewVariants({ part: 'overlay' })} data-kind="json">{formatUserVisibleToolText(redactSecrets(body))}</pre>;
+    // Never pretty-print JSON with escaped newlines — quiet plain text only.
+    const quiet = formatQuietJsonValue(content.value);
+    return (
+      <div className="grid gap-1.5" data-kind="json">
+        {quiet.headline ? (
+          <code className={TOOL_OUTPUT_COMMAND_CLASS}>{formatUserVisibleToolText(quiet.headline)}</code>
+        ) : null}
+        <pre className={TOOL_OUTPUT_BODY_CLASS}>{formatUserVisibleToolText(quiet.body)}</pre>
+      </div>
+    );
   }
 
   if (content.kind === 'text') {
     const { body, capped } = capLines(formatUserVisibleToolText(redactSecrets(content.text)));
     return (
-      <pre className={previewVariants({ part: 'overlay' })} data-kind="text">
+      <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind="text">
         {body}
         {capped > 0 && `\n\n… 已隐藏 ${capped} 行`}
       </pre>
@@ -87,7 +110,7 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
   // file_write / image / summary / unknown — show a compact descriptor so the
   // user knows what kind landed without dumping binary or storage refs.
   return (
-    <pre className={previewVariants({ part: 'overlay' })} data-kind={content.kind}>
+    <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind={content.kind}>
       [{content.kind}]
     </pre>
   );
@@ -106,16 +129,18 @@ function FileDiffPreview(props: { diff: string; paths: string[] }) {
   // 10k-line diff create 10k React elements.
   const { body, capped } = capLines(redactSecrets(props.diff));
   const lines = body.split('\n');
+  // Structure kept (paths + colored lines); no second card chrome — parent panel
+  // is the only surface when embedded in a tool row.
   return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'diff' }))} data-kind="file_diff">
+    <div className="grid gap-1.5" data-kind="file_diff">
       {props.paths.length > 0 && (
-        <div className={previewVariants({ part: 'diff-paths' })}>
+        <div className="flex flex-wrap gap-1.5 [font-family:var(--font-mono)] text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
           {props.paths.map((path) => (
-            <code key={path}>{path}</code>
+            <code key={path} className="bg-transparent text-[color:var(--foreground-secondary)]">{path}</code>
           ))}
         </div>
       )}
-      <pre className={previewVariants({ part: 'diff-body' })}>
+      <pre className={cn(TOOL_OUTPUT_BODY_CLASS, '[white-space:pre] [word-break:normal]')}>
         {lines.map((line, index) => (
           <span
             key={`${index}:${line.slice(0, 16)}`}
@@ -145,11 +170,8 @@ function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'ctx' {
 }
 
 /**
- * Terminal output preview. Shows the command + working directory header,
- * an exit-code badge tinted by success/failure, then stdout and stderr
- * in separate blocks (stderr only rendered when non-empty, in destructive
- * tone). Empty output gets an explicit "(no output)" placeholder so a
- * silent successful command doesn't look like a render bug.
+ * Terminal output preview — quiet single well: command (no $) + stdout/stderr.
+ * Honors runtime `status` and stream truncated flags (not only UI line caps).
  */
 function TerminalPreview(props: {
   cwd: string;
@@ -157,9 +179,13 @@ function TerminalPreview(props: {
   exitCode: number;
   stdout: string;
   stderr: string;
+  status?: string;
+  stdoutTruncated?: boolean;
+  stderrTruncated?: boolean;
 }) {
-  const copyFeedback = useClipboardCopyFeedback();
-  const succeeded = props.exitCode === 0;
+  const cancelled = isCancelledStatus(props.status);
+  const timedOut = props.status === 'timed_out';
+  const succeeded = props.exitCode === 0 && !cancelled && !timedOut;
   const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
   // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
   // provider can dump megabytes of stderr; we keep the first TOOL_LINE_CAP
@@ -169,86 +195,150 @@ function TerminalPreview(props: {
   // The cmd line is also user-runtime text — don't echo a `--api-key=...`
   // arg into the chat without masking it.
   const safeCmd = redactSecrets(props.cmd);
-  const safeCwd = redactSecrets(props.cwd);
   const hiddenLines = stdout.capped + stderr.capped;
-  const handoffText = [
-    '终端输出需要继续研读',
-    `工作目录：${safeCwd}`,
-    `命令：${safeCmd}`,
-    `退出码：${props.exitCode}`,
-    `截断：stdout 已隐藏 ${stdout.capped} 行，stderr 已隐藏 ${stderr.capped} 行`,
-    stdout.body.length > 0 ? `stdout 预览：\n${stdout.body}` : '',
-    stderr.body.length > 0 ? `stderr 预览：\n${stderr.body}` : '',
-    '请在深度研究 / 只读探索里结合相关路径确认完整输出影响和下一步。',
-  ].filter((line) => line.length > 0).join('\n\n');
-
-  const handoffCopyPhase = copyFeedback.phaseFor('handoff');
-  const handoffCopyLabel = handoffCopyPhase === 'pending'
-    ? '复制中…'
-    : handoffCopyPhase === 'copied'
-      ? '已复制'
-      : handoffCopyPhase === 'failed'
-        ? '复制失败'
-        : '复制研读提示';
-  const handoffCopyAria = handoffCopyPhase === 'pending'
-    ? '复制终端研读提示中'
-    : handoffCopyPhase === 'copied'
-      ? '已复制终端研读提示'
-      : handoffCopyPhase === 'failed'
-        ? '复制终端研读提示失败'
-        : '复制终端研读提示';
+  const runtimeTruncated = props.stdoutTruncated === true || props.stderrTruncated === true;
+  const attention = !succeeded || cancelled || timedOut;
 
   return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'terminal' }))} data-kind="terminal">
-      <header className={previewVariants({ part: 'terminal-head' })}>
-        <code className={previewVariants({ part: 'terminal-cwd' })}>{safeCwd}</code>
-        <code className={previewVariants({ part: 'terminal-cmd' })}>$ {safeCmd}</code>
-        <span
-          className={previewVariants({ part: 'terminal-exit' })}
-          data-ok={succeeded ? 'true' : 'false'}
-          aria-label={`退出码 ${props.exitCode}`}
-        >
-          退出码 {props.exitCode}
-        </span>
-      </header>
-      {!hasOutput && <p className={previewVariants({ part: 'terminal-empty' })}>（无输出）</p>}
+    <div
+      data-slot="tool-output"
+      data-kind="terminal"
+      className={cn(TOOL_OUTPUT_PANEL_CLASS, attention && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+    >
+      {safeCmd.length > 0 && (
+        <code className={TOOL_OUTPUT_COMMAND_CLASS}>{safeCmd}</code>
+      )}
+      {!hasOutput && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>
+      )}
       {props.stdout.length > 0 && (
-        <pre className={previewVariants({ part: 'terminal-stream' })} data-stream="stdout">
+        <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
           {stdout.body}
           {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
         </pre>
       )}
       {props.stderr.length > 0 && (
-        <pre className={previewVariants({ part: 'terminal-stream' })} data-stream="stderr">
+        <pre
+          className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')}
+          data-stream="stderr"
+        >
           {stderr.body}
           {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
         </pre>
       )}
-      {hiddenLines > 0 && (
-        <div className={previewVariants({ part: 'terminal-truncated-note' })}>
-          <span>
-            输出较长，当前只展示每路输出的前 {TOOL_LINE_CAP} 行。需要继续研读时，可以切到深度研究并把命令、相关路径和想确认的问题交给只读探索。
-          </span>
-          <UiButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            className={previewVariants({ part: 'terminal-copy' })}
-            onClick={() => void copyFeedback.copy('handoff', handoffText)}
-            disabled={handoffCopyPhase === 'pending'}
-            aria-label={handoffCopyAria}
-            aria-busy={handoffCopyPhase === 'pending' ? 'true' : undefined}
-            data-pending={handoffCopyPhase === 'pending' ? 'true' : undefined}
-            data-copied={handoffCopyPhase === 'copied' ? 'true' : 'false'}
-            data-copy-error={handoffCopyPhase === 'failed' ? 'true' : undefined}
-          >
-            {handoffCopyPhase === 'copied' ? <Check size={13} aria-hidden="true" /> : <Copy size={13} aria-hidden="true" />}
-            <span>{handoffCopyLabel}</span>
-          </UiButton>
-        </div>
+      {cancelled && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          已取消 · 退出码 {props.exitCode}
+        </p>
+      )}
+      {timedOut && !cancelled && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          已超时 · 退出码 {props.exitCode}
+        </p>
+      )}
+      {!succeeded && !cancelled && !timedOut && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          失败 · 退出码 {props.exitCode}
+        </p>
+      )}
+      {(runtimeTruncated || hiddenLines > 0) && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>
+          {hiddenLines > 0
+            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
+            : '输出已截断'}
+        </p>
       )}
     </div>
   );
+}
+
+/**
+ * Background shell-run result (desktop Bash after yield). Keep cmd, status,
+ * ref, and any captured streams — never collapse to `[shell_run]`.
+ */
+function ShellRunPreview(props: {
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+}) {
+  const { result } = props;
+  const safeCmd = redactSecrets(result.cmd);
+  const safeRef = redactSecrets(result.ref);
+  const stdout = capLines(redactSecrets(result.stdout ?? ''));
+  const stderr = capLines(redactSecrets(result.stderr ?? ''));
+  const hasOutput = (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
+  const runtimeTruncated = result.stdoutTruncated === true || result.stderrTruncated === true;
+  const hiddenLines = stdout.capped + stderr.capped;
+  const statusLabel = shellRunStatusLabel(result.status);
+  const attention = result.status === 'failed' || result.status === 'orphaned' || (result.exitCode !== undefined && result.exitCode !== 0);
+
+  return (
+    <div
+      data-slot="tool-output"
+      data-kind="shell_run"
+      className={cn(TOOL_OUTPUT_PANEL_CLASS, attention && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+    >
+      {safeCmd.length > 0 && (
+        <code className={TOOL_OUTPUT_COMMAND_CLASS}>{safeCmd}</code>
+      )}
+      <p className={TOOL_OUTPUT_NOTE_CLASS}>
+        {statusLabel}
+        {result.exitCode !== undefined ? ` · 退出码 ${result.exitCode}` : ''}
+        {safeRef ? ` · ${safeRef}` : ''}
+      </p>
+      {result.failureMessage && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          {redactSecrets(result.failureMessage)}
+        </p>
+      )}
+      {!hasOutput && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>（尚无输出）</p>
+      )}
+      {(result.stdout?.length ?? 0) > 0 && (
+        <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
+          {stdout.body}
+          {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
+        </pre>
+      )}
+      {(result.stderr?.length ?? 0) > 0 && (
+        <pre
+          className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')}
+          data-stream="stderr"
+        >
+          {stderr.body}
+          {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
+        </pre>
+      )}
+      {(runtimeTruncated || hiddenLines > 0) && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>
+          {hiddenLines > 0
+            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
+            : '输出已截断'}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function isCancelledStatus(status: string | undefined): boolean {
+  return status === 'cancelled';
+}
+
+function shellRunStatusLabel(status: string): string {
+  switch (status) {
+    case 'running':
+      return '后台运行中';
+    case 'completed':
+      return '后台已完成';
+    case 'failed':
+      return '后台失败';
+    case 'timed_out':
+      return '后台超时';
+    case 'cancelled':
+      return '后台已取消';
+    case 'orphaned':
+      return '后台任务已断开';
+    default:
+      return `后台 · ${status}`;
+  }
 }
 
 function OfficeDocumentPreview(props: {
@@ -265,31 +355,31 @@ function OfficeDocumentPreview(props: {
   const hasOutput = stdout.body.length > 0 || stderr.body.length > 0;
 
   return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'office' }))} data-kind="office_document" data-ok={result.ok ? 'true' : 'false'}>
-      <header className={previewVariants({ part: 'office-head' })}>
-        <strong>{title}</strong>
-        <small>
+    <div className="grid gap-1.5" data-kind="office_document" data-ok={result.ok ? 'true' : 'false'}>
+      <header className="grid gap-0.5">
+        <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{title}</strong>
+        <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
           {operation}
           {result.ok ? ' · 已完成' : ' · 未完成'}
           {result.truncated ? ' · 输出已截断' : ''}
         </small>
       </header>
-      {args && <code className={previewVariants({ part: 'office-args' })}>officecli {args}</code>}
+      {args && <code className={TOOL_OUTPUT_COMMAND_CLASS}>officecli {args}</code>}
       {!result.ok && (
-        <div className={previewVariants({ part: 'office-message' })} role="note">
+        <div className="grid gap-0.5 text-[length:var(--font-size-base)] text-[color:var(--destructive)]" role="note">
           <span>{message || 'Office 文档操作未完成。'}</span>
-          {reason && <small>诊断：{reason}</small>}
+          {reason && <small className="text-[color:var(--muted-foreground)]">诊断：{reason}</small>}
         </div>
       )}
-      {result.ok && !hasOutput && <p className={previewVariants({ part: 'office-empty' })}>（无输出）</p>}
+      {result.ok && !hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>}
       {stdout.body.length > 0 && (
-        <pre className={previewVariants({ part: 'office-stream' })} data-stream="stdout">
+        <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
           {stdout.body}
           {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
         </pre>
       )}
       {stderr.body.length > 0 && (
-        <pre className={previewVariants({ part: 'office-stream' })} data-stream="stderr">
+        <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')} data-stream="stderr">
           {stderr.body}
           {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
         </pre>
@@ -372,7 +462,7 @@ function RiveWorkflowPreview(props: {
   ].join('\n');
   const cappedPreview = capLines(redactSecrets(body));
   return (
-    <pre className={previewVariants({ part: 'overlay' })} data-kind="rive_workflow">
+    <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind="rive_workflow">
       {cappedPreview.body}
       {cappedPreview.capped > 0 && `\n\n… 已隐藏 ${cappedPreview.capped} 行`}
     </pre>
@@ -412,30 +502,35 @@ function WebSearchPreview(props: {
 
   if (rows.length === 0) {
     return (
-      <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }))} data-kind="web_search">
-        <header>
-          <strong>{redactSecrets(props.query)}</strong>
-          <small>{props.provider} · 没有结果</small>
+      <div className="grid gap-1.5 [font-family:var(--font-sans)]" data-kind="web_search">
+        <header className="grid gap-0.5">
+          <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query)}</strong>
+          <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{props.provider} · 没有结果</small>
         </header>
       </div>
     );
   }
   return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }))} data-kind="web_search">
-      <header>
-        <strong>{redactSecrets(props.query)}</strong>
-        <small>
+    <div className="grid gap-2 [font-family:var(--font-sans)]" data-kind="web_search">
+      <header className="grid gap-0.5">
+        <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query)}</strong>
+        <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">
           {props.provider} · {rows.length} 条结果
         </small>
       </header>
-      <ul>
+      <ul className="m-0 grid list-none gap-2 p-0">
         {rows.map((row, idx) => (
-          <li key={`${row.url}-${idx}`}>
-            <a href={row.url} target="_blank" rel="noreferrer noopener">
+          <li key={`${row.url}-${idx}`} className="grid gap-0.5">
+            <a
+              href={row.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-[length:var(--font-size-base)] font-medium text-[color:var(--link)]"
+            >
               {redactSecrets(row.title)}
             </a>
-            <small>{redactSecrets(row.source)}</small>
-            <p>{redactSecrets(row.snippet)}</p>
+            <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{redactSecrets(row.source)}</small>
+            <p className="m-0 text-[length:var(--font-size-base)] leading-snug text-[color:var(--foreground-secondary)]">{redactSecrets(row.snippet)}</p>
           </li>
         ))}
       </ul>
@@ -473,13 +568,13 @@ function WebSearchErrorPreview(props: {
                 ? '隐私模式下不会发起联网搜索。'
                 : '请检查网络或稍后重试。';
   return (
-    <div className={cn(previewVariants({ part: 'overlay' }), previewVariants({ part: 'web-search' }), previewVariants({ part: 'web-search-error' }))} data-kind="web_search_error">
-      <header>
-        <strong>{redactSecrets(props.query ?? '联网搜索')}</strong>
-        <small>{redactSecrets(props.provider)} · 搜索失败 · {sourceCopy}</small>
+    <div className="grid gap-1.5 [font-family:var(--font-sans)]" data-kind="web_search_error">
+      <header className="grid gap-0.5">
+        <strong className="text-[length:var(--font-size-base)] text-[color:var(--foreground)]">{redactSecrets(props.query ?? '联网搜索')}</strong>
+        <small className="text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{redactSecrets(props.provider)} · 搜索失败 · {sourceCopy}</small>
       </header>
-      <p className={previewVariants({ part: 'web-search-error-message' })}>{redactSecrets(props.message)}</p>
-      <p className={previewVariants({ part: 'web-search-error-repair' })}>{repairCopy}</p>
+      <p className="m-0 text-[length:var(--font-size-base)] text-[color:var(--destructive)]">{redactSecrets(props.message)}</p>
+      <p className="m-0 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]">{repairCopy}</p>
     </div>
   );
 }

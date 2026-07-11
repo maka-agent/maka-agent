@@ -4,7 +4,7 @@
  * accumulates from `ThinkingDeltaEvent` / `ThinkingCompleteEvent`.
  *
  * The original C0 implementation appended `event.text` directly
- * into `thinkingBySession` state and rendered with
+ * into the live-turn projection and rendered with
  * `<pre>{thinkingText}</pre>` — no Markdown, no redaction, no size
  * cap. Two trust-boundary failures: (1) model thinking output can
  * echo prompts / env / tool stderr / pasted credentials, so the

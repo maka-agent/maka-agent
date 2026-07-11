@@ -11,12 +11,27 @@ import {
 } from '../fixed-prompt-controller.js';
 import { buildRuntimePolicyAbRunManifest, runRuntimePolicyAbComparison } from '../runtime-policy-ab-run.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
+import type { RuntimePolicyAbExecutionProfile } from '../runtime-policy-ab-profile.js';
 
 const config: Config = {
   id: 'cfg-runtime-policy-ab',
   backend: 'fake',
   llmConnectionSlug: 'deepseek',
   model: 'deepseek/deepseek-v4-flash',
+};
+
+const executionProfile: RuntimePolicyAbExecutionProfile = {
+  schemaVersion: 1,
+  id: 'test-profile',
+  llmConnectionSlug: 'deepseek',
+  provider: 'deepseek',
+  baseUrl: 'https://api.deepseek.com',
+  model: 'deepseek/deepseek-v4-flash',
+  pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'test-profile' },
+  taskBudgetSec: 1800,
+  harborTimeoutMs: 2_100_000,
+  observedCostStopUsd: 20,
+  maxConcurrentAttempts: 2,
 };
 
 describe('runRuntimePolicyAbComparison', () => {
@@ -27,18 +42,13 @@ describe('runRuntimePolicyAbComparison', () => {
         { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
       ],
       promptHash: sha256('p'),
-      provider: 'deepseek',
-      baseUrl: 'https://api.deepseek.com',
-      model: 'deepseek/deepseek-v4-flash',
-      taskBudgetSec: 1800,
-      harborTimeoutMs: 2_100_000,
+      executionProfile: { ...executionProfile, maxConcurrentAttempts: 4 },
       subjectFingerprint: sha256('s'),
       taskSourceFingerprint: sha256('t'),
       toolchainFingerprint: sha256('c'),
       evaluationTaskIds: ['t1', 't2'],
       reps: 3,
       candidateLimit: null,
-      maxConcurrency: 4,
       nonInferiorityMargin: 0.1,
       sharedAgentEnv: {
         MAKA_HARBOR_CONTINUATION: 'on',
@@ -48,6 +58,8 @@ describe('runRuntimePolicyAbComparison', () => {
     });
 
     assert.equal(manifest.experimentKind, 'runtime');
+    assert.equal(manifest.maxConcurrentAttempts, 4);
+    assert.equal(manifest.maxConcurrency, 2);
     assert.equal(manifest.toolchainFingerprint, sha256('c'));
     assert.deepEqual(manifest.evaluationTaskIds, ['t1', 't2']);
     assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.promptHash), [sha256('p'), sha256('p')]);
@@ -82,29 +94,26 @@ describe('runRuntimePolicyAbComparison', () => {
       const manifest = buildRuntimePolicyAbRunManifest({
         arms: [taskToolsOff, taskToolsOn],
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
       });
       const calls: string[] = [];
 
       await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath,
         resultsJsonlPath,
         evaluationTasks: [{ id: 't1', path: '/bench/t1' }],
         reps: 1,
         arms: [taskToolsOff, taskToolsOn],
+        executionProfile,
         resumeFingerprint: 'caller-salt',
         harborRunner: async (input) => {
           calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
@@ -134,18 +143,13 @@ describe('runRuntimePolicyAbComparison', () => {
           { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on', MAKA_CONTEXT_FOO: '1' } as never },
         ],
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
       }),
       /unsupported Harbor context env key: MAKA_CONTEXT_FOO/,
     );
@@ -160,18 +164,13 @@ describe('runRuntimePolicyAbComparison', () => {
         ],
         sharedAgentEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } as never,
         promptHash: sha256('p'),
-        provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com',
-        model: 'deepseek/deepseek-v4-flash',
-        taskBudgetSec: 1800,
-        harborTimeoutMs: 2_100_000,
+        executionProfile,
         subjectFingerprint: sha256('s'),
         taskSourceFingerprint: sha256('t'),
         toolchainFingerprint: sha256('c'),
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
       }),
       /unsupported runtime policy shared agent env key: MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE/,
     );
@@ -185,6 +184,7 @@ describe('runRuntimePolicyAbComparison', () => {
 
       const result = await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath: promptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
@@ -200,6 +200,7 @@ describe('runRuntimePolicyAbComparison', () => {
             },
           },
         ],
+        executionProfile,
         harborRunner: async (input) => {
           calls.push(input);
           return harborOutput(input);
@@ -272,12 +273,14 @@ describe('runRuntimePolicyAbComparison', () => {
       const run = async (arms: Parameters<typeof runRuntimePolicyAbComparison>[0]['arms']) => {
         await runRuntimePolicyAbComparison({
           runId: 'runtime-ab-run',
+          runRoot: dir,
           config,
           systemPromptPath: promptPath,
           resultsJsonlPath,
           evaluationTasks: [task],
           reps: 1,
           arms,
+          executionProfile,
           sharedAgentEnv: { MAKA_HARBOR_CONTINUATION: 'on' },
           resumeFingerprint: 'caller-salt',
           harborRunner: async (input) => {
@@ -305,12 +308,14 @@ describe('runRuntimePolicyAbComparison', () => {
       calls = [];
       await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath: promptPath,
         resultsJsonlPath,
         evaluationTasks: [task],
         reps: 1,
         arms: [pruneOff, pruneOnChanged],
+        executionProfile,
         sharedAgentEnv: {
           MAKA_HARBOR_CONTINUATION: 'on',
           MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',
@@ -340,6 +345,12 @@ function harborOutput(input: HarborTaskRunInput): HarborTaskRunOutput {
       schemaVersion: 1,
       status: 'completed',
       promptHash: hashSystemPrompt(input.systemPrompt),
+      executionIdentity: {
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-v4-flash',
+        systemPromptHash: hashSystemPrompt(input.systemPrompt),
+        pricingProfile: 'test-profile',
+      },
       tokenSummary: tokenSummary({ input: 4, output: 6, reasoning: 0, total: 10, costUsd: 0.01 }),
       contextBudgetPolicy: pruneOn
         ? {

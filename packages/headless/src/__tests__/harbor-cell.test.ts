@@ -302,6 +302,7 @@ describe('runHarborCell', () => {
         cwd: workspaceDir,
         outputDir,
         storageRoot,
+        pricingProfile: 'deepseek-v4-flash-tbench-v1',
         registerBackends: registerCellBackend,
       });
 
@@ -310,6 +311,12 @@ describe('runHarborCell', () => {
       assert.equal(result.output.promptHash, 'sha256:cell-prompt');
       assert.equal(result.output.runtimeEventsPath, join(outputDir, HARBOR_CELL_RUNTIME_EVENTS_FILENAME));
       assert.equal(result.output.tokenSummary.costUsd, 0.0042);
+      assert.deepEqual(result.output.executionIdentity, {
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        systemPromptHash: `sha256:${createHash('sha256').update(JSON.stringify(config.systemPrompt)).digest('hex')}`,
+        pricingProfile: 'deepseek-v4-flash-tbench-v1',
+      });
 
       const outputJson = JSON.parse(await readFile(join(outputDir, HARBOR_CELL_OUTPUT_FILENAME), 'utf8'));
       assert.deepEqual(outputJson, result.output);

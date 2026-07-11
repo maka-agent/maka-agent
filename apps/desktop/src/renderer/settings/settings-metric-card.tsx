@@ -1,12 +1,16 @@
-import { Card } from '@maka/ui';
+import { StatTile } from '@maka/ui';
 
+/** Thin alias over the shared StatTile (convergence R4) — usage/bot call
+ *  sites keep their name; the recipe lives in the primitive. */
 export function MetricCard(props: { title: string; value: string; detail?: string }) {
   return (
-    <Card className="settingsMetricCard">
-      <small>{props.title}</small>
-      <strong>{props.value}</strong>
-      {props.detail && <span>{props.detail}</span>}
-    </Card>
+    <StatTile
+      className="settingsMetricCard"
+      emphasis="filled"
+      label={props.title}
+      value={props.value}
+      detail={props.detail}
+    />
   );
 }
 

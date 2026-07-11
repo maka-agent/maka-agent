@@ -32,18 +32,23 @@ describe('Settings destructive confirm contract', () => {
   });
 
   it('routes OAuth, provider, memory restore, and WeChat destructive actions through toast.confirm', async () => {
-    const [settings, providers] = await Promise.all([
+    const [settings, providers, loginFlowHook] = await Promise.all([
       readSettingsCombinedSource(),
       readProviderSettingsCombinedSource(),
+      // The browser-loopback logout confirm moved into the shared login-flow
+      // hook when SubscriptionLoginModal was thinned onto useOAuthLoginFlow.
+      readRepo('apps/desktop/src/renderer/settings/use-oauth-login-flow.ts'),
     ]);
+    const providerSources = `${providers}\n${loginFlowHook}`;
 
     for (const title of [
       '退出 ${display.name} 登录？',
       '删除供应商 ${connection.name}？',
       '退出 Claude Code 登录？',
     ]) {
-      assert.ok(providers.includes(`title: \`${title}\``) || providers.includes(`title: '${title}'`));
+      assert.ok(providerSources.includes(`title: \`${title}\``) || providerSources.includes(`title: '${title}'`));
     }
+    assert.match(loginFlowHook, /destructive:\s*true/, 'shared OAuth logout confirm must use destructive styling');
 
     for (const title of [
       '恢复上一版 MEMORY.md？',

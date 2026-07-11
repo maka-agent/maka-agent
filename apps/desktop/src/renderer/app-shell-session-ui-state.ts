@@ -1,6 +1,6 @@
 import { useReducer, useRef } from 'react';
 import type { SessionEventStreamSnapshot } from '@maka/core';
-import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
+import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
 
 type StateUpdater<T> = (updater: (current: T) => T) => void;
 
@@ -8,10 +8,7 @@ export interface AppShellSessionUiState {
   messageLoadErrorBySession: Record<string, string>;
   messageRetryPendingBySession: Record<string, boolean>;
   stopPendingBySession: Record<string, boolean>;
-  streamingBySession: Record<string, AssistantStreamSlot>;
-  thinkingBySession: Record<string, string>;
-  thinkingTruncatedBySession: Record<string, boolean>;
-  liveToolsBySession: Record<string, ToolActivityItem[]>;
+  liveTurnBySession: Record<string, LiveTurnProjection>;
   permissionBySession: PermissionQueues;
   sessionEventHealthBySession: Record<string, SessionEventStreamSnapshot>;
   pendingPermissionModeBySession: Record<string, boolean>;
@@ -24,10 +21,7 @@ const SESSION_UI_MAP_KEYS = [
   'messageLoadErrorBySession',
   'messageRetryPendingBySession',
   'stopPendingBySession',
-  'streamingBySession',
-  'thinkingBySession',
-  'thinkingTruncatedBySession',
-  'liveToolsBySession',
+  'liveTurnBySession',
   'permissionBySession',
   'sessionEventHealthBySession',
   'pendingPermissionModeBySession',
@@ -37,6 +31,17 @@ const SESSION_UI_MAP_KEYS = [
 type MissingSessionUiMapKey = Exclude<AppShellSessionUiStateMapKey, typeof SESSION_UI_MAP_KEYS[number]>;
 const allSessionUiMapsAreListed: Record<MissingSessionUiMapKey, never> = {};
 void allSessionUiMapsAreListed;
+
+// `useSettledSessionTransientReconcile` heals a session whose turn ended while
+// its SessionEvent stream wasn't being followed, and must drop only the live
+// projection. The independently-scoped maps (message load error / retry, pending
+// permission-mode / model toggles, the permission queue, event-stream health,
+// stop-pending) each have their own lifecycle and must survive a mere turn
+// settle — a full `clearAppShellSessionUiStateForSession` (session deletion)
+// would wipe them too.
+const TURN_TRANSIENT_MAP_KEYS = [
+  'liveTurnBySession',
+] as const satisfies readonly AppShellSessionUiStateMapKey[];
 
 export function createInitialAppShellSessionUiState(): AppShellSessionUiState {
   return Object.fromEntries(SESSION_UI_MAP_KEYS.map((key) => [key, {}])) as unknown as AppShellSessionUiState;
@@ -82,23 +87,29 @@ export function clearAppShellSessionUiStateForSession(
   return nextState;
 }
 
+export function clearAppShellTurnTransientForSession(
+  state: AppShellSessionUiState,
+  sessionId: string,
+): AppShellSessionUiState {
+  let nextState = state;
+  for (const key of TURN_TRANSIENT_MAP_KEYS) {
+    nextState = clearSessionUiStateMap(nextState, key, sessionId);
+  }
+  return nextState;
+}
+
 export function createAppShellSessionUiStateController(
   initialState: AppShellSessionUiState = createInitialAppShellSessionUiState(),
   onChange: (state: AppShellSessionUiState) => void = () => {},
 ) {
   let currentState = initialState;
-  const streamingBySessionRef = { current: currentState.streamingBySession };
-  // Live thinking has no per-turn identity in state (it's a plain string buffer),
-  // so a deferred #642 textless refresh-before-clear needs a synchronous snapshot
-  // of it at schedule time to avoid wiping a newer turn's reasoning (review P2-A).
-  const thinkingBySessionRef = { current: currentState.thinkingBySession };
+  const liveTurnBySessionRef = { current: currentState.liveTurnBySession };
   const sessionEventHealthBySessionRef = { current: currentState.sessionEventHealthBySession };
 
   function replaceState(next: AppShellSessionUiState): void {
     if (next === currentState) return;
     currentState = next;
-    streamingBySessionRef.current = next.streamingBySession;
-    thinkingBySessionRef.current = next.thinkingBySession;
+    liveTurnBySessionRef.current = next.liveTurnBySession;
     sessionEventHealthBySessionRef.current = next.sessionEventHealthBySession;
     onChange(next);
   }
@@ -119,22 +130,21 @@ export function createAppShellSessionUiStateController(
 
   return {
     getState: () => currentState,
-    streamingBySessionRef,
-    thinkingBySessionRef,
+    liveTurnBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession: createMapSetter('messageLoadErrorBySession'),
     setMessageRetryPendingBySession: createMapSetter('messageRetryPendingBySession'),
     setStopPendingBySession: createMapSetter('stopPendingBySession'),
-    setStreamingBySession: createMapSetter('streamingBySession'),
-    setThinkingBySession: createMapSetter('thinkingBySession'),
-    setThinkingTruncatedBySession: createMapSetter('thinkingTruncatedBySession'),
-    setLiveToolsBySession: createMapSetter('liveToolsBySession'),
+    setLiveTurnBySession: createMapSetter('liveTurnBySession'),
     setPermissionBySession: createMapSetter('permissionBySession'),
     setSessionEventHealthBySession: createMapSetter('sessionEventHealthBySession'),
     setPendingPermissionModeBySession: createMapSetter('pendingPermissionModeBySession'),
     setPendingSessionModelBySession: createMapSetter('pendingSessionModelBySession'),
     clearSessionUiState: (sessionId: string) => {
       replaceState(clearAppShellSessionUiStateForSession(currentState, sessionId));
+    },
+    clearTurnTransientState: (sessionId: string) => {
+      replaceState(clearAppShellTurnTransientForSession(currentState, sessionId));
     },
   };
 }
@@ -154,20 +164,17 @@ export function useAppShellSessionUiState() {
 
   return {
     state: controller.getState(),
-    streamingBySessionRef: controller.streamingBySessionRef,
-    thinkingBySessionRef: controller.thinkingBySessionRef,
+    liveTurnBySessionRef: controller.liveTurnBySessionRef,
     sessionEventHealthBySessionRef: controller.sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession: controller.setMessageLoadErrorBySession,
     setMessageRetryPendingBySession: controller.setMessageRetryPendingBySession,
     setStopPendingBySession: controller.setStopPendingBySession,
-    setStreamingBySession: controller.setStreamingBySession,
-    setThinkingBySession: controller.setThinkingBySession,
-    setThinkingTruncatedBySession: controller.setThinkingTruncatedBySession,
-    setLiveToolsBySession: controller.setLiveToolsBySession,
+    setLiveTurnBySession: controller.setLiveTurnBySession,
     setPermissionBySession: controller.setPermissionBySession,
     setSessionEventHealthBySession: controller.setSessionEventHealthBySession,
     setPendingPermissionModeBySession: controller.setPendingPermissionModeBySession,
     setPendingSessionModelBySession: controller.setPendingSessionModelBySession,
     clearSessionUiState: controller.clearSessionUiState,
+    clearTurnTransientState: controller.clearTurnTransientState,
   };
 }

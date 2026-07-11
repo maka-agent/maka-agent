@@ -18,7 +18,7 @@ import type {
   PermissionSnapshot,
 } from '@maka/core';
 import { OS_PERMISSION_IDS } from '@maka/core';
-import { Button, Badge, RelativeTime, PageHeader, useToast } from '@maka/ui';
+import { Button, Badge, EmptyState, RelativeTime, PageHeader, SectionHeader, StatTile, useToast } from '@maka/ui';
 import { settingsActionErrorMessage } from './settings-error-copy';
 import { statusBadgeVariant } from './settings-status-badge';
 import { SettingsSkeletonStack } from './settings-skeleton';
@@ -248,21 +248,23 @@ export function PermissionCenterPage() {
       </section>
 
       <section aria-label="功能能力" className="settingsPermissionSection">
-        <header className="settingsPermissionSectionHeader">
-          <div>
-            <h4>功能能力</h4>
-            <small>每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。</small>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            onClick={() => setDiagnosticsOpen((open) => !open)}
-            aria-expanded={diagnosticsOpen}
-          >
-            {diagnosticsOpen ? '收起详情' : '展开详情'}
-          </Button>
-        </header>
+        <SectionHeader
+          className="settingsPermissionSectionHeader"
+          as="h4"
+          title="功能能力"
+          subtitle="每个能力的就绪状态由「功能开关 · 配置 · 系统权限 · 运行态探测」共同决定。"
+          action={
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setDiagnosticsOpen((open) => !open)}
+              aria-expanded={diagnosticsOpen}
+            >
+              {diagnosticsOpen ? '收起详情' : '展开详情'}
+            </Button>
+          }
+        />
         <ul className="settingsCapabilityList" aria-label="功能能力列表" data-diagnostics-open={diagnosticsOpen ? 'true' : undefined}>
           {capabilities.capabilities.map((capability) => (
             <CapabilityRow key={capability.id} capability={capability} />
@@ -284,14 +286,15 @@ function PermissionSummaryTile(props: {
   value: number;
   tone: 'success' | 'warning' | 'destructive' | 'neutral';
 }) {
-  // A zero count is not an exception — the tone only paints when there is
-  // actually something to look at (0 已拒绝 in red read as a false alarm).
-  const effectiveTone = props.value > 0 ? props.tone : 'neutral';
+  // Convergence R4: StatTile owns the recipe (incl. the zero-is-not-an-
+  // exception tone gate this tile pioneered).
   return (
-    <div className="settingsPermissionSummaryTile" data-tone={effectiveTone} data-empty={props.value === 0}>
-      <span className="settingsPermissionSummaryValue">{props.value}</span>
-      <span className="settingsPermissionSummaryLabel">{props.label}</span>
-    </div>
+    <StatTile
+      className="settingsPermissionSummaryTile"
+      label={props.label}
+      value={props.value}
+      tone={props.tone}
+    />
   );
 }
 
@@ -475,7 +478,7 @@ function CapabilityRow(props: { capability: CapabilitySnapshot }) {
       */}
       <div className="settingsCapabilityAuditSlot" aria-hidden={capability.auditEvents.length === 0}>
         {capability.auditEvents.length === 0 ? (
-          <small>暂无审计记录。</small>
+          <EmptyState variant="inline" title="暂无审计记录" body="" />
         ) : (
           <ul aria-label={`${capability.label}审计记录列表`}>
             {capability.auditEvents.slice(-3).map((event, index) => (

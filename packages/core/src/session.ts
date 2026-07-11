@@ -9,7 +9,7 @@
  * documented in spec §5.2.
  */
 
-import type { AttachmentRef, ToolResultContent } from './events.js';
+import type { AttachmentRef, ToolActivityKind, ToolResultContent } from './events.js';
 import type { PermissionMode } from './permission.js';
 import type {
   CacheMissInputSource,
@@ -146,6 +146,7 @@ export type SessionChangedReason =
   | 'mode-change'
   | 'status-change'
   | 'turn-status-change'
+  | 'goal-change'
   | 'rebound';
 
 export interface SessionChangedEvent {
@@ -194,9 +195,19 @@ export interface AssistantMessage {
     /** Anthropic signed thinking for replay. */
     signature?: string;
   };
+  /**
+   * First-observed order of visible content inside this assistant step.
+   * RuntimeEvent projection records partial text/thinking and the paired tool
+   * call before dropping partial rows, so live and persisted timelines can use
+   * the same append-only order. Absent on legacy rows, which retain the older
+   * semantic thinking → text → tools fallback.
+   */
+  contentOrder?: AssistantStepContentKind[];
   /** Actual model used for this turn. */
   modelId: string;
 }
+
+export type AssistantStepContentKind = 'thinking' | 'text' | 'tools';
 
 export interface ToolCallMessage {
   type: 'tool_call';
@@ -205,6 +216,8 @@ export interface ToolCallMessage {
   turnId: string;
   ts: number;
   toolName: string;
+  /** Stable semantic category for presentation; absent on legacy rows. */
+  activityKind?: ToolActivityKind;
   displayName?: string;
   intent?: string;
   args: unknown;

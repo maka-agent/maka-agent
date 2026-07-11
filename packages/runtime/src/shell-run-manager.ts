@@ -32,10 +32,17 @@ export const DEFAULT_SHELL_RUN_FLUSH_BYTES = 64 * 1024;
 export const SHELL_RUN_CONTEXT_SUMMARY_LIMIT = 8;
 export const SHELL_RUN_RESOURCE_PREFIX = 'maka://runtime/background-tasks';
 
+export interface ShellRunUpdate {
+  sessionId: string;
+  sourceToolCallId: string;
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+}
+
 export interface ShellRunProcessManagerInput {
   store: ShellRunStore;
   newId: () => string;
   now: () => number;
+  onShellRunUpdate?: (update: ShellRunUpdate) => void;
   maxLiveShellRuns?: number;
   flushIntervalMs?: number;
   flushBytes?: number;
@@ -76,6 +83,7 @@ interface LiveShellRun {
   stderrBuf: BashTailBuffer;
   stdoutChars: number;
   stderrChars: number;
+  latestOutputStream?: 'stdout' | 'stderr';
   pendingFlushChars: number;
   flushTimer?: NodeJS.Timeout;
   flushChain: Promise<void>;
@@ -185,11 +193,16 @@ export class ShellRunProcessManager {
     return lines.join('\n');
   }
 
-  async readResource(sessionId: string, ref: string): Promise<{ content: string }> {
+  async readResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
     const target = parseShellRunResourceRef(ref);
     if (!target) throw new Error(`Unsupported runtime resource ref: ${ref}`);
-    const content = await this.renderResourceDetail(sessionId, target.shellRunId);
-    return { content };
+    return this.resourceDetail(sessionId, target.shellRunId, true);
+  }
+
+  async inspectResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
+    const target = parseShellRunResourceRef(ref);
+    if (!target) throw new Error(`Unsupported runtime resource ref: ${ref}`);
+    return this.resourceDetail(sessionId, target.shellRunId, false);
   }
 
   async stopResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
@@ -315,6 +328,7 @@ export class ShellRunProcessManager {
 
   private append(live: LiveShellRun, stream: 'stdout' | 'stderr', chunk: string): void {
     if (live.settled || chunk.length === 0) return;
+    if (chunk.trim()) live.latestOutputStream = stream;
     if (stream === 'stdout') {
       live.stdoutBuf.push(chunk);
       live.stdoutChars += chunk.length;
@@ -361,10 +375,11 @@ export class ShellRunProcessManager {
     const patch = this.tailPatch(live);
     live.flushChain = live.flushChain.then(async () => {
       await live.created;
-      await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
+      const updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
         ...patch,
         updatedAt: this.input.now(),
       });
+      if (!live.forwardLive) this.notifyShellRunUpdate(updated);
     });
     await live.flushChain;
   }
@@ -382,11 +397,11 @@ export class ShellRunProcessManager {
 
     try {
       await live.created;
-      const now = this.input.now();
       const status = statusFromClose(code, signal, live.termination);
       const exitCode = exitCodeFromClose(code, signal, live.termination);
       const failureMessage = failureMessageFor(status, live.timeoutMs);
       live.flushChain = live.flushChain.then(async () => {
+        const now = this.input.now();
         const updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
           ...this.tailPatch(live),
           status,
@@ -395,6 +410,7 @@ export class ShellRunProcessManager {
           updatedAt: now,
           completedAt: now,
         });
+        if (!live.forwardLive) this.notifyShellRunUpdate(updated);
         live.finish(updated);
       });
       await live.flushChain;
@@ -407,16 +423,29 @@ export class ShellRunProcessManager {
 
   private tailPatch(live: LiveShellRun): Pick<
     ShellRunRecord,
-    'stdoutTail' | 'stderrTail' | 'stdoutTruncated' | 'stderrTruncated'
+    'stdoutTail' | 'stderrTail' | 'latestOutputStream' | 'stdoutTruncated' | 'stderrTruncated'
   > {
     const stdoutRawTail = shellTailValueWithUnsafeDropMarker(live.stdoutBuf);
     const stderrRawTail = shellTailValueWithUnsafeDropMarker(live.stderrBuf);
     return {
       stdoutTail: redactSecrets(stdoutRawTail),
       stderrTail: redactSecrets(stderrRawTail),
+      ...(live.latestOutputStream ? { latestOutputStream: live.latestOutputStream } : {}),
       stdoutTruncated: live.stdoutChars > stdoutRawTail.length || live.stdoutBuf.hasDroppedUnsafe(),
       stderrTruncated: live.stderrChars > stderrRawTail.length || live.stderrBuf.hasDroppedUnsafe(),
     };
+  }
+
+  private notifyShellRunUpdate(record: ShellRunRecord): void {
+    try {
+      this.input.onShellRunUpdate?.({
+        sessionId: record.sessionId,
+        sourceToolCallId: record.sourceToolCallId,
+        result: shellRunContent(record),
+      });
+    } catch {
+      // UI observers are best-effort; durable process state is authoritative.
+    }
   }
 
   private beginTermination(live: LiveShellRun, reason: ShellRunTermination): void {
@@ -473,7 +502,11 @@ export class ShellRunProcessManager {
       .sort(compareActionableShellRuns);
   }
 
-  private async renderResourceDetail(sessionId: string, shellRunId: string): Promise<string> {
+  private async resourceDetail(
+    sessionId: string,
+    shellRunId: string,
+    markObserved: boolean,
+  ): Promise<ShellRunToolResult> {
     let record = await this.input.store.readShellRun(sessionId, shellRunId);
     if (record.status === 'running') {
       const live = this.live.get(shellRunId);
@@ -488,10 +521,10 @@ export class ShellRunProcessManager {
         record = await this.markOrphaned(record, 'missing live shell process handle during resource read');
       }
     }
-    if (isTerminalShellRunStatus(record.status)) {
+    if (markObserved && isTerminalShellRunStatus(record.status)) {
       record = await this.markObserved(record);
     }
-    return renderShellRunResource(record);
+    return shellRunContent(record);
   }
 }
 
@@ -544,6 +577,7 @@ function shellRunContent(record: ShellRunRecord, cancelled?: boolean): ShellRunT
     ...(record.failureMessage !== undefined ? { failureMessage: record.failureMessage } : {}),
     stdout: stdout.content,
     stderr: stderr.content,
+    ...(record.latestOutputStream ? { latestOutputStream: record.latestOutputStream } : {}),
     stdoutTruncated: record.stdoutTruncated || stdout.truncated,
     stderrTruncated: record.stderrTruncated || stderr.truncated,
     ...(record.timeoutMs !== undefined ? { timeoutMs: record.timeoutMs } : {}),
@@ -649,32 +683,6 @@ function parseShellRunResourceRef(ref: string): ShellRunResourceTarget | null {
     }
   }
   return null;
-}
-
-function renderShellRunResource(record: ShellRunRecord): string {
-  const stdout = truncateToolOutput(record.stdoutTail, { direction: 'tail' });
-  const stderr = truncateToolOutput(record.stderrTail, { direction: 'tail' });
-  const lines = [
-    'Background task',
-    `ref: ${shellRunResourceRef(record.shellRunId)}`,
-    `status: ${record.status}`,
-    `cwd: ${record.cwd}`,
-    `command: ${record.command}`,
-    `startedAt: ${record.startedAt}`,
-    `updatedAt: ${record.updatedAt}`,
-    record.completedAt !== undefined ? `completedAt: ${record.completedAt}` : '',
-    record.exitCode !== undefined ? `exitCode: ${record.exitCode}` : '',
-    record.timeoutMs !== undefined ? `timeoutMs: ${record.timeoutMs}` : '',
-    record.failureMessage ? `failureMessage: ${record.failureMessage}` : '',
-    record.orphanedReason ? `orphanedReason: ${record.orphanedReason}` : '',
-    '',
-    `stdout${record.stdoutTruncated || stdout.truncated ? ' (truncated)' : ''}:`,
-    stdout.content,
-    '',
-    `stderr${record.stderrTruncated || stderr.truncated ? ' (truncated)' : ''}:`,
-    stderr.content,
-  ];
-  return lines.filter((line, index) => line.length > 0 || index > 0).join('\n');
 }
 
 function clampInt(value: number, min: number, max: number): number {

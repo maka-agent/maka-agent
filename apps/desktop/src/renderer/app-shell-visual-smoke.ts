@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 import type { SettingsSection, ThemePreference } from '@maka/core';
-import type { AssistantStreamSlot, PermissionQueues, ToolActivityItem } from '@maka/ui';
+import type { LiveTurnProjection, PermissionQueues } from '@maka/ui';
 import type { NavSelection } from '@maka/ui';
 import { applyTheme } from './theme';
 
@@ -15,28 +15,24 @@ export function createAppShellVisualSmokeActions(options: {
   openSettingsSection: (section: SettingsSection) => void;
   refreshSessions: () => Promise<unknown>;
   setActiveId: (sessionId: string | undefined) => void;
-  setLiveToolsBySession: StateUpdater<Record<string, ToolActivityItem[]>>;
+  setLiveTurnBySession: StateUpdater<Record<string, LiveTurnProjection>>;
   setNavSelection: Dispatch<SetStateAction<NavSelection>>;
   setPermissionBySession: StateUpdater<PermissionQueues>;
   setSearchModalOpen: Dispatch<SetStateAction<boolean>>;
   setSessionListCollapsed: Dispatch<SetStateAction<boolean>>;
-  setStreamingBySession: StateUpdater<Record<string, AssistantStreamSlot>>;
   setThemePref: Dispatch<SetStateAction<ThemePreference>>;
-  setThinkingBySession: StateUpdater<Record<string, string>>;
 }): AppShellVisualSmokeActions {
   const {
     openPalette,
     openSettingsSection,
     refreshSessions,
     setActiveId,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setNavSelection,
     setPermissionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
-    setStreamingBySession,
     setThemePref,
-    setThinkingBySession,
   } = options;
 
   async function applyVisualSmokeFixture() {
@@ -50,27 +46,8 @@ export function createAppShellVisualSmokeActions(options: {
       Date.now = () => state.now!;
     }
     document.documentElement.setAttribute('data-maka-visual-smoke', 'true');
-    if (state.streamingBySession) {
-      // PR-UI-Cx fixup v2: `VisualSmokeState.streamingBySession` is a
-      // `Record<string, string>` (fixture-side contract; can stay
-      // simple since fixtures are pre-canned safe text). Map each
-      // entry into the combined `AssistantStreamSlot` shape on
-      // hydration. `truncated: false` because fixture text is
-      // explicitly authored and never exceeds caps.
-      const seed = state.streamingBySession;
-      setStreamingBySession((current) => {
-        const next = { ...current };
-        for (const [sid, text] of Object.entries(seed)) {
-          next[sid] = { text, truncated: false, phase: 'streaming' };
-        }
-        return next;
-      });
-    }
-    if (state.thinkingBySession) {
-      // PR-UI-LAYOUT-42: mirror streamingBySession init pattern so
-      // visual smoke fixtures can seed the ReasoningPanel mid-stream
-      // and capture a deterministic screenshot of the live state.
-      setThinkingBySession((current) => ({ ...current, ...state.thinkingBySession }));
+    if (state.liveTurnBySession) {
+      setLiveTurnBySession((current) => ({ ...current, ...state.liveTurnBySession }));
     }
     if (state.permissionBySession) {
       const seeded: PermissionQueues = {};
@@ -78,9 +55,6 @@ export function createAppShellVisualSmokeActions(options: {
         if (request) seeded[seedSessionId] = [request];
       }
       setPermissionBySession((current) => ({ ...current, ...seeded }));
-    }
-    if (state.liveToolsBySession) {
-      setLiveToolsBySession((current) => ({ ...current, ...state.liveToolsBySession }));
     }
     // PR-IR-01b: theme override applied BEFORE the persisted user pref so
     // the screenshot variant matches `<theme>-<viewport>-<motion>.png`

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { ShellRunRecord, ShellRunStore } from '@maka/core';
-import { ShellRunProcessManager } from '../shell-run-manager.js';
+import { ShellRunProcessManager, type ShellRunUpdate } from '../shell-run-manager.js';
 import type { ShellPlan } from '../shell-detect.js';
 
 describe('ShellRunProcessManager', () => {
@@ -89,19 +89,122 @@ describe('ShellRunProcessManager', () => {
     if (!initial.ref) throw new Error('expected ShellRun resource ref');
 
     const detail = await manager.readResource('session-1', initial.ref);
-    assert.match(detail.content, /status: running/);
-    assert.match(detail.content, /stdout:\nstart/);
+    assert.equal(detail.kind, 'shell_run');
+    assert.equal(detail.status, 'running');
+    assert.equal(detail.stdout, 'start');
 
     const summary = await manager.buildContextSummary('session-1');
     assert.match(summary ?? '', /ref=maka:\/\/runtime\/background-tasks\/shell-run-1/);
 
     await sleep(600);
     const completed = await manager.readResource('session-1', initial.ref);
-    assert.match(completed.content, /status: completed/);
-    assert.match(completed.content, /stdout:\nstartdone/);
+    assert.equal(completed.kind, 'shell_run');
+    assert.equal(completed.status, 'completed');
+    assert.equal(completed.stdout, 'startdone');
     assert.equal(manager.liveCount(), 0);
 
     assert.equal(await manager.buildContextSummary('session-1'), undefined);
+  });
+
+  test('publishes the terminal state when a yielded ShellRun settles without a resource read', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "start"; sleep 0.5; printf "done"',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    assert.equal(initial.status, 'running');
+
+    await sleep(600);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.equal(terminal?.sessionId, 'session-1');
+    assert.equal(terminal?.sourceToolCallId, 'tool-1');
+    assert.equal(terminal?.result.stdout, 'startdone');
+    assert.equal(terminal?.result.exitCode, 0);
+  });
+
+  test('keeps terminal updatedAt after queued running flushes', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore({ updateDelayMs: 300 });
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "start"; sleep 0.1; printf "middle"; sleep 0.1',
+      yieldTimeMs: 50,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(750);
+    const latestRunning = updates.filter((update) => update.result.status === 'running').at(-1);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.ok(latestRunning);
+    assert.ok(terminal);
+    assert.ok(terminal.result.updatedAt >= latestRunning.result.updatedAt);
+  });
+
+  test('persists stdout as the latest output stream when it follows stderr', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "warning\\n" >&2; sleep 0.5; printf "99%%\\n"',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(600);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.equal(terminal?.result.latestOutputStream, 'stdout');
+    assert.equal(
+      (await store.readShellRun('session-1', 'shell-run-1')).latestOutputStream,
+      'stdout',
+    );
+  });
+
+  test('persists stderr as the latest output stream when it follows stdout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "99%%\\n"; sleep 0.5; printf "warning\\n" >&2',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(600);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.equal(terminal?.result.latestOutputStream, 'stderr');
+  });
+
+  test('publishes retained output after a ShellRun yields', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "start"; sleep 5',
+      yieldTimeMs: 250,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+    const running = updates.find((update) => update.result.status === 'running');
+    assert.equal(running?.result.stdout, 'start');
+
+    await manager.terminateAll();
   });
 
   test('stops running ShellRuns by runtime ref only after the process has exited', async () => {
@@ -139,8 +242,8 @@ describe('ShellRunProcessManager', () => {
     assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
 
     const detail = await manager.readResource('session-1', initial.ref);
-    assert.match(detail.content, /status: completed/);
-    assert.match(detail.content, /stdout:\nstartdone/);
+    assert.equal(detail.status, 'completed');
+    assert.equal(detail.stdout, 'startdone');
 
     const stored = await store.readShellRun('session-1', 'shell-run-1');
     assert.equal(stored.status, 'completed');
@@ -223,8 +326,8 @@ describe('ShellRunProcessManager', () => {
     assert.equal(recovered, 1);
 
     const detail = await manager.readResource('session-1', 'maka://runtime/background-tasks/orphan-1');
-    assert.match(detail.content, /status: orphaned/);
-    assert.match(detail.content, /orphanedReason: runtime restarted/);
+    assert.equal(detail.status, 'orphaned');
+    assert.match(detail.orphanedReason ?? '', /runtime restarted/);
   });
 
   test('context summary lists metadata without stdout or stderr tails', async () => {
@@ -260,8 +363,8 @@ describe('ShellRunProcessManager', () => {
     }));
 
     const detail = await manager.readResource('session-1', 'maka://runtime/background-tasks/done-1');
-    assert.match(detail.content, /status: completed/);
-    assert.ok(detail.content.length < largeStdout.length);
+    assert.equal(detail.status, 'completed');
+    assert.ok(detail.stdout.length < largeStdout.length);
 
     const stored = await store.readShellRun('session-1', 'done-1');
     assert.equal(stored.stdoutTail, largeStdout);
@@ -321,16 +424,21 @@ class MemoryShellRunStore implements ShellRunStore {
   }
 }
 
-function createManager(store: ShellRunStore): ShellRunProcessManager {
+function createManager(
+  store: ShellRunStore,
+  onShellRunUpdate?: (update: ShellRunUpdate) => void,
+): ShellRunProcessManager {
   let id = 0;
   let now = 1_000;
-  return new ShellRunProcessManager({
+  const input = {
     store,
     newId: () => `shell-run-${++id}`,
     now: () => ++now,
     flushIntervalMs: 10,
     killGraceMs: 50,
-  });
+    ...(onShellRunUpdate ? { onShellRunUpdate } : {}),
+  };
+  return new ShellRunProcessManager(input);
 }
 
 function shellInput(input: {

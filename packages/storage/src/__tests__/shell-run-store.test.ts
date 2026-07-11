@@ -16,12 +16,14 @@ describe('ShellRunStore', () => {
         status: 'completed',
         exitCode: 0,
         stdoutTail: 'done',
+        latestOutputStream: 'stdout',
         completedAt: 10,
         updatedAt: 10,
       });
 
       assert.equal(updated.status, 'completed');
       assert.equal(updated.stdoutTail, 'done');
+      assert.equal(updated.latestOutputStream, 'stdout');
       assert.deepEqual((await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId), ['shell-1', 'shell-2']);
       assert.equal((await store.readShellRun('session-1', 'shell-1')).completedAt, 10);
       assert.equal(

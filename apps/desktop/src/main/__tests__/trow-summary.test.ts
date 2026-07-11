@@ -7,7 +7,6 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import {
-  activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
   trowActivityKind,
@@ -33,6 +32,8 @@ describe('trowActivityKind', () => {
     assert.equal(trowActivityKind('Write'), 'edit');
     assert.equal(trowActivityKind('Edit'), 'edit');
     assert.equal(trowActivityKind('Bash'), 'command');
+    assert.equal(trowActivityKind('StopBackgroundTask'), 'command');
+    assert.equal(trowActivityKind('stop_background_task'), 'command');
     assert.equal(trowActivityKind('ExploreAgent'), 'explore');
     assert.equal(trowActivityKind('browser_click'), 'browser');
     assert.equal(trowActivityKind('OfficeDocument'), 'tool');
@@ -70,22 +71,15 @@ describe('summarizeTrowTools', () => {
   });
 });
 
-describe('activeTrowTool + isTrowRunning', () => {
-  it('reports running while any tool is in flight and picks the last in-flight tool', () => {
+describe('isTrowRunning', () => {
+  it('reports running while any tool is in flight', () => {
     const items = [tool('Read', 'completed'), tool('Bash', 'running'), tool('Grep', 'completed')];
     assert.equal(isTrowRunning(items), true);
-    assert.equal(activeTrowTool(items)?.toolName, 'Bash');
   });
 
-  it('reports settled and falls back to the last tool when nothing is in flight', () => {
+  it('reports settled when nothing is in flight', () => {
     const items = [tool('Read'), tool('Grep')];
     assert.equal(isTrowRunning(items), false);
-    assert.equal(activeTrowTool(items)?.toolName, 'Grep');
-  });
-
-  it('prefers waiting_permission as active', () => {
-    const items = [tool('Read', 'completed'), tool('Write', 'waiting_permission')];
-    assert.equal(activeTrowTool(items)?.status, 'waiting_permission');
   });
 });
 

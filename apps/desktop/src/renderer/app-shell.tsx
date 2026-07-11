@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type {
   ChatDefaultPermissionMode,
   ConnectionEvent,
@@ -53,6 +53,7 @@ function BrowserPanelFallback() {
   );
 }
 import { deriveChatHeaderAlert } from './chat-header-alert';
+import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
@@ -67,6 +68,8 @@ import { deriveBranchBanner } from './branch-banner';
 import { pickCatalogDefaultChatModel } from './model-catalog-choices';
 import { applyTheme, applyThemePalette, applyUiLocale } from './theme';
 import { hasInFlightToolActivity } from './session-event-health';
+import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
+import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
 import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { filterSessions, readNavSelection } from './nav-selection';
@@ -108,6 +111,7 @@ import {
   useAppShellPersistenceEffects,
   useAppShellRefSync,
   useSessionEventHealthPolling,
+  useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
 
@@ -199,30 +203,24 @@ export function AppShell({
   const stopPendingRef = useRef<Set<string>>(new Set());
   const {
     state: sessionUiState,
-    streamingBySessionRef,
-    thinkingBySessionRef,
+    liveTurnBySessionRef,
     sessionEventHealthBySessionRef,
     setMessageLoadErrorBySession,
     setMessageRetryPendingBySession,
     setStopPendingBySession,
-    setStreamingBySession,
-    setThinkingBySession,
-    setThinkingTruncatedBySession,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setPermissionBySession,
     setSessionEventHealthBySession,
     setPendingPermissionModeBySession,
     setPendingSessionModelBySession,
     clearSessionUiState,
+    clearTurnTransientState,
   } = useAppShellSessionUiState();
   const {
     messageLoadErrorBySession,
     messageRetryPendingBySession,
     stopPendingBySession,
-    streamingBySession,
-    thinkingBySession,
-    thinkingTruncatedBySession,
-    liveToolsBySession,
+    liveTurnBySession,
     permissionBySession,
     sessionEventHealthBySession,
     pendingPermissionModeBySession,
@@ -299,20 +297,25 @@ export function AppShell({
   const rendererMountedRef = useRef(true);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
-  const activeStreamingSlot = activeId ? streamingBySession[activeId] : undefined;
-  const activeStreaming = activeStreamingSlot?.text ?? '';
-  const activeStreamingTruncated = activeStreamingSlot?.truncated === true;
-  const activeStreamingComplete = activeStreamingSlot?.phase === 'draining';
-  const activeStreamingLive = activeStreaming.length > 0 && activeStreamingSlot?.phase === 'streaming';
-  const activeStreamingMessageId = activeStreamingComplete ? activeStreamingSlot?.messageId : undefined;
-  const activeThinking = activeId ? thinkingBySession[activeId] ?? '' : '';
-  const activeThinkingTruncated = activeId ? thinkingTruncatedBySession[activeId] === true : false;
+  // Active autonomous goal for the current session drives the header
+  // kill-switch pill (visible indicator + one-click clear).
+  const activeGoal = useSessionGoal(activeId);
+  const activeLiveTurn = activeId ? liveTurnBySession[activeId] : undefined;
+  const activeTextStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.text);
+  const activeThinkingStep = [...(activeLiveTurn?.steps ?? [])].reverse().find((step) => step.thinking);
+  const activeStreaming = activeTextStep?.text?.text ?? '';
+  const activeStreamingComplete = activeTextStep?.text?.complete === true;
+  const activeStreamingLive = activeStreaming.length > 0 && !activeStreamingComplete;
+  const activeStreamingMessageId = activeStreamingComplete ? activeTextStep?.stepId : undefined;
+  const activeThinking = activeThinkingStep?.thinking?.text ?? '';
   // Set of session ids with a live streaming delta — drives the sidebar
-  // pulse indicator. Recomputed on every streamingBySession change; cheap
+  // pulse indicator. Recomputed on every live projection change; cheap
   // since the underlying map only has at most a handful of entries.
   const streamingSessionIds = useMemo(
-    () => new Set(Object.entries(streamingBySession).flatMap(([id, slot]) => (slot.text && slot.phase === 'streaming' ? [id] : []))),
-    [streamingBySession],
+    () => new Set(Object.entries(liveTurnBySession).flatMap(([id, projection]) => (
+      projection.steps.some((step) => step.text?.text && !step.text.complete) ? [id] : []
+    ))),
+    [liveTurnBySession],
   );
   // Set of session ids whose backend / connection is no longer usable —
   // drives the sidebar "已过期" pill (PR108g, paired with the PR108e chat
@@ -338,7 +341,7 @@ export function AppShell({
   );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions), [visibleSessions]);
   const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
-  const liveTools = useMemo(() => (activeId ? liveToolsBySession[activeId] ?? [] : []), [activeId, liveToolsBySession]);
+  const liveTools = useMemo(() => activeLiveTurn?.steps.flatMap((step) => step.tools) ?? [], [activeLiveTurn]);
   const hasInFlightLiveTools = useMemo(() => hasInFlightToolActivity(liveTools), [liveTools]);
   const activeSessionEventHealth = activeId ? sessionEventHealthBySession[activeId] : undefined;
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
@@ -355,6 +358,31 @@ export function AppShell({
   });
   const activePermission = activePermissionFor(permissionBySession, activeId);
   const activeSession = sessions.find((session) => session.id === activeId);
+  // #646: the two turn-wait cues. `turnPhase` (armed at send, no lag; promoted to
+  // 'streamed' on the first content event) separates the connect-to-first-token
+  // wait from the later step-to-step lulls; the `status === 'running'` gate
+  // self-heals a backgrounded session whose terminal event was missed while
+  // inactive (its arm can't clear without the event). The rising-edge delays
+  // (useDelayedFlag) suppress a flash on fast turns / quick step hops.
+  const activeTurnPhase = activeLiveTurn?.terminal ? undefined : activeLiveTurn?.phase;
+  const turnInFlight = activeTurnPhase !== undefined;
+  const modelWaitKind = deriveModelWait({
+    turnPhase: activeTurnPhase,
+    streamingText: activeStreaming,
+    thinkingText: activeThinking,
+    hasInFlightTools: hasInFlightLiveTools,
+  });
+  const sessionAwaitingModel = activeSession?.status === 'running';
+  // The prominent "正在处理…" first-token indicator (turn head only).
+  const showProcessingIndicator = useDelayedFlag(
+    sessionAwaitingModel && modelWaitKind === 'processing',
+    MODEL_PROCESSING_DELAY_MS,
+  );
+  // The calm "继续中…" hint for a mid-turn step-to-step lull (after content).
+  const showContinuingIndicator = useDelayedFlag(
+    sessionAwaitingModel && modelWaitKind === 'continuing',
+    MODEL_CONTINUING_DELAY_MS,
+  );
   const activeConnection = activeSession
     ? connections.find((connection) => connection.slug === activeSession.llmConnectionSlug)
     : undefined;
@@ -598,11 +626,10 @@ export function AppShell({
     () => deriveAppShellTurnViewModel({
       activeId,
       messages,
-      liveTools,
       pendingTurnActions,
       pendingKeyOf,
     }),
-    [activeId, messages, liveTools, pendingTurnActions],
+    [activeId, messages, pendingTurnActions],
   );
 
   // PR109e-e: click handler for lineage badge → scroll target turn into
@@ -666,6 +693,21 @@ export function AppShell({
   const paletteOnOpenSearchModal = useCallback((query: string) => {
     setSearchModalInitialQuery(query);
     setSearchModalOpen(true);
+  }, []);
+  /** 技能页 使用: jump to the chat view and seed the composer with a skill
+   *  invocation. Same human-in-the-loop rule as maka://compose — we never
+   *  auto-send; the user finishes the sentence and presses Enter. */
+  const useSkillInChat = useCallback((_skillId: string, skillName: string) => {
+    setNavSelection({ section: 'sessions', filter: 'chats' });
+    const seed = () => {
+      composerRef.current?.setText(`使用 ${skillName} 技能：`);
+      composerRef.current?.focus();
+    };
+    if (activeIdRef.current) {
+      window.requestAnimationFrame(seed);
+      return;
+    }
+    void createSession().then(() => window.requestAnimationFrame(seed));
   }, []);
   const sessionListSelectSession = useCallback((sessionId: string) => {
     openSessionInChatRef.current(sessionId);
@@ -896,14 +938,12 @@ export function AppShell({
     openSettingsSection,
     refreshSessions,
     setActiveId,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setNavSelection,
     setPermissionBySession,
     setSearchModalOpen,
     setSessionListCollapsed,
-    setStreamingBySession,
     setThemePref,
-    setThinkingBySession,
   });
 
   const {
@@ -918,6 +958,7 @@ export function AppShell({
     clearPendingSessionAction,
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
+    markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
     setActiveId,
@@ -925,6 +966,7 @@ export function AppShell({
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
+    setLiveTurnBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -984,18 +1026,14 @@ export function AppShell({
     toastApi,
   });
 
-  const { handleEvent, settleAssistantStreaming } = createAppShellSessionEventHandlers({
+  const { handleEvent, reconcilePersistedMessages, settleAssistantStreaming } = createAppShellSessionEventHandlers({
     activeIdRef,
+    liveTurnBySessionRef,
     refreshMessages,
     refreshSessions,
-    setLiveToolsBySession,
+    setLiveTurnBySession,
     setPermissionBySession,
-    setStreamingBySession,
-    setThinkingBySession,
-    setThinkingTruncatedBySession,
     showModelSetupToast,
-    streamingBySessionRef,
-    thinkingBySessionRef,
     toastApi,
     notifyRunEnded: ({ kind, sessionId, body }) => {
       const title = sessionsRef.current.find((session) => session.id === sessionId)?.name;
@@ -1004,6 +1042,16 @@ export function AppShell({
       void window.maka.notifications.runEnded({ kind, title, body }).catch(() => {});
     },
   });
+
+  // Tool/thinking evidence may survive its event-triggered refresh, including
+  // between steps of one running turn. Reconcile from durable evidence whenever
+  // either side changes, so old output stays on its original tool instead of
+  // joining the next batch, without deleting text that the smoother still owns.
+  const reconcilePersistedMessagesEffect = useEffectEvent(reconcilePersistedMessages);
+  useEffect(() => {
+    if (!activeId) return;
+    reconcilePersistedMessagesEffect(activeId, messages);
+  }, [activeId, activeLiveTurn, messages]);
 
   // Streaming-settle handoff, FALLBACK path only. The primary settle signal
   // is the bubble's own `onStreamingSettled` (ChatView below): it fires once
@@ -1102,6 +1150,12 @@ export function AppShell({
     sessionEventHealthBySessionRef,
     setSessionEventHealthBySession,
   });
+  useSettledSessionTransientReconcile({
+    activeId,
+    sessions,
+    liveTurnBySessionRef,
+    clearTurnTransientState,
+  });
 
   function captureComposerImportOwner(): ComposerImportOwner {
     return {
@@ -1165,6 +1219,50 @@ export function AppShell({
       sessionsRef.current = next;
       return next;
     });
+  }
+
+  // #646: on send() we KNOW locally that a turn is starting, but the session's
+  // persisted status only flips to 'running' after an IPC round-trip
+  // (runtime → subscribeChanges). The head "正在处理…" indicator is gated on
+  // `status === 'running'` (that gate self-heals a backgrounded session whose
+  // terminal event was missed), so without a local nudge the first-token wait
+  // races — and usually loses — against the lagging status. Set it optimistically
+  // so the gate opens synchronously; subscribeChanges reconciles the real value.
+  //
+  // Returns a restore callback (or undefined when nothing was nudged). If send()
+  // fails before the turn reaches the runtime, no subscribeChanges event will
+  // arrive to reconcile the optimistic value, so the caller must revert it — but
+  // only while it is STILL the optimistic 'running' (a real status that landed
+  // meanwhile wins). Prevents a failed send from leaving a phantom running dot
+  // that also blocks the permission-mode toggle until the next unrelated refresh.
+  function markSessionRunningOptimistic(sessionId: string): (() => void) | undefined {
+    const prior = sessionsRef.current.find((entry) => entry.id === sessionId);
+    if (!prior || prior.status === 'running') return undefined;
+    const priorStatus = prior.status;
+    setSessions((current) => {
+      let changed = false;
+      const next = current.map((entry) => {
+        if (entry.id !== sessionId || entry.status === 'running') return entry;
+        changed = true;
+        return { ...entry, status: 'running' as const };
+      });
+      if (!changed) return current;
+      sessionsRef.current = next;
+      return next;
+    });
+    return () => {
+      setSessions((current) => {
+        let changed = false;
+        const next = current.map((entry) => {
+          if (entry.id !== sessionId || entry.status !== 'running') return entry;
+          changed = true;
+          return { ...entry, status: priorStatus };
+        });
+        if (!changed) return current;
+        sessionsRef.current = next;
+        return next;
+      });
+    };
   }
 
   function markSessionReadLocally(sessionId: string, readMessages: readonly StoredMessage[]): void {
@@ -1452,15 +1550,11 @@ export function AppShell({
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
               <ChatView
                 messages={messages}
+                liveTurn={activeLiveTurn}
                 messageLoading={activeMessageLoading}
-                streamingText={activeStreaming}
-                streamingComplete={activeStreamingComplete}
-                streamingMessageId={activeStreamingMessageId}
-                onStreamingSettled={activeId ? () => settleAssistantStreaming(activeId, activeStreamingMessageId) : undefined}
-                streamingTruncated={activeStreamingTruncated}
-                thinkingText={activeThinking}
-                thinkingTruncated={activeThinkingTruncated}
-                tools={liveTools}
+                processingIndicator={showProcessingIndicator}
+                continuingIndicator={showContinuingIndicator}
+                onStreamingSettled={activeId ? (messageId) => settleAssistantStreaming(activeId, messageId) : undefined}
                 activeSession={activeSessionForView}
                 activeConnectionLabel={activeConnectionLabel}
                 activeModelLabel={activeModelLabel}
@@ -1475,6 +1569,13 @@ export function AppShell({
                 mode={navSelection.section}
                 connectionAlert={chatConnectionAlert}
                 eventStreamAlert={chatEventStreamAlert}
+                goalIndicator={activeGoal ? {
+                  condition: activeGoal.condition,
+                  status: activeGoal.status,
+                  iterations: activeGoal.iterations,
+                  maxIterations: activeGoal.maxIterations,
+                  onClear: () => { void window.maka.goal.clear(activeGoal.sessionId); },
+                } : undefined}
                 messageLoadError={activeId ? messageLoadErrorBySession[activeId] : undefined}
                 messageLoadRetryPending={activeId ? messageRetryPendingBySession[activeId] === true : false}
                 onRetryMessages={activeId ? () => void retryMessages(activeId) : undefined}
@@ -1491,6 +1592,7 @@ export function AppShell({
                 onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
+                onUseSkill={useSkillInChat}
                 onOpenSkillsFolder={() => openSkillsFolder()}
                 onImportManagedSkillSource={() => importManagedSkillSource()}
                 onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
@@ -1572,7 +1674,26 @@ export function AppShell({
                 hidden={navSelection.section !== 'sessions' || onboardingComposerHidden}
                 draftKey={activeId ?? 'new-session'}
                 disabled={Boolean(activePermission)}
-                streaming={activeStreamingLive}
+                // #646: Stop must be available for the WHOLE turn — the moment the
+                // user most wants to interrupt is a long wait with nothing on
+                // screen (first token, or a slow provider's step-to-step lull).
+                // Drive Stop off `turnInFlight` (armed at send, cleared at the
+                // terminal event), not the wait indicators, so it never blinks out
+                // in a mid-turn gap. But `turnInFlight` alone goes STALE: the event
+                // stream only follows `activeId`, so a session whose turn completes
+                // while backgrounded never receives its terminal event and keeps its
+                // arm. Gate on `sessionAwaitingModel` (status === 'running', kept
+                // truthful for backgrounded sessions by sessions:changed and made
+                // synchronous at send by markSessionRunningOptimistic) so returning
+                // to such a session shows Send, not a stuck Stop that hides it.
+                // `activeStreamingLive` is folded in defensively for the rare replay
+                // where the arm was over-cleared.
+                streaming={(sessionAwaitingModel && turnInFlight) || activeStreamingLive}
+                // #646: in the first-token wait (Stop up, nothing streams yet) the
+                // hint reads "Maka 正在处理…"; in a mid-turn lull it reads the calm
+                // "Maka 继续中…". Both are mutually exclusive with activeStreamingLive.
+                processing={showProcessingIndicator && !activeStreamingLive}
+                continuing={showContinuingIndicator && !activeStreamingLive}
                 onSend={sendWithAttachments}
                 onStop={stop}
                 stopPending={activeId ? stopPendingBySession[activeId] === true : false}

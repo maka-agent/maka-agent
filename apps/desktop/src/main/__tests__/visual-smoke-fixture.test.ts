@@ -292,9 +292,8 @@ describe('visual smoke fixture mode', () => {
     assert.equal(state?.scenario, 'first-run');
     assert.equal(state?.now, Date.UTC(2026, 4, 22, 3, 0, 0));
     assert.equal(state?.activeSessionId, undefined);
-    assert.equal(state?.streamingBySession, undefined);
+    assert.equal(state?.liveTurnBySession, undefined);
     assert.equal(state?.permissionBySession, undefined);
-    assert.equal(state?.liveToolsBySession, undefined);
   });
 
   it('all fixture exposes transient streaming and permission state without persistence', () => {
@@ -303,10 +302,12 @@ describe('visual smoke fixture mode', () => {
     assert.equal(state?.enabled, true);
     assert.equal(state?.scenario, 'all');
     assert.equal(state?.activeSessionId, 'visual-smoke-turn');
-    assert.ok(state?.streamingBySession?.['visual-smoke-streaming']);
+    const liveTurns = state?.liveTurnBySession;
+    assert.equal(liveTurns?.['visual-smoke-streaming']?.turnId, 'turn-streaming');
+    assert.equal(liveTurns?.['visual-smoke-streaming']?.steps[0]?.tools[0]?.status, 'running');
+    assert.equal(liveTurns?.['visual-smoke-permission']?.turnId, 'turn-permission');
+    assert.equal(liveTurns?.['visual-smoke-permission']?.steps[0]?.tools[0]?.status, 'waiting_permission');
     assert.ok(state?.permissionBySession?.['visual-smoke-permission']);
-    assert.equal(state?.liveToolsBySession?.['visual-smoke-streaming']?.[0]?.status, 'running');
-    assert.equal(state?.liveToolsBySession?.['visual-smoke-permission']?.[0]?.status, 'waiting_permission');
   });
 
   it('fixture source does not seed visible placeholder chat copy', async () => {
@@ -508,6 +509,44 @@ describe('visual smoke fixture mode', () => {
           assert.equal(header.isArchived, true, `${expected.id} should be archived`);
         }
       }
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('model-processing arms a running session with no live stream so the "正在处理…" indicator + Stop show (#646)', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-processing-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('model-processing', false);
+      assert.ok(fixture);
+      const state = getVisualSmokeState(fixture);
+      // The turn is armed on a running session — the derivation's inputs.
+      assert.equal(state?.activeSessionId, 'visual-smoke-processing');
+      assert.deepEqual(state?.liveTurnBySession?.['visual-smoke-processing'], {
+        turnId: 'turn-processing-1',
+        phase: 'waiting',
+        steps: [],
+      });
+      // Nothing may be streaming / thinking / running as a tool, or the
+      // derivation would hide the indicator (it fires only in the zero-content
+      // wait). This scenario deliberately seeds none of them.
+      assert.equal(state?.liveTurnBySession?.['visual-smoke-processing']?.steps.length, 0);
+
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      // The on-disk status is `running` so the status gate self-heals like the
+      // real backgrounded-session path; the lone user message is the tail turn
+      // the indicator anchors to.
+      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-processing', 'session.jsonl'), 'utf8');
+      const lines = file.split('\n').filter(Boolean);
+      const header = JSON.parse(lines[0]!) as { status: string };
+      assert.equal(header.status, 'running');
+      const userMessages = lines.slice(1).map((l) => JSON.parse(l) as { type: string }).filter((m) => m.type === 'user');
+      assert.equal(userMessages.length, 1, 'a lone user prompt anchors the tail turn');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

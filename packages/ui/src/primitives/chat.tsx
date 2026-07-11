@@ -73,9 +73,11 @@ const bubbleVariants = cva("", {
       user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-normal text-[color:var(--chat-user-foreground,var(--foreground))]",
       // Assistant / system: open prose, no bubble. The shell stays
       // `.maka-bubble-assistant` (now just surface padding — typography,
-      // the 72ch measure cap, and edge-margin trims live on the prose layer,
-      // #618 item 2); the Markdown prose layer `.maka-prose` (p / h / ul /
-      // code / ... typography) rides alongside and stays reusable on its own.
+      // edge-margin trims, and line-height/break-word live on the prose
+      // layer, #618 item 2; the reading measure is owned by
+      // `.maka-message-row`, not the prose layer); the Markdown prose layer
+      // `.maka-prose` (p / h / ul / code / ... typography) rides alongside
+      // and stays reusable on its own.
       assistant: "maka-bubble-assistant maka-prose",
     },
   },
@@ -254,7 +256,7 @@ export function Marker({
  * Tool live-output stream shell (issue #332, PR3).
  *
  * Retires the bespoke `.maka-tool-output-stream-*` shell CSS (the panel,
- * header, counts row, scrolling body, and chunk/tag spans in
+ * header, diagnostic flags, scrolling body, and chunk/tag spans in
  * `styles/tool-stream.css`), moving each onto this Tailwind substrate. Every
  * value is a LITERAL arbitrary utility that compiles 1:1 to the declaration it
  * replaces, so the cva source string IS the computed-style proof (the cascade
@@ -286,16 +288,12 @@ const streamVariants = cva("", {
         "flex items-center justify-between gap-3 px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--foreground-3)] text-xs uppercase tracking-[0.06em] text-[color:var(--muted-foreground)]",
       // `.maka-tool-output-stream-label`
       label: "inline-flex items-center gap-1.5",
-      // `.maka-tool-output-stream-counts`
-      counts: "inline-flex items-center gap-2.5",
-      // `.maka-tool-output-stream-counts span` (tabular-nums on every count) plus
-      // the `[data-stream=stderr]` / `[data-redacted]` / `[data-truncated]`
-      // recolors. The `已截断` pill (`data-truncated`) gets the warning chrome the
-      // old `span[data-truncated="true"]` rule supplied; the inert
-      // `.maka-tool-output-stream-truncated-tag` class (no rule of its own) is
-      // dropped.
-      count:
-        "min-w-[5rem] [font-variant-numeric:tabular-nums]"
+      // Diagnostic flags replace transport chunk counts. A stream's internal
+      // delivery granularity is not user progress; only stderr, redaction, and
+      // truncation facts belong in this header.
+      flags: "inline-flex items-center gap-2.5",
+      flag:
+        "whitespace-nowrap"
         + " data-[stream=stderr]:text-[color:var(--destructive-text)]"
         + " data-[redacted=true]:text-[color:var(--warning-text,var(--info-text))]"
         + " data-[truncated=true]:rounded-[var(--radius-control)] data-[truncated=true]:border data-[truncated=true]:border-[oklch(from_var(--warning)_l_c_h_/_0.30)] data-[truncated=true]:bg-[oklch(from_var(--warning)_l_c_h_/_0.06)] data-[truncated=true]:px-1 data-[truncated=true]:text-[color:var(--warning-text,var(--info-text))] data-[truncated=true]:cursor-help",
@@ -373,14 +371,23 @@ export function LiveIndicator({
  * pass `active` false for settled/snap states so the sweep never runs in a
  * deterministic capture. Kept INTERNAL (off the package barrel, imported by
  * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ *
+ * `delayed` (#646 run→done seam) holds the sweep at its resting frame for
+ * `--duration-emphasized` (~200ms) before it starts — a purely CSS de-flicker so
+ * a sub-second tool row (which unmounts inside the window) never visibly sweeps,
+ * while the base text is readable from frame 0. The keyframe rests at
+ * `background-position:150% 0` (= the sweep's declared start), so the delay reads
+ * as plain static muted text, matching `active={false}`.
  */
 export function TextShimmer({
   children,
   active = true,
+  delayed = false,
   className,
 }: {
   children: React.ReactNode;
   active?: boolean;
+  delayed?: boolean;
   className?: string;
 }): React.ReactElement {
   if (!active) {
@@ -390,14 +397,19 @@ export function TextShimmer({
     <span data-slot="text-shimmer" className={cn("relative inline-grid", className)}>
       {/* Base: opaque, muted, always readable. */}
       <span className="[grid-area:1/1] text-[color:var(--muted-foreground)]">{children}</span>
-      {/* Sweep: a clipped light band that travels across the glyphs. */}
+      {/* Sweep: a clipped light band that travels across the glyphs. The delay
+          rides inside the `animation` shorthand (second <time> = animation-delay)
+          so it can't be reset by the shorthand — the governance keyframe name is
+          still `maka-text-shimmer`, the only token the scanner reads. */}
       <span
         aria-hidden="true"
         className={cn(
           "[grid-area:1/1] bg-clip-text [-webkit-text-fill-color:transparent] text-transparent",
           "bg-[linear-gradient(100deg,transparent_30%,oklch(from_var(--foreground)_l_c_h_/_0.95)_50%,transparent_70%)]",
           "[background-size:200%_100%] [background-position:150%_0]",
-          "[animation:maka-text-shimmer_1.8s_linear_infinite]",
+          delayed
+            ? "[animation:maka-text-shimmer_1.8s_linear_var(--duration-emphasized)_infinite]"
+            : "[animation:maka-text-shimmer_1.8s_linear_infinite]",
           "motion-reduce:[animation:none] motion-reduce:opacity-0",
         )}
       >

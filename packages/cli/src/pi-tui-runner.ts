@@ -15,11 +15,16 @@ import {
 import { PERMISSION_MODES, isPermissionMode, type PermissionMode } from '@maka/core/permission';
 import { isThinkingLevel, thinkingVariantsForModel, type ThinkingLevel } from '@maka/core/model-thinking';
 import type { ProviderType } from '@maka/core/llm-connections';
+import type { ToolResultContent } from '@maka/core/events';
+import type { ShellRunUpdate } from '@maka/runtime';
 import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
+  applyDetachedShellRunToTranscript,
+  applyShellRunUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
+  runningShellRunsInTranscript,
   submitCompactToTranscript,
   submitPromptToTranscript,
   toggleAllThinkingExpansion,
@@ -28,6 +33,7 @@ import {
 } from './pi-transcript.js';
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
+import { createShellRunElapsedTicker } from './shell-run-elapsed-ticker.js';
 import {
   AttentionController,
   DISABLE_FOCUS_REPORTING,
@@ -67,12 +73,28 @@ export interface MakaPiTuiInput {
   providerType?: ProviderType;
   permissionMode: PermissionMode;
   terminal?: Terminal;
+  /** Starts the CLI process-exit deadline after terminal restore, before outer cleanup. */
+  onProcessExit?: (exitCode: number, error?: Error) => void;
   /**
    * How long a prompt turn must run before its completion rings the terminal
    * BEL when unfocused. Injectable so tests exercise the long / short split
    * without waiting real seconds; defaults to the attention layer's own value.
    */
   attentionLongTurnThresholdMs?: number;
+  subscribeShellRunUpdates?: (listener: (update: ShellRunUpdate) => void) => () => void;
+  readShellRun?: (
+    sessionId: string,
+    ref: string,
+  ) => Promise<{
+    ownerSessionId: string;
+    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  }>;
+  /**
+   * Called after each agent turn settles. Receives an `injectTurn` that runs a
+   * new turn rendered in the transcript — used for goal auto-continuation so
+   * continuation turns are visible and chain correctly.
+   */
+  onTurnComplete?: (injectTurn: (text: string) => void) => void;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -97,9 +119,12 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   let interruptRequested = false;
   let lastTurnEscapeAt = 0;
   let lastIdleEscapeAt = 0;
+  let lastIdleCtrlCAt = 0;
   let resolveClosed: () => void;
-  const closedPromise = new Promise<void>((resolve) => {
+  let rejectClosed: (error: Error) => void;
+  const closedPromise = new Promise<void>((resolve, reject) => {
     resolveClosed = resolve;
+    rejectClosed = reject;
   });
 
   const metadata = (): MakaPiTranscriptMetadata => ({
@@ -132,6 +157,16 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     transcript.invalidate();
     tui.requestRender();
   };
+  const shellRunElapsedTicker = createShellRunElapsedTicker({
+    state,
+    onTick: requestRender,
+  });
+  const unsubscribeShellRunUpdates = input.subscribeShellRunUpdates?.((update) => {
+    if (closed || input.driver.getSessionId() !== update.sessionId) return;
+    if (!applyShellRunUpdateToTranscript(state, update.sourceToolCallId, update.result)) return;
+    shellRunElapsedTicker.sync();
+    requestRender();
+  });
 
   const reportError = (error: unknown) => {
     state.entries.push({
@@ -169,30 +204,71 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     }
   };
 
-  const close = async () => {
-    if (closed) return;
-    closed = true;
-    try {
-      // A double-Escape interrupt may already have a stop in flight for this
-      // turn; reuse it instead of firing a second stopSession that would append
-      // a duplicate abort note. Otherwise stop the runtime as part of closing.
-      if (!interruptRequested) {
-        await input.driver.stop();
-      }
-    } catch {
-      // Closing the terminal must win even if the runtime stop path
-      // has already failed or the session never fully started.
-    }
+  const removeProcessHandlers = () => {
+    process.off('SIGINT', handleSigint);
+    process.off('SIGTERM', handleSigterm);
+    process.off('SIGHUP', handleSighup);
+    process.off('uncaughtException', handleUncaughtException);
+    process.off('unhandledRejection', handleUnhandledRejection);
+  };
+
+  const restoreTerminal = () => {
+    removeProcessHandlers();
+    unsubscribeShellRunUpdates?.();
+    shellRunElapsedTicker.dispose();
     terminal.setProgress(false);
     // Drop the busy / attention title marker so the tab is not handed back to
-    // the shell still marked busy when Ctrl-C exits mid-turn (before the turn
-    // finalizer runs). reset() also makes the controller inert.
+    // the shell still marked busy when the session exits.
     attention.reset();
     // Stop asking the terminal for focus reports before handing it back.
     terminal.write(DISABLE_FOCUS_REPORTING);
     tui.stop();
-    resolveClosed();
   };
+
+  const beginClose = (error?: Error) => {
+    if (closed) return;
+    closed = true;
+    restoreTerminal();
+    if (error) rejectClosed(error);
+    else resolveClosed();
+    // Runtime stop is best-effort after the shell has its terminal back. A
+    // double-Escape/Ctrl-C interrupt may already have one in flight; reuse it.
+    if (!interruptRequested) void input.driver.stop().catch(() => {});
+  };
+
+  const handleProcessExit = (exitCode: number, error?: Error): void => {
+    process.exitCode = exitCode;
+    beginClose(input.onProcessExit ? undefined : error);
+    input.onProcessExit?.(exitCode, error);
+  };
+
+  const beginGracefulClose = () => beginClose();
+
+  function handleSigint(): void {
+    handleProcessExit(128 + 2);
+  }
+
+  function handleSigterm(): void {
+    handleProcessExit(128 + 15);
+  }
+
+  function handleSighup(): void {
+    handleProcessExit(128 + 1);
+  }
+
+  function handleUncaughtException(error: Error): void {
+    handleProcessExit(1, error);
+  }
+
+  function handleUnhandledRejection(reason: unknown): void {
+    handleProcessExit(1, reason instanceof Error ? reason : new Error(String(reason)));
+  }
+
+  process.once('SIGINT', handleSigint);
+  process.once('SIGTERM', handleSigterm);
+  process.once('SIGHUP', handleSighup);
+  process.once('uncaughtException', handleUncaughtException);
+  process.once('unhandledRejection', handleUnhandledRejection);
 
   const respondToPendingPermission = (decision: 'allow' | 'deny'): boolean => {
     const request = state.pendingPermission;
@@ -226,6 +302,15 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     return true;
   };
 
+  const requestTurnInterrupt = () => {
+    if (interruptRequested) return;
+    interruptRequested = true;
+    void input.driver.stop().catch((error) => {
+      interruptRequested = false;
+      reportError(error);
+    });
+  };
+
   editor.onSubmit = (prompt) => {
     if (busy || !prompt.trim()) {
       requestRender();
@@ -236,7 +321,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     runAgentTurn(prompt);
   };
 
-  // Runs one agent turn rendered in the transcript. Shared by user submits.
+  // Runs one agent turn rendered in the transcript, then lets the host decide
+  // whether to auto-continue (goal). Shared by user submits and goal injections.
   function runAgentTurn(prompt: string): void {
     busy = true;
     turnRunning = true;
@@ -248,6 +334,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
 
     let permissionAlerted = false;
+    let turnOutcome = { aborted: false, errored: false };
     void submitPromptToTranscript({
       state,
       driver: input.driver,
@@ -267,8 +354,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         } else {
           permissionAlerted = false;
         }
+        shellRunElapsedTicker.sync();
         requestRender();
       },
+    }).then((outcome) => {
+      turnOutcome = outcome;
     }).finally(() => {
       busy = false;
       turnRunning = false;
@@ -277,6 +367,14 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       terminal.setProgress(false);
       attention.promptTurnEnded();
       requestRender();
+      // Do not auto-continue (goal) if teardown began (`closed`), the user
+      // interrupted the turn (double-Escape → driver.stop() → user_stop/abort),
+      // or it ended in error. An autonomous loop MUST halt on the Stop
+      // affordance and must not hammer a failing turn — mirrors the desktop
+      // `turnAborted` guard.
+      if (!closed && !turnOutcome.aborted && !turnOutcome.errored) {
+        input.onTurnComplete?.((text) => runAgentTurn(text));
+      }
     });
   }
 
@@ -324,13 +422,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // Adopt a switch/rewind result: the active session is now `summary` with
   // `messages`. Shared by switchSession and rewindToTurn so both land the same
   // runner state (model/connection/thinking/transcript/scroll).
-  const applySwitchResult = ({ summary, messages }: MakaSessionSwitchResult): void => {
+  const applySwitchResult = async ({ summary, messages }: MakaSessionSwitchResult): Promise<void> => {
     model = summary.model;
     connectionSlug = summary.llmConnectionSlug;
     permissionMode = summary.permissionMode;
     thinkingLevel = summary.thinkingLevel;
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     replaceTranscriptWithStoredMessages(state, messages);
+    if (input.readShellRun) {
+      const sessionId = summary.id;
+      await Promise.all(runningShellRunsInTranscript(state).map(async ({ sourceToolCallId, ref }) => {
+        try {
+          const read = await input.readShellRun?.(sessionId, ref);
+          if (!read || closed || input.driver.getSessionId() !== sessionId) return;
+          if (read.ownerSessionId !== sessionId && read.result.status === 'running') {
+            applyDetachedShellRunToTranscript(state, sourceToolCallId, read.result);
+          } else {
+            applyShellRunUpdateToTranscript(state, sourceToolCallId, read.result);
+          }
+        } catch {
+          // Missing legacy records must not make an otherwise valid session
+          // impossible to resume. Keep the stored card and let live updates win.
+        }
+      }));
+    }
+    shellRunElapsedTicker.sync();
   };
 
   // Folder/connection safety is enforced inside driver.switchSession(),
@@ -338,7 +454,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   // active session untouched and the next prompt still lands on the old one.
   const switchSession = async (sessionId: string) => {
     const result = await input.driver.switchSession(sessionId);
-    applySwitchResult(result);
+    await applySwitchResult(result);
     if (result.messages.length === 0) {
       state.entries.push({
         kind: 'notice',
@@ -349,16 +465,21 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     requestRender();
   };
 
-  // Rewind branches the active session through the chosen turn and switches onto
-  // the branch (driver.rewindToTurn). The original session is left intact, so
-  // this is non-destructive and inherits the branch's resume guarantees.
+  // Rewind branches the active session to just before the chosen turn and
+  // switches onto the branch (driver.rewindToTurn), then refills the editor with
+  // that turn's prompt. The original session is left intact, so this is
+  // non-destructive and inherits the branch's resume guarantees.
   const rewindToTurn = async (turnId: string) => {
     const result = await input.driver.rewindToTurn(turnId);
-    applySwitchResult(result);
+    await applySwitchResult(result);
+    // Refill the editor with the discarded turn's prompt so the user can edit
+    // and resend it. The picker only arms when the editor is neutral (empty
+    // draft, no autocomplete), so overwriting the text loses no in-progress work.
+    editor.setText(result.prompt);
     state.entries.push({
       kind: 'notice',
       level: 'info',
-      text: '已回退到选定轮次（分支为新会话，原会话保留）。',
+      text: '已回退到该轮之前（分支为新会话，原会话保留），该轮 prompt 已回填输入框，可修改后重新发送。',
     });
     requestRender();
   };
@@ -459,7 +580,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       label: target.label,
     }));
     showSelectPicker(
-      'Rewind — 回到选定轮次（保留到此轮，丢弃之后）',
+      'Rewind — 回到选定轮次之前（丢弃该轮及之后，prompt 回填输入框）',
       'Rewind',
       items,
       (item) => {
@@ -477,6 +598,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // session, send a prompt to begin" cue. A notice here would make entries
     // non-empty and suppress it.
     replaceTranscriptWithStoredMessages(state, []);
+    shellRunElapsedTicker.sync();
     requestRender();
   };
 
@@ -492,7 +614,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       '  Scroll the transcript with your terminal or trackpad',
       '  Esc Esc (during a turn) — interrupt the turn',
       '  Esc Esc (when idle) — rewind to an earlier turn',
-      '  Ctrl+C / Ctrl+D — exit Maka',
+      '  Ctrl+C — stop the turn, clear input, or press twice to exit',
+      '  Ctrl+D — exit when input is empty',
     ].join('\n');
     state.entries.push({
       kind: 'notice',
@@ -608,7 +731,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       name: 'exit',
       description: 'Exit Maka',
       run: () => {
-        void close();
+        beginGracefulClose();
       },
     },
     {
@@ -771,9 +894,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   editor.setAutocompleteProvider(new MakaAutocompleteProvider(input.cwd, slashCommands));
 
   tui.addInputListener((data) => {
-    // Once closing has begun, swallow every key. A half-closed TUI still has a
-    // live listener while close() awaits the runtime stop; letting Escape or any
-    // other key through here would mutate state or fire a second stop.
+    // Once closing has begun, swallow any buffered input that reaches the
+    // listener while the terminal is being torn down.
     if (closed) return { consume: true };
     // DEC 1004 focus reports drive the attention layer. Consume them so they
     // never reach the editor as stray input; they are not user keystrokes.
@@ -793,6 +915,8 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     // releases here; returning undefined lets the TUI apply its own filtering.
     if (isKeyRelease(data)) return undefined;
     if (tui.hasOverlay()) return undefined;
+    if (matchesKey(data, Key.ctrl('c')) && isKeyRepeat(data)) return { consume: true };
+    if (!matchesKey(data, Key.ctrl('c'))) lastIdleCtrlCAt = 0;
     // The idle rewind gesture requires two *consecutive* Escapes. Any other key
     // in between breaks it, so a stale first Escape never pairs with a much later
     // one (e.g. `Esc`, type, `Esc`).
@@ -819,6 +943,11 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         return { consume: true };
       }
     }
+    if (turnRunning && matchesKey(data, Key.ctrl('c'))) {
+      if (interruptRequested) handleProcessExit(0);
+      else requestTurnInterrupt();
+      return { consume: true };
+    }
     // Double Escape interrupts the running turn. This must sit below the
     // permission branch so Escape keeps meaning "deny" while a prompt is
     // pending, and it only arms while a prompt turn is actually running.
@@ -830,11 +959,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       const now = Date.now();
       if (now - lastTurnEscapeAt <= DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS) {
         lastTurnEscapeAt = 0;
-        interruptRequested = true;
-        void input.driver.stop().catch((error) => {
-          interruptRequested = false;
-          reportError(error);
-        });
+        requestTurnInterrupt();
       } else {
         lastTurnEscapeAt = now;
       }
@@ -862,9 +987,31 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       lastIdleEscapeAt = now;
       return undefined;
     }
-    if (matchesKey(data, Key.ctrl('c')) || matchesKey(data, Key.ctrl('d'))) {
-      void close();
+    if (!turnRunning && matchesKey(data, Key.ctrl('c')) && editor.getText().length > 0) {
+      lastIdleCtrlCAt = 0;
+      editor.setText('');
+      requestRender();
       return { consume: true };
+    }
+    if (!turnRunning && matchesKey(data, Key.ctrl('c'))) {
+      const now = Date.now();
+      if (lastIdleCtrlCAt && now - lastIdleCtrlCAt <= DOUBLE_CTRL_C_EXIT_WINDOW_MS) {
+        lastIdleCtrlCAt = 0;
+        handleProcessExit(0);
+      } else {
+        lastIdleCtrlCAt = now;
+        state.entries.push({ kind: 'notice', level: 'info', text: 'Press Ctrl+C again to exit.' });
+        requestRender();
+      }
+      return { consume: true };
+    }
+    if (matchesKey(data, Key.ctrl('d'))) {
+      if (busy || turnRunning) return { consume: true };
+      if (editor.getText().length === 0) {
+        beginGracefulClose();
+        return { consume: true };
+      }
+      return undefined;
     }
     return undefined;
   });
@@ -885,14 +1032,18 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   tui.setClearOnShrink(false);
   tui.addChild(layout);
   tui.setFocus(editorSurface);
-  tui.start();
-  // The AttentionController set the initial title in its constructor. Enable
-  // focus reporting so it learns when the terminal is backgrounded; the input
-  // listener forwards the `\x1b[I` / `\x1b[O` reports. This must run *after*
-  // tui.start() puts the terminal in raw mode — otherwise the terminal's reply
-  // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
-  // line discipline and leaks onto the screen as a stray `^[[I` on launch.
-  terminal.write(ENABLE_FOCUS_REPORTING);
+  try {
+    tui.start();
+    // The AttentionController set the initial title in its constructor. Enable
+    // focus reporting so it learns when the terminal is backgrounded; the input
+    // listener forwards the `\x1b[I` / `\x1b[O` reports. This must run *after*
+    // tui.start() puts the terminal in raw mode — otherwise the terminal's reply
+    // to the enable sequence (a focus-in `\x1b[I`) is echoed by the cooked-mode
+    // line discipline and leaks onto the screen as a stray `^[[I` on launch.
+    terminal.write(ENABLE_FOCUS_REPORTING);
+  } catch (error) {
+    beginClose(error instanceof Error ? error : new Error(String(error)));
+  }
 
   return closedPromise;
 }
@@ -912,3 +1063,4 @@ function shortSessionId(id: string): string {
 
 // Two Escapes this close together read as one deliberate "stop the turn".
 const DOUBLE_ESCAPE_INTERRUPT_WINDOW_MS = 600;
+const DOUBLE_CTRL_C_EXIT_WINDOW_MS = 1_000;

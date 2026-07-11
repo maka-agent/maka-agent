@@ -6,6 +6,11 @@ import type { ShellPlan } from '../shell-detect.js';
 const pwshPlan: ShellPlan = { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' };
 
 describe('Bash tool description declares the executing shell', () => {
+  test('foreground and background variants declare command activity', () => {
+    assert.equal(buildLocalForegroundBashTool().activityKind, 'command');
+    assert.equal(buildBackgroundBashTool(fakeShellRuns()).activityKind, 'command');
+  });
+
   test('foreground tool tells the model commands run under PowerShell 7', () => {
     const tool = buildLocalForegroundBashTool({ shell: pwshPlan });
     assert.match(tool.description, /PowerShell 7 \(pwsh\)/);

@@ -3,9 +3,32 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import { readFixedPromptWal } from '../fixed-prompt-controller.js';
+import { promptAcceptanceNoiseBand } from '../prompt-acceptance-policy.js';
 import { execFileAsync, evidenceRefsFor, makeTasks, runLoop, taskIndex, withHarness, type MetaAgentPromptInput } from './helpers/prompt-optimization-loop-harness.js';
 
 describe('runPromptOptimizationLoop', () => {
+  test('defaults the acceptance noise band to a 1.96 z-score', async () => {
+    await withHarness(async (harness) => {
+      const result = await runLoop(harness, {
+        heldInTasks: makeTasks('hin', 4),
+        heldOutTasks: makeTasks('hout', 2),
+        rewardFor: (_roundId, taskId) => taskIndex(taskId) % 2,
+        rounds: 1,
+        baselineRuns: 1,
+      });
+
+      assert.equal(
+        result.baseline.heldIn.noiseBand,
+        promptAcceptanceNoiseBand({
+          sampleSize: 4,
+          passRate: 0.5,
+          baselineRunCount: 1,
+          zScore: 1.96,
+        }),
+      );
+    });
+  });
+
   test('keeps an improving candidate, discards a regressing one, and reports a passing smoke', async () => {
     await withHarness(async (harness) => {
       const heldInTasks = makeTasks('hin', 20);

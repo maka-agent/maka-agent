@@ -29,10 +29,11 @@
    neutral `--chat-user-bg` token path; the shell utilities live in
    packages/ui/src/primitives/chat.tsx. */
 /* Assistant: no bubble — just text on background, like an editor. The
-   markdown typography (color, line-height, break-word, the 72ch measure cap,
-   edge-margin trims) lives on .maka-prose in prose.css — the assistant Bubble
-   variant carries both classes, so the shell keeps only container geometry
-   (#618 item 2). */
+   markdown typography (color, line-height, break-word, edge-margin trims)
+   lives on .maka-prose in prose.css — the assistant Bubble variant carries
+   both classes, so the shell keeps only container geometry (#618 item 2).
+   The reading measure (max-width) lives on .maka-message-row above, shared
+   with the composer, so the assistant block matches the composer width. */
 .maka-bubble-assistant {
   padding: var(--space-0-5) 0 0;
 }

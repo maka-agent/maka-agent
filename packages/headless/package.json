@@ -32,6 +32,10 @@
     "#prompt-ab-run": "./dist/prompt-ab-run.js",
     "#harbor-task-runner": "./dist/harbor-task-runner.js",
     "#harbor-cell": "./dist/harbor-cell.js",
+    "#runtime-policy-ab-profile": "./dist/runtime-policy-ab-profile.js",
+    "#runtime-policy-ab-spec": "./dist/runtime-policy-ab-spec.js",
+    "#runtime-policy-ab-run": "./dist/runtime-policy-ab-run.js",
+    "#runtime-policy-ab-lifecycle": "./dist/runtime-policy-ab-lifecycle.js",
     "#prompt-structural-smoke": "./dist/prompt-structural-smoke.js"
   },
   "bin": {

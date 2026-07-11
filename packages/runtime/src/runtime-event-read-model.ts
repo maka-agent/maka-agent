@@ -1,12 +1,15 @@
 import type {
   AgentRunHeader,
+  AssistantStepContentKind,
   RuntimeEvent,
   RuntimeEventStatus,
   StoredMessage,
+  ToolActivityKind,
   ToolResultContent,
   TurnStatus,
 } from '@maka/core';
 import {
+  TOOL_ACTIVITY_KINDS,
   isPartialRuntimeEvent,
   isTerminalRuntimeEvent,
   isTerminalRuntimeEventStatus,
@@ -85,6 +88,7 @@ interface ProjectionState {
    * keying by message id (not turn) attaches each step's reasoning to its own row.
    */
   thinkingByMessageId: Map<string, PendingThinking>;
+  contentOrderByMessageId: Map<string, AssistantStepContentKind[]>;
 }
 
 interface PendingThinking {
@@ -104,10 +108,12 @@ export function projectRuntimeEventsToStoredMessages(
     toolNameByUseId: new Map(),
     permissionRequestById: new Map(),
     thinkingByMessageId: new Map(),
+    contentOrderByMessageId: new Map(),
   };
   const messages: StoredMessage[] = [];
 
   for (const event of events) {
+    recordStepContentOrder(event, state);
     if (isPartialRuntimeEvent(event)) {
       diagnostic(state, event, 'partial_skipped', 'partial RuntimeEvent skipped');
       continue;
@@ -390,12 +396,14 @@ function projectText(
       return false;
     }
     const assistantId = stableMessageId(event, state, 'assistant');
+    const contentOrder = nonCanonicalContentOrder(state.contentOrderByMessageId.get(assistantId));
     messages.push({
       type: 'assistant',
       id: assistantId,
       turnId: event.turnId,
       ts: event.ts,
       text: event.content.text,
+      ...(contentOrder ? { contentOrder } : {}),
       modelId: header.modelId,
     });
     attachPendingThinking(event, state, messages, assistantId);
@@ -404,6 +412,34 @@ function projectText(
 
   diagnostic(state, event, 'unsupported_event', `text content with role ${event.role} is not projected`);
   return false;
+}
+
+function nonCanonicalContentOrder(
+  order: readonly AssistantStepContentKind[] | undefined,
+): AssistantStepContentKind[] | undefined {
+  if (!order?.length) return undefined;
+  const present = new Set(order);
+  const canonical = (['thinking', 'text', 'tools'] as const).filter((kind) => present.has(kind));
+  return order.every((kind, index) => kind === canonical[index]) ? undefined : [...order];
+}
+
+function recordStepContentOrder(event: RuntimeEvent, state: ProjectionState): void {
+  const content = event.content;
+  let messageId: string | undefined;
+  let kind: AssistantStepContentKind | undefined;
+  if (event.role === 'model' && content?.kind === 'text') {
+    messageId = event.refs?.providerEventId ?? event.refs?.storedMessageId ?? event.id;
+    kind = 'text';
+  } else if (event.role === 'model' && content?.kind === 'thinking') {
+    messageId = event.refs?.providerEventId ?? event.refs?.storedMessageId ?? event.id;
+    kind = 'thinking';
+  } else if (event.role === 'model' && content?.kind === 'function_call' && event.refs?.stepId) {
+    messageId = event.refs.stepId;
+    kind = 'tools';
+  }
+  if (!messageId || !kind) return;
+  const order = state.contentOrderByMessageId.get(messageId) ?? [];
+  if (!order.includes(kind)) state.contentOrderByMessageId.set(messageId, [...order, kind]);
 }
 
 function normalizeArchiveStatuses(
@@ -467,6 +503,9 @@ function projectFunctionCall(
     turnId: event.turnId,
     ts: event.ts,
     toolName: event.content.name,
+    ...(toolActivityKindStateDelta(event) !== undefined
+      ? { activityKind: toolActivityKindStateDelta(event) }
+      : {}),
     ...(stringStateDelta(event, 'displayName') !== undefined
       ? { displayName: stringStateDelta(event, 'displayName') }
       : {}),
@@ -780,6 +819,11 @@ function stringStateDelta(event: RuntimeEvent, key: string): string | undefined 
   return typeof value === 'string' ? value : undefined;
 }
 
+function toolActivityKindStateDelta(event: RuntimeEvent): ToolActivityKind | undefined {
+  const value = stringStateDelta(event, 'activityKind');
+  return TOOL_ACTIVITY_KINDS.find((kind) => kind === value);
+}
+
 function numberStateDelta(event: RuntimeEvent, key: string): number | undefined {
   const value = event.actions?.stateDelta?.[key];
   return typeof value === 'number' ? value : undefined;
@@ -906,6 +950,7 @@ function semanticMessage(message: StoredMessage): unknown {
         turnId: message.turnId,
         toolUseId: message.id,
         toolName: message.toolName,
+        activityKind: message.activityKind,
         displayName: message.displayName,
         intent: message.intent,
         args: message.args,

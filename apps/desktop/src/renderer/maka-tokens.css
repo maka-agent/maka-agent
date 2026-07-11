@@ -136,8 +136,12 @@
   --success-text: color-mix(in oklab, var(--success) 50%, var(--foreground));
   --destructive-text: color-mix(in oklab, var(--destructive) 50%, var(--foreground));
   --info-text: color-mix(in oklab, var(--info) 50%, var(--foreground));
-  --warning: var(--info);
-  --warning-text: var(--info-text);
+  /* 警告 must be visually distinct from 提示 — they were literally the same
+     token, so the health page's info/warning tiers were indistinguishable.
+     Warning steps deeper + more orange than info's amber (l .75→.66,
+     h 70→55); still derived nowhere else, safe across palettes. */
+  --warning: oklch(0.66 0.18 55);
+  --warning-text: color-mix(in oklab, var(--warning) 50%, var(--foreground));
 
   /* === foreground solid mix scale ===
      foreground-N = N% of foreground interpolated INTO background.
@@ -297,6 +301,9 @@
      Caption 11 is dense meta (timestamps, badges, kbd, overlines).
      Bubble h1-h4 scale in em off body 13 so they track the root automatically. */
   --font-size-heading: 15px;
+  /* Display tier for stat-tile values (convergence R4) — the summary tiles
+     used ad-hoc 1.5em/1.4em; one ladder step ends that. */
+  --font-size-stat: 20px;
   --font-size-base: 13px;
   --font-size-ui: var(--font-size-base);
   --font-size-caption: 11px;

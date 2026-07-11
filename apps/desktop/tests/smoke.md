@@ -888,21 +888,23 @@ Doc convention used in every gate below:
 - Dedup-by-seq + sort-by-seq still hold for out-of-order arrival.
 
 **Source-gate grep.**
-- Renderer `tool_output_delta` handler must call `applyToolOutputChunk(prev, rawChunk, ...)`;
-  no `outputChunks: [...current, rawChunk]` shortcut.
+- `applyLiveTurnEvent` must route `tool_output_delta` through
+  `applyToolOutputChunk(base.outputChunks, chunk)` before updating the
+  matching tool inside `LiveTurnProjection`; no direct raw append shortcut.
 
 ### S2 — C0: extended-thinking stream chokepoint
 
 **Contract invariant.**
 - Anthropic `ThinkingDeltaEvent` / `ThinkingCompleteEvent` text only
-  enters `thinkingBySession` via `applyThinkingDelta` /
-  `applyThinkingComplete`; both helpers run `redactSecrets` BEFORE
-  state and enforce per-delta + per-session caps.
-- `thinkingTruncatedBySession[sessionId]` is monotonic-OR for deltas
-  (sticks once true) and replace-on-complete (matches the
+  enters a live step through `applyLiveTurnEvent` →
+  `applyThinkingDelta` / `applyThinkingComplete`; both helpers run
+  `redactSecrets` BEFORE state and enforce per-delta + per-step caps.
+- `LiveTurnStepProjection.thinking.truncated` is monotonic-OR for
+  deltas (sticks once true) and replace-on-complete (matches the
   source-of-truth semantics of `thinking_complete`).
-- `clearStreaming(sessionId)` clears the truncated flag alongside
-  the buffer; abort / error / `thinking_complete` all use this path.
+- Terminal events complete the thinking slot through
+  `terminalizeLiveSteps`; persisted-evidence reconciliation removes
+  the transient only after history covers it.
 
 **Targeted tests** (`apps/desktop/src/main/__tests__/thinking-stream.test.ts`):
 - Multi-MB single delta → tail-kept with head marker; `truncated: true`.
@@ -912,9 +914,8 @@ Doc convention used in every gate below:
 - `thinking_complete` replaces (does not append) the buffer.
 
 **Source-gate grep.**
-- Renderer `thinking_delta` / `thinking_complete` handlers must call
-  the pure helpers; no direct `thinkingBySession[id] + event.text`
-  append shortcut.
+- `applyLiveTurnEvent` must call the pure thinking helpers; no direct
+  `step.thinking.text + event.text` append shortcut.
 
 ### S3 — C1: smoother prefix-leak gate
 
@@ -931,8 +932,8 @@ Doc convention used in every gate below:
   `prepareSmoothStreamText` before reaching the smoother; the
   intermediate prefix `Authorization: Bearer s` cannot reach the DOM
   unmasked.
-- Existing smoother grapheme / EMA / snap behavior unchanged on
-  already-safe text.
+- Existing smoother grapheme / EMA / continuous catch-up behavior
+  remains unchanged on already-safe text.
 
 **Source-gate grep.**
 - Every `useSmoothStreamContent(...)` call must be wrapped in
@@ -1049,13 +1050,13 @@ Doc convention used in every gate below:
   (assistant text is read top-down). Once buffer ends with the
   trailing marker AND is at the total cap, subsequent deltas are
   dropped entirely.
-- Renderer state is a combined slot `Record<sessionId, { text, truncated }>`
-  updated from ONE functional updater per `text_delta`. No outer-
-  closure mutation between two `setState` calls. Strict-mode
-  double-invoke safe.
-- `clearStreaming(sessionId)` resets the slot to
-  `{ text: '', truncated: false }` and clears the thinking
-  truncated flag in the same lifecycle.
+- Renderer state is one `LiveTurnProjection` per session. Each
+  `text_delta` runs through ONE functional updater and updates
+  `LiveTurnStepProjection.text`; no parallel text/truncation maps or
+  outer-closure mutation between multiple `setState` calls.
+- Terminal events complete the text slot in place. The smoother owns
+  the final text until its visible backlog drains; persisted-evidence
+  reconciliation then removes the transient step.
 
 **Targeted tests** (`apps/desktop/src/main/__tests__/assistant-stream.test.ts`,
 25 cases):
@@ -1072,11 +1073,12 @@ Doc convention used in every gate below:
 - Non-string raw delta → prev unchanged, no claimed redaction.
 
 **Source-gate grep.**
-- `case 'text_delta':` must call `applyAssistantDelta(prevText, event.text)`;
-  no `streamingBySession[id] + event.text` direct append.
-- `streamingBySession` state must be typed as
-  `Record<string, { text: string; truncated: boolean }>`; no separate
-  `streamingTruncatedBySession` map.
+- `applyLiveTurnEvent` must call
+  `applyAssistantDelta(step.text?.text ?? '', event.text)`; no direct
+  append.
+- Renderer session UI state must carry one
+  `Record<string, LiveTurnProjection>`; no parallel streaming text or
+  truncation maps.
 
 ### S7 — B2: unavailable OAuth subscription providers stay out of the model catalog
 
@@ -1324,12 +1326,11 @@ Doc convention is the same as Path 17:
 **Source-gate grep.**
 - `<ComputerUseOverlay>` (or equivalent) renderer mount must be
   gated by a per-session in-flight CU action — likely a
-  `liveToolsBySession[sessionId]` entry whose tool name matches a
-  known CU verb. No `&& true` / `&& isDev` overrides.
+  `liveTurnBySession[sessionId].steps[].tools` entry whose tool name
+  matches a known CU verb. No `&& true` / `&& isDev` overrides.
 - Teardown must be wired in the same lifecycle bag as
-  `clearStreaming(sessionId)`-style cleanup. Look for the parallel
-  `clearComputerUseOverlay(sessionId)` (or equivalent) in
-  abort/error/complete branches.
+  `clearTurnTransientState(sessionId)` (or an equivalent dedicated
+  action-end cleanup) in abort/error/complete branches.
 - No `setTimeout` / `setInterval` keeps the overlay alive past the
   action; teardown is event-driven only.
 

@@ -1,4 +1,5 @@
 import { BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON, type FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
+import type { HarborCellTokenSummary } from './cell-output.js';
 import { assertRatio } from './numeric-guards.js';
 import type {
   AbArmSummary,
@@ -24,7 +25,10 @@ import type { HarborCellContextBudgetSummary, HarborCellTaskToolSummary } from '
 
 const DEFAULT_NON_INFERIORITY_MARGIN = 0.10;
 const NON_INFERIORITY_CONFIDENCE_LEVEL = 0.95;
-const ONE_SIDED_95_Z = 1.6448536269514722;
+// Two one-sided 97.5% score bounds give at least 95% simultaneous coverage by
+// Bonferroni; subtracting loss.upper from win.lower is therefore a valid paired
+// lower bound without pretending the multinomial cells are independent.
+const ONE_SIDED_97_5_Z = 1.959963984540054;
 
 export function summarizeAbComparison(input: SummarizeAbComparisonInput): AbComparisonSummary {
   assertSameRunCount(input.baselineRuns, input.candidateRuns);
@@ -42,8 +46,11 @@ export function summarizeAbComparison(input: SummarizeAbComparisonInput): AbComp
   const passRateDelta = baseline.passRate !== null && candidate.passRate !== null
     ? roundRateDelta(candidate.passRate - baseline.passRate)
     : null;
-  const nonInferiority = summarizeNonInferiority(baseline, candidate, passRateDelta);
-  const { decision, reason } = decide(baseline, candidate, pairedAttempts, passRateDelta, nonInferiority, nonInferiorityMargin);
+  const nonInferiority = summarizeNonInferiority(pairedAttempts, passRateDelta);
+  const formalDecision = decide(baseline, candidate, pairedAttempts, passRateDelta, nonInferiority, nonInferiorityMargin);
+  const { decision, reason } = reps === 1 && formalDecision.decision !== 'invalid'
+    ? { decision: 'diagnostic' as const, reason: 'single_rep_diagnostic_only' }
+    : formalDecision;
 
   return {
     runId: input.runId,
@@ -93,7 +100,7 @@ function summarizeArm(
   const taskTools = summarizeTaskTools(observed);
   const activePruneSubset = summarizeActivePruneSubset(observedAttempts, activePrunePairIds);
   const contextBudgetPolicy = summarizeContextBudgetPolicy(observed);
-  const tokenCostSummary = summarizeTokenCost(budgetedRuns);
+  const tokenCostSummary = summarizeTokenCost(observed);
   return {
     attempts,
     observed: observed.length,
@@ -136,7 +143,7 @@ function summarizeActivePruneSubset(
   const budgetedRuns = valid.filter((event) => event.type !== 'task_budget_exhausted');
   const passed = valid.filter((event) => event.passed).length;
   const durations = budgetedRuns.map((event) => event.durationMs);
-  const tokenCostSummary = summarizeTokenCost(budgetedRuns);
+  const tokenCostSummary = summarizeTokenCost(observed);
   const contextBudget = summarizeContextBudget(sliceAttempts);
   return {
     taskCount: new Set([...activePrunePairIds].map(pairTaskId)).size,
@@ -167,19 +174,20 @@ function pairTaskId(pairId: string): string {
 }
 
 function summarizeTokenCost(
-  events: readonly Extract<FixedPromptTaskWalEvent, { type: 'task_completed' }>[],
+  events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
-  const durations = events.map((event) => event.durationMs);
+  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event && event.tokenSummary !== undefined);
+  const durations = events.flatMap((event) => 'durationMs' in event && event.durationMs !== undefined ? [event.durationMs] : []);
   return {
-    input: sum(events.map((event) => event.tokenSummary.input)),
-    cachedInput: sum(events.map((event) => event.tokenSummary.cachedInput)),
-    cacheHitInput: sum(events.map((event) => event.tokenSummary.cacheHitInput)),
-    cacheMissInput: sum(events.map((event) => event.tokenSummary.cacheMissInput)),
-    cacheWriteInput: sum(events.map((event) => event.tokenSummary.cacheWriteInput)),
-    output: sum(events.map((event) => event.tokenSummary.output)),
-    reasoning: sum(events.map((event) => event.tokenSummary.reasoning)),
-    total: sum(events.map((event) => event.tokenSummary.total)),
-    costUsd: sum(events.map((event) => event.tokenSummary.costUsd)),
+    input: sum(withUsage.map((event) => event.tokenSummary.input)),
+    cachedInput: sum(withUsage.map((event) => event.tokenSummary.cachedInput)),
+    cacheHitInput: sum(withUsage.map((event) => event.tokenSummary.cacheHitInput)),
+    cacheMissInput: sum(withUsage.map((event) => event.tokenSummary.cacheMissInput)),
+    cacheWriteInput: sum(withUsage.map((event) => event.tokenSummary.cacheWriteInput)),
+    output: sum(withUsage.map((event) => event.tokenSummary.output)),
+    reasoning: sum(withUsage.map((event) => event.tokenSummary.reasoning)),
+    total: sum(withUsage.map((event) => event.tokenSummary.total)),
+    costUsd: sum(withUsage.map((event) => event.tokenSummary.costUsd)),
     meanDurationMs: durations.length > 0 ? sum(durations) / durations.length : null,
   };
 }
@@ -507,33 +515,35 @@ function decide(
   nonInferiorityMargin: number,
 ): { decision: AbDecision; reason: string } {
   const coverage = Math.min(baseline.coverageRate, candidate.coverageRate);
-  if (coverage < 0.9) return { decision: 'inconclusive', reason: 'low_effective_coverage' };
-  if (pairedAttempts.missingPairIds.length > 0) return { decision: 'inconclusive', reason: 'missing_attempt_pair' };
+  if (baseline.infraFailed + candidate.infraFailed > 0) return { decision: 'invalid', reason: 'infra_failure_observed' };
+  if (baseline.plumbingFailed + candidate.plumbingFailed > 0) return { decision: 'invalid', reason: 'plumbing_failure_observed' };
+  if (pairedAttempts.budgetDiscordantPairIds.length > 0) return { decision: 'invalid', reason: 'asymmetric_budget_exhaustion' };
+  if (coverage < 0.9) return { decision: 'not_cleared', reason: 'low_effective_coverage' };
+  if (pairedAttempts.missingPairIds.length > 0) return { decision: 'not_cleared', reason: 'missing_attempt_pair' };
   if (pairedAttempts.infraOrPlumbingDiscordantPairIds.length > 0) {
-    return { decision: 'inconclusive', reason: 'asymmetric_infra_or_plumbing' };
+    return { decision: 'invalid', reason: 'asymmetric_infra_or_plumbing' };
   }
-  if (passRateDelta === null) return { decision: 'inconclusive', reason: 'missing_pass_rate_delta' };
+  if (passRateDelta === null) return { decision: 'not_cleared', reason: 'missing_pass_rate_delta' };
   if (passRateDelta < -nonInferiorityMargin) return { decision: 'inferior', reason: 'pass_rate_delta_below_non_inferiority_margin' };
   if (nonInferiority.lowerBound !== null && nonInferiority.lowerBound >= -nonInferiorityMargin) {
     return { decision: 'non_inferior', reason: 'non_inferiority_lower_bound_within_margin' };
   }
-  return { decision: 'inconclusive', reason: 'non_inferiority_confidence_interval_crosses_margin' };
+  return { decision: 'not_cleared', reason: 'non_inferiority_confidence_interval_crosses_margin' };
 }
 
 function summarizeNonInferiority(
-  baseline: AbArmSummary,
-  candidate: AbArmSummary,
+  pairedAttempts: AbAttemptPairSummary,
   passRateDelta: number | null,
 ): AbNonInferioritySummary {
-  if (passRateDelta === null || baseline.passRate === null || candidate.passRate === null || baseline.valid === 0 || candidate.valid === 0) {
+  if (passRateDelta === null || pairedAttempts.observedPairs === 0) {
     return { method: 'unavailable', confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL, lowerBound: null };
   }
-  const baselineInterval = wilsonScoreInterval(baseline.passed, baseline.valid, ONE_SIDED_95_Z);
-  const candidateInterval = wilsonScoreInterval(candidate.passed, candidate.valid, ONE_SIDED_95_Z);
+  const winInterval = wilsonScoreInterval(pairedAttempts.wins, pairedAttempts.observedPairs, ONE_SIDED_97_5_Z);
+  const lossInterval = wilsonScoreInterval(pairedAttempts.losses, pairedAttempts.observedPairs, ONE_SIDED_97_5_Z);
   return {
-    method: 'newcombe_wilson',
+    method: 'paired_bonferroni_wilson',
     confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL,
-    lowerBound: roundRateDelta(clampRateDelta(candidateInterval.lower - baselineInterval.upper)),
+    lowerBound: roundRateDelta(clampRateDelta(winInterval.lower - lossInterval.upper)),
   };
 }
 
@@ -552,7 +562,7 @@ function wilsonScoreInterval(passed: number, total: number, z: number): { lower:
 function isValidBudgetedOutcome(
   event: FixedPromptTaskWalEvent,
 ): event is Extract<FixedPromptTaskWalEvent, { type: 'task_completed' | 'task_budget_exhausted' }> {
-  return event.type === 'task_completed' || event.type === 'task_budget_exhausted';
+  return event.eligible && (event.type === 'task_completed' || event.type === 'task_budget_exhausted');
 }
 
 function isBudgetExhaustedOutcome(event: FixedPromptTaskWalEvent): boolean {

@@ -67,6 +67,9 @@ const ALL_SCENARIOS = [
   'artifact-errors',
   'streaming-sidebar',
   'streaming-answer',
+  // #646: "正在处理…" model-wait indicator + composer Stop, in the
+  // connect-to-first-token state.
+  'model-processing',
   'permission-destructive',
   'stale-sessions',
   'settings-data',

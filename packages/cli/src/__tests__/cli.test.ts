@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { describe, test } from 'node:test';
-import { parseMakaCliArgs, formatStartupConnectionError } from '../cli.js';
+import {
+  parseMakaCliArgs,
+  formatStartupConnectionError,
+  formatMakaCliFatalError,
+  resolveMakaCliExitCode,
+} from '../cli.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -35,6 +41,62 @@ describe('Maka CLI args', () => {
       message: 'Unexpected argument: headless',
       exitCode: 2,
     });
+  });
+
+  test('uses the command exit code when no earlier exit reason exists', () => {
+    assert.equal(resolveMakaCliExitCode(2, undefined), 2);
+  });
+
+  test('preserves an exit code already set by a process signal', () => {
+    assert.equal(resolveMakaCliExitCode(0, 143), 143);
+  });
+
+  test('formats non-Error fatal reasons as text', () => {
+    assert.equal(formatMakaCliFatalError('fatal reason'), 'fatal reason');
+  });
+
+  test('preserves the stack for fatal errors', () => {
+    const error = new Error('fatal reason');
+
+    assert.equal(formatMakaCliFatalError(error), error.stack);
+  });
+
+  test('establishes the fatal exit before reporting can throw', async () => {
+    const cliUrl = new URL('../cli.js', import.meta.url).href;
+    const childSource = `
+      import { handleMakaCliProcessExit } from ${JSON.stringify(cliUrl)};
+      try {
+        handleMakaCliProcessExit(1, new Error('fatal'), () => { throw new Error('writer failed'); });
+      } catch {}
+    `;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
+      stdio: 'ignore',
+    });
+    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+
+    assert.equal(signal, null);
+    assert.equal(code, 1);
+  });
+
+  test('coordinates repeated exit requests through the shell cleanup grace period', async () => {
+    const cliUrl = new URL('../cli.js', import.meta.url).href;
+    const childSource = `
+      import { beginMakaCliExit } from ${JSON.stringify(cliUrl)};
+      setInterval(() => {}, 1_000);
+      beginMakaCliExit(0);
+      setTimeout(() => beginMakaCliExit(1), 100);
+    `;
+    const startedAt = Date.now();
+    const child = spawn(process.execPath, ['--input-type=module', '-e', childSource], {
+      stdio: 'ignore',
+    });
+    const watchdog = setTimeout(() => child.kill('SIGKILL'), 5_000);
+    const [code, signal] = await once(child, 'exit') as [number | null, NodeJS.Signals | null];
+    clearTimeout(watchdog);
+
+    assert.equal(signal, null);
+    assert.equal(code, 1);
+    assert.ok(Date.now() - startedAt >= 2_500);
   });
 
   test('prints version from the executable entrypoint', async () => {

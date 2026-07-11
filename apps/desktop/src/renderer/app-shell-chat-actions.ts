@@ -1,6 +1,6 @@
 import type { PermissionResponse, SessionSummary, StoredMessage, ThinkingLevel } from '@maka/core';
 import { generalizedErrorMessageChinese } from '@maka/core';
-import type { NavSelection } from '@maka/ui';
+import { armLiveTurn, type LiveTurnProjection, type NavSelection } from '@maka/ui';
 import { messageRefreshErrorMessage } from './app-shell-copy.js';
 import { preflightAttachmentItems } from './attachment-preflight.js';
 
@@ -28,6 +28,7 @@ type ComposerImportOwner = {
 
 type RefBox<T> = { current: T };
 type BooleanRecordUpdater = (updater: (current: Record<string, boolean>) => Record<string, boolean>) => void;
+type LiveTurnRecordUpdater = (updater: (current: Record<string, LiveTurnProjection>) => Record<string, LiveTurnProjection>) => void;
 type MessageListUpdater = (next: StoredMessage[] | ((current: StoredMessage[]) => StoredMessage[])) => void;
 type MessageLoadErrorUpdater = (updater: (current: Record<string, string>) => Record<string, string>) => void;
 
@@ -109,6 +110,9 @@ export function createAppShellChatActions(deps: {
   ) => void;
   isNewChatSendSurfaceActive: (owner: ComposerImportOwner) => boolean;
   markSessionReadLocally: (sessionId: string, readMessages: readonly StoredMessage[]) => void;
+  /** #646: optimistically flip the session's status to 'running' at send() so the
+   * "正在处理…" gate opens before the runtime's status round-trip lands. */
+  markSessionRunningOptimistic: (sessionId: string) => (() => void) | undefined;
   messageRetryPendingRef: RefBox<Set<string>>;
   refreshSessions: () => Promise<SessionSummary[]>;
   setActiveId: (sessionId: string | undefined) => void;
@@ -116,6 +120,9 @@ export function createAppShellChatActions(deps: {
   setMessageRetryPendingBySession: BooleanRecordUpdater;
   setMessages: MessageListUpdater;
   setNavSelection: (selection: NavSelection) => void;
+  /** #646: arm the "正在处理…" indicator locally at send() — the model-wait
+   * window opens before any SessionEvent arrives (turn_started is not one). */
+  setLiveTurnBySession: LiveTurnRecordUpdater;
   showModelSetupToast: (description: string, reason?: string) => void;
   toastApi: ToastApi;
   upsertSessionSummary: (session: SessionSummary) => void;
@@ -129,6 +136,7 @@ export function createAppShellChatActions(deps: {
     clearPendingSessionAction,
     isNewChatSendSurfaceActive,
     markSessionReadLocally,
+    markSessionRunningOptimistic,
     messageRetryPendingRef,
     refreshSessions,
     setActiveId,
@@ -136,6 +144,7 @@ export function createAppShellChatActions(deps: {
     setMessageRetryPendingBySession,
     setMessages,
     setNavSelection,
+    setLiveTurnBySession,
     showModelSetupToast,
     toastApi,
     upsertSessionSummary,
@@ -184,11 +193,36 @@ export function createAppShellChatActions(deps: {
     setMessages((current) => current.filter((message) => message.id !== `optimistic-user-${turnId}`));
   }
 
+  // #646: open the turn's model-wait window for a session. Armed the moment
+  // send() commits (before the IPC round-trip) so the "正在处理…" indicator
+  // covers the connect-to-first-token gap that has no SessionEvent of its own;
+  // disarmed if the send never reaches the runtime (the catch below). Always
+  // (re)set to `'waiting'`: a fresh send is a new first-token wait, so it must
+  // overwrite any `'streamed'` left by a prior turn whose terminal event was
+  // missed — otherwise the new turn's head would never show the indicator.
+  function armTurnActive(sessionId: string, turnId: string): void {
+    setLiveTurnBySession((current) => {
+      const active = current[sessionId];
+      if (active?.turnId === turnId && active.phase === 'waiting') return current;
+      return { ...current, [sessionId]: armLiveTurn(turnId) };
+    });
+  }
+
+  function disarmTurnActive(sessionId: string, turnId: string): void {
+    setLiveTurnBySession((current) => {
+      if (current[sessionId]?.turnId !== turnId) return current;
+      const next = { ...current };
+      delete next[sessionId];
+      return next;
+    });
+  }
+
   async function send(text: string, pending?: readonly PendingAttachment[]): Promise<boolean> {
     const initialSessionId = activeIdRef.current;
     const newChatOwner = initialSessionId ? null : captureComposerImportOwner();
     let optimisticSessionId: string | undefined;
     let optimisticTurnId: string | undefined;
+    let restoreOptimisticStatus: (() => void) | undefined;
     try {
       const turnId = crypto.randomUUID();
       if (!initialSessionId) {
@@ -205,6 +239,8 @@ export function createAppShellChatActions(deps: {
         upsertSessionSummary(session);
         optimisticSessionId = session.id;
         optimisticTurnId = turnId;
+        armTurnActive(session.id, turnId);
+        restoreOptimisticStatus = markSessionRunningOptimistic(session.id);
         const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
         const sendResult = await window.maka.sessions.send(session.id, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
         if (newChatOwner && isNewChatSendSurfaceActive(newChatOwner)) {
@@ -221,6 +257,8 @@ export function createAppShellChatActions(deps: {
       const sessionId = initialSessionId;
       optimisticSessionId = sessionId;
       optimisticTurnId = turnId;
+      armTurnActive(sessionId, turnId);
+      restoreOptimisticStatus = markSessionRunningOptimistic(sessionId);
       const attachmentItems = pending && pending.length > 0 ? toIngestItems(pending) : undefined;
       const sendResult = await window.maka.sessions.send(sessionId, { type: 'send', turnId, text, ...(attachmentItems ? { attachmentItems } : {}) });
       showOptimisticUserMessage(sessionId, turnId, text, sendResult.attachments);
@@ -230,6 +268,13 @@ export function createAppShellChatActions(deps: {
       if (optimisticSessionId && optimisticTurnId) {
         removeOptimisticUserMessage(optimisticSessionId, optimisticTurnId);
       }
+      // The turn never reached the runtime — close the model-wait window so the
+      // "正在处理…" indicator doesn't hang after a failed send, and revert the
+      // optimistic running status (no subscribeChanges event will reconcile it
+      // for a send that never started) so the session doesn't keep a phantom
+      // running dot / blocked permission-mode toggle.
+      if (optimisticSessionId && optimisticTurnId) disarmTurnActive(optimisticSessionId, optimisticTurnId);
+      restoreOptimisticStatus?.();
       const feedbackSessionId = optimisticSessionId ?? initialSessionId;
       const sendStillOwnsCurrentSurface = feedbackSessionId
         ? activeIdRef.current === feedbackSessionId

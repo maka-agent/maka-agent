@@ -140,6 +140,7 @@ export function backfillRuntimeEventsFromStoredMessages(
           actions: {
             stateDelta: {
               ...recoveryState(now, message),
+              ...(message.activityKind !== undefined ? { activityKind: message.activityKind } : {}),
               ...(message.displayName !== undefined ? { displayName: message.displayName } : {}),
               ...(message.intent !== undefined ? { intent: message.intent } : {}),
             },

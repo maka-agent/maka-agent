@@ -20,41 +20,39 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import {
-  activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
-  trowActivityKind,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
+import { isToolRowRunning, isToolRowSettled } from './tool-activity/tool-row-motion.js';
+import {
+  createToolDisclosureState,
+  deriveToolActivityPresentation,
+  isConnectorTool,
+  resolveToolDisplayName,
+  setToolDisclosureOpen,
+  syncToolDisclosureState,
+  type ToolActivityPresentation,
+} from './tool-activity/presentation.js';
 import { Alert, AlertAction, AlertDescription, AlertTitle } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
-import { LiveIndicator, previewVariants, streamVariants, TextShimmer, toolVariants } from './primitives/chat.js';
+import { previewVariants, TextShimmer, toolVariants } from './primitives/chat.js';
 import { redactSecrets } from './redact.js';
 import { Button as UiButton, cn } from './ui.js';
-import { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
+import { describeLoadToolResult, formatToolIntent } from './tool-format.js';
 import { formatDuration, formatUserVisibleToolText } from './tool-activity/preview-utils.js';
-import { ToolResultPreview } from './tool-activity/tool-result-preview.js';
-
-// Mirror of runtime's LOAD_TOOLS_NAME. @maka/ui must not depend on @maka/runtime,
-// so the always-on group-activation connector's name is duplicated here as the
-// single hook for its friendly, locale-aware presentation. The pre-unification
-// name `load_tool` (PR #30) is also matched — it shipped and returns the same
-// `{ loaded: [...] }` shape, so replayed old sessions still render friendly.
-// `connect_tool_source` (PR #34) is intentionally NOT here: it never shipped and
-// its `{ tools: [...] }` result shape this card does not render.
-const CONNECTOR_TOOL_NAMES: ReadonlySet<string> = new Set(['load_tools', 'load_tool']);
-
-function isConnectorTool(name: string): boolean {
-  return CONNECTOR_TOOL_NAMES.has(name);
-}
-
-/** Friendly tool name: an explicit displayName wins; the connector gets a localized name. */
-function resolveToolDisplayName(item: ToolActivityItem): string {
-  if (item.displayName) return item.displayName;
-  if (isConnectorTool(item.toolName)) return loadToolDisplayName(detectUiLocale());
-  return item.toolName;
-}
+import {
+  formatQuietJsonValue,
+  formatToolInvocationLine,
+} from './tool-activity/builtin-preview.js';
+import {
+  TOOL_OUTPUT_BODY_CLASS,
+  TOOL_OUTPUT_COMMAND_CLASS,
+  TOOL_OUTPUT_NOTE_CLASS,
+  TOOL_OUTPUT_PANEL_CLASS,
+  ToolResultPreview,
+} from './tool-activity/tool-result-preview.js';
 
 /** Friendly card for a `load_tools` result; falls back to JSON on unexpected shapes. */
 function LoadToolResultPreview(props: { args: unknown; value: unknown }) {
@@ -107,11 +105,11 @@ function AutomationResultPreview(props: { text: string }) {
       <div className={previewVariants({ part: 'load-tool' })} data-kind="automation_create">
         <p className={previewVariants({ part: 'load-tool-title' })}>
           <Icon size={14} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 4 }} />
-          自动化任务已创建：{created[1]}
+          自动化任务已创建：{redactSecrets(created[1] ?? '')}
         </p>
-        {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{schedule}</p>}
-        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{nextFire}</p>}
-        <p className={previewVariants({ part: 'load-tool-footer' })}>{created[2]}</p>
+        {schedule && <p className={previewVariants({ part: 'load-tool-count' })}>{redactSecrets(schedule)}</p>}
+        {nextFire && nextFire !== 'N/A' && <p className={previewVariants({ part: 'load-tool-tools' })}>下次触发：{redactSecrets(nextFire)}</p>}
+        <p className={previewVariants({ part: 'load-tool-footer' })}>{redactSecrets(created[2] ?? '')}</p>
       </div>
     );
   }
@@ -147,7 +145,7 @@ function AutomationResultPreview(props: { text: string }) {
           return (
             <p key={i} className={previewVariants({ part: 'load-tool-tools' })}>
               <BlockIcon size={12} aria-hidden="true" style={{ display: 'inline', verticalAlign: 'text-bottom', marginRight: 3 }} />
-              {head}
+              {redactSecrets(head)}
             </p>
           );
         })}
@@ -168,16 +166,15 @@ const STATUS_LABEL: Record<ToolActivityItem['status'], string> = {
   interrupted: '已中断',
 };
 
-function isOpenByDefault(status: ToolActivityItem['status']): boolean {
-  // Show details inline while the call is in flight or blocking the user; also
-  // for errored calls so the failure is visible without an extra click. Settled
-  // success / interruption collapse so completed history doesn't drown the chat.
-  return (
-    status === 'pending' ||
-    status === 'waiting_permission' ||
-    status === 'running' ||
-    status === 'errored'
-  );
+function useToolDisclosure(presentation: ToolActivityPresentation) {
+  const [disclosure, setDisclosure] = useState(() => createToolDisclosureState(presentation));
+  useEffect(() => {
+    setDisclosure((current) => syncToolDisclosureState(current, presentation));
+  }, [presentation.needsAttention]);
+  return {
+    open: disclosure.open,
+    setOpen: (open: boolean) => setDisclosure((current) => setToolDisclosureOpen(current, open)),
+  };
 }
 
 function extractErrorText(result: ToolActivityItem['result']): string {
@@ -185,12 +182,11 @@ function extractErrorText(result: ToolActivityItem['result']): string {
   switch (result.kind) {
     case 'text':
       return result.text;
-    case 'json':
-      try {
-        return JSON.stringify(result.value, null, 2);
-      } catch {
-        return String(result.value);
-      }
+    case 'json': {
+      // Same quiet formatter as the panel — never dump escaped JSON braces.
+      const quiet = formatQuietJsonValue(result.value);
+      return quiet.headline ? `${quiet.headline}\n${quiet.body}` : quiet.body;
+    }
     case 'terminal':
       return result.stderr || result.stdout || `exit ${result.exitCode}`;
     case 'file_diff':
@@ -209,17 +205,98 @@ function isPermissionDeniedToolResult(result: ToolActivityItem['result']): boole
 }
 
 /**
- * Pull the shell command string out of a command-tool's args (bash / shell).
- * Used to render a single `$ <command>` invocation line while the tool is in
- * flight — the settled terminal result preview already prints the command in
- * its header, so this only fills the running gap. Returns undefined for a
- * non-command shape so the caller falls back to the compact redacted-args view.
+ * Result kinds (or tool-specific cards) that already paint their own chrome —
+ * never nest them inside the shared quiet well.
  */
-function extractToolCommand(args: unknown): string | undefined {
-  if (!args || typeof args !== 'object') return undefined;
-  const record = args as Record<string, unknown>;
-  const raw = record.command ?? record.cmd ?? record.script;
-  return typeof raw === 'string' && raw.trim().length > 0 ? raw : undefined;
+function resultOwnsOwnPanel(item: ToolActivityItem): boolean {
+  const result = item.result;
+  if (!result) return false;
+  if (isAutomationTool(item.toolName) && result.kind === 'text') return true;
+  if (isConnectorTool(item.toolName) && result.kind === 'json') return true;
+  switch (result.kind) {
+    case 'terminal':
+    case 'shell_run':
+    case 'subagent':
+    case 'explore_agent':
+    case 'web_search':
+    case 'web_search_error':
+    case 'file_diff':
+    case 'office_document':
+    case 'rive_workflow':
+      return true;
+    default:
+      return false;
+  }
+}
+
+function isCancelledToolResult(result: ToolActivityItem['result']): boolean {
+  if (!result) return false;
+  if (result.kind === 'terminal' || result.kind === 'shell_run') {
+    return result.status === 'cancelled';
+  }
+  return false;
+}
+
+function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
+  if (!result) return false;
+  if (result.kind === 'terminal' || result.kind === 'shell_run') {
+    return (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
+  }
+  return true;
+}
+
+/**
+ * Background Bash yields an empty shell_run body; keep the live chunks the
+ * user already saw by filling empty stdout/stderr from outputChunks. Also
+ * forward truncation / redaction hints so settled preview matches live.
+ */
+function withLiveStreamFallback(
+  result: NonNullable<ToolActivityItem['result']>,
+  chunks: ToolActivityItem['outputChunks'] | undefined,
+  options?: { truncated?: boolean },
+): NonNullable<ToolActivityItem['result']> {
+  if (result.kind !== 'terminal' && result.kind !== 'shell_run') return result;
+  if (resultHasCapturedStreams(result)) return result;
+
+  let stdout = '';
+  let stderr = '';
+  let anyRedacted = false;
+  for (const chunk of chunks ?? []) {
+    if (chunk.redacted) anyRedacted = true;
+    if (chunk.stream === 'stderr') stderr += chunk.text;
+    else stdout += chunk.text;
+  }
+  const truncated = result.stdoutTruncated === true || options?.truncated === true;
+  // Empty redacted/truncated live buffer still carries diagnosis — do not
+  // early-return and drop "已脱敏" / "输出已截断".
+  if (!stdout && !stderr && !anyRedacted && !truncated) return result;
+
+  // Match live stream's "[已脱敏]" marker when a chunk was redacted
+  // (including empty bodies that only suppressed secrets).
+  if (anyRedacted) {
+    if (stdout.length > 0) stdout = `${stdout}${stdout.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+    else if (stderr.length > 0) stderr = `${stderr}${stderr.endsWith('\n') ? '' : '\n'}[已脱敏]`;
+    else stdout = '[已脱敏]';
+  }
+  return {
+    ...result,
+    stdout,
+    stderr,
+    stdoutTruncated: truncated,
+  };
+}
+
+function toolStatusLabel(item: ToolActivityItem): string {
+  // Outer label follows call status. Panel notes still show task cancel state.
+  if (item.status === 'interrupted' && isCancelledToolResult(item.result)) return '已取消';
+  if (
+    (item.result?.kind === 'terminal' || item.result?.kind === 'shell_run')
+    && item.result.status === 'timed_out'
+    && item.status !== 'completed'
+  ) {
+    return '已超时';
+  }
+  return STATUS_LABEL[item.status];
 }
 
 export function ToolActivity(props: { items: ToolActivityItem[] }) {
@@ -237,32 +314,26 @@ export function ToolActivity(props: { items: ToolActivityItem[] }) {
 }
 
 function ToolActivityCard({ item }: { item: ToolActivityItem }) {
-  // Controlled open that follows item.status: a card that defaults open while
-  // pending/running auto-collapses when it settles to completed/interrupted
-  // (restoring the pre-Collapsible native-disclosure behavior, where
-  // open={isOpenByDefault(status)} re-evaluated every render). The user can
-  // still toggle in between — onOpenChange updates local state, and the next
-  // status change re-syncs. See disclosure-collapsible-contract: defaultOpen
-  // is banned here.
-  const [open, setOpen] = useState(isOpenByDefault(item.status));
-  useEffect(() => {
-    setOpen(isOpenByDefault(item.status));
-  }, [item.status]);
+  // Ordinary work stays summarized. A new permission/error state opens the
+  // diagnostics, while an explicit user toggle survives later ordinary status
+  // changes. See disclosure-collapsible-contract: defaultOpen is banned here.
+  const presentation = deriveToolActivityPresentation(item);
+  const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
   return (
     <Collapsible
       data-slot="tool"
       className={toolVariants({ part: 'item' })}
       data-status={item.status}
-      open={open}
-      onOpenChange={setOpen}
+      open={disclosure.open}
+      onOpenChange={disclosure.setOpen}
     >
       <CollapsibleTrigger className={toolVariants({ part: 'header' })}>
         <span className={toolVariants({ part: 'dot' })} data-status={item.status} aria-hidden="true" />
         <span className={toolVariants({ part: 'name' })}>{resolveToolDisplayName(item)}</span>
         <span className={toolVariants({ part: 'meta' })}>
           {duration && <span className={toolVariants({ part: 'duration' })}>{duration}</span>}
-          <span className={toolVariants({ part: 'status-label' })}>{STATUS_LABEL[item.status]}</span>
+          <span className={toolVariants({ part: 'status-label' })}>{toolStatusLabel(item)}</span>
         </span>
       </CollapsibleTrigger>
       <CollapsiblePanel>
@@ -273,58 +344,106 @@ function ToolActivityCard({ item }: { item: ToolActivityItem }) {
 }
 
 /**
- * The tool detail body — error banner, intent, args, live output stream, and
- * result preview — shared by the boxed `ToolActivityCard` and the flat trow
- * rows. Extracted so the trow can render the same details without the card
- * frame. Args/intent stay routed through `formatRedactedJson` /
- * `formatToolIntent` (tool-args-redaction-contract).
+ * The tool detail body — error banner + one Codex-like output well for
+ * command/args, live stream, and structured results. Shared by the boxed
+ * `ToolActivityCard` and flat trow rows. Args/results route through
+ * quiet formatters (tool-args-redaction-contract / quiet-panel contracts).
  */
 function ToolCardBody({ item }: { item: ToolActivityItem }) {
-  const errored = item.status === 'errored';
+  const cancelled = isCancelledToolResult(item.result);
+  // Cancel maps to interrupted at materialize/live-projection; keep defensive
+  // checks so a stale errored+cancelled item still does not look like failure.
+  const errored = item.status === 'errored' && !cancelled;
   const permissionDenied = isPermissionDeniedToolResult(item.result);
   const running = item.status === 'running' || item.status === 'pending';
-  const command = trowActivityKind(item.toolName) === 'command' ? extractToolCommand(item.args) : undefined;
-  // A terminal result preview already prints `$ cmd` + cwd + exit in its head,
-  // so the invocation line only fills the in-flight gap (and any non-terminal
-  // result). The compact redacted-args fallback still routes through
-  // formatRedactedJson (tool-args-redaction-contract).
-  const resultIsTerminal = item.result?.kind === 'terminal';
-  const showInvocation = !permissionDenied && !resultIsTerminal && (command !== undefined || item.args !== undefined);
+  // Rich kinds + tool-specific cards own their chrome — never nest in the shared well.
+  const ownsPanel = resultOwnsOwnPanel(item);
+  const showErrorBanner = errored;
+  // Every tool: human invocation line from args — never pretty-printed JSON.
+  // Skip when the result panel already prints the command (terminal/shell_run).
+  const invocationLine = !permissionDenied && !ownsPanel
+    ? formatToolInvocationLine(item)
+    : undefined;
   // While running the live stream is the output; once a structured result
-  // preview exists it is the single quiet output block — never render both
-  // (the old body double-printed stdout as stream + preview).
-  const showLiveStream = !!item.outputChunks && item.outputChunks.length > 0 && (running || !item.result);
+  // preview exists it is the single quiet output block — never render both.
+  // Owned terminal/shell_run panels absorb empty-body yield via
+  // withLiveStreamFallback (never a second live panel).
+  const showLiveStream = !!item.outputChunks
+    && item.outputChunks.length > 0
+    && !ownsPanel
+    && (running || !item.result);
+  const showResult = !!item.result && !permissionDenied;
+  const displayResult = showResult && item.result
+    ? withLiveStreamFallback(item.result, item.outputChunks, {
+      truncated: item.outputTruncated === true,
+    })
+    : undefined;
+  const quietJson =
+    displayResult?.kind === 'json'
+      ? formatQuietJsonValue(displayResult.value)
+      : undefined;
+  // Keep the invocation line whenever args yield one. Only add a result
+  // headline when it says something different (avoids dropping Write/Edit paths
+  // when path === path).
+  const showInvocation = invocationLine !== undefined;
+  const resultHeadline = quietJson?.headline
+    && quietJson.headline !== invocationLine
+    ? quietJson.headline
+    : undefined;
+  // Owned-panel kinds render alone. Everything else shares one quiet well.
+  const hasSharedPanelContent =
+    !ownsPanel && (
+      showInvocation
+      || !!resultHeadline
+      || showLiveStream
+      || showResult
+      || (!!item.args && !permissionDenied && !invocationLine && !showResult && !showLiveStream)
+    );
+
   return (
-    // Flat, left-border-indented detail area — one visual language with the
-    // 深度思考 disclosure body. No nested card frame, no per-row rounded boxes.
-    <div className="mt-1 ml-2 flex flex-col gap-1.5 border-l border-[var(--border)] pl-2.5 pb-1">
-      {errored && <ToolErrorBanner result={item.result} />}
-      {showInvocation && (
-        command !== undefined ? (
-          <code className="[font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">
-            <span className="select-none text-[color:var(--muted-foreground)]">$ </span>
-            {redactSecrets(command)}
-          </code>
+    <div className="mt-1 flex flex-col gap-1.5">
+      {showErrorBanner && <ToolErrorBanner result={displayResult ?? item.result} />}
+      {showResult && ownsPanel && displayResult && (
+        isConnectorTool(item.toolName) && displayResult.kind === 'json' ? (
+          <LoadToolResultPreview args={item.args} value={displayResult.value} />
+        ) : isAutomationTool(item.toolName) && displayResult.kind === 'text' ? (
+          <AutomationResultPreview text={displayResult.text} />
         ) : (
-          <pre className="m-0 max-h-40 overflow-auto [font-family:var(--font-mono)] [font-variant-ligatures:none] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--foreground-secondary)] [white-space:pre-wrap] [word-break:break-word]">{formatRedactedJson(item.args)}</pre>
+          <ToolResultPreview content={displayResult} />
         )
       )}
-      {showLiveStream && (
-        <ToolOutputStream
-          chunks={item.outputChunks!}
-          live={running}
-          interrupted={item.status === 'interrupted'}
-          truncated={item.outputTruncated === true}
-        />
-      )}
-      {item.result && !permissionDenied && (
-        isConnectorTool(item.toolName) && item.result.kind === 'json' ? (
-          <LoadToolResultPreview args={item.args} value={item.result.value} />
-        ) : isAutomationTool(item.toolName) && item.result.kind === 'text' ? (
-          <AutomationResultPreview text={item.result.text} />
-        ) : (
-          <ToolResultPreview content={item.result} />
-        )
+      {hasSharedPanelContent && (
+        <div
+          data-slot="tool-output"
+          className={cn(TOOL_OUTPUT_PANEL_CLASS, errored && 'border-[oklch(from_var(--destructive)_l_c_h_/_0.28)]')}
+        >
+          {showInvocation && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{invocationLine}</code>
+          )}
+          {resultHeadline && (
+            <code className={TOOL_OUTPUT_COMMAND_CLASS}>{resultHeadline}</code>
+          )}
+          {/* No formatRedactedJson dump — if invocation failed, quiet-format args. */}
+          {!showInvocation && !resultHeadline && item.args !== undefined && !permissionDenied && !showResult && (
+            <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'max-h-40')}>
+              {formatQuietJsonValue(item.args).body}
+            </pre>
+          )}
+          {showLiveStream && (
+            <ToolOutputStream
+              chunks={item.outputChunks!}
+              live={running}
+              truncated={item.outputTruncated === true}
+            />
+          )}
+          {showResult && !ownsPanel && displayResult && (
+            quietJson ? (
+              <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
+            ) : (
+              <ToolResultPreview content={displayResult} />
+            )
+          )}
+        </div>
       )}
     </div>
   );
@@ -344,52 +463,71 @@ const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
   tool: Settings,
 };
 
-function trowKindIcon(toolName: string): ComponentType<LucideProps> {
-  return TROW_KIND_ICON[trowActivityKind(toolName)];
-}
+// #646 run→done seam: the one-shot settle "landing" for the group summary line.
+// Reuses the whitelisted `maka-stream-fade-in` keyframe (opacity 0→1, one-shot
+// `both`) — no new keyframe (design-406 governance) — and rides
+// `var(--duration-emphasized)` / `var(--ease-out-strong)` so it converges with
+// the motion tokens. Applied only when the group was seen running here and
+// just settled, so a replayed transcript's summary stays static. Auto-frozen
+// under reduced-motion / visual-smoke by the global rules in styles/base.css.
+// The per-row seam is a light-band stop (no opacity fade) so parallel tools
+// finishing together don't stack N fades (#tool-jitter).
+const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]';
 
 /**
  * Codex-style tool trow (streaming UI rework): one contiguous run of tool
  * activity rendered as a single flat, borderless disclosure — replacing the
- * boxed "工具调用 N" card stack inside a turn. A single-tool group is just that
- * tool's own row (no double nesting); a multi-tool group adds a summary line
- * (shimmering active-tool description while running; bucketed counts once
- * settled) that expands to the flat-stacked tool rows.
+ * boxed "工具调用 N" card stack inside a turn. The summary disclosure is the
+ * stable root for both one and many tools, so a second call appends inside the
+ * same component instead of replacing an expanded row with a collapsed group.
  */
 export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
   if (items.length === 0) return null;
-  if (items.length === 1) return <ToolTrowRow item={items[0]!} />;
   return <ToolTrowGroup items={items} />;
 }
 
 function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const running = isTrowRunning(items);
   const attention = trowNeedsAttention(items);
-  const active = activeTrowTool(items) ?? items[0]!;
-  // Controlled open: default collapsed, but a waiting_permission or errored
-  // tool forces the group open — a permission prompt must not hide behind the
-  // summary line, and an error banner must stay diagnosable (the old boxed
-  // cards kept errored tools expanded). The user's manual collapse sticks
-  // while `attention` stays true. No defaultOpen
-  // (disclosure-collapsible-contract) — controlled open re-syncs from status,
-  // like ToolActivityCard.
-  const [open, setOpen] = useState(attention);
-  useEffect(() => {
-    if (attention) setOpen(true);
-  }, [attention]);
+  // The group's presentation follows the first item (the first-seen bucket the
+  // summary clauses and icon use). The active-tool lookup is gone: a multi-tool
+  // running group shows the whole-group aggregation, a single-tool group's
+  // active tool is items[0] anyway, and disclosure attention is overridden by
+  // the whole-group trowNeedsAttention below.
+  const firstPresentation = deriveToolActivityPresentation(items[0]!);
+  // Groups share the same disclosure state as a single row: ordinary work is
+  // summarized; a new permission/error state opens diagnostics; manual choice
+  // survives ordinary status changes.
+  const disclosure = useToolDisclosure({ ...firstPresentation, needsAttention: attention });
+  // #646: a group settles when all its tools do; the settle fade plays only if
+  // the group was ever seen running here (not a replayed transcript). The
+  // delayed shimmer de-flickers a group whose tools all finish sub-second.
+  const everRunningRef = useRef(false);
+  if (running) everRunningRef.current = true;
+  const settled = !running;
+  const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
-  const SummaryIcon = trowKindIcon(active.toolName);
+  // #tool-jitter: the group icon stays on the first bucket's kind (the same
+  // first-seen order the summary clauses use), not the active tool's kind — so
+  // a mixed-kind group's icon doesn't flip as the active tool changes mid-run.
+  const SummaryIcon = TROW_KIND_ICON[firstPresentation.kind];
+  // Multi-tool running group shows the whole-group bucket aggregation with a
+  // "正在" prefix instead of the active tool's description, so the summary line
+  // stops cycling through each tool's intent as tools start/finish in
+  // parallel (the 1234567 jitter). Single-tool rows keep the tool's own
+  // description — the "what exactly is running" signal is useful when there is
+  // only one, and it is locked by existing tests.
   const summary = running
-    ? formatUserVisibleToolText(active.intent ?? '') || resolveToolDisplayName(active)
+    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : firstPresentation.summary)
     : summarizeTrowTools(items);
   return (
-    <Collapsible className="flex flex-col" data-trow="group" open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <SummaryIcon size={16} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}>{summary}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]', settling && SETTLE_FADE)}>{summary}</span>
         )}
         <ChevronRight
           size={14}
@@ -398,41 +536,45 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
         />
       </CollapsibleTrigger>
       <CollapsiblePanel>
-        <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
-          {items.map((item) => (
-            <ToolTrowRow key={item.toolUseId} item={item} />
-          ))}
-        </div>
+        {items.length === 1 ? (
+          <ToolCardBody item={items[0]!} />
+        ) : (
+          <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
+            {items.map((item) => (
+              <ToolTrowRow key={item.toolUseId} item={item} />
+            ))}
+          </div>
+        )}
       </CollapsiblePanel>
     </Collapsible>
   );
 }
 
 /**
- * A single flat, borderless tool row inside a trow (or a whole single-tool
- * trow). A caption/mono weak-color header (status dot + name + duration/status)
- * expands to the shared `ToolCardBody`. Controlled open by status —
- * waiting_permission / running / errored open, settled collapsed — so a
- * permission prompt is never hidden. No card frame (`toolVariants({item})`),
- * per the flat trow visual language.
+ * A single flat, borderless tool row inside a multi-tool trow. Ordinary work
+ * is collapsed; permission prompts and errors open for attention, and a user's
+ * manual choice survives later ordinary status changes. No card frame
+ * (`toolVariants({item})`), per the flat trow visual language.
  */
 function ToolTrowRow({ item }: { item: ToolActivityItem }) {
-  const [open, setOpen] = useState(isOpenByDefault(item.status));
-  useEffect(() => {
-    setOpen(isOpenByDefault(item.status));
-  }, [item.status]);
+  const presentation = deriveToolActivityPresentation(item);
+  const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
-  const running = item.status === 'running' || item.status === 'pending' || item.status === 'waiting_permission';
+  // #tool-jitter: a row settles by its shimmer stopping — the same seam as the
+  // 深度思考 disclosure title (light band → static muted text), with no opacity
+  // fade. Parallel tools finishing together each just drop their light band
+  // instead of stacking N opacity-0→1 fades, so a batch settle no longer 1234567.
+  const running = isToolRowRunning(item.status);
+  const settled = isToolRowSettled(item.status);
   const errored = item.status === 'errored';
-  const RowIcon = trowKindIcon(item.toolName);
+  const RowIcon = TROW_KIND_ICON[presentation.kind];
   // One row language with the multi-tool summary row: a kind icon + a
   // user-language phrase, never the old status-dot + mono tool-name + status
   // word. Running shimmers the model's intent (or the friendly tool name);
   // settled prefers the intent, falls back to the display name.
-  const runningSummary = formatUserVisibleToolText(item.intent ?? '') || resolveToolDisplayName(item);
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
   return (
-    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} open={open} onOpenChange={setOpen}>
+    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <RowIcon
           size={16}
@@ -440,7 +582,7 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
         {running ? (
-          <TextShimmer active={running} className="min-w-0 truncate text-[length:var(--font-size-base)]">{runningSummary}</TextShimmer>
+          <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{presentation.summary}</TextShimmer>
         ) : item.intent ? (
           <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
         ) : (
@@ -467,34 +609,19 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
 }
 
 /**
- * PR-UI-12 — live stdout/stderr stream from PR-REAL-4 `tool_output_delta`.
+ * Live stdout/stderr body for the unified tool-output panel.
  *
- * Renders chunks in their original seq order (already sorted in main.tsx
- * before this component sees them) so interleaved stdout+stderr reads
- * the way a human would expect from a real terminal. Each chunk keeps
- * its stream tag so stderr can render in a destructive tone — a
- * single mono `<pre>` would lose that visual signal.
+ * No second card shell and no "实时输出" header — the parent panel is the
+ * only chrome. Chunks keep stream tags so stderr can tint destructive.
+ * Redacted chunks still surface an inline "[已脱敏]" hint. Truncation is a
+ * quiet footer note, not a flag row.
  *
- * `redacted: true` chunks render as a small inline hint "[已脱敏]"
- * instead of pretending the chunk arrived clean. Empty redacted
- * chunks (runtime suppressed everything) collapse to just the hint.
- *
- * `truncated: true` (PR-UI-12 fixup #2, @kenji A3 msg 365ff8b9) flips
- * a "已截断" pill in the header counts row. This means
- * `applyToolOutputChunk` dropped chunks (per-tool count or
- * total-char cap) or tail-truncated a single oversize chunk. Users
- * see explicitly that the displayed stream is bounded — they should
- * use Finder / external viewer if they need the full output.
- *
- * Auto-scroll: while `live` is true, we anchor to the bottom on every
- * chunk update so users see the latest output. Once the tool reaches
- * terminal (`tool_result`), auto-scroll stops so users can scroll up
- * to read history without being yanked back.
+ * Auto-scroll: while `live` is true, anchor to the bottom on every chunk
+ * update; stop once the tool settles so the user can scroll history.
  */
 function ToolOutputStream(props: {
   chunks: ToolOutputChunk[];
   live: boolean;
-  interrupted: boolean;
   truncated: boolean;
 }) {
   const preRef = useRef<HTMLPreElement>(null);
@@ -505,58 +632,33 @@ function ToolOutputStream(props: {
     el.scrollTop = el.scrollHeight;
   }, [props.chunks, props.live]);
 
-  const stdoutCount = props.chunks.filter((c) => c.stream === 'stdout').length;
-  const stderrCount = props.chunks.filter((c) => c.stream === 'stderr').length;
-  const redactedCount = props.chunks.filter((c) => c.redacted).length;
-
   return (
-    <div className={streamVariants({ part: 'container' })} data-live={props.live ? 'true' : undefined}>
-      <header className={streamVariants({ part: 'header' })}>
-        <span className={streamVariants({ part: 'label' })}>
-          {props.live ? (
-            <>
-              <LiveIndicator />
-              <span>实时输出</span>
-            </>
-          ) : props.interrupted ? (
-            <span>已中断 · 已收到的输出</span>
-          ) : (
-            <span>工具输出</span>
-          )}
-        </span>
-        <span className={streamVariants({ part: 'counts' })}>
-          {stdoutCount > 0 && <span className={streamVariants({ part: 'count' })}>stdout {stdoutCount}</span>}
-          {stderrCount > 0 && <span className={streamVariants({ part: 'count' })} data-stream="stderr">stderr {stderrCount}</span>}
-          {redactedCount > 0 && <span className={streamVariants({ part: 'count' })} data-redacted="true">已脱敏 {redactedCount}</span>}
-          {props.truncated && (
-            <span
-              className={streamVariants({ part: 'count' })}
-              data-truncated="true"
-              title="部分输出已截断；如需完整输出请查看对应工具结果或生成的 artifact"
-            >
-              已截断
-            </span>
-          )}
-        </span>
-      </header>
-      <pre ref={preRef} className={streamVariants({ part: 'body' })}>
+    <>
+      <pre ref={preRef} className={TOOL_OUTPUT_BODY_CLASS} data-live={props.live ? 'true' : undefined}>
         {props.chunks.map((chunk) => (
           <span
             key={chunk.seq}
-            className={streamVariants({ part: 'chunk' })}
+            className={cn(
+              'contents',
+              chunk.stream === 'stderr' && 'text-[color:var(--destructive)]',
+              chunk.redacted && 'opacity-[0.65]',
+            )}
             data-stream={chunk.stream}
             data-redacted={chunk.redacted ? 'true' : undefined}
           >
             {chunk.text}
             {chunk.redacted && (
-              <span className={streamVariants({ part: 'redacted-tag' })} aria-label="已脱敏">
+              <span className="inline ml-0.5 text-[color:var(--warning-text,var(--info-text))]" aria-label="已脱敏">
                 {' '}[已脱敏]
               </span>
             )}
           </span>
         ))}
       </pre>
-    </div>
+      {props.truncated && (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>输出已截断</p>
+      )}
+    </>
   );
 }
 

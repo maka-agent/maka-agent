@@ -53,6 +53,7 @@ const PROVIDER_SHORT_LABEL = {
   google: 'Google',
   deepseek: 'DeepSeek',
   moonshot: 'Moonshot',
+  litellm: 'LiteLLM',
   ollama: 'Ollama',
   'kimi-coding-plan': 'Kimi',
   'zai-coding-plan': 'Z.AI',

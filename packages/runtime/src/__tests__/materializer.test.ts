@@ -142,6 +142,74 @@ describe('materializeSession', () => {
     expect(item.item.isError).toBe(true);
   });
 
+  test('cancelled terminal with isError=true → status interrupted', () => {
+    const cancelled: ToolResultMessage = {
+      type: 'tool_result',
+      id: 'r-cancel',
+      turnId,
+      ts: ts + 4,
+      toolUseId: 't-cancel',
+      isError: true,
+      content: {
+        kind: 'terminal',
+        cwd: '/repo',
+        cmd: 'sleep 99',
+        status: 'cancelled',
+        exitCode: 130,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    };
+    const vm = materializeSession([toolCall('t-cancel', 'Bash'), cancelled]);
+    const item = vm.items[0];
+    if (item?.kind !== 'tool') throw new Error('wrong kind');
+    expect(item.item.status).toBe('interrupted');
+
+    const live = applyAppendedMessage(
+      applyAppendedMessage([], toolCall('t-cancel', 'Bash')).items,
+      cancelled,
+    );
+    const liveItem = live.items[0];
+    if (liveItem?.kind !== 'tool') throw new Error('wrong kind');
+    expect(liveItem.item.status).toBe('interrupted');
+  });
+
+  test('successful shell_run cancelled observation stays completed', () => {
+    // StopBackgroundTask returns isError:false + shell_run.status cancelled —
+    // the stop call succeeded; do not map to interrupted/error.
+    const observed: ToolResultMessage = {
+      type: 'tool_result',
+      id: 'r-stop',
+      turnId,
+      ts: ts + 4,
+      toolUseId: 't-stop',
+      isError: false,
+      content: {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/bg',
+        status: 'cancelled',
+        cwd: '/repo',
+        cmd: 'sleep 99',
+        startedAt: 1,
+        updatedAt: 2,
+        exitCode: 130,
+        stdout: '',
+        stderr: '',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      },
+    };
+    const vm = materializeSession([
+      toolCall('t-stop', 'StopBackgroundTask'),
+      observed,
+    ]);
+    const item = vm.items[0];
+    if (item?.kind !== 'tool') throw new Error('wrong kind');
+    expect(item.item.status).toBe('completed');
+  });
+
   test('orphan tool_call (no matching result) → interrupted', () => {
     const vm = materializeSession([toolCall('t-orphan', 'Bash')]);
     expect(vm.items).toHaveLength(1);
@@ -196,6 +264,18 @@ describe('materializeSession', () => {
 // ---------- applyAppendedMessage ----------
 
 describe('applyAppendedMessage', () => {
+  test('preserves a semantic activity kind during reload and live append', () => {
+    const call = { ...toolCall('t', 'custom_shell'), activityKind: 'command' as const };
+    const reloaded = materializeSession([call]);
+    const appended = applyAppendedMessage([], call);
+
+    const reloadedItem = reloaded.items[0];
+    const appendedItem = appended.items[0];
+    if (reloadedItem?.kind !== 'tool' || appendedItem?.kind !== 'tool') throw new Error('wrong kind');
+    expect(reloadedItem.item.activityKind).toBe('command');
+    expect(appendedItem.item.activityKind).toBe('command');
+  });
+
   test('append user → adds bubble', () => {
     const next = applyAppendedMessage([], user('u', 'hi'));
     expect(next.items).toHaveLength(1);

@@ -312,8 +312,8 @@ describe('applyAssistantDelta — combined secret + oversize (kenji msg cd09bcac
 });
 
 describe('applyAssistantDelta — monotonic truncated propagation', () => {
-  // The renderer wires the helper's `truncated` flag into a
-  // per-session monotonic flag that stays true until clearStreaming.
+  // The renderer wires the helper's `truncated` flag into the active
+  // projection with a monotonic OR that stays true until the step settles.
   // The helper itself doesn't enforce monotonicity (that's caller
   // responsibility); it only reports whether THIS call truncated.
   // These tests pin the per-call shape so the caller's monotonic OR

@@ -95,8 +95,6 @@ const baseComposer: ComposerProps = {
 
 const baseChat: ChatViewProps = {
   messages: [],
-  streamingText: '',
-  tools: [],
   activeSession: session(),
   activeConnectionLabel: 'Anthropic',
   activeModel: 'claude-sonnet-4-5',

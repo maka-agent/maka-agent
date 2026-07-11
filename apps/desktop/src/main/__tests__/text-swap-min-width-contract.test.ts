@@ -41,9 +41,7 @@
  *    its onClick handler. The scan also requires every discovered button to
  *    be value-pinned here (or in EXCEPTIONS) so a too-small `min-w-[1rem]`
  *    can't bypass the value lock; the whitelist pins the exact value so a
- *    refactor can't shrink a real lock to the wrong value. Chat stream-count variant locks live in
- *    the variant definition, so they're pinned by their literal declaration
- *    substrings.
+ *    refactor can't shrink a real lock to the wrong value.
  */
 import { strict as assert } from 'node:assert';
 import { readFile } from 'node:fs/promises';
@@ -108,13 +106,6 @@ const TEXT_SWAP_BUTTONS: Array<{ file: string; onClick: string; minW: string; no
   { file: 'apps/desktop/src/renderer/error-boundary.tsx', onClick: 'onClick={this.handleCopyReport}', minW: '5.5rem', note: '复制诊断信息 ↔ 复制中… ↔ 已复制 ↔ 复制失败' },
 ];
 
-// Chat stream-count variant lock: the min-w-[Nrem]
-// declaration lives in the variant definition (chat.tsx), not at the call
-// site, so we pin the literal declaration substrings.
-const CHAT_VARIANT_LOCKS: Array<{ file: string; substr: string; note: string }> = [
-  { file: 'packages/ui/src/primitives/chat.tsx', substr: 'min-w-[5rem] [font-variant-numeric:tabular-nums]', note: 'streamVariants count (stdout/stderr/已脱敏 N)' },
-];
-
 const BUTTON_OPEN_RE = /<(?:Ui)?Button\b/g;
 
 // --- Heuristic scan (DISCOVERY, scoped to PR3 files) ------------------------
@@ -168,24 +159,6 @@ describe('PR-ANTI-LAYOUT-SHIFT-TEXT-SWAP-0 contract', () => {
         assert.ok(
           clsMatch[1].includes(`min-w-[${minW}]`),
           `${file}: button for "${onClick}" className="${clsMatch[1]}" is missing min-w-[${minW}] (${note})`,
-        );
-      }
-    }
-  });
-
-  it('chat stream-count variants keep their min-w declarations', async () => {
-    const byFile = new Map<string, typeof CHAT_VARIANT_LOCKS>();
-    for (const l of CHAT_VARIANT_LOCKS) {
-      const arr = byFile.get(l.file) ?? [];
-      arr.push(l);
-      byFile.set(l.file, arr);
-    }
-    for (const [file, locks] of byFile) {
-      const src = await readFile(resolve(REPO_ROOT, file), 'utf8');
-      for (const { substr, note } of locks) {
-        assert.ok(
-          src.includes(substr),
-          `${file}: missing variant declaration "${substr}" (${note})`,
         );
       }
     }

@@ -166,6 +166,7 @@ export async function runPromptOptimizationLoop(
   const now = input.now ?? Date.now;
   const newId = input.newId ?? randomUUID;
   const baselineRunCount = input.baselineRuns ?? 3;
+  const zScore = input.zScore ?? 1.96;
   // Fail loud on out-of-contract numbers. The CLI env parser guards env values,
   // but this public API is callable directly, so the invariants live here too: a
   // NaN/fraction/0 would otherwise slip past a `< 1` or `>= ceiling` comparison
@@ -174,7 +175,7 @@ export async function runPromptOptimizationLoop(
   // structural smoke (minimumRounds 0), and a NaN cost ceiling never trips.
   assertPositiveInt('rounds', input.rounds);
   assertPositiveInt('baselineRuns', baselineRunCount);
-  if (input.zScore !== undefined) assertFinitePositive('zScore', input.zScore);
+  assertFinitePositive('zScore', zScore);
   if (input.minStableHeldInTasks !== undefined) {
     assertPositiveInt('minStableHeldInTasks', input.minStableHeldInTasks);
   }
@@ -406,7 +407,7 @@ export async function runPromptOptimizationLoop(
     heldInTaskIds: stableHeldInTaskIds,
     heldOutTaskIds: stableHeldOutTaskIds,
     baselineRuns: baselineRunsData,
-    ...(input.zScore !== undefined ? { zScore: input.zScore } : {}),
+    zScore,
   });
 
   const originalHeldOutEvents = stableHeldOut(baselineRunsData[0]!.heldOutEvents);

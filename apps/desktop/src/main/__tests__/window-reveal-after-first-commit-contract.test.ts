@@ -249,8 +249,19 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
       /setTimeout\([\s\S]*?revealGate\.markReady\(mainWindow\)[\s\S]*?SHOW_FALLBACK_TIMEOUT_MS\)/,
       'the fallback timer must reveal through the reveal gate',
     );
-    // Timer must not run for visual-smoke windows, and must clear on close.
-    assert.match(src, /if \(!keepHiddenForVisualSmoke\) \{\s*showFallbackTimer = setTimeout/);
+    // The countdown starts after the document load, otherwise a cold Vite
+    // transform can consume the timeout and reveal the preload skeleton.
+    const rendererLoadIndex = src.indexOf('await mainWindow.loadURL');
+    const fallbackTimerIndex = src.indexOf('showFallbackTimer = setTimeout');
+    assert.notEqual(rendererLoadIndex, -1);
+    assert.notEqual(fallbackTimerIndex, -1);
+    assert.ok(fallbackTimerIndex > rendererLoadIndex, 'fallback must start after renderer load');
+    // Timer must not run for visual-smoke or already-revealed windows, and
+    // must clear on close.
+    assert.match(
+      src,
+      /if \(!keepHiddenForVisualSmoke && !mainWindow\.isVisible\(\)\) \{\s*showFallbackTimer = setTimeout/,
+    );
     assert.match(
       src,
       /mainWindow\.on\('close', \(\) => \{\s*clearShowFallbackTimer\(\);/,
@@ -308,13 +319,17 @@ describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
     );
   });
 
-  it('the renderer signals ready after the first commit, unconditionally', async () => {
+  it('the renderer signals ready only after the committed UI has painted', async () => {
     const src = await readRepoFile('apps/desktop/src/renderer/app.tsx');
-    // useLayoutEffect fires post-commit; the empty dep array makes it fire once.
-    // The guarded chain must not depend on the onboarding snapshot value.
+    // A layout effect is still before paint and can reveal the BrowserWindow
+    // while Chromium's last composited frame is the preload skeleton. A nested
+    // animation frame waits through one paint before notifying main.
+    assert.doesNotMatch(src, /useLayoutEffect/);
     assert.match(
       src,
-      /useLayoutEffect\(\(\) => \{\s*void window\.maka\?\.appWindow\?\.notifyRendererReady\?\.\(\);\s*\}, \[\]\)/,
+      /useEffect\(\(\) => \{[\s\S]*?requestAnimationFrame\(\(\) => \{[\s\S]*?requestAnimationFrame\(\(\) => \{[\s\S]*?notifyRendererReady\?\.\(\)/,
     );
+    assert.match(src, /cancelAnimationFrame\(firstFrame\)/);
+    assert.match(src, /cancelAnimationFrame\(secondFrame\)/);
   });
 });

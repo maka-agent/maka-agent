@@ -14,6 +14,7 @@ import {
   Info,
   Loader2,
   RefreshCcw,
+  Target,
   Sparkles,
   Timer,
 } from './icons.js';
@@ -23,13 +24,15 @@ import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
+import { createPinnedBottomFollower } from './pinned-bottom.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
 import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
-import { materializeChat, materializeTools, materializeTurns, type ToolActivityItem, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
+import { materializeChat, materializeTurns, overlayLiveTurn, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
+import type { LiveTurnProjection } from './live-turn-projection.js';
 import { Button as UiButton } from './ui.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
@@ -127,38 +130,23 @@ export interface ChatHeaderAlert {
 export function ChatView(props: {
   messages: StoredMessage[];
   messageLoading?: boolean;
-  streamingText: string;
-  /** True after upstream emitted the final assistant text, while the UI is draining the smoother. */
-  streamingComplete?: boolean;
-  /** Assistant message id hidden while the matching streaming bubble drains. */
-  streamingMessageId?: string;
+  liveTurn?: LiveTurnProjection;
   /** Called once the streaming bubble has displayed the final text and can hand off to history. */
-  onStreamingSettled?(): void;
+  onStreamingSettled?(messageId?: string): void;
   /**
-   * PR-UI-LAYOUT-42: Anthropic extended-thinking stream from
-   * `ThinkingDeltaEvent` (`@maka/core/events`). When non-empty, a
-   * collapsible "Reasoning" panel renders above the streaming text
-   * so users with thinking models see the live reasoning while the
-   * answer is being composed. Empty string = no thinking active.
+   * #646: true while the first-token wait indicator ("正在处理…") should show —
+   * the turn is armed at send with no content event yet. Rendered as a transient
+   * trailing entry of the tail turn, covering only the connect-to-first-token gap.
    */
-  thinkingText?: string;
+  processingIndicator?: boolean;
   /**
-   * PR-UI-C0 review fixup (@kenji msg 7885a347): true when the
-   * renderer's `applyThinkingDelta` / `applyThinkingComplete` helper
-   * dropped or truncated content (per-delta cap, per-session total
-   * cap). `<ReasoningPanel>` renders a "已截断" pill in the header
-   * when true so the user knows the visible reasoning is bounded.
+   * #646: true while the calm mid-turn hint ("继续中…") should show — the turn has
+   * already produced content and is in a step-to-step lull (a tool settled / a
+   * step's text finished) with nothing streaming while the model works on the next
+   * step. Deliberately quieter than the first-token indicator so it never reads as
+   * the live thinking being swallowed.
    */
-  thinkingTruncated?: boolean;
-  /**
-   * PR-UI-Cx (@kenji msg cd09bcac): true when the renderer's
-   * `applyAssistantDelta` chokepoint either tail-kept a single
-   * oversize delta or head-capped the per-session total. The
-   * streaming bubble renders a small "已截断" affordance so the
-   * user knows the visible answer is bounded.
-   */
-  streamingTruncated?: boolean;
-  tools: ToolActivityItem[];
+  continuingIndicator?: boolean;
   activeSession?: SessionSummary;
   activeConnectionLabel?: string;
   activeModel?: string;
@@ -204,6 +192,19 @@ export function ChatView(props: {
    * from persisted messages/session state.
    */
   eventStreamAlert?: ChatHeaderAlert;
+  /**
+   * Active autonomous-goal indicator for the session, or undefined when no
+   * goal is running. Surfaces the loop (turn counter) with a one-click clear
+   * affordance so a token-burning goal is never invisible or unstoppable —
+   * this IS the desktop kill switch. `onClear` stops autonomous continuation.
+   */
+  goalIndicator?: {
+    condition: string;
+    status: string;
+    iterations: number;
+    maxIterations: number;
+    onClear: () => void;
+  };
   /** Error from loading the active session's persisted message log. */
   messageLoadError?: string;
   messageLoadRetryPending?: boolean;
@@ -243,6 +244,8 @@ export function ChatView(props: {
   onRefreshSkills?(): void | Promise<void>;
   onCreateSkillTemplate?(): void | Promise<void>;
   onOpenSkill?(skillId: string): void | Promise<void>;
+  /** 使用 button: seed the composer with a skill invocation (R5 follow-up). */
+  onUseSkill?(skillId: string, skillName: string): void;
   onOpenSkillsFolder?(): void | Promise<void>;
   managedSkillSources?: ManagedSkillSourceEntry[];
   onRefreshManagedSkillSources?(): void | Promise<void>;
@@ -298,22 +301,31 @@ export function ChatView(props: {
   // chat + storedTools survive for the empty-state and streaming-bubble
   // paths; the main message log is now driven by `turns` (per @kenji UI-04
   // turn-grouping projection).
-  // Memoized derivation chain (vercel rerender rules): during PLAIN-TEXT
-  // streaming — the hottest path, dozens of state updates per second —
-  // `messages` and `tools` don't change, so every turn object keeps its
-  // identity and the memoized TurnViews below skip re-rendering entirely.
-  // Tool-activity updates legitimately invalidate the chain.
+  // Persisted history and the live overlay are separate projections. Plain-text
+  // deltas only clone the active turn; settled turn identities stay stable so
+  // memoized TurnViews skip reconciliation on the hottest update path.
+  const drainingMessageIdsKey = JSON.stringify(
+    props.liveTurn?.steps.flatMap((step) => step.text ? [step.stepId] : []) ?? [],
+  );
+  const drainingMessageIds = useMemo(
+    () => new Set<string>(JSON.parse(drainingMessageIdsKey) as string[]),
+    [drainingMessageIdsKey],
+  );
   const visibleMessages = useMemo(
-    () =>
-      props.streamingComplete && props.streamingMessageId
-        ? props.messages.filter((message) => !(message.type === 'assistant' && message.id === props.streamingMessageId))
-        : props.messages,
-    [props.messages, props.streamingComplete, props.streamingMessageId],
+    () => drainingMessageIds.size > 0
+      ? props.messages.filter((message) => !(message.type === 'assistant' && drainingMessageIds.has(message.id)))
+      : props.messages,
+    [drainingMessageIds, props.messages],
   );
   const chat = useMemo(() => materializeChat(visibleMessages), [visibleMessages]);
-  const storedTools = useMemo(() => materializeTools(visibleMessages), [visibleMessages]);
-  const tools = useMemo(() => mergeTools(storedTools, props.tools), [storedTools, props.tools]);
-  const turns = useMemo(() => materializeTurns(visibleMessages, props.tools), [visibleMessages, props.tools]);
+  const settledTurns = useMemo(
+    () => materializeTurns(visibleMessages),
+    [visibleMessages],
+  );
+  const turns = useMemo(
+    () => overlayLiveTurn(settledTurns, props.liveTurn),
+    [settledTurns, props.liveTurn],
+  );
   // #642 single render path: the in-flight answer is injected into the tail
   // turn's TurnView (the SAME node as the eventual committed turn) instead of a
   // separate streaming <section>, so live→settled is a data-source swap, not an
@@ -328,15 +340,24 @@ export function ChatView(props: {
   // tool is in flight. Deriving liveness from streamingText/thinkingText alone
   // let a tool-only step (tool_start with no answer text yet) fall through to the
   // settled branch, whose derived status is `completed`, rendering an actionable
-  // footer on a still-running answer (review P2-B). LiveStreamingEntries already
-  // no-ops when text and thinking are both empty, so a tool-only tail renders the
+  // footer on a still-running answer (review P2-B). A tool-only tail renders the
   // running tool from its timeline with no empty live bubble.
-  const hasInFlightTool = props.tools.some(
-    (tool) =>
-      tool.status === 'running' || tool.status === 'pending' || tool.status === 'waiting_permission',
-  );
-  const streamingActive = !!(props.streamingText || props.thinkingText || hasInFlightTool);
-  const tailTurnId = streamingActive ? turns[turns.length - 1]?.turnId : undefined;
+  // The model-wait indicator keeps the tail turn "live" too, so its footer stays
+  // the non-actionable placeholder and the indicator injects into the tail turn
+  // (not the fallback section) — it is, by derivation, only ever true when text /
+  // thinking / tools are all absent.
+  //
+  // Terminal liveTurn is evidence overlay only (e.g. empty shell_run still needs
+  // pre-yield chunks). It must NOT block footer actions — keeping evidence and
+  // being in-flight are separate signals. Wait indicators alone still mark
+  // streaming, but delayed flags can lag one frame past complete; terminal
+  // evidence must outrank them so copy/regenerate stay actionable.
+  const liveInFlight = !!(props.liveTurn && !props.liveTurn.terminal);
+  const waitIndicators = !!(props.processingIndicator || props.continuingIndicator);
+  const streamingActive = liveInFlight || (!props.liveTurn?.terminal && waitIndicators);
+  const tailTurnId = liveInFlight
+    ? props.liveTurn!.turnId
+    : (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
   // One rail tick per turn that carries a user prompt (Codex-style prompt
   // navigation). Memoized so the rail's IntersectionObserver isn't rebuilt
   // on every render.
@@ -376,24 +397,32 @@ export function ChatView(props: {
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const pinnedToBottomRef = useRef(true);
   const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
 
   // Reset to "pinned at bottom" whenever the active session changes. Without
   // this, switching from a long history to a fresh chat would keep the
   // previous scrollTop and the user wouldn't see their last message.
   useEffect(() => {
+    pinnedToBottomRef.current = true;
     setPinnedToBottom(true);
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [props.activeSession?.id]);
 
-  // Auto-scroll on new content if the user is already at (or near) the
-  // bottom. If they've scrolled up to read history we don't yank them back.
+  // Follow the content's actual layout clock. The smoother reveals raw text
+  // on later RAF frames, so a state-driven scroll effect runs too early and
+  // leaves the viewport behind until the next upstream event.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !pinnedToBottom) return;
-    el.scrollTop = el.scrollHeight;
-  }, [chat.length, props.streamingText, tools.length, pinnedToBottom]);
+    const viewport = scrollRef.current;
+    const content = viewport?.querySelector(':scope > [data-overlayscrollbars-content]');
+    if (!viewport || !content) return;
+    return createPinnedBottomFollower({
+      viewport,
+      content,
+      isPinned: () => pinnedToBottomRef.current,
+    });
+  }, [props.activeSession?.id, props.mode]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
@@ -410,6 +439,7 @@ export function ChatView(props: {
         block: 'center',
       });
       targetEl.focus({ preventScroll: true });
+      pinnedToBottomRef.current = false;
       setPinnedToBottom(false);
       setHighlightedTurnId(target.turnId);
     });
@@ -426,13 +456,16 @@ export function ChatView(props: {
     const el = scrollRef.current;
     if (!el) return;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    setPinnedToBottom(distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD);
+    const pinned = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
+    pinnedToBottomRef.current = pinned;
+    setPinnedToBottom(pinned);
   }
 
   function scrollToBottom() {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: props.scrollBehavior ?? 'smooth' });
+    pinnedToBottomRef.current = true;
     setPinnedToBottom(true);
   }
 
@@ -445,6 +478,7 @@ export function ChatView(props: {
           onRefreshSkills={props.onRefreshSkills}
           onCreateSkillTemplate={props.onCreateSkillTemplate}
           onOpenSkill={props.onOpenSkill}
+          onUseSkill={props.onUseSkill}
           onOpenSkillsFolder={props.onOpenSkillsFolder}
           managedSkillSources={props.managedSkillSources}
           onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
@@ -585,6 +619,23 @@ export function ChatView(props: {
             <span>深度研究</span>
           </span>
         )}
+        {props.goalIndicator && (
+          /* Goal kill-switch pill: an active autonomous loop must be visible and
+             stoppable. Reuses the mode-pill styling; clicking it clears the goal
+             (the shell confirms), so the user always has a one-click stop. */
+          <UiButton
+            type="button"
+            variant="quiet"
+            className="maka-chat-header-mode-pill"
+            data-mode="goal"
+            onClick={() => props.goalIndicator?.onClear()}
+            title={`自主执行目标进行中：「${props.goalIndicator.condition}」（第 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮，${props.goalIndicator.status}）。系统每轮后自动续行；点击可清除目标、停止续行。`}
+            aria-label={`清除自主执行目标（已进行 ${props.goalIndicator.iterations}/${props.goalIndicator.maxIterations} 轮）`}
+          >
+            <Target size={12} aria-hidden="true" />
+            <span>目标 {props.goalIndicator.iterations}/{props.goalIndicator.maxIterations} · 清除</span>
+          </UiButton>
+        )}
         {/* PR-MOVE-PERMISSION-MODE: switcher relocated into the
             composer left-controls. Header keeps the per-session status
             chips only. */}
@@ -623,7 +674,7 @@ export function ChatView(props: {
           contentClassName="maka-chatContent"
           onScroll={onScroll}
         >
-          {chat.length === 0 && !props.streamingText && (
+          {chat.length === 0 && !streamingActive && (
             props.messageLoading ? null : props.messageLoadError ? (
               <div role="alert" aria-busy={props.messageLoadRetryPending ? 'true' : undefined}>
                 <EmptyState
@@ -661,12 +712,9 @@ export function ChatView(props: {
                 liveStreaming={
                   turn.turnId === tailTurnId
                     ? {
-                        streamingText: props.streamingText ?? '',
-                        thinkingText: props.thinkingText,
-                        streamingComplete: props.streamingComplete,
-                        streamingTruncated: props.streamingTruncated,
-                        thinkingTruncated: props.thinkingTruncated,
                         onStreamingSettled: props.onStreamingSettled,
+                        processingIndicator: props.processingIndicator,
+                        continuingIndicator: props.continuingIndicator,
                       }
                     : undefined
                 }
@@ -683,14 +731,8 @@ export function ChatView(props: {
             <section className="maka-turn" data-live-streaming="true">
               <Message variant="assistant" className="group/answer">
                 <div className="flex flex-col gap-2">
-                  <LiveStreamingEntries
-                    streamingText={props.streamingText ?? ''}
-                    thinkingText={props.thinkingText}
-                    streamingComplete={props.streamingComplete}
-                    streamingTruncated={props.streamingTruncated}
-                    thinkingTruncated={props.thinkingTruncated}
-                    onStreamingSettled={props.onStreamingSettled}
-                  />
+                  {props.processingIndicator && <ModelProcessingIndicator />}
+                  {props.continuingIndicator && !props.processingIndicator && <ModelContinuingIndicator />}
                 </div>
                 <div aria-hidden="true" className="mt-0.5 h-8" />
               </Message>
@@ -1044,12 +1086,9 @@ const TurnView = memo(function TurnView(props: {
    * clickable regenerate/branch on a still-streaming answer.
    */
   liveStreaming?: {
-    streamingText: string;
-    thinkingText?: string;
-    streamingComplete?: boolean;
-    streamingTruncated?: boolean;
-    thinkingTruncated?: boolean;
-    onStreamingSettled?: () => void;
+    onStreamingSettled?: (messageId?: string) => void;
+    processingIndicator?: boolean;
+    continuingIndicator?: boolean;
   };
 }) {
   const { turn } = props;
@@ -1059,6 +1098,13 @@ const TurnView = memo(function TurnView(props: {
   // this is the live streaming tail (a thinking-only / textless streaming turn
   // has an empty committed timeline but must still show its live answer block).
   const showAssistantMessage = turn.timeline.length > 0 || !!props.liveStreaming;
+  const hasLiveTimelineContent = turn.timeline.some((item) =>
+    item.kind === 'thinking'
+      ? item.live === true
+      : item.kind === 'text'
+        ? item.live === true
+        : item.items.some((tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'),
+  );
   return (
     <section
       className="maka-turn"
@@ -1157,23 +1203,17 @@ const TurnView = memo(function TurnView(props: {
                 (materialize.ts): each step's 深度思考 disclosure, answer bubble,
                 and Codex-style tool trow in the order the model produced them. */}
             {turn.timeline.map((item, index) => (
-              <TurnTimelineEntry key={timelineEntryKey(item, index)} item={item} />
-            ))}
-            {/* #642: live 深度思考 + answer bubble as the trailing entries of the
-                tail turn. On settle these are replaced by the committed
-                timeline items above (same turnId → same node) — a data-source
-                swap, not an unmount/mount. In a multi-step turn, earlier
-                committed steps render above via `turn.timeline`; only the
-                in-flight step rides here. */}
-            {props.liveStreaming && (
-              <LiveStreamingEntries
-                streamingText={props.liveStreaming.streamingText}
-                thinkingText={props.liveStreaming.thinkingText}
-                streamingComplete={props.liveStreaming.streamingComplete}
-                streamingTruncated={props.liveStreaming.streamingTruncated}
-                thinkingTruncated={props.liveStreaming.thinkingTruncated}
-                onStreamingSettled={props.liveStreaming.onStreamingSettled}
+              <TurnTimelineEntry
+                key={timelineEntryKey(item, index)}
+                item={item}
+                onStreamingSettled={props.liveStreaming?.onStreamingSettled}
               />
+            ))}
+            {props.liveStreaming && (
+              <>
+                {props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelProcessingIndicator />}
+                {props.liveStreaming.continuingIndicator && !props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelContinuingIndicator />}
+              </>
             )}
           </div>
           {reverseBadges.length > 0 && (
@@ -1447,32 +1487,44 @@ const STATUS_FOOTER_ICON: Record<TurnFooterActionMeta['id'], ReactNode> = {
  * until the answer text starts; the answer bubble fires `onStreamingSettled`
  * once it finishes catching up.
  */
-function LiveStreamingEntries(props: {
-  streamingText: string;
-  thinkingText?: string;
-  streamingComplete?: boolean;
-  streamingTruncated?: boolean;
-  thinkingTruncated?: boolean;
-  onStreamingSettled?: () => void;
-}) {
+/**
+ * #646: the "正在处理…" row — the model is being awaited with nothing streaming
+ * yet. Same row language as a tool trow / 深度思考 (16px icon + `TextShimmer`
+ * label, muted, base tier); a neutral spinner (not Brain — this isn't reasoning)
+ * carries the "working" affordance. The 200ms appearance delay lives upstream in
+ * `useDelayedFlag`, so by the time this renders the wait is already worth showing.
+ */
+function ModelProcessingIndicator() {
   return (
-    <>
-      {props.thinkingText && (
-        <DeepThinking
-          text={props.thinkingText}
-          live={!props.streamingText}
-          truncated={props.thinkingTruncated === true}
-        />
-      )}
-      {props.streamingText && (
-        <StreamingAssistantBubble
-          text={props.streamingText}
-          live={props.streamingComplete !== true}
-          truncated={props.streamingTruncated === true}
-          onSettled={props.onStreamingSettled}
-        />
-      )}
-    </>
+    <div className="flex items-center gap-2 py-0.5" role="status" aria-live="polite">
+      <Loader2
+        size={16}
+        aria-hidden="true"
+        className="shrink-0 animate-spin text-[color:var(--muted-foreground)]"
+      />
+      <TextShimmer active className="min-w-0 truncate text-[length:var(--font-size-base)]">正在处理…</TextShimmer>
+    </div>
+  );
+}
+
+/**
+ * #646: the calm "继续中…" hint — a mid-turn step-to-step lull after the turn has
+ * already produced content (a tool settled / a step's text finished) while the
+ * model works on the next step. Deliberately quieter than
+ * `ModelProcessingIndicator`: muted + dimmed static text, no spinner and no
+ * shimmer (both read as "actively working" and, fired after every step, made the
+ * live thinking look swallowed — the regression this split fixes). A plain
+ * whitelisted fade-in is the only motion; reduced-motion neutralizes it globally.
+ */
+function ModelContinuingIndicator() {
+  return (
+    <div
+      className="flex items-center py-0.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)] opacity-70 [animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="min-w-0 truncate">继续中…</span>
+    </div>
   );
 }
 
@@ -1489,7 +1541,7 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
   //
   // PR-UI-Cx (@kenji msg cd09bcac): `props.text` is already the
   // post-redaction post-cap output of `applyAssistantDelta` (parent
-  // ran the chokepoint inside `setStreamingBySession` updater),
+  // ran the chokepoint before updating the live-turn projection),
   // so the smoother only sees safe text. `prepareSmoothStreamText`
   // here is defense-in-depth — `redactSecrets` is idempotent on
   // already-masked text, and the gate guarantees the smoother
@@ -1512,14 +1564,9 @@ function StreamingAssistantBubble(props: { text: string; live: boolean; truncate
     props.onSettled?.();
   }, [props.live, catchingUp, props.onSettled]);
 
-  // Per-word fade-in over the freshly revealed tail (replaces the ▎ caret).
-  // Skipped under snap (reduced-motion / visual-smoke) so the deterministic
-  // capture shows the final text at full opacity with no fade spans.
-  const streamFade = useStreamFade(displayed, !snap);
-
   return (
     <Bubble variant="assistant" className="maka-bubble-streaming">
-      <Markdown text={displayed} streamFade={streamFade} />
+      <Markdown text={displayed} streaming />
       {props.truncated && (
         <div
           className="mt-1.5 inline-block cursor-help rounded-[var(--radius-control)] border border-[oklch(from_var(--warning)_l_c_h_/_0.24)] bg-[oklch(from_var(--warning)_l_c_h_/_0.05)] px-1 text-xs text-[color:var(--warning-text,var(--info-text))]"
@@ -1548,9 +1595,25 @@ function timelineEntryKey(item: TurnTimelineItem, index: number): string {
 }
 
 /** Render one timeline entry: reasoning disclosure / answer bubble / tool trow. */
-function TurnTimelineEntry({ item }: { item: TurnTimelineItem }) {
-  if (item.kind === 'thinking') return <DeepThinking text={item.text} live={false} />;
+function TurnTimelineEntry(props: {
+  item: TurnTimelineItem;
+  onStreamingSettled?: (messageId?: string) => void;
+}) {
+  const { item } = props;
+  if (item.kind === 'thinking') {
+    return <DeepThinking text={item.text} live={item.live === true} truncated={item.truncated === true} />;
+  }
   if (item.kind === 'tools') return <ToolTrow items={item.items} />;
+  if (item.kind === 'text' && item.live) {
+    return (
+      <StreamingAssistantBubble
+        text={item.text}
+        live={item.complete !== true}
+        truncated={item.truncated === true}
+        onSettled={() => props.onStreamingSettled?.(item.messageId)}
+      />
+    );
+  }
   return <MessageBody role="assistant" text={item.text} ts={item.ts} />;
 }
 
@@ -1646,7 +1709,7 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
           {props.live ? (
             <pre
               ref={bodyRef}
-              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]"
+              className="m-0 max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] [font-family:inherit] text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)] [scroll-behavior:auto]"
             >
               <DeepThinkingBody text={displayed} streamFade={streamFade} />
             </pre>
@@ -1655,8 +1718,9 @@ function DeepThinking(props: { text: string; live: boolean; truncated?: boolean 
               {/* Same `max-h-64 overflow-y-auto` bound as the live `<pre>` above
                   so an expanded panel doesn't jump taller the frame thinking
                   settles (live→settled swaps this body in place). Long reasoning
-                  stays a compact scroll box in both states. */}
-              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-caption)] leading-normal text-[color:var(--muted-foreground)]">
+                  stays a compact scroll box in both states. Body uses base 13px
+                  so tool output and thinking share one reading size. */}
+              <div className="max-h-64 overflow-y-auto whitespace-pre-wrap [word-break:break-word] text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]">
                 {props.text}
               </div>
               <div className="absolute right-0 top-0 opacity-0 [transition:opacity_var(--duration-quick)_var(--ease-out-strong)] group-hover/reasoning:opacity-100 focus-within:opacity-100">
@@ -1745,12 +1809,6 @@ function readStreamSnap(): boolean {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   }
   return false;
-}
-
-function mergeTools(stored: ToolActivityItem[], live: ToolActivityItem[]): ToolActivityItem[] {
-  const byId = new Map(stored.map((item) => [item.toolUseId, item]));
-  for (const item of live) byId.set(item.toolUseId, { ...byId.get(item.toolUseId), ...item });
-  return [...byId.values()];
 }
 
 const noMessagesYet = '暂无消息';

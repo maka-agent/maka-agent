@@ -45,17 +45,13 @@ const TABULAR_NUMS_SELECTORS = [
   '.maka-plan-tab span',
   '.maka-daily-review-archive-count',
   '.maka-daily-review-archive-row-meta',
-  '.maka-daily-review-totals-value',
   '.maka-daily-review-top-meta',
-  '.settingsPermissionSummaryValue',
   '.maka-nav-count',
   '.maka-list-group-count',
   '.maka-first-run-checklist-count',
   '.settingsQuotaRow',
   // settings numeric surfaces
-  '.settingsMetricCard',
   '.settingsUsageRecordCount',
-  '.settingsHealthSummaryTile strong',
   '.settingsMemoryEntryGroupHeader',
   // skill counts
   '.maka-skill-tab span',
@@ -87,7 +83,16 @@ async function readTabularNumsCoveredSelectors(): Promise<Set<string>> {
   return covered;
 }
 
+// Convergence R4: the four stat-tile surfaces (permission/health summaries,
+// MetricCard, daily-review totals) render through the StatTile primitive,
+// whose value slot BAKES tabular-nums as a Tailwind utility — pinned below
+// against the primitive source instead of renderer CSS selectors.
 describe('PR-ANTI-LAYOUT-SHIFT-TABULAR-NUMS-0 contract', () => {
+  it('StatTile bakes tabular-nums into its value slot (stat-tile surfaces converged in R4)', async () => {
+    const statTile = await readFile(resolve(REPO_ROOT, 'packages/ui/src/primitives/stat-tile.tsx'), 'utf8');
+    assert.match(statTile, /\[font-variant-numeric:tabular-nums\]/, 'StatTile value must keep tabular-nums baked in');
+  });
+
   it('every whitelisted numeric surface declares tabular-nums in renderer CSS', async () => {
     const covered = await readTabularNumsCoveredSelectors();
     const missing = TABULAR_NUMS_SELECTORS.filter((s) => !covered.has(s));

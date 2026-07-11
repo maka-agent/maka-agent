@@ -8,6 +8,11 @@ export type VisualSmokeScenario =
   | 'fallback-source'
   | 'fetched-empty'
   | 'connection-error'
+  // OAuth re-login: seeds a codex-subscription (OAuth) connection that last
+  // tested needs_reauth and focuses its detail sheet, so the inline 登录 /
+  // 重新登录 affordance the detail sheet gained is visible where an expired
+  // OAuth login must be re-run — the surface that used to be dead prose.
+  | 'oauth-relogin'
   | 'turn-narrative'
   | 'artifact-pane'
   | 'artifact-errors'
@@ -18,6 +23,10 @@ export type VisualSmokeScenario =
   // screenshot locks streaming-vs-committed horizontal alignment — the gap
   // that let the "streaming markdown sits ~110px too far left" bug ship.
   | 'streaming-answer'
+  // #646 real-time status language: a running session whose turn is armed with
+  // nothing streaming yet — the "正在处理…" model-wait indicator rides the tail
+  // turn and the composer shows Stop. Locks the connect-to-first-token state.
+  | 'model-processing'
   | 'permission-destructive'
   | 'stale-sessions'
   | 'settings-data'
@@ -36,6 +45,8 @@ export type VisualSmokeScenario =
   | 'settings-voice'
   | 'settings-gateway'
   | 'settings-search'
+  | 'settings-usage'
+  | 'settings-health'
   | 'module-skills'
   | 'module-daily-review'
   | 'workstation-statuses'
@@ -107,12 +118,27 @@ export type VisualSmokeScenario =
 export interface VisualSmokeLiveTool {
   toolUseId: string;
   toolName: string;
+  stepId?: string;
   displayName?: string;
   intent?: string;
   status: 'pending' | 'waiting_permission' | 'running' | 'completed' | 'errored' | 'interrupted';
   args: unknown;
   result?: ToolResultContent;
   durationMs?: number;
+}
+
+export interface VisualSmokeLiveTurnStep {
+  stepId: string;
+  thinking?: { text: string; truncated: boolean; complete: boolean };
+  text?: { text: string; truncated: boolean; complete: boolean };
+  tools: VisualSmokeLiveTool[];
+}
+
+export interface VisualSmokeLiveTurnProjection {
+  turnId: string;
+  phase: 'waiting' | 'streamed';
+  terminal?: true;
+  steps: VisualSmokeLiveTurnStep[];
 }
 
 export interface VisualSmokeState {
@@ -127,17 +153,8 @@ export interface VisualSmokeState {
   now?: number;
   activeSessionId?: string;
   openSettingsSection?: SettingsSection;
-  streamingBySession?: Record<string, string>;
-  /**
-   * PR-UI-LAYOUT-42: per-session thinking buffer for fixtures that
-   * want to seed the ReasoningPanel mid-stream. Mirrors
-   * `streamingBySession` shape. Empty string = no live thinking
-   * (panel hidden). Set this in a fixture to capture the panel's
-   * live-streaming visual state in a screenshot.
-   */
-  thinkingBySession?: Record<string, string>;
+  liveTurnBySession?: Record<string, VisualSmokeLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;
-  liveToolsBySession?: Record<string, VisualSmokeLiveTool[]>;
   /**
    * PR-IR-04: force `prefers-reduced-motion: reduce` behavior regardless
    * of the host OS setting. Triggered by `MAKA_VISUAL_SMOKE_REDUCED_MOTION=1`

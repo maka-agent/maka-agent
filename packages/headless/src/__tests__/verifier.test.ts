@@ -1,10 +1,73 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { Task } from '../contracts.js';
 import { normalizeVerifier, runVerifier } from '../verifier.js';
+
+describe('command verifiers', () => {
+  test('rejects cwd values outside the workspace', () => {
+    for (const cwd of ['../outside', '/tmp/outside', 'C:\\outside']) {
+      assert.throws(() => normalizeVerifier({
+        id: 'command-task',
+        instruction: 'solve',
+        workspaceDir: '/tmp/example',
+        verifier: {
+          kind: 'command',
+          command: 'true',
+          cwd,
+          protectedPaths: [],
+        },
+      }), /command verifier cwd must be a workspace-relative path/);
+    }
+  });
+
+  test('rejects protectedPaths with Windows drive paths on POSIX hosts', () => {
+    assert.throws(() => normalizeVerifier({
+      id: 'command-task',
+      instruction: 'solve',
+      workspaceDir: '/tmp/example',
+      verifier: {
+        kind: 'command',
+        command: 'true',
+        protectedPaths: ['C:\\outside'],
+      },
+    }), /protectedPaths entry must be a workspace-relative path/);
+  });
+
+  test('runs command verifier from a legal workspace-relative cwd', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-command-verifier-'));
+    try {
+      await mkdir(join(dir, 'subdir'));
+      await writeFile(join(dir, 'subdir', 'marker.txt'), 'ok', 'utf8');
+      const verifier = normalizeVerifier({
+        id: 'command-task',
+        instruction: 'solve',
+        workspaceDir: dir,
+        verifier: {
+          kind: 'command',
+          command: 'test -f marker.txt',
+          cwd: 'subdir',
+          protectedPaths: [],
+        },
+      });
+
+      const result = await runVerifier({
+        verifier,
+        taskRunId: 'run-1',
+        ts: 100,
+        id: 'verifier-1',
+        workspaceDir: dir,
+      });
+
+      assert.equal(result.passed, true);
+      assert.equal(result.exitCode, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('benchmark verifiers', () => {
   test('normalizes enriched Terminal-Bench verifier specs', () => {

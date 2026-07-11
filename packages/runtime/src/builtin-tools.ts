@@ -59,6 +59,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     ...bashTools,
     {
       name: 'Read',
+      activityKind: 'read',
       description: readDescription,
       parameters: z.object({
         path: z.string(),
@@ -84,6 +85,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Write',
+      activityKind: 'edit',
       description: 'Write content to a file (creates or overwrites). Subject to permission policy.',
       parameters: z.object({ path: z.string(), content: z.string() }),
       permissionRequired: true,
@@ -98,6 +100,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Edit',
+      activityKind: 'edit',
       description:
         'Replace old_string with new_string in a file. Prefers an exact, unique match; '
         + 'if exact fails it tolerates limited whitespace/indentation/escape drift in old_string, '
@@ -130,7 +133,60 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       },
     },
     {
+      name: 'FormatJson',
+      activityKind: 'edit',
+      description:
+        'Validate and normalize a JSON file in place. Reads the file at `path`, '
+        + 'parses it (throwing a parse-error hint on invalid JSON), optionally sorts '
+        + 'object keys lexicographically, and rewrites it with canonical 2-space '
+        + 'indentation. Returns only a diagnostic (valid + byte delta) — the content '
+        + 'is never round-tripped back through the prompt. Useful for config hygiene '
+        + 'after a Write.',
+      parameters: z.object({
+        path: z.string().describe('Path to the JSON file to validate and normalize, relative to the session cwd.'),
+        sort_keys: z.boolean().optional()
+          .describe('Sort object keys lexicographically; default false.'),
+      }),
+      permissionRequired: true,
+      executionFacts,
+      impl: async ({ path, sort_keys }, { cwd }) => {
+        const { key } = await executor.writeLockKey({ cwd, path });
+        return await withFileWriteLock(key, async () => {
+          const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'FormatJson' });
+          const { content: original } = await executor.readFile({ cwd, path: resolvedPath });
+          const bytesBefore = Buffer.byteLength(original, 'utf8');
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(original);
+          } catch (e) {
+            return {
+              ok: false,
+              valid: false,
+              error: `FormatJson: invalid JSON: ${(e as Error).message}`,
+              path: resolvedPath,
+              bytesBefore,
+              byteDelta: 0,
+              changed: false,
+            };
+          }
+          const value = sort_keys ? sortKeysDeep(parsed) : parsed;
+          const formatted = JSON.stringify(value, null, 2);
+          const { bytes: bytesAfter } = await executor.writeFile({ cwd, path: resolvedPath, content: formatted });
+          return {
+            ok: true,
+            path: resolvedPath,
+            valid: true,
+            bytesBefore,
+            bytesAfter,
+            byteDelta: bytesAfter - bytesBefore,
+            changed: formatted !== original,
+          };
+        });
+      },
+    },
+    {
       name: 'Glob',
+      activityKind: 'search',
       description:
         'Find files matching a glob pattern (case-insensitive, capped at 200, sorted by walk order).',
       parameters: z.object({
@@ -151,6 +207,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     },
     {
       name: 'Grep',
+      activityKind: 'search',
       description: 'Search file contents with a regex via ripgrep.',
       parameters: z.object({
         pattern: z.string(),
@@ -187,6 +244,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
 function buildExecutorBashTool(executor: WorkspaceExecutor, shell: ShellPlan): MakaTool {
   return {
     name: 'Bash',
+    activityKind: 'command',
     description: withShellGuidance('Run a shell command in the session cwd.', shell)
       + ' Subject to permission policy.',
     parameters: z.object({
@@ -235,4 +293,18 @@ function assertRelativeGlobPattern(pattern: string): void {
   if (isAbsolute(pattern) || pattern.split(/[\\/]+/).includes('..')) {
     throw new Error('Glob pattern must stay inside session cwd');
   }
+}
+
+// Object.fromEntries creates own data properties, so special keys like
+// "__proto__" are preserved instead of triggering the inherited setter.
+function sortKeysDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortKeysDeep);
+  if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortKeysDeep((value as Record<string, unknown>)[key])]),
+    );
+  }
+  return value;
 }
