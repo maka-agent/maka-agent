@@ -167,6 +167,13 @@ class FileAgentRunStore implements AgentRunStore {
       throw new Error(`Invalid AgentRun event projection repair for ${type}`);
     }
     await this.withProjectionQueue(sessionId, type, async () => {
+      let current: AgentRunEvent | null | undefined;
+      try {
+        current = await this.readEventProjectionUnlocked(sessionId, type);
+      } catch {
+        current = undefined;
+      }
+      if (shouldPreserveProjectionDuringRepair(current, event, type)) return;
       await this.writeEventProjectionUnlocked(sessionId, type, event);
     });
   }
@@ -262,6 +269,30 @@ class FileAgentRunStore implements AgentRunStore {
       await this.writeEventProjectionUnlocked(sessionId, type, null);
     }
   }
+}
+
+function shouldPreserveProjectionDuringRepair(
+  current: AgentRunEvent | null | undefined,
+  candidate: AgentRunEvent | null,
+  type: AgentRunEventType,
+): boolean {
+  if (!current) return false;
+  if (type !== 'history_compact_checkpoint_recorded') return true;
+  const currentCoverage = historyCompactProjectionCoverage(current);
+  const candidateCoverage = candidate && historyCompactProjectionCoverage(candidate);
+  return currentCoverage !== undefined
+    && (candidateCoverage === null || candidateCoverage === undefined || currentCoverage >= candidateCoverage);
+}
+
+function historyCompactProjectionCoverage(event: AgentRunEvent): number | undefined {
+  const checkpoint = event.data?.checkpoint;
+  if (!checkpoint || typeof checkpoint !== 'object') return undefined;
+  const coverage = (checkpoint as { coverage?: unknown }).coverage;
+  if (!coverage || typeof coverage !== 'object') return undefined;
+  const eventCount = (coverage as { eventCount?: unknown }).eventCount;
+  return typeof eventCount === 'number' && Number.isSafeInteger(eventCount) && eventCount >= 0
+    ? eventCount
+    : undefined;
 }
 
 class FileRuntimeEventStore implements RuntimeEventStore {

@@ -173,6 +173,62 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not let a stale repair overwrite a further checkpoint projection', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+        ): Promise<void>;
+      };
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      const stale = checkpointEvent('run-stale-repair', 1);
+      const further = checkpointEvent('run-further-write', 2);
+      await store.createRun(makeHeader({ runId: stale.runId }));
+      await store.createRun(makeHeader({ runId: further.runId }));
+      await store.appendEvent('session-1', stale.runId, stale);
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.appendEvent('session-1', further.runId, further);
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        stale,
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, further.id);
+    });
+  });
+
   it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
     await withStore(async (store, root) => {
       const projectionStore = store as typeof store & {
