@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -8,6 +8,8 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   applyRuntimeEventHistoryCompact,
   buildHistoryCompactBlockFromSummary,
+  buildHistoryCompactCheckpoint,
+  cleanupLegacyHistoryCompactArtifacts,
   type HistoryCompactBlock,
   type HistoryCompactWriteInput,
 } from '@maka/runtime';
@@ -70,6 +72,53 @@ describe('desktop history compact artifact lifecycle', () => {
       assert.equal(loaded.blocks.length, 1);
       assert.equal(loaded.blocks[0]?.blockId, write.blocks[0]?.blockId);
       assert.equal(loaded.skipped, undefined);
+    });
+  });
+
+  test('physically purges verified V1 files and metadata after V2 supersedes them', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const foldedEvents = [
+        textEvent('old-1', 'turn-1', 'alpha fact'),
+        textEvent('old-2', 'turn-2', 'beta fact'),
+      ];
+      await persistHistoryCompactBlocksToArtifacts(store, {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'legacy summary'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
+          charsPerToken: 4,
+        },
+      });
+      const records = await store.list('session-1', { includeDeleted: true });
+      const checkpoint = buildHistoryCompactCheckpoint({
+        sessionId: 'session-1',
+        coveredRuntimeEvents: foldedEvents,
+        summary: 'V2 continuation summary',
+      });
+
+      const result = await cleanupLegacyHistoryCompactArtifacts({
+        sessionId: 'session-1',
+        checkpoint,
+        runtimeEvents: foldedEvents,
+        artifactStore: store,
+      });
+
+      assert.equal(result.purgedArtifactIds.length, 3);
+      assert.deepEqual(await store.list('session-1', { includeDeleted: true }), []);
+      for (const record of records) {
+        await assert.rejects(
+          () => readFile(join(workspaceRoot, 'artifacts', record.relativePath), 'utf8'),
+          { code: 'ENOENT' },
+        );
+      }
+      const metadata = await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8');
+      assert.equal(metadata, '');
     });
   });
 
@@ -423,10 +472,12 @@ describe('desktop history compact artifact lifecycle', () => {
   });
 });
 
-async function withStore(fn: (store: ArtifactStore) => Promise<void>): Promise<void> {
+async function withStore(
+  fn: (store: ArtifactStore, workspaceRoot: string) => Promise<void>,
+): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-history-compact-artifacts-'));
   try {
-    await fn(createArtifactStore(workspaceRoot));
+    await fn(createArtifactStore(workspaceRoot), workspaceRoot);
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }

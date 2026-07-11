@@ -15,6 +15,7 @@ import {
   buildDefaultContextBudgetPolicy,
   buildGoalTools,
   buildLlmHistorySummarizer,
+  cleanupLegacyHistoryCompactArtifacts,
   buildProviderOptions,
   buildSubscriptionModelFetch,
   evaluateAutomationCanFire,
@@ -237,6 +238,9 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    cleanupHistoryCompactArtifacts: async (cleanupInput) => {
+      await cleanupLegacyHistoryCompactArtifacts({ ...cleanupInput, artifactStore });
+    },
     newId: randomUUID,
     now: Date.now,
   });

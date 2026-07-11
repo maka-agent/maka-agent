@@ -3958,6 +3958,49 @@ describe('SessionManager permission mode updates', () => {
     expect(checkpoint?.summary).toBe('persist the bounded checkpoint');
   });
 
+  test('schedules legacy artifact cleanup only after the V2 checkpoint is durable', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const cleanupCalled = makeGate();
+    let observed: {
+      checkpointId: string;
+      runtimeEventCount: number;
+      checkpointWasDurable: boolean;
+    } | undefined;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      cleanupHistoryCompactArtifacts: async (input) => {
+        const runs = await runStore.listSessionRuns(input.sessionId);
+        const operationalEvents = await Promise.all(
+          runs.map((run) => runStore.readEvents(input.sessionId, run.runId)),
+        );
+        observed = {
+          checkpointId: input.checkpoint.checkpointId,
+          runtimeEventCount: input.runtimeEvents.length,
+          checkpointWasDurable: operationalEvents.flat().some(
+            (event) => event.type === 'history_compact_checkpoint_recorded',
+          ),
+        };
+        cleanupCalled.release();
+      },
+      newId: nextId(),
+      now: nextNow(12_792),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    await cleanupCalled.promise;
+
+    expect(observed?.checkpointId).toBe('hcheckpoint-test');
+    expect((observed?.runtimeEventCount ?? 0) > 0).toBe(true);
+    expect(observed?.checkpointWasDurable).toBe(true);
+  });
+
   test('shares the latest history compact checkpoint across disposable child backends', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

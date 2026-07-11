@@ -212,7 +212,90 @@ describe('FileArtifactStore', () => {
       const [deleted] = await store.list('session-1', { includeDeleted: true });
       assert.equal(deleted?.status, 'deleted');
       assert.deepEqual(await store.readText('artifact-1'), { ok: false, reason: 'deleted' });
+      assert.deepEqual(
+        await store.readText('artifact-1', { includeDeleted: true }),
+        { ok: true, text: '<h1>Still on disk</h1>' },
+      );
       assert.deepEqual(await store.readBinary('artifact-1'), { ok: false, reason: 'deleted' });
+    });
+  });
+
+  test('batch purge removes file bytes and metadata records idempotently', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const first = await store.create({
+        id: 'artifact-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'one.txt',
+        kind: 'file',
+        content: 'one',
+      });
+      const second = await store.create({
+        id: 'artifact-2',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'two.txt',
+        kind: 'file',
+        content: 'two',
+      });
+      await store.create({
+        id: 'artifact-kept',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'kept.txt',
+        kind: 'file',
+        content: 'kept',
+      });
+      await store.purge([first.id, second.id]);
+      await store.purge([first.id, second.id]);
+
+      assert.deepEqual(
+        (await store.list('session-1', { includeDeleted: true })).map((record) => record.id),
+        ['artifact-kept'],
+      );
+      await assert.rejects(
+        () => readFile(join(workspaceRoot, 'artifacts', first.relativePath), 'utf8'),
+        { code: 'ENOENT' },
+      );
+      await assert.rejects(
+        () => readFile(join(workspaceRoot, 'artifacts', second.relativePath), 'utf8'),
+        { code: 'ENOENT' },
+      );
+      const metadata = await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8');
+      assert.doesNotMatch(metadata, /artifact-1|artifact-2/);
+      assert.match(metadata, /artifact-kept/);
+    });
+  });
+
+  test('retries purge after file removal is interrupted before metadata commit', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const record = await store.create({
+        id: 'artifact-1',
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        name: 'one.txt',
+        kind: 'file',
+        content: 'one',
+      });
+      const metadataPath = join(workspaceRoot, 'artifacts', 'metadata.jsonl');
+      const metadata = await readFile(metadataPath, 'utf8');
+      await rm(metadataPath);
+      await mkdir(metadataPath);
+
+      await assert.rejects(() => store.purge([record.id]));
+
+      assert.equal((await store.get(record.id))?.id, record.id);
+      await assert.rejects(
+        () => readFile(join(workspaceRoot, 'artifacts', record.relativePath), 'utf8'),
+        { code: 'ENOENT' },
+      );
+
+      await rm(metadataPath, { recursive: true });
+      await writeFile(metadataPath, metadata, 'utf8');
+      const reopened = createArtifactStore(workspaceRoot);
+      await reopened.purge([record.id]);
+
+      assert.equal(await reopened.get(record.id), null);
     });
   });
 
