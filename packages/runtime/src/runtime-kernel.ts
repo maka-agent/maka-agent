@@ -477,11 +477,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return guardedLoad;
   }
 
-  private cacheHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): void {
-    this.historyCompactCheckpoints.set(
-      sessionId,
-      selectFurthestHistoryCompactCheckpoint(this.historyCompactCheckpoints.get(sessionId), checkpoint),
+  private cacheHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): boolean {
+    const selected = selectFurthestHistoryCompactCheckpoint(
+      this.historyCompactCheckpoints.get(sessionId),
+      checkpoint,
     );
+    if (selected !== checkpoint) return false;
+    this.historyCompactCheckpoints.set(sessionId, checkpoint);
+    return true;
   }
 
   private async ensureActive(
@@ -508,7 +511,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        this.cacheHistoryCompactCheckpoint(sessionId, checkpoint);
+        if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint)) return;
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;
@@ -569,7 +572,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        this.cacheHistoryCompactCheckpoint(sessionId, checkpoint);
+        if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint)) return;
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;

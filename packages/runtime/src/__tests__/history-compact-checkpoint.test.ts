@@ -143,28 +143,16 @@ describe('history compact checkpoint', () => {
     assert.equal(loaded, undefined);
   });
 
-  test('backfills the bounded projection after a legacy ledger scan', async () => {
-    const checkpoint = buildHistoryCompactCheckpoint({
-      sessionId: 'session-1',
-      coveredRuntimeEvents: [textEvent(0)],
-      summary: 'legacy scan result',
-    });
-    const event = checkpointEvent('legacy-event', 'legacy-run', checkpoint, 20);
-    let backfilled: AgentRunEvent | null | undefined;
+  test('fails open from a damaged bounded projection without enumerating run ledgers', async () => {
     const store = {
-      readEventProjection: async () => undefined,
-      writeEventProjection: async (
-        _sessionId: string,
-        _type: AgentRunEvent['type'],
-        projected: AgentRunEvent | null,
-      ) => { backfilled = projected; },
-      listSessionRuns: async () => [run('legacy-run', 10)],
-      readEvents: async () => [event],
+      readEventProjection: async () => { throw new Error('damaged projection'); },
+      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
+      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
     };
 
-    await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
-    assert.equal(backfilled?.id, event.id);
+    assert.equal(loaded, undefined);
   });
 
   test('replays a matching checkpoint with only the uncovered raw tail', () => {

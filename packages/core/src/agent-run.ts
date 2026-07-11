@@ -96,10 +96,4 @@ export interface AgentRunStore {
     sessionId: string,
     type: AgentRunEventType,
   ): Promise<AgentRunEvent | null | undefined>;
-  /** Writes a rebuildable bounded projection without changing the canonical run ledger. */
-  writeEventProjection?(
-    sessionId: string,
-    type: AgentRunEventType,
-    event: AgentRunEvent | null,
-  ): Promise<void>;
 }

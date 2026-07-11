@@ -4032,6 +4032,15 @@ describe('SessionManager permission mode updates', () => {
     }
 
     expect(observedCoverage).toEqual([undefined, 2, 2]);
+    const recordedCoverage: number[] = [];
+    for (const run of await runStore.listSessionRuns(session.id)) {
+      for (const event of await runStore.readEvents(session.id, run.runId)) {
+        if (event.type === 'history_compact_checkpoint_recorded') {
+          recordedCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+        }
+      }
+    }
+    expect(recordedCoverage).toEqual([2]);
   });
 
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {

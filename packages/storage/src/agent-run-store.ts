@@ -82,15 +82,13 @@ class FileAgentRunStore implements AgentRunStore {
   async appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
+    if (event.type === 'history_compact_checkpoint_recorded') {
+      await this.advanceEventProjection(sessionId, event.type, event);
+    }
     await this.withQueue(sessionId, runId, async () => {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
       await appendFile(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
     });
-    if (event.type === 'history_compact_checkpoint_recorded') {
-      await this.advanceEventProjection(sessionId, event.type, event).catch(() => {
-        // The projection is a rebuildable accelerator; the appended run event remains canonical.
-      });
-    }
   }
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
@@ -137,17 +135,6 @@ class FileAgentRunStore implements AgentRunStore {
   ): Promise<AgentRunEvent | null | undefined> {
     assertSafeId(sessionId, 'Invalid session id');
     return this.readEventProjectionUnlocked(sessionId, type);
-  }
-
-  async writeEventProjection(
-    sessionId: string,
-    type: AgentRunEventType,
-    event: AgentRunEvent | null,
-  ): Promise<void> {
-    assertSafeId(sessionId, 'Invalid session id');
-    await this.withProjectionQueue(sessionId, type, async () => {
-      await this.mergeEventProjectionUnlocked(sessionId, type, event);
-    });
   }
 
   private async readRunUnlocked(sessionId: string, runId: string): Promise<AgentRunHeader> {
@@ -198,27 +185,8 @@ class FileAgentRunStore implements AgentRunStore {
     candidate: AgentRunEvent,
   ): Promise<void> {
     await this.withProjectionQueue(sessionId, type, async () => {
-      await this.mergeEventProjectionUnlocked(sessionId, type, candidate);
+      await this.writeEventProjectionUnlocked(sessionId, type, candidate);
     });
-  }
-
-  private async mergeEventProjectionUnlocked(
-    sessionId: string,
-    type: AgentRunEventType,
-    candidate: AgentRunEvent | null,
-  ): Promise<void> {
-    let current: AgentRunEvent | null | undefined;
-    try {
-      current = await this.readEventProjectionUnlocked(sessionId, type);
-    } catch {
-      current = undefined;
-    }
-    const selected = candidate === null
-      ? current ?? null
-      : selectProjectedEvent(current, candidate);
-    if (selected !== current) {
-      await this.writeEventProjectionUnlocked(sessionId, type, selected);
-    }
   }
 
   private async readEventProjectionUnlocked(
@@ -351,29 +319,6 @@ async function readRuntimeEventJsonl(path: string, runId: string): Promise<Runti
     }
   }
   return events;
-}
-
-function selectProjectedEvent(
-  current: AgentRunEvent | null | undefined,
-  candidate: AgentRunEvent,
-): AgentRunEvent {
-  if (!current) return candidate;
-  if (
-    candidate.type === 'history_compact_checkpoint_recorded'
-    && projectedCheckpointCoverage(candidate) <= projectedCheckpointCoverage(current)
-  ) {
-    return current;
-  }
-  return candidate;
-}
-
-function projectedCheckpointCoverage(event: AgentRunEvent): number {
-  const checkpoint = event.data?.checkpoint;
-  if (!checkpoint || typeof checkpoint !== 'object') return -1;
-  const coverage = (checkpoint as { coverage?: unknown }).coverage;
-  if (!coverage || typeof coverage !== 'object') return -1;
-  const eventCount = (coverage as { eventCount?: unknown }).eventCount;
-  return Number.isInteger(eventCount) && (eventCount as number) > 0 ? eventCount as number : -1;
 }
 
 function isProjectedAgentRunEvent(

@@ -90,7 +90,7 @@ describe('AgentRunStore', () => {
     });
   });
 
-  it('keeps a bounded monotonic projection for history compact checkpoints', async () => {
+  it('writes a bounded projection for accepted history compact checkpoints', async () => {
     await withStore(async (store) => {
       const projectionStore = store as typeof store & {
         readEventProjection(
@@ -98,8 +98,7 @@ describe('AgentRunStore', () => {
           type: AgentRunEvent['type'],
         ): Promise<AgentRunEvent | null | undefined>;
       };
-      await store.createRun(makeHeader({ runId: 'run-furthest' }));
-      await store.createRun(makeHeader({ runId: 'run-stale', turnId: 'turn-stale' }));
+      await store.createRun(makeHeader({ runId: 'run-accepted' }));
       const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
         type: 'history_compact_checkpoint_recorded',
         id: `checkpoint-${runId}`,
@@ -116,8 +115,7 @@ describe('AgentRunStore', () => {
         },
       });
 
-      await store.appendEvent('session-1', 'run-furthest', checkpointEvent('run-furthest', 3));
-      await store.appendEvent('session-1', 'run-stale', checkpointEvent('run-stale', 2));
+      await store.appendEvent('session-1', 'run-accepted', checkpointEvent('run-accepted', 3));
 
       const projected = await projectionStore.readEventProjection(
         'session-1',
@@ -126,7 +124,7 @@ describe('AgentRunStore', () => {
       assert.equal(
         projected?.data?.checkpoint
           && (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
-        'hcheckpoint-run-furthest',
+        'hcheckpoint-run-accepted',
       );
     });
   });
