@@ -2045,23 +2045,38 @@ export class AiSdkBackend implements AgentBackend {
     if ((historyCompact.checkpoints?.length ?? 0) > 0 || (historyCompact.blocks?.length ?? 0) > 0) {
       return { policy };
     }
+    let loadFailures = 0;
+    let checkpoint: HistoryCompactCheckpoint | undefined;
     try {
-      const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
-      if (checkpoint) {
-        return {
-          policy: {
-            ...policy,
-            historyCompact: { ...historyCompact, checkpoints: [checkpoint] },
-          },
-          diagnosticPatch: {
-            historyCompactEnabled: true,
-            historyCompactMode: historyCompact.mode ?? 'deterministic',
-            historyCompactBlocksLoaded: 1,
-            historyCompactBlocksAvailable: 1,
-          },
-        };
-      }
-      if (!this.input.loadHistoryCompact) return { policy };
+      checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+    } catch {
+      loadFailures += 1;
+    }
+    if (checkpoint) {
+      return {
+        policy: {
+          ...policy,
+          historyCompact: { ...historyCompact, checkpoints: [checkpoint] },
+        },
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: historyCompact.mode ?? 'deterministic',
+          historyCompactBlocksLoaded: 1,
+          historyCompactBlocksAvailable: 1,
+        },
+      };
+    }
+    if (!this.input.loadHistoryCompact) {
+      return loadFailures > 0 ? {
+        policy,
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: historyCompact.mode ?? 'deterministic',
+          historyCompactLoadFailures: loadFailures,
+        },
+      } : { policy };
+    }
+    try {
       // No maxBytes here: the block JSON carries per-event provenance and
       // legitimately outgrows the token budget; the loader caps reads by
       // storage size, and token limits are enforced on the loaded blocks.
@@ -2084,17 +2099,19 @@ export class AiSdkBackend implements AgentBackend {
           historyCompactMode: historyCompact.mode ?? 'deterministic',
           historyCompactBlocksLoaded: blocks.length,
           historyCompactBlocksAvailable: blocks.length,
+          ...(loadFailures > 0 ? { historyCompactLoadFailures: loadFailures } : {}),
           ...(result.skipped && result.skipped > 0 ? { historyCompactLoadSkipped: result.skipped } : {}),
           ...(result.skippedReasonCounts ? { historyCompactLoadSkippedReasonCounts: result.skippedReasonCounts } : {}),
         },
       };
     } catch {
+      loadFailures += 1;
       return {
         policy,
         diagnosticPatch: {
           historyCompactEnabled: true,
           historyCompactMode: historyCompact.mode ?? 'deterministic',
-          historyCompactLoadFailures: 1,
+          historyCompactLoadFailures: loadFailures,
         },
       };
     }

@@ -2733,6 +2733,67 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('falls back to V1 blocks when the V2 checkpoint loader fails', async () => {
+    const model = completionModel();
+    const events: SessionEvent[] = [];
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'v2-load-fail-old-1', turnId: 'v2-load-fail-turn-1', role: 'user', author: 'user',
+        text: 'v2 load failure old alpha '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'v2-load-fail-old-2', turnId: 'v2-load-fail-turn-2', role: 'model', author: 'agent',
+        text: 'v2 load failure old beta '.repeat(12),
+      }),
+    ];
+    const loadedBlock = buildHistoryCompactBlockFromSummary({
+      sessionId: 'session-1',
+      foldedRuntimeEvents: oldEvents,
+      summary: 'V1_FALLBACK_AFTER_V2_LOAD_FAILURE',
+      highWaterName: 'v1-fallback-after-v2-failure',
+      highWaterSeq: 2,
+      charsPerToken: 1,
+    });
+    let v1LoadCalls = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 10_000, minRecentTurns: 1, charsPerToken: 1,
+        historyCompact: {
+          enabled: true, mode: 'read_write', highWaterRatio: 0.000001, targetRatio: 0.2,
+          tailEstimatedTokens: 1, minRecentTurns: 1, maxBlocks: 1, maxEstimatedTokens: 4096,
+        },
+      },
+      loadHistoryCompactCheckpoint: async () => { throw new Error('checkpoint ledger unavailable'); },
+      loadHistoryCompact: async () => {
+        v1LoadCalls += 1;
+        return { blocks: [loadedBlock] };
+      },
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-current', text: 'continue', context: [],
+      runtimeContext: [
+        ...oldEvents,
+        runtimeTextEvent({
+          id: 'v2-load-fail-recent', turnId: 'v2-load-fail-recent-turn', role: 'user', author: 'user',
+          text: 'V2_LOAD_FAIL_RETAINED_TAIL',
+        }),
+      ],
+    })) events.push(event);
+
+    assert.equal(v1LoadCalls, 1);
+    assert.match(JSON.stringify(compactPrompt(model)), /V1_FALLBACK_AFTER_V2_LOAD_FAILURE/);
+    const usage = events.find((event): event is Extract<SessionEvent, { type: 'token_usage' }> =>
+      event.type === 'token_usage'
+    );
+    assert.equal(usage?.contextBudget?.historyCompactLoadFailures, 1);
+    assert.equal(usage?.contextBudget?.historyCompactBlocksLoaded, 1);
+  });
+
   test('replays a persisted compact block whose provenance JSON outgrows the token budget', async () => {
     const model = completionModel();
     const events: SessionEvent[] = [];
