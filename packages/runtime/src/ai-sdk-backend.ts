@@ -623,8 +623,7 @@ export class AiSdkBackend implements AgentBackend {
       if (
         budgeted?.historyCompactBlocks?.length &&
         contextBudget.historyCompact?.mode === 'read_write' &&
-        (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint
-          || this.input.writeHistoryCompact)
+        this.hasHistoryCompactWriter()
       ) {
         const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
         const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
@@ -673,7 +672,11 @@ export class AiSdkBackend implements AgentBackend {
   private buildManualHistoryCompactPolicy(
     runtimeContext: readonly RuntimeEvent[],
   ): ContextBudgetPolicy | undefined {
-    if (runtimeContext.length === 0 || !this.input.contextBudget || !this.input.writeHistoryCompact) return undefined;
+    if (
+      runtimeContext.length === 0
+      || !this.input.contextBudget
+      || !this.hasHistoryCompactWriter()
+    ) return undefined;
     const base = this.input.contextBudget;
     const charsPerToken = base.charsPerToken ?? 4;
     const estimatedTokens = Math.max(1, estimateRuntimeEventsTokens(runtimeContext, charsPerToken));
@@ -700,6 +703,13 @@ export class AiSdkBackend implements AgentBackend {
         highWaterName: current?.highWaterName ?? `${base.name ?? 'manual'}-manual-history-compact`,
       },
     };
+  }
+
+  private hasHistoryCompactWriter(): boolean {
+    return Boolean(
+      this.input.writeHistoryCompact
+      || (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint),
+    );
   }
 
   // --------------------------------------------------------------------------
@@ -1467,8 +1477,7 @@ export class AiSdkBackend implements AgentBackend {
     if (
       budgeted?.historyCompactBlocks?.length &&
       contextBudget?.historyCompact?.mode === 'read_write' &&
-      (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint
-        || this.input.writeHistoryCompact)
+      this.hasHistoryCompactWriter()
     ) {
       const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
       const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));

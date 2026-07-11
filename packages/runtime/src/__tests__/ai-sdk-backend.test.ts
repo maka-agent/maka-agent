@@ -1585,6 +1585,64 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
   });
 
+  test('manual compactHistory writes a V2 checkpoint without the legacy artifact writer', async () => {
+    const recorded: HistoryCompactCheckpoint[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-v2-compact-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      summarizeHistoryCompact: async () => 'MANUAL_V2_HISTORY_COMPACT_SENTINEL',
+      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'manual-v2-old-1',
+          turnId: 'turn-old-1',
+          role: 'user',
+          author: 'user',
+          text: 'manual v2 old alpha '.repeat(12),
+        }),
+        runtimeTextEvent({
+          id: 'manual-v2-old-2',
+          turnId: 'turn-old-2',
+          role: 'model',
+          author: 'agent',
+          text: 'manual v2 old beta '.repeat(12),
+        }),
+        runtimeTextEvent({
+          id: 'manual-v2-recent',
+          turnId: 'turn-recent',
+          role: 'user',
+          author: 'user',
+          text: 'manual v2 recent retained context',
+        }),
+      ],
+    });
+
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0]?.summary, 'MANUAL_V2_HISTORY_COMPACT_SENTINEL');
+    assert.deepEqual(recorded[0]?.coverage.eventCount, 2);
+    assert.equal(result.contextBudget?.historyCompactBlocksWritten, 1);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({
