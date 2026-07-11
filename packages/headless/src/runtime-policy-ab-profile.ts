@@ -10,7 +10,7 @@ export interface RuntimePolicyAbExecutionProfile {
   pricing: HarborTaskPricing & { source: string };
   taskBudgetSec: number;
   harborTimeoutMs: number;
-  costCeilingUsd: number;
+  observedCostStopUsd: number;
   maxConcurrentAttempts: number;
 }
 
@@ -33,8 +33,8 @@ export function parseRuntimePolicyAbExecutionProfile(value: unknown): RuntimePol
   for (const key of ['taskBudgetSec', 'harborTimeoutMs'] as const) {
     if (!Number.isSafeInteger(value[key]) || Number(value[key]) <= 0) throw new Error(`runtime policy A/B execution profile ${key} must be a positive integer`);
   }
-  if (typeof value.costCeilingUsd !== 'number' || !Number.isFinite(value.costCeilingUsd) || value.costCeilingUsd <= 0) {
-    throw new Error('runtime policy A/B execution profile costCeilingUsd must be a finite positive number');
+  if (typeof value.observedCostStopUsd !== 'number' || !Number.isFinite(value.observedCostStopUsd) || value.observedCostStopUsd <= 0) {
+    throw new Error('runtime policy A/B execution profile observedCostStopUsd must be a finite positive number');
   }
   if (!Number.isSafeInteger(value.maxConcurrentAttempts) || Number(value.maxConcurrentAttempts) < 2 || Number(value.maxConcurrentAttempts) % 2 !== 0) {
     throw new Error('runtime policy A/B execution profile maxConcurrentAttempts must be an even integer of at least 2');

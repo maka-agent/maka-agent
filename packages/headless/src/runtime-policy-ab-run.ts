@@ -55,7 +55,7 @@ export interface RunRuntimePolicyAbComparisonInput {
 
 export type RuntimePolicyAbComparisonSummary = AbComparisonSummary;
 
-export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput, 'experimentKind' | 'arms' | 'taskBudgetSec' | 'harborTimeoutMs' | 'costCeilingUsd' | 'maxConcurrency' | 'maxConcurrentAttempts'> {
+export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput, 'experimentKind' | 'arms' | 'taskBudgetSec' | 'harborTimeoutMs' | 'observedCostStopUsd' | 'maxConcurrency' | 'maxConcurrentAttempts'> {
   arms: readonly [RuntimePolicyAbArmInput, RuntimePolicyAbArmInput];
   promptHash: string;
   sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
@@ -80,7 +80,7 @@ export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifes
     ...abInput,
     taskBudgetSec: executionProfile.taskBudgetSec,
     harborTimeoutMs: executionProfile.harborTimeoutMs,
-    costCeilingUsd: executionProfile.costCeilingUsd,
+    observedCostStopUsd: executionProfile.observedCostStopUsd,
     maxConcurrency,
     maxConcurrentAttempts: executionProfile.maxConcurrentAttempts,
     experimentKind: 'runtime',
@@ -110,7 +110,7 @@ export async function runRuntimePolicyAbComparisonUnlocked(
     evaluationTasks: input.evaluationTasks,
     ...(input.reps !== undefined ? { reps: input.reps } : {}),
     maxConcurrency,
-    costCeilingUsd: input.executionProfile.costCeilingUsd,
+    observedCostStopUsd: input.executionProfile.observedCostStopUsd,
     ...(input.roundIdPrefix ? { roundIdPrefix: input.roundIdPrefix } : {}),
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
     ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),

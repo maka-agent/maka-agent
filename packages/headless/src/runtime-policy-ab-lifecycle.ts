@@ -61,9 +61,9 @@ export async function runRuntimePolicyAbLifecycle(
       return state;
     }
     const pilotCost = (state.pilot?.baseline.totalCostUsd ?? 0) + (state.pilot?.candidate.totalCostUsd ?? 0);
-    const remainingCostUsd = input.executionProfile.costCeilingUsd - pilotCost;
+    const remainingCostUsd = input.executionProfile.observedCostStopUsd - pilotCost;
     if (remainingCostUsd <= 0) {
-      state = { ...state, status: 'invalid', reason: 'cost_ceiling_reached_during_pilot' };
+      state = { ...state, status: 'invalid', reason: 'observed_cost_stop_reached_during_pilot' };
       await writeState(statePath, state);
       return state;
     }
@@ -72,7 +72,7 @@ export async function runRuntimePolicyAbLifecycle(
       evaluationTasks: input.evaluationTasks,
       reps: input.fullReps,
       roundIdPrefix: 'full',
-      executionProfile: { ...input.executionProfile, costCeilingUsd: remainingCostUsd },
+      executionProfile: { ...input.executionProfile, observedCostStopUsd: remainingCostUsd },
     });
     state = {
       ...state,

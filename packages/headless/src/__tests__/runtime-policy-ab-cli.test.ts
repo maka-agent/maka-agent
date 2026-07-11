@@ -52,7 +52,7 @@ test('runtime policy A/B CLI dry-run builds one executable Flash manifest withou
     assert.match(stdout, /dry-run: executable manifest validated/);
     const manifest = JSON.parse(await readFile(join(outDir, 'dry-run', 'runtime-policy-ab-manifest.json'), 'utf8'));
     assert.equal(manifest.arms[0].metadata.executionProfile.model, 'deepseek/deepseek-v4-flash');
-    assert.equal(manifest.maxConcurrentAttempts, 4);
+    assert.equal(manifest.maxConcurrentAttempts, 2);
     assert.deepEqual(manifest.pilotTaskIds, ['pilot-task']);
   } finally {
     await rm(dir, { recursive: true, force: true });

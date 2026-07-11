@@ -15,7 +15,7 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   const reps = input.reps ?? 3;
   assertPositiveInt('reps', reps);
   const maxConcurrency = input.maxConcurrency !== undefined ? assertPositiveInt('maxConcurrency', input.maxConcurrency) : 1;
-  if (input.costCeilingUsd !== undefined) assertFinitePositive('costCeilingUsd', input.costCeilingUsd);
+  if (input.observedCostStopUsd !== undefined) assertFinitePositive('observedCostStopUsd', input.observedCostStopUsd);
   const baselineRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const candidateRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const pairs: { rep: number; taskIndex: number; task: FixedPromptTask }[] = [];
@@ -49,8 +49,8 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     observedCostUsd += eventCostUsd(result.baseline) + eventCostUsd(result.candidate);
     if (isSystemicProviderFailure(result.baseline) || isSystemicProviderFailure(result.candidate)) {
       stopReason = 'systemic_provider_failure';
-    } else if (input.costCeilingUsd !== undefined && observedCostUsd >= input.costCeilingUsd) {
-      stopReason = 'cost_ceiling_reached';
+    } else if (input.observedCostStopUsd !== undefined && observedCostUsd >= input.observedCostStopUsd) {
+      stopReason = 'observed_cost_stop_reached';
     }
     launchReadyPairs();
   }

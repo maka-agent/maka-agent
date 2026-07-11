@@ -9,8 +9,8 @@ test('checked-in runtime A/B profile pins DeepSeek Flash identity, pricing, and 
 
   assert.equal(profile.model, 'deepseek/deepseek-v4-flash');
   assert.equal(profile.pricing.source, 'deepseek-v4-flash');
-  assert.equal(profile.costCeilingUsd, 20);
-  assert.equal(profile.maxConcurrentAttempts, 4);
+  assert.equal(profile.observedCostStopUsd, 20);
+  assert.equal(profile.maxConcurrentAttempts, 2);
 });
 
 test('profile parser rejects the old ambiguous attempt concurrency', () => {
@@ -25,7 +25,7 @@ test('profile parser rejects the old ambiguous attempt concurrency', () => {
       pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'bad' },
       taskBudgetSec: 1800,
       harborTimeoutMs: 2_100_000,
-      costCeilingUsd: 20,
+      observedCostStopUsd: 20,
       maxConcurrentAttempts: 3,
     }),
     /maxConcurrentAttempts must be an even integer of at least 2/,

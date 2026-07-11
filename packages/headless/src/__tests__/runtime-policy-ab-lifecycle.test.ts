@@ -27,7 +27,7 @@ const executionProfile: RuntimePolicyAbExecutionProfile = {
   pricing: { inputUsdPer1M: 1, outputUsdPer1M: 1, cacheReadUsdPer1M: 0, cacheWriteUsdPer1M: 0, source: 'test-profile' },
   taskBudgetSec: 1800,
   harborTimeoutMs: 2_100_000,
-  costCeilingUsd: 20,
+  observedCostStopUsd: 20,
   maxConcurrentAttempts: 2,
 };
 

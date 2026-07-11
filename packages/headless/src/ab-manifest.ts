@@ -26,7 +26,7 @@ export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
     candidateLimit: input.candidateLimit,
     maxConcurrency: input.maxConcurrency,
     maxConcurrentAttempts: input.maxConcurrentAttempts,
-    costCeilingUsd: input.costCeilingUsd,
+    observedCostStopUsd: input.observedCostStopUsd,
     selectionMode: input.selectionMode,
     candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
     pilotTaskIds: input.pilotTaskIds ? [...input.pilotTaskIds] : undefined,

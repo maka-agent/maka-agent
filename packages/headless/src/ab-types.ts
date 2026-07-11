@@ -28,7 +28,7 @@ export interface RunAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
   maxConcurrency?: number;
-  costCeilingUsd?: number;
+  observedCostStopUsd?: number;
   roundIdPrefix?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
@@ -247,7 +247,7 @@ export interface AbComparisonSummary {
   taskLevel: AbTaskLevelSummary;
   pairedAttempts: AbAttemptPairSummary;
   investigationRefs: AbInvestigationRefs;
-  stopReason?: 'cost_ceiling_reached' | 'systemic_provider_failure';
+  stopReason?: 'observed_cost_stop_reached' | 'systemic_provider_failure';
 }
 
 export interface AbRunManifestInput {
@@ -263,7 +263,7 @@ export interface AbRunManifestInput {
   candidateLimit: number | null;
   maxConcurrency: number;
   maxConcurrentAttempts?: number;
-  costCeilingUsd?: number;
+  observedCostStopUsd?: number;
   selectionMode?: 'explicit' | 'metadata';
   candidateTaskIds?: readonly string[];
   pilotTaskIds?: readonly string[];
