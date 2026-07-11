@@ -47,7 +47,9 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     baselineRuns[result.rep]!.push(result.baseline);
     candidateRuns[result.rep]!.push(result.candidate);
     observedCostUsd += eventCostUsd(result.baseline) + eventCostUsd(result.candidate);
-    if (input.costCeilingUsd !== undefined && observedCostUsd >= input.costCeilingUsd) {
+    if (isSystemicProviderFailure(result.baseline) || isSystemicProviderFailure(result.candidate)) {
+      stopReason = 'systemic_provider_failure';
+    } else if (input.costCeilingUsd !== undefined && observedCostUsd >= input.costCeilingUsd) {
       stopReason = 'cost_ceiling_reached';
     }
     launchReadyPairs();
@@ -73,6 +75,10 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
 
 function eventCostUsd(event: FixedPromptTaskWalEvent): number {
   return 'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0;
+}
+
+function isSystemicProviderFailure(event: FixedPromptTaskWalEvent): boolean {
+  return event.type === 'task_infra_failed' && (event.errorClass === 'provider_billing' || event.errorClass === 'auth');
 }
 
 async function runComparisonPair(

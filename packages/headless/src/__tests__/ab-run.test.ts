@@ -3,6 +3,7 @@ import { describe, test } from 'node:test';
 import { runAbComparison } from '../ab-run.js';
 import { completed } from './helpers/ab-run-fixtures.js';
 import { sha256 } from './helpers/hash-fixture.js';
+import type { FixedPromptTaskInfraFailedEvent } from '../fixed-prompt-controller.js';
 
 describe('runAbComparison', () => {
   test('rejects arm ids that collapse to the same round id suffix', async () => {
@@ -126,4 +127,47 @@ describe('runAbComparison', () => {
     assert.deepEqual(calls, ['ab-tools-off-r0-t1', 'ab-tools-on-r0-t1']);
     assert.equal(result.stopReason, 'cost_ceiling_reached');
   });
+
+  test('stops scheduling new pairs after a systemic provider failure', async () => {
+    const calls: string[] = [];
+    const result = await runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'off', kind: 'runtime', fingerprint: sha256('off') },
+        { id: 'on', kind: 'runtime', fingerprint: sha256('on') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+        { id: 't2', path: '/tasks/t2' },
+        { id: 't3', path: '/tasks/t3' },
+      ],
+      reps: 1,
+      maxConcurrency: 1,
+      runArm: async ({ roundId, task }) => {
+        calls.push(roundId);
+        return providerBilling(task.id);
+      },
+    });
+
+    assert.deepEqual(calls, ['ab-off-r0-t1', 'ab-on-r0-t1']);
+    assert.equal(result.stopReason, 'systemic_provider_failure');
+  });
 });
+
+function providerBilling(taskId: string): FixedPromptTaskInfraFailedEvent {
+  return {
+    schemaVersion: 1,
+    type: 'task_infra_failed',
+    id: `event-${taskId}`,
+    ts: 0,
+    runId: 'ab-run',
+    roundId: 'round',
+    taskId,
+    status: 'infra_failed',
+    passed: false,
+    scored: false,
+    eligible: false,
+    errorClass: 'provider_billing',
+    error: 'provider billing failure',
+  };
+}

@@ -247,7 +247,7 @@ export interface AbComparisonSummary {
   taskLevel: AbTaskLevelSummary;
   pairedAttempts: AbAttemptPairSummary;
   investigationRefs: AbInvestigationRefs;
-  stopReason?: 'cost_ceiling_reached';
+  stopReason?: 'cost_ceiling_reached' | 'systemic_provider_failure';
 }
 
 export interface AbRunManifestInput {
