@@ -356,7 +356,11 @@ describe('createHarborTaskRunner', () => {
           },
         }),
       });
-      await assert.rejects(runner(runInput()), FixedPromptBudgetExhaustedError);
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+        assert.deepEqual(error.artifactRefs?.tokenSummary, cellOutput().tokenSummary);
+        return true;
+      });
     });
   });
 

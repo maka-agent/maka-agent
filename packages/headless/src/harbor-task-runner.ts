@@ -194,9 +194,11 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
 
     const trialException = await readTrialException(resultPath);
     if (trialException && isBudgetExhaustedTrialException(trialException)) {
+      const cell = await readOptionalCellOutput(cellOutputPath, input.task.id);
       throw new FixedPromptBudgetExhaustedError(
         `agent budget exhausted for task ${input.task.id}`,
         trialException,
+        cell ? cellArtifactRefs(cell, hostEventsPath, trialDir) : undefined,
       );
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
@@ -228,6 +230,29 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
         ),
       },
     };
+  };
+}
+
+async function readOptionalCellOutput(cellOutputPath: string, taskId: string): Promise<HarborCellOutput | null> {
+  try {
+    return await readCellOutput(cellOutputPath, taskId);
+  } catch {
+    return null;
+  }
+}
+
+function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialDir: string) {
+  return {
+    runtimeEventsPath: hostEventsPath,
+    traceEventsPath: join(
+      trialDir,
+      TRIAL_TRACE_EVENTS_ROOT,
+      cell.runtimeRefs.sessionId,
+      'runs',
+      cell.runtimeRefs.runId,
+      'events.jsonl',
+    ),
+    tokenSummary: cell.tokenSummary,
   };
 }
 

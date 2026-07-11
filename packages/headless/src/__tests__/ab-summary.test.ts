@@ -54,7 +54,21 @@ describe('summarizeAbComparison', () => {
       candidateArmId: 'candidate',
       evaluationTaskIds: ['long-task'],
       baselineRuns: [[completed('long-task', true)]],
-      candidateRuns: [[budgetExhausted('long-task')]],
+      candidateRuns: [[{
+        ...budgetExhausted('long-task'),
+        tokenSummary: {
+          input: 100,
+          cachedInput: 0,
+          cacheHitInput: 0,
+          cacheMissInput: 100,
+          cacheWriteInput: 0,
+          output: 20,
+          reasoning: 0,
+          total: 120,
+          costUsd: 0.42,
+          pricingSource: 'runtime',
+        },
+      }]],
       budgetMs: 600_000,
     });
 
@@ -63,6 +77,8 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.candidate.passRate, 0);
     assert.equal(result.candidate.budgetExhausted, 1);
     assert.equal(result.candidate.infraFailed, 0);
+    assert.equal(result.candidate.totalCostUsd, 0.42);
+    assert.equal(result.candidate.tokenCostSummary.total, 120);
     assert.equal(result.taskLevel.losses, 1);
   });
 

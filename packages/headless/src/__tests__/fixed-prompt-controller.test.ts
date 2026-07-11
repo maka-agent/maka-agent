@@ -443,6 +443,36 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('accounts for token cost retained by a timed-out cell', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const retainedUsage = tokenSummary({ input: 100, output: 20, reasoning: 0, total: 120, costUsd: 0.42 });
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, {
+            tokenSummary: retainedUsage,
+          });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.totalTokens, 120);
+      assert.equal(result.totalCostUsd, 0.42);
+      assert.equal(result.events[0]?.type, 'task_budget_exhausted');
+      assert.deepEqual('tokenSummary' in result.events[0]! ? result.events[0].tokenSummary : undefined, retainedUsage);
+    });
+  });
+
   test('reruns budget-exhausted WAL events instead of reusing a timeout', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');

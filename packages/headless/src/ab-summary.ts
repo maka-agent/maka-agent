@@ -93,7 +93,7 @@ function summarizeArm(
   const taskTools = summarizeTaskTools(observed);
   const activePruneSubset = summarizeActivePruneSubset(observedAttempts, activePrunePairIds);
   const contextBudgetPolicy = summarizeContextBudgetPolicy(observed);
-  const tokenCostSummary = summarizeTokenCost(budgetedRuns);
+  const tokenCostSummary = summarizeTokenCost(observed);
   return {
     attempts,
     observed: observed.length,
@@ -136,7 +136,7 @@ function summarizeActivePruneSubset(
   const budgetedRuns = valid.filter((event) => event.type !== 'task_budget_exhausted');
   const passed = valid.filter((event) => event.passed).length;
   const durations = budgetedRuns.map((event) => event.durationMs);
-  const tokenCostSummary = summarizeTokenCost(budgetedRuns);
+  const tokenCostSummary = summarizeTokenCost(observed);
   const contextBudget = summarizeContextBudget(sliceAttempts);
   return {
     taskCount: new Set([...activePrunePairIds].map(pairTaskId)).size,
@@ -167,19 +167,20 @@ function pairTaskId(pairId: string): string {
 }
 
 function summarizeTokenCost(
-  events: readonly Extract<FixedPromptTaskWalEvent, { type: 'task_completed' }>[],
+  events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
-  const durations = events.map((event) => event.durationMs);
+  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: FixedPromptTaskCompletedEvent['tokenSummary'] } => 'tokenSummary' in event);
+  const durations = events.flatMap((event) => 'durationMs' in event ? [event.durationMs] : []);
   return {
-    input: sum(events.map((event) => event.tokenSummary.input)),
-    cachedInput: sum(events.map((event) => event.tokenSummary.cachedInput)),
-    cacheHitInput: sum(events.map((event) => event.tokenSummary.cacheHitInput)),
-    cacheMissInput: sum(events.map((event) => event.tokenSummary.cacheMissInput)),
-    cacheWriteInput: sum(events.map((event) => event.tokenSummary.cacheWriteInput)),
-    output: sum(events.map((event) => event.tokenSummary.output)),
-    reasoning: sum(events.map((event) => event.tokenSummary.reasoning)),
-    total: sum(events.map((event) => event.tokenSummary.total)),
-    costUsd: sum(events.map((event) => event.tokenSummary.costUsd)),
+    input: sum(withUsage.map((event) => event.tokenSummary.input)),
+    cachedInput: sum(withUsage.map((event) => event.tokenSummary.cachedInput)),
+    cacheHitInput: sum(withUsage.map((event) => event.tokenSummary.cacheHitInput)),
+    cacheMissInput: sum(withUsage.map((event) => event.tokenSummary.cacheMissInput)),
+    cacheWriteInput: sum(withUsage.map((event) => event.tokenSummary.cacheWriteInput)),
+    output: sum(withUsage.map((event) => event.tokenSummary.output)),
+    reasoning: sum(withUsage.map((event) => event.tokenSummary.reasoning)),
+    total: sum(withUsage.map((event) => event.tokenSummary.total)),
+    costUsd: sum(withUsage.map((event) => event.tokenSummary.costUsd)),
     meanDurationMs: durations.length > 0 ? sum(durations) / durations.length : null,
   };
 }

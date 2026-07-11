@@ -57,6 +57,7 @@ export interface FixedPromptBudgetExhaustedArtifactRefs {
   runtimeEventsPath?: string;
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
+  tokenSummary?: HarborCellTokenSummary;
 }
 
 export class FixedPromptBudgetExhaustedError extends Error {
@@ -141,6 +142,7 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   runtimeEventsPath?: string;
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
+  tokenSummary?: HarborCellTokenSummary;
 }
 
 export interface FixedPromptTaskPlumbingFailedEvent {
@@ -400,8 +402,8 @@ export async function runFixedPromptController(
   return {
     taskIds: resultEvents.map((event) => event.taskId),
     events: resultEvents,
-    totalTokens: sum(resultEvents.map((event) => eventHasRunArtifacts(event) ? event.tokenSummary.total : 0)),
-    totalCostUsd: sum(resultEvents.map((event) => eventHasRunArtifacts(event) ? event.tokenSummary.costUsd : 0)),
+    totalTokens: sum(resultEvents.map((event) => eventTokenSummary(event)?.total ?? 0)),
+    totalCostUsd: sum(resultEvents.map((event) => eventTokenSummary(event)?.costUsd ?? 0)),
     resultsTsvPath: input.resultsTsvPath,
     ...(stopReason ? { stopReason } : {}),
   };
@@ -483,10 +485,10 @@ export async function writeFixedPromptResultsTsv(
     String(event.scored),
     String(event.eligible),
     event.errorClass ?? '',
-    eventHasRunArtifacts(event) ? event.promptHash ?? '' : '',
-    String(eventHasRunArtifacts(event) ? event.tokenSummary.total : 0),
-    String(eventHasRunArtifacts(event) ? event.tokenSummary.costUsd : 0),
-    eventHasRunArtifacts(event) ? event.runtimeEventsPath : '',
+    'promptHash' in event ? event.promptHash ?? '' : '',
+    String(eventTokenSummary(event)?.total ?? 0),
+    String(eventTokenSummary(event)?.costUsd ?? 0),
+    'runtimeEventsPath' in event ? event.runtimeEventsPath ?? '' : '',
   ]);
   const body = [header, ...rows].map((row) => row.map(tsvCell).join('\t')).join('\n');
   await writeFile(path, `${body}\n`, 'utf8');
@@ -803,13 +805,14 @@ function taskBudgetExhaustedEvent(input: {
     ...(artifactRefs.runtimeEventsUnavailableReason
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
+    ...(artifactRefs.tokenSummary ? { tokenSummary: artifactRefs.tokenSummary } : {}),
   };
 }
 
 function budgetExhaustedArtifactRefs(error: unknown): FixedPromptBudgetExhaustedArtifactRefs {
   if (isBudgetExhaustedError(error)) {
     const refs = (error as { artifactRefs?: FixedPromptBudgetExhaustedArtifactRefs }).artifactRefs;
-    if (refs && (refs.runtimeEventsPath || refs.traceEventsPath || refs.runtimeEventsUnavailableReason)) return refs;
+    if (refs && (refs.runtimeEventsPath || refs.traceEventsPath || refs.runtimeEventsUnavailableReason || refs.tokenSummary)) return refs;
   }
   return { runtimeEventsUnavailableReason: BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON };
 }
@@ -915,13 +918,11 @@ function infraFailureRate(events: readonly FixedPromptTaskWalEvent[], taskCount:
 }
 
 function taskEventsCostUsd(events: readonly FixedPromptTaskWalEvent[]): number {
-  return sum(events.map((event) => eventHasRunArtifacts(event) ? event.tokenSummary.costUsd : 0));
+  return sum(events.map((event) => eventTokenSummary(event)?.costUsd ?? 0));
 }
 
-function eventHasRunArtifacts(
-  event: FixedPromptTaskWalEvent,
-): event is FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent {
-  return event.type === 'task_completed' || event.type === 'task_plumbing_failed';
+function eventTokenSummary(event: FixedPromptTaskWalEvent): HarborCellTokenSummary | undefined {
+  return 'tokenSummary' in event ? event.tokenSummary : undefined;
 }
 
 function isBudgetExhaustedError(error: unknown): boolean {
