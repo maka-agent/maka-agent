@@ -557,11 +557,11 @@ Expected: both pass and a second prepare is up-to-date.
 - Resolve: `packages/cli/src/runtime-bootstrap.ts`
 - Resolve any additional latest-main conflicts.
 
-- [ ] **Step 1: Preserve the dirty worktree**
+- [x] **Step 1: Preserve the dirty worktree**
 
 Commit the completed CUA refactor before merging.
 
-- [ ] **Step 2: Merge `origin/main`**
+- [x] **Step 2: Merge `origin/main`**
 
 ```bash
 git fetch origin
@@ -575,7 +575,7 @@ latest main shell-run subscriptions/readback
 MAKA_CLI_COMPUTER_USE opt-in backend wiring and disposal
 ```
 
-- [ ] **Step 3: Run focused verification**
+- [x] **Step 3: Run focused verification**
 
 ```bash
 npm run test:scripts
@@ -588,7 +588,7 @@ npm run check:cua-driver-bundle
 npm run e2e:computer-use
 ```
 
-- [ ] **Step 4: Run repository verification**
+- [x] **Step 4: Run repository verification**
 
 ```bash
 npm run typecheck

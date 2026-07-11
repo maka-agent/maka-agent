@@ -4,14 +4,13 @@
 
 - Current branch: `feat/cu-runtime-helper`.
 - Tracking branch: `fork/feat/cu-runtime-helper`.
-- `git pull --ff-only` reports the feature branch is already up to date.
-- Latest `origin/main` is `d07cdf8`; the feature branch is 32 commits ahead and
-  20 commits behind it.
-- A synthetic merge against latest `origin/main` has one content conflict in
-  `packages/cli/src/runtime-bootstrap.ts`; other touched files auto-merge.
+- Latest `origin/main` is `d736901d`; merge commit `675e0395` is complete.
+- The feature branch is 34 commits ahead and 0 behind latest `origin/main`.
+- The only merge conflict was `packages/cli/src/runtime-bootstrap.ts`; the
+  resolution preserves latest-main Goal/shell-run wiring plus opt-in CLI
+  Computer Use and cua-driver disposal.
 - Existing local WIP must be preserved:
-  - modified `apps/desktop/src/renderer/computer-use-overlay/engine/cursor-engine.ts`
-  - eight untracked `scripts/cu-*.mjs` diagnostic/E2E scripts
+  - seven untracked legacy `scripts/cu-diag-*` / `scripts/cu-keyboard-*` scripts
   - untracked `.claude/` worktree metadata
 
 ## Architecture
@@ -75,9 +74,9 @@
 ## Verification
 
 - `@maka/computer-use`: 58/58 tests passed.
-- Core/runtime Computer Use contract tests: 23/23 passed.
+- Runtime Computer Use focused tests: 18/18 passed.
 - Desktop cursor engine/overlay window tests: 11/11 passed.
-- `@maka/computer-use` and full Desktop TypeScript typechecks passed.
+- Full workspace TypeScript typecheck passed after latest-main dependency rebuild.
 - Live backend selection returned `cua-driver` with the `computer` tool.
 - Live TCC preflight returned Accessibility=true and Screen Recording=true.
 - A live screenshot action succeeded at 1920x1200 PNG, 1,170,441 bytes.
@@ -94,30 +93,41 @@
   - real-machine E2E: 25/25
   - Desktop and package typechecks passed
   - cua-driver prepare/check bundle passed twice (second prepare up-to-date)
+- Final post-merge repository verification:
+  - scripts: 7/7
+  - core: 812/812
+  - storage: 206/206
+  - runtime: 1246/1246, 2 skipped
+  - computer-use: 58/58
+  - headless: 776/776, 1 skipped
+  - CLI: 248/248
+  - UI: 104/104
+  - Desktop: 2329/2329
+  - full build: passed
+  - cua-driver bundle check: passed
+  - real-machine E2E: 25/25
 
-## Confirmed Defects / Gaps
+## Resolved Defects
 
-- Release gate is structurally broken:
+- Release gate was structurally broken:
   - manifest `sha256` equals the official release tar.gz checksum
     `43a78c...76d4`
   - the extracted, signed Mach-O checksum is `66775d...3dfb0a`
-  - the current gate and `alreadyPrepared()` compare the extracted binary against
-    the archive checksum, so a correct prepared binary always fails/re-downloads
-- The frame-cap test title still says 2 MB while the source and assertion use 8 MB.
+  - fixed by pinning and checking the archive and extracted binary separately
+- The frame-cap test title said 2 MB while the source/assertion use 8 MB; corrected.
+
+## Remaining Gaps
+
 - No background-safe implementation exists for cursor position, split
   mouse-down/up, hold-key, Electron/unknown text without an explicit page/CDP
   target, or key chords.
-- PR #699 is open as a draft and currently `CONFLICTING` / `DIRTY`; its previous
-  typecheck, test, and e2e checks were green before latest-main drift.
+- PR #699 is open as a draft. Its body and CI status are stale until the local
+  branch is pushed.
 
 ## Local WIP Signal
 
-- The modified cursor engine reduces spring overshoot/damping artifacts, scales
-  the Dubins turn radius for short moves, and changes departure heading to avoid
-  loops/U-turns.
-- The untracked scripts concentrate on a suspected interaction between the
-  Electron overlay window and target-bound TextEdit keyboard delivery, plus
-  real-cursor no-warp validation.
+- Legacy diagnostic scripts remain untracked and are intentionally excluded from
+  the PR because they contain superseded TextEdit/foreground experiments.
 
 ## Focus Root Cause
 

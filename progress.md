@@ -64,6 +64,28 @@
   - real-machine E2E: 25/25
   - cua-driver bundle check: passed
 - Remaining current phase:
-  - update durable docs and shared memory
-  - merge latest `origin/main`
-  - run full repository verification after the merge
+  - push `feat/cu-runtime-helper` to the fork
+  - update draft PR #699 body and wait for refreshed CI
+
+## 2026-07-12
+
+- Committed the focus-safe refactor as `5024aa00`.
+- Fetched latest `origin/main` at `d736901d`.
+- Resolved the sole merge conflict in `packages/cli/src/runtime-bootstrap.ts`,
+  preserving:
+  - GoalManager / goal tools / continuation deps
+  - ShellRun update subscriptions and inherited readback
+  - `MAKA_CLI_COMPUTER_USE=1` opt-in tool registration
+  - shell listener cleanup and cua-driver disposal
+- Completed merge commit `675e0395`.
+- Installed the latest-main dependency graph (`streamdown`) and rebuilt
+  core/runtime/UI before verification.
+- Final post-merge verification:
+  - full typecheck passed
+  - full test suite passed: scripts 7, core 812, storage 206, runtime 1246,
+    computer-use 58, headless 776, CLI 248, UI 104, Desktop 2329
+  - full build passed
+  - cua-driver bundle check passed
+  - real-machine E2E passed 25/25
+- One pre-merge full-suite run exposed existing short-timeout shell-test
+  flakiness under load; isolated runtime and the final full-suite rerun passed.

@@ -20,8 +20,8 @@ AX-first background ladder modeled after Codex/Sky.
 - [x] Implement AX-first pointer dispatch and verified native AX text fill.
 - [x] Refuse Electron/unknown text and all key chords before any key event.
 - [x] Replace the real-machine E2E fixture with self-owned inactive windows.
-- [ ] Integrate latest `origin/main`.
-- [ ] Run full repository and real-machine verification.
+- [x] Integrate latest `origin/main`.
+- [x] Run full repository and real-machine verification.
 - [ ] Update and push draft PR #699.
 
 ## Constraints
@@ -45,3 +45,5 @@ AX-first background ladder modeled after Codex/Sky.
 | First real E2E click returned AX error `-25206` | Generic indexed Electron AX nodes were treated as AX-clickable even when they did not support `AXPress` | Added a strict clickable-role allowlist; generic/editable nodes use same-snapshot window pixels |
 | Electron type returned `key_events`, `verified:false`, `escalation:foreground` and no text landed | Background CGEvent typing depends on live renderer focus; normal user clicks can legally take it away | Removed `type_text`/`press_key` from the backend success path; Electron/unknown text and every key chord now fail before keyboard dispatch |
 | Early E2E pointer monitor false positives | Absolute pointer equality could not distinguish normal HID input from synthetic cursor movement | Added a pre-spawn Swift monitor that uses HID event recency and fails only on non-HID pointer jumps or frontmost PID changes |
+| Latest-main merge conflict | `packages/cli/src/runtime-bootstrap.ts` contained both new Goal/shell-run wiring and the feature branch's opt-in Computer Use wiring | Preserved Goal tools, shell-run subscriptions/readback, `MAKA_CLI_COMPUTER_USE=1`, listener cleanup, and cua-driver disposal in merge commit `675e0395` |
+| Post-merge Desktop typecheck could not resolve new `@maka/ui` exports | Latest main added `streamdown` and new UI exports, but local `node_modules`/dist still reflected the old graph | Ran `npm install`, rebuilt core/runtime/UI, then re-ran the full verification chain |
