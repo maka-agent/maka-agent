@@ -54,6 +54,22 @@ describe('normalizeCuaDriverOutcome', () => {
     );
   });
 
+  it('maps page/CDP evidence to semantic background dispatch', () => {
+    assert.deepEqual(
+      normalizeCuaDriverOutcome(result({
+        path: 'cdp',
+        verified: true,
+        effect: 'confirmed',
+      })),
+      {
+        ok: true,
+        tier: 'semantic-background',
+        verified: true,
+        evidence: { path: 'cdp', effect: 'confirmed' },
+      },
+    );
+  });
+
   it('fails suspected no-ops closed as capture_failed while preserving evidence', () => {
     const outcome = normalizeCuaDriverOutcome({
       content: [{ type: 'text', text: 'AXPress produced no observable change' }],

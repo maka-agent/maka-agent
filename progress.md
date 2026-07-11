@@ -91,3 +91,28 @@
   - real-machine E2E passed 25/25
 - One pre-merge full-suite run exposed existing short-timeout shell-test
   flakiness under load; isolated runtime and the final full-suite rerun passed.
+- Diagnosed the complex 31/36 matrix:
+  - button, checkbox, and range were real no-ops
+  - right click duplicated `contextmenu`
+  - double click succeeded but its absolute assertion was contaminated by the
+    earlier single-click failure
+- Proved from the v0.7.1 schema and source that
+  `page.execute_javascript` discarded exact CDP targeting.
+- Forked `trycua/cua`, implemented the root fix, and opened upstream draft
+  PR `trycua/cua#2166`.
+- Built, ad-hoc signed, and released universal arm64/x86_64
+  `cua-driver-rs-v0.7.1-maka.1`.
+- Strengthened bundle gates with archive/binary/license/SOURCE hashes, exact
+  commits, Cargo.lock, version, architectures, signature, and provenance.
+- Implemented exact Electron page targeting, effect-grounded pointer
+  verification, strict text-input ownership, page identity reuse, correlated
+  traces, and explicit fallback reasons.
+- Removed Maka's direct CDP execution path; prepare/read/insert/readback now
+  all execute through cua-driver.
+- Reworked E2E with read-only target checks, dynamic safe layouts,
+  non-overlapping A/B stages, timestamped reports, and repeat aggregation.
+- Final focused state:
+  - `@maka/computer-use`: 71/71
+  - real-machine E2E: 39/39
+  - `semantic-targeting-v5`: 10/10 green runs, every semantic case 10/10,
+    zero fallback

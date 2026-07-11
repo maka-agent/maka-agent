@@ -19,6 +19,7 @@ import { after, before, describe, it } from 'node:test';
 
 import type { CuAction } from '@maka/core';
 import type { CuRunContext, CuRunResult } from '@maka/runtime';
+import type { CuaResolvedPageTextTarget } from '../cua-driver-page-target.js';
 import { createCuaDriverBackend } from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
@@ -42,6 +43,10 @@ const DELAY_MS = Number(process.env.CUA_MOCK_DELAY_MS || 0);
 const ERR_TOOL = process.env.CUA_MOCK_RPCERR_TOOL || '';
 const EMPTY_AX = process.env.CUA_MOCK_EMPTY_AX === '1';
 const AX_ROLE = process.env.CUA_MOCK_AX_ROLE || 'AXTextArea';
+const PAGE_EXEC_RESULT = process.env.CUA_MOCK_PAGE_EXEC_RESULT || '';
+const PAGE_READBACK_VALUE = process.env.CUA_MOCK_PAGE_READBACK_VALUE || '';
+let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
+let PAGE_INSERTED = false;
 const FIELD_VALUES = new Map();
 const SNAPSHOT_DELAY_MS = Number(process.env.CUA_MOCK_SNAPSHOT_DELAY_MS || 0);
 // 1x1 transparent PNG (tiny, well under the frame cap).
@@ -186,6 +191,33 @@ function handle(msg) {
         );
         reply(id, { content: [{ type: 'text', text: 'value set' }], structuredContent: {} });
         return;
+      case 'page':
+        const pageAction = params.arguments?.action;
+        const pageJavascript = String(params.arguments?.javascript || '');
+        const pageText = pageAction === 'execute_javascript'
+          ? pageJavascript.includes('__makaComputerUseReadElement')
+            ? JSON.stringify({
+                editable: true,
+                value: PAGE_INSERTED && PAGE_READBACK_VALUE
+                  ? PAGE_READBACK_VALUE
+                  : PAGE_FIELD_VALUE,
+                tagName: 'textarea',
+                inputType: '',
+              })
+            : PAGE_EXEC_RESULT
+          : 'inserted through CDP';
+        if (pageAction === 'insert_text') {
+          PAGE_FIELD_VALUE = String(params.arguments?.text || '');
+          PAGE_INSERTED = true;
+        }
+        reply(id, {
+          content: [{
+            type: 'text',
+            text: pageText,
+          }],
+          structuredContent: {},
+        });
+        return;
       default:
         reply(id, { content: [{ type: 'text', text: 'unknown tool' }], isError: true, structuredContent: {} });
         return;
@@ -283,6 +315,10 @@ function makeBackend(opts: {
   emptyAx?: boolean;
   axRole?: string;
   processKind?: 'electron' | 'native' | 'unknown';
+  pageTarget?: CuaResolvedPageTextTarget;
+  pageFieldValue?: string;
+  pageReadbackValue?: string;
+  semanticPointerResult?: Record<string, unknown>;
   snapshotDelayMs?: number;
   compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
 } = {}): { backend: TestBackend; logPath: string } {
@@ -298,6 +334,11 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_BIG_IMAGE = opts.bigImage ? '1' : '';
   process.env.CUA_MOCK_EMPTY_AX = opts.emptyAx ? '1' : '';
   process.env.CUA_MOCK_AX_ROLE = opts.axRole ?? 'AXTextArea';
+  process.env.CUA_MOCK_PAGE_EXEC_RESULT = opts.semanticPointerResult
+    ? JSON.stringify(opts.semanticPointerResult)
+    : '';
+  process.env.CUA_MOCK_PAGE_FIELD_VALUE = opts.pageFieldValue ?? '';
+  process.env.CUA_MOCK_PAGE_READBACK_VALUE = opts.pageReadbackValue ?? '';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
   const rawBackend = createCuaDriverBackend({
     binaryPath: mockPath,
@@ -306,9 +347,11 @@ function makeBackend(opts: {
     ...(opts.compressFrame ? { compressFrame: opts.compressFrame } : {}),
     ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
     classifyProcess: async () => opts.processKind ?? 'native',
+    resolvePageTextTarget: async () => opts.pageTarget,
   });
   const backend: TestBackend = {
     preflight: (signal) => rawBackend.preflight(signal),
+    inspectWindowAt: (point, signal) => rawBackend.inspectWindowAt(point, signal),
     run: (action, signal, context = DEFAULT_RUN_CONTEXT) => rawBackend.run(action, signal, context),
     clearSession: (sessionId) => rawBackend.clearSession(sessionId),
     dispose: () => rawBackend.dispose(),
@@ -368,6 +411,22 @@ describe('cua-driver backend', () => {
     assert.deepEqual(pf, { accessibility: true, screenRecording: true });
     const records = await readRecords(logPath);
     assert.deepEqual(toolCall(records, 'check_permissions'), { prompt: false });
+  });
+
+  it('inspectWindowAt resolves without dispatching pointer input', async () => {
+    const { backend, logPath } = makeBackend();
+    const target = await backend.inspectWindowAt(
+      { x: 600, y: 400 },
+      new AbortController().signal,
+    );
+
+    assert.equal(target?.pid, 4242);
+    assert.equal(target?.windowId, 77);
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'list_windows').length, 1);
+    assert.equal(toolCalls(records, 'click').length, 0);
+    assert.equal(toolCalls(records, 'double_click').length, 0);
+    assert.equal(toolCalls(records, 'drag').length, 0);
   });
 
   it('isolates desktop capture and window actions into separate children and homes', async () => {
@@ -977,6 +1036,264 @@ describe('cua-driver backend', () => {
     assert.equal(toolCalls(records, 'set_value').length, 0);
     assert.equal(toolCalls(records, 'type_text').length, 0);
     assert.equal(toolCalls(records, 'press_key').length, 0);
+  });
+
+  it('Electron text uses a uniquely resolved cua-driver page target and DOM readback', async () => {
+    const pageTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        clickEvents: 1,
+      },
+    });
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+
+    const typed = await backend.run({ type: 'type', text: 'semantic text' } as CuAction, sig);
+    assert.deepEqual(typed.outcome, {
+      ok: true,
+      tier: 'semantic-background',
+      verified: true,
+      evidence: { path: 'cdp', effect: 'confirmed' },
+    });
+    const records = await readRecords(logPath);
+    const page = toolCall(records, 'page');
+    const pageCalls = toolCalls(records, 'page');
+    assert.equal(pageCalls.length, 4);
+    assert.equal(pageCalls[0]!.action, 'execute_javascript');
+    assert.match(String(pageCalls[0]!.javascript), /elementFromPoint/);
+    assert.ok(page);
+    assert.deepEqual(page, {
+      pid: 4242,
+      window_id: 77,
+      action: 'execute_javascript',
+      javascript: page.javascript,
+      cdp_port: 9333,
+      target_url_contains: 'data:text/html,window-a',
+    });
+    assert.deepEqual(pageCalls[2], {
+      pid: 4242,
+      window_id: 77,
+      action: 'insert_text',
+      text: 'semantic text',
+      cdp_port: 9333,
+      target_url_contains: 'data:text/html,window-a',
+    });
+    assert.equal(pageCalls[3]!.action, 'execute_javascript');
+    assert.match(String(pageCalls[3]!.javascript), /__makaComputerUseReadElement/);
+    assert.equal(toolCalls(records, 'type_text').length, 0);
+    assert.equal(toolCalls(records, 'press_key').length, 0);
+  });
+
+  it('Electron semantic pointer actions use page and skip pixel dispatch', async () => {
+    const pageTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const click = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: false,
+        tagName: 'button',
+        clickEvents: 1,
+      },
+    });
+    const result = await click.backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+    assert.deepEqual(result.outcome, {
+      ok: true,
+      tier: 'semantic-background',
+      verified: true,
+      evidence: { path: 'cdp', effect: 'confirmed' },
+    });
+    const records = await readRecords(click.logPath);
+    const pageCall = toolCall(records, 'page');
+    assert.deepEqual(pageCall, {
+      pid: 4242,
+      window_id: 77,
+      action: 'execute_javascript',
+      javascript: pageCall?.javascript,
+      cdp_port: 9333,
+      target_url_contains: 'data:text/html,window-a',
+    });
+    assert.equal(toolCalls(records, 'click').length, 0);
+
+    const drag = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'range_drag',
+        tagName: 'input',
+        inputEvents: 1,
+        changeEvents: 1,
+        value: '80',
+      },
+    });
+    const dragResult = await drag.backend.run(
+      {
+        type: 'left_click_drag',
+        startCoordinate: { x: 600, y: 400 },
+        coordinate: { x: 800, y: 600 },
+      } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(dragResult.outcome.ok, true);
+    const dragRecords = await readRecords(drag.logPath);
+    assert.equal(toolCalls(dragRecords, 'page').length, 1);
+    assert.equal(toolCalls(dragRecords, 'drag').length, 0);
+  });
+
+  it('Electron semantic non-text inputs never establish usable text ownership', async () => {
+    const pageTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        effect: 'checked',
+        editable: false,
+        tagName: 'input',
+        inputType: 'checkbox',
+        checked: true,
+      },
+    });
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    const typed = await backend.run({ type: 'type', text: 'on' } as CuAction, sig);
+
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) assert.equal(typed.outcome.error, 'unsupported_action');
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'insert_text').length, 0);
+  });
+
+  it('semantic pointer unsupported falls back to pixel; semantic failure does not double-dispatch', async () => {
+    const pageTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const unsupported = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      semanticPointerResult: {
+        supported: false,
+        ok: false,
+        reason: 'unsupported_action',
+      },
+    });
+    const fallback = await unsupported.backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(fallback.outcome.ok, true);
+    const fallbackRecords = await readRecords(unsupported.logPath);
+    assert.equal(toolCalls(fallbackRecords, 'page').length, 1);
+    assert.equal(toolCalls(fallbackRecords, 'click').length, 1);
+
+    const failed = makeBackend({
+      processKind: 'electron',
+      pageTarget,
+      semanticPointerResult: {
+        supported: true,
+        ok: false,
+        kind: 'left_click',
+        clickEvents: 0,
+      },
+    });
+    const failure = await failed.backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(failure.outcome.ok, false);
+    const failedRecords = await readRecords(failed.logPath);
+    assert.equal(toolCalls(failedRecords, 'page').length, 1);
+    assert.equal(toolCalls(failedRecords, 'click').length, 0);
+  });
+
+  it('Electron page text refuses non-empty fields and mismatched readback', async () => {
+    const nonEmptyTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const nonEmpty = makeBackend({
+      processKind: 'electron',
+      pageTarget: nonEmptyTarget,
+      pageFieldValue: 'user text',
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        clickEvents: 1,
+      },
+    });
+    const sig = new AbortController().signal;
+    await nonEmpty.backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    const refused = await nonEmpty.backend.run({ type: 'type', text: 'overwrite' } as CuAction, sig);
+    assert.equal(refused.outcome.ok, false);
+    const nonEmptyPageCalls = toolCalls(await readRecords(nonEmpty.logPath), 'page');
+    assert.deepEqual(nonEmptyPageCalls.map((call) => call.action), [
+      'execute_javascript',
+      'execute_javascript',
+    ]);
+
+    const mismatchTarget: CuaResolvedPageTextTarget = {
+      port: 9333,
+      targetUrlContains: 'data:text/html,window-a',
+    };
+    const mismatch = makeBackend({
+      processKind: 'electron',
+      pageTarget: mismatchTarget,
+      pageReadbackValue: 'wrong',
+      emptyAx: true,
+      semanticPointerResult: {
+        supported: true,
+        ok: true,
+        kind: 'left_click',
+        editable: true,
+        tagName: 'textarea',
+        clickEvents: 1,
+      },
+    });
+    await mismatch.backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+    const failed = await mismatch.backend.run({ type: 'type', text: 'missing' } as CuAction, sig);
+    assert.equal(failed.outcome.ok, false);
+    if (!failed.outcome.ok) {
+      assert.equal(failed.outcome.error, 'capture_failed');
+      assert.equal(failed.outcome.evidence?.path, 'cdp');
+    }
+    const mismatchPageCalls = toolCalls(await readRecords(mismatch.logPath), 'page');
+    assert.deepEqual(mismatchPageCalls.map((call) => call.action), [
+      'execute_javascript',
+      'execute_javascript',
+      'insert_text',
+      'execute_javascript',
+    ]);
   });
 
   it('abort mid-call rejects and the next call restarts on a fresh child', async () => {

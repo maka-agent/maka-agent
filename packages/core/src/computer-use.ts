@@ -153,6 +153,10 @@ export const COMPUTER_USE_DISPATCH_TIERS = [
   // Public API, genuinely background: AXUIElementPerformAction/AXSetValue on
   // AX-exposed targets — no cursor move, no focus steal, notarizable.
   'ax',
+  // Semantic page/DOM channel such as an explicitly identified CDP target.
+  // Background and focus-independent, but available only when the host can
+  // prove the page identity instead of guessing a process-global target.
+  'semantic-background',
   // Private, best-effort background: coordinate injection for non-AX targets.
   'coordinate-background',
   // Honest fallback: foreground-visible pixel input (moves the real cursor);

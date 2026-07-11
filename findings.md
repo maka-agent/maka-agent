@@ -143,3 +143,49 @@
 - The root fix is to remove unverifiable key-event delivery from Maka's success
   path. Native AXValue fill is accepted only with fresh readback; all other
   keyboard paths fail closed.
+
+## 2026-07-12 Semantic Electron Extension
+
+- Root cause of the multi-window pointer failures:
+  - Maka uniquely resolved the correct Electron CDP page.
+  - cua-driver v0.7.1 did not accept `cdp_port` or
+    `target_url_contains` for `page.execute_javascript`.
+  - Its Electron path could execute on the first page target.
+  - A supplied URL hint also silently fell back when absent.
+- Root correction:
+  - source commit `adef3e87405986cc82df52ae59aef4c32e08a082`
+  - upstream proposal `trycua/cua#2166`
+  - compatibility release
+    `hqhq1025/cua@cua-driver-rs-v0.7.1-maka.1`
+  - exact ports, unique URL hints, and checked `1..=65535` port parsing
+- cua-driver remains the sole execution engine:
+  - Maka only discovers a PID-owned listening CDP port and unique page identity.
+  - semantic pointer actions, input preparation/readback, `Input.insertText`,
+    and post-action verification are cua-driver `page` tool calls.
+  - Maka does not open a CDP WebSocket or execute page JavaScript directly.
+- Effect verification:
+  - editable click requires target DOM focus
+  - checkbox requires checked-state change
+  - button/double click requires downstream DOM mutation
+  - right click requires a consumed context menu or mutation
+  - range drag requires a persistent value after input/change settle
+  - an executed semantic action with no observable effect fails closed and is
+    never followed by a pixel double-dispatch
+- Text ownership:
+  - only enabled, writable textarea, contenteditable, and text-like input types
+    establish Electron text ownership
+  - non-text, disabled, readonly, and sensitive controls do not
+  - click and type reuse the same resolved page identity
+- Final real-machine evidence (`semantic-targeting-v5`):
+  - 10/10 runs green, 39/39 checks each
+  - zero fallback, wrong-target, no-op, or duplicate-effect cases
+  - p50/p90/max latency:
+    - left click: 84/87/102 ms
+    - checkbox: 70/77/77 ms
+    - range drag: 96/102/127 ms
+    - right click: 74/80/85 ms
+    - double click: 74/78/98 ms
+- Remaining release gap:
+  - this repository has no production Electron packaging, Developer ID
+    signing, notarization, or post-package app verification workflow
+  - the compatibility Mach-O is ad-hoc signed and byte/provenance pinned

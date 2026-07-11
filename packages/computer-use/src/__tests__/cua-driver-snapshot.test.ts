@@ -13,6 +13,8 @@ describe('cua-driver snapshot coordinate authority', () => {
     {
       window_id: 11,
       pid: 101,
+      app_name: 'Alpha',
+      title: 'Alpha Window',
       layer: 0,
       is_on_screen: true,
       z_index: 2,
@@ -21,6 +23,8 @@ describe('cua-driver snapshot coordinate authority', () => {
     {
       window_id: 12,
       pid: 102,
+      app_name: 'Beta',
+      title: 'Beta Window',
       layer: 0,
       is_on_screen: true,
       z_index: 9,
@@ -47,6 +51,8 @@ describe('cua-driver snapshot coordinate authority', () => {
     assert.ok(target);
     assert.equal(target.pid, 102);
     assert.equal(target.windowId, 12);
+    assert.equal(target.appName, 'Beta');
+    assert.equal(target.title, 'Beta Window');
     assert.deepEqual(target.screenPoint, { x: 300, y: 200 });
   });
 

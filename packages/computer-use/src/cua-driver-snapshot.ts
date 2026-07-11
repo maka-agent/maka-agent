@@ -10,6 +10,8 @@ export interface CuaWindowBounds {
 export interface CuaWindowRecord {
   window_id?: unknown;
   pid?: unknown;
+  app_name?: unknown;
+  title?: unknown;
   layer?: unknown;
   is_on_screen?: unknown;
   z_index?: unknown;
@@ -19,6 +21,8 @@ export interface CuaWindowRecord {
 export interface CuaResolvedWindow {
   pid: number;
   windowId: number;
+  appName?: string;
+  title?: string;
   bounds: CuaWindowBounds;
   screenPoint: CuPoint;
 }
@@ -84,6 +88,8 @@ export function resolveWindowAtDeclaredPoint(input: {
       return inside ? [{
         pid: window.pid,
         windowId: window.window_id,
+        ...(typeof window.app_name === 'string' ? { appName: window.app_name } : {}),
+        ...(typeof window.title === 'string' ? { title: window.title } : {}),
         bounds,
         screenPoint,
         zIndex: Number(window.z_index) || 0,
@@ -95,6 +101,8 @@ export function resolveWindowAtDeclaredPoint(input: {
   return {
     pid: winner.pid,
     windowId: winner.windowId,
+    ...(winner.appName !== undefined ? { appName: winner.appName } : {}),
+    ...(winner.title !== undefined ? { title: winner.title } : {}),
     bounds: winner.bounds,
     screenPoint: winner.screenPoint,
   };

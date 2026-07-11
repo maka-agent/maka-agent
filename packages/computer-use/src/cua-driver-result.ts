@@ -58,6 +58,7 @@ function dispatchEvidence(
 function dispatchTier(path: string | undefined): ComputerUseDispatchTier {
   if (path?.endsWith('_fg')) return 'foreground-visible';
   if (path === 'ax') return 'ax';
+  if (path === 'cdp' || path === 'page') return 'semantic-background';
   return 'coordinate-background';
 }
 

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -121,17 +122,36 @@ async function waitForBaseline(ready) {
   }
 }
 
+async function reserveLoopbackPort() {
+  const server = createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise((resolve) => server.close(resolve));
+  if (!Number.isInteger(port) || port <= 0) throw new Error('failed to reserve a CDP port');
+  return port;
+}
+
 async function run() {
   const monitor = startSafetyMonitor();
   let electron;
   let forcedTimer;
   try {
     const baseline = await waitForBaseline(monitor.ready);
-    electron = spawn(electronPath, [childScript], {
+    const cdpPort = await reserveLoopbackPort();
+    electron = spawn(electronPath, [
+      `--remote-debugging-port=${cdpPort}`,
+      '--remote-allow-origins=*',
+      childScript,
+    ], {
       cwd: repoRoot,
       env: {
         ...process.env,
         MAKA_CU_E2E_BASELINE: JSON.stringify(baseline),
+        MAKA_CU_E2E_CDP_PORT: String(cdpPort),
       },
       stdio: ['pipe', 'inherit', 'inherit'],
     });

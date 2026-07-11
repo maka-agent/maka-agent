@@ -23,6 +23,13 @@ AX-first background ladder modeled after Codex/Sky.
 - [x] Integrate latest `origin/main`.
 - [x] Run full repository and real-machine verification.
 - [x] Update and push draft PR #699.
+- [x] Extend cua-driver `page.execute_javascript` with exact CDP page targeting.
+- [x] Publish and pin a provenance-carrying universal compatibility build.
+- [x] Restore verified Electron text and semantic pointer actions through cua-driver only.
+- [x] Add per-action trace/effect evidence and repeatable real-machine reports.
+- [x] Run a 10-round multi-window semantic action matrix.
+- [ ] Re-run final repository verification after the semantic extension.
+- [ ] Merge latest `origin/main`, push, and refresh PR #699.
 
 ## Constraints
 
@@ -47,3 +54,7 @@ AX-first background ladder modeled after Codex/Sky.
 | Early E2E pointer monitor false positives | Absolute pointer equality could not distinguish normal HID input from synthetic cursor movement | Added a pre-spawn Swift monitor that uses HID event recency and fails only on non-HID pointer jumps or frontmost PID changes |
 | Latest-main merge conflict | `packages/cli/src/runtime-bootstrap.ts` contained both new Goal/shell-run wiring and the feature branch's opt-in Computer Use wiring | Preserved Goal tools, shell-run subscriptions/readback, `MAKA_CLI_COMPUTER_USE=1`, listener cleanup, and cua-driver disposal in merge commit `675e0395` |
 | Post-merge Desktop typecheck could not resolve new `@maka/ui` exports | Latest main added `streamdown` and new UI exports, but local `node_modules`/dist still reflected the old graph | Ran `npm install`, rebuilt core/runtime/UI, then re-ran the full verification chain |
+| Multi-window semantic JS executed against the wrong renderer | cua-driver v0.7.1 ignored `cdp_port` / `target_url_contains` for `execute_javascript`, then selected the first page target | Patched cua-driver, proposed upstream PR #2166, and pinned `v0.7.1-maka.1` |
+| Explicit URL hints could still hit the first page | cua-driver's `pick_target` silently fell back when a hint did not match | Explicit hints now require exactly one match and otherwise fail closed |
+| E2E intermittently targeted another overlapping window | inactive windows do not own every visible pixel, and overlapping same-app z-order was nondeterministic | Added read-only target inspection, dynamic safe layouts, and non-overlapping A/B stages before input |
+| Semantic RPC success overstated business effect | the first prototype counted events dispatched by its own script | Success now requires focus, native state change, DOM mutation, consumed context menu, or persistent range value |

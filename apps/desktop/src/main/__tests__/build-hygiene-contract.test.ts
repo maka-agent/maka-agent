@@ -69,6 +69,11 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
       cuaDriver?: {
         archiveSha256?: string;
         binarySha256?: string;
+        licenseSha256?: string;
+        sourceSha256?: string;
+        sourceCommit?: string;
+        upstreamCommit?: string;
+        architectures?: string[];
         sha256?: string;
       };
     };
@@ -83,6 +88,11 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
     assert.ok(prepareEntry, 'prepareCuaDriver entrypoint must exist');
     assert.match(cua.archiveSha256 ?? '', /^[a-f0-9]{64}$/);
     assert.match(cua.binarySha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.match(cua.licenseSha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.match(cua.sourceSha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.match(cua.sourceCommit ?? '', /^[a-f0-9]{40}$/);
+    assert.match(cua.upstreamCommit ?? '', /^[a-f0-9]{40}$/);
+    assert.deepEqual(cua.architectures, ['arm64', 'x86_64']);
     assert.notEqual(cua.archiveSha256, cua.binarySha256, 'archive and extracted binary hashes must be independent');
     assert.equal(cua.sha256, undefined, 'the ambiguous legacy cuaDriver.sha256 field must stay removed');
 
@@ -96,11 +106,17 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
     assert.match(prepare, /cua\.archiveSha256/);
     assert.match(prepare, /actualBinarySha256/);
     assert.match(prepare, /cua\.binarySha256/);
+    assert.match(prepare, /assertSourceProvenance/);
+    assert.match(prepare, /verifyBinary/);
+    assert.match(prepare, /licenses\.length !== 1/);
 
     assert.match(check, /assertPinnedCuaDriverChecksums\(cua\)/);
     assert.match(check, /cua\.archiveSha256/);
     assert.match(check, /actualBinarySha256/);
     assert.match(check, /cua\.binarySha256/);
+    assert.match(check, /SOURCE\.json/);
+    assert.match(check, /-verify_arch/);
+    assert.match(check, /codesign/);
     assert.doesNotMatch(
       check,
       /actual(?:Sha256|BinarySha256)\s*!==\s*cua\.archiveSha256/,

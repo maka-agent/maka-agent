@@ -2,11 +2,13 @@
 // Release gate: assert the cua-driver binary is present, non-empty, executable,
 // and matches the pinned checksum before packaging. Analogous to
 // scripts/check-officecli-bundle.mjs. macOS-only; a no-op elsewhere.
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import {
   assertPinnedCuaDriverChecksums,
@@ -17,6 +19,8 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const manifestPath = join(repoRoot, 'apps', 'desktop', 'bundled-tools.json');
 const binDir = join(repoRoot, 'apps', 'desktop', 'resources', 'bin');
+const licenseDir = join(repoRoot, 'apps', 'desktop', 'resources', 'licenses', 'cua-driver');
+const execFileAsync = promisify(execFile);
 
 export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   if (!cuaDriverSupported(targetPlatform)) {
@@ -27,6 +31,8 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   assertPinnedCuaDriverChecksums(cua);
   const binaryPath = join(binDir, cua.binaryName);
   const markerPath = join(binDir, '.cua-driver.json');
+  const licensePath = join(licenseDir, 'LICENSE.md');
+  const sourcePath = join(licenseDir, 'SOURCE.json');
 
   try {
     await access(binaryPath, constants.R_OK);
@@ -64,14 +70,51 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   }
   if (
     marker.version !== cua.version
+    || marker.expectedVersion !== cua.expectedVersion
+    || marker.sourceCommit !== cua.sourceCommit
+    || marker.upstreamCommit !== cua.upstreamCommit
     || marker.archiveSha256 !== cua.archiveSha256
     || marker.binarySha256 !== cua.binarySha256
+    || marker.licenseSha256 !== cua.licenseSha256
+    || marker.sourceSha256 !== cua.sourceSha256
   ) {
     throw new Error(
       `cua-driver bundle marker mismatch: manifest ${cua.version}/${cua.archiveSha256}/${cua.binarySha256}, ` +
       `on disk ${marker.version}/${marker.archiveSha256}/${marker.binarySha256}. Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
+
+  const licenseBytes = await readFile(licensePath);
+  const sourceBytes = await readFile(sourcePath);
+  const actualLicenseSha256 = createHash('sha256').update(licenseBytes).digest('hex');
+  const actualSourceSha256 = createHash('sha256').update(sourceBytes).digest('hex');
+  if (actualLicenseSha256 !== cua.licenseSha256 || actualSourceSha256 !== cua.sourceSha256) {
+    throw new Error('cua-driver license/provenance checksum mismatch. Re-run `npm run prepare:cua-driver`.');
+  }
+  const source = JSON.parse(sourceBytes.toString('utf8'));
+  for (const [field, expected] of Object.entries({
+    repository: cua.repo,
+    upstreamTag: cua.upstreamTag,
+    upstreamCommit: cua.upstreamCommit,
+    sourceCommit: cua.sourceCommit,
+    patchPullRequest: cua.patchPullRequest,
+    cargoLockSha256: cua.cargoLockSha256,
+    signature: cua.signature,
+  })) {
+    if (source[field] !== expected) {
+      throw new Error(`cua-driver SOURCE.json ${field} mismatch`);
+    }
+  }
+  if (!cua.architectures.every((arch) => source.architectures?.includes(arch))) {
+    throw new Error('cua-driver SOURCE.json architectures mismatch');
+  }
+
+  const { stdout } = await execFileAsync(binaryPath, ['--version']);
+  if (stdout.trim() !== `cua-driver ${cua.expectedVersion}`) {
+    throw new Error(`cua-driver version mismatch: ${stdout.trim()}`);
+  }
+  await execFileAsync('lipo', [binaryPath, '-verify_arch', ...cua.architectures]);
+  await execFileAsync('codesign', ['--verify', '--strict', '--verbose=2', binaryPath]);
   return { skipped: false, binaryPath, version: cua.version };
 }
 

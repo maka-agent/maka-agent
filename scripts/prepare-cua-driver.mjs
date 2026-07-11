@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-// Acquire + verify + extract trycua/cua-driver (v0.7.1, MIT) for bundling into
+// Acquire + verify + extract the pinned cua-driver compatibility release for
+// bundling into Maka.app. The source patch remains published in hqhq1025/cua
+// and proposed upstream; Maka only consumes an immutable, provenance-carrying
+// release artifact.
 // Maka.app. Mirrors scripts/prepare-officecli.mjs: single-source version pin in
 // apps/desktop/bundled-tools.json, checksum verified fail-closed, extracted to a
 // pinned repo path (resources/bin/cua-driver), idempotent via a marker file.
@@ -27,6 +30,7 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const manifestPath = join(repoRoot, 'apps', 'desktop', 'bundled-tools.json');
 const binDir = join(repoRoot, 'apps', 'desktop', 'resources', 'bin');
+const licenseDir = join(repoRoot, 'apps', 'desktop', 'resources', 'licenses', 'cua-driver');
 const DEFAULT_FETCH_TIMEOUT_MS = 300_000;
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
@@ -47,7 +51,7 @@ export function sha256(data) {
 }
 
 export function assertPinnedCuaDriverChecksums(entry) {
-  for (const field of ['archiveSha256', 'binarySha256']) {
+  for (const field of ['archiveSha256', 'binarySha256', 'licenseSha256', 'sourceSha256']) {
     if (!SHA256_PATTERN.test(entry?.[field] ?? '')) {
       throw new Error(
         `bundled-tools.json cuaDriver.${field} must be a pinned lowercase 64-character SHA-256 digest ` +
@@ -60,6 +64,16 @@ export function assertPinnedCuaDriverChecksums(entry) {
   }
   if (Object.prototype.hasOwnProperty.call(entry, 'sha256')) {
     throw new Error('bundled-tools.json cuaDriver.sha256 is ambiguous; use archiveSha256 and binarySha256.');
+  }
+  if (
+    typeof entry?.expectedVersion !== 'string'
+    || typeof entry?.sourceCommit !== 'string'
+    || typeof entry?.upstreamCommit !== 'string'
+    || typeof entry?.cargoLockSha256 !== 'string'
+    || !Array.isArray(entry?.architectures)
+    || entry.architectures.length === 0
+  ) {
+    throw new Error('bundled-tools.json cuaDriver must pin version, source commits, Cargo.lock, and architectures.');
   }
 }
 
@@ -74,16 +88,26 @@ function markerPath() {
 function expectedMarker() {
   return {
     version: cua.version,
+    expectedVersion: cua.expectedVersion,
+    sourceCommit: cua.sourceCommit,
+    upstreamCommit: cua.upstreamCommit,
     archiveSha256: cua.archiveSha256,
     binarySha256: cua.binarySha256,
+    licenseSha256: cua.licenseSha256,
+    sourceSha256: cua.sourceSha256,
   };
 }
 
 function markerMatches(marker) {
   const expected = expectedMarker();
   return marker?.version === expected.version
+    && marker?.expectedVersion === expected.expectedVersion
+    && marker?.sourceCommit === expected.sourceCommit
+    && marker?.upstreamCommit === expected.upstreamCommit
     && marker?.archiveSha256 === expected.archiveSha256
-    && marker?.binarySha256 === expected.binarySha256;
+    && marker?.binarySha256 === expected.binarySha256
+    && marker?.licenseSha256 === expected.licenseSha256
+    && marker?.sourceSha256 === expected.sourceSha256;
 }
 
 function readPositiveIntEnv(name, fallback) {
@@ -131,9 +155,50 @@ async function alreadyPrepared() {
     // Re-hash the actual binary so a corrupted/swapped file with an intact marker
     // is not silently trusted — on drift, fall through to re-download/re-verify.
     const actualBinarySha256 = sha256(await readFile(destinationPath()));
-    return actualBinarySha256 === cua.binarySha256;
+    const actualLicenseSha256 = sha256(await readFile(join(licenseDir, 'LICENSE.md')));
+    const actualSourceSha256 = sha256(await readFile(join(licenseDir, 'SOURCE.json')));
+    return actualBinarySha256 === cua.binarySha256
+      && actualLicenseSha256 === cua.licenseSha256
+      && actualSourceSha256 === cua.sourceSha256;
   } catch {
     return false;
+  }
+}
+
+async function verifyBinary(binaryPath) {
+  const { stdout } = await execFileAsync(binaryPath, ['--version']);
+  if (stdout.trim() !== `cua-driver ${cua.expectedVersion}`) {
+    throw new Error(
+      `Unexpected cua-driver version: expected ${cua.expectedVersion}, got ${JSON.stringify(stdout.trim())}`,
+    );
+  }
+  await execFileAsync('lipo', [binaryPath, '-verify_arch', ...cua.architectures]);
+  await execFileAsync('codesign', ['--verify', '--strict', '--verbose=2', binaryPath]);
+}
+
+function assertSourceProvenance(source) {
+  const expected = {
+    repository: cua.repo,
+    upstreamTag: cua.upstreamTag,
+    upstreamCommit: cua.upstreamCommit,
+    sourceCommit: cua.sourceCommit,
+    patchPullRequest: cua.patchPullRequest,
+    cargoLockSha256: cua.cargoLockSha256,
+    signature: cua.signature,
+  };
+  for (const [field, value] of Object.entries(expected)) {
+    if (source?.[field] !== value) {
+      throw new Error(
+        `cua-driver SOURCE.json ${field} mismatch: expected ${JSON.stringify(value)}, got ${JSON.stringify(source?.[field])}`,
+      );
+    }
+  }
+  if (
+    !Array.isArray(source?.architectures)
+    || source.architectures.length !== cua.architectures.length
+    || !cua.architectures.every((arch) => source.architectures.includes(arch))
+  ) {
+    throw new Error('cua-driver SOURCE.json architectures do not match bundled-tools.json.');
   }
 }
 
@@ -162,8 +227,10 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
     await execFileAsync('tar', ['-xzf', tarPath, '-C', workDir]);
     const { stdout } = await execFileAsync('find', [workDir, '-name', cua.binaryName, '-type', 'f']);
     const found = stdout.split('\n').map((l) => l.trim()).filter(Boolean);
-    if (found.length === 0) {
-      throw new Error(`Extracted archive ${cua.asset} did not contain a '${cua.binaryName}' binary`);
+    if (found.length !== 1) {
+      throw new Error(
+        `Extracted archive ${cua.asset} must contain exactly one '${cua.binaryName}' binary (found ${found.length})`,
+      );
     }
 
     const binaryBytes = await readFile(found[0]);
@@ -173,8 +240,29 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
         `Checksum mismatch for extracted ${cua.binaryName}: expected ${cua.binarySha256}, got ${actualBinarySha256}`,
       );
     }
+    await verifyBinary(found[0]);
+
+    const licensePaths = await execFileAsync('find', [workDir, '-name', 'LICENSE.md', '-type', 'f']);
+    const sourcePaths = await execFileAsync('find', [workDir, '-name', 'SOURCE.json', '-type', 'f']);
+    const licenses = licensePaths.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    const sources = sourcePaths.stdout.split('\n').map((line) => line.trim()).filter(Boolean);
+    if (licenses.length !== 1 || sources.length !== 1) {
+      throw new Error(
+        `Extracted archive ${cua.asset} must contain exactly one LICENSE.md and SOURCE.json`,
+      );
+    }
+    const licenseBytes = await readFile(licenses[0]);
+    const sourceBytes = await readFile(sources[0]);
+    if (sha256(licenseBytes) !== cua.licenseSha256) {
+      throw new Error(`Checksum mismatch for extracted cua-driver LICENSE.md`);
+    }
+    if (sha256(sourceBytes) !== cua.sourceSha256) {
+      throw new Error(`Checksum mismatch for extracted cua-driver SOURCE.json`);
+    }
+    assertSourceProvenance(JSON.parse(sourceBytes.toString('utf8')));
 
     await mkdir(binDir, { recursive: true });
+    await mkdir(licenseDir, { recursive: true });
     const destination = destinationPath();
     const marker = markerPath();
     const installId = randomUUID();
@@ -193,6 +281,8 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
       await writeFile(stagedMarker, `${JSON.stringify(expectedMarker(), null, 2)}\n`);
       await rename(stagedBinary, destination);
       await rename(stagedMarker, marker);
+      await writeFile(join(licenseDir, 'LICENSE.md'), licenseBytes);
+      await writeFile(join(licenseDir, 'SOURCE.json'), sourceBytes);
     } finally {
       await rm(stagedBinary, { force: true });
       await rm(stagedMarker, { force: true });

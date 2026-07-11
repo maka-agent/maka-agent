@@ -32,6 +32,17 @@ import {
 import type { CuDispatchBackend, CuRunContext, CuRunResult, CuScreenshot } from '@maka/runtime';
 import { normalizeCuaDriverOutcome } from './cua-driver-result.js';
 import {
+  CUA_INSPECT_PREPARED_ELEMENT_SCRIPT,
+  buildCuaPrepareElementAtScreenPointScript,
+  buildCuaSemanticPointerActionScript,
+  parseCuaFocusedPageElement,
+  parseCuaSemanticPointerResult,
+  resolveCuaPageTextTarget,
+  type CuaSemanticPointerAction,
+  type CuaSemanticPointerResult,
+  type CuaResolvedPageTextTarget,
+} from './cua-driver-page-target.js';
+import {
   editableElementAtScreenPoint,
   elementAtScreenPoint,
   resolveWindowAtDeclaredPoint,
@@ -68,7 +79,80 @@ export interface CuaDriverBackendOptions {
   compressFrame?: (base64: string, mimeType: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
   /** Test seam; production classifies the target executable before any keyboard action. */
   classifyProcess?: (pid: number) => Promise<'electron' | 'native' | 'unknown'>;
+  /** Test seam; production resolves only already-listening, uniquely identified CDP pages. */
+  resolvePageTextTarget?: (input: {
+    pid: number;
+    windowTitle?: string;
+    signal: AbortSignal;
+  }) => Promise<CuaResolvedPageTextTarget | undefined>;
+  /** Privacy-safe diagnostic stream: geometry, roles, dispatch path, and outcome only. */
+  onTrace?: (event: CuaDriverTraceEvent) => void;
 }
+
+export type CuaDriverTraceEvent =
+  | {
+      type: 'target';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      pid: number;
+      windowId: number;
+      title?: string;
+      screenPoint: { x: number; y: number };
+    }
+  | {
+      type: 'snapshot';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      pid: number;
+      windowId: number;
+      windowPoint: { x: number; y: number };
+      containingElements: Array<{
+        elementIndex: number;
+        role: string;
+        depth: number;
+        frame: { x: number; y: number; w: number; h: number };
+      }>;
+      editableElementIndex?: number;
+      clickableElementIndex?: number;
+    }
+  | {
+      type: 'dispatch';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      tool: string;
+      pid?: number;
+      windowId?: number;
+      address: 'ax' | 'px' | 'semantic' | 'none';
+    }
+  | {
+      type: 'outcome';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      tool: string;
+      outcome: CuRunResult['outcome'];
+    }
+  | {
+      type: 'semantic_result';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      pid: number;
+      windowId: number;
+      port: number;
+      supported: boolean;
+      ok: boolean;
+      reason?: string;
+      effect?: string;
+      tagName?: string;
+      inputType?: string;
+    }
+  | {
+      type: 'fallback';
+      toolCallId?: string;
+      actionType: CuAction['type'];
+      from: 'semantic';
+      to: 'pixel';
+      reason: string;
+    };
 
 export interface JsonRpcResponse {
   jsonrpc: '2.0';
@@ -351,6 +435,10 @@ async function classifyMacProcess(pid: number): Promise<'electron' | 'native' | 
 }
 
 export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatchBackend & {
+  inspectWindowAt: (
+    point: { x: number; y: number },
+    signal: AbortSignal,
+  ) => Promise<CuaResolvedWindow | undefined>;
   clearSession: (sessionId: string) => void;
   dispose: () => void;
 } {
@@ -376,11 +464,20 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   interface KeyboardTarget {
     window: CuaResolvedWindow;
     editable: boolean;
+    pageTarget?: CuaResolvedPageTextTarget;
   }
   const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
   const sessionGenerations = new Map<string, number>();
   let operationQueue = Promise.resolve();
   let disposed = false;
+
+  function trace(event: CuaDriverTraceEvent): void {
+    try {
+      opts.onTrace?.(event);
+    } catch {
+      // Diagnostics must never change dispatch.
+    }
+  }
 
   async function displayMetrics(signal: AbortSignal): Promise<{
     desktopFrameWidthPx: number;
@@ -498,22 +595,22 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     text: string,
     signal: AbortSignal,
   ): Promise<CuRunResult['outcome']> {
+    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(target.window.pid);
+    if (processKind === 'electron') {
+      return fillElectronPageTarget(target, text, signal);
+    }
+    if (processKind !== 'native') {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'target process type could not be verified; background key events are refused',
+      };
+    }
     if (!target.editable) {
       return {
         ok: false,
         error: 'unsupported_action',
         message: 'background text input requires an AX-addressable editable field',
-      };
-    }
-    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(target.window.pid);
-    if (processKind !== 'native') {
-      return {
-        ok: false,
-        error: 'unsupported_action',
-        message:
-          processKind === 'electron'
-            ? 'Electron background text requires an explicitly targetable CDP/page channel; key events are refused'
-            : 'target process type could not be verified; background key events are refused',
       };
     }
     const snapshot = await snapshotTarget(target.window, signal);
@@ -572,7 +669,231 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         };
   }
 
+  async function fillElectronPageTarget(
+    target: KeyboardTarget,
+    text: string,
+    signal: AbortSignal,
+  ): Promise<CuRunResult['outcome']> {
+    if (!target.editable) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background Electron text requires a verified text-editable click target',
+      };
+    }
+    const pageTarget = target.pageTarget ?? await (
+      opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
+    )({
+      pid: target.window.pid,
+      ...(target.window.title ? { windowTitle: target.window.title } : {}),
+      signal,
+    });
+    if (!pageTarget) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'Electron background text requires a unique, already-listening CDP page target',
+      };
+    }
+    const executePageScript = async (javascript: string) => {
+      const response = await actionClient.callTool(
+        'page',
+        {
+          pid: target.window.pid,
+          window_id: target.window.windowId,
+          action: 'execute_javascript',
+          javascript,
+          cdp_port: pageTarget.port,
+          target_url_contains: pageTarget.targetUrlContains,
+        },
+        signal,
+      );
+      if (response?.isError) return { response };
+      const text = response?.content?.find(
+        (content) => content.type === 'text' && typeof content.text === 'string',
+      )?.text;
+      return { response, element: parseCuaFocusedPageElement(text) };
+    };
+    const prepared = await executePageScript(
+      buildCuaPrepareElementAtScreenPointScript(target.window.screenPoint),
+    );
+    if (prepared.response?.isError) return normalizeCuaDriverOutcome(prepared.response);
+    const before = prepared.element;
+    if (!before?.editable) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'the uniquely identified Electron page has no focused editable DOM element',
+      };
+    }
+    if (before.value && before.value !== text) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background Electron fill refuses to overwrite a non-empty DOM field',
+      };
+    }
+    if (before.value === text) {
+      return {
+        ok: true,
+        tier: 'semantic-background',
+        verified: true,
+        evidence: { path: 'cdp', effect: 'confirmed' },
+      };
+    }
+    const result = await actionClient.callTool(
+      'page',
+      {
+        pid: target.window.pid,
+        window_id: target.window.windowId,
+        action: 'insert_text',
+        text,
+        cdp_port: pageTarget.port,
+        target_url_contains: pageTarget.targetUrlContains,
+      },
+      signal,
+    );
+    if (result?.isError) return normalizeCuaDriverOutcome(result);
+    const inspected = await executePageScript(CUA_INSPECT_PREPARED_ELEMENT_SCRIPT);
+    if (inspected.response?.isError) return normalizeCuaDriverOutcome(inspected.response);
+    const after = inspected.element;
+    return after?.editable === true && after.value === text
+      ? {
+          ok: true,
+          tier: 'semantic-background',
+          verified: true,
+          evidence: { path: 'cdp', effect: 'confirmed' },
+        }
+      : {
+          ok: false,
+          error: 'capture_failed',
+          message: 'CDP Input.insertText could not be confirmed by DOM readback',
+          evidence: { path: 'cdp', effect: 'unverifiable' },
+        };
+  }
+
+  async function runElectronSemanticPointer(
+    action: CuaSemanticPointerAction,
+    window: CuaResolvedWindow,
+    signal: AbortSignal,
+    toolCallId: string,
+  ): Promise<{
+    handled: boolean;
+    outcome?: CuRunResult['outcome'];
+    result?: CuaSemanticPointerResult;
+    pageTarget?: CuaResolvedPageTextTarget;
+  }> {
+    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
+    if (processKind !== 'electron') return { handled: false };
+    const resolvePageTextTarget = opts.resolvePageTextTarget ?? ((input) =>
+      resolveCuaPageTextTarget(input));
+    const pageTarget = await resolvePageTextTarget({
+      pid: window.pid,
+      ...(window.title ? { windowTitle: window.title } : {}),
+      signal,
+    });
+    if (!pageTarget) {
+      trace({
+        type: 'fallback',
+        toolCallId,
+        actionType: action.type,
+        from: 'semantic',
+        to: 'pixel',
+        reason: 'page_target_unavailable',
+      });
+      return { handled: false };
+    }
+
+    trace({
+      type: 'dispatch',
+      toolCallId,
+      actionType: action.type,
+      tool: 'page',
+      pid: window.pid,
+      windowId: window.windowId,
+      address: 'semantic',
+    });
+    const response = await actionClient.callTool(
+      'page',
+      {
+        pid: window.pid,
+        window_id: window.windowId,
+        action: 'execute_javascript',
+        javascript: buildCuaSemanticPointerActionScript(action),
+        cdp_port: pageTarget.port,
+        target_url_contains: pageTarget.targetUrlContains,
+      },
+      signal,
+    );
+    if (response?.isError) {
+      const outcome = normalizeCuaDriverOutcome(response);
+      trace({ type: 'outcome', toolCallId, actionType: action.type, tool: 'page', outcome });
+      return { handled: true, outcome };
+    }
+    const text = response?.content?.find(
+      (content) => content.type === 'text' && typeof content.text === 'string',
+    )?.text;
+    const result = parseCuaSemanticPointerResult(text);
+    if (!result) {
+      const outcome: CuRunResult['outcome'] = {
+        ok: false,
+        error: 'capture_failed',
+        message: 'cua-driver page action returned an invalid semantic result',
+        evidence: { path: 'cdp', effect: 'unverifiable' },
+      };
+      trace({ type: 'outcome', toolCallId, actionType: action.type, tool: 'page', outcome });
+      return { handled: true, outcome };
+    }
+    trace({
+      type: 'semantic_result',
+      toolCallId,
+      actionType: action.type,
+      pid: window.pid,
+      windowId: window.windowId,
+      port: pageTarget.port,
+      supported: result.supported,
+      ok: result.ok,
+      ...(result.reason ? { reason: result.reason } : {}),
+      ...(result.effect ? { effect: result.effect } : {}),
+      ...(result.tagName ? { tagName: result.tagName } : {}),
+      ...(result.inputType ? { inputType: result.inputType } : {}),
+    });
+    if (!result.supported) {
+      trace({
+        type: 'fallback',
+        toolCallId,
+        actionType: action.type,
+        from: 'semantic',
+        to: 'pixel',
+        reason: result.reason ?? 'unsupported_action',
+      });
+      return { handled: false, result };
+    }
+    const outcome: CuRunResult['outcome'] = result.ok
+      ? {
+          ok: true,
+          tier: 'semantic-background',
+          verified: true,
+          evidence: { path: 'cdp', effect: 'confirmed' },
+        }
+      : {
+          ok: false,
+          error: 'capture_failed',
+          message: `semantic pointer action did not verify (${result.reason ?? result.kind ?? action.type})`,
+          evidence: { path: 'cdp', effect: 'unverifiable' },
+        };
+    trace({ type: 'outcome', toolCallId, actionType: action.type, tool: 'page', outcome });
+    return { handled: true, outcome, result, pageTarget };
+  }
+
   return {
+    async inspectWindowAt(point, signal) {
+      return withOperationQueue(
+        signal,
+        () => resolveWindowAt(point.x, point.y, signal),
+      );
+    },
+
     async preflight(signal) {
       return withOperationQueue(signal, async () => {
         const r = await actionClient.callTool('check_permissions', { prompt: false }, signal);
@@ -649,6 +970,44 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               },
             };
           }
+          trace({
+            type: 'target',
+            toolCallId: context.toolCallId,
+            actionType: action.type,
+            pid: win.pid,
+            windowId: win.windowId,
+            ...(win.title ? { title: win.title } : {}),
+            screenPoint: win.screenPoint,
+          });
+          if (
+            action.type === 'left_click'
+            || action.type === 'right_click'
+            || action.type === 'double_click'
+          ) {
+            const semantic = await runElectronSemanticPointer(
+              { type: action.type, screenPoint: win.screenPoint },
+              win,
+              signal,
+              context.toolCallId,
+            );
+            if (semantic.handled && semantic.outcome) {
+              if (
+                semantic.outcome.ok
+                && action.type === 'left_click'
+                && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
+              ) {
+                targetsBySession.set(context.sessionId, {
+                  turnId: context.turnId,
+                  target: {
+                    window: win,
+                    editable: semantic.result?.editable === true,
+                    ...(semantic.pageTarget ? { pageTarget: semantic.pageTarget } : {}),
+                  },
+                });
+              }
+              return { outcome: semantic.outcome };
+            }
+          }
           {
             let snapshot: TargetSnapshot;
             try {
@@ -669,6 +1028,47 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               || editableElement !== undefined
               ? undefined
               : elementAtScreenPoint(snapshot.elements, win.screenPoint);
+            trace({
+              type: 'snapshot',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              pid: win.pid,
+              windowId: win.windowId,
+              windowPoint: snapshot.windowPoint,
+              containingElements: snapshot.elements.flatMap((candidate) => {
+                if (
+                  typeof candidate.element_index !== 'number'
+                  || typeof candidate.role !== 'string'
+                  || typeof candidate.depth !== 'number'
+                  || !candidate.frame
+                  || typeof candidate.frame !== 'object'
+                ) return [];
+                const frame = candidate.frame as Record<string, unknown>;
+                if (
+                  typeof frame.x !== 'number'
+                  || typeof frame.y !== 'number'
+                  || typeof frame.w !== 'number'
+                  || typeof frame.h !== 'number'
+                ) return [];
+                const inside = win.screenPoint.x >= frame.x
+                  && win.screenPoint.x < frame.x + frame.w
+                  && win.screenPoint.y >= frame.y
+                  && win.screenPoint.y < frame.y + frame.h;
+                return inside ? [{
+                  elementIndex: candidate.element_index,
+                  role: candidate.role,
+                  depth: candidate.depth,
+                  frame: {
+                    x: frame.x,
+                    y: frame.y,
+                    w: frame.w,
+                    h: frame.h,
+                  },
+                }] : [];
+              }),
+              ...(editableElement ? { editableElementIndex: editableElement.element_index } : {}),
+              ...(element ? { clickableElementIndex: element.element_index } : {}),
+            });
             const args: Record<string, unknown> = {
               pid: win.pid,
               window_id: win.windowId,
@@ -683,8 +1083,24 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             if (action.type === 'middle_click') args.button = 'middle';
             if (action.type === 'triple_click') args.count = 3;
             const toolName = action.type === 'double_click' ? 'double_click' : 'click';
+            trace({
+              type: 'dispatch',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              tool: toolName,
+              pid: win.pid,
+              windowId: win.windowId,
+              address: element ? 'ax' : 'px',
+            });
             const r = await actionClient.callTool(toolName, args, signal);
             const outcome = normalizeCuaDriverOutcome(r);
+            trace({
+              type: 'outcome',
+              toolCallId: context.toolCallId,
+              actionType: action.type,
+              tool: toolName,
+              outcome,
+            });
             if (
               outcome.ok
               && action.type === 'left_click'
@@ -782,6 +1198,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                   + 'and cross-app drag-and-drop needs a real drag session. Keep both endpoints inside one window.',
               },
             };
+          }
+          const semantic = await runElectronSemanticPointer(
+            {
+              type: 'left_click_drag',
+              startScreenPoint: from.screenPoint,
+              endScreenPoint: to.screenPoint,
+            },
+            from,
+            signal,
+            context.toolCallId,
+          );
+          if (semantic.handled && semantic.outcome) {
+            return { outcome: semantic.outcome };
           }
           {
             let snapshot: TargetSnapshot;

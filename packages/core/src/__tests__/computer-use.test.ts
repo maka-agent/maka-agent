@@ -60,6 +60,7 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
     // The runner reports which rung ran so degradation is never silent.
     expect([...COMPUTER_USE_DISPATCH_TIERS]).toEqual([
       'ax',
+      'semantic-background',
       'coordinate-background',
       'foreground-visible',
     ]);

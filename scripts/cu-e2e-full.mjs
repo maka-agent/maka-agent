@@ -11,13 +11,17 @@
 //   npm run e2e:computer-use
 //
 // Requires Accessibility + Screen Recording for Electron.
-import { app, BrowserWindow, screen } from 'electron';
+import { app, BrowserWindow, nativeImage, screen } from 'electron';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const { createCuaDriverBackend, createComputerUseOverlayHook } = await import(
   join(here, '..', 'packages', 'computer-use', 'dist', 'index.js')
+);
+const { buildComputerUseTools } = await import(
+  join(here, '..', 'packages', 'runtime', 'dist', 'index.js')
 );
 const { createCursorOverlayController } = await import(
   join(here, '..', 'apps', 'desktop', 'dist', 'main', 'computer-use', 'cursor-overlay-window.js')
@@ -39,7 +43,7 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
   signal?.addEventListener('abort', onAbort, { once: true });
 });
 
-async function createFixtureWindow(label, bounds) {
+async function createFixtureWindow(label, slug, bounds, reveal = true) {
   const fixture = new BrowserWindow({
     ...bounds,
     show: false,
@@ -61,34 +65,137 @@ async function createFixtureWindow(label, bounds) {
     <title>Maka Computer Use E2E ${label}</title>
     <style>
       html, body { width: 100%; height: 100%; margin: 0; background: #fff; }
-      body { box-sizing: border-box; padding: 24px; font-family: -apple-system, sans-serif; }
+      body { box-sizing: border-box; padding: 16px; font-family: -apple-system, sans-serif; }
+      main { display: grid; grid-template-rows: 120px auto auto minmax(100px, 1fr); gap: 10px; height: 100%; }
       textarea {
         box-sizing: border-box;
         width: 100%;
-        height: 100%;
+        height: 120px;
         resize: none;
         border: 1px solid #777;
         border-radius: 4px;
         padding: 16px;
         font: 16px/1.5 ui-monospace, monospace;
       }
+      .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+      button, label { font: 15px -apple-system, sans-serif; }
+      button { width: 120px; height: 40px; }
+      input[type="range"] { width: min(180px, 100%); }
+      #scrollbox { overflow: auto; border: 1px solid #999; height: 100%; }
+      #scroll-content { height: 1200px; padding: 12px; background: linear-gradient(#fff, #dbeafe); }
+      @media (max-height: 120px) {
+        body { padding: 6px; }
+        main {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          height: 100%;
+          overflow: hidden;
+        }
+        textarea { flex: 0 0 240px; height: 42px; padding: 8px; }
+        .controls { flex: 0 0 auto; flex-wrap: nowrap; }
+        button { width: 110px; height: 38px; }
+        input[type="range"] { width: 170px; }
+        #scrollbox { flex: 1 1 160px; min-width: 140px; height: 42px; }
+      }
     </style>
   </head>
   <body>
-    <textarea id="target" aria-label="Maka Computer Use E2E ${label} input"></textarea>
+    <main>
+      <textarea id="target" aria-label="Maka Computer Use E2E ${label} input"></textarea>
+      <div class="controls">
+        <button id="increment">Increment</button>
+        <output id="count">0</output>
+        <label><input id="enabled" type="checkbox"> Enabled</label>
+      </div>
+      <div class="controls">
+        <label>Level <input id="level" type="range" min="0" max="100" value="10"></label>
+        <output id="level-value">10</output>
+      </div>
+      <div id="scrollbox"><div id="scroll-content">Scrollable ${label}</div></div>
+    </main>
+    <script>
+      const state = { count: 0, contextMenus: 0 };
+      increment.addEventListener('click', () => {
+        state.count += 1;
+        count.value = String(state.count);
+      });
+      level.addEventListener('input', () => { document.querySelector('#level-value').value = level.value; });
+      document.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        state.contextMenus += 1;
+      });
+      globalThis.__makaFixtureState = () => ({
+        text: target.value,
+        count: state.count,
+        enabled: enabled.checked,
+        level: Number(level.value),
+        scrollTop: scrollbox.scrollTop,
+        contextMenus: state.contextMenus,
+        activeId: document.activeElement?.id || ''
+      });
+    </script>
   </body>
 </html>`;
-  await fixture.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  fixture.showInactive();
+  const url = `data:text/html;charset=utf-8,${encodeURIComponent(html)}#maka-cu-e2e-${slug}`;
+  await fixture.loadURL(url);
+  if (reveal) {
+    fixture.showInactive();
+    fixture.moveTop();
+  }
   return fixture;
 }
 
-async function readFixtureText(fixture) {
+async function readFixtureState(fixture) {
   if (fixture.isDestroyed()) throw new Error('fixture window was destroyed');
   return fixture.webContents.executeJavaScript(
-    'document.querySelector("#target")?.value ?? ""',
+    'globalThis.__makaFixtureState?.() ?? null',
     true,
   );
+}
+
+async function readFixtureScreenPoint(fixture, selector) {
+  if (fixture.isDestroyed()) throw new Error('fixture window was destroyed');
+  const rect = await fixture.webContents.executeJavaScript(
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    })()`,
+    true,
+  );
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    throw new Error(`fixture element has no visible rect: ${selector}`);
+  }
+  const bounds = fixture.getContentBounds();
+  return {
+    x: bounds.x + rect.x + rect.width / 2,
+    y: bounds.y + rect.y + rect.height / 2,
+  };
+}
+
+async function readFixtureScreenRect(fixture, selector) {
+  if (fixture.isDestroyed()) throw new Error('fixture window was destroyed');
+  const rect = await fixture.webContents.executeJavaScript(
+    `(() => {
+      const element = document.querySelector(${JSON.stringify(selector)});
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+    })()`,
+    true,
+  );
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    throw new Error(`fixture element has no visible rect: ${selector}`);
+  }
+  const bounds = fixture.getContentBounds();
+  return {
+    x: bounds.x + rect.x,
+    y: bounds.y + rect.y,
+    width: rect.width,
+    height: rect.height,
+  };
 }
 
 function startSafetyMonitor(abortController) {
@@ -179,9 +286,28 @@ let safetyMonitor;
 const fixtureWindows = new Set();
 const results = [];
 const overlayMoves = [];
+const report = {
+  version: 2,
+  runId: process.env.MAKA_CU_E2E_RUN_ID || `cu-e2e-${Date.now()}`,
+  startedAt: new Date().toISOString(),
+  cdpPort: Number(process.env.MAKA_CU_E2E_CDP_PORT || 0),
+  baseline: null,
+  steps: [],
+  actions: [],
+  cases: [],
+  traces: [],
+  summary: null,
+  fatal: null,
+};
 
 function check(name, pass, detail = '') {
   results.push({ name, pass, detail });
+  report.steps.push({
+    name,
+    pass,
+    detail,
+    at: new Date().toISOString(),
+  });
   console.log(`  ${pass ? 'PASS' : 'FAIL'} ${name}${detail ? ` - ${detail}` : ''}`);
 }
 
@@ -194,11 +320,131 @@ function requireSuccess(label, result) {
   if (!result.outcome.ok) throw new Error(`${label}: ${outcomeDetail(result)}`);
 }
 
+function requireSemanticSuccess(label, result) {
+  const pass = isSemanticSuccess(result);
+  check(label, pass, outcomeDetail(result));
+  if (!pass) throw new Error(`${label}: ${outcomeDetail(result)}`);
+}
+
 function requireBackgroundKeyboardRefusal(label, result) {
   const pass = !result.outcome.ok
     && result.outcome.error === 'unsupported_action';
   check(label, pass, outcomeDetail(result));
   if (!pass) throw new Error(`${label}: ${outcomeDetail(result)}`);
+}
+
+function isSemanticSuccess(result) {
+  return result.outcome.ok
+    && result.outcome.tier === 'semantic-background'
+    && result.outcome.verified === true
+    && result.outcome.evidence?.path === 'cdp'
+    && result.outcome.evidence?.effect === 'confirmed';
+}
+
+function observeSemanticAction(label, result) {
+  const pass = isSemanticSuccess(result);
+  check(label, pass, outcomeDetail(result));
+  return pass;
+}
+
+function observeAction(label, result) {
+  check(label, result.outcome.ok, outcomeDetail(result));
+  return result.outcome.ok;
+}
+
+async function stateCheck(name, fixture, predicate) {
+  const state = await readFixtureState(fixture);
+  const pass = Boolean(state && predicate(state));
+  check(name, pass, JSON.stringify(state));
+  return state;
+}
+
+function numericDelta(before, after, key) {
+  return Number(after?.[key] ?? 0) - Number(before?.[key] ?? 0);
+}
+
+async function runSemanticCase({
+  caseId,
+  fixture,
+  action,
+  actAction,
+  signal,
+  behaviorName,
+  behavior,
+}) {
+  const before = await readFixtureState(fixture);
+  const traceStart = report.traces.length;
+  const result = await actAction(action);
+  const actionRecord = report.actions.at(-1);
+  const semanticPass = observeSemanticAction(`${caseId} semantic dispatch`, result);
+  await sleep(100, signal);
+  const after = await readFixtureState(fixture);
+  const behaviorPass = Boolean(behavior(before, after));
+  check(behaviorName, behaviorPass, JSON.stringify({ before, after }));
+  const traces = report.traces.slice(traceStart);
+  const route = traces
+    .filter((event) => event.type === 'dispatch' || event.type === 'fallback')
+    .map((event) => event.type === 'dispatch'
+      ? `${event.address}:${event.tool}`
+      : `${event.from}->${event.to}`);
+  const fallback = traces.find((event) => event.type === 'fallback');
+  report.cases.push({
+    caseId,
+    actionId: actionRecord?.context?.toolCallId,
+    before,
+    after,
+    delta: {
+      count: numericDelta(before, after, 'count'),
+      contextMenus: numericDelta(before, after, 'contextMenus'),
+      level: numericDelta(before, after, 'level'),
+      scrollTop: numericDelta(before, after, 'scrollTop'),
+      enabledChanged: before?.enabled !== after?.enabled,
+    },
+    route,
+    fallbackReason: fallback?.reason,
+    outcome: result.outcome,
+    durationMs: actionRecord?.durationMs,
+    semanticPass,
+    behaviorPass,
+    pass: semanticPass && behaviorPass,
+  });
+  return { result, before, after };
+}
+
+function requireLatestTargetPid(name, expectedPid) {
+  const target = [...report.traces].reverse().find((event) => event.type === 'target');
+  const pass = target?.pid === expectedPid;
+  check(name, pass, JSON.stringify(target ?? null));
+  if (!pass) {
+    throw new Error(`${name}: expected pid=${expectedPid}, got ${target?.pid ?? 'none'}`);
+  }
+}
+
+async function inspectFixtureTargets({
+  probes,
+  display,
+  scale,
+  signal,
+}) {
+  const results = [];
+  for (const probe of probes) {
+    const screenPoint = await readFixtureScreenPoint(probe.fixture, probe.selector);
+    const declaredPoint = logicalPointToDeclared(screenPoint, display, scale);
+    const target = await backend.inspectWindowAt(declaredPoint, signal);
+    results.push({
+      label: probe.label,
+      selector: probe.selector,
+      screenPoint,
+      declaredPoint,
+      target,
+      ok: target?.pid === process.pid
+        && target.title === `Maka Computer Use E2E ${probe.label}`,
+    });
+  }
+  return {
+    ok: results.every((result) => result.ok),
+    probes: results,
+  };
 }
 
 async function run() {
@@ -211,6 +457,7 @@ async function run() {
   const signal = abortController.signal;
   safetyMonitor = startSafetyMonitor(abortController);
   const { originalFrontmostPid, originalPointerPosition } = safetyMonitor;
+  report.baseline = { originalFrontmostPid, originalPointerPosition };
   check(
     'user foreground and pointer baseline recorded',
     true,
@@ -223,6 +470,24 @@ async function run() {
     binaryPath,
     hostBundleId: 'com.maka.desktop',
     timeoutMs: 15_000,
+    compressFrame: (base64) => {
+      try {
+        const image = nativeImage.createFromBuffer(Buffer.from(base64, 'base64'));
+        if (image.isEmpty()) return { base64, mimeType: 'image/png' };
+        return {
+          base64: image.toJPEG(82).toString('base64'),
+          mimeType: 'image/jpeg',
+        };
+      } catch {
+        return { base64, mimeType: 'image/png' };
+      }
+    },
+    onTrace: (event) => {
+      report.traces.push({
+        ...event,
+        at: new Date().toISOString(),
+      });
+    },
   });
 
   const distOverlay = join(here, '..', 'apps', 'desktop', 'dist', 'overlay');
@@ -240,22 +505,122 @@ async function run() {
     },
   };
   const hook = createComputerUseOverlayHook(sink, screen);
+  const observedResults = new Map();
+  const observedBackend = {
+    preflight: (actionSignal) => backend.preflight(actionSignal),
+    run: async (action, actionSignal, context) => {
+      const result = await backend.run(action, actionSignal, context);
+      observedResults.set(context.toolCallId, result);
+      return result;
+    },
+  };
+  const [computerTool] = buildComputerUseTools({
+    backend: observedBackend,
+    overlay: hook,
+  });
   const sessionId = `cu-e2e-${Date.now()}`;
   let actionSequence = 0;
+
+  function modelArgs(action) {
+    switch (action.type) {
+      case 'screenshot':
+      case 'cursor_position':
+        return { action: action.type };
+      case 'mouse_move':
+      case 'left_click':
+      case 'right_click':
+      case 'middle_click':
+      case 'double_click':
+      case 'triple_click':
+      case 'left_mouse_down':
+      case 'left_mouse_up':
+        return { action: action.type, coordinate: [action.coordinate.x, action.coordinate.y] };
+      case 'left_click_drag':
+        return {
+          action: action.type,
+          start_coordinate: [action.startCoordinate.x, action.startCoordinate.y],
+          coordinate: [action.coordinate.x, action.coordinate.y],
+        };
+      case 'type':
+      case 'key':
+        return { action: action.type, text: action.text };
+      case 'hold_key':
+        return { action: action.type, text: action.text, duration: action.durationMs / 1000 };
+      case 'scroll':
+        return {
+          action: action.type,
+          coordinate: [action.coordinate.x, action.coordinate.y],
+          scroll_direction: action.scrollDirection,
+          scroll_amount: action.scrollAmount,
+        };
+      case 'wait':
+        return { action: action.type, duration: action.durationMs / 1000 };
+      case 'zoom':
+        return {
+          action: action.type,
+          region: [action.region.x1, action.region.y1, action.region.x2, action.region.y2],
+        };
+      default:
+        throw new Error(`unsupported E2E action: ${action.type}`);
+    }
+  }
 
   async function act(action, activeBackend = backend) {
     const context = {
       sessionId,
       turnId: 'real-machine-e2e',
       toolCallId: `e2e-${actionSequence++}`,
+      cwd: process.cwd(),
+      abortSignal: signal,
+      emitOutput() {},
     };
     return safetyMonitor.guard(`computer.${action.type}`, async () => {
-      try {
-        hook.onActionBegin(action, context);
-        return await activeBackend.run(action, signal, context);
-      } finally {
-        hook.onActionEnd?.(context);
+      const startedAt = Date.now();
+      if (activeBackend !== backend) {
+        const result = await activeBackend.run(action, signal, context);
+        report.actions.push({
+          action,
+          context,
+          startedAt,
+          durationMs: Date.now() - startedAt,
+          outcome: result.outcome,
+          screenshot: result.screenshot
+            ? {
+                mimeType: result.screenshot.mimeType,
+                widthPx: result.screenshot.widthPx,
+                heightPx: result.screenshot.heightPx,
+                byteLength: Buffer.from(result.screenshot.base64, 'base64').byteLength,
+              }
+            : undefined,
+        });
+        return result;
       }
+      const toolResult = await computerTool.impl(modelArgs(action), context);
+      const result = observedResults.get(context.toolCallId);
+      observedResults.delete(context.toolCallId);
+      if (!result) throw new Error(`computer tool produced no observed backend result for ${context.toolCallId}`);
+      report.actions.push({
+        action,
+        modelArgs: modelArgs(action),
+        context: {
+          sessionId: context.sessionId,
+          turnId: context.turnId,
+          toolCallId: context.toolCallId,
+        },
+        startedAt,
+        durationMs: Date.now() - startedAt,
+        outcome: result.outcome,
+        modelText: toolResult?.text,
+        screenshot: result.screenshot
+          ? {
+              mimeType: result.screenshot.mimeType,
+              widthPx: result.screenshot.widthPx,
+              heightPx: result.screenshot.heightPx,
+              byteLength: Buffer.from(result.screenshot.base64, 'base64').byteLength,
+            }
+          : undefined,
+      });
+      return result;
     });
   }
 
@@ -302,26 +667,52 @@ async function run() {
   const usableHeight = display.bounds.height;
   const fixtureWidth = Math.max(420, Math.floor(usableWidth * 0.42));
   const fixtureHeight = Math.max(280, Math.floor(usableHeight * 0.38));
+  const leftX = display.bounds.x + 40;
+  const rightX = display.bounds.x + usableWidth - fixtureWidth - 40;
   const pointerOnLeft = originalPointerPosition.x < display.bounds.x + usableWidth / 2;
-  const fixtureX = pointerOnLeft
-    ? display.bounds.x + usableWidth - fixtureWidth - 40
-    : display.bounds.x + 40;
-  const requestedFirstBounds = {
-    x: fixtureX,
-    y: display.bounds.y + 40,
-    width: fixtureWidth,
-    height: fixtureHeight,
-  };
-  const requestedSecondBounds = {
-    x: fixtureX,
-    y: display.bounds.y + usableHeight - fixtureHeight - 40,
-    width: fixtureWidth,
-    height: fixtureHeight,
-  };
+  const candidateLayouts = [
+    {
+      name: pointerOnLeft ? 'wide-right' : 'wide-left',
+      bounds: {
+        x: pointerOnLeft ? rightX : leftX,
+        y: display.bounds.y + 40,
+        width: fixtureWidth,
+        height: fixtureHeight,
+      },
+    },
+    {
+      name: pointerOnLeft ? 'wide-left' : 'wide-right',
+      bounds: {
+        x: pointerOnLeft ? leftX : rightX,
+        y: display.bounds.y + 40,
+        width: fixtureWidth,
+        height: fixtureHeight,
+      },
+    },
+    {
+      name: 'compact-right-rail',
+      bounds: {
+        x: display.bounds.x + usableWidth - 240,
+        y: display.bounds.y + 40,
+        width: 220,
+        height: usableHeight - 80,
+      },
+    },
+    {
+      name: 'compact-bottom-rail',
+      bounds: {
+        x: display.bounds.x + 40,
+        y: display.bounds.y + usableHeight - 76,
+        width: usableWidth - 80,
+        height: 66,
+      },
+    },
+  ];
+  const initialBounds = candidateLayouts[0].bounds;
   const firstWindow = await safetyMonitor.guard(
     'first inactive fixture reveal',
     async () => {
-      const fixture = await createFixtureWindow('A', requestedFirstBounds);
+      const fixture = await createFixtureWindow('A', 'a', initialBounds);
       fixtureWindows.add(fixture);
       return fixture;
     },
@@ -329,7 +720,7 @@ async function run() {
   const secondWindow = await safetyMonitor.guard(
     'second inactive fixture reveal',
     async () => {
-      const fixture = await createFixtureWindow('B', requestedSecondBounds);
+      const fixture = await createFixtureWindow('B', 'b', initialBounds, false);
       fixtureWindows.add(fixture);
       return fixture;
     },
@@ -338,24 +729,53 @@ async function run() {
     throw new Error(`Electron reused fixture window id ${firstWindow.id}`);
   }
   await safetyMonitor.guard('fixture setup settle', () => sleep(300, signal));
-  const firstBounds = firstWindow.getContentBounds();
-  const secondBounds = secondWindow.getContentBounds();
   check(
     'two separate inactive fixture windows revealed',
     fixtureWindows.size === 2,
     `windowIds=${firstWindow.id},${secondWindow.id}`,
   );
 
-  const textBodyPoint = (bounds) => ({
-    x: bounds.x + Math.round(bounds.width / 2),
-    y: bounds.y + Math.min(bounds.height - 80, 180),
-  });
-  const firstPoint = logicalPointToDeclared(textBodyPoint(firstBounds), display, scale);
-  const secondPoint = logicalPointToDeclared(textBodyPoint(secondBounds), display, scale);
-  const minHorizontalDistance = Math.min(
-    Math.abs(textBodyPoint(firstBounds).x - originalPointerPosition.x),
-    Math.abs(textBodyPoint(secondBounds).x - originalPointerPosition.x),
+  report.windowTargeting = [];
+  let selectedLayout;
+  for (const candidate of candidateLayouts) {
+    const bounds = candidate.bounds;
+    firstWindow.setBounds(bounds);
+    secondWindow.setBounds(bounds);
+    secondWindow.hide();
+    firstWindow.showInactive();
+    firstWindow.moveTop();
+    await safetyMonitor.guard('fixture layout settle', () => sleep(250, signal));
+    const inspection = await inspectFixtureTargets({
+      probes: [
+        { fixture: firstWindow, label: 'A', selector: '#target' },
+        { fixture: firstWindow, label: 'A', selector: '#increment' },
+        { fixture: firstWindow, label: 'A', selector: '#enabled' },
+        { fixture: firstWindow, label: 'A', selector: '#level' },
+        { fixture: firstWindow, label: 'A', selector: '#scrollbox' },
+      ],
+      display,
+      scale,
+      signal,
+    });
+    report.windowTargeting.push({ layout: candidate.name, bounds, ...inspection });
+    if (inspection.ok) {
+      selectedLayout = firstWindow.getBounds();
+      report.windowTargeting.at(-1).effectiveBounds = selectedLayout;
+      break;
+    }
+  }
+  check(
+    'all fixture action points resolve to the intended fixture windows',
+    Boolean(selectedLayout),
+    JSON.stringify(report.windowTargeting),
   );
+  if (!selectedLayout) {
+    throw new Error('no unobscured fixture layout passed read-only window targeting');
+  }
+
+  const firstTextScreenPoint = await readFixtureScreenPoint(firstWindow, '#target');
+  const firstPoint = logicalPointToDeclared(firstTextScreenPoint, display, scale);
+  const minHorizontalDistance = Math.abs(firstTextScreenPoint.x - originalPointerPosition.x);
   check(
     'fixture action points are far from the real pointer baseline',
     minHorizontalDistance >= 300,
@@ -365,70 +785,222 @@ async function run() {
     throw new Error('fixture action points are too close to distinguish a cursor warp');
   }
 
-  console.log('\n5. Target-bound click/type on first background window');
+  console.log('\n5. Semantic background text on first window');
   const firstClick = await act({ type: 'left_click', coordinate: firstPoint });
-  requireSuccess('first background click dispatched', firstClick);
+  requireSemanticSuccess('first semantic background click dispatched', firstClick);
+  requireLatestTargetPid('first click resolved to the fixture process', process.pid);
   const firstMarker = 'MAKA-CUA-FIRST';
   const firstType = await act({ type: 'type', text: firstMarker });
-  requireBackgroundKeyboardRefusal('unverified first background type was refused', firstType);
+  requireSuccess('first semantic background type dispatched', firstType);
   await safetyMonitor.guard('first fixture read-back settle', () => sleep(300, signal));
-  const [firstTextAfterFirstType, secondTextAfterFirstType] = await safetyMonitor.guard(
-    'first fixture read-back',
-    () => Promise.all([
-      readFixtureText(firstWindow),
-      readFixtureText(secondWindow),
-    ]),
-  );
-  check('first document stayed untouched after refused type', firstTextAfterFirstType.length === 0);
-  check('second document stayed untouched', secondTextAfterFirstType.length === 0);
+  await stateCheck('first marker landed in first document', firstWindow, (state) => state.text === firstMarker);
+  await stateCheck('second document stayed untouched', secondWindow, (state) => state.text === '');
 
-  console.log('\n6. Target switches with the second background window');
+  console.log('\n6. Semantic target switches to second window');
+  await safetyMonitor.guard('switch fixture visibility to B', async () => {
+    let firstStageBounds = selectedLayout;
+    let secondStageBounds = selectedLayout;
+    let splitAxis = 'none';
+    if (selectedLayout.width >= 520) {
+      splitAxis = 'horizontal';
+      const gap = 8;
+      const secondWidth = Math.min(360, Math.max(260, Math.floor(selectedLayout.width * 0.35)));
+      firstStageBounds = {
+        ...selectedLayout,
+        width: selectedLayout.width - secondWidth - gap,
+      };
+      secondStageBounds = {
+        ...selectedLayout,
+        x: selectedLayout.x + firstStageBounds.width + gap,
+        width: secondWidth,
+      };
+    } else if (selectedLayout.height >= 500) {
+      splitAxis = 'vertical';
+      const gap = 8;
+      const secondHeight = Math.min(240, Math.max(160, Math.floor(selectedLayout.height * 0.3)));
+      firstStageBounds = {
+        ...selectedLayout,
+        height: selectedLayout.height - secondHeight - gap,
+      };
+      secondStageBounds = {
+        ...selectedLayout,
+        y: selectedLayout.y + firstStageBounds.height + gap,
+        height: secondHeight,
+      };
+    }
+    firstWindow.setBounds(firstStageBounds);
+    secondWindow.setBounds(secondStageBounds);
+    secondWindow.showInactive();
+    secondWindow.moveAbove(firstWindow.getMediaSourceId());
+    await sleep(250, signal);
+    if (splitAxis === 'horizontal') {
+      const currentPoint = await readFixtureScreenPoint(secondWindow, '#target');
+      const currentBounds = secondWindow.getBounds();
+      secondWindow.setPosition(
+        currentBounds.x,
+        Math.round(currentBounds.y + firstTextScreenPoint.y - currentPoint.y),
+        false,
+      );
+      secondWindow.moveAbove(firstWindow.getMediaSourceId());
+      await sleep(150, signal);
+    }
+  });
+  const secondInspection = await inspectFixtureTargets({
+    probes: [{ fixture: secondWindow, label: 'B', selector: '#target' }],
+    display,
+    scale,
+    signal,
+  });
+  report.windowTargeting.push({ stage: 'second-window', ...secondInspection });
+  check(
+    'second fixture target is unobscured before input',
+    secondInspection.ok,
+    JSON.stringify(secondInspection),
+  );
+  if (!secondInspection.ok) {
+    throw new Error('second fixture target is obscured after inactive visibility switch');
+  }
+  const secondTextScreenPoint = await readFixtureScreenPoint(secondWindow, '#target');
+  const secondPoint = logicalPointToDeclared(secondTextScreenPoint, display, scale);
   const secondClick = await act({ type: 'left_click', coordinate: secondPoint });
-  requireSuccess('second background click dispatched', secondClick);
+  requireSemanticSuccess('second semantic background click dispatched', secondClick);
+  requireLatestTargetPid('second click resolved to the fixture process', process.pid);
   const secondMarker = 'MAKA-CUA-SECOND';
   const secondType = await act({ type: 'type', text: secondMarker });
-  requireBackgroundKeyboardRefusal('unverified second background type was refused', secondType);
+  requireSuccess('second semantic background type dispatched', secondType);
   await safetyMonitor.guard('second fixture read-back settle', () => sleep(300, signal));
-  const [firstTextAfterSecondType, secondTextAfterSecondType] = await safetyMonitor.guard(
-    'second fixture read-back',
-    () => Promise.all([
-      readFixtureText(firstWindow),
-      readFixtureText(secondWindow),
-    ]),
-  );
-  check('second document stayed untouched after refused type', secondTextAfterSecondType.length === 0);
-  check('first document remained untouched', firstTextAfterSecondType.length === 0);
+  await stateCheck('second marker landed in second document', secondWindow, (state) => state.text === secondMarker);
+  await stateCheck('first marker remained isolated', firstWindow, (state) => state.text === firstMarker);
 
   console.log('\n7. Unverified key chords fail closed');
   const selectAll = await act({ type: 'key', text: 'cmd+a' });
   requireBackgroundKeyboardRefusal('unverified cmd+a was refused', selectAll);
 
-  console.log('\n8. Pointer action coverage');
-  const doubleClick = await act({ type: 'double_click', coordinate: firstPoint });
-  check('double click dispatched', doubleClick.outcome.ok);
-  const scroll = await act({
-    type: 'scroll',
-    coordinate: firstPoint,
-    scrollDirection: 'down',
-    scrollAmount: 3,
+  console.log('\n8. Complex pointer task matrix');
+  await safetyMonitor.guard('switch fixture visibility back to A', async () => {
+    secondWindow.hide();
+    firstWindow.setBounds(selectedLayout);
+    firstWindow.showInactive();
+    firstWindow.moveTop();
+    await sleep(250, signal);
   });
-  check('scroll dispatched', scroll.outcome.ok);
-  const dragStart = logicalPointToDeclared(
-    { x: firstBounds.x + 120, y: firstBounds.y + 180 },
+  const firstInspection = await inspectFixtureTargets({
+    probes: [
+      { fixture: firstWindow, label: 'A', selector: '#increment' },
+      { fixture: firstWindow, label: 'A', selector: '#enabled' },
+      { fixture: firstWindow, label: 'A', selector: '#level' },
+      { fixture: firstWindow, label: 'A', selector: '#scrollbox' },
+    ],
+    display,
+    scale,
+    signal,
+  });
+  report.windowTargeting.push({ stage: 'complex-matrix', ...firstInspection });
+  check(
+    'complex fixture targets are unobscured before input',
+    firstInspection.ok,
+    JSON.stringify(firstInspection),
+  );
+  if (!firstInspection.ok) {
+    throw new Error('complex fixture targets are obscured after inactive visibility switch');
+  }
+  const buttonPoint = logicalPointToDeclared(
+    await readFixtureScreenPoint(firstWindow, '#increment'),
     display,
     scale,
   );
-  const dragEnd = logicalPointToDeclared(
-    { x: firstBounds.x + Math.min(firstBounds.width - 80, 360), y: firstBounds.y + 180 },
+  await runSemanticCase({
+    caseId: 'button.left_click',
+    fixture: firstWindow,
+    action: { type: 'left_click', coordinate: buttonPoint },
+    actAction: act,
+    signal,
+    behaviorName: 'button count incremented once',
+    behavior: (before, after) => after.count - before.count === 1,
+  });
+
+  const checkboxPoint = logicalPointToDeclared(
+    await readFixtureScreenPoint(firstWindow, '#enabled'),
     display,
     scale,
   );
-  const drag = await act({
-    type: 'left_click_drag',
-    startCoordinate: dragStart,
-    coordinate: dragEnd,
+  await runSemanticCase({
+    caseId: 'checkbox.left_click',
+    fixture: firstWindow,
+    action: { type: 'left_click', coordinate: checkboxPoint },
+    actAction: act,
+    signal,
+    behaviorName: 'checkbox toggled on',
+    behavior: (before, after) => before.enabled === false && after.enabled === true,
   });
-  check('same-window drag dispatched', drag.outcome.ok);
+
+  const scrollPoint = logicalPointToDeclared(
+    await readFixtureScreenPoint(firstWindow, '#scrollbox'),
+    display,
+    scale,
+  );
+  observeAction(
+    'scrollbox scroll dispatched',
+    await act({
+      type: 'scroll',
+      coordinate: scrollPoint,
+      scrollDirection: 'down',
+      scrollAmount: 6,
+    }),
+  );
+  await sleep(100, signal);
+  await stateCheck('scrollbox moved down', firstWindow, (state) => state.scrollTop > 0);
+
+  const sliderRect = await readFixtureScreenRect(firstWindow, '#level');
+  const sliderStart = logicalPointToDeclared(
+    {
+      x: sliderRect.x + sliderRect.width * 0.1,
+      y: sliderRect.y + sliderRect.height / 2,
+    },
+    display,
+    scale,
+  );
+  const sliderEnd = logicalPointToDeclared(
+    {
+      x: sliderRect.x + sliderRect.width * 0.8,
+      y: sliderRect.y + sliderRect.height / 2,
+    },
+    display,
+    scale,
+  );
+  await runSemanticCase({
+    caseId: 'range.left_click_drag',
+    fixture: firstWindow,
+    action: {
+      type: 'left_click_drag',
+      startCoordinate: sliderStart,
+      coordinate: sliderEnd,
+    },
+    actAction: act,
+    signal,
+    behaviorName: 'slider value increased',
+    behavior: (before, after) => after.level > before.level && after.level >= 60,
+  });
+
+  await runSemanticCase({
+    caseId: 'button.right_click',
+    fixture: firstWindow,
+    action: { type: 'right_click', coordinate: buttonPoint },
+    actAction: act,
+    signal,
+    behaviorName: 'right click reached DOM contextmenu once',
+    behavior: (before, after) => after.contextMenus - before.contextMenus === 1,
+  });
+
+  await runSemanticCase({
+    caseId: 'button.double_click',
+    fixture: firstWindow,
+    action: { type: 'double_click', coordinate: buttonPoint },
+    actAction: act,
+    signal,
+    behaviorName: 'button double click added two activations',
+    behavior: (before, after) => after.count - before.count === 2,
+  });
 
   console.log('\n9. Overlay and visual-only movement');
   const overlayCountBefore = overlayMoves.length;
@@ -439,7 +1011,7 @@ async function run() {
   check('overlay received the visual move', newOverlayMoves.some((event) => event.kind === 'move'));
   const latestOverlayMove = newOverlayMoves.at(-1);
   if (latestOverlayMove) {
-    const expected = textBodyPoint(secondBounds);
+    const expected = secondTextScreenPoint;
     check(
       'overlay coordinate matches logical target',
       Math.hypot(latestOverlayMove.screenX - expected.x, latestOverlayMove.screenY - expected.y) < 1.5,
@@ -465,6 +1037,7 @@ async function run() {
   process.exitCode = failed.length > 0 ? 1 : 0;
   } catch (error) {
     console.error('Computer Use E2E fatal:', error);
+    report.fatal = error instanceof Error ? error.message : String(error);
     process.exitCode = 1;
   } finally {
     for (const fixture of fixtureWindows) {
@@ -480,6 +1053,29 @@ async function run() {
     freshBackend?.dispose();
     backend?.dispose();
     overlay?.destroyAll();
+    const failed = results.filter((result) => !result.pass);
+    report.summary = {
+      passed: results.length - failed.length,
+      failed: failed.length,
+      total: results.length,
+      exitCode: process.exitCode ?? 0,
+      finishedAt: new Date().toISOString(),
+    };
+    try {
+      const reportDir = join(here, '..', '.agents-workspace-data', 'cu-e2e');
+      await mkdir(reportDir, { recursive: true });
+      const reportText = JSON.stringify(report, null, 2);
+      const requestedReportFile = process.env.MAKA_CU_E2E_REPORT_FILE;
+      const runFile = requestedReportFile
+        ? requestedReportFile
+        : join(reportDir, `${report.runId.replace(/[^A-Za-z0-9._-]/g, '_')}.json`);
+      await mkdir(dirname(runFile), { recursive: true });
+      await writeFile(runFile, reportText, 'utf8');
+      await writeFile(join(reportDir, 'latest.json'), reportText, 'utf8');
+    } catch (error) {
+      console.error('Computer Use E2E report write failed:', error);
+      process.exitCode = 1;
+    }
     app.exit(process.exitCode ?? 0);
   }
 }

@@ -648,3 +648,29 @@ runtime context
 - Placeholder scan: no deferred implementation placeholders remain inside PR #699 scope.
 - Type consistency: `CuRunContext`, `ComputerUseDispatchEvidence`, `CuaResolvedWindow`, and `CuaWindowSnapshot` have one canonical definition each.
 - Scope: VM and automatic foreground escalation remain explicitly outside this PR.
+
+## 2026-07-12 Addendum: Exact Electron Page Execution
+
+The original plan refused Electron text because key-event delivery could not
+survive user focus changes. The root fix adds an exact page channel without
+relaxing that safety boundary:
+
+1. Discover an already-listening CDP endpoint owned by the target PID.
+2. Require a unique WindowServer-title page match and unique URL/hash hint.
+3. Pass `cdp_port` and `target_url_contains` to every cua-driver page action.
+4. Fail closed when an explicit hint has zero or multiple matches.
+5. Keep Maka out of execution: page JavaScript, input insertion, and readback
+   all run through cua-driver; Maka only resolves page identity.
+6. Verify observable effects rather than self-dispatched events.
+7. Record structured action evidence and run repeated real-machine matrices.
+
+Artifact provenance:
+
+- source `hqhq1025/cua@adef3e87405986cc82df52ae59aef4c32e08a082`
+- upstream proposal `trycua/cua#2166`
+- release `cua-driver-rs-v0.7.1-maka.1`
+- executable version `0.7.1`
+- architectures arm64 + x86_64
+
+Production packaging/signing/notarization remains separate work because this
+repository still has no macOS package job.
