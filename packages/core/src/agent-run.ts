@@ -91,4 +91,15 @@ export interface AgentRunStore {
   listSessionRuns(sessionId: string): Promise<AgentRunHeader[]>;
   appendEvent(sessionId: string, runId: string, event: AgentRunEvent): Promise<void>;
   readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
+  /** `undefined` means uninitialized; `null` is an initialized empty projection. */
+  readEventProjection?(
+    sessionId: string,
+    type: AgentRunEventType,
+  ): Promise<AgentRunEvent | null | undefined>;
+  /** Writes a rebuildable bounded projection without changing the canonical run ledger. */
+  writeEventProjection?(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+  ): Promise<void>;
 }

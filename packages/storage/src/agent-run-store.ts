@@ -6,6 +6,7 @@ import {
   AGENT_RUN_STATUSES,
   isPermissionMode,
   type AgentRunEvent,
+  type AgentRunEventType,
   type AgentRunHeader,
   type AgentRunStore,
   type RuntimeEvent,
@@ -25,6 +26,7 @@ export function createRuntimeEventStore(workspaceRoot: string): RuntimeEventStor
 class FileAgentRunStore implements AgentRunStore {
   private readonly sessionsRoot: string;
   private readonly writeQueues = new Map<string, Promise<void>>();
+  private readonly projectionWriteQueues = new Map<string, Promise<void>>();
 
   constructor(workspaceRoot: string) {
     this.sessionsRoot = join(workspaceRoot, 'sessions');
@@ -84,6 +86,11 @@ class FileAgentRunStore implements AgentRunStore {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
       await appendFile(this.eventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
     });
+    if (event.type === 'history_compact_checkpoint_recorded') {
+      await this.advanceEventProjection(sessionId, event.type, event).catch(() => {
+        // The projection is a rebuildable accelerator; the appended run event remains canonical.
+      });
+    }
   }
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
@@ -124,6 +131,25 @@ class FileAgentRunStore implements AgentRunStore {
     return events;
   }
 
+  async readEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+  ): Promise<AgentRunEvent | null | undefined> {
+    assertSafeId(sessionId, 'Invalid session id');
+    return this.readEventProjectionUnlocked(sessionId, type);
+  }
+
+  async writeEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+  ): Promise<void> {
+    assertSafeId(sessionId, 'Invalid session id');
+    await this.withProjectionQueue(sessionId, type, async () => {
+      await this.mergeEventProjectionUnlocked(sessionId, type, event);
+    });
+  }
+
   private async readRunUnlocked(sessionId: string, runId: string): Promise<AgentRunHeader> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
@@ -148,10 +174,84 @@ class FileAgentRunStore implements AgentRunStore {
     return join(this.runDir(sessionId, runId), 'events.jsonl');
   }
 
+  private eventProjectionPath(sessionId: string, type: AgentRunEventType): string {
+    return join(this.sessionsRoot, sessionId, 'projections', `${type}.json`);
+  }
+
   private withQueue(sessionId: string, runId: string, operation: () => Promise<void>): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
+  }
+
+  private withProjectionQueue(
+    sessionId: string,
+    type: AgentRunEventType,
+    operation: () => Promise<void>,
+  ): Promise<void> {
+    return chainWrite(this.projectionWriteQueues, `${sessionId}:${type}`, operation);
+  }
+
+  private async advanceEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+    candidate: AgentRunEvent,
+  ): Promise<void> {
+    await this.withProjectionQueue(sessionId, type, async () => {
+      await this.mergeEventProjectionUnlocked(sessionId, type, candidate);
+    });
+  }
+
+  private async mergeEventProjectionUnlocked(
+    sessionId: string,
+    type: AgentRunEventType,
+    candidate: AgentRunEvent | null,
+  ): Promise<void> {
+    let current: AgentRunEvent | null | undefined;
+    try {
+      current = await this.readEventProjectionUnlocked(sessionId, type);
+    } catch {
+      current = undefined;
+    }
+    const selected = candidate === null
+      ? current ?? null
+      : selectProjectedEvent(current, candidate);
+    if (selected !== current) {
+      await this.writeEventProjectionUnlocked(sessionId, type, selected);
+    }
+  }
+
+  private async readEventProjectionUnlocked(
+    sessionId: string,
+    type: AgentRunEventType,
+  ): Promise<AgentRunEvent | null | undefined> {
+    let raw: string;
+    try {
+      raw = await readFile(this.eventProjectionPath(sessionId, type), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    const parsed = JSON.parse(raw) as { version?: unknown; event?: unknown };
+    if (parsed.version !== 1 || !Object.hasOwn(parsed, 'event')) {
+      throw new Error(`Invalid AgentRun event projection for ${type}`);
+    }
+    if (parsed.event === null) return null;
+    if (!isProjectedAgentRunEvent(parsed.event, sessionId, type)) {
+      throw new Error(`Invalid AgentRun event projection for ${type}`);
+    }
+    return parsed.event;
+  }
+
+  private async writeEventProjectionUnlocked(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+  ): Promise<void> {
+    await writeAtomic(
+      this.eventProjectionPath(sessionId, type),
+      JSON.stringify({ version: 1, event }, sanitizeJson) + '\n',
+    );
   }
 }
 
@@ -251,6 +351,44 @@ async function readRuntimeEventJsonl(path: string, runId: string): Promise<Runti
     }
   }
   return events;
+}
+
+function selectProjectedEvent(
+  current: AgentRunEvent | null | undefined,
+  candidate: AgentRunEvent,
+): AgentRunEvent {
+  if (!current) return candidate;
+  if (
+    candidate.type === 'history_compact_checkpoint_recorded'
+    && projectedCheckpointCoverage(candidate) <= projectedCheckpointCoverage(current)
+  ) {
+    return current;
+  }
+  return candidate;
+}
+
+function projectedCheckpointCoverage(event: AgentRunEvent): number {
+  const checkpoint = event.data?.checkpoint;
+  if (!checkpoint || typeof checkpoint !== 'object') return -1;
+  const coverage = (checkpoint as { coverage?: unknown }).coverage;
+  if (!coverage || typeof coverage !== 'object') return -1;
+  const eventCount = (coverage as { eventCount?: unknown }).eventCount;
+  return Number.isInteger(eventCount) && (eventCount as number) > 0 ? eventCount as number : -1;
+}
+
+function isProjectedAgentRunEvent(
+  value: unknown,
+  sessionId: string,
+  type: AgentRunEventType,
+): value is AgentRunEvent {
+  if (!value || typeof value !== 'object') return false;
+  const event = value as Partial<AgentRunEvent>;
+  return event.type === type
+    && event.sessionId === sessionId
+    && typeof event.id === 'string'
+    && typeof event.runId === 'string'
+    && typeof event.turnId === 'string'
+    && Number.isFinite(event.ts);
 }
 
 async function writeAtomic(path: string, content: string): Promise<void> {

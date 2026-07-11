@@ -113,6 +113,60 @@ describe('history compact checkpoint', () => {
     assert.equal(loaded?.checkpointId, furthest.checkpointId);
   });
 
+  test('loads a bounded checkpoint projection without enumerating run ledgers', async () => {
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1)],
+      summary: 'bounded projection',
+    });
+    const projectedEvent = checkpointEvent('projection-event', 'run-projection', checkpoint, 20);
+    const store = {
+      readEventProjection: async () => projectedEvent,
+      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
+      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
+    };
+
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(loaded?.checkpointId, checkpoint.checkpointId);
+  });
+
+  test('uses an empty bounded projection without enumerating run ledgers', async () => {
+    const store = {
+      readEventProjection: async () => null,
+      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
+      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
+    };
+
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(loaded, undefined);
+  });
+
+  test('backfills the bounded projection after a legacy ledger scan', async () => {
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0)],
+      summary: 'legacy scan result',
+    });
+    const event = checkpointEvent('legacy-event', 'legacy-run', checkpoint, 20);
+    let backfilled: AgentRunEvent | null | undefined;
+    const store = {
+      readEventProjection: async () => undefined,
+      writeEventProjection: async (
+        _sessionId: string,
+        _type: AgentRunEvent['type'],
+        projected: AgentRunEvent | null,
+      ) => { backfilled = projected; },
+      listSessionRuns: async () => [run('legacy-run', 10)],
+      readEvents: async () => [event],
+    };
+
+    await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(backfilled?.id, event.id);
+  });
+
   test('replays a matching checkpoint with only the uncovered raw tail', () => {
     const events = Array.from({ length: 8 }, (_, index) => textEvent(index));
     const checkpoint = buildHistoryCompactCheckpoint({

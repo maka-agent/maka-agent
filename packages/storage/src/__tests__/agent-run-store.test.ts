@@ -90,6 +90,47 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('keeps a bounded monotonic projection for history compact checkpoints', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-furthest' }));
+      await store.createRun(makeHeader({ runId: 'run-stale', turnId: 'turn-stale' }));
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+
+      await store.appendEvent('session-1', 'run-furthest', checkpointEvent('run-furthest', 3));
+      await store.appendEvent('session-1', 'run-stale', checkpointEvent('run-stale', 2));
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(
+        projected?.data?.checkpoint
+          && (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
+        'hcheckpoint-run-furthest',
+      );
+    });
+  });
+
   it('recovers corrupt event lines without hiding later events', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
