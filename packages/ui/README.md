@@ -27,7 +27,7 @@ Most primitives expose a stable `data-slot="<name>"` attribute so renderer CSS c
 import { Button, ChatView, Composer, Badge, Chip, PageHeader, useToast } from '@maka/ui';
 ```
 
-Sub-path exports (declared in `package.json` `exports`): `@maka/ui/artifact-preview-registry`, `@maka/ui/assistant-stream`, `@maka/ui/icons`, `@maka/ui/maka-uri`, `@maka/ui/smooth-stream`. (`@maka/ui/icons` re-exports Lucide symbols; provider brand logos live in the renderer, not here.)
+Sub-path exports (declared in `package.json` `exports`): `@maka/ui/artifact-preview-registry`, `@maka/ui/assistant-stream`, `@maka/ui/icons`, `@maka/ui/maka-uri`, `@maka/ui/smooth-stream`. (`@maka/ui/icons` re-exports Lucide symbols; model-provider brand logos live in the renderer's `settings/provider-*`, not here — bot-provider logos are in `@maka/ui`'s `bot-brand-logo`.)
 
 Renderer CSS may target a primitive via its `data-slot` attribute, never by overriding the primitive's own utility classes.
 

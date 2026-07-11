@@ -6,7 +6,7 @@ For the main/preload/renderer split and the IPC contract, see `apps/desktop/READ
 
 ## Entry
 
-`main.tsx` → `app.tsx` → `AppShell` (`app-shell.tsx`). `index.html` is the Vite HTML shell. `main.tsx` prefetches the onboarding snapshot before mounting React so the first commit paints the real surface (no loading flash); `app.tsx` wraps `AppShell` in `ToastProvider` + `ErrorBoundary`.
+`main.tsx` → `app.tsx` → `AppShell` (`app-shell.tsx`). `index.html` is the Vite HTML shell. `main.tsx` prefetches the onboarding snapshot before mounting React so the normal-path first commit paints the real surface (if the prefetch times out it mounts with `null` and a fail-soft loading state); `app.tsx` wraps `AppShell` in `ToastProvider` + `ErrorBoundary`.
 
 `styles.css` is the **only** style entry: it `@import`s Tailwind, fonts, `maka-tokens.css`, `reference-shell.css`, and every `styles/*.css`. Per CSS governance, `styles.css` may only contain `@import` / `@source` / `@theme` / top-level orchestration — real selector rules go in `styles/*.css`.
 
@@ -20,11 +20,11 @@ For the main/preload/renderer split and the IPC contract, see `apps/desktop/READ
 
 | File | Role |
 |---|---|
-| `maka-tokens.css` | Single source of CSS tokens (color / shadow / typography / radius / spacing / motion / z / layout) **and** a few component-recipe fallbacks at the tail. Transitional: tokens and recipes coexist in one file. |
+| `maka-tokens.css` | The main source of CSS tokens (color / shadow / typography / radius / spacing / motion / z / layout) **and** a few component-recipe fallbacks at the tail. Transitional: tokens and recipes coexist in one file. A few `@theme` Tailwind-bridge values (e.g. `--shadow-maka-panel`) live in `styles.css` and are contract-pinned there, not here. |
 | `reference-shell.css` | A target-layout shell rebuild, hand-authored from a reference-implementation extract (its header comment documents the provenance). **Transitional** — meant to be folded back into the token/style system and removed. |
 | `styles/*.css` | Per-surface hand-written recipes (e.g. `chat-*`, `sidebar`, `composer`, `palette`, `settings/*`, `module-pages/*`). |
 
-Token authoring rule: custom CSS variables go in `maka-tokens.css`; only component-local vars are excepted and must carry `/* local: ... */`. No new hardcoded color / radius / z-index.
+Token authoring rule: custom CSS variables go in `maka-tokens.css`; component-local vars must carry `/* local: ... */`, and `@theme` Tailwind-bridge values live in `styles.css` (contract-pinned). No new hardcoded color / radius / z-index.
 
 Note the `--foreground-N` split: the wash stops (`-2/-3/-5/-8/-10`) are surface fills for backgrounds and borders, **not** text. The 3-tier semantic aliases (`--foreground` / `--foreground-secondary` / `--muted-foreground`) are the text-color vocabulary. They are separate concerns — don't collapse the wash stops into the text aliases.
 
