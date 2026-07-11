@@ -335,9 +335,12 @@ export function ChatView(props: {
   //
   // Terminal liveTurn is evidence overlay only (e.g. empty shell_run still needs
   // pre-yield chunks). It must NOT block footer actions — keeping evidence and
-  // being in-flight are separate signals.
+  // being in-flight are separate signals. Wait indicators alone still mark
+  // streaming, but delayed flags can lag one frame past complete; terminal
+  // evidence must outrank them so copy/regenerate stay actionable.
   const liveInFlight = !!(props.liveTurn && !props.liveTurn.terminal);
-  const streamingActive = !!(liveInFlight || props.processingIndicator || props.continuingIndicator);
+  const waitIndicators = !!(props.processingIndicator || props.continuingIndicator);
+  const streamingActive = liveInFlight || (!props.liveTurn?.terminal && waitIndicators);
   const tailTurnId = liveInFlight
     ? props.liveTurn!.turnId
     : (streamingActive ? turns[turns.length - 1]?.turnId : undefined);
