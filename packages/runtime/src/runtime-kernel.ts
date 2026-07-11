@@ -30,6 +30,7 @@ import {
 } from './agent-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
+import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
 
 export interface RuntimeKernelLike {
   startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
@@ -185,6 +186,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
       if (run.isStopped()) return;
       await run.recordStoredSessionEvent(tokenUsageEvent);
       if (run.isStopped()) return;
+      if (shouldAppendContextCompactionFailedOpenNote(result.contextBudget)) {
+        const note: SystemNoteMessage = {
+          type: 'system_note',
+          id: this.deps.newId(),
+          turnId: run.turnId,
+          ts: this.deps.now(),
+          kind: 'context_compaction_failed_open',
+        };
+        await this.deps.store.appendMessage(sessionId, note).catch(() => {});
+      }
       yield tokenUsageEvent;
       if (run.isStopped()) return;
       await run.acceptMappedEvent(

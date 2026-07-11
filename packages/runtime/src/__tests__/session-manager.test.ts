@@ -79,6 +79,32 @@ describe('SessionManager manual compaction', () => {
     expect((await runStore.readRuntimeEvents(session.id, compactRun!.runId)).some((event) => event.actions?.tokenUsage?.contextBudget)).toBe(true);
   });
 
+  test('persists one visible warning when manual compaction fails open', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new FailOpenCompactingBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_000),
+    });
+    const session = await manager.createSession(makeInput({ backend: 'fake', permissionMode: 'bypass' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+    await drain(manager.compactSession(session.id, { turnId: 'turn-compact' }));
+
+    const warnings = (await store.readMessages(session.id)).filter((message) =>
+      message.type === 'system_note'
+      && message.turnId === 'turn-compact'
+      && message.kind === 'context_compaction_failed_open'
+    );
+    expect(warnings).toHaveLength(1);
+  });
+
   test('manual compaction stopped before backend start does not write compact artifacts', async () => {
     const store = new MemorySessionStore();
     const readGate = makeGate();
@@ -4817,6 +4843,12 @@ class BlockingCompactBackend extends TestBackend {
   }
 }
 
+class FailOpenCompactingBackend extends TestBackend {
+  async compactHistory(_input: { turnId: string; runtimeContext: readonly RuntimeEvent[] }) {
+    return compactHistoryFailOpenResult();
+  }
+}
+
 class ActiveTurnBackend extends TestBackend {
   constructor(
     ctx: BackendFactoryContext,
@@ -4857,6 +4889,29 @@ function compactHistoryResult() {
         decision: 'replaced' as const,
         boundaryKind: 'historyCompact',
         estimatedTokensSaved: 600,
+      }],
+    },
+  };
+}
+
+function compactHistoryFailOpenResult() {
+  return {
+    contextBudget: {
+      enabled: true,
+      policyName: 'unit-budget',
+      estimatedTokensBefore: 1000,
+      estimatedTokensAfter: 400,
+      keptTurns: 1,
+      droppedTurns: 1,
+      keptEvents: 1,
+      droppedEvents: 1,
+      historyCompactWriteFailures: 1,
+      compactionDecisions: [{
+        stage: 'priorReplay' as const,
+        sourceKind: 'runtimeEvents' as const,
+        decision: 'failedOpen' as const,
+        boundaryKind: 'historyCompact',
+        failOpenReason: 'write_failed',
       }],
     },
   };
