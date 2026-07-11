@@ -561,6 +561,14 @@ SandboxTransformResult
 
 目标：在 macOS 主线稳定后，接入 Linux 权限兜底。
 
+> 实现结果：Linux backend 使用系统 `bubblewrap`，不额外分发 native helper。`linux-capability.ts` 会执行一次最小 user/PID namespace 启动探针并缓存结果，避免只检查文件存在；缺少 bwrap、user namespace 被 AppArmor/内核策略禁止或探针失败时均 fail closed。
+>
+> `LinuxBubblewrapBackend` 将 active `PermissionProfile + SandboxPathContext` 转换成 bwrap argv：系统运行目录只读挂载，workspace 按 profile read/write 挂载，临时目录使用独立 tmpfs，restricted network 同时使用 network namespace 和 seccomp。seccomp cBPF 由 TypeScript 在运行时生成，通过继承 FD 3 传给 `bwrap --seccomp 3`，当前审计并支持 x64/arm64；其他架构 fail closed。
+>
+> CLI 与 Desktop 在 Linux 上注入 `createDefaultSandboxManager()`。前台和可转后台 Bash 都从当前 `permissionMode + cwd` 编译 effective profile，以 `/bin/sh -lc <command>` 作为内层 argv，最终 wrapper 以 `shell: false` 执行。缺少 sandbox 时不会静默回退 host shell，`execute.shell_unsafe` 也不会自动放行。
+>
+> 已知限制：runtime 会有界扫描并把启动时已存在的任意层级 `.git/.agents/.codex` 重新只读挂载，但 bubblewrap 无法在不创建宿主 mountpoint 的情况下同时阻止尚不存在的同名路径首次创建。显式 `deny` entry 当前返回 `invalid_request`，不会弱化后继续执行。后续可用 Landlock 或 bundled native helper 完整表达不存在路径与更复杂的嵌套 carve-out。
+
 建议文件：
 
 - 新增：`packages/runtime/src/sandbox/linux-sandbox.ts`
@@ -570,16 +578,16 @@ SandboxTransformResult
 
 任务：
 
-- [ ] 确认 Linux backend 技术方案：bubblewrap + seccomp。
-- [ ] 确认 helper 分发方式。
-- [ ] 实现 filesystem view：workspace read/write，workspace 外限制。
-- [ ] 实现 protected metadata deny-write。
-- [ ] 实现 tmp write。
-- [ ] 实现 network restricted。
-- [ ] 实现 network enabled。
-- [ ] 接入 `SandboxManager.selectInitial()`。
-- [ ] 接入 `SandboxManager.transform()`。
-- [ ] Linux 不可用时 fail closed。
+- [x] 确认 Linux backend 技术方案：bubblewrap + seccomp。
+- [x] 确认 helper 分发方式：首版依赖系统 bwrap，seccomp cBPF 由 runtime 生成并通过 FD 传递，不分发 native helper。
+- [x] 实现 filesystem view：workspace read/write，workspace 外限制。
+- [x] 实现 protected metadata deny-write（已存在路径；不存在路径限制见上文）。
+- [x] 实现 tmp write。
+- [x] 实现 network restricted。
+- [x] 实现 network enabled。
+- [x] 接入 `SandboxManager.selectInitial()`。
+- [x] 接入 `SandboxManager.transform()`。
+- [x] Linux 不可用时 fail closed。
 
 验收标准：
 

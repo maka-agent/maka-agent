@@ -40,6 +40,28 @@ function evaluate(
   });
 }
 
+describe('sandbox-aware execute policy', () => {
+  test('auto-allows shell_unsafe only when platform sandbox enforcement is available', () => {
+    const common = {
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute' as const,
+      turnRemembered: new Set<string>(),
+    };
+
+    expect(preToolUse({
+      ...common,
+      sandbox: { platformSandboxAvailable: true },
+    }).proceed).toBe(true);
+    const unavailable = preToolUse({
+      ...common,
+      sandbox: { platformSandboxAvailable: false },
+    });
+    expect(unavailable.proceed).toBe(false);
+    expect(unavailable.needsPrompt).toBe(true);
+  });
+});
+
 describe('categorizeBash', () => {
   test('no shell command is auto-classified safe — categorizeBash never returns shell_safe', () => {
     // A shell command cannot be proven safe from its string: args can embed

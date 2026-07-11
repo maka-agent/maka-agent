@@ -70,14 +70,25 @@ export class SandboxManager {
     }
 
     if (platform === 'linux') {
+      if (this.backends.has('linux')) {
+        return {
+          ok: true,
+          sandboxType: 'linux',
+          requiresSandbox: true,
+          reason: 'platform_sandbox_selected',
+          platform,
+          preference,
+        };
+      }
+
       return {
         ok: false,
-        reason: 'backend_not_implemented',
+        reason: 'backend_not_available',
         sandboxType: 'linux',
         requiresSandbox: true,
         platform,
         preference,
-        message: 'Linux sandbox backend is planned for a later phase.',
+        message: 'Linux sandbox backend is not registered.',
       };
     }
 
@@ -89,6 +100,16 @@ export class SandboxManager {
       preference,
       message: `Sandbox enforcement is unsupported on platform ${platform}.`,
     };
+  }
+
+  canEnforce(input: SandboxSelectionInput): boolean {
+    const selected = this.selectInitial(input);
+    if (!selected.ok) return false;
+    if (selected.sandboxType === 'none') return true;
+    const backend = this.backends.get(selected.sandboxType);
+    if (!backend) return false;
+    if (!(backend.isAvailable?.(selected.platform) ?? true)) return false;
+    return backend.canEnforceProfile?.(input.profile) ?? true;
   }
 
   transform(request: SandboxTransformRequest): SandboxTransformResult {

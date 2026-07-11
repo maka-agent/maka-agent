@@ -160,8 +160,9 @@ export { computeEditedSource, COMPUTE_EDITED_SOURCE_FN_SOURCE } from './edit-rep
 export type { EditMatch, EditMatchStrategy } from './edit-replace.js';
 export { truncateToolOutput } from './tool-output.js';
 export type { TruncateToolOutputOptions, TruncatedToolOutput } from './tool-output.js';
-export { runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
+export { runProcessWithBoundedTail, runShellWithBoundedTail, BASH_MAX_RETAINED_CHARS } from './shell-exec.js';
 export type { BoundedShellOptions, BoundedShellResult } from './shell-exec.js';
+export type { ChildFdInput } from './child-fd-input.js';
 export { detectShell, defaultShellPlan, buildShellSpawnPlan, bashToolShellGuidance } from './shell-detect.js';
 export type { ShellPlan, ShellKind, ShellSpawnPlan, DetectShellInput } from './shell-detect.js';
 export {
@@ -169,16 +170,26 @@ export {
   MACOS_SEATBELT_EXECUTABLE,
   MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
   MacosSeatbeltBackend,
+  LinuxBubblewrapBackend,
   SandboxManager,
+  buildBubblewrapArgv,
+  buildNetworkSeccompFilter,
+  discoverNestedProtectedMetadataPaths,
   buildSeatbeltPolicy,
   createDefaultSandboxManager,
+  createBuiltinSandboxManager,
   createSeatbeltExecArgs,
   escapeSeatbeltRegex,
+  detectLinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   BuildSeatbeltPolicyInput,
   BuildSeatbeltPolicyResult,
+  BuildBubblewrapArgvInput,
   CreateSeatbeltExecArgsInput,
+  DetectLinuxSandboxCapabilityInput,
+  LinuxBubblewrapBackendOptions,
+  LinuxSandboxCapability,
 } from './sandbox/index.js';
 export type {
   SandboxBackend,

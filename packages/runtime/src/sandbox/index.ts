@@ -1,5 +1,27 @@
 export { SandboxManager } from './sandbox-manager.js';
-export { createDefaultSandboxManager } from './default-sandbox-manager.js';
+export {
+  createBuiltinSandboxManager,
+  createDefaultSandboxManager,
+} from './default-sandbox-manager.js';
+export {
+  LinuxBubblewrapBackend,
+  buildBubblewrapArgv,
+  buildNetworkSeccompFilter,
+  discoverNestedProtectedMetadataPaths,
+} from './linux-sandbox.js';
+export type {
+  BuildBubblewrapArgvInput,
+  LinuxBubblewrapBackendOptions,
+} from './linux-sandbox.js';
+export {
+  LINUX_BWRAP_PROBE_ARGS,
+  LINUX_BWRAP_REQUIRED_OPTIONS,
+  detectLinuxSandboxCapability,
+} from './linux-capability.js';
+export type {
+  DetectLinuxSandboxCapabilityInput,
+  LinuxSandboxCapability,
+} from './linux-capability.js';
 export {
   MACOS_SEATBELT_BASE_POLICY,
   MACOS_SEATBELT_EXECUTABLE,

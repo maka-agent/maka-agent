@@ -239,6 +239,22 @@ describe('PermissionEngine.evaluate — block path', () => {
 });
 
 describe('PermissionEngine.evaluate — prompt path', () => {
+  test('allows execute shell_unsafe when the runtime reports an enforceable sandbox', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm install lodash' },
+      mode: 'execute',
+      sandbox: { platformSandboxAvailable: true },
+    });
+
+    expect(r.kind).toBe('allow');
+  });
+
   test('execution facts are accepted but do not (yet) downgrade host-local shell to allow', () => {
     // executionFacts is plumbed for forward-compat: a future sandbox-aware
     // policy may auto-allow unsafe shell inside an isolated worktree. On the

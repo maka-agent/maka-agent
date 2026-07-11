@@ -97,6 +97,10 @@ export interface EvaluateInput {
   permissionRequired?: boolean;
   /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
   permissionRules?: readonly ToolPermissionRule[];
+  /** Optional trusted platform sandbox availability for sandbox-aware policy. */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  };
 }
 
 // ============================================================================
@@ -180,6 +184,7 @@ export class PermissionEngine {
       args: input.args,
       ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
       ...(input.executionFacts !== undefined ? { executionFacts: input.executionFacts } : {}),
+      ...(input.sandbox !== undefined ? { sandbox: input.sandbox } : {}),
       mode: input.mode,
       turnRemembered: state.remembered,
     });

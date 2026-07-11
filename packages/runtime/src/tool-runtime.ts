@@ -14,7 +14,12 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory, ToolExecutionFacts, ToolPermissionRule } from '@maka/core/permission';
+import type {
+  PermissionMode,
+  ToolCategory,
+  ToolExecutionFacts,
+  ToolPermissionRule,
+} from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -51,6 +56,12 @@ export interface MakaTool<P = any, R = unknown> {
   categoryHint?: ToolCategory;
   /** Optional trusted facts about the executor that runs this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Optional trusted platform sandbox availability for this tool. */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  } | ((context: { permissionMode: PermissionMode; cwd: string }) => {
+    platformSandboxAvailable: boolean;
+  });
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
 }
@@ -61,6 +72,7 @@ export interface MakaToolContext {
   turnId: string;
   /** Session working directory. */
   cwd: string;
+  permissionMode?: PermissionMode;
   toolCallId: string;
   abortSignal: AbortSignal;
   emitOutput: (stream: ToolOutputStream, chunk: string) => void;
@@ -343,6 +355,11 @@ export class ToolRuntime {
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
         permissionRequired: tool.permissionRequired !== false,
         ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
+        ...(tool.sandbox !== undefined ? {
+          sandbox: typeof tool.sandbox === 'function'
+            ? tool.sandbox({ permissionMode: this.input.header.permissionMode, cwd: this.input.header.cwd })
+            : tool.sandbox,
+        } : {}),
         mode: this.input.header.permissionMode,
       });
 
@@ -501,6 +518,7 @@ export class ToolRuntime {
           turnId,
           ...(runId ? { runId } : {}),
           cwd: this.input.header.cwd,
+          permissionMode: this.input.header.permissionMode,
           toolCallId: toolUseId,
           abortSignal: ctx.abortSignal,
           emitOutput: output.emit,

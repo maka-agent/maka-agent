@@ -1,0 +1,255 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import {
+  createDangerFullAccessPermissionProfile,
+  createReadOnlyPermissionProfile,
+  createWorkspaceWritePermissionProfile,
+  type PermissionProfile,
+} from '@maka/core/permission-profile';
+
+import {
+  LinuxBubblewrapBackend,
+  buildBubblewrapArgv,
+  buildNetworkSeccompFilter,
+  discoverNestedProtectedMetadataPaths,
+} from '../sandbox/linux-sandbox.js';
+import { detectLinuxSandboxCapability } from '../sandbox/linux-capability.js';
+import {
+  LINUX_BWRAP_PROBE_ARGS,
+  LINUX_BWRAP_REQUIRED_OPTIONS,
+} from '../sandbox/linux-capability.js';
+import type { SandboxTransformRequest } from '../sandbox/types.js';
+
+function workspaceRequest(profile: PermissionProfile): SandboxTransformRequest {
+  return {
+    platform: 'linux',
+    command: {
+      program: '/bin/sh',
+      args: ['-lc', 'echo hi'],
+      cwd: '/repo/project',
+      profile,
+      pathContext: {
+        workspaceRoots: ['/repo/project'],
+        tmpdir: '/var/tmp/maka',
+        slashTmp: '/tmp',
+      },
+    },
+  };
+}
+
+function enabledNetworkProfile(): PermissionProfile {
+  const profile = createWorkspaceWritePermissionProfile();
+  return { ...profile, network: { kind: 'enabled' } };
+}
+
+function deniedChildProfile(): PermissionProfile {
+  const profile = createWorkspaceWritePermissionProfile();
+  return {
+    ...profile,
+    fileSystem: {
+      ...profile.fileSystem,
+      entries: [
+        ...profile.fileSystem.entries,
+        { kind: 'path', access: 'deny', path: '/repo/project/secret' },
+      ],
+    },
+  };
+}
+
+describe('detectLinuxSandboxCapability', () => {
+  it('probes every namespace used by production and requires seccomp support', () => {
+    for (const flag of [
+      '--unshare-user', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
+      '--unshare-cgroup', '--unshare-net',
+    ]) {
+      assert.ok((LINUX_BWRAP_PROBE_ARGS as readonly string[]).includes(flag));
+    }
+    assert.ok(LINUX_BWRAP_REQUIRED_OPTIONS.includes('--seccomp'));
+  });
+
+  it('reports non-Linux platforms without probing bwrap', () => {
+    assert.deepEqual(detectLinuxSandboxCapability({ platform: 'win32' }), {
+      available: false,
+      reason: 'non-linux',
+    });
+  });
+
+  it('reports a missing configured bwrap executable', () => {
+    assert.deepEqual(detectLinuxSandboxCapability({
+      platform: 'linux',
+      bwrapPath: '/definitely/missing/maka-bwrap',
+    }), {
+      available: false,
+      reason: 'missing-bwrap',
+      bwrapPath: '/definitely/missing/maka-bwrap',
+    });
+  });
+
+  it('reports an executable that cannot create the bubblewrap sandbox', () => {
+    const capability = detectLinuxSandboxCapability({
+      platform: 'linux',
+      bwrapPath: process.execPath,
+    });
+
+    assert.equal(capability.available, false);
+    if (!capability.available) {
+      assert.equal(capability.reason, 'probe-failed');
+      assert.equal(capability.bwrapPath, process.execPath);
+    }
+  });
+});
+
+describe('buildBubblewrapArgv', () => {
+  it('mounts read-only profiles without a writable workspace bind', () => {
+    const request = workspaceRequest(createReadOnlyPermissionProfile());
+    const argv = buildBubblewrapArgv({ bwrapPath: '/usr/bin/bwrap', command: request.command });
+
+    assert.ok(hasTriple(argv, '--ro-bind', '/repo/project', '/repo/project'));
+    assert.equal(hasTriple(argv, '--bind', '/repo/project', '/repo/project'), false);
+  });
+
+  it('materializes workspace, temp, protected metadata, cwd, and network restrictions', () => {
+    const request = workspaceRequest(createWorkspaceWritePermissionProfile());
+    const argv = buildBubblewrapArgv({
+      bwrapPath: '/usr/bin/bwrap',
+      command: request.command,
+    });
+
+    assert.equal(argv[0], '/usr/bin/bwrap');
+    assert.ok(argv.includes('--die-with-parent'));
+    assert.ok(argv.includes('--new-session'));
+    assert.ok(argv.includes('--unshare-net'));
+    assert.ok(argv.includes('--unshare-user'));
+    assert.ok(hasPair(argv, '--seccomp', '3'));
+    assert.ok(hasTriple(argv, '--bind', '/repo/project', '/repo/project'));
+    assert.ok(hasTriple(argv, '--ro-bind-try', '/repo/project/.git', '/repo/project/.git'));
+    assert.ok(hasPair(argv, '--tmpfs', '/tmp'));
+    assert.ok(hasPair(argv, '--tmpfs', '/var/tmp/maka'));
+    assert.ok(hasPair(argv, '--chdir', '/repo/project'));
+    assert.deepEqual(argv.slice(-4), ['--', '/bin/sh', '-lc', 'echo hi']);
+  });
+
+  it('keeps the host network namespace when network is enabled', () => {
+    const request = workspaceRequest(enabledNetworkProfile());
+    const argv = buildBubblewrapArgv({ bwrapPath: '/usr/bin/bwrap', command: request.command });
+
+    assert.equal(argv.includes('--unshare-net'), false);
+    assert.equal(argv.includes('--seccomp'), false);
+  });
+});
+
+describe('buildNetworkSeccompFilter', () => {
+  it('builds a cBPF program for supported Linux architectures', () => {
+    const x64 = buildNetworkSeccompFilter('x64');
+    const arm64 = buildNetworkSeccompFilter('arm64');
+
+    assert.ok(x64.length > 0);
+    assert.equal(x64.length % 8, 0);
+    assert.ok(arm64.length > 0);
+    assert.equal(arm64.length % 8, 0);
+    assert.notDeepEqual(x64, arm64);
+  });
+
+  it('fails closed for architectures without audited syscall numbers', () => {
+    assert.throws(() => buildNetworkSeccompFilter('ia32'), /unsupported.*architecture/i);
+  });
+});
+
+describe('discoverNestedProtectedMetadataPaths', () => {
+  it('finds protected metadata at any existing nested path segment', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-protected-scan-'));
+    await mkdir(join(root, 'packages', 'pkg', '.git'), { recursive: true });
+    await mkdir(join(root, '.git'), { recursive: true });
+
+    const paths = discoverNestedProtectedMetadataPaths({
+      writableRoots: [root],
+      names: ['.git', '.agents', '.codex'],
+    });
+
+    assert.equal(paths.length, 1);
+    assert.match(paths[0] ?? '', /packages[/\\]pkg[/\\]\.git$/);
+  });
+});
+
+describe('LinuxBubblewrapBackend', () => {
+  it('wraps a managed restricted command when bwrap is available', () => {
+    const backend = new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+    });
+    const result = backend.transform(workspaceRequest(createWorkspaceWritePermissionProfile()));
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.exec.sandboxType, 'linux');
+      assert.equal(result.exec.argv[0], '/usr/bin/bwrap');
+      assert.deepEqual(result.exec.argv.slice(-3), ['/bin/sh', '-lc', 'echo hi']);
+      assert.equal(result.exec.fdInputs?.[0]?.fd, 3);
+      assert.ok((result.exec.fdInputs?.[0]?.data.byteLength ?? 0) > 0);
+    }
+  });
+
+  it('re-applies discovered nested protected metadata as read-only', () => {
+    const nested = '/repo/project/packages/pkg/.git';
+    const backend = new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+      discoverProtectedMetadataPaths: () => [nested],
+    });
+    const result = backend.transform(workspaceRequest(createWorkspaceWritePermissionProfile()));
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.ok(hasTriple(result.exec.argv, '--ro-bind', nested, nested));
+    }
+  });
+
+  it('fails closed with a clear result when bwrap is unavailable', () => {
+    const backend = new LinuxBubblewrapBackend({
+      capability: { available: false, reason: 'missing-bwrap', bwrapPath: '/usr/bin/bwrap' },
+    });
+    const result = backend.transform(workspaceRequest(createWorkspaceWritePermissionProfile()));
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'backend_not_available');
+      assert.equal(result.sandboxType, 'linux');
+      assert.match(result.message ?? '', /bubblewrap.*not available/i);
+    }
+  });
+
+  it('rejects deny entries that cannot be represented without weakening policy', () => {
+    const backend = new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+    });
+    const result = backend.transform(workspaceRequest(deniedChildProfile()));
+
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, 'invalid_request');
+      assert.match(result.message ?? '', /deny entries/i);
+    }
+  });
+
+  it('rejects profiles that should have selected no sandbox', () => {
+    const backend = new LinuxBubblewrapBackend({
+      capability: { available: true, bwrapPath: '/usr/bin/bwrap' },
+    });
+    const result = backend.transform(workspaceRequest(createDangerFullAccessPermissionProfile()));
+
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.reason, 'invalid_request');
+  });
+});
+
+function hasPair(argv: readonly string[], flag: string, value: string): boolean {
+  return argv.some((item, index) => item === flag && argv[index + 1] === value);
+}
+
+function hasTriple(argv: readonly string[], flag: string, left: string, right: string): boolean {
+  return argv.some((item, index) => (
+    item === flag && argv[index + 1] === left && argv[index + 2] === right
+  ));
+}

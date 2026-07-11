@@ -168,20 +168,9 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
     network_send: 'allow',
     custom_tool: 'allow',
     subagent: 'allow',
-    // Fail-closed for shell: NO shell command auto-runs. A shell command cannot
-    // be proven safe from its string — args can embed execution (PowerShell
-    // `echo (Set-Content x)`, $(...), backtick, iex), so there is no reliable
-    // "safe" bucket. Read-only needs go through typed tools (Read/Glob/Grep:
-    // fixed argv, no shell). Both shell_safe (which categorizeBash no longer
-    // produces) and shell_unsafe prompt, so the boundary is structural — it
-    // does not ride on the destructive/privileged pattern list being complete;
-    // a missed variant is at most an extra confirmation, never a silent action.
-    // (Auto-running arbitrary shell inside an isolated worktree is a future
-    // capability, not a current escape hatch: it needs a worktree child
-    // executor with its OWN permission path. An agent's categoryPolicy only
-    // filters which tools the agent is GIVEN — it does not enter execution-time
-    // gating, which always flows through preToolUse → this policy table. Today
-    // the worktree implementation agent cannot even be spawned.)
+    // Shell stays prompt in the static table. policyDecisionForInput upgrades
+    // shell_unsafe to allow only when runtime proves the active profile can be
+    // enforced by a platform sandbox; otherwise this fail-closed default wins.
     shell_safe: 'prompt',
     shell_unsafe: 'prompt',
     // Irreversible ops ALWAYS prompt, even in execute mode.
@@ -474,6 +463,14 @@ export interface PreToolUseInput {
    * intentionally introduced in a later policy change.
    */
   executionFacts?: ToolExecutionFacts;
+  /**
+   * Platform sandbox availability for sandbox-aware policy decisions. Unsafe
+   * shell in execute mode is only auto-allowed when the runtime can actually
+   * enforce the active profile with a platform sandbox.
+   */
+  sandbox?: {
+    platformSandboxAvailable: boolean;
+  };
 }
 
 export interface PreToolUseResult {
@@ -504,7 +501,7 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
   const category = classifyToolUse(input);
 
   // (2) Policy lookup + turn-remembered check
-  const decision = PERMISSION_POLICY[input.mode][category];
+  const decision = policyDecisionForInput(input, category);
   const scopeKey = permissionScopeKey(input.toolName, input.args, category);
   if (decision === 'allow') {
     return { proceed: true, needsPrompt: false, category, scopeKey };
@@ -535,6 +532,14 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       args: input.args,
     },
   };
+}
+
+function policyDecisionForInput(input: PreToolUseInput, category: ToolCategory): PolicyDecision {
+  const decision = PERMISSION_POLICY[input.mode][category];
+  if (input.mode === 'execute' && category === 'shell_unsafe') {
+    return input.sandbox?.platformSandboxAvailable === true ? 'allow' : 'prompt';
+  }
+  return decision;
 }
 
 export function permissionScopeKey(toolName: string, args: unknown, category: ToolCategory): string {
