@@ -382,7 +382,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice'), [{
       kind: 'notice',
       level: 'info',
-      text: 'Context summary failed; the session continued and will retry next turn.',
+      text: 'Context summary failed; the session continued without a new summary.',
     }]);
   });
 
