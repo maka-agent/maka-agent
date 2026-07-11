@@ -2260,6 +2260,33 @@ export class AiSdkBackend implements AgentBackend {
     const newlyFoldedRuntimeEvents = previousCheckpoint
       ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
       : foldedRuntimeEvents;
+    if (previousCheckpoint && newlyFoldedRuntimeEvents.length === 0) {
+      return {
+        fallbackCheckpoint: previousCheckpoint,
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: 'read_write',
+          historyCompactWritesAttempted: 0,
+          historyCompactWriteSkipped: 1,
+          historyCompactWriteSkippedReasonCounts: { already_compacted: 1 },
+          historyCompactBlocksAvailable: 1,
+          historyCompactBlocksSelected: 1,
+          historyCompactBlockIds: [previousCheckpoint.checkpointId],
+          historyCompactedTurns: previousCheckpoint.coverage.turnCount,
+          historyCompactedEvents: previousCheckpoint.coverage.eventCount,
+          historyCompactedEstimatedTokensAfter: previousCheckpoint.estimatedTokens,
+          historyCompactCoverageHashes: [previousCheckpoint.coverage.sourceDigest],
+          ...compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay',
+            sourceKind: 'runtimeEvents',
+            decision: 'unchanged',
+            boundaryKind: 'historyCompact',
+            boundaryIds: [previousCheckpoint.checkpointId],
+            reason: 'already_compacted',
+          }),
+        },
+      };
+    }
     try {
       const summary = await Promise.resolve(summarizer({
         sessionId: this.sessionId,

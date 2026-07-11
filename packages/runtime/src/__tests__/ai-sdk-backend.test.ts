@@ -1719,6 +1719,81 @@ describe('AiSdkBackend model history', () => {
     assert.equal(recorded[0]?.coverage.eventCount, 2);
   });
 
+  test('manual compactHistory reuses a checkpoint that already covers the full fold', async () => {
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'manual-v2-reuse-old-1',
+        turnId: 'manual-v2-reuse-turn-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual v2 reuse old alpha '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-v2-reuse-old-2',
+        turnId: 'manual-v2-reuse-turn-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual v2 reuse old beta '.repeat(12),
+      }),
+    ];
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: oldEvents,
+      summary: 'MANUAL_V2_REUSED_SUMMARY',
+      charsPerToken: 1,
+    });
+    let summarizeCalls = 0;
+    let recordCalls = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-v2-reuse-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      loadHistoryCompactCheckpoint: () => previous,
+      summarizeHistoryCompact: async () => {
+        summarizeCalls += 1;
+        return 'must not resummarize an already covered fold';
+      },
+      recordHistoryCompactCheckpoint: () => {
+        recordCalls += 1;
+        throw new Error('equal coverage must not reach the recorder');
+      },
+    });
+
+    const result = await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        ...oldEvents,
+        runtimeTextEvent({
+          id: 'manual-v2-reuse-recent',
+          turnId: 'manual-v2-reuse-recent-turn',
+          role: 'user',
+          author: 'user',
+          text: 'manual v2 reuse retained context',
+        }),
+      ],
+    });
+
+    assert.equal(summarizeCalls, 0);
+    assert.equal(recordCalls, 0);
+    assert.equal(result.contextBudget?.historyCompactWriteFailures ?? 0, 0);
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'unchanged');
+    assert.equal(result.contextBudget?.compactionDecisions?.[0]?.reason, 'already_compacted');
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({
