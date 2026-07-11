@@ -128,6 +128,27 @@ describe('ShellRunProcessManager', () => {
     assert.equal(terminal?.result.exitCode, 0);
   });
 
+  test('keeps terminal updatedAt after queued running flushes', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore({ updateDelayMs: 300 });
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBash(shellInput({
+      cwd,
+      command: 'printf "start"; sleep 0.1; printf "middle"; sleep 0.1',
+      yieldTimeMs: 50,
+    }));
+    assert.equal(initial.kind, 'shell_run');
+
+    await sleep(750);
+    const latestRunning = updates.filter((update) => update.result.status === 'running').at(-1);
+    const terminal = updates.find((update) => update.result.status === 'completed');
+    assert.ok(latestRunning);
+    assert.ok(terminal);
+    assert.ok(terminal.result.updatedAt >= latestRunning.result.updatedAt);
+  });
+
   test('persists stdout as the latest output stream when it follows stderr', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();

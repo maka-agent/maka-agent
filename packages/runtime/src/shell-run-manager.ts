@@ -397,11 +397,11 @@ export class ShellRunProcessManager {
 
     try {
       await live.created;
-      const now = this.input.now();
       const status = statusFromClose(code, signal, live.termination);
       const exitCode = exitCodeFromClose(code, signal, live.termination);
       const failureMessage = failureMessageFor(status, live.timeoutMs);
       live.flushChain = live.flushChain.then(async () => {
+        const now = this.input.now();
         const updated = await this.input.store.updateShellRun(live.sessionId, live.shellRunId, {
           ...this.tailPatch(live),
           status,
