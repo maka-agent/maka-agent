@@ -10,12 +10,12 @@ Four export surfaces, in the order to look:
 
 | Surface | Role | Status |
 |---|---|---|
-| `src/primitives/` | One file per primitive (accordion, alert, badge, card, chip, dialog-header, empty, input, input-group, item, kbd, menu, number-field, page-header, scroll-area, section-header, settings-segmented/select/switch, spinner, stat-tile, tabs, textarea, toolbar, tooltip, …). **New primitives go here.** | target layer |
-| `src/ui.tsx` | Earlier Base UI wrappers + `buttonVariants` (cva) in one file: Button, Checkbox, Dialog/AlertDialog, Select, Switch, Toggle, Radio, Progress, Separator, Field/Label. | transitional — wrappers migrate into `primitives/` as touched (Badge moved to `primitives/badge.tsx` earlier; Button/Select/etc. still live here) |
-| `src/*.tsx` / `src/*.ts` (top-level) | Feature components + pure logic: `chat-view.tsx`, `composer.tsx`, `tool-activity.tsx`, `permission-dialog.tsx`, `search-modal.tsx`, `session-list-panel.tsx`, `skills-panel.tsx`, `plan-reminder-panel.tsx`, `daily-review-panel.tsx`, plus pure helpers (`materialize.ts`, `redact.ts`, `smooth-stream.ts`, `stream-fade.ts`, `live-turn-projection.ts`, …). | stable |
-| `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, ToolActivity, PermissionDialog, SearchModal, SessionListPanel, RelativeTime, …). | stable |
+| `src/primitives/` | One file per primitive (e.g. `accordion`, `badge`, `chip`, `dialog-header`, `input`, `page-header`, `tabs`, `textarea`, `toolbar`, `tooltip`, …). **New primitives go here.** | target layer |
+| `src/ui.tsx` | Earlier Base UI wrappers + `buttonVariants` (cva) in one file (Button, Checkbox, Dialog/AlertDialog, Select, Switch, Toggle, Radio, Progress, Separator, Field/Label). | transitional — wrappers migrate into `primitives/` as touched (Badge moved to `primitives/badge.tsx` earlier; Button/Select/etc. still live here) |
+| `src/*.tsx` / `src/*.ts` (top-level) | Feature components + pure logic (e.g. `chat-view.tsx`, `composer.tsx`, `permission-dialog.tsx`, `session-list-panel.tsx`, plus pure helpers like `materialize.ts`, `redact.ts`, `smooth-stream.ts`). | stable |
+| `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, PermissionDialog, …). | stable |
 
-`src/index.ts` is the package barrel. It follows an **off-barrel convention**: internal styling tables and single-consumer dots (`markerVariants`, `streamVariants`, `toolVariants`, `LiveIndicator`) are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a second consumer or a cross-package consumer (the promotion condition is documented inline in `index.ts`). Don't add to the barrel speculatively.
+`src/index.ts` is the package barrel. It follows an **off-barrel convention**: internal styling tables and single-consumer dots (e.g. `markerVariants`, `LiveIndicator`) are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a second consumer or a cross-package consumer (the promotion condition is documented inline in `index.ts`). Don't add to the barrel speculatively.
 
 ## `data-slot` hooks
 
@@ -47,6 +47,6 @@ Acknowledged transitional states — not TODOs; track actual work in issues/PRs.
 
 ## Contracts & guardrails
 
-Component contracts (5-state, ARIA, keyboard, tone/token per component), the token registry, and anti-patterns live in `docs/design-system.md`. Where that doc disagrees with the code or the contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, `tab-spec-*`, …), the code and the tests are the source of truth.
+Component contracts (5-state, ARIA, keyboard, tone/token per component), the token registry, and anti-patterns live in `docs/design-system.md`. Where that doc disagrees with the code or the contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, …), the code and the tests are the source of truth.
 
-Stories (`stories/`) and unit tests (`src/__tests__/`) exist per primitive/feature. Build/test entry points are in the root `AGENTS.md`.
+Selected primitives and features have stories (`stories/`) and unit tests (`src/__tests__/`); coverage is partial, not exhaustive. Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).
