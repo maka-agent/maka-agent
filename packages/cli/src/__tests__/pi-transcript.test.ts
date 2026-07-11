@@ -1743,6 +1743,28 @@ describe('transcript entry render memoization', () => {
     assert.match(finalized, /BBBB/);
     assert.doesNotMatch(finalized, /AAAA/);
   });
+
+  test('re-renders a ShellRun when only the latest output stream changes', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'build' },
+    }));
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_result', toolUseId: 'bash-bg', isError: false,
+      content: shellRun({
+        stdout: 'AAAA', stderr: 'BBBB', updatedAt: 3_000, latestOutputStream: 'stderr',
+      }),
+    }));
+    const before = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(before, /BBBB/);
+
+    applyShellRunUpdateToTranscript(state, 'bash-bg', shellRun({
+      stdout: 'AAAA', stderr: 'BBBB', updatedAt: 3_000, latestOutputStream: 'stdout',
+    }));
+    const after = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
+    assert.match(after, /AAAA/);
+    assert.doesNotMatch(after, /BBBB/);
+  });
 });
 
 function meta() {

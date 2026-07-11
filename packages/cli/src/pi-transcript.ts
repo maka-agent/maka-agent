@@ -705,9 +705,9 @@ function transcriptEntrySignature(
       return `notice|${width}|${entry.level}|${entry.text.length}`;
     case 'tool':
       // A tool entry mutates in place as it runs: status/duration flip on the
-      // result, and progress/output deltas append while running. Its result
-      // object is set once and never rewritten, so counting these fields is
-      // enough to detect every change to the rendered block. `input` and
+      // result, progress/output deltas append, and background snapshots can
+      // replace the result without changing its timestamp or text lengths.
+      // Count the fields that change rendering. `input` and
       // `toolName` are omitted deliberately: both are set once at `tool_start`,
       // before the first render, and never change, so they can't go stale.
       return [
@@ -722,6 +722,7 @@ function transcriptEntrySignature(
         entry.output?.length ?? '',
         entry.result ? entry.result.kind : '',
         entry.result?.kind === 'shell_run' ? entry.result.updatedAt : '',
+        entry.result?.kind === 'shell_run' ? entry.result.latestOutputStream ?? '' : '',
       ].join('|');
   }
 }
