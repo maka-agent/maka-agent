@@ -554,6 +554,8 @@ export class AiSdkBackend implements AgentBackend {
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  private historyCompactCheckpointLoaded = false;
+  private historyCompactCheckpoint: HistoryCompactCheckpoint | undefined;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -2033,7 +2035,12 @@ export class AiSdkBackend implements AgentBackend {
       return { policy };
     }
     try {
-      const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+      let checkpoint = this.historyCompactCheckpoint;
+      if (!this.historyCompactCheckpointLoaded) {
+        checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+        this.historyCompactCheckpoint = checkpoint;
+        this.historyCompactCheckpointLoaded = true;
+      }
       if (checkpoint) {
         return {
           policy: {
@@ -2279,6 +2286,8 @@ export class AiSdkBackend implements AgentBackend {
         now: this.now(),
       });
       await Promise.resolve(recorder(checkpoint, input.turnId));
+      this.historyCompactCheckpoint = checkpoint;
+      this.historyCompactCheckpointLoaded = true;
       return {
         replacementCheckpoint: checkpoint,
         diagnosticPatch: {

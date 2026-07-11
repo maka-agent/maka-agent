@@ -2299,6 +2299,7 @@ describe('AiSdkBackend model history', () => {
     });
     const recorded: HistoryCompactCheckpoint[] = [];
     const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
+    let checkpointLoadCalls = 0;
     const firstModel = completionModel();
     const firstBackend = new AiSdkBackend({
       sessionId: 'session-1', header: header(), appendMessage: async () => {},
@@ -2313,7 +2314,10 @@ describe('AiSdkBackend model history', () => {
           maxSummaryEstimatedTokens: 500,
         },
       },
-      loadHistoryCompactCheckpoint: () => previous,
+      loadHistoryCompactCheckpoint: () => {
+        checkpointLoadCalls += 1;
+        return previous;
+      },
       summarizeHistoryCompact: async (input) => {
         summaryInputs.push({
           previous: input.previousCheckpoint?.summary,
@@ -2336,6 +2340,14 @@ describe('AiSdkBackend model history', () => {
     assert.match(firstPrompt, /V2_ROLLED_SUMMARY/);
     assert.equal(firstPrompt.includes('V2 old source one'), false);
     assert.equal(firstPrompt.includes('V2 old source two'), false);
+
+    await drain(firstBackend.send({
+      turnId: 'turn-same-backend', text: 'continue in the same session', context: [], runtimeContext: [...oldEvents, recent],
+    }));
+
+    assert.equal(checkpointLoadCalls, 1);
+    assert.deepEqual(summaryInputs, [{ previous: 'V2_PREVIOUS_SUMMARY', newlyFoldedIds: ['v2-old-2'] }]);
+    assert.match(JSON.stringify(firstModel.doStreamCalls[1]?.prompt), /V2_ROLLED_SUMMARY/);
 
     let reuseSummaryCalls = 0;
     const secondModel = completionModel();
