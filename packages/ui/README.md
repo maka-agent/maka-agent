@@ -15,7 +15,7 @@ Four export surfaces, in the order to look:
 | `src/*.tsx` / `src/*.ts` (top-level) | Feature components + pure logic (e.g. `chat-view.tsx`, `composer.tsx`, `permission-dialog.tsx`, `session-list-panel.tsx`, plus pure helpers like `materialize.ts`, `redact.ts`, `smooth-stream.ts`). | stable |
 | `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, PermissionDialog, …). | stable |
 
-`src/index.ts` is the package barrel. It follows an **off-barrel convention**: some styling tables and per-surface helpers are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a second consumer or a cross-package consumer (the promotion condition is documented inline in `index.ts`). Don't add to the barrel speculatively. Example: `markerVariants` in `primitives/chat.tsx` has real consumers but is reached via relative import, not the barrel.
+`src/index.ts` is the package barrel. It follows an **off-barrel convention**: some styling tables and per-surface helpers are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a **cross-package consumer or an explicit public-API need** — not merely a second in-package consumer (`attachment-file-card` has two in-package consumers, `chat-view` and `composer`, but stays off-barrel). Don't add to the barrel speculatively.
 
 ## `data-slot` hooks
 
@@ -34,9 +34,9 @@ Renderer CSS may target a primitive via its `data-slot` attribute, never by over
 ## Where new code goes
 
 - **New primitive** (button-like, dialog-like, form control) → a new file in `src/primitives/`, exposing `data-slot`, re-exported from `index.ts` (primitives are the public surface).
-- **New feature component** → top-level `src/<name>.tsx`. Keep it a relative import while it has only a single in-package consumer; once it has a second or cross-package consumer, re-export it from `src/components.tsx` (`index.ts` does `export * from './components.js'`, so anything re-exported there is already on the package barrel — there's no separate “add to index.ts” step).
+- **New feature component** → top-level `src/<name>.tsx`, kept as a relative import until it has a cross-package consumer or an explicit public-API need; then re-export it from `src/components.tsx` (`index.ts` does `export * from './components.js'`, so it lands on the barrel automatically).
 - **Don't** add a per-surface hand-rolled CSS recipe in the renderer if a primitive can carry it — extend the primitive's API/slots instead.
-- **Don't** re-export a symbol that has a single in-package consumer and no cross-package consumer; keep it a relative import until a second or cross-package consumer appears (a cross-package consumer can't use a relative import — `previewVariants` is re-exported for exactly that reason).
+- **Don't** re-export a symbol onto the barrel without a cross-package consumer or explicit public-API need; keep it a relative import even with multiple in-package consumers (a cross-package consumer can't use a relative import — `previewVariants` is re-exported for exactly that reason).
 
 ## Convergence direction (transitional surfaces)
 
