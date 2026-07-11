@@ -8,7 +8,7 @@ For the main/preload/renderer split and the IPC contract, see `apps/desktop/READ
 
 `main.tsx` → `app.tsx` → `AppShell` (`app-shell.tsx`). `index.html` is the Vite HTML shell. `main.tsx` prefetches the onboarding snapshot before mounting React so the normal-path first commit paints the real surface (if the prefetch times out it mounts with `null` and a fail-soft loading state); `app.tsx` wraps `AppShell` in `ToastProvider` + `ErrorBoundary`.
 
-`styles.css` is the **only** style entry: it `@import`s Tailwind, fonts, `maka-tokens.css`, `reference-shell.css`, and every `styles/*.css`. Per CSS governance, `styles.css` may only contain `@import` / `@source` / `@theme` / top-level orchestration — real selector rules go in `styles/*.css`.
+`styles.css` is the **only** bundled style entry: it `@import`s Tailwind, fonts, `maka-tokens.css`, `reference-shell.css`, and every `styles/*.css`. Per CSS governance, `styles.css` may only contain `@import` / `@source` / `@theme` / top-level orchestration — real selector rules go in `styles/*.css`. One contract-pinned exception: `index.html` carries an inline `.maka-preload` skeleton with hardcoded colors (no CSS variables — `maka-tokens.css` hasn't loaded yet) so there's no blank window during the CSS + JS load gap; `createRoot` replaces it on mount.
 
 ## AppShell + the action modules
 
