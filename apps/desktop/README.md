@@ -23,17 +23,17 @@ The Electron desktop app: `main` (Node/Electron main process) + `preload` (conte
 
 Sub-folders: `browser/` (embedded browser view), `oauth/`, `search/` (thread search), `web-search/`, `types/`. The browser IPC handler itself (`browser-ipc-main.ts`) is flat in `src/main/`, not under `browser/`.
 
-`main.ts` startup order: the stores and the runtime/controller are created at module load (top-level `create*Store` / runtime wiring); `registerIpc()` is then called at top level, **before** `app.whenReady()`; the main window is created last, inside the `app.whenReady()` callback. The renderer fires its onboarding IPC at first mount, so the handlers must be registered before the window exists.
+`main.ts` startup order: stores and the runtime/controller are created synchronously at module load (top-level `create*Store` / runtime wiring); `registerIpc()` runs at top level, **before** `app.whenReady()`; inside `whenReady`, the main window is created as early as possible (preload skeleton shows within milliseconds) and background startup (credential migration, connection bootstrapping, telemetry, bots, gateway, schedulers) runs concurrently without blocking first paint. The real invariant for IPC: handlers must be registered before the renderer entry runs, because `main.tsx` prefetches the onboarding snapshot before mounting React. Background startup mutations are pushed to the renderer via the `sessions:changed` / `connections:event` / `settings:bots:statusChanged` channels, so the UI converges lazily.
 
 ## IPC contract
 
 Three patterns, all rooted in preload's `maka` namespace. Channel names are `<domain>:<action>`.
 
 - **Request/response** — `ipcRenderer.invoke('<domain>:<action>', …args)` in preload ↔ `ipcMain.handle('<domain>:<action>', …)`. The handler lives either inline in `main.ts` (e.g. `sessions:list`, `settings:get`) or in a `*-ipc-main.ts` extracted by domain (e.g. `connections-ipc-main`, `daily-review-ipc-main`). Both forms coexist; prefer extracting a new domain to its own `*-ipc-main.ts`.
-- **Main→renderer push** — main calls `webContents.send('<event>')`; preload subscribes via `ipcRenderer.on` and returns an unsubscribe fn (e.g. `sessions:changed`, `plans:changed`, `artifacts:changed`, `gateway:statusChanged`).
+- **Main→renderer push** — main sends through the safe-send guard (`safeSendToRenderer` via `mainWindowController.send`), not raw `webContents.send` (which throws when the window/`webContents` is destroyed); preload subscribes via `ipcRenderer.on` and returns an unsubscribe fn (e.g. `sessions:changed`, `plans:changed`, `artifacts:changed`, `gateway:statusChanged`). A contract test enforces routing every main-window send through the guard.
 - **Renderer→main fire-and-forget** — `ipcRenderer.send('<domain>:<action>', …)` in preload ↔ `ipcMain.on('<domain>:<action>', …)`. Used when no response is needed (e.g. `browser:active-session`, `browser:setViewport`).
 
-Adding a new IPC surface: if extracting, write the `*-ipc-main.ts` exporting a `register*Ipc(...)`, import it in `main.ts`, and call it inside `registerIpc()`; add the matching method to the `maka` namespace in `preload.ts`; keep the `<domain>:<action>` channel naming. A handler file that isn't registered in `registerIpc()` compiles but never mounts.
+Adding a new IPC surface: if extracting, write the `*-ipc-main.ts` exporting a `register*Ipc(...)`, import it in `main.ts`, and call it inside `registerIpc()`; add the matching method to the `maka` namespace in `preload.ts`; add the method to the `window.maka` type in `src/global.d.ts` (the renderer's typed bridge — without it, renderer calls get a TS error); keep the `<domain>:<action>` channel naming. A handler file that isn't registered in `registerIpc()` compiles but never mounts.
 
 ## Data flow
 
@@ -41,7 +41,7 @@ Adding a new IPC surface: if extracting, write the `*-ipc-main.ts` exporting a `
 renderer (React)
   └─ window.maka.<ns>.<method>(…)        // typed surface, see preload.ts
       └─ ipcRenderer.invoke / send / on
-          └─ main: ipcMain.handle / ipcMain.on / webContents.send
+          └─ main: safeSendToRenderer / ipcMain.handle / ipcMain.on
               └─ @maka/runtime (agent runtime) + @maka/storage (JSONL persistence)
 ```
 

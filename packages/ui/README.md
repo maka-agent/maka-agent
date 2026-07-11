@@ -1,6 +1,6 @@
 # @maka/ui
 
-Shared UI layer for the Maka desktop app: React + Tailwind v4 + shadcn (base-nova) + `@base-ui/react`, bound to Maka's token system. Consumed by `apps/desktop`'s renderer, and only that today.
+Shared UI layer for the Maka desktop app: React + Tailwind v4 + shadcn (base-nova) + `@base-ui/react`, bound to Maka's token system. Consumed at runtime by `apps/desktop`'s renderer; the preload bridge also imports types from it (`import type` only).
 
 This package is the **target carrier of the frontend convergence**: hand-rolled renderer CSS recipes are being retired onto primitives exported here. When in doubt, extend a primitive rather than add CSS at the call site.
 
@@ -15,7 +15,7 @@ Four export surfaces, in the order to look:
 | `src/*.tsx` / `src/*.ts` (top-level) | Feature components + pure logic (e.g. `chat-view.tsx`, `composer.tsx`, `permission-dialog.tsx`, `session-list-panel.tsx`, plus pure helpers like `materialize.ts`, `redact.ts`, `smooth-stream.ts`). | stable |
 | `src/components.tsx` | Re-export barrel for the feature components above (ChatView, Composer, PermissionDialog, …). | stable |
 
-`src/index.ts` is the package barrel. It follows an **off-barrel convention**: internal styling tables and single-consumer dots (e.g. `markerVariants`, `LiveIndicator`) are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a second consumer or a cross-package consumer (the promotion condition is documented inline in `index.ts`). Don't add to the barrel speculatively.
+`src/index.ts` is the package barrel. It follows an **off-barrel convention**: some styling tables and per-surface helpers are deliberately *not* re-exported, so they stay renamable/removable without a public-API break. A symbol earns barrel export when it has a second consumer or a cross-package consumer (the promotion condition is documented inline in `index.ts`). Don't add to the barrel speculatively. Example: `markerVariants` in `primitives/chat.tsx` has real consumers but is reached via relative import, not the barrel.
 
 ## `data-slot` hooks
 
@@ -25,10 +25,9 @@ Most primitives expose a stable `data-slot="<name>"` attribute so renderer CSS c
 
 ```ts
 import { Button, ChatView, Composer, Badge, Chip, PageHeader, useToast } from '@maka/ui';
-import { ProviderLogo } from '@maka/ui/icons';
 ```
 
-Sub-path exports (declared in `package.json` `exports`): `@maka/ui/artifact-preview-registry`, `@maka/ui/assistant-stream`, `@maka/ui/icons`, `@maka/ui/maka-uri`, `@maka/ui/smooth-stream`.
+Sub-path exports (declared in `package.json` `exports`): `@maka/ui/artifact-preview-registry`, `@maka/ui/assistant-stream`, `@maka/ui/icons`, `@maka/ui/maka-uri`, `@maka/ui/smooth-stream`. (`@maka/ui/icons` re-exports Lucide symbols; provider brand logos live in the renderer, not here.)
 
 Renderer CSS may target a primitive via its `data-slot` attribute, never by overriding the primitive's own utility classes.
 

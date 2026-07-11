@@ -12,9 +12,7 @@ For the main/preload/renderer split and the IPC contract, see `apps/desktop/READ
 
 ## AppShell + the action modules
 
-`app-shell.tsx` is the shell component: owns session state, wires the `@maka/ui` panels (SessionListPanel, ChatView, Composer — ChatView renders the tool stream via `ToolTrow`), and mounts lazy panels (ArtifactPane, BrowserPanel). It is supported by a set of `app-shell-<scope>-<action>.ts(x)` modules, each a narrow slice of shell logic split by concern (e.g. `app-shell-session-events.ts`, `app-shell-chat-actions.ts`, `app-shell-plan-actions.ts`, `app-shell-effects.ts`, `app-shell-stop-action.ts`).
-
-Naming convention for a new slice: `app-shell-<scope>-<action>.ts` (or `.tsx` when it returns JSX). Keep a slice to one concern; if it grows, split along the same `app-shell-<scope>-<action>` seam.
+`app-shell.tsx` is the shell component: owns session state, wires the `@maka/ui` panels (SessionListPanel, ChatView, Composer — ChatView renders the tool stream via `ToolTrow`), and mounts lazy panels (ArtifactPane, BrowserPanel). It is supported by a set of `app-shell-*` modules, each a narrow slice of shell logic split by one concern (e.g. `app-shell-session-events.ts`, `app-shell-chat-actions.ts`, `app-shell-plan-actions.ts`, `app-shell-effects.ts`, `app-shell-stop-action.ts`, `app-shell-overlays.tsx`). Most follow `app-shell-<scope>-<action>.ts(x)`; a few single-word slices like `app-shell-effects.ts` or `app-shell-copy.ts` drop the action segment. Keep a slice to one concern; if it grows, split along the same seam.
 
 `settings/` holds the settings pages and the `SettingsModal` shell — one page per `SettingsSection` (defined in `@maka/core`); the models/providers page is `ProvidersPanel`. Plus the `provider-*` files and the shared `settings-rows` / `settings-skeleton` / `settings-surface` helpers.
 
@@ -23,7 +21,7 @@ Naming convention for a new slice: `app-shell-<scope>-<action>.ts` (or `.tsx` wh
 | File | Role |
 |---|---|
 | `maka-tokens.css` | Single source of CSS tokens (color / shadow / typography / radius / spacing / motion / z / layout) **and** a few component-recipe fallbacks at the tail. Transitional: tokens and recipes coexist in one file. |
-| `reference-shell.css` | A target-layout shell rebuild, hand-authored from a reference-implementation extract (see its header comment). **Transitional** — meant to be folded back into the token/style system and removed. |
+| `reference-shell.css` | A target-layout shell rebuild, hand-authored from a reference-implementation extract (its header comment documents the provenance). **Transitional** — meant to be folded back into the token/style system and removed. |
 | `styles/*.css` | Per-surface hand-written recipes (e.g. `chat-*`, `sidebar`, `composer`, `palette`, `settings/*`, `module-pages/*`). |
 
 Token authoring rule: custom CSS variables go in `maka-tokens.css`; only component-local vars are excepted and must carry `/* local: ... */`. No new hardcoded color / radius / z-index.
