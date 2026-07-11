@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
@@ -392,6 +392,262 @@ describe('AgentRunStore', () => {
       await runStore.createRun(makeHeader());
 
       assert.deepEqual(await runtimeEventStore.readRuntimeEvents('session-1', 'run-1'), []);
+    });
+  });
+
+  it('coalesces text stream chunks into one recoverable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['hel', 'lo', '!'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          ts: index + 1,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.partial, true);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello!' });
+    });
+  });
+
+  it('recovers the accumulated partial snapshot after reopening the store', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['still ', 'working'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const reopened = createRuntimeEventStore(root);
+      const events = await reopened.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'still working' });
+    });
+  });
+
+  it('keeps a 10K-chunk text stream bounded to one durable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 10_000; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'x' },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const partialFiles = await readdir(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-partials',
+      ));
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.content?.kind === 'text' && events[0].content.text.length, 10_000);
+      assert.equal(partialFiles.filter((name) => name.endsWith('.json')).length, 1);
+      const immutableLedger = await readFile(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      ), 'utf8').catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+        throw error;
+      });
+      assert.equal(immutableLedger, '');
+    });
+  });
+
+  it('coalesces thinking chunks into one recoverable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['reason', 'ing ', 'continues'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-thinking-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0]?.content, { kind: 'thinking', text: 'reasoning continues' });
+    });
+  });
+
+  it('coalesces tool stream heartbeats until the durable tool result arrives', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 100; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-tool-progress-${index}`,
+          partial: true,
+          role: 'tool',
+          author: 'tool',
+          content: undefined,
+          refs: { toolCallId: 'tool-call-1' },
+        }));
+      }
+
+      assert.equal((await runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).length, 1);
+
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-tool-result',
+        ts: 2,
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-call-1',
+          name: 'Bash',
+          result: 'done',
+        },
+        refs: { toolCallId: 'tool-call-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      assert.deepEqual(events.map((event) => event.id), ['runtime-tool-result']);
+    });
+  });
+
+  it('keeps partial events with lifecycle actions as immutable facts', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 2; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-lifecycle-${index}`,
+          partial: true,
+          role: 'system',
+          author: 'system',
+          content: undefined,
+          actions: { stateDelta: { progress: index } },
+          refs: { toolCallId: 'tool-call-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), [
+        'runtime-lifecycle-0',
+        'runtime-lifecycle-1',
+      ]);
+    });
+  });
+
+  it('replaces a text partial snapshot with the durable final event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-partial',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'hello' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-final',
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'hello world' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello world' });
+    });
+  });
+
+  it('ignores a stale partial snapshot when its final event is already durable', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-final',
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'complete' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-stale-partial',
+        ts: 1,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'stale' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+    });
+  });
+
+  it('restores a retained partial snapshot before a later terminal event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-user',
+        ts: 1,
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-partial',
+        ts: 2,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'retained output' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-terminal',
+        ts: 1,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', message: 'provider failed' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), [
+        'runtime-user',
+        'runtime-partial',
+        'runtime-terminal',
+      ]);
     });
   });
 
