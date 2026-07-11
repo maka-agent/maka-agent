@@ -30,8 +30,8 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.decision, 'non_inferior');
-    assert.equal(result.reason, 'non_inferiority_lower_bound_within_margin');
+    assert.equal(result.decision, 'not_cleared');
+    assert.equal(result.reason, 'non_inferiority_confidence_interval_crosses_margin');
     assert.equal(result.taskCount, 2);
     assert.equal(result.reps, 2);
     assert.equal(result.baseline.passRate, 0.25);
@@ -639,7 +639,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(elevenPointLoss.reason, 'pass_rate_delta_below_non_inferiority_margin');
   });
 
-  test('uses Wilson/Newcombe lower bound for non-inferiority boundary cases', () => {
+  test('uses a 95% simultaneous paired Wilson lower bound for non-inferiority boundary cases', () => {
     const onePairTie = summarizeAbComparison({
       runId: 'ab-run',
       roundId: 'ab-summary',
@@ -650,7 +650,8 @@ describe('summarizeAbComparison', () => {
       candidateRuns: repeatedRuns([completed('single', true)]),
     });
     assert.equal(onePairTie.passRateDelta, 0);
-    assert.equal(onePairTie.nonInferiority.method, 'paired_newcombe_wilson');
+    assert.equal(onePairTie.nonInferiority.method, 'paired_bonferroni_wilson');
+    assert.equal(onePairTie.nonInferiority.lowerBound, -0.657619772493);
     assert.equal(onePairTie.nonInferiority.lowerBound !== null && onePairTie.nonInferiority.lowerBound < -0.1, true);
     assert.equal(onePairTie.decision, 'not_cleared');
     assert.equal(onePairTie.reason, 'non_inferiority_confidence_interval_crosses_margin');
@@ -666,7 +667,7 @@ describe('summarizeAbComparison', () => {
       candidateRuns: repeatedRuns(tieTaskIds.map((taskId) => completed(taskId, true))),
     });
     assert.equal(allTieSmallSample.passRateDelta, 0);
-    assert.equal(allTieSmallSample.nonInferiority.method, 'paired_newcombe_wilson');
+    assert.equal(allTieSmallSample.nonInferiority.method, 'paired_bonferroni_wilson');
     assert.equal(allTieSmallSample.nonInferiority.lowerBound !== null && allTieSmallSample.nonInferiority.lowerBound < -0.1, true);
     assert.equal(allTieSmallSample.decision, 'not_cleared');
 
@@ -684,7 +685,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(powered.passRateDelta, -0.05);
     assert.equal(powered.pairedAttempts.losses, 100);
     assert.equal(powered.pairedAttempts.ties, 1900);
-    assert.equal(powered.nonInferiority.method, 'paired_newcombe_wilson');
+    assert.equal(powered.nonInferiority.method, 'paired_bonferroni_wilson');
     assert.equal(powered.nonInferiority.lowerBound !== null && powered.nonInferiority.lowerBound >= -0.1, true);
     assert.equal(powered.decision, 'non_inferior');
     assert.equal(powered.reason, 'non_inferiority_lower_bound_within_margin');
@@ -700,7 +701,7 @@ describe('summarizeAbComparison', () => {
       candidateRuns: repeatedRuns(smallTaskIds.map((taskId, index) => completed(taskId, index >= 9 && index < 19))),
     });
     assert.equal(underpowered.passRateDelta, -0.05);
-    assert.equal(underpowered.nonInferiority.method, 'paired_newcombe_wilson');
+    assert.equal(underpowered.nonInferiority.method, 'paired_bonferroni_wilson');
     assert.equal(underpowered.nonInferiority.lowerBound !== null && underpowered.nonInferiority.lowerBound < -0.1, true);
     assert.equal(underpowered.decision, 'not_cleared');
     assert.equal(underpowered.reason, 'non_inferiority_confidence_interval_crosses_margin');
@@ -716,7 +717,7 @@ describe('summarizeAbComparison', () => {
       candidateRuns: repeatedRuns(inferiorTaskIds.map((taskId, index) => completed(taskId, index >= 44 && index < 89))),
     });
     assert.equal(inferior.passRateDelta, -0.11);
-    assert.equal(inferior.nonInferiority.method, 'paired_newcombe_wilson');
+    assert.equal(inferior.nonInferiority.method, 'paired_bonferroni_wilson');
     assert.equal(inferior.decision, 'inferior');
     assert.equal(inferior.reason, 'pass_rate_delta_below_non_inferiority_margin');
   });

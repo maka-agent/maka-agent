@@ -27,7 +27,7 @@ describe('renderAbComparisonMarkdown', () => {
 
     const markdown = renderAbComparisonMarkdown(result);
 
-    assert.match(markdown, /Decision: B non-inferior \(non_inferiority_lower_bound_within_margin\)/);
+    assert.match(markdown, /Decision: not cleared \(non_inferiority_confidence_interval_crosses_margin\)/);
     assert.match(markdown, /Budget: 600s task budget/);
     assert.match(markdown, /Evaluation pass rate: A=1\/4 = 0.25, B=4\/4 = 1/);
     assert.match(markdown, /Task-level delta: mean=0.75/);

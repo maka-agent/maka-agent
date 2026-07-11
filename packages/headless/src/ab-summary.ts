@@ -25,7 +25,10 @@ import type { HarborCellContextBudgetSummary, HarborCellTaskToolSummary } from '
 
 const DEFAULT_NON_INFERIORITY_MARGIN = 0.10;
 const NON_INFERIORITY_CONFIDENCE_LEVEL = 0.95;
-const ONE_SIDED_95_Z = 1.6448536269514722;
+// Two one-sided 97.5% score bounds give at least 95% simultaneous coverage by
+// Bonferroni; subtracting loss.upper from win.lower is therefore a valid paired
+// lower bound without pretending the multinomial cells are independent.
+const ONE_SIDED_97_5_Z = 1.959963984540054;
 
 export function summarizeAbComparison(input: SummarizeAbComparisonInput): AbComparisonSummary {
   assertSameRunCount(input.baselineRuns, input.candidateRuns);
@@ -535,10 +538,10 @@ function summarizeNonInferiority(
   if (passRateDelta === null || pairedAttempts.observedPairs === 0) {
     return { method: 'unavailable', confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL, lowerBound: null };
   }
-  const winInterval = wilsonScoreInterval(pairedAttempts.wins, pairedAttempts.observedPairs, ONE_SIDED_95_Z);
-  const lossInterval = wilsonScoreInterval(pairedAttempts.losses, pairedAttempts.observedPairs, ONE_SIDED_95_Z);
+  const winInterval = wilsonScoreInterval(pairedAttempts.wins, pairedAttempts.observedPairs, ONE_SIDED_97_5_Z);
+  const lossInterval = wilsonScoreInterval(pairedAttempts.losses, pairedAttempts.observedPairs, ONE_SIDED_97_5_Z);
   return {
-    method: 'paired_newcombe_wilson',
+    method: 'paired_bonferroni_wilson',
     confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL,
     lowerBound: roundRateDelta(clampRateDelta(winInterval.lower - lossInterval.upper)),
   };
