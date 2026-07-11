@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ToolTrow } from '../tool-activity.js';
 import { summarizeTrowTools } from '../tool-activity/trow-summary.js';
 import type { ToolActivityItem } from '../materialize.js';
+
+const toolActivitySource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'src', 'tool-activity.tsx'),
+  'utf8',
+);
 
 describe('tool trow summary aggregation', () => {
   it('multi-tool running summary shows aggregated bucket with 正在 prefix, not the active tool description', () => {
@@ -56,18 +64,16 @@ describe('tool trow summary aggregation', () => {
     assert.equal(summarizeTrowTools(items), '读取 1 个文件，搜索 1 次，1 个失败');
   });
 
-  it('rows settle by light-band stop, never an opacity fade class (static contract)', () => {
-    const markup = renderToStaticMarkup(createElement(ToolTrow, {
-      items: [
-        { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'completed', args: {} },
-        { toolUseId: 'g1', toolName: 'Grep', activityKind: 'search', status: 'errored', args: {} },
-      ] satisfies ToolActivityItem[],
-    }));
-    // errored forces the disclosure open so rows render; no row carries the
-    // settle-fade animation — the per-row seam is a light-band stop. (A full
-    // running→settled rerender contract needs dynamic test infrastructure that
-    // packages/ui lacks; this static contract locks the rendered output.)
-    assert.match(markup, /data-trow="row"/);
-    assert.doesNotMatch(markup, /maka-stream-fade-in/);
+  it('ToolTrowRow never reintroduces the per-row settle fade or the motion abstraction', () => {
+    // The per-row seam is a light-band stop only. The group keeps one
+    // SETTLE_FADE (its summary span); rows must not bring back the motion
+    // abstraction (deriveToolRowMotion / motion.* / settleFade) that would
+    // re-stack parallel fades. A dynamic running→settled rerender contract is
+    // tracked separately (packages/ui has only renderToStaticMarkup); this
+    // source contract locks the implementation shape until that infra exists.
+    assert.doesNotMatch(toolActivitySource, /deriveToolRowMotion/);
+    assert.doesNotMatch(toolActivitySource, /\bmotion\.(settling|shimmer|settled)\b/);
+    assert.doesNotMatch(toolActivitySource, /\bsettleFade\b/);
+    assert.equal((toolActivitySource.match(/\bSETTLE_FADE\b/g) ?? []).length, 2);
   });
 });

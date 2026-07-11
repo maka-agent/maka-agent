@@ -90,10 +90,14 @@ function isFailed(status: ToolActivityItem['status']): boolean {
 }
 
 /**
- * Build the settled-state summary line for a trow: one clause per distinct
- * activity kind in first-seen order, joined with "，", then a trailing
- * "N 个失败" clause when any tool errored. A failed tool still counts toward
- * its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
+ * Build the summary line for a trow: one clause per distinct activity kind in
+ * first-seen order, joined with "，". With `{ live: true }` (a multi-tool
+ * running group) the line is prefixed with "正在" and the trailing "N 个失败"
+ * clause is suppressed — the failed count changes mid-group, and errored tools
+ * still force-open their disclosure (trowNeedsAttention), so the failure signal
+ * is not lost, just kept off the jittering summary line. Settled (default)
+ * includes the "N 个失败" clause when any tool errored. A failed tool still
+ * counts toward its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
  */
 export function summarizeTrowTools(
   items: readonly ToolActivityItem[],
@@ -121,8 +125,11 @@ export function summarizeTrowTools(
 /**
  * The "active" tool in a running trow — the last one still in flight
  * (running / pending / waiting_permission). Its description drives the
- * shimmering summary line while the group is working. Falls back to the last
- * item so the summary is never empty.
+ * shimmering summary line only for a single-tool group; a multi-tool running
+ * group shows the whole-group bucket aggregation instead (summarizeTrowTools
+ * with `{ live: true }`). The active tool's presentation still feeds the
+ * disclosure attention state. Falls back to the last item so the summary is
+ * never empty.
  */
 export function activeTrowTool(items: readonly ToolActivityItem[]): ToolActivityItem | undefined {
   for (let i = items.length - 1; i >= 0; i -= 1) {
