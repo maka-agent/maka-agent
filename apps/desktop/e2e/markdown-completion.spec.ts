@@ -7,18 +7,18 @@ type MarkdownSample = {
   paragraphTop: number;
 };
 
-async function readLatestMarkdownGeometry(page: Page): Promise<MarkdownSample> {
-  return page.evaluate(() => {
+async function readMarkdownGeometry(page: Page, expectedText: string): Promise<MarkdownSample> {
+  return page.evaluate((text) => {
     const roots = document.querySelectorAll<HTMLElement>('.maka-markdown-root');
-    const root = roots[roots.length - 1];
-    if (!root) throw new Error('latest Markdown root is missing');
+    const root = [...roots].find((candidate) => candidate.textContent?.includes(text));
+    if (!root) throw new Error(`Markdown root containing "${text}" is missing`);
     const paragraph = root.querySelector('p');
     return {
       height: root.getBoundingClientRect().height,
       tags: [...root.children].map((child) => child.tagName).join('/'),
       paragraphTop: paragraph?.getBoundingClientRect().top ?? 0,
     };
-  });
+  }, expectedText);
 }
 
 test('keeps completed Markdown geometry stable after terminal completion', async ({ window: page }) => {
@@ -34,9 +34,9 @@ test('keeps completed Markdown geometry stable after terminal completion', async
   await sessionComposer.press('Enter');
   await expect(page.getByText('后续说明第二段。')).toBeVisible();
   await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0);
-  const terminal = await readLatestMarkdownGeometry(page);
+  const terminal = await readMarkdownGeometry(page, '后续说明第二段。');
   await page.waitForTimeout(800);
-  const settled = await readLatestMarkdownGeometry(page);
+  const settled = await readMarkdownGeometry(page, '后续说明第二段。');
 
   expect(terminal.tags).toBe('P/DIV/P/P/P');
   expect(settled.tags).toBe(terminal.tags);
