@@ -125,7 +125,6 @@ export type { PageHeaderProps } from './primitives/page-header.js';
 export {
   summarizeTrowTools,
   trowActivityKind,
-  activeTrowTool,
   isTrowRunning,
   trowNeedsAttention,
   type TrowActivityKind,

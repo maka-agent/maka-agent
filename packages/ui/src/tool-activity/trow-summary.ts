@@ -122,25 +122,6 @@ export function summarizeTrowTools(
   return options?.live ? `正在${base}` : base;
 }
 
-/**
- * The "active" tool in a running trow — the last one still in flight
- * (running / pending / waiting_permission). Its description drives the
- * shimmering summary line only for a single-tool group; a multi-tool running
- * group shows the whole-group bucket aggregation instead (summarizeTrowTools
- * with `{ live: true }`). The active tool's presentation still feeds the
- * disclosure attention state. Falls back to the last item so the summary is
- * never empty.
- */
-export function activeTrowTool(items: readonly ToolActivityItem[]): ToolActivityItem | undefined {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    const status = items[i]!.status;
-    if (status === 'running' || status === 'pending' || status === 'waiting_permission') {
-      return items[i];
-    }
-  }
-  return items[items.length - 1];
-}
-
 /** True when any tool in the group is still in flight. */
 export function isTrowRunning(items: readonly ToolActivityItem[]): boolean {
   return items.some(

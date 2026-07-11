@@ -20,10 +20,8 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import {
-  activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
-  trowActivityKind,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
@@ -491,12 +489,16 @@ export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
 function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const running = isTrowRunning(items);
   const attention = trowNeedsAttention(items);
-  const active = activeTrowTool(items) ?? items[0]!;
-  const activePresentation = deriveToolActivityPresentation(active);
+  // The group's presentation follows the first item (the first-seen bucket the
+  // summary clauses and icon use). The active-tool lookup is gone: a multi-tool
+  // running group shows the whole-group aggregation, a single-tool group's
+  // active tool is items[0] anyway, and disclosure attention is overridden by
+  // the whole-group trowNeedsAttention below.
+  const firstPresentation = deriveToolActivityPresentation(items[0]!);
   // Groups share the same disclosure state as a single row: ordinary work is
   // summarized; a new permission/error state opens diagnostics; manual choice
   // survives ordinary status changes.
-  const disclosure = useToolDisclosure({ ...activePresentation, needsAttention: attention });
+  const disclosure = useToolDisclosure({ ...firstPresentation, needsAttention: attention });
   // #646: a group settles when all its tools do; the settle fade plays only if
   // the group was ever seen running here (not a replayed transcript). The
   // delayed shimmer de-flickers a group whose tools all finish sub-second.
@@ -508,7 +510,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   // #tool-jitter: the group icon stays on the first bucket's kind (the same
   // first-seen order the summary clauses use), not the active tool's kind — so
   // a mixed-kind group's icon doesn't flip as the active tool changes mid-run.
-  const SummaryIcon = TROW_KIND_ICON[trowActivityKind(items[0]!.toolName, items[0]!.activityKind)];
+  const SummaryIcon = TROW_KIND_ICON[firstPresentation.kind];
   // Multi-tool running group shows the whole-group bucket aggregation with a
   // "正在" prefix instead of the active tool's description, so the summary line
   // stops cycling through each tool's intent as tools start/finish in
@@ -516,7 +518,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   // description — the "what exactly is running" signal is useful when there is
   // only one, and it is locked by existing tests.
   const summary = running
-    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : activePresentation.summary)
+    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : firstPresentation.summary)
     : summarizeTrowTools(items);
   return (
     <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
