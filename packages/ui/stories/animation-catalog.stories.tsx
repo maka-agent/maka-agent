@@ -12,24 +12,10 @@ type Story = StoryObj<typeof meta>;
 
 export const RetainedFunctionalMotion: Story = {
   render: () => (
-    <div style={{ alignItems: 'end', display: 'grid', gap: 24, gridTemplateColumns: 'repeat(3, minmax(96px, 1fr))' }}>
+    <div style={{ alignItems: 'end', display: 'grid', gap: 24, gridTemplateColumns: 'repeat(2, minmax(96px, 1fr))' }}>
       <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
         <Spinner style={{ height: 20, width: 20 }} />
         <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, fontWeight: 600 }}>Spinner</span>
-      </div>
-      <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
-        <span
-          aria-hidden="true"
-          style={{
-            animation: 'maka-pulse 1.4s var(--ease-in-out-strong) infinite',
-            background: 'var(--accent)',
-            borderRadius: 'var(--radius-pill)',
-            display: 'inline-block',
-            height: 10,
-            width: 10,
-          }}
-        />
-        <span style={{ color: 'var(--foreground-secondary)', fontSize: 12, fontWeight: 600 }}>Status pulse</span>
       </div>
       <div style={{ alignItems: 'center', display: 'grid', gap: 8, justifyItems: 'center' }}>
         <span

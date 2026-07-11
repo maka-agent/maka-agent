@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Bubble, LiveIndicator, Marker, markerVariants, Message, previewVariants, streamVariants, toolVariants } from '../primitives/chat.js';
+import { Bubble, Marker, markerVariants, Message, previewVariants, toolVariants } from '../primitives/chat.js';
 import { buttonVariants, cn } from '../ui.js';
 
 // The re-anchored renderer selectors key off the primitives' own `data-slot` /
@@ -135,43 +135,6 @@ test('lineage-badge merge drops the UiButton base shell so the retired badge pix
       `conflicting UiButton utility "${dropped}" must be merged out of the lineage badge`,
     );
   }
-});
-
-// PR3 — the tool live-output stream shell. The full per-part shell is proven by
-// the computed-style diff harness (38 rows, 0 delta), so this does NOT enumerate
-// every part literal — that would only mirror the implementation. It keeps the
-// two guards the diff doesn't make obvious: the shell must stay LITERAL (not the
-// semantic `rounded-lg`/scale, which a refactor could silently swap in), and the
-// body must use the `word-break` literal, never Tailwind's `break-words` (the
-// different `overflow-wrap` property — an easy, invisible-until-rendered mistake).
-test('streamVariants stays literal and avoids the overflow-wrap break-words trap', () => {
-  const container = streamVariants({ part: 'container' });
-  assert.ok(container.length > 0, 'container must resolve a non-empty leaf shell');
-  assert.ok(
-    !container.split(/\s+/).some((u) => ['rounded-lg', 'rounded-md', 'bg-primary'].includes(u)),
-    'shell must stay literal, not the semantic scale / a recolor',
-  );
-  const body = streamVariants({ part: 'body' });
-  assert.match(body, /\[word-break:break-word\]/);
-  assert.ok(!body.split(/\s+/).includes('break-words'), 'body must not use overflow-wrap break-words');
-});
-
-// The live dot is the one declaration that escapes the computed-style proof (a
-// `@keyframes` is a named global rule + `getComputedStyle` reads a phase-
-// dependent value). `LiveIndicator` pins the animation reference + reduced-motion
-// fallback as literals here; the keyframe body itself is pinned in the renderer
-// CSS contract. Also proves the structural `data-slot` hook can't be clobbered.
-test('LiveIndicator pins the canonical pulse + reduced-motion fallback over conflicting props', () => {
-  const el = LiveIndicator({ 'data-slot': 'spoofed' } as never);
-  const props = el.props as Record<string, unknown>;
-  assert.equal(el.type, 'span');
-  assert.equal(props['data-slot'], 'live-indicator');
-  const className = props.className as string;
-  assert.match(className, /\[animation:maka-pulse_1\.4s_ease-in-out_infinite\]/);
-  assert.match(className, /motion-reduce:\[animation:none\]/);
-  assert.match(className, /motion-reduce:opacity-\[0\.8\]/);
-  // never the Tailwind `animate-pulse` (a different opacity-only keyframe).
-  assert.ok(!className.split(/\s+/).includes('animate-pulse'), 'must use the governed maka-pulse, not animate-pulse');
 });
 
 // PR3b — the tool-activity card shell. The full per-part shell is proven by the

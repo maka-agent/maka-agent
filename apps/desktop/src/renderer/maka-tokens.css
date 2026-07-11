@@ -1262,19 +1262,6 @@
     50%      { box-shadow: 0 0 0 5px oklch(from var(--status-running) l c h / 0.06); }
   }
 
-  /* Canonical "live" pulse for the @maka/ui LiveIndicator primitive (issue
-     #332, PR3). One governed opacity+scale breath so the chat live-output dot —
-     and, in a follow-up motion pass, the reasoning / composer / onboarding live
-     dots that adopt LiveIndicator — share a single keyframe instead of
-     per-feature duplicates. Values mirror the retired
-     `maka-tool-output-stream-pulse` exactly (rest opacity 0.55, scale 1→1.1).
-     Reduced-motion suppression rides on the primitive's `motion-reduce:`
-     utilities. */
-  @keyframes maka-pulse {
-    0%, 100% { opacity: 0.55; transform: scale(1); }
-    50%      { opacity: 1;    transform: scale(1.1); }
-  }
-
   /* ---- Composer --------------------------------------------------- */
 
   .maka-composer {

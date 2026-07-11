@@ -112,7 +112,6 @@ describe('issue #406 design-system governance contract', () => {
       'maka-toast-exit',
       'maka-processing-sweep',
       'maka-list-row-streaming-pulse',
-      'maka-pulse',
       // Streaming UI rework: the "深度思考" disclosure title + a working trow's
       // active-tool summary sweep light across the label (functional "still
       // working" signal), driven by the TextShimmer primitive. The retired ▎

@@ -5,18 +5,18 @@ import { describe, it } from 'node:test';
 import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './css-test-helpers.js';
 
 /**
- * Zero-visual governance contract for issue #332 PR3 — the tool live-output
- * stream (`ToolOutputStream`) moved onto the `@maka/ui` chat substrate: the
- * panel/header/flags/body/chunk shell onto the `streamVariants` literalize
- * table, and the pulsing "live" dot onto the governed `LiveIndicator` primitive.
+ * Governance contract for the #332 PR3 tool live-output stream substrate after
+ * its #712 retirement. The stream shell (`streamVariants`), the pulsing "live"
+ * dot (`LiveIndicator`), and the canonical `@keyframes maka-pulse` that breathed
+ * it are all removed — the tool body now renders through the quiet `ToolTrow`
+ * panel (`TOOL_OUTPUT_BODY_CLASS`) whose running dot uses the separate
+ * `maka-tool-pulse` keyframe.
  *
- * The shell halves of "zero visual change" are locked the same way as PR2: the
- * bespoke `.maka-tool-output-stream-*` selectors are retired and each literal
- * compiles 1:1 to the declaration it replaced. The dot is the exception — an
- * animation can't be a leaf-literal and `getComputedStyle` reads a phase-
- * dependent value, so its breath is pinned by the canonical `@keyframes
- * maka-pulse` (frames asserted below) plus the literals in `chat.tsx`, verified
- * by before/after screenshots rather than the computed-style diff harness.
+ * What stays guarded here: the computed-style fixture stays aligned with the
+ * quiet production panel + its disclosure defaults, the retired bespoke
+ * `.maka-tool-output-stream-*` selectors + `maka-tool-output-stream-pulse`
+ * keyframe stay absent, and the removed PR3 substrate (`streamVariants` /
+ * `LiveIndicator` / `@keyframes maka-pulse`) stays removed.
  */
 describe('chat tool-output stream migration contract (#332 PR3)', () => {
   it('keeps the computed-style fixture aligned with the quiet tool-output panel', async () => {
@@ -29,9 +29,6 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
     assert.match(harness, /TOOL_OUTPUT_PANEL_CLASS/);
     assert.match(harness, /TOOL_OUTPUT_BODY_CLASS/);
     assert.match(harness, /data-slot="tool-output"/);
-    // Live code must not still import/call streamVariants (comments may mention history).
-    assert.doesNotMatch(harness, /streamVariants\s*\(/);
-    assert.doesNotMatch(harness, /from\s+.*primitives\/chat.*streamVariants|streamVariants\s*\}/);
     assert.doesNotMatch(harness, /toolOutputPanel[\s\S]*maka-tool-output-stream|sv\s*\(/);
   });
 
@@ -69,60 +66,29 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
     }
   });
 
-  it('keeps the governed canonical pulse keyframe with the retired dot frames', async () => {
-    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
-    assert.ok(
-      tokens.includes('@keyframes maka-pulse'),
-      'canonical `@keyframes maka-pulse` must live in maka-tokens.css (the shared motion home)',
-    );
-    // The frames mirror the retired `maka-tool-output-stream-pulse` exactly
-    // (rest opacity 0.55, scale 1 → 1.1). This is the dot's zero-visual proof —
-    // it can't be machine-diffed, so the values are pinned here.
-    const pulse = tokens.slice(
-      tokens.indexOf('@keyframes maka-pulse'),
-      tokens.indexOf('@keyframes maka-pulse') + 220,
-    );
-    for (const frame of [
-      'opacity: 0.55',
-      'transform: scale(1)',
-      'opacity: 1',
-      'transform: scale(1.1)',
-    ]) {
-      assert.ok(pulse.includes(frame), `maka-pulse must pin the retired dot frame "${frame}"`);
-    }
-  });
-
-  it('pins the live indicator dot — the one part the computed-style diff cannot cover', async () => {
-    // The stream SHELL (container/header/flags/body/chunk) is proven by the
-    // computed-style diff harness (0 delta), so this test does NOT
-    // re-assert those literals — that would just mirror the implementation. The
-    // dot is the exception: an animation can't be a leaf-literal and
-    // `getComputedStyle` reads a phase-dependent value, so the diff can't see it.
-    // Its breath is pinned by the `@keyframes maka-pulse` frame contract (above)
-    // plus the `LiveIndicator` literals here — the only machine proof it has.
+  it('keeps the retired PR3 stream substrate fully removed', async () => {
+    // #712 retired the tool live-output stream; this PR finishes removing the
+    // substrate. The `streamVariants` shell table, the `LiveIndicator` dot
+    // primitive, and the `@keyframes maka-pulse` that breathed it must all stay
+    // gone — comments may still mention the history, so the chat.tsx check
+    // strips comments before asserting the identifiers are absent from code.
     const rawSrc = await readFile(
       resolve(REPO_ROOT, 'packages', 'ui', 'src', 'primitives', 'chat.tsx'),
       'utf8',
     );
     const chatSrc = rawSrc.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    const liveBlock = chatSrc.slice(chatSrc.indexOf('function LiveIndicator'));
-    for (const literal of [
-      'w-[6px] h-[6px] rounded-[50%] bg-[var(--status-running)]',
-      '[animation:maka-pulse_1.4s_ease-in-out_infinite]',
-      'motion-reduce:[animation:none] motion-reduce:opacity-[0.8]',
-    ]) {
-      assert.ok(
-        liveBlock.includes(literal),
-        `LiveIndicator must carry the literal "${literal}" mirroring the retired dot`,
-      );
-    }
-    // The dot must never fall back to Tailwind's built-in `animate-pulse` (a
-    // different opacity-only keyframe) or recolor off the accent token.
-    for (const banned of ['animate-pulse', 'bg-primary']) {
-      assert.ok(
-        !liveBlock.includes(banned),
-        `LiveIndicator must use the governed maka-pulse/accent, not "${banned}"`,
-      );
-    }
+    assert.ok(
+      !/\bstreamVariants\b/.test(chatSrc),
+      '`streamVariants` must stay removed from chat.tsx code',
+    );
+    assert.ok(
+      !/\bLiveIndicator\b/.test(chatSrc),
+      '`LiveIndicator` must stay removed from chat.tsx code',
+    );
+    const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    assert.ok(
+      !tokens.includes('@keyframes maka-pulse'),
+      '`@keyframes maka-pulse` must stay removed from maka-tokens.css (its only consumer, LiveIndicator, is gone)',
+    );
   });
 });
