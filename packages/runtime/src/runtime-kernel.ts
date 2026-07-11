@@ -29,6 +29,7 @@ import {
   requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
+import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 
 export interface RuntimeKernelLike {
   startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
@@ -66,6 +67,8 @@ interface ActiveSession extends AgentRunActiveSession {
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
+  private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
+  private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -406,6 +409,8 @@ export class RuntimeKernel implements RuntimeKernelLike {
   async disposeBackend(sessionId: string): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
     this.active.delete(sessionId);
+    this.historyCompactCheckpoints.delete(sessionId);
+    this.historyCompactCheckpointLoads.delete(sessionId);
     for (const [key, active] of this.childActive.entries()) {
       if (active.sessionId === sessionId) this.childActive.delete(key);
     }
@@ -426,6 +431,40 @@ export class RuntimeKernel implements RuntimeKernelLike {
       if (child.sessionId === sessionId) sessions.push(child);
     }
     return sessions;
+  }
+
+  private loadHistoryCompactCheckpoint(sessionId: string): Promise<HistoryCompactCheckpoint | undefined> {
+    if (this.historyCompactCheckpoints.has(sessionId)) {
+      return Promise.resolve(this.historyCompactCheckpoints.get(sessionId));
+    }
+    const existing = this.historyCompactCheckpointLoads.get(sessionId);
+    if (existing) return existing;
+    if (!this.deps.runStore) return Promise.resolve(undefined);
+
+    let guardedLoad: Promise<HistoryCompactCheckpoint | undefined>;
+    guardedLoad = loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore, sessionId)
+      .then((checkpoint) => {
+        if (
+          this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad
+          && !this.historyCompactCheckpoints.has(sessionId)
+        ) {
+          this.historyCompactCheckpoints.set(sessionId, checkpoint);
+        }
+        return this.historyCompactCheckpoints.has(sessionId)
+          ? this.historyCompactCheckpoints.get(sessionId)
+          : checkpoint;
+      })
+      .finally(() => {
+        if (this.historyCompactCheckpointLoads.get(sessionId) === guardedLoad) {
+          this.historyCompactCheckpointLoads.delete(sessionId);
+        }
+      });
+    this.historyCompactCheckpointLoads.set(sessionId, guardedLoad);
+    return guardedLoad;
+  }
+
+  private cacheHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): void {
+    this.historyCompactCheckpoints.set(sessionId, checkpoint);
   }
 
   private async ensureActive(
@@ -449,9 +488,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
         run?.recordRunTrace(event);
       },
       ...(this.deps.runStore ? {
-        loadHistoryCompactCheckpoint: () => loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore!, sessionId),
+        loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
+        this.cacheHistoryCompactCheckpoint(sessionId, checkpoint);
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;
@@ -509,9 +549,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
         run?.recordRunTrace(event);
       },
       ...(this.deps.runStore ? {
-        loadHistoryCompactCheckpoint: () => loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore!, sessionId),
+        loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
       } : {}),
       recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
+        this.cacheHistoryCompactCheckpoint(sessionId, checkpoint);
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;

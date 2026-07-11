@@ -554,8 +554,6 @@ export class AiSdkBackend implements AgentBackend {
   private currentWatchdog: StreamWatchdog | null = null;
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
-  private historyCompactCheckpointLoaded = false;
-  private historyCompactCheckpoint: HistoryCompactCheckpoint | undefined;
   /**
    * Id of the assistant step currently streaming. Read by ToolRuntime via
    * `getCurrentStepId` so each tool call's `tool_start` carries the step it
@@ -631,9 +629,21 @@ export class AiSdkBackend implements AgentBackend {
         const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
         if (draftBlocks.length > 0) {
           if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
+            let writeContextBudget = contextBudget;
+            try {
+              const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+              if (checkpoint) {
+                writeContextBudget = {
+                  ...contextBudget,
+                  historyCompact: { ...contextBudget.historyCompact!, checkpoints: [checkpoint] },
+                };
+              }
+            } catch {
+              // A missing previous checkpoint only loses rolling reuse; the current fold remains safe to summarize.
+            }
             const writePatch = await this.writeHistoryCompactCheckpoint({
               turnId: input.turnId,
-              contextBudget,
+              contextBudget: writeContextBudget,
               priorRuntimeContext: runtimeContext,
               draftBlock: draftBlocks[0]!,
               abortSignal: historyCompactAbortController.signal,
@@ -685,6 +695,7 @@ export class AiSdkBackend implements AgentBackend {
     const current = base.historyCompact;
     const currentWithoutBlocks = { ...current };
     delete currentWithoutBlocks.blocks;
+    delete currentWithoutBlocks.checkpoints;
     const maxHistoryEstimatedTokens = base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
     return {
       name: base.name ?? 'manual-history-compact',
@@ -2035,12 +2046,7 @@ export class AiSdkBackend implements AgentBackend {
       return { policy };
     }
     try {
-      let checkpoint = this.historyCompactCheckpoint;
-      if (!this.historyCompactCheckpointLoaded) {
-        checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
-        this.historyCompactCheckpoint = checkpoint;
-        this.historyCompactCheckpointLoaded = true;
-      }
+      const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
       if (checkpoint) {
         return {
           policy: {
@@ -2286,8 +2292,6 @@ export class AiSdkBackend implements AgentBackend {
         now: this.now(),
       });
       await Promise.resolve(recorder(checkpoint, input.turnId));
-      this.historyCompactCheckpoint = checkpoint;
-      this.historyCompactCheckpointLoaded = true;
       return {
         replacementCheckpoint: checkpoint,
         diagnosticPatch: {

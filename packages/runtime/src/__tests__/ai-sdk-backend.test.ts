@@ -1643,6 +1643,82 @@ describe('AiSdkBackend model history', () => {
     assert.equal(result.contextBudget?.compactionDecisions?.[0]?.decision, 'replaced');
   });
 
+  test('manual compactHistory rolls forward from the previous V2 checkpoint', async () => {
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'manual-v2-roll-old-1',
+        turnId: 'manual-v2-roll-turn-1',
+        role: 'user',
+        author: 'user',
+        text: 'manual v2 roll old alpha '.repeat(12),
+      }),
+      runtimeTextEvent({
+        id: 'manual-v2-roll-old-2',
+        turnId: 'manual-v2-roll-turn-2',
+        role: 'model',
+        author: 'agent',
+        text: 'manual v2 roll old beta '.repeat(12),
+      }),
+    ];
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: oldEvents.slice(0, 1),
+      summary: 'MANUAL_V2_PREVIOUS_SUMMARY',
+      charsPerToken: 1,
+    });
+    const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
+    const recorded: HistoryCompactCheckpoint[] = [];
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => completionModel(),
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      contextBudget: {
+        name: 'manual-v2-roll-test',
+        maxHistoryEstimatedTokens: 10_000,
+        minRecentTurns: 1,
+        charsPerToken: 1,
+      },
+      loadHistoryCompactCheckpoint: () => previous,
+      summarizeHistoryCompact: async (input) => {
+        summaryInputs.push({
+          previous: input.previousCheckpoint?.summary,
+          newlyFoldedIds: (input.newlyFoldedRuntimeEvents ?? []).map((event) => event.id),
+        });
+        return 'MANUAL_V2_ROLLED_SUMMARY';
+      },
+      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+    });
+
+    await backend.compactHistory({
+      turnId: 'turn-compact',
+      runtimeContext: [
+        ...oldEvents,
+        runtimeTextEvent({
+          id: 'manual-v2-roll-recent',
+          turnId: 'manual-v2-roll-recent-turn',
+          role: 'user',
+          author: 'user',
+          text: 'manual v2 roll retained context',
+        }),
+      ],
+    });
+
+    assert.deepEqual(summaryInputs, [{
+      previous: 'MANUAL_V2_PREVIOUS_SUMMARY',
+      newlyFoldedIds: ['manual-v2-roll-old-2'],
+    }]);
+    assert.equal(recorded[0]?.previousCheckpointId, previous.checkpointId);
+    assert.equal(recorded[0]?.coverage.eventCount, 2);
+  });
+
   test('manual compactHistory writes the current fold instead of reusing a loaded prefix block', async () => {
     const covered = [
       runtimeTextEvent({
@@ -2299,7 +2375,6 @@ describe('AiSdkBackend model history', () => {
     });
     const recorded: HistoryCompactCheckpoint[] = [];
     const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
-    let checkpointLoadCalls = 0;
     const firstModel = completionModel();
     const firstBackend = new AiSdkBackend({
       sessionId: 'session-1', header: header(), appendMessage: async () => {},
@@ -2314,10 +2389,7 @@ describe('AiSdkBackend model history', () => {
           maxSummaryEstimatedTokens: 500,
         },
       },
-      loadHistoryCompactCheckpoint: () => {
-        checkpointLoadCalls += 1;
-        return previous;
-      },
+      loadHistoryCompactCheckpoint: () => previous,
       summarizeHistoryCompact: async (input) => {
         summaryInputs.push({
           previous: input.previousCheckpoint?.summary,
@@ -2340,14 +2412,6 @@ describe('AiSdkBackend model history', () => {
     assert.match(firstPrompt, /V2_ROLLED_SUMMARY/);
     assert.equal(firstPrompt.includes('V2 old source one'), false);
     assert.equal(firstPrompt.includes('V2 old source two'), false);
-
-    await drain(firstBackend.send({
-      turnId: 'turn-same-backend', text: 'continue in the same session', context: [], runtimeContext: [...oldEvents, recent],
-    }));
-
-    assert.equal(checkpointLoadCalls, 1);
-    assert.deepEqual(summaryInputs, [{ previous: 'V2_PREVIOUS_SUMMARY', newlyFoldedIds: ['v2-old-2'] }]);
-    assert.match(JSON.stringify(firstModel.doStreamCalls[1]?.prompt), /V2_ROLLED_SUMMARY/);
 
     let reuseSummaryCalls = 0;
     const secondModel = completionModel();

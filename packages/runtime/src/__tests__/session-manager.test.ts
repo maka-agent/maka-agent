@@ -3932,6 +3932,45 @@ describe('SessionManager permission mode updates', () => {
     expect(checkpoint?.summary).toBe('persist the bounded checkpoint');
   });
 
+  test('shares the latest history compact checkpoint across disposable child backends', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const observedCheckpointIds: Array<string | undefined> = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HistoryCompactCheckpointCacheProbeBackend(ctx, observedCheckpointIds));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(12_795),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'hello' }));
+    const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-turn');
+    if (!parentRun) throw new Error('parent run was not recorded');
+    runStore.readEventsCalls = 0;
+
+    for (const turnId of ['child-turn-1', 'child-turn-2']) {
+      await drain(manager.startChildTurn(session.id, {
+        turnId,
+        parentRunId: parentRun.runId,
+        spec: {
+          id: LOCAL_READ_AGENT_ID,
+          name: LOCAL_READ_AGENT_DEFINITION.name,
+          systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+        },
+        prompt: 'inspect the repo',
+      }));
+    }
+
+    expect(observedCheckpointIds).toEqual([undefined, 'hcheckpoint-shared', 'hcheckpoint-shared']);
+    expect(runStore.readEventsCalls).toBe(0);
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -5176,6 +5215,47 @@ class HistoryCompactCheckpointBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class HistoryCompactCheckpointCacheProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly observedCheckpointIds: Array<string | undefined>,
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const loaded = await this.ctx.loadHistoryCompactCheckpoint?.();
+    this.observedCheckpointIds.push(loaded?.checkpointId);
+    if (input.turnId === 'parent-turn') {
+      const checkpoint = buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents: [{
+          id: 'shared-source-event',
+          sessionId: this.sessionId,
+          runId: 'shared-source-run',
+          turnId: 'shared-source-turn',
+          invocationId: 'shared-source-invocation',
+          ts: 1,
+          partial: false,
+          role: 'user',
+          author: 'user',
+          content: { kind: 'text', text: 'source' },
+        }],
+        summary: 'share this checkpoint across session backends',
+      });
+      this.ctx.recordHistoryCompactCheckpoint?.({ ...checkpoint, checkpointId: 'hcheckpoint-shared' }, input.turnId);
+    }
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 function activeCompactBlockFixture(sessionId: string, turnId: string): ActiveFullCompactBlock {
   return {
     kind: 'maka.active_full_compact_block',
@@ -5346,6 +5426,7 @@ class MemorySessionStore implements SessionStore {
 
 class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   listSessionRunsCalls = 0;
+  readEventsCalls = 0;
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
@@ -5400,6 +5481,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
+    this.readEventsCalls += 1;
     return (this.events.get(key(sessionId, runId)) ?? []).map(copyEvent);
   }
 
