@@ -73,7 +73,6 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly childActive = new Map<string, ActiveSession>();
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
-  private readonly historyCompactCheckpointWriteFrontiers = new Map<string, HistoryCompactCheckpoint>();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
@@ -479,44 +478,25 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return guardedLoad;
   }
 
-  private acceptHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): boolean {
-    const selected = selectFurthestHistoryCompactCheckpoint(
-      this.historyCompactCheckpointWriteFrontiers.get(sessionId)
-        ?? this.historyCompactCheckpoints.get(sessionId),
-      checkpoint,
-    );
-    if (selected !== checkpoint) return false;
-    this.historyCompactCheckpointWriteFrontiers.set(sessionId, checkpoint);
-    return true;
-  }
-
   private recordHistoryCompactCheckpoint(
     sessionId: string,
     checkpoint: HistoryCompactCheckpoint,
     run: AgentRun | undefined,
   ): Promise<void> {
     if (!run) return Promise.reject(new Error('No active AgentRun for history compact checkpoint'));
-    if (!this.acceptHistoryCompactCheckpoint(sessionId, checkpoint)) {
-      return Promise.reject(new Error('History compact checkpoint was superseded before persistence'));
-    }
     const previous = this.historyCompactCheckpointWrites.get(sessionId) ?? Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
-      .then(
-        () => run.recordHistoryCompactCheckpoint(checkpoint),
-        () => run.recordHistoryCompactCheckpoint(checkpoint),
-      )
-      .then(() => {
-        const selected = selectFurthestHistoryCompactCheckpoint(
-          this.historyCompactCheckpoints.get(sessionId),
-          checkpoint,
-        );
-        if (selected === checkpoint) this.historyCompactCheckpoints.set(sessionId, checkpoint);
+      .catch(() => {})
+      .then(async () => {
+        const durableCheckpoint = await this.loadHistoryCompactCheckpoint(sessionId);
+        if (selectFurthestHistoryCompactCheckpoint(durableCheckpoint, checkpoint) !== checkpoint) {
+          throw new Error('History compact checkpoint was superseded before persistence');
+        }
+        await run.recordHistoryCompactCheckpoint(checkpoint);
+        this.historyCompactCheckpoints.set(sessionId, checkpoint);
       })
       .finally(() => {
-        if (this.historyCompactCheckpointWriteFrontiers.get(sessionId) === checkpoint) {
-          this.historyCompactCheckpointWriteFrontiers.delete(sessionId);
-        }
         if (this.historyCompactCheckpointWrites.get(sessionId) === tracked) {
           this.historyCompactCheckpointWrites.delete(sessionId);
         }

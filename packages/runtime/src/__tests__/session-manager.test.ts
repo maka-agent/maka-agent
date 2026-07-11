@@ -4225,6 +4225,7 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const furthestWriteGate = makeGate();
     const furthestWriteStarted = makeGate();
+    const staleRecorderCalled = makeGate();
     const writeOutcomes: string[] = [];
     const physicalCoverage: number[] = [];
     const runStore = new MemoryAgentRunStore({
@@ -4241,7 +4242,9 @@ describe('SessionManager permission mode updates', () => {
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new CheckpointRecorderContractProbeBackend(
       ctx,
-      async () => {},
+      async (turnId) => {
+        if (turnId === 'child-stale-in-flight') staleRecorderCalled.release();
+      },
       writeOutcomes,
     ));
     const manager = new SessionManager({
@@ -4259,7 +4262,7 @@ describe('SessionManager permission mode updates', () => {
     await furthestWriteStarted.promise;
     const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-furthest-in-flight');
     if (!parentRun) throw new Error('parent run was not recorded');
-    await drain(manager.startChildTurn(session.id, {
+    const childTurn = drain(manager.startChildTurn(session.id, {
       turnId: 'child-stale-in-flight',
       parentRunId: parentRun.runId,
       spec: {
@@ -4269,11 +4272,104 @@ describe('SessionManager permission mode updates', () => {
       },
       prompt: 'inspect the repo',
     }));
+    await staleRecorderCalled.promise;
     furthestWriteGate.release();
-    await parentTurn;
+    await Promise.all([parentTurn, childTurn]);
 
-    expect(writeOutcomes).toEqual(['child-stale-in-flight:rejected', 'parent-furthest-in-flight:fulfilled']);
+    expect(writeOutcomes).toEqual(['parent-furthest-in-flight:fulfilled', 'child-stale-in-flight:rejected']);
     expect(physicalCoverage).toEqual([2]);
+  });
+
+  test('waits for the initial durable checkpoint load before accepting a write', async () => {
+    const store = new MemorySessionStore();
+    const initialLoadGate = makeGate();
+    const initialLoadStarted = makeGate();
+    const staleRecorderCalled = makeGate();
+    const observedCoverage: Array<number | undefined> = [];
+    const writeOutcomes: string[] = [];
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventRead: async (_sessionId, runId) => {
+        if (runId !== 'seed-checkpoint-run') return;
+        initialLoadStarted.release();
+        await initialLoadGate.promise;
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new InitialCheckpointLoadRaceProbeBackend(
+      ctx,
+      staleRecorderCalled,
+      observedCoverage,
+      writeOutcomes,
+    ));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(12_802),
+    });
+    const session = await manager.createSession(makeInput());
+    const durableCheckpoint = buildHistoryCompactCheckpoint({
+      sessionId: session.id,
+      coveredRuntimeEvents: Array.from({ length: 10 }, (_, index): RuntimeEvent => ({
+        id: `durable-source-event-${index}`,
+        sessionId: session.id,
+        runId: `durable-source-run-${index}`,
+        turnId: `durable-source-turn-${index}`,
+        invocationId: `durable-source-invocation-${index}`,
+        ts: index + 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: `source ${index}` },
+      })),
+      summary: 'durable checkpoint',
+    });
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'seed-checkpoint-run',
+      turnId: 'seed-checkpoint-turn',
+      status: 'completed',
+    }), [makeRunEvent({
+      sessionId: session.id,
+      runId: 'seed-checkpoint-run',
+      turnId: 'seed-checkpoint-turn',
+      type: 'history_compact_checkpoint_recorded',
+      ts: 1,
+      data: { checkpoint: durableCheckpoint },
+    })]);
+
+    const parentTurn = drain(manager.sendMessage(session.id, { turnId: 'parent-initial-load', text: 'hello' }));
+    await initialLoadStarted.promise;
+    const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-initial-load');
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const childTurn = drain(manager.startChildTurn(session.id, {
+      turnId: 'child-stale-during-load',
+      parentRunId: parentRun.runId,
+      spec: {
+        id: LOCAL_READ_AGENT_ID,
+        name: LOCAL_READ_AGENT_DEFINITION.name,
+        systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+      },
+      prompt: 'inspect the repo',
+    }));
+    await staleRecorderCalled.promise;
+    initialLoadGate.release();
+    await Promise.all([parentTurn, childTurn]);
+
+    expect(observedCoverage).toEqual([10]);
+    expect(writeOutcomes).toEqual(['child-stale-during-load:rejected']);
+    const checkpointCoverage: number[] = [];
+    for (const run of await runStore.listSessionRuns(session.id)) {
+      for (const event of await runStore.readEvents(session.id, run.runId)) {
+        if (event.type === 'history_compact_checkpoint_recorded') {
+          checkpointCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+        }
+      }
+    }
+    expect(checkpointCoverage).toEqual([10]);
   });
 
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
@@ -5772,6 +5868,57 @@ class CheckpointRecorderContractProbeBackend implements AgentBackend {
   async dispose(): Promise<void> {}
 }
 
+class InitialCheckpointLoadRaceProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly staleRecorderCalled: Gate,
+    private readonly observedCoverage: Array<number | undefined>,
+    private readonly writeOutcomes: string[],
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    if (input.turnId === 'parent-initial-load') {
+      const loaded = await this.ctx.loadHistoryCompactCheckpoint?.();
+      this.observedCoverage.push(loaded?.coverage.eventCount);
+    } else {
+      const coveredRuntimeEvents = Array.from({ length: 5 }, (_, index): RuntimeEvent => ({
+        id: `stale-load-race-event-${index}`,
+        sessionId: this.sessionId,
+        runId: `stale-load-race-run-${index}`,
+        turnId: `stale-load-race-turn-${index}`,
+        invocationId: `stale-load-race-invocation-${index}`,
+        ts: index + 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: `source ${index}` },
+      }));
+      const write = this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents,
+        summary: 'stale checkpoint during initial load',
+      }), input.turnId);
+      this.staleRecorderCalled.release();
+      try {
+        await write;
+        this.writeOutcomes.push(`${input.turnId}:fulfilled`);
+      } catch {
+        this.writeOutcomes.push(`${input.turnId}:rejected`);
+      }
+    }
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
 function activeCompactBlockFixture(sessionId: string, turnId: string): ActiveFullCompactBlock {
   return {
     kind: 'maka.active_full_compact_block',
@@ -5956,6 +6103,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     failUpdateRunStatusOnce?: AgentRunHeader['status'];
     beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
     beforeAgentRunEventAppend?: (sessionId: string, runId: string, event: AgentRunEvent) => Promise<void> | void;
+    beforeAgentRunEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
   } = {}) {}
 
   async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
@@ -6000,6 +6148,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
 
   async readEvents(sessionId: string, runId: string): Promise<AgentRunEvent[]> {
     this.readEventsCalls += 1;
+    await this.options.beforeAgentRunEventRead?.(sessionId, runId);
     return (this.events.get(key(sessionId, runId)) ?? []).map(copyEvent);
   }
 
