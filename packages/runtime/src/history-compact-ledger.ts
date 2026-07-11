@@ -12,6 +12,7 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
   >,
   sessionId: string,
 ): Promise<HistoryCompactCheckpoint | undefined> {
+  let replaceEventId: string | undefined;
   if (runStore.readEventProjection) {
     try {
       const projected = await runStore.readEventProjection(
@@ -21,6 +22,7 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
       if (projected === null) return undefined;
       const checkpoint = projected?.data?.checkpoint;
       if (validateHistoryCompactCheckpointShape(checkpoint, sessionId)) return checkpoint;
+      replaceEventId = projected?.id;
     } catch {
       // Recover the derived projection from the canonical ledger below.
     }
@@ -48,6 +50,7 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
     sessionId,
     'history_compact_checkpoint_recorded',
     selectedEvent,
+    replaceEventId ? { replaceEventId } : undefined,
   ).catch(() => {
     // Recovery succeeded; a later cold read can retry this derived-state repair.
   });

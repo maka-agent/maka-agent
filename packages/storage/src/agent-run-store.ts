@@ -161,6 +161,7 @@ class FileAgentRunStore implements AgentRunStore {
     sessionId: string,
     type: AgentRunEventType,
     event: AgentRunEvent | null,
+    options: { replaceEventId?: string } = {},
   ): Promise<void> {
     assertSafeId(sessionId, 'Invalid session id');
     if (event !== null && !isProjectedAgentRunEvent(event, sessionId, type)) {
@@ -173,7 +174,10 @@ class FileAgentRunStore implements AgentRunStore {
       } catch {
         current = undefined;
       }
-      if (shouldPreserveProjectionDuringRepair(current, event, type)) return;
+      if (
+        current?.id !== options.replaceEventId
+        && shouldPreserveProjectionDuringRepair(current, event, type)
+      ) return;
       await this.writeEventProjectionUnlocked(sessionId, type, event);
     });
   }

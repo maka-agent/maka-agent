@@ -229,6 +229,65 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('replaces the same parseable but semantically invalid projection during repair', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+          options?: { replaceEventId?: string },
+        ): Promise<void>;
+      };
+      await store.createRun(makeHeader());
+      const invalidProjection = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'invalid-projection-event',
+        data: { checkpoint: { coverage: { eventCount: 999 } } },
+      });
+      const canonicalEvent = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'canonical-projection-event',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: 'hcheckpoint-canonical',
+            sessionId: 'session-1',
+            coverage: { eventCount: 1 },
+          },
+        },
+      });
+      await writeFile(
+        join(
+          root,
+          'sessions',
+          'session-1',
+          'projections',
+          'history_compact_checkpoint_recorded.json',
+        ),
+        JSON.stringify({ version: 1, event: invalidProjection }) + '\n',
+      );
+
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        canonicalEvent,
+        { replaceEventId: invalidProjection.id },
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, canonicalEvent.id);
+    });
+  });
+
   it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
     await withStore(async (store, root) => {
       const projectionStore = store as typeof store & {

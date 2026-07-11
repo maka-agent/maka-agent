@@ -101,5 +101,6 @@ export interface AgentRunStore {
     sessionId: string,
     type: AgentRunEventType,
     event: AgentRunEvent | null,
+    options?: { replaceEventId?: string },
   ): Promise<void>;
 }

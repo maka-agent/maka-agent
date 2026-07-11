@@ -168,6 +168,37 @@ describe('history compact checkpoint', () => {
     assert.deepEqual(repaired, [event]);
   });
 
+  test('identifies a parseable but invalid projection when repairing from the canonical ledger', async () => {
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0)],
+      summary: 'canonical checkpoint',
+    });
+    const canonicalEvent = checkpointEvent('canonical-event', 'run-canonical', checkpoint, 20);
+    const invalidProjection = {
+      ...canonicalEvent,
+      id: 'invalid-projection-event',
+      data: { checkpoint: { coverage: { eventCount: 999 } } },
+    } as AgentRunEvent;
+    const replacedEventIds: Array<string | undefined> = [];
+    const store = {
+      readEventProjection: async () => invalidProjection,
+      repairEventProjection: async (
+        _sessionId: string,
+        _type: AgentRunEvent['type'],
+        _event: AgentRunEvent | null,
+        options?: { replaceEventId?: string },
+      ) => { replacedEventIds.push(options?.replaceEventId); },
+      listSessionRuns: async () => [run('run-canonical', 10)],
+      readEvents: async () => [canonicalEvent],
+    };
+
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(loaded?.checkpointId, checkpoint.checkpointId);
+    assert.deepEqual(replacedEventIds, [invalidProjection.id]);
+  });
+
   test('propagates recovery failure from a damaged bounded projection', async () => {
     const store = {
       readEventProjection: async () => { throw new Error('damaged projection'); },
