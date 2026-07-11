@@ -200,7 +200,7 @@ export class AgentRun {
           checkpoint,
         },
       });
-    });
+    }, { rethrow: true });
   }
 
   recordSemanticCompactBlock(block: SemanticCompactBlock): void {
@@ -903,11 +903,16 @@ export class AgentRun {
     await this.traceQueue.catch(() => {});
   }
 
-  private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {
+  private enqueueRunStore(
+    label: string,
+    operation: () => Promise<void>,
+    options: { rethrow?: boolean } = {},
+  ): Promise<void> {
     if (!this.input.runStore || !this.runStoreAvailable) return Promise.resolve();
     const next = this.traceQueue.then(operation, operation).catch(async (error) => {
       this.runStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
+      if (options.rethrow) throw error;
     });
     this.traceQueue = next.catch(() => {});
     return next;

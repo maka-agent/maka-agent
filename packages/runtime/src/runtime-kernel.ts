@@ -73,6 +73,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly childActive = new Map<string, ActiveSession>();
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
+  private readonly historyCompactCheckpointWriteFrontiers = new Map<string, HistoryCompactCheckpoint>();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
@@ -478,13 +479,14 @@ export class RuntimeKernel implements RuntimeKernelLike {
     return guardedLoad;
   }
 
-  private cacheHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): boolean {
+  private acceptHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): boolean {
     const selected = selectFurthestHistoryCompactCheckpoint(
-      this.historyCompactCheckpoints.get(sessionId),
+      this.historyCompactCheckpointWriteFrontiers.get(sessionId)
+        ?? this.historyCompactCheckpoints.get(sessionId),
       checkpoint,
     );
     if (selected !== checkpoint) return false;
-    this.historyCompactCheckpoints.set(sessionId, checkpoint);
+    this.historyCompactCheckpointWriteFrontiers.set(sessionId, checkpoint);
     return true;
   }
 
@@ -493,12 +495,25 @@ export class RuntimeKernel implements RuntimeKernelLike {
     checkpoint: HistoryCompactCheckpoint,
     run: AgentRun | undefined,
   ): Promise<void> {
-    if (!this.cacheHistoryCompactCheckpoint(sessionId, checkpoint) || !run) return Promise.resolve();
+    if (!run || !this.acceptHistoryCompactCheckpoint(sessionId, checkpoint)) return Promise.resolve();
     const previous = this.historyCompactCheckpointWrites.get(sessionId) ?? Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
-      .then(() => run.recordHistoryCompactCheckpoint(checkpoint))
+      .then(
+        () => run.recordHistoryCompactCheckpoint(checkpoint),
+        () => run.recordHistoryCompactCheckpoint(checkpoint),
+      )
+      .then(() => {
+        const selected = selectFurthestHistoryCompactCheckpoint(
+          this.historyCompactCheckpoints.get(sessionId),
+          checkpoint,
+        );
+        if (selected === checkpoint) this.historyCompactCheckpoints.set(sessionId, checkpoint);
+      })
       .finally(() => {
+        if (this.historyCompactCheckpointWriteFrontiers.get(sessionId) === checkpoint) {
+          this.historyCompactCheckpointWriteFrontiers.delete(sessionId);
+        }
         if (this.historyCompactCheckpointWrites.get(sessionId) === tracked) {
           this.historyCompactCheckpointWrites.delete(sessionId);
         }

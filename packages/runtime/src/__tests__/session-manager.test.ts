@@ -4103,6 +4103,77 @@ describe('SessionManager permission mode updates', () => {
     expect(physicalCoverage).toEqual([1, 2]);
   });
 
+  test('keeps failed checkpoint writes out of the cache and continues the session write queue', async () => {
+    const store = new MemorySessionStore();
+    const parentWriteGate = makeGate();
+    const parentWriteStarted = makeGate();
+    const childRecorderCalled = makeGate();
+    const physicalCoverage: number[] = [];
+    const observedCoverage: Array<number | undefined> = [];
+    const writeOutcomes: string[] = [];
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type !== 'history_compact_checkpoint_recorded') return;
+        const coverage = (event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
+        physicalCoverage.push(coverage);
+        if (coverage === 1) {
+          parentWriteStarted.release();
+          await parentWriteGate.promise;
+          throw new Error('checkpoint append failed');
+        }
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new RecoveringCheckpointWriteProbeBackend(
+      ctx,
+      childRecorderCalled,
+      observedCoverage,
+      writeOutcomes,
+    ));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(12_798),
+    });
+    const session = await manager.createSession(makeInput());
+
+    const parentTurn = drain(manager.sendMessage(session.id, { turnId: 'parent-failing', text: 'hello' }));
+    await parentWriteStarted.promise;
+    const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-failing');
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const childTurn = drain(manager.startChildTurn(session.id, {
+      turnId: 'child-succeeding',
+      parentRunId: parentRun.runId,
+      spec: {
+        id: LOCAL_READ_AGENT_ID,
+        name: LOCAL_READ_AGENT_DEFINITION.name,
+        systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+      },
+      prompt: 'inspect the repo',
+    }));
+    await childRecorderCalled.promise;
+    parentWriteGate.release();
+    await Promise.all([parentTurn, childTurn]);
+    await drain(manager.startChildTurn(session.id, {
+      turnId: 'child-observe',
+      parentRunId: parentRun.runId,
+      spec: {
+        id: LOCAL_READ_AGENT_ID,
+        name: LOCAL_READ_AGENT_DEFINITION.name,
+        systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+      },
+      prompt: 'inspect the repo',
+    }));
+
+    expect(observedCoverage).toEqual([undefined, undefined, 2]);
+    expect(writeOutcomes).toEqual(['parent-failing:rejected', 'child-succeeding:fulfilled']);
+    expect(physicalCoverage).toEqual([1, 2]);
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -5495,6 +5566,57 @@ class SerializedCheckpointProbeBackend implements AgentBackend {
       this.childRecorderCalled.release();
     }
     await write;
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class RecoveringCheckpointWriteProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly childRecorderCalled: Gate,
+    private readonly observedCoverage: Array<number | undefined>,
+    private readonly writeOutcomes: string[],
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const loaded = await this.ctx.loadHistoryCompactCheckpoint?.();
+    this.observedCoverage.push(loaded?.coverage.eventCount);
+    if (input.turnId !== 'child-observe') {
+      const coverage = input.turnId === 'parent-failing' ? 1 : 2;
+      const coveredRuntimeEvents = Array.from({ length: coverage }, (_, index): RuntimeEvent => ({
+        id: `recovering-source-event-${index}`,
+        sessionId: this.sessionId,
+        runId: `recovering-source-run-${index}`,
+        turnId: `recovering-source-turn-${index}`,
+        invocationId: `recovering-source-invocation-${index}`,
+        ts: index + 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: `source ${index}` },
+      }));
+      const write = this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents,
+        summary: `${input.turnId} checkpoint`,
+      }), input.turnId);
+      if (input.turnId === 'child-succeeding') this.childRecorderCalled.release();
+      try {
+        await write;
+        this.writeOutcomes.push(`${input.turnId}:fulfilled`);
+      } catch {
+        this.writeOutcomes.push(`${input.turnId}:rejected`);
+      }
+    }
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }
 
