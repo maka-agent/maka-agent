@@ -34,7 +34,7 @@ Renderer CSS may target a primitive via its `data-slot` attribute, never by over
 ## Where new code goes
 
 - **New primitive** (button-like, dialog-like, form control) → a new file in `src/primitives/`, exposing `data-slot`, re-exported from `index.ts` (primitives are the public surface).
-- **New feature component** → top-level `src/<name>.tsx`, re-exported from `src/components.tsx`; re-export from `index.ts` only when it has a second or cross-package consumer (a single in-package consumer stays a relative import).
+- **New feature component** → top-level `src/<name>.tsx`. Keep it a relative import while it has only a single in-package consumer; once it has a second or cross-package consumer, re-export it from `src/components.tsx` (`index.ts` does `export * from './components.js'`, so anything re-exported there is already on the package barrel — there's no separate “add to index.ts” step).
 - **Don't** add a per-surface hand-rolled CSS recipe in the renderer if a primitive can carry it — extend the primitive's API/slots instead.
 - **Don't** re-export a symbol that has a single in-package consumer and no cross-package consumer; keep it a relative import until a second or cross-package consumer appears (a cross-package consumer can't use a relative import — `previewVariants` is re-exported for exactly that reason).
 
