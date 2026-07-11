@@ -92,7 +92,10 @@ function summarizeArm(
   const observedAttempts = observedArmAttempts(runs, taskIds, arm);
   const observed = observedAttempts.map((attempt) => attempt.event);
   const valid = observed.filter(isValidBudgetedOutcome);
-  const budgetedRuns = valid.filter((event) => event.type !== 'task_budget_exhausted');
+  const budgetedRuns = valid.filter(
+    (event): event is Extract<FixedPromptTaskWalEvent, { type: 'task_completed' }> =>
+      event.type === 'task_completed' && abOutcomeCategory(event) !== 'budget',
+  );
   const passed = valid.filter((event) => event.passed).length;
   const durations = budgetedRuns.map((event) => event.durationMs);
   const contextBudget = summarizeContextBudget(observedAttempts);
@@ -107,10 +110,10 @@ function summarizeArm(
     valid: valid.length,
     passed,
     passRate: valid.length > 0 ? passed / valid.length : null,
-    completed: observed.filter((event) => event.type === 'task_completed').length,
-    budgetExhausted: observed.filter((event) => event.type === 'task_budget_exhausted').length,
-    infraFailed: observed.filter((event) => event.type === 'task_infra_failed').length,
-    plumbingFailed: observed.filter((event) => event.type === 'task_plumbing_failed').length,
+    completed: observed.filter((event) => abOutcomeCategory(event) === 'completed').length,
+    budgetExhausted: observed.filter((event) => abOutcomeCategory(event) === 'budget').length,
+    infraFailed: observed.filter((event) => abOutcomeCategory(event) === 'infra').length,
+    plumbingFailed: observed.filter((event) => abOutcomeCategory(event) === 'plumbing').length,
     missing: attempts - observed.length,
     coverageRate: attempts > 0 ? valid.length / attempts : 1,
     totalCostUsd: tokenCostSummary.costUsd,
@@ -140,7 +143,10 @@ function summarizeActivePruneSubset(
   const sliceAttempts = attempts.filter((attempt) => activePrunePairIds.has(attemptPairId(attempt)));
   const observed = sliceAttempts.map((attempt) => attempt.event);
   const valid = observed.filter(isValidBudgetedOutcome);
-  const budgetedRuns = valid.filter((event) => event.type !== 'task_budget_exhausted');
+  const budgetedRuns = valid.filter(
+    (event): event is Extract<FixedPromptTaskWalEvent, { type: 'task_completed' }> =>
+      event.type === 'task_completed' && abOutcomeCategory(event) !== 'budget',
+  );
   const passed = valid.filter((event) => event.passed).length;
   const durations = budgetedRuns.map((event) => event.durationMs);
   const tokenCostSummary = summarizeTokenCost(observed);
@@ -152,10 +158,10 @@ function summarizeActivePruneSubset(
     valid: valid.length,
     passed,
     passRate: valid.length > 0 ? passed / valid.length : null,
-    completed: observed.filter((event) => event.type === 'task_completed').length,
-    budgetExhausted: observed.filter((event) => event.type === 'task_budget_exhausted').length,
-    infraFailed: observed.filter((event) => event.type === 'task_infra_failed').length,
-    plumbingFailed: observed.filter((event) => event.type === 'task_plumbing_failed').length,
+    completed: observed.filter((event) => abOutcomeCategory(event) === 'completed').length,
+    budgetExhausted: observed.filter((event) => abOutcomeCategory(event) === 'budget').length,
+    infraFailed: observed.filter((event) => abOutcomeCategory(event) === 'infra').length,
+    plumbingFailed: observed.filter((event) => abOutcomeCategory(event) === 'plumbing').length,
     missing: activePrunePairIds.size - observed.length,
     coverageRate: activePrunePairIds.size > 0 ? valid.length / activePrunePairIds.size : 1,
     totalCostUsd: tokenCostSummary.costUsd,
@@ -443,10 +449,10 @@ function summarizeTaskArm(
     valid: valid.length,
     passed,
     passRate: valid.length > 0 ? passed / valid.length : null,
-    completed: observed.filter((event) => event.type === 'task_completed').length,
-    budgetExhausted: observed.filter((event) => event.type === 'task_budget_exhausted').length,
-    infraFailed: observed.filter((event) => event.type === 'task_infra_failed').length,
-    plumbingFailed: observed.filter((event) => event.type === 'task_plumbing_failed').length,
+    completed: observed.filter((event) => abOutcomeCategory(event) === 'completed').length,
+    budgetExhausted: observed.filter((event) => abOutcomeCategory(event) === 'budget').length,
+    infraFailed: observed.filter((event) => abOutcomeCategory(event) === 'infra').length,
+    plumbingFailed: observed.filter((event) => abOutcomeCategory(event) === 'plumbing').length,
     missing: reps - observed.length,
   };
 }
@@ -517,7 +523,6 @@ function decide(
   const coverage = Math.min(baseline.coverageRate, candidate.coverageRate);
   if (baseline.infraFailed + candidate.infraFailed > 0) return { decision: 'invalid', reason: 'infra_failure_observed' };
   if (baseline.plumbingFailed + candidate.plumbingFailed > 0) return { decision: 'invalid', reason: 'plumbing_failure_observed' };
-  if (pairedAttempts.budgetDiscordantPairIds.length > 0) return { decision: 'invalid', reason: 'asymmetric_budget_exhaustion' };
   if (coverage < 0.9) return { decision: 'not_cleared', reason: 'low_effective_coverage' };
   if (pairedAttempts.missingPairIds.length > 0) return { decision: 'not_cleared', reason: 'missing_attempt_pair' };
   if (pairedAttempts.infraOrPlumbingDiscordantPairIds.length > 0) {
@@ -566,11 +571,31 @@ function isValidBudgetedOutcome(
 }
 
 function isBudgetExhaustedOutcome(event: FixedPromptTaskWalEvent): boolean {
-  return event.type === 'task_budget_exhausted';
+  return abOutcomeCategory(event) === 'budget';
 }
 
 function isInfraOrPlumbingOutcome(event: FixedPromptTaskWalEvent): boolean {
-  return event.type === 'task_infra_failed' || event.type === 'task_plumbing_failed';
+  const category = abOutcomeCategory(event);
+  return category === 'infra' || category === 'plumbing';
+}
+
+type AbOutcomeCategory = 'completed' | 'budget' | 'infra' | 'plumbing';
+
+function abOutcomeCategory(event: FixedPromptTaskWalEvent): AbOutcomeCategory {
+  if (event.type === 'task_infra_failed') return 'infra';
+  if (event.type === 'task_plumbing_failed') return 'plumbing';
+  if (event.type === 'task_completed') {
+    return event.errorClass === 'tool_step_cap_reached' ? 'budget' : 'completed';
+  }
+  if (event.evidenceErrorClass === undefined) return 'budget';
+  if (
+    event.evidenceErrorClass === 'zero_cost_with_tokens'
+    || event.evidenceErrorClass === 'prompt_hash_mismatch'
+    || event.evidenceErrorClass === 'missing_prompt_hash'
+    || event.evidenceErrorClass === 'missing_execution_identity'
+    || event.evidenceErrorClass === 'execution_identity_mismatch'
+  ) return 'plumbing';
+  return 'infra';
 }
 
 function median(values: readonly number[]): number | null {

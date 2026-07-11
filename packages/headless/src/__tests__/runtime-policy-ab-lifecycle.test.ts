@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { Config } from '../contracts.js';
-import { hashSystemPrompt, type HarborTaskRunInput, type HarborTaskRunOutput } from '../fixed-prompt-controller.js';
+import {
+  FixedPromptBudgetExhaustedError,
+  hashSystemPrompt,
+  type HarborTaskRunInput,
+  type HarborTaskRunOutput,
+} from '../fixed-prompt-controller.js';
 import { runRuntimePolicyAbLifecycle } from '../runtime-policy-ab-lifecycle.js';
 import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
@@ -97,6 +102,84 @@ test('pilot without candidate activation does not launch full execution', async 
 
     assert.equal(state.status, 'pilot_not_cleared');
     assert.equal(state.reason, 'pilot_candidate_not_activated');
+    assert.equal(calls.length, 2);
+  });
+});
+
+test('pilot candidate pass against an attested baseline timeout can launch full execution', async () => {
+  await withDir(async (dir) => {
+    const promptPath = join(dir, 'prompt.md');
+    await writeFile(promptPath, 'shared prompt\n', 'utf8');
+    const calls: string[] = [];
+    const state = await runRuntimePolicyAbLifecycle({
+      runId: 'run-1',
+      runRoot: dir,
+      manifestFingerprint: 'sha256:manifest',
+      config,
+      systemPromptPath: promptPath,
+      resultsJsonlPath: join(dir, 'results.jsonl'),
+      pilotTasks: [{ id: 'pilot', path: '/tasks/pilot' }],
+      evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
+      fullReps: 2,
+      arms: [
+        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+      ],
+      executionProfile,
+      harborRunner: async (runInput) => {
+        calls.push(runInput.roundId);
+        const candidate = runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on';
+        if (runInput.roundId.startsWith('pilot-') && !candidate) {
+          throw new FixedPromptBudgetExhaustedError('pilot budget exhausted', undefined, {
+            executionIdentity: {
+              llmConnectionSlug: 'deepseek',
+              model: 'deepseek-v4-flash',
+              systemPromptHash: hashSystemPrompt(runInput.systemPrompt),
+              pricingProfile: 'test-profile',
+            },
+          });
+        }
+        return output(runInput, candidate);
+      },
+    });
+
+    assert.equal(state.status, 'full_completed');
+    assert.equal(state.pilot?.baseline.budgetExhausted, 1);
+    assert.equal(state.pilot?.candidate.passed, 1);
+    assert.equal(calls.length, 6);
+  });
+});
+
+test('pilot does not launch full execution after an unattested baseline timeout', async () => {
+  await withDir(async (dir) => {
+    const promptPath = join(dir, 'prompt.md');
+    await writeFile(promptPath, 'shared prompt\n', 'utf8');
+    const calls: string[] = [];
+    const state = await runRuntimePolicyAbLifecycle({
+      runId: 'run-1',
+      runRoot: dir,
+      manifestFingerprint: 'sha256:manifest',
+      config,
+      systemPromptPath: promptPath,
+      resultsJsonlPath: join(dir, 'results.jsonl'),
+      pilotTasks: [{ id: 'pilot', path: '/tasks/pilot' }],
+      evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
+      fullReps: 2,
+      arms: [
+        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+      ],
+      executionProfile,
+      harborRunner: async (runInput) => {
+        calls.push(runInput.roundId);
+        const candidate = runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on';
+        if (!candidate) throw new FixedPromptBudgetExhaustedError('pilot budget exhausted');
+        return output(runInput, true);
+      },
+    });
+
+    assert.equal(state.status, 'pilot_not_cleared');
+    assert.equal(state.reason, 'pilot_plumbing_failure');
     assert.equal(calls.length, 2);
   });
 });

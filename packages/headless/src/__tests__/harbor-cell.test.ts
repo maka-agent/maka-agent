@@ -326,6 +326,57 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('writes execution identity before the first model call', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      let observedIdentity: unknown;
+      class IdentityObservingBackend implements AgentBackend {
+        readonly kind: BackendKind = 'fake';
+        readonly sessionId: string;
+
+        constructor(sessionId: string) {
+          this.sessionId = sessionId;
+        }
+
+        async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+          observedIdentity = JSON.parse(await readFile(
+            join(outputDir, 'maka-cell-execution-identity.json'),
+            'utf8',
+          ));
+          yield {
+            type: 'complete',
+            id: 'identity-observed',
+            turnId: input.turnId,
+            ts: Date.now(),
+            stopReason: 'end_turn',
+          };
+        }
+
+        async stop(): Promise<void> {}
+        async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+        async dispose(): Promise<void> {}
+      }
+
+      await runHarborCell({
+        config,
+        instruction: 'observe identity',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        pricingProfile: 'deepseek-v4-flash-tbench-v1',
+        registerBackends: (registry) => {
+          registry.register('fake', (ctx) => new IdentityObservingBackend(ctx.sessionId));
+        },
+      });
+
+      assert.deepEqual(observedIdentity, {
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        systemPromptHash: `sha256:${createHash('sha256').update(JSON.stringify(config.systemPrompt)).digest('hex')}`,
+        pricingProfile: 'deepseek-v4-flash-tbench-v1',
+      });
+    });
+  });
+
   test('env entrypoint reads instruction files and writes the same cell artifacts', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const instructionFile = join(outputDir, 'instruction.txt');

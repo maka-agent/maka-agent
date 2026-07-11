@@ -58,6 +58,7 @@ import {
 
 export const HARBOR_CELL_OUTPUT_FILENAME = 'maka-cell-output.json';
 export const HARBOR_CELL_RUNTIME_EVENTS_FILENAME = 'runtime-events.jsonl';
+export const HARBOR_CELL_EXECUTION_IDENTITY_FILENAME = 'maka-cell-execution-identity.json';
 const execAsync = promisify(nodeExec);
 const HARBOR_CELL_TOOL_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
@@ -298,6 +299,19 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
       ? { realBackendIsolation: input.realBackendIsolation, toolExecutor: input.realBackendIsolation?.toolExecutor }
       : {}),
   });
+  if (!config.model) throw new Error('Harbor cell config must include a model for execution identity');
+  const executionIdentity = {
+    llmConnectionSlug: config.llmConnectionSlug,
+    model: config.model,
+    systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
+    pricingProfile: input.pricingProfile ?? 'unconfigured',
+  };
+  await mkdir(input.outputDir, { recursive: true });
+  await writeFile(
+    join(input.outputDir, HARBOR_CELL_EXECUTION_IDENTITY_FILENAME),
+    `${JSON.stringify(executionIdentity, null, 2)}\n`,
+    'utf8',
+  );
 
   let invocation: InvocationResult | undefined;
   const manager = new SessionManager({
@@ -366,7 +380,6 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     throw new Error('Harbor cell finished without a runtime invocation result');
   }
   const combinedInvocation = combineInvocations(invocations);
-  if (!config.model) throw new Error('Harbor cell config must include a model for execution identity');
   const continuationSummary = continuationPolicy.enabled
     ? buildContinuationSummary(continuationPolicy, invocations, stepCapHits)
     : undefined;
@@ -378,12 +391,7 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
   const output = validateHarborCellOutput(buildHarborCellOutput({
     invocation: combinedInvocation,
     runtimeEventsPath,
-    executionIdentity: {
-      llmConnectionSlug: config.llmConnectionSlug,
-      model: config.model,
-      systemPromptHash: hashHarborSystemPrompt(config.systemPrompt ?? ''),
-      pricingProfile: input.pricingProfile ?? 'unconfigured',
-    },
+    executionIdentity,
     ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
     ...(continuationSummary ? { continuationSummary } : {}),
     ...(input.taskToolSummaryEnabled !== undefined ? { taskToolSummaryEnabled: input.taskToolSummaryEnabled } : {}),
