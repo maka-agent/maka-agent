@@ -43,7 +43,7 @@ export function summarizeAbComparison(input: SummarizeAbComparisonInput): AbComp
   const passRateDelta = baseline.passRate !== null && candidate.passRate !== null
     ? roundRateDelta(candidate.passRate - baseline.passRate)
     : null;
-  const nonInferiority = summarizeNonInferiority(baseline, candidate, passRateDelta);
+  const nonInferiority = summarizeNonInferiority(pairedAttempts, passRateDelta);
   const { decision, reason } = decide(baseline, candidate, pairedAttempts, passRateDelta, nonInferiority, nonInferiorityMargin);
 
   return {
@@ -526,19 +526,18 @@ function decide(
 }
 
 function summarizeNonInferiority(
-  baseline: AbArmSummary,
-  candidate: AbArmSummary,
+  pairedAttempts: AbAttemptPairSummary,
   passRateDelta: number | null,
 ): AbNonInferioritySummary {
-  if (passRateDelta === null || baseline.passRate === null || candidate.passRate === null || baseline.valid === 0 || candidate.valid === 0) {
+  if (passRateDelta === null || pairedAttempts.observedPairs === 0) {
     return { method: 'unavailable', confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL, lowerBound: null };
   }
-  const baselineInterval = wilsonScoreInterval(baseline.passed, baseline.valid, ONE_SIDED_95_Z);
-  const candidateInterval = wilsonScoreInterval(candidate.passed, candidate.valid, ONE_SIDED_95_Z);
+  const winInterval = wilsonScoreInterval(pairedAttempts.wins, pairedAttempts.observedPairs, ONE_SIDED_95_Z);
+  const lossInterval = wilsonScoreInterval(pairedAttempts.losses, pairedAttempts.observedPairs, ONE_SIDED_95_Z);
   return {
-    method: 'newcombe_wilson',
+    method: 'paired_newcombe_wilson',
     confidenceLevel: NON_INFERIORITY_CONFIDENCE_LEVEL,
-    lowerBound: roundRateDelta(clampRateDelta(candidateInterval.lower - baselineInterval.upper)),
+    lowerBound: roundRateDelta(clampRateDelta(winInterval.lower - lossInterval.upper)),
   };
 }
 

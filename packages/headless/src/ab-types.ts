@@ -224,7 +224,7 @@ export interface AbInvestigationRefs {
 }
 
 export interface AbNonInferioritySummary {
-  method: 'newcombe_wilson' | 'unavailable';
+  method: 'paired_newcombe_wilson' | 'unavailable';
   confidenceLevel: number;
   lowerBound: number | null;
 }
