@@ -1596,9 +1596,12 @@ describe('Maka Pi TUI runner', () => {
       readShellRun: async (sessionId, requestedRef) => {
         reads.push({ sessionId, ref: requestedRef });
         return {
-          kind: 'shell_run', ref, status: 'completed', cwd: '/repo', cmd: 'build',
-          startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
-          stdout: 'starting\ndone\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          ownerSessionId: sessionId,
+          result: {
+            kind: 'shell_run', ref, status: 'completed', cwd: '/repo', cmd: 'build',
+            startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
+            stdout: 'starting\ndone\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          },
         };
       },
     });
@@ -1997,6 +2000,54 @@ describe('Maka Pi TUI runner', () => {
         throw new Error('TUI did not close during test cleanup');
       }),
     ]);
+  });
+
+  test('marks an inherited running Bash card detached after rewind', async () => {
+    const terminal = new FakeTerminal();
+    const ref = 'maka://runtime/background-tasks/bg-1';
+    const branchMessages = [
+      {
+        type: 'tool_call', id: 'tool-bg', turnId: 'turn-1', ts: 1,
+        toolName: 'Bash', args: { command: 'build' },
+      },
+      {
+        type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
+        toolUseId: 'tool-bg', isError: false,
+        content: {
+          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+          startedAt: 1_000, updatedAt: 2_000,
+          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        },
+      },
+    ] satisfies StoredMessage[];
+    const driver = new RewindDriver(
+      [{ turnId: 'turn-2', label: 'second question' }],
+      branchMessages,
+      { ...fakeSessionSummary('session-branch'), parentSessionId: 'session-1' },
+    );
+    const run = runMakaPiTui({
+      title: 'Maka', driver, cwd: '/repo', model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription', permissionMode: 'ask', terminal,
+      readShellRun: async () => ({
+        ownerSessionId: 'session-1',
+        result: {
+          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+          startedAt: 1_000, updatedAt: 3_000,
+          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        },
+      }),
+    });
+
+    terminal.input('/rewind');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('回到选定轮次'));
+    terminal.input('\r');
+
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('detached'));
+    assert.equal(plainTerminalOutput(terminal.screenOutput()).includes('Ask Maka to stop this task'), false);
+
+    exitMaka(terminal);
+    await run;
   });
 
   test('reports when /rewind has no earlier turns', async () => {
@@ -2931,7 +2982,7 @@ class SlashCommandDriver implements MakaSessionDriver {
   readonly sessionIds: string[] = [];
   readonly renames: string[] = [];
   startNewSessionCalls = 0;
-  private sessionId = 'session-1';
+  protected sessionId = 'session-1';
 
   constructor(
     private readonly sessions: SessionSummary[] = [fakeSessionSummary('session-2', '/repo')],
@@ -3332,6 +3383,7 @@ class RewindDriver extends SlashCommandDriver {
   constructor(
     private readonly targets: RewindTarget[],
     private readonly branchMessages: readonly StoredMessage[] = [],
+    private readonly branchSummary: SessionSummary = fakeSessionSummary('session-branch'),
   ) {
     super();
   }
@@ -3342,8 +3394,9 @@ class RewindDriver extends SlashCommandDriver {
 
   override async rewindToTurn(turnId: string): Promise<MakaSessionRewindResult> {
     this.rewound.push(turnId);
+    this.sessionId = this.branchSummary.id;
     return {
-      ...switchResult(fakeSessionSummary('session-branch'), [...this.branchMessages]),
+      ...switchResult(this.branchSummary, [...this.branchMessages]),
       prompt: `refilled: ${turnId}`,
     };
   }

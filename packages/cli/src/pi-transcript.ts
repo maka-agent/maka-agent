@@ -64,7 +64,7 @@ export type MakaPiTranscriptEntry =
       progress: BoundedChunkBuffer<string>;
       outputDeltas: BoundedChunkBuffer<MakaPiToolOutputDelta>;
       durationMs?: number;
-      status: 'running' | 'done' | 'error' | 'failed' | 'aborted';
+      status: 'running' | 'done' | 'error' | 'failed' | 'aborted' | 'detached';
     }
   | { kind: 'notice'; level: 'info' | 'error'; text: string };
 
@@ -99,7 +99,7 @@ export function refreshRunningShellRunElapsed(
 ): boolean {
   let found = false;
   for (const entry of state.entries) {
-    if (entry.kind !== 'tool' || entry.result?.kind !== 'shell_run' || entry.result.status !== 'running') continue;
+    if (entry.kind !== 'tool' || entry.status !== 'running' || entry.result?.kind !== 'shell_run') continue;
     entry.durationMs = Math.max(0, now - entry.result.startedAt);
     found = true;
   }
@@ -111,10 +111,27 @@ export function runningShellRunsInTranscript(
 ): Array<{ sourceToolCallId: string; ref: string }> {
   return state.entries.flatMap((entry) => entry.kind === 'tool'
     && entry.toolName === 'Bash'
+    && entry.status === 'running'
     && entry.result?.kind === 'shell_run'
     && entry.result.status === 'running'
     ? [{ sourceToolCallId: entry.toolUseId, ref: entry.result.ref }]
     : []);
+}
+
+export function applyDetachedShellRunToTranscript(
+  state: MakaPiTranscriptState,
+  sourceToolCallId: string,
+  update: Extract<ToolResultContent, { kind: 'shell_run' }>,
+): boolean {
+  const applied = applyShellRunUpdateToTranscript(state, sourceToolCallId, update);
+  const tool = findToolEntry(state, sourceToolCallId);
+  if (!tool
+    || tool.toolName !== 'Bash'
+    || tool.result?.kind !== 'shell_run'
+    || tool.result.ref !== update.ref
+    || tool.result.status !== 'running') return applied;
+  tool.status = 'detached';
+  return true;
 }
 
 export function applyShellRunUpdateToTranscript(

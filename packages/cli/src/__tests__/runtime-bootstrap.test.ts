@@ -171,6 +171,47 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('resolves an inherited ShellRun through branch session lineage', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      try {
+        const parent = await context.runtime.createSession({
+          cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
+          model: 'llama3.2', permissionMode: 'bypass', name: 'parent',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const branch = await runtimeDeps.store.create({
+          cwd: workspaceRoot, backend: 'ai-sdk', llmConnectionSlug: 'local',
+          model: 'llama3.2', permissionMode: 'bypass', name: 'branch',
+          parentSessionId: parent.id,
+        });
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`;
+        const started = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: parent.id, runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { kind?: string; ref?: string; status?: string };
+        assert.equal(started.status, 'running');
+        assert.ok(started.ref);
+
+        const inherited = await context.readShellRun(branch.id, started.ref);
+        assert.equal(inherited.ownerSessionId, parent.id);
+        assert.equal(inherited.result.status, 'running');
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('passes the default context budget policy to ai-sdk backends', async () => {
     await withCleanContextBudgetEnv(async () => {
       await withWorkspace(async (workspaceRoot) => {

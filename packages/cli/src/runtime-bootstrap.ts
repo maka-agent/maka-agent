@@ -49,7 +49,10 @@ export interface MakaCliRuntimeContext {
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
-  readShellRun(sessionId: string, ref: string): Promise<Extract<ToolResultContent, { kind: 'shell_run' }>>;
+  readShellRun(sessionId: string, ref: string): Promise<{
+    ownerSessionId: string;
+    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  }>;
   close(): Promise<void>;
 }
 
@@ -271,6 +274,25 @@ export async function createMakaCliRuntimeContext(
 
   automationScheduler.start();
 
+  const readShellRun = async (sessionId: string, ref: string) => {
+    let ownerSessionId: string | undefined = sessionId;
+    const visited = new Set<string>();
+    while (ownerSessionId && !visited.has(ownerSessionId)) {
+      visited.add(ownerSessionId);
+      try {
+        return {
+          ownerSessionId,
+          result: await shellRuns.readResource(ownerSessionId, ref),
+        };
+      } catch (error) {
+        if (!isNotFoundError(error)) throw error;
+        ownerSessionId = (await store.readHeader(ownerSessionId)).parentSessionId;
+        if (!ownerSessionId) throw error;
+      }
+    }
+    throw new Error(`Cannot resolve ShellRun owner for session ${sessionId}`);
+  };
+
   return {
     workspaceRoot: input.workspaceRoot,
     cwd: input.cwd,
@@ -284,7 +306,7 @@ export async function createMakaCliRuntimeContext(
       shellRunListeners.add(listener);
       return () => shellRunListeners.delete(listener);
     },
-    readShellRun: (sessionId, ref) => shellRuns.readResource(sessionId, ref),
+    readShellRun,
     close: async () => {
       // Stop the automation scheduler's timer (else it keeps the process alive
       // and ticks into a stopped session), then terminate background shell runs.
@@ -335,6 +357,10 @@ function userOptedIntoSemanticCompact(env: Record<string, string | undefined>): 
   }
   const mode = env.MAKA_CONTEXT_SEMANTIC_COMPACT_MODE?.trim().toLowerCase();
   return mode === 'validate_only' || mode === 'prepare_step_dry_run' || mode === 'replace';
+}
+
+function isNotFoundError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 export async function getOrCreateCliClaudeDeviceId(

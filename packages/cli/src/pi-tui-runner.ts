@@ -21,6 +21,7 @@ import type { ModelChoice } from './connection-target.js';
 import type { MakaSessionDriver, MakaSessionSwitchResult } from './session-driver.js';
 import {
   createMakaPiTranscriptState,
+  applyDetachedShellRunToTranscript,
   applyShellRunUpdateToTranscript,
   replaceTranscriptWithStoredMessages,
   runningShellRunsInTranscript,
@@ -84,7 +85,10 @@ export interface MakaPiTuiInput {
   readShellRun?: (
     sessionId: string,
     ref: string,
-  ) => Promise<Extract<ToolResultContent, { kind: 'shell_run' }>>;
+  ) => Promise<{
+    ownerSessionId: string;
+    result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  }>;
 }
 
 export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
@@ -411,9 +415,13 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       const sessionId = summary.id;
       await Promise.all(runningShellRunsInTranscript(state).map(async ({ sourceToolCallId, ref }) => {
         try {
-          const result = await input.readShellRun?.(sessionId, ref);
-          if (!result || closed || input.driver.getSessionId() !== sessionId) return;
-          applyShellRunUpdateToTranscript(state, sourceToolCallId, result);
+          const read = await input.readShellRun?.(sessionId, ref);
+          if (!read || closed || input.driver.getSessionId() !== sessionId) return;
+          if (read.ownerSessionId !== sessionId && read.result.status === 'running') {
+            applyDetachedShellRunToTranscript(state, sourceToolCallId, read.result);
+          } else {
+            applyShellRunUpdateToTranscript(state, sourceToolCallId, read.result);
+          }
         } catch {
           // Missing legacy records must not make an otherwise valid session
           // impossible to resume. Keep the stored card and let live updates win.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { SessionEvent, ToolResultContent } from '@maka/core/events';
 import {
+  applyDetachedShellRunToTranscript,
   applyMakaSessionEventToTranscript,
   createMakaPiTranscriptState,
 } from '../pi-transcript.js';
@@ -41,6 +42,11 @@ test('runs the elapsed ticker only while a background Bash card is running', () 
   const tool = state.entries.find((entry) => entry.kind === 'tool');
   assert.equal(tool?.kind === 'tool' ? tool.durationMs : undefined, 5_500);
   assert.equal(renders, 1);
+
+  applyDetachedShellRunToTranscript(state, 'bash-bg', shellRun({ updatedAt: 6_500 }));
+  ticker.sync();
+  assert.equal(tick, undefined);
+  assert.equal(cancelled, 1);
 
   applyMakaSessionEventToTranscript(state, event({
     type: 'tool_result', toolUseId: 'bash-bg', isError: false,

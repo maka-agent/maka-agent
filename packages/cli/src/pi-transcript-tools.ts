@@ -20,9 +20,11 @@ export function renderToolBlock(entry: MakaPiToolEntry, width: number, expanded:
 function toolStatusText(entry: MakaPiToolEntry): string {
   const status = entry.status === 'running'
     ? ansi.yellow('running')
-    : entry.status === 'done'
-      ? ansi.green('done')
-      : ansi.red(entry.status);
+    : entry.status === 'detached'
+      ? ansi.dim('detached')
+      : entry.status === 'done'
+        ? ansi.green('done')
+        : ansi.red(entry.status);
   const duration = entry.durationMs === undefined
     ? ''
     : entry.result?.kind === 'shell_run'
@@ -100,7 +102,11 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
     const latest = lastNonEmptyLine([result.stdout, result.stderr].filter(Boolean).join('\n'));
     if (latest) return { text: latest, expandable: true };
     return {
-      text: result.status === 'running' ? ansi.dim('(waiting for output)') : ansi.dim('(no output)'),
+      text: entry.status === 'detached'
+        ? ansi.dim('(continues in source session)')
+        : result.status === 'running'
+          ? ansi.dim('(waiting for output)')
+          : ansi.dim('(no output)'),
       expandable: true,
     };
   }
