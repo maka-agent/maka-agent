@@ -332,6 +332,7 @@ export interface SystemNoteMessage {
     | 'mode_change'
     | 'model_change'
     | 'context_compacted'
+    | 'context_compaction_failed_open'
     | 'error'
     | 'abort';
   /** Shape depends on `kind`. */

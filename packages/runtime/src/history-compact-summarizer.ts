@@ -1,7 +1,7 @@
 import type { ModelMessage } from 'ai';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { toolResultOutput } from './ai-sdk-tool-output.js';
-import type { HistoryCompactWriteInput } from './ai-sdk-backend.js';
+import type { HistoryCompactSummaryInput } from './ai-sdk-backend.js';
 
 export interface AiSdkGenerateTextOptions {
   model: unknown;
@@ -57,11 +57,21 @@ const SUMMARIZATION_SYSTEM_PROMPT = [
 ].join('\n');
 
 export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOptions) {
-  return async (input: HistoryCompactWriteInput): Promise<string | undefined> => {
-    if (input.source.foldedRuntimeEvents.length === 0) return undefined;
+  return async (input: HistoryCompactSummaryInput): Promise<string | undefined> => {
+    const newlyFoldedRuntimeEvents = input.newlyFoldedRuntimeEvents ?? input.source.foldedRuntimeEvents;
+    if (newlyFoldedRuntimeEvents.length === 0) return input.previousCheckpoint?.summary;
     try {
-      const plan = buildRuntimeEventModelReplayPlan(input.source.foldedRuntimeEvents);
+      const plan = buildRuntimeEventModelReplayPlan(newlyFoldedRuntimeEvents);
       const messages = replayPlanItemsToModelMessages(plan.items);
+      if (input.previousCheckpoint) {
+        messages.unshift({
+          role: 'user',
+          content: [{
+            type: 'text',
+            text: `Previous continuation summary:\n${input.previousCheckpoint.summary}\n\nUpdate it using the newer conversation events that follow.`,
+          }],
+        });
+      }
       const generateText = options.generateText ?? (await loadAiSdkGenerateText());
       const result = await generateText({
         model: options.resolveModel(),
@@ -72,8 +82,7 @@ export function buildLlmHistorySummarizer(options: BuildLlmHistorySummarizerOpti
       });
       return result.text;
     } catch {
-      // Fail-open: a summarizer failure returns undefined so the runtime
-      // keeps the deterministic draft summary instead of aborting the compact.
+      // Fail-open: the caller chooses the safe fallback for an initial or rolling summary failure.
       return undefined;
     }
   };

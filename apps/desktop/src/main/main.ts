@@ -161,7 +161,6 @@ import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-d
 import {
   buildLlmHistorySummarizer,
   loadHistoryCompactBlocksFromArtifacts,
-  persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
@@ -821,22 +820,13 @@ backends.register('ai-sdk', async (ctx) => {
     readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-    writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
-      summarize: buildLlmHistorySummarizer({
-        // Reuse the same connection/model the session already drives, so the
-        // summary stays consistent with the model that will consume it.
-        resolveModel: () =>
-          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-        maxOutputTokens: 4096,
-      }),
-      onArtifactCreated: (artifact) => {
-        safeSendToRenderer('artifacts:changed', {
-          reason: 'created',
-          artifactId: artifact.id,
-          sessionId: artifact.sessionId,
-          ts: Date.now(),
-        });
-      },
+    loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
+    summarizeHistoryCompact: buildLlmHistorySummarizer({
+      // Reuse the same connection/model the session already drives, so the
+      // summary stays consistent with the model that will consume it.
+      resolveModel: () =>
+        getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+      maxOutputTokens: 4096,
     }),
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
@@ -850,6 +840,7 @@ backends.register('ai-sdk', async (ctx) => {
       },
     }),
     recordRunTrace: ctx.recordRunTrace,
+    recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,

@@ -17,6 +17,7 @@ import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
+import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import {
   classifyRuntimeEventTerminalFact,
@@ -179,6 +180,28 @@ export class AgentRun {
         },
       });
     });
+  }
+
+  recordHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpoint): Promise<void> {
+    if (!this.input.runStore) return Promise.reject(new Error('AgentRun store is not configured'));
+    if (!this.runStoreAvailable) return Promise.reject(new Error('AgentRun store is unavailable'));
+    return this.enqueueRunStore('append history compact checkpoint', async () => {
+      await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
+        type: 'history_compact_checkpoint_recorded',
+        id: this.input.newId(),
+        runId: this.runId,
+        sessionId: this.sessionId,
+        turnId: this.turnId,
+        ts: this.input.now(),
+        data: {
+          checkpointId: checkpoint.checkpointId,
+          highWaterName: checkpoint.highWaterName,
+          highWaterSeq: checkpoint.highWaterSeq,
+          boundaryKind: 'historyCompact',
+          checkpoint,
+        },
+      });
+    }, { rethrow: true });
   }
 
   recordSemanticCompactBlock(block: SemanticCompactBlock): void {
@@ -881,11 +904,16 @@ export class AgentRun {
     await this.traceQueue.catch(() => {});
   }
 
-  private enqueueRunStore(label: string, operation: () => Promise<void>): Promise<void> {
+  private enqueueRunStore(
+    label: string,
+    operation: () => Promise<void>,
+    options: { rethrow?: boolean } = {},
+  ): Promise<void> {
     if (!this.input.runStore || !this.runStoreAvailable) return Promise.resolve();
     const next = this.traceQueue.then(operation, operation).catch(async (error) => {
       this.runStoreAvailable = false;
       await this.enqueueTraceWriteFailure(error, label);
+      if (options.rethrow) throw error;
     });
     this.traceQueue = next.catch(() => {});
     return next;

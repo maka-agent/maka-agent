@@ -90,6 +90,243 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('writes a bounded projection for accepted history compact checkpoints', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-accepted' }));
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+
+      await store.appendEvent('session-1', 'run-accepted', checkpointEvent('run-accepted', 3));
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(
+        projected?.data?.checkpoint
+          && (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
+        'hcheckpoint-run-accepted',
+      );
+    });
+  });
+
+  it('initializes an empty checkpoint projection for a new session', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+
+      await store.createRun(makeHeader());
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        null,
+      );
+    });
+  });
+
+  it('preserves a missing checkpoint projection when prior runs require recovery', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-before-crash' }));
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.createRun(makeHeader({ runId: 'run-after-restart' }));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
+  it('does not let a stale repair overwrite a further checkpoint projection', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+        ): Promise<void>;
+      };
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      const stale = checkpointEvent('run-stale-repair', 1);
+      const further = checkpointEvent('run-further-write', 2);
+      await store.createRun(makeHeader({ runId: stale.runId }));
+      await store.createRun(makeHeader({ runId: further.runId }));
+      await store.appendEvent('session-1', stale.runId, stale);
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.appendEvent('session-1', further.runId, further);
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        stale,
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, further.id);
+    });
+  });
+
+  it('replaces the same parseable but semantically invalid projection during repair', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+          options?: { replaceEventId?: string },
+        ): Promise<void>;
+      };
+      await store.createRun(makeHeader());
+      const invalidProjection = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'invalid-projection-event',
+        data: { checkpoint: { coverage: { eventCount: 999 } } },
+      });
+      const canonicalEvent = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'canonical-projection-event',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: 'hcheckpoint-canonical',
+            sessionId: 'session-1',
+            coverage: { eventCount: 1 },
+          },
+        },
+      });
+      await writeFile(
+        join(
+          root,
+          'sessions',
+          'session-1',
+          'projections',
+          'history_compact_checkpoint_recorded.json',
+        ),
+        JSON.stringify({ version: 1, event: invalidProjection }) + '\n',
+      );
+
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        canonicalEvent,
+        { replaceEventId: invalidProjection.id },
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, canonicalEvent.id);
+    });
+  });
+
+  it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader());
+      const checkpointEvent = (checkpointId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      await store.appendEvent('session-1', 'run-1', checkpointEvent('hcheckpoint-previous', 1));
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      await rm(eventsPath);
+      await mkdir(eventsPath);
+
+      await assert.rejects(() => store.appendEvent(
+        'session-1',
+        'run-1',
+        checkpointEvent('hcheckpoint-orphan', 2),
+      ));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
   it('recovers corrupt event lines without hiding later events', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());

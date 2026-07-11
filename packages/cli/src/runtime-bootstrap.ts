@@ -20,7 +20,6 @@ import {
   evaluateAutomationCanFire,
   getAIModel,
   loadHistoryCompactBlocksFromArtifacts,
-  persistHistoryCompactBlocksToArtifacts,
   type AutomationDefinition,
   type GoalContinuationDeps,
   type ShellRunUpdate,
@@ -226,20 +225,20 @@ export async function createMakaCliRuntimeContext(
       providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
       contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-      writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
-        summarize: buildLlmHistorySummarizer({
-          // Reuse the same connection/model the session already drives, so the
-          // summary stays consistent with the model that will consume it.
-          resolveModel: () =>
-            getAIModel({
-              connection: ready.connection,
-              apiKey: ready.apiKey,
-              modelId: ready.model,
-              fetch: modelFetch,
-            }),
-          maxOutputTokens: 4096,
-        }),
+      loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
+      summarizeHistoryCompact: buildLlmHistorySummarizer({
+        // Reuse the same connection/model the session already drives, so the
+        // summary stays consistent with the model that will consume it.
+        resolveModel: () =>
+          getAIModel({
+            connection: ready.connection,
+            apiKey: ready.apiKey,
+            modelId: ready.model,
+            fetch: modelFetch,
+          }),
+        maxOutputTokens: 4096,
       }),
+      recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
         return buildCliSystemPrompt({ settings, cwd });
