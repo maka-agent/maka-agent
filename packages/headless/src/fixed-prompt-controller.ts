@@ -92,7 +92,7 @@ export interface FixedPromptTaskCompletedEvent {
   eligible: boolean;
   errorClass?: string;
   promptHash?: string;
-  tokenSummary?: HarborCellTokenSummary;
+  tokenSummary: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;

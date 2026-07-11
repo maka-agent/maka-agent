@@ -176,7 +176,7 @@ function pairTaskId(pairId: string): string {
 function summarizeTokenCost(
   events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
-  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event);
+  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event && event.tokenSummary !== undefined);
   const durations = events.flatMap((event) => 'durationMs' in event && event.durationMs !== undefined ? [event.durationMs] : []);
   return {
     input: sum(withUsage.map((event) => event.tokenSummary.input)),
