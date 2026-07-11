@@ -327,13 +327,13 @@ export { streamVariants };
  * shared motion home) plus the literal values here, verified by a keyframe
  * contract + before/after screenshots rather than the diff harness.
  *
- * It is kept INTERNAL (off the package barrel, applied by relative import like
- * `streamVariants`): the tool stream is its only consumer today. The duplicate
- * reasoning / composer / onboarding live dots can adopt it in a follow-up motion
- * pass — retiring their own `*-pulse` keyframes onto `maka-pulse` — and that is
- * when it would be promoted to a public export — on a cross-package consumer or
- * explicit public-API need, not a second in-package consumer (see
- * `packages/ui/README.md` and the `attachment-file-card` precedent). Reduced-motion suppression rides on the `motion-reduce:`
+ * It is kept INTERNAL (off the package barrel): it currently has no production
+ * consumer — the tool body retired it in #712 (see `chat-stream-cascade-contract`;
+ * the quiet tool-output panel is the production path now). If the duplicate
+ * reasoning / composer / onboarding live dots adopt it in a follow-up motion pass,
+ * promote it to a public export only on a cross-package consumer or explicit
+ * public-API need, not a second in-package consumer (see `packages/ui/README.md`
+ * and the `attachment-file-card` precedent). Reduced-motion suppression rides on the `motion-reduce:`
  * utilities (real-OS `prefers-reduced-motion: reduce`), mirroring the retired
  * dot's `@media` rule; the visual-smoke fixture freeze is handled by `base.css`.
  */

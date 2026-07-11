@@ -35,14 +35,14 @@ export * from './primitives/alert.js';
 export * from './primitives/card.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
 // deliberately NOT re-exported here: they are internal styling tables / dots
-// the chat call sites apply via relative import, so keeping them off the package
-// barrel preserves the governance goal — they stay renamable/removable without a
+// with no current production consumer (`streamVariants`/`LiveIndicator` were
+// retired from the tool body in #712; see `chat-stream-cascade-contract`), so
+// keeping them off the package barrel keeps them renamable/removable without a
 // public-API break. (Contrast `buttonVariants`, which IS public because it has
 // external consumers.) Promotion rule: a symbol earns barrel export on a
 // **cross-package consumer or an explicit public-API need** — a second in-package
-// consumer alone is not enough (e.g. `attachment-file-card` serves `chat-view`
-// and `composer` but stays off-barrel). `LiveIndicator` is exported only when a
-// cross-package consumer actually needs it, not speculatively.
+// consumer alone is not enough (see `packages/ui/README.md`; `attachment-file-card`
+// serves `chat-view` and `composer` but stays off-barrel).
 //
 // `previewVariants` (#332 PR4) IS re-exported: its file-diff parts have a
 // cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the
