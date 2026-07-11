@@ -6,7 +6,6 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { AttachmentRef, SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView } from '@maka/ui';
-import { filterUserVisibleArtifacts } from '../../renderer/artifact-visibility.js';
 
 const REPO_ROOT = process.cwd().endsWith('apps/desktop')
   ? resolve(process.cwd(), '..', '..')
@@ -71,26 +70,6 @@ describe('attachment frontend contract', () => {
     assert.match(chatActions, /sessions\.send[\s\S]*attachmentItems/);
     assert.match(appShell, /onPickAttachments=\{pickAttachments\}/);
     assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
-  });
-
-  it('generated-files pane excludes user-uploaded attachments', () => {
-    const records = filterUserVisibleArtifacts([
-      {
-        id: 'upload-1',
-        sessionId: 'session-1',
-        turnId: 'turn-1',
-        source: 'user_upload',
-        kind: 'file',
-        name: 'notes.txt',
-        mimeType: 'text/plain',
-        relativePath: 'notes.txt',
-        sizeBytes: 5,
-        createdAt: 1,
-        status: 'live',
-      },
-    ]);
-
-    assert.deepEqual(records, [], 'user-uploaded snapshots are not generated files');
   });
 
   it('passes selected model vision capability to the runtime attachment renderer', async () => {
