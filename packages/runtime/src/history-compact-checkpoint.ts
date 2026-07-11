@@ -27,8 +27,6 @@ export interface HistoryCompactCheckpoint {
   limitations: string[];
   estimatedTokens: number;
   previousCheckpointId?: string;
-  requestShapeHashBefore?: string;
-  requestShapeHashAfter?: string;
 }
 
 export interface BuildHistoryCompactCheckpointInput {
@@ -39,8 +37,6 @@ export interface BuildHistoryCompactCheckpointInput {
   highWaterSeq?: number;
   maxSummaryEstimatedTokens?: number;
   previousCheckpointId?: string;
-  requestShapeHashBefore?: string;
-  requestShapeHashAfter?: string;
   now?: number;
   charsPerToken?: number;
 }
@@ -106,8 +102,6 @@ export function buildHistoryCompactCheckpoint(
     ],
     estimatedTokens: 0,
     ...(input.previousCheckpointId ? { previousCheckpointId: input.previousCheckpointId } : {}),
-    ...(input.requestShapeHashBefore ? { requestShapeHashBefore: input.requestShapeHashBefore } : {}),
-    ...(input.requestShapeHashAfter ? { requestShapeHashAfter: input.requestShapeHashAfter } : {}),
   };
   checkpoint.estimatedTokens = estimateTokens(renderHistoryCompactCheckpoint(checkpoint).length, charsPerToken);
   return checkpoint;
@@ -169,15 +163,6 @@ export function validateHistoryCompactCheckpointShape(
     && Number.isFinite(checkpoint.estimatedTokens)
     && (checkpoint.estimatedTokens ?? -1) >= 0
     && (checkpoint.previousCheckpointId === undefined || nonEmpty(checkpoint.previousCheckpointId));
-}
-
-export function selectFurthestHistoryCompactCheckpoint(
-  current: HistoryCompactCheckpoint | undefined,
-  candidate: HistoryCompactCheckpoint,
-): HistoryCompactCheckpoint {
-  if (!current) return candidate;
-  if (canReplaceHistoryCompactCheckpoint(current, candidate)) return candidate;
-  return current;
 }
 
 /** Accept forward progress, or a compare-and-swap rewrite of the exact same source coverage. */

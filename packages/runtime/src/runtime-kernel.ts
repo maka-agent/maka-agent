@@ -30,7 +30,7 @@ import {
 } from './agent-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
-  selectFurthestHistoryCompactCheckpoint,
+  canReplaceHistoryCompactCheckpoint,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
@@ -490,7 +490,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
       .catch(() => {})
       .then(async () => {
         const durableCheckpoint = await this.loadHistoryCompactCheckpoint(sessionId);
-        if (selectFurthestHistoryCompactCheckpoint(durableCheckpoint, checkpoint) !== checkpoint) {
+        if (!canReplaceHistoryCompactCheckpoint(durableCheckpoint, checkpoint)) {
           throw new Error('History compact checkpoint was superseded before persistence');
         }
         await run.recordHistoryCompactCheckpoint(checkpoint);

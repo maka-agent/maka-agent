@@ -636,7 +636,7 @@ export class AiSdkBackend implements AgentBackend {
               if (checkpoint) {
                 writeContextBudget = {
                   ...contextBudget,
-                  historyCompact: { ...contextBudget.historyCompact!, checkpoints: [checkpoint] },
+                  historyCompact: { ...contextBudget.historyCompact!, checkpoint },
                 };
               }
             } catch {
@@ -696,7 +696,7 @@ export class AiSdkBackend implements AgentBackend {
     const current = base.historyCompact;
     const currentWithoutBlocks = { ...current };
     delete currentWithoutBlocks.blocks;
-    delete currentWithoutBlocks.checkpoints;
+    delete currentWithoutBlocks.checkpoint;
     const maxHistoryEstimatedTokens = base.maxHistoryEstimatedTokens ?? Math.max(estimatedTokens, 32_000);
     return {
       name: base.name ?? 'manual-history-compact',
@@ -2043,7 +2043,7 @@ export class AiSdkBackend implements AgentBackend {
     ) {
       return { policy };
     }
-    if ((historyCompact.checkpoints?.length ?? 0) > 0 || (historyCompact.blocks?.length ?? 0) > 0) {
+    if (historyCompact.checkpoint !== undefined || (historyCompact.blocks?.length ?? 0) > 0) {
       return { policy };
     }
     let loadFailures = 0;
@@ -2057,7 +2057,7 @@ export class AiSdkBackend implements AgentBackend {
       return {
         policy: {
           ...policy,
-          historyCompact: { ...historyCompact, checkpoints: [checkpoint] },
+          historyCompact: { ...historyCompact, checkpoint },
         },
         diagnosticPatch: {
           historyCompactEnabled: true,
@@ -2253,7 +2253,7 @@ export class AiSdkBackend implements AgentBackend {
         },
       };
     }
-    const loadedCheckpoint = input.contextBudget.historyCompact?.checkpoints?.[0];
+    const loadedCheckpoint = input.contextBudget.historyCompact?.checkpoint;
     const checkpointMatch = loadedCheckpoint
       ? matchHistoryCompactCheckpointPrefix(loadedCheckpoint, foldedRuntimeEvents)
       : undefined;
@@ -2341,7 +2341,6 @@ export class AiSdkBackend implements AgentBackend {
         maxSummaryEstimatedTokens: input.contextBudget.historyCompact?.maxBlockEstimatedTokens
           ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens,
         ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
-        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
         charsPerToken: input.contextBudget.charsPerToken,
         now: this.now(),
       });

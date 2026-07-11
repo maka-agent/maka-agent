@@ -330,20 +330,6 @@ export type {
   BuildLlmHistorySummarizerOptions,
 } from './history-compact-summarizer.js';
 export {
-  buildHistoryCompactCheckpoint,
-  historyCompactCheckpointToRuntimeEvent,
-  matchHistoryCompactCheckpointPrefix,
-  renderHistoryCompactCheckpoint,
-  validateHistoryCompactCheckpointShape,
-} from './history-compact-checkpoint.js';
-export type {
-  BuildHistoryCompactCheckpointInput,
-  HistoryCompactCheckpoint,
-  HistoryCompactCheckpointCoverage,
-  HistoryCompactCheckpointPrefixMatch,
-} from './history-compact-checkpoint.js';
-export { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
-export {
   ACTIVE_ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_PLACEHOLDER_KIND,
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,
@@ -367,8 +353,6 @@ export {
   searchRuntimeEventHistory,
   serializeToolResultForArchive,
   stableSynthesisBlockId,
-  shouldAppendContextCompactedNote,
-  shouldAppendContextCompactionFailedOpenNote,
   validateHistoryCompactBlockShape,
   validateSynthesisCacheBlockShape,
 } from './context-budget.js';

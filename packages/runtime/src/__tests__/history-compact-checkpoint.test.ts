@@ -34,12 +34,12 @@ describe('history compact checkpoint', () => {
       historyCompact: {
         enabled: true,
         mode: 'read_write',
-        checkpoints: [checkpoint],
+        checkpoint,
         highWaterRatio: 0.000001,
         tailEstimatedTokens: 1,
       },
     });
-    assert.equal(replay.checkpoints[0]?.checkpointId, checkpoint.checkpointId);
+    assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
     assert.ok(Buffer.byteLength(JSON.stringify(replay.diagnosticPatch), 'utf8') < 16 * 1024);
 
     const changed = [...events];
@@ -279,7 +279,7 @@ describe('history compact checkpoint', () => {
       historyCompact: {
         enabled: true,
         mode: 'read_write',
-        checkpoints: [checkpoint],
+        checkpoint,
         highWaterRatio: 0.01,
         tailEstimatedTokens: 1,
       },
@@ -291,7 +291,7 @@ describe('history compact checkpoint', () => {
       /checkpoint summary/,
     );
     assert.deepEqual(replay.events.slice(1).map((event) => event.id), events.slice(4).map((event) => event.id));
-    assert.equal(replay.checkpoints[0]?.checkpointId, checkpoint.checkpointId);
+    assert.equal(replay.checkpoint?.checkpointId, checkpoint.checkpointId);
   });
 
   test('does not replay a checkpoint above the total compact budget', () => {
@@ -310,7 +310,7 @@ describe('history compact checkpoint', () => {
       historyCompact: {
         enabled: true,
         mode: 'read_write',
-        checkpoints: [checkpoint],
+        checkpoint,
         maxBlockEstimatedTokens: 10_000,
         maxEstimatedTokens: 100,
         highWaterRatio: 0.000001,
@@ -318,7 +318,7 @@ describe('history compact checkpoint', () => {
       },
     });
 
-    assert.equal(replay.checkpoints.length, 0);
+    assert.equal(replay.checkpoint, undefined);
     assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), false);
   });
 
@@ -339,13 +339,13 @@ describe('history compact checkpoint', () => {
       maxHistoryEstimatedTokens: 10_000,
       charsPerToken: 1,
       historyCompact: {
-        enabled: true, mode: 'read_write', checkpoints: [checkpoint],
+        enabled: true, mode: 'read_write', checkpoint,
         maxBlockEstimatedTokens: 10_000, maxEstimatedTokens: 10_000,
         highWaterRatio: 0.000001, tailEstimatedTokens: 1,
       },
     }, { maxHistoryEstimatedTokens: overrideMax });
 
-    assert.equal(replay.checkpoints.length, 0);
+    assert.equal(replay.checkpoint, undefined);
   });
 
 
