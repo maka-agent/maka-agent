@@ -58,7 +58,7 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
       '.maka-tool-output-stream-chunk',
       '.maka-tool-output-stream-redacted-tag',
       '.maka-tool-output-stream-truncated-tag',
-      // the dot's per-feature breath is retired onto the shared `maka-pulse`.
+      // the dot's per-feature breath is retired.
       '@keyframes maka-tool-output-stream-pulse',
     ]) {
       assert.ok(

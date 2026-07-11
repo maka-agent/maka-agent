@@ -263,13 +263,13 @@ export function Marker({
  * (`background-clip: text` + transparent fill) so a light band travels across
  * the letters. The band motion is the one declaration that can't be a leaf
  * literal — it rides the governed `@keyframes maka-text-shimmer` in
- * maka-tokens.css (like `LiveIndicator`'s `maka-pulse`) plus the literal
+ * maka-tokens.css plus the literal
  * utilities here.
  *
  * `active={false}` (or reduced-motion) renders just the base text — callers
  * pass `active` false for settled/snap states so the sweep never runs in a
  * deterministic capture. Kept INTERNAL (off the package barrel, imported by
- * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ * relative path) — its only consumers live in `@maka/ui`.
  *
  * `delayed` (#646 run→done seam) holds the sweep at its resting frame for
  * `--duration-emphasized` (~200ms) before it starts — a purely CSS de-flicker so
@@ -331,7 +331,7 @@ export function TextShimmer({
  * Every value is a LITERAL arbitrary utility that compiles 1:1 to the
  * declaration it replaces, so the cva source string IS the computed-style proof
  * (the cascade contract asserts the exact strings, no browser needed). Literals
- * over the semantic scale for the same reason as `markerVariants` / `streamVariants`:
+ * over the semantic scale for the same reason as `markerVariants`:
  * the retired CSS hardcoded these pixels, so the literal is the faithful,
  * self-evidently-equal translation and is immune to later scale/token re-tuning
  * (the visual refresh, not this governance pass, owns adopting the scale).
@@ -341,7 +341,7 @@ export function TextShimmer({
  * pinned by the PR3b cascade contract (source strings + keyframe frames) rather
  * than the diff harness:
  *   1. the running status dot's `[animation:maka-tool-pulse …]` breath (the
- *      shorthand rides in the `dot` part here like `LiveIndicator`; only the
+ *      shorthand rides in the `dot` part here; only the
  *      `@keyframes maka-tool-pulse` stays in CSS — a keyframe is a global rule,
  *      not an element property, and `getComputedStyle` reads a phase-dependent
  *      value). The running dot's box-shadow RING is a leaf rest-state literal, so
@@ -349,13 +349,12 @@ export function TextShimmer({
  *   2. the native `<summary>` marker reset (`::-webkit-details-marker` /
  *      `::marker`) — pseudo-elements with no leaf-utility form. Kept as residue.
  * (The reduced-motion / visual-smoke suppression both ride GLOBAL `*` rules in
- * maka-tokens.css / base.css, so — unlike `LiveIndicator`, a reusable primitive
- * that carries its own `motion-reduce:` guards — the dot and card need no
- * per-element motion utilities; the same global rules cover them as before.)
+ * maka-tokens.css / base.css, so the dot and card need no per-element motion
+ * utilities; the same global rules cover them as before.)
  *
  * The single consumer (`ToolActivity`) renders a Base UI Collapsible and applies
  * these by `className`. `toolVariants` is kept OFF the package barrel for the
- * same reason as `markerVariants` / `streamVariants`: the only consumer imports
+ * same reason as `markerVariants`: the only consumer imports
  * it by relative path, so the part set stays an internal, freely-removable
  * styling detail.
  *
@@ -450,7 +449,7 @@ export { toolVariants };
  * to keep those shells pixel-identical; the PR4 cascade contract pins the absence
  * of the retired selectors + the escape literals). Literals over the semantic
  * scale for the same reason as
- * `markerVariants` / `streamVariants` / `toolVariants`: the retired CSS hardcoded
+ * `markerVariants` / `toolVariants`: the retired CSS hardcoded
  * these pixels, so the literal is the faithful, self-evidently-equal translation
  * and is immune to later scale/token re-tuning (the visual refresh, not this
  * governance pass, owns adopting the scale).

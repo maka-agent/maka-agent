@@ -1442,7 +1442,7 @@
 /* Governance-level keyframe for the `TextShimmer` primitive (streaming UI
    rework). A named `@keyframes` is a global rule, not an element property, so
    it can't be a Tailwind leaf-literal — it lives here (the shared motion home)
-   like `maka-pulse` / `maka-tool-pulse`, with the shimmer's other declarations
+   like `maka-tool-pulse`, with the shimmer's other declarations
    as literal utilities in the primitive. Sweeps a clipped light band left→right
    across the glyph shape by translating `background-position`; the two-layer
    primitive keeps an opaque base underneath so the text stays readable. Frozen

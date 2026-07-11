@@ -4,9 +4,7 @@
  * tool live-output stream shell migration (#332 / PR3). Feed it a PRE-PR2
  * renderer CSS bundle as `main.css` — both the bespoke `.maka-turn-*` (marker)
  * and `.maka-tool-output-stream-*` (stream) families predate PR2, so a single
- * pre-PR2 baseline greens every row. The `LiveIndicator` pulse DOT is the one
- * element NOT diffed (animated → `getComputedStyle` is phase-dependent); it is
- * pinned by the cascade contract's `@keyframes maka-pulse` frames instead.
+ * pre-PR2 baseline greens every row.
  *
  * #332 requires the governance pass to be "locked by computed-style /
  * cascade contract tests + before/after screenshots". The cascade

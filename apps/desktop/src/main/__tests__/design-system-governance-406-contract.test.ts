@@ -147,8 +147,8 @@ describe('issue #406 design-system governance contract', () => {
         if (raw.includes('animation: none') || raw.includes('[animation:none]')) continue;
         const captured = match.slice(1).find(Boolean) ?? raw;
         // Extract the first identifier (the animation-name) from the captured
-        // string. CSS form: "maka-pulse 1.4s ease-in-out infinite".
-        // Tailwind arbitrary: "maka-pulse_1.4s_ease-in-out_infinite".
+        // string. CSS form: "maka-tool-pulse 1.5s ease-in-out infinite".
+        // Tailwind arbitrary: "maka-tool-pulse_1.5s_ease-in-out_infinite".
         const animName = captured.replace(/[_\s].*$/, '').replace(/^@keyframes\s+/, '');
         if (functionalMotion.has(animName)) continue;
         violations.push(`${name}: ${raw}`);
