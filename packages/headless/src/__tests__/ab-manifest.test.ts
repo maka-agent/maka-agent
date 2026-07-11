@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -66,6 +66,43 @@ describe('buildAbRunManifest', () => {
       await writeFile(path, `${JSON.stringify({ ...manifest, taskBudgetSec: 60 })}\n`, 'utf8');
 
       await assert.rejects(ensureAbRunManifest(path, manifest), /stored A\/B run manifest fingerprint is invalid/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('atomically chooses one canonical manifest when two processes create the same run', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'maka-ab-manifest-race-'));
+    try {
+      const base = {
+        experimentKind: 'runtime' as const,
+        arms: [
+          { id: 'off', kind: 'runtime' as const, fingerprint: sha256('off') },
+          { id: 'on', kind: 'runtime' as const, fingerprint: sha256('on') },
+        ] as const,
+        taskBudgetSec: 1800,
+        harborTimeoutMs: 2_100_000,
+        subjectFingerprint: sha256('subject'),
+        taskSourceFingerprint: sha256('tasks'),
+        toolchainFingerprint: sha256('toolchain'),
+        evaluationTaskIds: ['task-a'],
+        reps: 2,
+        candidateLimit: null,
+        maxConcurrency: 1,
+      };
+      const flash = buildAbRunManifest({ ...base, observedCostStopUsd: 20 });
+      const pro = buildAbRunManifest({ ...base, observedCostStopUsd: 30 });
+      const path = join(dir, 'manifest.json');
+
+      const results = await Promise.allSettled([
+        ensureAbRunManifest(path, flash),
+        ensureAbRunManifest(path, pro),
+      ]);
+
+      assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+      assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+      const stored = JSON.parse(await readFile(path, 'utf8'));
+      assert.equal(stored.fingerprint === flash.fingerprint || stored.fingerprint === pro.fingerprint, true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
