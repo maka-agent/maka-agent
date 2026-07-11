@@ -5,11 +5,12 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   buildHistoryCompactCheckpoint,
   canReplaceHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
   matchHistoryCompactCheckpointPrefix,
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from '../history-compact-ledger.js';
-import { applyRuntimeEventHistoryCompact } from '../context-budget.js';
+import { applyRuntimeEventHistoryCompact, estimateRuntimeEventsTokens } from '../context-budget.js';
 
 describe('history compact checkpoint', () => {
   test('keeps 10K-event coverage bounded and validates the exact ordered prefix', () => {
@@ -319,6 +320,32 @@ describe('history compact checkpoint', () => {
 
     assert.equal(replay.checkpoints.length, 0);
     assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), false);
+  });
+
+  test('applies max-history overrides to checkpoint replay validation', () => {
+    const events = Array.from({ length: 8 }, (_, index) => ({
+      ...textEvent(index),
+      content: { kind: 'text' as const, text: `payload-${index} `.repeat(20) },
+    }));
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: events.slice(0, 6), summary: 'short checkpoint', charsPerToken: 1,
+    });
+    const checkpointTokens = estimateRuntimeEventsTokens([
+      historyCompactCheckpointToRuntimeEvent(checkpoint),
+    ], 1);
+    const overrideMax = checkpointTokens + 1;
+
+    const replay = applyRuntimeEventHistoryCompact(events, {
+      maxHistoryEstimatedTokens: 10_000,
+      charsPerToken: 1,
+      historyCompact: {
+        enabled: true, mode: 'read_write', checkpoints: [checkpoint],
+        maxBlockEstimatedTokens: 10_000, maxEstimatedTokens: 10_000,
+        highWaterRatio: 0.000001, tailEstimatedTokens: 1,
+      },
+    }, { maxHistoryEstimatedTokens: overrideMax });
+
+    assert.equal(replay.checkpoints.length, 0);
   });
 
 

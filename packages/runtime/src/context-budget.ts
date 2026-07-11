@@ -72,13 +72,19 @@ export type HistoryCompactCheckpointReplayFit =
       reason: 'max_block_tokens' | 'max_total_tokens' | 'prefix_over_budget';
     };
 
+export interface HistoryCompactReplayOptions {
+  charsPerToken?: number;
+  maxHistoryEstimatedTokens?: number;
+}
+
 /** The single current-policy gate for every checkpoint entering model replay. */
 export function evaluateHistoryCompactCheckpointReplay(
   checkpoint: HistoryCompactCheckpoint,
   replayTail: readonly RuntimeEvent[],
   policy: ContextBudgetPolicy,
+  options: HistoryCompactReplayOptions = {},
 ): HistoryCompactCheckpointReplayFit {
-  const charsPerToken = policy.charsPerToken ?? 4;
+  const charsPerToken = options.charsPerToken ?? policy.charsPerToken ?? 4;
   const checkpointEvent = historyCompactCheckpointToRuntimeEvent(checkpoint);
   const checkpointTokens = estimateRuntimeEventsTokens([checkpointEvent], charsPerToken);
   const replayTokens = estimateRuntimeEventsTokens([checkpointEvent, ...replayTail], charsPerToken);
@@ -93,7 +99,9 @@ export function evaluateHistoryCompactCheckpointReplay(
   if (checkpointTokens > maxTotalTokens) {
     return { fits: false, checkpointTokens, replayTokens, reason: 'max_total_tokens' };
   }
-  const maxHistoryTokens = finitePositive(policy.maxHistoryEstimatedTokens);
+  const maxHistoryTokens = finitePositive(
+    options.maxHistoryEstimatedTokens ?? policy.maxHistoryEstimatedTokens,
+  );
   if (maxHistoryTokens !== undefined && replayTokens > maxHistoryTokens) {
     return { fits: false, checkpointTokens, replayTokens, reason: 'prefix_over_budget' };
   }
@@ -615,10 +623,7 @@ export function applyRuntimeEventContextBudget(
 export function applyRuntimeEventHistoryCompact(
   events: readonly RuntimeEvent[],
   policy: ContextBudgetPolicy | undefined,
-  options: {
-    charsPerToken?: number;
-    maxHistoryEstimatedTokens?: number;
-  } = {},
+  options: HistoryCompactReplayOptions = {},
 ): HistoryCompactReplayResult {
   const compactPolicy = policy?.historyCompact;
   if (compactPolicy?.enabled !== true) {
@@ -731,7 +736,10 @@ export function applyRuntimeEventHistoryCompact(
     }
     const uncoveredFoldedEvents = foldedEvents.slice(match.coveredEventCount);
     const replayTail = [...uncoveredFoldedEvents, ...retainedEvents];
-    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!);
+    const fit = evaluateHistoryCompactCheckpointReplay(checkpoint, replayTail, policy!, {
+      charsPerToken,
+      maxHistoryEstimatedTokens: maxTokens,
+    });
     if (!fit.fits) {
       increment(skippedReasonCounts, fit.reason);
       continue;
