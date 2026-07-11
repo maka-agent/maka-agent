@@ -68,6 +68,7 @@ import type { RunTraceRecorder } from './run-trace.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
+import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 import type {
@@ -206,6 +207,8 @@ export interface BackendFactoryContext {
   systemPrompt?: string;
   tools?: readonly MakaTool[];
   recordRunTrace?: RunTraceRecorder;
+  loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
+  recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => void;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;

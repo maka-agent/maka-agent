@@ -626,6 +626,8 @@ function systemNoteText(message: SystemNoteMessage): string | undefined {
       return 'Model changed.';
     case 'context_compacted':
       return 'Context compacted to keep this session within the model window.';
+    case 'context_compaction_failed_open':
+      return 'Context summary failed; older details were trimmed and will be retried next turn.';
     case 'error':
       return 'Session recorded an error.';
     case 'abort':

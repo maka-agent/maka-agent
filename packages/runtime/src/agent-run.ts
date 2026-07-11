@@ -17,6 +17,7 @@ import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
+import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import {
   classifyRuntimeEventTerminalFact,
@@ -176,6 +177,27 @@ export class AgentRun {
           highWaterSeq: block.highWaterSeq,
           boundaryKind: 'activeFullCompact',
           block,
+        },
+      });
+    });
+  }
+
+  recordHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpoint): void {
+    if (!this.input.runStore || !this.runStoreAvailable) return;
+    this.enqueueRunStore('append history compact checkpoint', async () => {
+      await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
+        type: 'history_compact_checkpoint_recorded',
+        id: this.input.newId(),
+        runId: this.runId,
+        sessionId: this.sessionId,
+        turnId: this.turnId,
+        ts: this.input.now(),
+        data: {
+          checkpointId: checkpoint.checkpointId,
+          highWaterName: checkpoint.highWaterName,
+          highWaterSeq: checkpoint.highWaterSeq,
+          boundaryKind: 'historyCompact',
+          checkpoint,
         },
       });
     });

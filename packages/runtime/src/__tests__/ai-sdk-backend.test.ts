@@ -40,6 +40,7 @@ import {
   type HistoryCompactBlock,
   type SynthesisCacheBlock,
 } from '../context-budget.js';
+import { buildHistoryCompactCheckpoint, type HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import {
   loadHistoryCompactBlocksFromArtifacts,
   persistHistoryCompactBlocksToArtifacts,
@@ -2216,6 +2217,188 @@ describe('AiSdkBackend model history', () => {
       storedMessages.some((message) => message.type === 'system_note' && message.kind === 'context_compacted'),
       true,
     );
+  });
+
+  test('rolls a V2 checkpoint from the prior summary plus only newly evicted events, then reuses it', async () => {
+    const oldEvents = [
+      runtimeTextEvent({
+        id: 'v2-old-1', turnId: 'v2-turn-1', role: 'user', author: 'user',
+        text: 'V2 old source one '.repeat(20),
+      }),
+      runtimeTextEvent({
+        id: 'v2-old-2', turnId: 'v2-turn-2', role: 'model', author: 'agent',
+        text: 'V2 old source two '.repeat(80),
+      }),
+    ];
+    const recent = runtimeTextEvent({
+      id: 'v2-recent', turnId: 'v2-turn-recent', role: 'user', author: 'user', text: 'V2 retained tail',
+    });
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: oldEvents.slice(0, 1),
+      summary: 'V2_PREVIOUS_SUMMARY',
+      charsPerToken: 1,
+    });
+    const recorded: HistoryCompactCheckpoint[] = [];
+    const summaryInputs: Array<{ previous?: string; newlyFoldedIds: string[] }> = [];
+    const firstModel = completionModel();
+    const firstBackend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => firstModel, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          maxSummaryEstimatedTokens: 500,
+        },
+      },
+      loadHistoryCompactCheckpoint: () => previous,
+      summarizeHistoryCompact: async (input) => {
+        summaryInputs.push({
+          previous: input.previousCheckpoint?.summary,
+          newlyFoldedIds: (input.newlyFoldedRuntimeEvents ?? []).map((event) => event.id),
+        });
+        return 'V2_ROLLED_SUMMARY';
+      },
+      recordHistoryCompactCheckpoint: (checkpoint) => { recorded.push(checkpoint); },
+    });
+
+    await drain(firstBackend.send({
+      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [...oldEvents, recent],
+    }));
+
+    assert.deepEqual(summaryInputs, [{ previous: 'V2_PREVIOUS_SUMMARY', newlyFoldedIds: ['v2-old-2'] }]);
+    assert.equal(recorded.length, 1);
+    assert.equal(recorded[0]?.previousCheckpointId, previous.checkpointId);
+    assert.equal(recorded[0]?.coverage.eventCount, 2);
+    const firstPrompt = JSON.stringify(compactPrompt(firstModel));
+    assert.match(firstPrompt, /V2_ROLLED_SUMMARY/);
+    assert.equal(firstPrompt.includes('V2 old source one'), false);
+    assert.equal(firstPrompt.includes('V2 old source two'), false);
+
+    let reuseSummaryCalls = 0;
+    const secondModel = completionModel();
+    const secondBackend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => secondModel, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          maxSummaryEstimatedTokens: 500,
+        },
+      },
+      loadHistoryCompactCheckpoint: () => recorded[0],
+      summarizeHistoryCompact: async () => { reuseSummaryCalls += 1; return 'unexpected'; },
+      recordHistoryCompactCheckpoint: () => { throw new Error('must not rewrite a reusable checkpoint'); },
+    });
+    await drain(secondBackend.send({
+      turnId: 'turn-next', text: 'continue again', context: [], runtimeContext: [...oldEvents, recent],
+    }));
+
+    assert.equal(reuseSummaryCalls, 0);
+    assert.match(JSON.stringify(compactPrompt(secondModel)), /V2_ROLLED_SUMMARY/);
+  });
+
+  test('V2 blank summary fails open to the retained tail and emits one visible notice', async () => {
+    const model = completionModel();
+    const storedMessages: StoredMessage[] = [];
+    let recordCalls = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async (message) => { storedMessages.push(message); },
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 1_500,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 20,
+          maxSummaryEstimatedTokens: 500,
+        },
+      },
+      summarizeHistoryCompact: async () => '   ',
+      recordHistoryCompactCheckpoint: () => { recordCalls += 1; },
+    });
+    await drain(backend.send({
+      turnId: 'turn-current', text: 'continue', context: [],
+      runtimeContext: [
+        runtimeTextEvent({
+          id: 'blank-old-1', turnId: 'blank-turn-1', role: 'user', author: 'user',
+          text: 'blank old source one '.repeat(30),
+        }),
+        runtimeTextEvent({
+          id: 'blank-old-2', turnId: 'blank-turn-2', role: 'model', author: 'agent',
+          text: 'blank old source two '.repeat(50),
+        }),
+        runtimeTextEvent({
+          id: 'blank-recent', turnId: 'blank-recent-turn', role: 'user', author: 'user', text: 'BLANK_RETAINED_TAIL',
+        }),
+      ],
+    }));
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.equal(prompt.includes('blank old source one'), false);
+    assert.equal(prompt.includes('blank old source two'), false);
+    assert.match(prompt, /BLANK_RETAINED_TAIL/);
+    assert.equal(recordCalls, 0);
+    assert.equal(
+      storedMessages.filter((message) =>
+        message.type === 'system_note' && message.kind === 'context_compaction_failed_open'
+      ).length,
+      1,
+    );
+  });
+
+  test('V2 rolling failure keeps the prior checkpoint and the newest complete raw turns that fit', async () => {
+    const model = completionModel();
+    const old = runtimeTextEvent({
+      id: 'fallback-covered', turnId: 'fallback-turn-1', role: 'user', author: 'user',
+      text: 'FALLBACK_ALREADY_COVERED_RAW '.repeat(20),
+    });
+    const evicted = runtimeTextEvent({
+      id: 'fallback-evicted', turnId: 'fallback-turn-2', role: 'model', author: 'agent',
+      text: 'FALLBACK_NEWLY_EVICTED_RAW '.repeat(80),
+    });
+    const recent = runtimeTextEvent({
+      id: 'fallback-recent', turnId: 'fallback-turn-3', role: 'user', author: 'user',
+      text: 'FALLBACK_NEWEST_COMPLETE_TURN',
+    });
+    const previous = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: [old], summary: 'FALLBACK_PRIOR_SUMMARY', charsPerToken: 1,
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1', header: header(), appendMessage: async () => {},
+      connection: connection(), apiKey: 'sk-test', modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model, tools: [], newId: idGenerator(), now: monotonicClock(),
+      contextBudget: {
+        maxHistoryEstimatedTokens: 1_500, charsPerToken: 1,
+        historyCompact: {
+          enabled: true, mode: 'read_write', highWaterRatio: 0.01, tailEstimatedTokens: 40,
+          maxSummaryEstimatedTokens: 500,
+        },
+      },
+      loadHistoryCompactCheckpoint: () => previous,
+      summarizeHistoryCompact: async () => undefined,
+      recordHistoryCompactCheckpoint: () => { throw new Error('failed summary must not be recorded'); },
+    });
+
+    await drain(backend.send({
+      turnId: 'turn-current', text: 'continue', context: [], runtimeContext: [old, evicted, recent],
+    }));
+
+    const prompt = JSON.stringify(compactPrompt(model));
+    assert.match(prompt, /FALLBACK_PRIOR_SUMMARY/);
+    assert.match(prompt, /FALLBACK_NEWEST_COMPLETE_TURN/);
+    assert.equal(prompt.includes('FALLBACK_ALREADY_COVERED_RAW'), false);
+    assert.equal(prompt.includes('FALLBACK_NEWLY_EVICTED_RAW'), false);
   });
 
   test('read_write history compact fail-open sends original history when durable write fails', async () => {

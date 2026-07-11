@@ -159,6 +159,7 @@ import {
   runtimeEventTurnKey,
   selectSynthesisCacheForReplay,
   shouldAppendContextCompactedNote,
+  shouldAppendContextCompactionFailedOpenNote,
   type ContextBudgetPolicy,
   type HistoryCompactBlock,
   type ActiveArchivedToolResultPlaceholder,
@@ -170,6 +171,12 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRef,
 } from './context-budget.js';
+import {
+  buildHistoryCompactCheckpoint,
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  type HistoryCompactCheckpoint,
+} from './history-compact-checkpoint.js';
 
 export {
   DEFAULT_PERMISSION_TIMEOUT_MS,
@@ -374,6 +381,15 @@ export type HistoryCompactLoader = (
 export type HistoryCompactWriter = (
   input: HistoryCompactWriteInput,
 ) => Promise<HistoryCompactWriteResult | void> | HistoryCompactWriteResult | void;
+export interface HistoryCompactSummaryInput extends HistoryCompactWriteInput {
+  previousCheckpoint?: HistoryCompactCheckpoint;
+  newlyFoldedRuntimeEvents?: RuntimeEvent[];
+}
+export type HistoryCompactSummarizer = (
+  input: HistoryCompactSummaryInput,
+) => Promise<string | undefined> | string | undefined;
+export type HistoryCompactCheckpointLoader = () => Promise<HistoryCompactCheckpoint | undefined> | HistoryCompactCheckpoint | undefined;
+export type HistoryCompactCheckpointRecorder = (checkpoint: HistoryCompactCheckpoint, turnId: string) => void | Promise<void>;
 export type ActiveFullCompactBlockRecorder = (block: ActiveFullCompactBlock) => void | Promise<void>;
 export type SemanticCompactBlockRecorder = (block: SemanticCompactBlock) => void | Promise<void>;
 
@@ -488,6 +504,12 @@ export interface AiSdkBackendInput {
   loadHistoryCompact?: HistoryCompactLoader;
   /** Optional best-effort source-bearing history compact block writer/summarizer. */
   writeHistoryCompact?: HistoryCompactWriter;
+  /** Preferred bounded V2 checkpoint loader. Legacy artifact blocks remain a read-only fallback. */
+  loadHistoryCompactCheckpoint?: HistoryCompactCheckpointLoader;
+  /** Produces a checkpoint summary from the prior summary plus newly evicted RuntimeEvents. */
+  summarizeHistoryCompact?: HistoryCompactSummarizer;
+  /** Best-effort durable recorder for accepted V2 checkpoints. */
+  recordHistoryCompactCheckpoint?: HistoryCompactCheckpointRecorder;
   /** Optional best-effort durable recorder for accepted active full compact blocks. */
   recordActiveFullCompactBlock?: ActiveFullCompactBlockRecorder;
   /** Optional best-effort durable recorder for accepted semantic compact blocks. */
@@ -601,26 +623,42 @@ export class AiSdkBackend implements AgentBackend {
       if (
         budgeted?.historyCompactBlocks?.length &&
         contextBudget.historyCompact?.mode === 'read_write' &&
-        this.input.writeHistoryCompact
+        (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint
+          || this.input.writeHistoryCompact)
       ) {
         const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
         const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
         if (draftBlocks.length > 0) {
-          const writePatch = await this.writeHistoryCompactBlocks({
-            turnId: input.turnId,
-            contextBudget,
-            priorRuntimeContext: runtimeContext,
-            draftBlocks,
-            abortSignal: historyCompactAbortController.signal,
-          });
-          if (historyCompactAbortController.signal.aborted) return {};
-          if (writePatch.replacementBlocks.length === 0) {
-            contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(runtimeContext, runtimeContext, contextBudget);
+          if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
+            const writePatch = await this.writeHistoryCompactCheckpoint({
+              turnId: input.turnId,
+              contextBudget,
+              priorRuntimeContext: runtimeContext,
+              draftBlock: draftBlocks[0]!,
+              abortSignal: historyCompactAbortController.signal,
+            });
+            if (historyCompactAbortController.signal.aborted) return {};
+            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+              contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              writePatch.diagnosticPatch,
+            );
+          } else {
+            const writePatch = await this.writeHistoryCompactBlocks({
+              turnId: input.turnId,
+              contextBudget,
+              priorRuntimeContext: runtimeContext,
+              draftBlocks,
+              abortSignal: historyCompactAbortController.signal,
+            });
+            if (historyCompactAbortController.signal.aborted) return {};
+            if (writePatch.replacementBlocks.length === 0) {
+              contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(runtimeContext, runtimeContext, contextBudget);
+            }
+            contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+              contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
+              writePatch.diagnosticPatch,
+            );
           }
-          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(runtimeContext, budgeted.events, contextBudget),
-            writePatch.diagnosticPatch,
-          );
         }
       }
 
@@ -757,6 +795,7 @@ export class AiSdkBackend implements AgentBackend {
     let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
     let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
     let contextCompactedNoteWritten = false;
+    let contextCompactionFailedOpenNoteWritten = false;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -1160,6 +1199,20 @@ export class AiSdkBackend implements AgentBackend {
               ...(contextBudgetForUsage ? { contextBudget: contextBudgetForUsage } : {}),
             };
             await this.input.appendMessage(tu).catch(() => {});
+            if (
+              !contextCompactionFailedOpenNoteWritten
+              && shouldAppendContextCompactionFailedOpenNote(contextBudgetForUsage)
+            ) {
+              contextCompactionFailedOpenNoteWritten = true;
+              const note: SystemNoteMessage = {
+                type: 'system_note',
+                id: this.newId(),
+                turnId,
+                ts: this.now(),
+                kind: 'context_compaction_failed_open',
+              };
+              await this.input.appendMessage(note).catch(() => {});
+            }
             if (!contextCompactedNoteWritten && shouldAppendContextCompactedNote(contextBudgetForUsage)) {
               contextCompactedNoteWritten = true;
               const note: SystemNoteMessage = {
@@ -1414,28 +1467,58 @@ export class AiSdkBackend implements AgentBackend {
     if (
       budgeted?.historyCompactBlocks?.length &&
       contextBudget?.historyCompact?.mode === 'read_write' &&
-      this.input.writeHistoryCompact
+      (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint
+        || this.input.writeHistoryCompact)
     ) {
       const loadedBlockIds = new Set((contextBudget.historyCompact.blocks ?? []).map((block) => block.blockId));
       const draftBlocks = budgeted.historyCompactBlocks.filter((block) => !loadedBlockIds.has(block.blockId));
       if (draftBlocks.length > 0) {
-        const writePatch = await this.writeHistoryCompactBlocks({
-          turnId: input.turnId,
-          contextBudget,
-          priorRuntimeContext,
-          draftBlocks,
-          abortSignal: this.abortController?.signal,
-        });
-        if (writePatch.replacementBlocks.length > 0) {
-          runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+        if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
+          const writePatch = await this.writeHistoryCompactCheckpoint({
+            turnId: input.turnId,
+            contextBudget,
+            priorRuntimeContext,
+            draftBlock: draftBlocks[0]!,
+            abortSignal: this.abortController?.signal,
+          });
+          if (writePatch.replacementCheckpoint) {
+            runtimeContext = [
+              historyCompactCheckpointToRuntimeEvent(writePatch.replacementCheckpoint),
+              ...runtimeContext.filter((event) => !event.id.startsWith('history-compact:')),
+            ];
+          } else {
+            runtimeContext = writePatch.fallbackCheckpoint
+              ? buildHistoryCompactCheckpointFailOpenContext(
+                  writePatch.fallbackCheckpoint,
+                  priorRuntimeContext,
+                  contextBudget,
+                  runtimeContext.filter((event) => !event.id.startsWith('history-compact:')),
+                )
+              : runtimeContext.filter((event) => !event.id.startsWith('history-compact:'));
+          }
+          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            writePatch.diagnosticPatch,
+          );
         } else {
-          runtimeContext = priorRuntimeContext;
-          contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget);
+          const writePatch = await this.writeHistoryCompactBlocks({
+            turnId: input.turnId,
+            contextBudget,
+            priorRuntimeContext,
+            draftBlocks,
+            abortSignal: this.abortController?.signal,
+          });
+          if (writePatch.replacementBlocks.length > 0) {
+            runtimeContext = replaceHistoryCompactReplayBlocks(runtimeContext, writePatch.replacementBlocks);
+          } else {
+            runtimeContext = priorRuntimeContext;
+            contextBudgetDiagnostic = buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget);
+          }
+          contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
+            contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
+            writePatch.diagnosticPatch,
+          );
         }
-        contextBudgetDiagnostic = mergeContextBudgetDiagnostic(
-          contextBudgetDiagnostic ?? buildContextBudgetDiagnosticShell(priorRuntimeContext, runtimeContext, contextBudget),
-          writePatch.diagnosticPatch,
-        );
       }
     }
 
@@ -1931,13 +2014,32 @@ export class AiSdkBackend implements AgentBackend {
     policy: ContextBudgetPolicy,
   ): Promise<{ policy: ContextBudgetPolicy; diagnosticPatch?: Partial<ContextBudgetDiagnostic> }> {
     const historyCompact = policy.historyCompact;
-    if (historyCompact?.enabled !== true || !this.input.loadHistoryCompact) {
+    if (
+      historyCompact?.enabled !== true
+      || (!this.input.loadHistoryCompactCheckpoint && !this.input.loadHistoryCompact)
+    ) {
       return { policy };
     }
-    if ((historyCompact.blocks?.length ?? 0) > 0) {
+    if ((historyCompact.checkpoints?.length ?? 0) > 0 || (historyCompact.blocks?.length ?? 0) > 0) {
       return { policy };
     }
     try {
+      const checkpoint = await Promise.resolve(this.input.loadHistoryCompactCheckpoint?.());
+      if (checkpoint) {
+        return {
+          policy: {
+            ...policy,
+            historyCompact: { ...historyCompact, checkpoints: [checkpoint] },
+          },
+          diagnosticPatch: {
+            historyCompactEnabled: true,
+            historyCompactMode: historyCompact.mode ?? 'deterministic',
+            historyCompactBlocksLoaded: 1,
+            historyCompactBlocksAvailable: 1,
+          },
+        };
+      }
+      if (!this.input.loadHistoryCompact) return { policy };
       // No maxBytes here: the block JSON carries per-event provenance and
       // legitimately outgrows the token budget; the loader caps reads by
       // storage size, and token limits are enforced on the loaded blocks.
@@ -2082,6 +2184,121 @@ export class AiSdkBackend implements AgentBackend {
         synthesisCacheMode: 'read_write',
         synthesisCacheWritesAttempted: 1,
         synthesisCacheWriteFailures: 1,
+      };
+    }
+  }
+
+  private async writeHistoryCompactCheckpoint(input: {
+    turnId: string;
+    contextBudget: ContextBudgetPolicy;
+    priorRuntimeContext: readonly RuntimeEvent[];
+    draftBlock: HistoryCompactBlock;
+    abortSignal?: AbortSignal;
+  }): Promise<{
+    diagnosticPatch: Partial<ContextBudgetDiagnostic>;
+    replacementCheckpoint?: HistoryCompactCheckpoint;
+    fallbackCheckpoint?: HistoryCompactCheckpoint;
+  }> {
+    const summarizer = this.input.summarizeHistoryCompact;
+    const recorder = this.input.recordHistoryCompactCheckpoint;
+    if (!summarizer || !recorder) return { diagnosticPatch: {} };
+    const foldedIds = new Set(input.draftBlock.coverage.runtimeEventIds);
+    const foldedRuntimeEvents = input.priorRuntimeContext.filter((event) => foldedIds.has(event.id));
+    if (foldedRuntimeEvents.length === 0) {
+      return {
+        diagnosticPatch: {
+          historyCompactWritesAttempted: 0,
+          historyCompactWriteSkipped: 1,
+          historyCompactWriteSkippedReasonCounts: { source_missing: 1 },
+        },
+      };
+    }
+    const loadedCheckpoint = input.contextBudget.historyCompact?.checkpoints?.[0];
+    const checkpointMatch = loadedCheckpoint
+      ? matchHistoryCompactCheckpointPrefix(loadedCheckpoint, foldedRuntimeEvents)
+      : undefined;
+    const previousCheckpoint = checkpointMatch && !checkpointMatch.reason ? loadedCheckpoint : undefined;
+    const newlyFoldedRuntimeEvents = previousCheckpoint
+      ? foldedRuntimeEvents.slice(checkpointMatch!.coveredEventCount)
+      : foldedRuntimeEvents;
+    try {
+      const summary = await Promise.resolve(summarizer({
+        sessionId: this.sessionId,
+        turnId: input.turnId,
+        source: { draftBlock: input.draftBlock, foldedRuntimeEvents },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens:
+            input.contextBudget.historyCompact?.maxBlockEstimatedTokens
+            ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens
+            ?? 1_024,
+          maxEstimatedTokens: input.contextBudget.historyCompact?.maxEstimatedTokens ?? 2_048,
+          charsPerToken: input.contextBudget.charsPerToken ?? 4,
+        },
+        ...(previousCheckpoint ? { previousCheckpoint } : {}),
+        newlyFoldedRuntimeEvents,
+        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+        abortSignal: input.abortSignal,
+      }));
+      if (!summary?.trim()) {
+        return {
+          ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
+          diagnosticPatch: {
+            historyCompactEnabled: true,
+            historyCompactMode: 'read_write',
+            historyCompactWritesAttempted: 1,
+            historyCompactWriteFailures: 1,
+            historyCompactWriteSkippedReasonCounts: { empty_summary: 1 },
+            ...compactionDecisionDiagnosticPatch({
+              stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
+              boundaryKind: 'historyCompact', failOpenReason: 'empty_summary',
+            }),
+          },
+        };
+      }
+      const checkpoint = buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents: foldedRuntimeEvents,
+        summary,
+        highWaterName: input.draftBlock.highWaterName,
+        highWaterSeq: input.draftBlock.highWaterSeq,
+        maxSummaryEstimatedTokens: input.contextBudget.historyCompact?.maxBlockEstimatedTokens
+          ?? input.contextBudget.historyCompact?.maxSummaryEstimatedTokens,
+        ...(previousCheckpoint ? { previousCheckpointId: previousCheckpoint.checkpointId } : {}),
+        requestShapeHashBefore: this.priorRequestShape?.requestShapeHash,
+        charsPerToken: input.contextBudget.charsPerToken,
+        now: this.now(),
+      });
+      await Promise.resolve(recorder(checkpoint, input.turnId));
+      return {
+        replacementCheckpoint: checkpoint,
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: 'read_write',
+          historyCompactWritesAttempted: 1,
+          historyCompactBlocksWritten: 1,
+          historyCompactWrittenBlockIds: [checkpoint.checkpointId],
+          historyCompactWriteEstimatedTokens: checkpoint.estimatedTokens,
+          historyCompactBlockIds: [checkpoint.checkpointId],
+          historyCompactedEstimatedTokensAfter: checkpoint.estimatedTokens,
+          highWaterName: checkpoint.highWaterName,
+          highWaterSeq: checkpoint.highWaterSeq,
+          highWaterReason: 'history_compact',
+        },
+      };
+    } catch {
+      return {
+        ...(previousCheckpoint ? { fallbackCheckpoint: previousCheckpoint } : {}),
+        diagnosticPatch: {
+          historyCompactEnabled: true,
+          historyCompactMode: 'read_write',
+          historyCompactWritesAttempted: 1,
+          historyCompactWriteFailures: 1,
+          ...compactionDecisionDiagnosticPatch({
+            stage: 'priorReplay', sourceKind: 'runtimeEvents', decision: 'failedOpen',
+            boundaryKind: 'historyCompact', failOpenReason: 'write_failed',
+          }),
+        },
       };
     }
   }
@@ -2622,6 +2839,44 @@ function contextBudgetWithActivePrepareStepDiagnostics(
   const mergedPatch = mergeContextBudgetDiagnosticPatches(prunePatch, activeFullCompactPatch);
   if (!mergedPatch) return base;
   return mergeContextBudgetDiagnostic(base ?? minimalContextBudgetDiagnostic(), mergedPatch);
+}
+
+function buildHistoryCompactCheckpointFailOpenContext(
+  checkpoint: HistoryCompactCheckpoint,
+  priorRuntimeContext: readonly RuntimeEvent[],
+  policy: ContextBudgetPolicy,
+  retainedCandidates: readonly RuntimeEvent[],
+): RuntimeEvent[] {
+  const charsPerToken = policy.charsPerToken ?? 4;
+  const compactableEvents = priorRuntimeContext.filter((event) =>
+    estimateRuntimeEventsTokens([event], charsPerToken) > 0
+  );
+  const match = matchHistoryCompactCheckpointPrefix(checkpoint, compactableEvents);
+  if (match.reason) return [...retainedCandidates];
+  const coveredIds = new Set(match.coveredRuntimeEvents.map((event) => event.id));
+  const candidates = retainedCandidates.filter((event) => !coveredIds.has(event.id));
+  const turnOrder: string[] = [];
+  const byTurn = new Map<string, RuntimeEvent[]>();
+  for (const event of candidates) {
+    const group = byTurn.get(event.turnId);
+    if (group) group.push(event);
+    else {
+      turnOrder.push(event.turnId);
+      byTurn.set(event.turnId, [event]);
+    }
+  }
+  const checkpointEvent = historyCompactCheckpointToRuntimeEvent(checkpoint);
+  const maxTokens = policy.maxHistoryEstimatedTokens ?? Number.POSITIVE_INFINITY;
+  let selectedTokens = estimateRuntimeEventsTokens([checkpointEvent], charsPerToken);
+  const selectedGroups: RuntimeEvent[][] = [];
+  for (let index = turnOrder.length - 1; index >= 0; index -= 1) {
+    const group = byTurn.get(turnOrder[index]!) ?? [];
+    const groupTokens = estimateRuntimeEventsTokens(group, charsPerToken);
+    if (selectedTokens + groupTokens > maxTokens) break;
+    selectedGroups.unshift(group);
+    selectedTokens += groupTokens;
+  }
+  return [checkpointEvent, ...selectedGroups.flat()];
 }
 
 function incrementRecord(counts: Record<string, number>, key: string): void {

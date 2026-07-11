@@ -31,6 +31,7 @@ import type { AgentBackend } from '@maka/core/backend-types';
 import type { MakaTool } from '../tool-runtime.js';
 import type { InvocationResult } from '../invocation-context.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
+import { buildHistoryCompactCheckpoint, type HistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 import {
   AGENT_WORKSPACE_WORKTREE,
   IMPLEMENTATION_AGENT_ID,
@@ -3912,6 +3913,25 @@ describe('SessionManager permission mode updates', () => {
     expect(block?.sourceRefs[0]?.sourceId).toBe('provider-message:0');
   });
 
+  test('durable run ledger records bounded history compact checkpoints asynchronously', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HistoryCompactCheckpointBackend(ctx));
+    const manager = new SessionManager({ store, runStore, runtimeEventStore: runStore, backends, newId: nextId(), now: nextNow(12_790) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    const [run] = await runStore.listSessionRuns(session.id);
+    const events = await runStore.readEvents(session.id, run!.runId);
+    const checkpointEvent = events.find((event) => event.type === 'history_compact_checkpoint_recorded');
+    expect(checkpointEvent?.data?.checkpointId).toBe('hcheckpoint-test');
+    expect(checkpointEvent?.data?.boundaryKind).toBe('historyCompact');
+    const checkpoint = checkpointEvent?.data?.checkpoint as HistoryCompactCheckpoint | undefined;
+    expect(checkpoint?.summary).toBe('persist the bounded checkpoint');
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -5114,6 +5134,40 @@ class ActiveCompactBlockBackend implements AgentBackend {
 
   async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
     this.ctx.recordActiveFullCompactBlock?.(activeCompactBlockFixture(this.sessionId, input.turnId));
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class HistoryCompactCheckpointBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(private readonly ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: this.sessionId,
+      coveredRuntimeEvents: [{
+        id: 'source-event',
+        sessionId: this.sessionId,
+        runId: 'source-run',
+        turnId: 'source-turn',
+        invocationId: 'source-invocation',
+        ts: 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'source' },
+      }],
+      summary: 'persist the bounded checkpoint',
+    });
+    this.ctx.recordHistoryCompactCheckpoint?.({ ...checkpoint, checkpointId: 'hcheckpoint-test' }, input.turnId);
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }
 

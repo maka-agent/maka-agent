@@ -28,6 +28,7 @@ import {
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
+import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 
 export interface RuntimeKernelLike {
   startTurn(sessionId: string, input: UserMessageInput): AsyncIterable<SessionEvent>;
@@ -447,6 +448,15 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
       },
+      ...(this.deps.runStore ? {
+        loadHistoryCompactCheckpoint: () => loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore!, sessionId),
+      } : {}),
+      recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
+        const active = this.active.get(sessionId);
+        const runId = active?.turnToRunId.get(turnId);
+        const run = runId ? active?.activeRuns.get(runId) : undefined;
+        run?.recordHistoryCompactCheckpoint(checkpoint);
+      },
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(block.turnId);
@@ -497,6 +507,15 @@ export class RuntimeKernel implements RuntimeKernelLike {
         const runId = active?.turnToRunId.get(event.turnId);
         const run = runId ? active?.activeRuns.get(runId) : undefined;
         run?.recordRunTrace(event);
+      },
+      ...(this.deps.runStore ? {
+        loadHistoryCompactCheckpoint: () => loadLatestHistoryCompactCheckpointFromRunLedger(this.deps.runStore!, sessionId),
+      } : {}),
+      recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
+        const active = this.childActive.get(activeKey);
+        const runId = active?.turnToRunId.get(turnId);
+        const run = runId ? active?.activeRuns.get(runId) : undefined;
+        run?.recordHistoryCompactCheckpoint(checkpoint);
       },
       recordActiveFullCompactBlock: (block) => {
         const active = this.childActive.get(activeKey);

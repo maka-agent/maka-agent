@@ -9,6 +9,7 @@ import { expect } from '../test-helpers.js';
 import type { RuntimeEvent, RuntimeEventContent } from '@maka/core/runtime-event';
 import type { HistoryCompactWriteInput } from '../ai-sdk-backend.js';
 import { buildLlmHistorySummarizer, type AiSdkGenerateTextLike } from '../history-compact-summarizer.js';
+import { buildHistoryCompactCheckpoint } from '../history-compact-checkpoint.js';
 
 const ts = 1_700_000_000_000;
 let __seq = 0;
@@ -142,5 +143,34 @@ describe('buildLlmHistorySummarizer', () => {
 
     expect(result).toBe(undefined);
     expect(called).toBe(false);
+  });
+
+  test('rolling summary sends the prior summary plus only newly folded events', async () => {
+    const seen: unknown[] = [];
+    const summarize = buildLlmHistorySummarizer({
+      resolveModel: () => 'fake-model',
+      generateText: async (options) => {
+        seen.push(options.messages);
+        return { text: 'rolled' };
+      },
+    });
+    const old = ev({ role: 'user', author: 'user', content: { kind: 'text', text: 'ALREADY_SUMMARIZED_RAW' } });
+    const newer = ev({ role: 'model', author: 'agent', content: { kind: 'text', text: 'NEWLY_EVICTED_RAW' } });
+    const previousCheckpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'sess-1', coveredRuntimeEvents: [old], summary: 'PRIOR_SUMMARY',
+    });
+    const input = inputWith([old, newer]);
+
+    const result = await summarize({
+      ...input,
+      previousCheckpoint,
+      newlyFoldedRuntimeEvents: [newer],
+    });
+
+    expect(result).toBe('rolled');
+    const serialized = JSON.stringify(seen[0]);
+    expect(serialized).toContain('PRIOR_SUMMARY');
+    expect(serialized).toContain('NEWLY_EVICTED_RAW');
+    expect(serialized.includes('ALREADY_SUMMARIZED_RAW')).toBe(false);
   });
 });

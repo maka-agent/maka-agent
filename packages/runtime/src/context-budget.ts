@@ -14,6 +14,12 @@ import {
 import type { ActiveFullCompactPolicy } from './active-full-compact.js';
 import type { SemanticCompactPolicy } from './semantic-compact.js';
 import type { CompactionDecisionKind } from './compaction-boundary.js';
+import {
+  historyCompactCheckpointToRuntimeEvent,
+  matchHistoryCompactCheckpointPrefix,
+  renderHistoryCompactCheckpoint,
+  type HistoryCompactCheckpoint,
+} from './history-compact-checkpoint.js';
 
 export interface ContextBudgetPolicy {
   name?: string;
@@ -224,6 +230,8 @@ export interface HistoryCompactPolicy {
   mode?: 'deterministic' | 'lookup' | 'read_write';
   /** Source-bearing compact blocks available for the current replay projection. */
   blocks?: readonly HistoryCompactBlock[];
+  /** Bounded V2 checkpoints loaded from the run ledger. Preferred over legacy V1 blocks. */
+  checkpoints?: readonly HistoryCompactCheckpoint[];
   /** Defaults to 1 to keep replay bounded and deterministic. */
   maxBlocks?: number;
   /** Defaults to 2048 to keep replay bounded and deterministic. */
@@ -290,6 +298,7 @@ export interface HistoryCompactCoverage {
 export interface HistoryCompactReplayResult {
   events: RuntimeEvent[];
   blocks: HistoryCompactBlock[];
+  checkpoints: HistoryCompactCheckpoint[];
   diagnosticPatch: Partial<ContextBudgetDiagnostic>;
 }
 
@@ -489,12 +498,13 @@ export function applyRuntimeEventContextBudget(
     policy,
     { charsPerToken, maxHistoryEstimatedTokens: maxTokens },
   );
-  const budgetEvents = compacted.blocks.length > 0 ? compacted.events : pruned.events;
+  const hasCompactedReplay = compacted.blocks.length > 0 || compacted.checkpoints.length > 0;
+  const budgetEvents = hasCompactedReplay ? compacted.events : pruned.events;
   const turnGroups = groupEventsByTurn(budgetEvents.filter(isHistoryCompactContentEvent), charsPerToken);
 
   const keptTurnIds = new Set<string>();
   let keptEvents: RuntimeEvent[];
-  if (compacted.blocks.length > 0) {
+  if (hasCompactedReplay) {
     keptEvents = budgetEvents;
     for (const event of keptEvents) keptTurnIds.add(turnKey(event));
   } else {
@@ -523,13 +533,14 @@ export function applyRuntimeEventContextBudget(
     estimatedTokensBefore,
     estimatedTokensAfter: estimateRuntimeEventsTokens(keptEvents, charsPerToken),
     keptTurns: keptTurnIds.size,
-    droppedTurns: compacted.blocks.length > 0
+    droppedTurns: hasCompactedReplay
       ? compacted.blocks.reduce((total, block) => total + block.coverage.turnIds.length, 0)
+        + compacted.checkpoints.reduce((total, checkpoint) => total + checkpoint.coverage.turnCount, 0)
       : Math.max(0, turnGroups.length - keptTurnIds.size),
     keptEvents: keptEvents.length,
     droppedEvents: Math.max(
       0,
-      (compacted.blocks.length > 0 ? pruned.events.length : budgetEvents.length) - keptEvents.length,
+      (hasCompactedReplay ? pruned.events.length : budgetEvents.length) - keptEvents.length,
     ),
     ...(policy.historyRewrite?.enabled === true
       ? {
@@ -574,7 +585,7 @@ export function applyRuntimeEventHistoryCompact(
 ): HistoryCompactReplayResult {
   const compactPolicy = policy?.historyCompact;
   if (compactPolicy?.enabled !== true) {
-    return { events: [...events], blocks: [], diagnosticPatch: {} };
+    return { events: [...events], blocks: [], checkpoints: [], diagnosticPatch: {} };
   }
 
   const charsPerToken = options.charsPerToken ?? policy?.charsPerToken ?? 4;
@@ -589,6 +600,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -607,6 +619,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -622,6 +635,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -647,6 +661,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -661,11 +676,71 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
         historyCompactSkippedReasonCounts: skippedReasonCounts,
         ...historyCompactSkippedDecisionPatch(skippedReasonCounts),
+      },
+    };
+  }
+
+  for (const checkpoint of compactPolicy.checkpoints ?? []) {
+    const match = matchHistoryCompactCheckpointPrefix(checkpoint, foldedEvents);
+    if (match.reason) {
+      increment(skippedReasonCounts, match.reason);
+      continue;
+    }
+    const checkpointText = renderHistoryCompactCheckpoint(checkpoint);
+    const checkpointTokens = checkpoint.estimatedTokens
+      ?? estimateTokens(checkpointText.length, charsPerToken);
+    const maxCheckpointTokens = finitePositive(compactPolicy.maxBlockEstimatedTokens)
+      ?? finitePositive(compactPolicy.maxSummaryEstimatedTokens)
+      ?? 1_024;
+    if (checkpointTokens > maxCheckpointTokens) {
+      increment(skippedReasonCounts, 'max_block_tokens');
+      continue;
+    }
+    const uncoveredFoldedEvents = foldedEvents.slice(match.coveredEventCount);
+    const outputEvents = [
+      historyCompactCheckpointToRuntimeEvent(checkpoint),
+      ...uncoveredFoldedEvents,
+      ...retainedEvents,
+    ];
+    if (!fitsHistoryBudget(outputEvents, maxTokens, charsPerToken)) {
+      increment(skippedReasonCounts, 'prefix_over_budget');
+      continue;
+    }
+    return {
+      events: outputEvents,
+      blocks: [],
+      checkpoints: [checkpoint],
+      diagnosticPatch: {
+        ...basePatch,
+        historyCompactBlocksAvailable: compactPolicy.checkpoints?.length ?? 0,
+        historyCompactBlocksSelected: 1,
+        historyCompactBlockIds: [checkpoint.checkpointId],
+        historyCompactedTurns: checkpoint.coverage.turnCount,
+        historyCompactedEvents: checkpoint.coverage.eventCount,
+        historyCompactedEstimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
+        historyCompactedEstimatedTokensAfter: checkpointTokens,
+        historyCompactCoverageHashes: [checkpoint.coverage.sourceDigest],
+        highWaterName: checkpoint.highWaterName,
+        highWaterSeq: checkpoint.highWaterSeq,
+        highWaterReason: 'history_compact',
+        ...compactionDecisionDiagnosticPatch({
+          stage: 'priorReplay',
+          sourceKind: 'runtimeEvents',
+          decision: 'replaced',
+          boundaryKind: 'historyCompact',
+          boundaryIds: [checkpoint.checkpointId],
+          coverage: {
+            bodySha256: [checkpoint.coverage.sourceDigest],
+          },
+          estimatedTokensBefore: estimateRuntimeEventsTokens(match.coveredRuntimeEvents, charsPerToken),
+          estimatedTokensAfter: checkpointTokens,
+        }),
       },
     };
   }
@@ -694,6 +769,7 @@ export function applyRuntimeEventHistoryCompact(
       return {
         events: outputEvents,
         blocks: [loadedBlock],
+        checkpoints: [],
         diagnosticPatch: {
           ...basePatch,
           historyCompactBlocksAvailable: compactPolicy.blocks?.length ?? 0,
@@ -735,6 +811,7 @@ export function applyRuntimeEventHistoryCompact(
       return {
         events: [...events],
         blocks: [],
+        checkpoints: [],
         diagnosticPatch: {
           ...basePatch,
           historyCompactSkipped: 1,
@@ -752,6 +829,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -780,6 +858,7 @@ export function applyRuntimeEventHistoryCompact(
     return {
       events: [...events],
       blocks: [],
+      checkpoints: [],
       diagnosticPatch: {
         ...basePatch,
         historyCompactSkipped: 1,
@@ -791,6 +870,7 @@ export function applyRuntimeEventHistoryCompact(
   return {
     events: outputEvents,
     blocks: [block],
+    checkpoints: [],
     diagnosticPatch: {
       ...basePatch,
       historyCompactBlockIds: [block.blockId],
@@ -2743,6 +2823,15 @@ export function shouldAppendContextCompactedNote(contextBudget: ContextBudgetDia
     && decision.boundaryKind === 'historyCompact'
     && decision.decision === 'replaced'
   ) === true;
+}
+
+export function shouldAppendContextCompactionFailedOpenNote(contextBudget: ContextBudgetDiagnostic | undefined): boolean {
+  return (contextBudget?.historyCompactWriteFailures ?? 0) > 0
+    && contextBudget?.compactionDecisions?.some((decision) =>
+      decision.stage === 'priorReplay'
+      && decision.boundaryKind === 'historyCompact'
+      && decision.decision === 'failedOpen'
+    ) === true;
 }
 
 export function minimalContextBudgetDiagnostic(): ContextBudgetDiagnostic {
