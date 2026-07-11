@@ -28,8 +28,9 @@ AX-first background ladder modeled after Codex/Sky.
 - [x] Restore verified Electron text and semantic pointer actions through cua-driver only.
 - [x] Add per-action trace/effect evidence and repeatable real-machine reports.
 - [x] Run a 10-round multi-window semantic action matrix.
-- [ ] Re-run final repository verification after the semantic extension.
-- [ ] Merge latest `origin/main`, push, and refresh PR #699.
+- [x] Re-run final repository verification after the semantic extension.
+- [x] Merge latest `origin/main`.
+- [ ] Push the branch and refresh PR #699.
 
 ## Constraints
 

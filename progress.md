@@ -116,3 +116,12 @@
   - real-machine E2E: 39/39
   - `semantic-targeting-v5`: 10/10 green runs, every semantic case 10/10,
     zero fallback
+- Merged latest `origin/main` at `e715e7f8` without conflicts.
+- Final post-merge verification:
+  - typecheck passed
+  - build passed
+  - tests passed: scripts 7, core 812, storage 212, runtime 1284
+    (2 skipped), computer-use 71, headless 776 (1 skipped), CLI 249,
+    UI 105, Desktop 2329
+  - cua-driver bundle gate passed
+  - real-machine E2E passed 39/39
