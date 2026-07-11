@@ -118,7 +118,7 @@ export interface FixedPromptTaskInfraFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'infra_error';
+  errorClass: 'infra_error' | 'provider_billing' | 'auth';
   error: string;
 }
 
@@ -295,6 +295,7 @@ export interface RunFixedPromptControllerInput {
 
 export type FixedPromptControllerStopReason =
   | 'infra_failure_rate_exceeded'
+  | 'systemic_provider_failure'
   | 'cost_ceiling_exceeded';
 
 export interface FixedPromptControllerResult {
@@ -581,7 +582,14 @@ function taskEventFromOutput(input: {
   roundId: string;
   id: string;
   ts: number;
-}): FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent {
+}): FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent | FixedPromptTaskInfraFailedEvent {
+  if (isSystemicProviderFailure(input.output.cell.errorClass)) {
+    return taskInfraFailedEvent({
+      ...input,
+      errorClass: input.output.cell.errorClass,
+      error: `Harbor cell failed with ${input.output.cell.errorClass}`,
+    });
+  }
   const plumbingFailure = classifyPlumbingFailure(input.output, input.expectedPromptHash, input.expectedConfig);
   if (plumbingFailure) {
     return taskPlumbingFailedEvent({
@@ -737,6 +745,7 @@ function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash
 
 function taskInfraFailedEvent(input: {
   error: unknown;
+  errorClass?: FixedPromptTaskInfraFailedEvent['errorClass'];
   taskId: string;
   runId: string;
   roundId: string;
@@ -757,7 +766,7 @@ function taskInfraFailedEvent(input: {
     passed: false,
     scored: false,
     eligible: false,
-    errorClass: 'infra_error',
+    errorClass: input.errorClass ?? 'infra_error',
     error: errorMessage(input.error),
   };
 }
@@ -881,6 +890,9 @@ function controllerStopReason(input: {
   maxInfraFailureRate?: number;
   costCeilingUsd?: number;
 }): FixedPromptControllerStopReason | undefined {
+  if (input.events.some((event) => event.type === 'task_infra_failed' && isSystemicProviderFailure(event.errorClass))) {
+    return 'systemic_provider_failure';
+  }
   if (
     input.maxInfraFailureRate !== undefined
     && infraFailureRate(input.events, input.taskCount) > input.maxInfraFailureRate
@@ -891,6 +903,10 @@ function controllerStopReason(input: {
     return 'cost_ceiling_exceeded';
   }
   return undefined;
+}
+
+function isSystemicProviderFailure(errorClass: string | undefined): errorClass is 'provider_billing' | 'auth' {
+  return errorClass === 'provider_billing' || errorClass === 'auth';
 }
 
 function infraFailureRate(events: readonly FixedPromptTaskWalEvent[], taskCount: number): number {

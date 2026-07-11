@@ -171,6 +171,9 @@ describe('ModelAdapter stream and error normalization', () => {
     const adapter = newAdapter();
 
     assert.equal(adapter.classifyError(Object.assign(new Error('401 Authorization'), { code: 401 })), 'Auth');
+    const billingError = Object.assign(new Error('provider request failed'), { statusCode: 402 });
+    assert.equal(adapter.classifyError(billingError), 'ProviderBilling');
+    assert.equal(adapter.makeErrorEvent('turn-1', billingError).reason, 'provider_billing');
     assert.equal(adapter.makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms')).reason, 'timeout');
     assert.equal(adapter.mapFinishReason('stop'), 'end_turn');
     assert.equal(adapter.mapFinishReason('length'), 'max_tokens');

@@ -676,6 +676,40 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('stops immediately and leaves provider billing failures unscored', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const calls: string[] = [];
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [
+          { id: 'task-a', path: '/bench/task-a' },
+          { id: 'task-b', path: '/bench/task-b' },
+        ],
+        maxConcurrency: 1,
+        harborRunner: async ({ task }) => {
+          calls.push(task.id);
+          return harborOutput({ taskId: task.id, status: 'failed', errorClass: 'provider_billing' });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.deepEqual(calls, ['task-a']);
+      assert.equal(String(result.stopReason), 'systemic_provider_failure');
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
+      assert.equal(String(result.events[0]?.errorClass), 'provider_billing');
+      assert.equal(result.events[0]?.scored, false);
+    });
+  });
+
   test('stops when cost exceeds the configured ceiling', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1261,13 +1295,14 @@ function harborOutput(input: {
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
   taskToolSummary?: HarborTaskRunOutput['cell']['taskToolSummary'];
   errorClass?: string;
+  status?: HarborTaskRunOutput['cell']['status'];
   executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1 },
     cell: {
       schemaVersion: 1,
-      status: 'completed',
+      status: input.status ?? 'completed',
       ...(input.errorClass ? { errorClass: input.errorClass } : {}),
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,

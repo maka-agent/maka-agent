@@ -759,10 +759,17 @@ export function formatSyntheticToolErrorText(error: unknown): string {
 export function classifyError(error: unknown): string {
   if (!(error instanceof Error)) return 'Other';
   const code = 'code' in error ? String((error as { code?: unknown }).code) : '';
-  const text = `${error.name} ${code} ${error.message}`.toLowerCase();
+  const statusCode = 'statusCode' in error
+    ? String((error as { statusCode?: unknown }).statusCode)
+    : 'status' in error
+      ? String((error as { status?: unknown }).status)
+      : '';
+  const text = `${error.name} ${code} ${statusCode} ${error.message}`.toLowerCase();
   if (text.includes('abort')) return 'Abort';
-  if (text.includes('rate') || code === '429') return 'RateLimit';
-  if (text.includes('auth') || code === '401' || code === '403') return 'Auth';
+  if (statusCode === '402' || code === '402') return 'ProviderBilling';
+  if (text.includes('rate') || statusCode === '429' || code === '429') return 'RateLimit';
+  if (text.includes('auth') || statusCode === '401' || statusCode === '403' || code === '401' || code === '403') return 'Auth';
+  if (/^5\d\d$/.test(statusCode) || /^5\d\d$/.test(code)) return 'ProviderUnavailable';
   if (text.includes('timeout')) return 'Timeout';
   if (text.includes('network') || text.includes('fetch')) return 'Network';
   return error.name || 'Other';
@@ -774,6 +781,10 @@ export function errorReasonFromClass(errorClass: string): string | undefined {
       return 'timeout';
     case 'Auth':
       return 'auth';
+    case 'ProviderBilling':
+      return 'provider_billing';
+    case 'ProviderUnavailable':
+      return 'provider_unavailable';
     case 'RateLimit':
       return 'rate_limit';
     case 'Network':
