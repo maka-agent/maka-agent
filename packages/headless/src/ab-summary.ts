@@ -44,7 +44,10 @@ export function summarizeAbComparison(input: SummarizeAbComparisonInput): AbComp
     ? roundRateDelta(candidate.passRate - baseline.passRate)
     : null;
   const nonInferiority = summarizeNonInferiority(pairedAttempts, passRateDelta);
-  const { decision, reason } = decide(baseline, candidate, pairedAttempts, passRateDelta, nonInferiority, nonInferiorityMargin);
+  const formalDecision = decide(baseline, candidate, pairedAttempts, passRateDelta, nonInferiority, nonInferiorityMargin);
+  const { decision, reason } = reps === 1 && formalDecision.decision !== 'invalid'
+    ? { decision: 'diagnostic' as const, reason: 'single_rep_diagnostic_only' }
+    : formalDecision;
 
   return {
     runId: input.runId,

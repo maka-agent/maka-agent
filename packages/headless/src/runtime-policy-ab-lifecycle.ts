@@ -38,11 +38,7 @@ export async function runRuntimePolicyAbLifecycle(
         reps: 1,
         roundIdPrefix: 'pilot',
       });
-      const pilot: RuntimePolicyAbComparisonSummary = {
-        ...pilotResult,
-        decision: 'diagnostic',
-        reason: 'single_rep_pilot_diagnostic',
-      };
+      const pilot: RuntimePolicyAbComparisonSummary = pilotResult;
       const clearanceFailure = pilotClearanceFailure(pilot);
       state = {
         schemaVersion: 'maka.runtime_policy_ab.lifecycle.v1',
