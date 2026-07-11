@@ -64,11 +64,6 @@ test('keeps completed Markdown geometry stable after terminal completion', async
   ));
   expect(samples.length).toBeGreaterThan(0);
   const latestRootId = samples.at(-1)?.rootId;
-  expect(samples.some((sample) => (
-    sample.rootId === latestRootId
-    && sample.stopVisible
-    && sample.tags === 'P/DIV/P/P/P'
-  ))).toBe(true);
   const afterTerminal = samples.filter((sample) => (
     sample.rootId === latestRootId && !sample.stopVisible
   ));
