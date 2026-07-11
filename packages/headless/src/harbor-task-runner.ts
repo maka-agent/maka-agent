@@ -105,6 +105,18 @@ const PROVIDER_SECRET_ENV: Record<string, { key: string; file: string; baseUrl: 
   anthropic: { key: 'ANTHROPIC_API_KEY', file: 'ANTHROPIC_API_KEY_FILE', baseUrl: 'ANTHROPIC_BASE_URL' },
 };
 
+const EXPERIMENT_IDENTITY_ENV_KEYS = new Set([
+  'MAKA_BACKEND',
+  'MAKA_MODEL',
+  'MAKA_PROVIDER',
+  'MAKA_SYSTEM_PROMPT',
+  'MAKA_TRIAL_INPUT_USD_PER_1M',
+  'MAKA_TRIAL_OUTPUT_USD_PER_1M',
+  'MAKA_TRIAL_CACHE_READ_USD_PER_1M',
+  'MAKA_TRIAL_CACHE_WRITE_USD_PER_1M',
+  'MAKA_TRIAL_PRICING_SOURCE',
+]);
+
 export function createHarborTaskRunner(options: HarborTaskRunnerOptions): HarborTaskRunner {
   const runHarbor = options.runHarbor ?? defaultHarborProcessRunner;
   const harborBin = options.harborBin ?? 'harbor';
@@ -293,6 +305,7 @@ export function buildHarborJobConfig(
 ): Record<string, unknown> {
   const attemptAgentEnv = mergeAgentEnv(options.agentEnv, input.agentEnv);
   assertNoProviderSecretsInAgentEnv(attemptAgentEnv);
+  assertNoExperimentIdentityOverrides(attemptAgentEnv);
   const provider = options.provider ?? 'deepseek';
   const model = modelIdForProvider(options.model, provider);
   const mounts: Array<Record<string, unknown>> = [
@@ -395,6 +408,13 @@ function assertNoProviderSecretsInAgentEnv(agentEnv: Record<string, string> | un
   const forbidden = Object.keys(agentEnv ?? {}).filter((key) => /_API_KEY(_FILE)?$/.test(key));
   if (forbidden.length > 0) {
     throw new Error(`agentEnv must not contain provider secrets: ${forbidden.sort().join(', ')}`);
+  }
+}
+
+function assertNoExperimentIdentityOverrides(agentEnv: Record<string, string> | undefined): void {
+  const forbidden = Object.keys(agentEnv ?? {}).filter((key) => EXPERIMENT_IDENTITY_ENV_KEYS.has(key));
+  if (forbidden.length > 0) {
+    throw new Error(`agentEnv must not override experiment identity: ${forbidden.sort().join(', ')}`);
   }
 }
 

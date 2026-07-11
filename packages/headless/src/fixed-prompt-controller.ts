@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile, truncate, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import {
   validateHarborCellOutput,
+  hashHarborSystemPrompt,
   type HarborCellContextBudgetPolicySnapshot,
   type HarborCellContextBudgetSummary,
   type HarborCellContinuationSummary,
@@ -155,7 +156,7 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   passed: false;
   scored: false;
   eligible: false;
-  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash';
+  errorClass: 'zero_cost_with_tokens' | 'prompt_hash_mismatch' | 'missing_prompt_hash' | 'execution_identity_mismatch';
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
@@ -559,6 +560,7 @@ async function runTaskAndBuildEvent(input: {
   }
   return taskEventFromOutput({
     output,
+    expectedConfig: input.config,
     expectedPromptHash: input.expectedPromptHash,
     resumeFingerprint: input.resumeFingerprint,
     taskId: input.task.id,
@@ -571,6 +573,7 @@ async function runTaskAndBuildEvent(input: {
 
 function taskEventFromOutput(input: {
   output: HarborTaskRunOutput;
+  expectedConfig: Config;
   expectedPromptHash: string;
   resumeFingerprint?: string;
   taskId: string;
@@ -579,7 +582,7 @@ function taskEventFromOutput(input: {
   id: string;
   ts: number;
 }): FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent {
-  const plumbingFailure = classifyPlumbingFailure(input.output, input.expectedPromptHash);
+  const plumbingFailure = classifyPlumbingFailure(input.output, input.expectedPromptHash, input.expectedConfig);
   if (plumbingFailure) {
     return taskPlumbingFailedEvent({
       ...input,
@@ -690,10 +693,27 @@ function taskPlumbingFailedEvent(input: {
   };
 }
 
-function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash: string): {
+function classifyPlumbingFailure(output: HarborTaskRunOutput, expectedPromptHash: string, expectedConfig: Config): {
   errorClass: FixedPromptTaskPlumbingFailedEvent['errorClass'];
   error: string;
 } | undefined {
+  const identity = output.cell.executionIdentity;
+  if (identity) {
+    const modelPrefix = `${expectedConfig.llmConnectionSlug}/`;
+    const expectedModel = expectedConfig.model?.startsWith(modelPrefix)
+      ? expectedConfig.model.slice(modelPrefix.length)
+      : expectedConfig.model;
+    if (
+      identity.llmConnectionSlug !== expectedConfig.llmConnectionSlug
+      || identity.model !== expectedModel
+      || identity.systemPromptHash !== expectedPromptHash
+    ) {
+      return {
+        errorClass: 'execution_identity_mismatch',
+        error: 'Harbor cell execution identity did not match the configured connection, model, and prompt',
+      };
+    }
+  }
   if (output.cell.status === 'completed' && output.cell.promptHash === undefined) {
     return {
       errorClass: 'missing_prompt_hash',
@@ -913,7 +933,7 @@ async function truncateTornWalTail(path: string): Promise<void> {
 }
 
 export function hashSystemPrompt(systemPrompt: string): string {
-  return `sha256:${createHash('sha256').update(JSON.stringify(systemPrompt)).digest('hex')}`;
+  return hashHarborSystemPrompt(systemPrompt);
 }
 
 async function readJsonObject(path: string): Promise<Record<string, unknown>> {

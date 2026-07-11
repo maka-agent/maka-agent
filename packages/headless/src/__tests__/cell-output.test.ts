@@ -5,6 +5,7 @@ import type { InvocationResult } from '@maka/runtime';
 import {
   buildHarborCellOutput,
   validateHarborCellOutput,
+  type HarborCellOutput,
 } from '../cell-output.js';
 
 describe('Harbor cell output contract', () => {
@@ -105,6 +106,29 @@ describe('Harbor cell output contract', () => {
         runId: 'run-1',
         turnId: 'turn-1',
       },
+    });
+  });
+
+  test('preserves the actual execution identity reported by the cell', () => {
+    const output = buildHarborCellOutput({
+      invocation: invocationFixture(),
+      runtimeEventsPath: '/logs/agent/runtime-events.jsonl',
+    });
+    const validated = validateHarborCellOutput({
+      ...output,
+      executionIdentity: {
+        llmConnectionSlug: 'deepseek',
+        model: 'deepseek-v4-flash',
+        systemPromptHash: 'sha256:prompt-a',
+        pricingProfile: 'deepseek-v4-flash-tbench-v1',
+      },
+    }) as HarborCellOutput & { executionIdentity?: unknown };
+
+    assert.deepEqual(validated.executionIdentity, {
+      llmConnectionSlug: 'deepseek',
+      model: 'deepseek-v4-flash',
+      systemPromptHash: 'sha256:prompt-a',
+      pricingProfile: 'deepseek-v4-flash-tbench-v1',
     });
   });
 
@@ -351,5 +375,18 @@ function runtimeEvent(extra: Partial<RuntimeEvent>): RuntimeEvent {
     role: 'model',
     author: 'agent',
     ...extra,
+  };
+}
+
+function invocationFixture(): InvocationResult {
+  return {
+    invocationId: 'inv-1',
+    sessionId: 'session-1',
+    runId: 'run-1',
+    turnId: 'turn-1',
+    status: 'completed',
+    events: [],
+    startedAt: 100,
+    finishedAt: 250,
   };
 }

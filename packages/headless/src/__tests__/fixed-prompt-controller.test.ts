@@ -1147,6 +1147,37 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('records execution model mismatches as plumbing failures', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          executionIdentity: {
+            llmConnectionSlug: 'fake',
+            model: 'wrong-model',
+            systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+            pricingProfile: 'test-profile',
+          },
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'execution_identity_mismatch');
+    });
+  });
+
   test('records missing prompt hashes with tokens as plumbing failures', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1230,6 +1261,7 @@ function harborOutput(input: {
   continuationSummary?: HarborTaskRunOutput['cell']['continuationSummary'];
   taskToolSummary?: HarborTaskRunOutput['cell']['taskToolSummary'];
   errorClass?: string;
+  executionIdentity?: HarborTaskRunOutput['cell']['executionIdentity'];
 }): HarborTaskRunOutput {
   return {
     harbor: { reward: input.reward ?? 1 },
@@ -1240,6 +1272,7 @@ function harborOutput(input: {
       runtimeEventsPath: `/logs/${input.taskId}/runtime-events.jsonl`,
       traceEventsPath: `/logs/${input.taskId}/events.jsonl`,
       ...(input.omitPromptHash ? {} : { promptHash: input.promptHash ?? hashSystemPrompt('fixed prompt\n') }),
+      ...(input.executionIdentity ? { executionIdentity: input.executionIdentity } : {}),
       tokenSummary: input.tokenSummary ?? tokenSummary({ input: 1, output: 2, reasoning: 0, total: 3, costUsd: 0.02 }),
       ...(input.contextBudgetPolicy ? { contextBudgetPolicy: input.contextBudgetPolicy } : {}),
       ...(input.contextBudgetSummary ? { contextBudgetSummary: input.contextBudgetSummary } : {}),

@@ -479,6 +479,24 @@ describe('createHarborTaskRunner', () => {
 });
 
 describe('buildHarborJobConfig', () => {
+  test('rejects experiment identity overrides in extra agent env', () => {
+    assert.throws(
+      () => buildHarborJobConfig(runInput(), {
+        makaRepoPath: '/repo',
+        jobsDir: '/jobs/x',
+        jobName: 'trial',
+        model: 'deepseek/deepseek-v4-flash',
+        pricing: { inputUsdPer1M: 0.145, outputUsdPer1M: 0.29 },
+        agentEnv: {
+          MAKA_MODEL: 'deepseek-v4-pro',
+          MAKA_SYSTEM_PROMPT: 'wrong prompt',
+          MAKA_TRIAL_INPUT_USD_PER_1M: '9',
+        },
+      }),
+      /agentEnv must not override experiment identity: MAKA_MODEL, MAKA_SYSTEM_PROMPT, MAKA_TRIAL_INPUT_USD_PER_1M/,
+    );
+  });
+
   test('rejects provider secrets in extra agent env at config-build time', () => {
     assert.throws(
       () => buildHarborJobConfig(runInput(), {
