@@ -368,6 +368,24 @@ describe('Maka Pi TUI transcript', () => {
     ]);
   });
 
+  test('rebuilds fail-open notes without claiming history was trimmed', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [{
+      type: 'system_note',
+      id: 'note-failed-open',
+      turnId: 'turn-1',
+      ts: 1,
+      kind: 'context_compaction_failed_open',
+    }] satisfies StoredMessage[]);
+
+    assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice'), [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Context summary failed; the session continued and will retry next turn.',
+    }]);
+  });
+
   test('renders every transcript line within the terminal width', () => {
     const state = createMakaPiTranscriptState();
     appendUserPrompt(state, 'please inspect a very long path under packages/runtime/src');

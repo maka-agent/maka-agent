@@ -86,7 +86,7 @@ const VISIBLE_SYSTEM_NOTES = new Set<string>([
 
 const SYSTEM_NOTE_LABELS: Record<string, string> = {
   context_compacted: 'Context compacted to keep this session within the model window.',
-  context_compaction_failed_open: 'Context summary failed; older details were trimmed and will be retried next turn.',
+  context_compaction_failed_open: 'Context summary failed; the session continued and will retry next turn.',
   mode_change: 'Permission mode changed',
   turn_aborted: 'Turn aborted',
 };

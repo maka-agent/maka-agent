@@ -57,7 +57,7 @@ describe('materializeChat attachments', () => {
     assert.equal(items[0].role, 'system');
     assert.equal(
       items[0].text,
-      'Context summary failed; older details were trimmed and will be retried next turn.',
+      'Context summary failed; the session continued and will retry next turn.',
     );
   });
 });
