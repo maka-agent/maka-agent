@@ -171,6 +171,14 @@ export function validateHistoryCompactCheckpointShape(
     && (checkpoint.previousCheckpointId === undefined || nonEmpty(checkpoint.previousCheckpointId));
 }
 
+export function selectFurthestHistoryCompactCheckpoint(
+  current: HistoryCompactCheckpoint | undefined,
+  candidate: HistoryCompactCheckpoint,
+): HistoryCompactCheckpoint {
+  if (!current || candidate.coverage.eventCount > current.coverage.eventCount) return candidate;
+  return current;
+}
+
 export function matchHistoryCompactCheckpointPrefix(
   checkpoint: HistoryCompactCheckpoint,
   events: readonly RuntimeEvent[],

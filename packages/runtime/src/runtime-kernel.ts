@@ -29,7 +29,10 @@ import {
   requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
-import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
+import {
+  selectFurthestHistoryCompactCheckpoint,
+  type HistoryCompactCheckpoint,
+} from './history-compact-checkpoint.js';
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
 
 export interface RuntimeKernelLike {
@@ -475,7 +478,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private cacheHistoryCompactCheckpoint(sessionId: string, checkpoint: HistoryCompactCheckpoint): void {
-    this.historyCompactCheckpoints.set(sessionId, checkpoint);
+    this.historyCompactCheckpoints.set(
+      sessionId,
+      selectFurthestHistoryCompactCheckpoint(this.historyCompactCheckpoints.get(sessionId), checkpoint),
+    );
   }
 
   private async ensureActive(

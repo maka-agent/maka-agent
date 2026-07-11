@@ -89,6 +89,30 @@ describe('history compact checkpoint', () => {
     assert.equal(loaded?.checkpointId, latest.checkpointId);
   });
 
+  test('loads the furthest checkpoint when a later run records stale coverage', async () => {
+    const furthest = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1), textEvent(2)],
+      summary: 'furthest coverage',
+    });
+    const stale = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1)],
+      summary: 'stale coverage',
+    });
+    const store = new StubAgentRunStore([
+      run('run-furthest', 10),
+      run('run-stale', 20),
+    ], new Map([
+      ['run-furthest', [checkpointEvent('ledger-furthest', 'run-furthest', furthest, 30)]],
+      ['run-stale', [checkpointEvent('ledger-stale', 'run-stale', stale, 40)]],
+    ]));
+
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(loaded?.checkpointId, furthest.checkpointId);
+  });
+
   test('replays a matching checkpoint with only the uncovered raw tail', () => {
     const events = Array.from({ length: 8 }, (_, index) => textEvent(index));
     const checkpoint = buildHistoryCompactCheckpoint({

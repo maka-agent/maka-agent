@@ -3997,6 +3997,43 @@ describe('SessionManager permission mode updates', () => {
     expect(runStore.readEventsCalls).toBe(0);
   });
 
+  test('does not let a stale child checkpoint move the session cache backward', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const observedCoverage: Array<number | undefined> = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new HistoryCompactCheckpointMonotonicProbeBackend(ctx, observedCoverage));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(12_796),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'parent-furthest', text: 'hello' }));
+    const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-furthest');
+    if (!parentRun) throw new Error('parent run was not recorded');
+
+    for (const turnId of ['child-stale', 'child-observe']) {
+      await drain(manager.startChildTurn(session.id, {
+        turnId,
+        parentRunId: parentRun.runId,
+        spec: {
+          id: LOCAL_READ_AGENT_ID,
+          name: LOCAL_READ_AGENT_DEFINITION.name,
+          systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+        },
+        prompt: 'inspect the repo',
+      }));
+    }
+
+    expect(observedCoverage).toEqual([undefined, 2, 2]);
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -5302,6 +5339,48 @@ class HistoryCompactCheckpointCacheProbeBackend implements AgentBackend {
         summary: 'share this checkpoint across session backends',
       });
       this.ctx.recordHistoryCompactCheckpoint?.({ ...checkpoint, checkpointId: 'hcheckpoint-shared' }, input.turnId);
+    }
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class HistoryCompactCheckpointMonotonicProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly observedCoverage: Array<number | undefined>,
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const loaded = await this.ctx.loadHistoryCompactCheckpoint?.();
+    this.observedCoverage.push(loaded?.coverage.eventCount);
+    const coverage = input.turnId === 'parent-furthest' ? 2 : input.turnId === 'child-stale' ? 1 : 0;
+    if (coverage > 0) {
+      const coveredRuntimeEvents = Array.from({ length: coverage }, (_, index): RuntimeEvent => ({
+        id: `monotonic-source-event-${index}`,
+        sessionId: this.sessionId,
+        runId: `monotonic-source-run-${index}`,
+        turnId: `monotonic-source-turn-${index}`,
+        invocationId: `monotonic-source-invocation-${index}`,
+        ts: index + 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: `source ${index}` },
+      }));
+      this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents,
+        summary: `${input.turnId} checkpoint`,
+      }), input.turnId);
     }
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }
