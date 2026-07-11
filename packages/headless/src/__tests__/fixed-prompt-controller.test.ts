@@ -545,6 +545,46 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('keeps an identity-verified timeout eligible as a budget exhaustion', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const cell = harborOutput({
+        taskId: 'task-a',
+        executionIdentity: {
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+          pricingProfile: 'test-profile',
+        },
+      }).cell;
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      const event = result.events[0];
+      assert.equal(event?.type, 'task_budget_exhausted');
+      if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+      assert.equal(event.status, 'budget_exhausted');
+      assert.equal(event.eligible, true);
+      assert.equal(event.evidenceStatus, 'verified');
+      assert.equal(event.evidenceErrorClass, undefined);
+    });
+  });
+
   test('reruns budget-exhausted WAL events instead of reusing a timeout', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
