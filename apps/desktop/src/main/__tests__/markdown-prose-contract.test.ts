@@ -13,7 +13,7 @@
  *    The shell keeps only container geometry (padding); element typography
  *    (margins, font-size, list style, link/border, code padding,
  *    blockquote/table chrome) and the load-bearing base typography
- *    (color / line-height / break-word / 72ch cap / edge trims — #618
+ *    (color / line-height / break-word / edge trims — #618
  *    item 2, locked by PROSE-SELF-CONTAINED in the polish contract below)
  *    live on .maka-prose.
  *
@@ -275,7 +275,8 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
     // depend on `.maka-bubble-assistant` for line-height (the
     // WCAG 1.4.12 floor — var(--leading-normal) = 1.5), word-wrap (no global
     // overflow-wrap fallback exists — long URLs/tokens overflow horizontally),
-    // color, the 72ch measure cap, or the first/last-child edge-margin trims.
+    // color, or the first/last-child edge-margin trims. (The reading
+    // measure is NOT set here — see the max-width assertion below.)
     // Moving them is behavior-neutral in chat: the assistant div carries both
     // classes, same specificity, same layer.
     const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
@@ -287,7 +288,10 @@ describe('PROSE-POLISH-13PX-0 contract (#546 Phase B)', () => {
     assert.match(prose!.decls, /font-size:\s*var\(--font-size-base\)/, '.maka-prose must pin font-size to the body tier — the tool card item shell sets text-xs (11px caption), which inherits into the prose body and scales the whole em-based heading ladder down (codex review P2)');
     assert.match(prose!.decls, /line-height:\s*var\(--leading-normal\)/, '.maka-prose must pin line-height to var(--leading-normal): it is the WCAG 1.4.12 floor (1.5) — inherited UI line-heights can dip below it at 13px');
     assert.match(prose!.decls, /(?:word-wrap|overflow-wrap):\s*break-word/, '.maka-prose must carry break-word — no global overflow-wrap fallback exists, so a bare consumer gets horizontally overflowing URLs/tokens');
-    assert.match(prose!.decls, /max-width:\s*72ch/, '.maka-prose must cap the measure at 72ch — the readability cap is prose typography, not bubble geometry');
+    assert.ok(
+      !/max-width\s*:/.test(prose!.decls),
+      '.maka-prose must not set its own max-width — the reading measure is owned by .maka-message-row (var(--maka-chat-measure), the same cap the composer uses), so the assistant block matches the composer width instead of being narrowed by an inner readability cap',
+    );
     assert.match(
       css,
       /\.maka-prose\s*>\s*:first-child\s*\{[^}]*margin-top:\s*0/,

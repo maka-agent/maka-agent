@@ -81,29 +81,31 @@
 /* The base rule is self-contained (#618 item 2): a bare .maka-prose consumer
    must not depend on the assistant bubble shell — or on whatever chrome
    surrounds it — for line-height (the WCAG 1.4.12 floor — --leading-normal =
-   1.5), break-word (no global overflow-wrap fallback exists), color, the
-   measure cap, or the font. font-family/font-size are pinned defensively:
-   a host that sets font-mono or a caption-size font (as the tool card item
-   shell does) would otherwise inherit into the prose body and scale the
-   whole em-based heading ladder off the wrong tier (codex review P2). */
+   1.5), break-word (no global overflow-wrap fallback exists), color, or the
+   font. font-family/font-size are pinned defensively: a host that sets
+   font-mono or a caption-size font (as the tool card item shell does) would
+   otherwise inherit into the prose body and scale the whole em-based heading
+   ladder off the wrong tier (codex review P2). The reading measure is
+   intentionally NOT set here — see the note below. */
 .maka-prose {
   color: var(--foreground);
   font-family: var(--font-sans);
   font-size: var(--font-size-base);
   line-height: var(--leading-normal);
   word-wrap: break-word;
-  /* PR-MESSAGE-BODY-MAX-WIDTH-0 (WAWQAQ msg `38055b9f`, skills round task
-     #116): cap prose at ~72ch per pbakaus impeccable (65–75ch) and
-     design-taste-frontend (max-w-[65ch]). On wide windows the text used to
-     stretch the full pane width and wrap into very long lines, hurting
-     eye-tracking. Applies to inline text only — pre / table / code blocks
-     re-expand to 100% of the capped box below. */
-  max-width: 72ch;
+  /* No max-width here: the reading measure is owned by .maka-message-row
+     (var(--maka-chat-measure), the same cap the composer uses), so the
+     assistant block matches the composer width. An inner 72ch cap used to
+     narrow the prose ~200px short of the composer; removing it lets the
+     answer fill the row. pre / table / code blocks still expand to the full
+     row via the rule below. */
 }
 .maka-prose pre,
 .maka-prose table,
 .maka-prose .maka-code-block {
-  /* Wide payloads bypass the prose cap. */
+  /* Block payloads (tables especially — display:table would otherwise
+     shrink-wrap to content width) fill the prose box instead of hugging
+     their intrinsic width. */
   max-width: 100%;
 }
 .maka-prose p {

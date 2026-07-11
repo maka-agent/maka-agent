@@ -73,9 +73,11 @@ const bubbleVariants = cva("", {
       user: "max-w-[min(100%,640px)] whitespace-pre-wrap break-words rounded-[var(--radius-surface)] bg-[var(--chat-user-bg)] px-3 py-2.5 leading-normal text-[color:var(--chat-user-foreground,var(--foreground))]",
       // Assistant / system: open prose, no bubble. The shell stays
       // `.maka-bubble-assistant` (now just surface padding — typography,
-      // the 72ch measure cap, and edge-margin trims live on the prose layer,
-      // #618 item 2); the Markdown prose layer `.maka-prose` (p / h / ul /
-      // code / ... typography) rides alongside and stays reusable on its own.
+      // edge-margin trims, and line-height/break-word live on the prose
+      // layer, #618 item 2; the reading measure is owned by
+      // `.maka-message-row`, not the prose layer); the Markdown prose layer
+      // `.maka-prose` (p / h / ul / code / ... typography) rides alongside
+      // and stays reusable on its own.
       assistant: "maka-bubble-assistant maka-prose",
     },
   },
