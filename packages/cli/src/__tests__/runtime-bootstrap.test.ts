@@ -212,6 +212,42 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('hydrates terminal ShellRun state without marking it observed by the agent', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local', name: 'Local Ollama', providerType: 'ollama', defaultModel: 'llama3.2',
+      });
+      const context = await createMakaCliRuntimeContext({ workspaceRoot, cwd: workspaceRoot });
+      try {
+        const bash = context.tools.find((tool) => tool.name === 'Bash');
+        assert.ok(bash);
+        const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 500)"`;
+        const started = await bash.impl(
+          { command, yield_time_ms: 250 },
+          {
+            sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
+            cwd: workspaceRoot, toolCallId: 'tool-1',
+            abortSignal: new AbortController().signal, emitOutput: () => {},
+          },
+        ) as { ref?: string; status?: string };
+        assert.equal(started.status, 'running');
+        assert.ok(started.ref);
+
+        await new Promise((resolve) => setTimeout(resolve, 650));
+        const hydrated = await context.readShellRun('session-1', started.ref);
+        assert.equal(hydrated.result.status, 'completed');
+        const stored = await createShellRunStore(workspaceRoot).readShellRun(
+          'session-1',
+          backgroundTaskId(started.ref),
+        );
+        assert.equal(stored.observedAt, undefined);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('passes the default context budget policy to ai-sdk backends', async () => {
     await withCleanContextBudgetEnv(async () => {
       await withWorkspace(async (workspaceRoot) => {

@@ -282,7 +282,7 @@ export async function createMakaCliRuntimeContext(
       try {
         return {
           ownerSessionId,
-          result: await shellRuns.readResource(ownerSessionId, ref),
+          result: await shellRuns.inspectResource(ownerSessionId, ref),
         };
       } catch (error) {
         if (!isNotFoundError(error)) throw error;

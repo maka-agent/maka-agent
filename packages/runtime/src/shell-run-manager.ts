@@ -195,7 +195,13 @@ export class ShellRunProcessManager {
   async readResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
     const target = parseShellRunResourceRef(ref);
     if (!target) throw new Error(`Unsupported runtime resource ref: ${ref}`);
-    return this.resourceDetail(sessionId, target.shellRunId);
+    return this.resourceDetail(sessionId, target.shellRunId, true);
+  }
+
+  async inspectResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
+    const target = parseShellRunResourceRef(ref);
+    if (!target) throw new Error(`Unsupported runtime resource ref: ${ref}`);
+    return this.resourceDetail(sessionId, target.shellRunId, false);
   }
 
   async stopResource(sessionId: string, ref: string): Promise<ShellRunToolResult> {
@@ -493,7 +499,11 @@ export class ShellRunProcessManager {
       .sort(compareActionableShellRuns);
   }
 
-  private async resourceDetail(sessionId: string, shellRunId: string): Promise<ShellRunToolResult> {
+  private async resourceDetail(
+    sessionId: string,
+    shellRunId: string,
+    markObserved: boolean,
+  ): Promise<ShellRunToolResult> {
     let record = await this.input.store.readShellRun(sessionId, shellRunId);
     if (record.status === 'running') {
       const live = this.live.get(shellRunId);
@@ -508,7 +518,7 @@ export class ShellRunProcessManager {
         record = await this.markOrphaned(record, 'missing live shell process handle during resource read');
       }
     }
-    if (isTerminalShellRunStatus(record.status)) {
+    if (markObserved && isTerminalShellRunStatus(record.status)) {
       record = await this.markObserved(record);
     }
     return shellRunContent(record);
