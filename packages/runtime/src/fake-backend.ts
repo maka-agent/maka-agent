@@ -26,7 +26,9 @@ export class FakeBackend implements AgentBackend {
     const attNames = (input.attachments ?? []).map((a) => a.name);
     const attLine = attNames.length > 0 ? `\nAttachments received: ${attNames.join(', ')}` : '';
     const text = `Fake backend received: ${input.text}${attLine}\n\nThis proves the session stream, JSONL storage, and renderer loop are connected.`;
-    const chunks = text.match(/.{1,9}/g) ?? [text];
+    // Every delta must concatenate to text_complete; `.` would silently drop
+    // line terminators and make structured Markdown reflow only at completion.
+    const chunks = text.match(/[\s\S]{1,9}/g) ?? [text];
 
     for (const chunk of chunks) {
       if (this.stopped) {
