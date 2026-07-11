@@ -262,17 +262,9 @@ export function Marker({
  * replaces, so the cva source string IS the computed-style proof (the cascade
  * contract asserts the exact strings).
  *
- * The single consumer (`ToolOutputStream`) keeps its semantic tags
- * (`<header>` / `<pre>` / `<span>`) and applies these by `className` rather than
- * through a wrapper component — there is one call site, the tags differ, and the
- * literalize vehicle (this table) is what the test net asserts. `streamVariants`
- * is kept OFF the package barrel for the same reason as `markerVariants`: the
- * only consumer imports it by relative path, so the part set stays an internal,
- * freely-removable styling detail.
- *
- * The live pulse dot is NOT a part here — it moves onto the governed
- * `LiveIndicator` primitive below (animation can't be a leaf-literal, so it gets
- * a primitive + a single canonical keyframe instead of a per-feature one).
+ * Off the package barrel (applied by relative import at its call site). The
+ * barrel promotion rule lives in `packages/ui/README.md` — don't track consumers
+ * or re-derive the rule here; that list drifts as symbols retire.
  */
 const streamVariants = cva("", {
   variants: {
@@ -327,14 +319,12 @@ export { streamVariants };
  * shared motion home) plus the literal values here, verified by a keyframe
  * contract + before/after screenshots rather than the diff harness.
  *
- * It is kept INTERNAL (off the package barrel, applied by relative import like
- * `streamVariants`): the tool stream is its only consumer today. The duplicate
- * reasoning / composer / onboarding live dots can adopt it in a follow-up motion
- * pass — retiring their own `*-pulse` keyframes onto `maka-pulse` — and that is
- * when it would be promoted to a public export, not speculatively before a second
- * consumer exists. Reduced-motion suppression rides on the `motion-reduce:`
- * utilities (real-OS `prefers-reduced-motion: reduce`), mirroring the retired
- * dot's `@media` rule; the visual-smoke fixture freeze is handled by `base.css`.
+ * It is kept INTERNAL (off the package barrel, applied by relative import).
+ * The barrel promotion rule lives in `packages/ui/README.md` — don't track
+ * consumers or re-derive the rule here; that list drifts as symbols retire.
+ * Reduced-motion suppression rides on the `motion-reduce:` utilities (real-OS
+ * `prefers-reduced-motion: reduce`), mirroring the retired dot's `@media` rule;
+ * the visual-smoke fixture freeze is handled by `base.css`.
  */
 export function LiveIndicator({
   className,
