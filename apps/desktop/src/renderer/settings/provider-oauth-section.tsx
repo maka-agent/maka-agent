@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronRight } from '@maka/ui/icons';
 import {
-  generalizedErrorMessageChinese,
-  redactSecrets,
   type ProviderType,
   type SubscriptionAccountState,
 } from '@maka/core';
@@ -22,6 +20,13 @@ import {
 import { type StatusTone } from './settings-status-badge';
 import { ProviderLogo } from './provider-display';
 import { ProviderSheet } from './provider-config-sheet';
+import {
+  useOAuthLoginFlow,
+  subscriptionActionErrorMessage,
+  subscriptionResultMessage,
+  type OAuthLoginFlowBridge,
+  type SubscriptionSnapshot,
+} from './use-oauth-login-flow';
 
 type OAuthCardId = 'claude' | 'codex' | 'antigravity' | 'cursor';
 type OAuthServiceId = OAuthCardId;
@@ -255,150 +260,17 @@ function ClaudeSubscriptionModal(props: { onClose(): void }) {
 }
 
 function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClose(): void }) {
-  const toast = useToast();
   const bridge = pickSubscriptionBridge(props.serviceId);
-  const [state, setState] = useState<SubscriptionSnapshot | null>(null);
-  const [authRequestId, setAuthRequestId] = useState<string | null>(null);
-  const [stateHint, setStateHint] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<BrowserSubscriptionPendingAction | null>(null);
-  const pendingActionRef = useRef<BrowserSubscriptionPendingAction | null>(null);
-  const authRequestIdRef = useRef<string | null>(null);
-  const browserSubscriptionMountedRef = useRef(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const display = subscriptionDisplay(props.serviceId);
-
-  async function refresh(): Promise<boolean> {
-    try {
-      const next = (await bridge.getAccountState()) as SubscriptionSnapshot;
-      if (!browserSubscriptionMountedRef.current) return false;
-      setState(next);
-      setErrorMessage(null);
-    } catch (error) {
-      if (!browserSubscriptionMountedRef.current) return false;
-      const message = subscriptionActionErrorMessage(error);
-      toast.error('刷新登录状态失败', message);
-      setErrorMessage(message);
-    }
-    return true;
-  }
-
-  useEffect(() => {
-    browserSubscriptionMountedRef.current = true;
-    void refresh();
-    return () => {
-      browserSubscriptionMountedRef.current = false;
-      pendingActionRef.current = null;
-      const pendingAuthRequestId = authRequestIdRef.current;
-      authRequestIdRef.current = null;
-      if (pendingAuthRequestId) void bridge.cancelAuthorization(pendingAuthRequestId);
-    };
-  }, []);
-
-  function beginPendingAction(action: BrowserSubscriptionPendingAction): boolean {
-    if (pendingActionRef.current !== null) return false;
-    pendingActionRef.current = action;
-    setPendingAction(action);
-    return true;
-  }
-
-  function finishPendingAction() {
-    pendingActionRef.current = null;
-    if (browserSubscriptionMountedRef.current) setPendingAction(null);
-  }
-
-  async function startLogin() {
-    if (!beginPendingAction('login')) return;
-    setErrorMessage(null);
-    try {
-      const payload = await bridge.getAuthUrl();
-      if ('ok' in payload) {
-        if (!browserSubscriptionMountedRef.current) return;
-        const failureMessage = payload.ok ? '请稍后再试。' : subscriptionResultMessage(payload.message, '无法开始登录，请稍后再试。');
-        toast.error('无法开始登录', failureMessage);
-        setErrorMessage(failureMessage);
-        return;
-      }
-      authRequestIdRef.current = payload.authRequestId;
-      if (!browserSubscriptionMountedRef.current) {
-        authRequestIdRef.current = null;
-        void bridge.cancelAuthorization(payload.authRequestId);
-        return;
-      }
-      setAuthRequestId(payload.authRequestId);
-      setStateHint(payload.stateHint);
-      const opened = await bridge.openAuthUrl(payload.authRequestId);
-      if (!browserSubscriptionMountedRef.current) return;
-      if (!opened.ok) {
-        const message = subscriptionResultMessage(opened.message, '无法打开浏览器，请稍后重试。');
-        toast.error('无法打开浏览器', message);
-        setErrorMessage(message);
-        void bridge.cancelAuthorization(payload.authRequestId);
-        authRequestIdRef.current = null;
-        setAuthRequestId(null);
-        setStateHint(null);
-        return;
-      }
-      const refreshed = await refresh();
-      if (!browserSubscriptionMountedRef.current || !refreshed) return;
-      // Loopback / polling — wait for the backend to complete.
-      const result = await bridge.completeAuthorization(payload.authRequestId);
-      if (!browserSubscriptionMountedRef.current) return;
-      authRequestIdRef.current = null;
-      setAuthRequestId(null);
-      setStateHint(null);
-      if (result.ok) {
-        toast.success('登录成功', `${display.name} 已绑定本机。`);
-        await refresh();
-      } else {
-        const message = subscriptionResultMessage(result.message, '登录未完成，请重新打开浏览器授权。');
-        toast.error('登录未完成', message);
-        setErrorMessage(message);
-      }
-    } catch (error) {
-      if (!browserSubscriptionMountedRef.current) return;
-      const pendingAuthRequestId = authRequestIdRef.current;
-      authRequestIdRef.current = null;
-      if (pendingAuthRequestId) void bridge.cancelAuthorization(pendingAuthRequestId);
-      setAuthRequestId(null);
-      setStateHint(null);
-      const message = subscriptionActionErrorMessage(error);
-      toast.error('登录失败', message);
-      setErrorMessage(message);
-    } finally {
-      finishPendingAction();
-    }
-  }
-
-  async function logout() {
-    if (!beginPendingAction('logout')) return;
-    try {
-      const ok = await toast.confirm({
-        title: `退出 ${display.name} 登录？`,
-        description: '将删除本机保存的订阅凭据，之后需要重新登录才能继续使用这些 OAuth 模型。',
-        confirmLabel: '退出登录',
-        cancelLabel: '取消',
-        destructive: true,
-      });
-      if (!ok) return;
-      const result = await bridge.logout();
-      if (!browserSubscriptionMountedRef.current) return;
-      if (result.ok) {
-        toast.success('已退出登录', '本地凭据已清除。');
-        await refresh();
-      } else {
-        toast.error('退出失败', subscriptionResultMessage(result.message, '退出登录失败，请稍后重试。'));
-      }
-    } catch (error) {
-      if (!browserSubscriptionMountedRef.current) return;
-      toast.error('退出失败', subscriptionActionErrorMessage(error));
-    } finally {
-      finishPendingAction();
-    }
-  }
-
-  const runtimeState = state?.runtimeState ?? 'loading';
-  const isLoggedIn = runtimeState === 'authenticated' || runtimeState === 'refreshing';
-  const actionBusy = pendingAction !== null;
+  // The whole browser-loopback login/logout controller (getAuthUrl ->
+  // openAuthUrl -> refresh -> completeAuthorization, one authRequestId
+  // lifecycle, synchronous pending-action guard, cancellation on unmount,
+  // localized toast copy) lives in useOAuthLoginFlow so the model connection
+  // detail sheet can drive the exact same flow behind its relogin button.
+  const flow = useOAuthLoginFlow({
+    bridge,
+    display: { name: display.name, shortName: display.shortName },
+  });
 
   return (
     <ProviderSheet onClose={props.onClose} ariaLabel={`${display.name} 登录`} dataSubscription={props.serviceId}>
@@ -416,85 +288,39 @@ function SubscriptionLoginModal(props: { serviceId: BrowserOAuthServiceId; onClo
             ×
           </Button>
         </header>
-        <div className="settingsConnectionRow" data-status={runtimeState}>
+        <div className="settingsConnectionRow" data-status={flow.runtimeState}>
           <p className="settingsConnectionDetail">
-            {presentSnapshotDetail(state, display)}
+            {presentSnapshotDetail(flow.state, display)}
           </p>
-          {stateHint && (
-            <small>提示：state 以 <code>{stateHint}</code> 开头。</small>
+          {flow.stateHint && (
+            <small>提示：state 以 <code>{flow.stateHint}</code> 开头。</small>
           )}
-          {errorMessage && (
-            <small className="settingsErrorText">{errorMessage}</small>
+          {flow.errorMessage && (
+            <small className="settingsErrorText">{flow.errorMessage}</small>
           )}
           <div className="settingsConnectionActions">
-            {!isLoggedIn ? (
+            {!flow.isLoggedIn ? (
               <Button
                 type="button"
-                onClick={() => void startLogin()}
-                disabled={actionBusy}
+                onClick={() => void flow.startLogin()}
+                disabled={flow.actionBusy}
               >
-                {pendingAction === 'login' ? '打开浏览器…' : `登录 ${display.shortName}`}
+                {flow.pendingAction === 'login' ? '打开浏览器…' : `登录 ${display.shortName}`}
               </Button>
             ) : (
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => void logout()}
-                disabled={actionBusy}
+                onClick={() => void flow.logout()}
+                disabled={flow.actionBusy}
               >
-                {pendingAction === 'logout' ? '退出中…' : '退出登录'}
+                {flow.pendingAction === 'logout' ? '退出中…' : '退出登录'}
               </Button>
             )}
           </div>
         </div>
       </ProviderSheet>
     );
-}
-
-type BrowserSubscriptionPendingAction = 'login' | 'logout';
-
-interface SubscriptionSnapshot {
-  runtimeState:
-    | 'not_logged_in'
-    | 'authorizing'
-    | 'authenticated'
-    | 'refreshing'
-    | 'refresh_failed'
-    | 'storage_failed'
-    | 'quota_unavailable'
-    | 'provider_rejected';
-  email?: string;
-  plan?: string;
-  status?: 'preview';
-  errorMessage?: string;
-}
-
-interface SubscriptionBridge {
-  getAuthUrl(): Promise<
-    { authRequestId: string; stateHint: string } | { ok: boolean; reason?: string; message: string }
-  >;
-  openAuthUrl(authRequestId: string): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
-  completeAuthorization(authRequestId: string): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
-  cancelAuthorization(authRequestId?: string): Promise<{ ok: true }>;
-  getAccountState(): Promise<unknown>;
-  logout(): Promise<{ ok: true } | { ok: false; reason: string; message: string }>;
-}
-
-function subscriptionActionErrorMessage(error: unknown): string {
-  const message = error instanceof Error
-    ? error.message
-    : typeof error === 'string'
-      ? error
-      : '';
-  return subscriptionResultMessage(message, '登录服务暂时不可用，请检查网络后重试。');
-}
-
-function subscriptionResultMessage(message: string | undefined, fallback: string): string {
-  const raw = redactSecrets(message ?? '').trim();
-  if (!raw) return fallback;
-  const classified = generalizedErrorMessageChinese(new Error(raw), '');
-  if (classified) return classified;
-  return /[\u4e00-\u9fff]/.test(raw) ? raw : fallback;
 }
 
 async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<SubscriptionSnapshot> {
@@ -509,14 +335,14 @@ async function getSubscriptionSnapshot(serviceId: OAuthServiceId): Promise<Subsc
   return (await pickSubscriptionBridge(serviceId).getAccountState()) as SubscriptionSnapshot;
 }
 
-function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): SubscriptionBridge {
+function pickSubscriptionBridge(serviceId: BrowserOAuthServiceId): OAuthLoginFlowBridge {
   switch (serviceId) {
     case 'codex':
-      return window.maka.codexSubscription as unknown as SubscriptionBridge;
+      return window.maka.codexSubscription as unknown as OAuthLoginFlowBridge;
     case 'cursor':
-      return window.maka.cursorSubscription as unknown as SubscriptionBridge;
+      return window.maka.cursorSubscription as unknown as OAuthLoginFlowBridge;
     case 'antigravity':
-      return window.maka.antigravitySubscription as unknown as SubscriptionBridge;
+      return window.maka.antigravitySubscription as unknown as OAuthLoginFlowBridge;
   }
 }
 

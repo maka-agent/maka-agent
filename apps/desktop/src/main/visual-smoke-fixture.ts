@@ -21,6 +21,10 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   'fallback-source',
   'fetched-empty',
   'connection-error',
+  // OAuth re-login affordance: a codex-subscription connection with a stored
+  // but expired OAuth token (hasSecret===true), focused so its detail sheet's
+  // 重新登录 button is visible.
+  'oauth-relogin',
   'turn-narrative',
   'artifact-pane',
   'artifact-errors',
@@ -301,6 +305,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'fallback-source':
     case 'fetched-empty':
+    case 'oauth-relogin':
       return { ...state, activeSessionId: TURN_SESSION_ID, openSettingsSection: 'models' };
     case 'connection-error':
       return { ...state, activeSessionId: ERROR_SESSION_ID, openSettingsSection: 'account' };
@@ -943,6 +948,29 @@ async function writeConnections(workspaceRoot: string, now: number, scenario: Vi
       updatedAt: now - 8 * 60_000,
     },
   ];
+  if (scenario === 'oauth-relogin') {
+    // A codex-subscription (OAuth) connection whose last test came back
+    // needs_reauth. Its detail sheet must offer an inline 登录 / 重新登录
+    // button (driven by the shared OAuth login flow) instead of the old dead
+    // prose. Credential presence for OAuth connections is resolved through the
+    // subscription token store (empty here), so the button reads 登录; the
+    // hasSecret===true → 重新登录 label is pinned by the detail-sheet contract.
+    connections.push({
+      slug: 'codex-oauth',
+      name: 'OpenAI Codex Fixture',
+      providerType: 'codex-subscription',
+      defaultModel: 'gpt-5.5',
+      enabled: true,
+      models: [model('gpt-5.5', { reasoning: true, functionCalling: true }, 200_000)],
+      modelSource: 'fetched',
+      modelsFetchedAt: now - 6 * 60_000,
+      lastTestStatus: 'needs_reauth',
+      lastTestAt: new Date(now - 6 * 60_000).toISOString(),
+      lastTestMessage: '需要重新登录',
+      createdAt: now - 3_100_000,
+      updatedAt: now - 6 * 60_000,
+    });
+  }
   const focusSlug = connectionFocusSlug(scenario);
   const ordered = focusSlug
     ? [
@@ -962,6 +990,8 @@ function connectionFocusSlug(scenario: VisualSmokeScenario): string | null {
       return 'relay-fallback';
     case 'fetched-empty':
       return 'empty-fetched';
+    case 'oauth-relogin':
+      return 'codex-oauth';
     case 'connection-error':
       return 'broken-provider';
     default:
