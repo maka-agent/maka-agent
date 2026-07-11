@@ -137,6 +137,34 @@ describe('history compact checkpoint', () => {
     assert.equal(loaded?.checkpointId, furthest.checkpointId);
   });
 
+  test('recovers the tip of an out-of-order same-coverage successor chain across runs', async () => {
+    const source = [textEvent(0), textEvent(1)];
+    const first = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'first', now: 10,
+    });
+    const second = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'second',
+      previousCheckpointId: first.checkpointId, now: 20,
+    });
+    const tip = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'tip',
+      previousCheckpointId: second.checkpointId, now: 30,
+    });
+    const store = new StubAgentRunStore([
+      run('parent-created-first', 10),
+      run('child-created-later', 20),
+    ], new Map([
+      ['parent-created-first', [
+        checkpointEvent('ledger-second', 'parent-created-first', second, 20),
+        checkpointEvent('ledger-tip', 'parent-created-first', tip, 30),
+      ]],
+      ['child-created-later', [checkpointEvent('ledger-first', 'child-created-later', first, 10)]],
+    ]));
+    const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
+
+    assert.equal(loaded?.checkpointId, tip.checkpointId);
+  });
+
   test('loads a bounded checkpoint projection without enumerating run ledgers', async () => {
     const checkpoint = buildHistoryCompactCheckpoint({
       sessionId: 'session-1',
@@ -292,6 +320,7 @@ describe('history compact checkpoint', () => {
     assert.equal(replay.checkpoints.length, 0);
     assert.equal(replay.events.some((event) => event.id === `history-compact:${checkpoint.checkpointId}`), false);
   });
+
 
 });
 

@@ -1,9 +1,14 @@
 import type { AgentRunEvent, AgentRunStore } from '@maka/core';
 import {
+  canReplaceHistoryCompactCheckpoint,
   validateHistoryCompactCheckpointShape,
-  selectFurthestHistoryCompactCheckpoint,
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
+
+interface LedgerCheckpointCandidate {
+  checkpoint: HistoryCompactCheckpoint;
+  event: AgentRunEvent;
+}
 
 export async function loadLatestHistoryCompactCheckpointFromRunLedger(
   runStore: Pick<
@@ -28,8 +33,7 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
     }
   }
   const runs = await runStore.listSessionRuns(sessionId);
-  let selected: HistoryCompactCheckpoint | undefined;
-  let selectedEvent: AgentRunEvent | null = null;
+  const candidates: LedgerCheckpointCandidate[] = [];
   for (let runIndex = runs.length - 1; runIndex >= 0; runIndex -= 1) {
     const run = runs[runIndex]!;
     const events = await runStore.readEvents(sessionId, run.runId);
@@ -38,21 +42,52 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
       if (event.type !== 'history_compact_checkpoint_recorded') continue;
       const checkpoint = event.data?.checkpoint;
       if (validateHistoryCompactCheckpointShape(checkpoint, sessionId)) {
-        const next = selectFurthestHistoryCompactCheckpoint(selected, checkpoint);
-        if (next === checkpoint) {
-          selected = checkpoint;
-          selectedEvent = event;
-        }
+        candidates.push({ checkpoint, event });
       }
     }
   }
+  const selected = selectRecoveredCheckpoint(candidates);
   await runStore.repairEventProjection?.(
     sessionId,
     'history_compact_checkpoint_recorded',
-    selectedEvent,
+    selected?.event ?? null,
     replaceEventId ? { replaceEventId } : undefined,
   ).catch(() => {
     // Recovery succeeded; a later cold read can retry this derived-state repair.
   });
-  return selected;
+  return selected?.checkpoint;
+}
+
+function selectRecoveredCheckpoint(
+  candidates: readonly LedgerCheckpointCandidate[],
+): LedgerCheckpointCandidate | undefined {
+  const maxCoverage = candidates.reduce(
+    (max, candidate) => Math.max(max, candidate.checkpoint.coverage.eventCount),
+    0,
+  );
+  const furthest = candidates.filter(
+    (candidate) => candidate.checkpoint.coverage.eventCount === maxCoverage,
+  );
+  const byCheckpointId = new Map(
+    furthest.map((candidate) => [candidate.checkpoint.checkpointId, candidate] as const),
+  );
+  const checkpointsWithSuccessors = new Set<string>();
+  for (const candidate of furthest) {
+    const previousId = candidate.checkpoint.previousCheckpointId;
+    const previous = previousId ? byCheckpointId.get(previousId) : undefined;
+    if (previous && canReplaceHistoryCompactCheckpoint(previous.checkpoint, candidate.checkpoint)) {
+      checkpointsWithSuccessors.add(previous.checkpoint.checkpointId);
+    }
+  }
+  const tips = furthest.filter(
+    (candidate) => !checkpointsWithSuccessors.has(candidate.checkpoint.checkpointId),
+  );
+  const pool = tips.length > 0 ? tips : furthest;
+  return pool.reduce<LedgerCheckpointCandidate | undefined>((selected, candidate) => {
+    if (!selected) return candidate;
+    if (candidate.event.ts !== selected.event.ts) {
+      return candidate.event.ts > selected.event.ts ? candidate : selected;
+    }
+    return candidate.event.id > selected.event.id ? candidate : selected;
+  }, undefined);
 }
