@@ -36,7 +36,7 @@ Renderer CSS may target a primitive via its `data-slot` attribute, never by over
 - **New primitive** (button-like, dialog-like, form control) → a new file in `src/primitives/`, exposing `data-slot`, re-exported from `index.ts`.
 - **New feature component** → top-level `src/<name>.tsx`, re-exported from `src/components.tsx` and `index.ts`.
 - **Don't** add a per-surface hand-rolled CSS recipe in the renderer if a primitive can carry it — extend the primitive's API/slots instead.
-- **Don't** re-export a single-consumer symbol from the barrel; keep it a relative import until a second consumer appears.
+- **Don't** re-export a symbol that has a single in-package consumer and no cross-package consumer; keep it a relative import until a second or cross-package consumer appears (a cross-package consumer can't use a relative import — `previewVariants` is re-exported for exactly that reason).
 
 ## Convergence direction (transitional surfaces)
 
