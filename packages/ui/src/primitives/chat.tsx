@@ -128,9 +128,9 @@ export function Bubble({
  * so the lineage badge + footer action — which render as `UiButton` and can't
  * be wrapped — apply the shell via `className`; `Button` runs it through
  * `cn`/tailwind-merge last, so it wins over the button's own variant utilities.
- * It is intentionally kept OFF the `@maka/ui` package barrel (see `index.ts`):
- * the only consumers import it by relative path, so the variant table stays an
- * internal, freely-removable styling detail rather than public API.
+ * Intentionally OFF the `@maka/ui` package barrel — an internal,
+ * freely-removable styling detail. The barrel promotion rule lives in
+ * `packages/ui/README.md`.
  *
  * NOTE: `.maka-turn-thinking` (the committed-turn reasoning `<details>`) is
  * deliberately NOT migrated here. Its chrome lives in `summary::before` /
@@ -262,9 +262,9 @@ export function Marker({
  * replaces, so the cva source string IS the computed-style proof (the cascade
  * contract asserts the exact strings).
  *
- * Off the package barrel (applied by relative import at its call site). The
- * barrel promotion rule lives in `packages/ui/README.md` — don't track consumers
- * or re-derive the rule here; that list drifts as symbols retire.
+ * Off the package barrel — an internal, freely-removable styling detail. The
+ * barrel promotion rule lives in `packages/ui/README.md`; don't re-derive it or
+ * track consumers here (that list drifts as symbols retire).
  */
 const streamVariants = cva("", {
   variants: {
@@ -319,9 +319,9 @@ export { streamVariants };
  * shared motion home) plus the literal values here, verified by a keyframe
  * contract + before/after screenshots rather than the diff harness.
  *
- * It is kept INTERNAL (off the package barrel, applied by relative import).
- * The barrel promotion rule lives in `packages/ui/README.md` — don't track
- * consumers or re-derive the rule here; that list drifts as symbols retire.
+ * Kept INTERNAL (off the package barrel) — an internal, freely-removable detail.
+ * The barrel promotion rule lives in `packages/ui/README.md`; don't re-derive it
+ * or track consumers here (that list drifts as symbols retire).
  * Reduced-motion suppression rides on the `motion-reduce:` utilities (real-OS
  * `prefers-reduced-motion: reduce`), mirroring the retired dot's `@media` rule;
  * the visual-smoke fixture freeze is handled by `base.css`.
@@ -359,8 +359,8 @@ export function LiveIndicator({
  *
  * `active={false}` (or reduced-motion) renders just the base text — callers
  * pass `active` false for settled/snap states so the sweep never runs in a
- * deterministic capture. Kept INTERNAL (off the package barrel, imported by
- * relative path) like `LiveIndicator` — its only consumers live in `@maka/ui`.
+ * deterministic capture. Kept INTERNAL (off the package barrel) — the barrel
+ * promotion rule lives in `packages/ui/README.md`.
  *
  * `delayed` (#646 run→done seam) holds the sweep at its resting frame for
  * `--duration-emphasized` (~200ms) before it starts — a purely CSS de-flicker so
@@ -444,11 +444,10 @@ export function TextShimmer({
  * that carries its own `motion-reduce:` guards — the dot and card need no
  * per-element motion utilities; the same global rules cover them as before.)
  *
- * The single consumer (`ToolActivity`) renders a Base UI Collapsible and applies
- * these by `className`. `toolVariants` is kept OFF the package barrel for the
- * same reason as `markerVariants` / `streamVariants`: the only consumer imports
- * it by relative path, so the part set stays an internal, freely-removable
- * styling detail.
+ * Applied by `ToolActivity` (renders a Base UI Collapsible, applies these by
+ * `className`). `toolVariants` is kept OFF the package barrel — an internal,
+ * freely-removable styling detail; the promotion rule lives in
+ * `packages/ui/README.md`.
  *
  * NOTE: the args `<pre>` keeps the shared `.maka-code` inline-code base (used by
  * Markdown / artifact previews too — out of scope); the `args` part below is only
@@ -562,11 +561,9 @@ export { toolVariants };
  *      children stay bare — matching the original descendant cascade exactly.
  *
  * Unlike the other tables, `previewVariants` IS exported on the `@maka/ui` barrel
- * (`index.ts`): the file-diff `diff` / `diff-body` / `diff-line` parts have a
- * SECOND, cross-package consumer — `apps/desktop`'s `artifact-preview.tsx`, whose
- * non-chat diff pane shared the retired `.maka-tool-diff*` shell and co-migrates
- * here. That second consumer is exactly the condition the off-barrel convention
- * named for promotion, so the export is the rule, not an exception.
+ * (`index.ts`) — its file-diff parts have a cross-package consumer
+ * (`apps/desktop`'s `artifact-preview.tsx`). The promotion rule lives in
+ * `packages/ui/README.md`.
  *
  * Preview card shells use the shared shadow-ring recipe instead of hard visual
  * borders. Dividers inside the cards remain real borders because they separate
