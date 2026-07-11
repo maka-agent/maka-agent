@@ -34,11 +34,18 @@ export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
 export * from './primitives/card.js';
 // `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
-// deliberately NOT re-exported here (internal styling tables / dots, kept
-// renamable/removable without a public-API break). `buttonVariants` and
-// `previewVariants` ARE re-exported (they meet the rule). The barrel promotion
-// rule lives in `packages/ui/README.md` — don't re-derive it or track consumers
-// here; that list drifts as symbols retire.
+// deliberately NOT re-exported here: they are internal styling tables / a
+// single-consumer dot that the chat call sites apply via relative import, so
+// keeping them off the package
+// barrel preserves the governance goal — they stay renamable/removable without a
+// public-API break. (Contrast `buttonVariants`, which IS public because it has
+// external consumers.) `LiveIndicator` is exported to public only when the
+// reasoning / composer / onboarding live dots actually migrate onto it — not
+// speculatively before a second consumer exists.
+//
+// `previewVariants` (#332 PR4) IS re-exported: its file-diff parts have a second,
+// cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the
+// promotion condition the off-barrel convention named, so the export is the rule.
 export { Bubble, Marker, Message, previewVariants } from './primitives/chat.js';
 export { formatTurnDuration } from './chat-display-helpers.js';
 export type {
