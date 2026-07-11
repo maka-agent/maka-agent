@@ -4043,6 +4043,39 @@ describe('SessionManager permission mode updates', () => {
     expect(recordedCoverage).toEqual([2]);
   });
 
+  test('persists an explicit same-coverage successor checkpoint', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const writeOutcomes: string[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new SameCoverageCheckpointReplacementProbeBackend(ctx, writeOutcomes));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_796),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'same-coverage-initial', text: 'hello' }));
+    await drain(manager.sendMessage(session.id, { turnId: 'same-coverage-replacement', text: 'hello again' }));
+
+    expect(writeOutcomes).toEqual(['same-coverage-initial:fulfilled', 'same-coverage-replacement:fulfilled']);
+    const checkpoints: HistoryCompactCheckpoint[] = [];
+    for (const run of await runStore.listSessionRuns(session.id)) {
+      for (const event of await runStore.readEvents(session.id, run.runId)) {
+        if (event.type === 'history_compact_checkpoint_recorded') {
+          checkpoints.push(event.data?.checkpoint as HistoryCompactCheckpoint);
+        }
+      }
+    }
+    expect(checkpoints).toHaveLength(2);
+    expect(checkpoints[1]?.previousCheckpointId).toBe(checkpoints[0]?.checkpointId);
+    expect(checkpoints[1]?.coverage).toEqual(checkpoints[0]?.coverage);
+  });
+
   test('serializes accepted checkpoint persistence across parent and child runs', async () => {
     const store = new MemorySessionStore();
     const parentWriteGate = makeGate();
@@ -5784,6 +5817,50 @@ class HistoryCompactCheckpointMonotonicProbeBackend implements AgentBackend {
         coveredRuntimeEvents,
         summary: `${input.turnId} checkpoint`,
       }), input.turnId).catch(() => {});
+    }
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class SameCoverageCheckpointReplacementProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly writeOutcomes: string[],
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const current = await this.ctx.loadHistoryCompactCheckpoint?.();
+    const coveredRuntimeEvents: RuntimeEvent[] = [{
+      id: 'same-coverage-source-event',
+      sessionId: this.sessionId,
+      runId: 'same-coverage-source-run',
+      turnId: 'same-coverage-source-turn',
+      invocationId: 'same-coverage-source-invocation',
+      ts: 1,
+      partial: false,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'same source' },
+    }];
+    try {
+      await this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents,
+        summary: `${input.turnId} summary`,
+        ...(current ? { previousCheckpointId: current.checkpointId } : {}),
+      }), input.turnId);
+      this.writeOutcomes.push(`${input.turnId}:fulfilled`);
+    } catch {
+      this.writeOutcomes.push(`${input.turnId}:rejected`);
     }
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }

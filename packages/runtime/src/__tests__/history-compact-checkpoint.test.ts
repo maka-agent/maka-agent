@@ -4,6 +4,7 @@ import type { AgentRunEvent, AgentRunHeader, AgentRunStore } from '@maka/core';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   buildHistoryCompactCheckpoint,
+  canReplaceHistoryCompactCheckpoint,
   matchHistoryCompactCheckpointPrefix,
   validateHistoryCompactCheckpointShape,
 } from '../history-compact-checkpoint.js';
@@ -58,6 +59,29 @@ describe('history compact checkpoint', () => {
       coveredRuntimeEvents: [textEvent(0)],
       summary: '   ',
     }), /non-empty summary/);
+  });
+
+  test('only accepts an equal-coverage checkpoint as an explicit successor of the same source', () => {
+    const source = [textEvent(0), textEvent(1)];
+    const current = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'current',
+    });
+    const successor = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'smaller replacement',
+      previousCheckpointId: current.checkpointId,
+    });
+    const stale = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: source, summary: 'stale replacement',
+      previousCheckpointId: 'another-checkpoint',
+    });
+    const differentSource = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1', coveredRuntimeEvents: [textEvent(2), textEvent(3)], summary: 'different source',
+      previousCheckpointId: current.checkpointId,
+    });
+
+    assert.equal(canReplaceHistoryCompactCheckpoint(current, successor), true);
+    assert.equal(canReplaceHistoryCompactCheckpoint(current, stale), false);
+    assert.equal(canReplaceHistoryCompactCheckpoint(current, differentSource), false);
   });
 
   test('loads the latest valid checkpoint from the run ledger', async () => {
@@ -240,6 +264,7 @@ describe('history compact checkpoint', () => {
     assert.deepEqual(replay.events.slice(1).map((event) => event.id), events.slice(4).map((event) => event.id));
     assert.equal(replay.checkpoints[0]?.checkpointId, checkpoint.checkpointId);
   });
+
 });
 
 function textEvent(index: number): RuntimeEvent {

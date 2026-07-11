@@ -175,8 +175,28 @@ export function selectFurthestHistoryCompactCheckpoint(
   current: HistoryCompactCheckpoint | undefined,
   candidate: HistoryCompactCheckpoint,
 ): HistoryCompactCheckpoint {
-  if (!current || candidate.coverage.eventCount > current.coverage.eventCount) return candidate;
+  if (!current) return candidate;
+  if (canReplaceHistoryCompactCheckpoint(current, candidate)) return candidate;
   return current;
+}
+
+/** Accept forward progress, or a compare-and-swap rewrite of the exact same source coverage. */
+export function canReplaceHistoryCompactCheckpoint(
+  current: HistoryCompactCheckpoint | undefined,
+  candidate: HistoryCompactCheckpoint,
+): boolean {
+  if (!current || candidate.coverage.eventCount > current.coverage.eventCount) return true;
+  if (
+    candidate.coverage.eventCount !== current.coverage.eventCount
+    || candidate.previousCheckpointId !== current.checkpointId
+  ) {
+    return false;
+  }
+  return candidate.coverage.turnCount === current.coverage.turnCount
+    && candidate.coverage.sourceDigest === current.coverage.sourceDigest
+    && candidate.coverage.through.runId === current.coverage.through.runId
+    && candidate.coverage.through.turnId === current.coverage.through.turnId
+    && candidate.coverage.through.runtimeEventId === current.coverage.through.runtimeEventId;
 }
 
 export function matchHistoryCompactCheckpointPrefix(
