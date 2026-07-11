@@ -473,6 +473,41 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('invalidates a timed-out cell whose execution identity is wrong', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const cell = harborOutput({
+        taskId: 'task-a',
+        executionIdentity: {
+          llmConnectionSlug: 'deepseek',
+          model: 'wrong-model',
+          systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+          pricingProfile: 'test-profile',
+        },
+      }).cell;
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_plumbing_failed');
+      assert.equal(result.events[0]?.errorClass, 'execution_identity_mismatch');
+    });
+  });
+
   test('reruns budget-exhausted WAL events instead of reusing a timeout', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');

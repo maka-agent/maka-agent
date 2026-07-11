@@ -58,6 +58,7 @@ export interface FixedPromptBudgetExhaustedArtifactRefs {
   traceEventsPath?: string;
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
+  cellOutput?: HarborTaskRunCellOutput;
 }
 
 export class FixedPromptBudgetExhaustedError extends Error {
@@ -528,6 +529,9 @@ async function runTaskAndBuildEvent(input: {
         runId: input.input.runId,
         roundId: input.input.roundId,
         expectedPromptHash: input.expectedPromptHash,
+        expectedConfig: input.config,
+        requireExecutionIdentity: input.requireExecutionIdentity,
+        expectedPricingProfile: input.expectedPricingProfile,
         resumeFingerprint: input.resumeFingerprint,
         id: input.id,
         ts: input.ts,
@@ -551,6 +555,9 @@ async function runTaskAndBuildEvent(input: {
           runId: input.input.runId,
           roundId: input.input.roundId,
           expectedPromptHash: input.expectedPromptHash,
+          expectedConfig: input.config,
+          requireExecutionIdentity: input.requireExecutionIdentity,
+          expectedPricingProfile: input.expectedPricingProfile,
           resumeFingerprint: input.resumeFingerprint,
           id: input.id,
           ts: input.ts,
@@ -802,11 +809,38 @@ function taskBudgetExhaustedEvent(input: {
   runId: string;
   roundId: string;
   expectedPromptHash: string;
+  expectedConfig: Config;
+  requireExecutionIdentity?: boolean;
+  expectedPricingProfile?: string;
   resumeFingerprint?: string;
   id: string;
   ts: number;
-}): FixedPromptTaskBudgetExhaustedEvent {
+}): FixedPromptTaskBudgetExhaustedEvent | FixedPromptTaskPlumbingFailedEvent {
   const artifactRefs = budgetExhaustedArtifactRefs(input.error);
+  if (artifactRefs.cellOutput) {
+    const output = { harbor: { reward: 0 }, cell: artifactRefs.cellOutput };
+    const plumbingFailure = classifyPlumbingFailure(
+      output,
+      input.expectedPromptHash,
+      input.expectedConfig,
+      input.requireExecutionIdentity ?? false,
+      input.expectedPricingProfile,
+    );
+    if (plumbingFailure) {
+      return taskPlumbingFailedEvent({
+        output,
+        expectedPromptHash: input.expectedPromptHash,
+        resumeFingerprint: input.resumeFingerprint,
+        taskId: input.taskId,
+        runId: input.runId,
+        roundId: input.roundId,
+        id: input.id,
+        ts: input.ts,
+        errorClass: plumbingFailure.errorClass,
+        error: plumbingFailure.error,
+      });
+    }
+  }
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_budget_exhausted',
@@ -835,7 +869,7 @@ function taskBudgetExhaustedEvent(input: {
 function budgetExhaustedArtifactRefs(error: unknown): FixedPromptBudgetExhaustedArtifactRefs {
   if (isBudgetExhaustedError(error)) {
     const refs = (error as { artifactRefs?: FixedPromptBudgetExhaustedArtifactRefs }).artifactRefs;
-    if (refs && (refs.runtimeEventsPath || refs.traceEventsPath || refs.runtimeEventsUnavailableReason || refs.tokenSummary)) return refs;
+    if (refs && (refs.runtimeEventsPath || refs.traceEventsPath || refs.runtimeEventsUnavailableReason || refs.tokenSummary || refs.cellOutput)) return refs;
   }
   return { runtimeEventsUnavailableReason: BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON };
 }

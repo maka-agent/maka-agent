@@ -341,13 +341,21 @@ describe('createHarborTaskRunner', () => {
 
   test('treats Harbor agent timeout with verifier reward as budget exhausted', async () => {
     await withRun(async ({ jobsDir, repo }) => {
+      const timedCell = cellOutput({
+        executionIdentity: {
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+          systemPromptHash: 'sha256:abc',
+          pricingProfile: 'test-profile',
+        },
+      });
       const runner = createHarborTaskRunner({
         makaRepoPath: repo,
         jobsDir,
         model: 'deepseek/deepseek-v4-flash',
         runHarbor: fakeRunner({
           reward: '0\n',
-          cell: cellOutput(),
+          cell: timedCell,
           trialResult: {
             exception_info: {
               exception_type: 'AgentTimeoutError',
@@ -358,7 +366,8 @@ describe('createHarborTaskRunner', () => {
       });
       await assert.rejects(runner(runInput()), (error: unknown) => {
         assert.ok(error instanceof FixedPromptBudgetExhaustedError);
-        assert.deepEqual(error.artifactRefs?.tokenSummary, cellOutput().tokenSummary);
+        assert.deepEqual(error.artifactRefs?.tokenSummary, timedCell.tokenSummary);
+        assert.deepEqual(error.artifactRefs?.cellOutput?.executionIdentity, timedCell.executionIdentity);
         return true;
       });
     });
@@ -640,6 +649,35 @@ describe('createHarborTaskRunner timeout', () => {
         }),
       });
       await assert.rejects(runner(runInput()), FixedPromptBudgetExhaustedError);
+    });
+  });
+
+  test('recovers cell usage and identity after the harbor process wall timeout', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const writeArtifacts = fakeRunner({ cell: cellOutput({
+        executionIdentity: {
+          llmConnectionSlug: 'deepseek',
+          model: 'deepseek-v4-flash',
+          systemPromptHash: 'sha256:abc',
+          pricingProfile: 'test-profile',
+        },
+      }) });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: async (request) => {
+          await writeArtifacts(request);
+          return { exitCode: 1, stdout: '', stderr: 'timed out', timedOut: true, signal: 'SIGKILL' };
+        },
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+        assert.equal(error.artifactRefs?.tokenSummary?.total, 150);
+        assert.equal(error.artifactRefs?.cellOutput?.executionIdentity?.model, 'deepseek-v4-flash');
+        return true;
+      });
     });
   });
 });
