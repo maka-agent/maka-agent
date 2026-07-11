@@ -23,6 +23,7 @@ import {
   activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
+  trowActivityKind,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
@@ -504,7 +505,10 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const settled = !running;
   const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
-  const SummaryIcon = TROW_KIND_ICON[activePresentation.kind];
+  // #tool-jitter: the group icon stays on the first bucket's kind (the same
+  // first-seen order the summary clauses use), not the active tool's kind — so
+  // a mixed-kind group's icon doesn't flip as the active tool changes mid-run.
+  const SummaryIcon = TROW_KIND_ICON[trowActivityKind(items[0]!.toolName, items[0]!.activityKind)];
   // Multi-tool running group shows the whole-group bucket aggregation with a
   // "正在" prefix instead of the active tool's description, so the summary line
   // stops cycling through each tool's intent as tools start/finish in
