@@ -183,7 +183,8 @@ export class AgentRun {
   }
 
   recordHistoryCompactCheckpoint(checkpoint: HistoryCompactCheckpoint): Promise<void> {
-    if (!this.input.runStore || !this.runStoreAvailable) return Promise.resolve();
+    if (!this.input.runStore) return Promise.reject(new Error('AgentRun store is not configured'));
+    if (!this.runStoreAvailable) return Promise.reject(new Error('AgentRun store is unavailable'));
     return this.enqueueRunStore('append history compact checkpoint', async () => {
       await this.input.runStore?.appendEvent(this.sessionId, this.runId, {
         type: 'history_compact_checkpoint_recorded',

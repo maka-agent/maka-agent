@@ -495,7 +495,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
     checkpoint: HistoryCompactCheckpoint,
     run: AgentRun | undefined,
   ): Promise<void> {
-    if (!run || !this.acceptHistoryCompactCheckpoint(sessionId, checkpoint)) return Promise.resolve();
+    if (!run) return Promise.reject(new Error('No active AgentRun for history compact checkpoint'));
+    if (!this.acceptHistoryCompactCheckpoint(sessionId, checkpoint)) {
+      return Promise.reject(new Error('History compact checkpoint was superseded before persistence'));
+    }
     const previous = this.historyCompactCheckpointWrites.get(sessionId) ?? Promise.resolve();
     let tracked: Promise<void>;
     tracked = previous
@@ -544,13 +547,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
       ...(this.deps.runStore ? {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
+        recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint, turnId: string) => {
+          const active = this.active.get(sessionId);
+          const runId = active?.turnToRunId.get(turnId);
+          const run = runId ? active?.activeRuns.get(runId) : undefined;
+          return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
+        },
       } : {}),
-      recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        const active = this.active.get(sessionId);
-        const runId = active?.turnToRunId.get(turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
-      },
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(block.turnId);
@@ -604,13 +607,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
       },
       ...(this.deps.runStore ? {
         loadHistoryCompactCheckpoint: () => this.loadHistoryCompactCheckpoint(sessionId),
+        recordHistoryCompactCheckpoint: (checkpoint: HistoryCompactCheckpoint, turnId: string) => {
+          const active = this.childActive.get(activeKey);
+          const runId = active?.turnToRunId.get(turnId);
+          const run = runId ? active?.activeRuns.get(runId) : undefined;
+          return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
+        },
       } : {}),
-      recordHistoryCompactCheckpoint: (checkpoint, turnId) => {
-        const active = this.childActive.get(activeKey);
-        const runId = active?.turnToRunId.get(turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        return this.recordHistoryCompactCheckpoint(sessionId, checkpoint, run);
-      },
       recordActiveFullCompactBlock: (block) => {
         const active = this.childActive.get(activeKey);
         const runId = active?.turnToRunId.get(block.turnId);

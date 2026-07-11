@@ -4174,6 +4174,108 @@ describe('SessionManager permission mode updates', () => {
     expect(physicalCoverage).toEqual([1, 2]);
   });
 
+  test('does not expose a durable checkpoint recorder without an AgentRun store', async () => {
+    const store = new MemorySessionStore();
+    let recorderExposed: boolean | undefined;
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      recorderExposed = ctx.recordHistoryCompactCheckpoint !== undefined;
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(12_799) });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-without-run-store', text: 'hello' }));
+
+    expect(recorderExposed).toBe(false);
+  });
+
+  test('rejects checkpoint recording after the current AgentRun store becomes unavailable', async () => {
+    const store = new MemorySessionStore();
+    const runStoreUnavailable = makeGate();
+    const writeOutcomes: string[] = [];
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type === 'run_started') throw new Error('run ledger append failed');
+        if (event.type === 'trace_write_failed') runStoreUnavailable.release();
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new CheckpointRecorderContractProbeBackend(
+      ctx,
+      async () => runStoreUnavailable.promise,
+      writeOutcomes,
+    ));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_800),
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'store-unavailable', text: 'hello' }));
+
+    expect(writeOutcomes).toEqual(['store-unavailable:rejected']);
+  });
+
+  test('rejects a stale checkpoint candidate while a further checkpoint is in flight', async () => {
+    const store = new MemorySessionStore();
+    const furthestWriteGate = makeGate();
+    const furthestWriteStarted = makeGate();
+    const writeOutcomes: string[] = [];
+    const physicalCoverage: number[] = [];
+    const runStore = new MemoryAgentRunStore({
+      beforeAgentRunEventAppend: async (_sessionId, _runId, event) => {
+        if (event.type !== 'history_compact_checkpoint_recorded') return;
+        const coverage = (event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount;
+        physicalCoverage.push(coverage);
+        if (coverage === 2) {
+          furthestWriteStarted.release();
+          await furthestWriteGate.promise;
+        }
+      },
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new CheckpointRecorderContractProbeBackend(
+      ctx,
+      async () => {},
+      writeOutcomes,
+    ));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(12_801),
+    });
+    const session = await manager.createSession(makeInput());
+
+    const parentTurn = drain(manager.sendMessage(session.id, { turnId: 'parent-furthest-in-flight', text: 'hello' }));
+    await furthestWriteStarted.promise;
+    const parentRun = (await runStore.listSessionRuns(session.id)).find((run) => run.turnId === 'parent-furthest-in-flight');
+    if (!parentRun) throw new Error('parent run was not recorded');
+    await drain(manager.startChildTurn(session.id, {
+      turnId: 'child-stale-in-flight',
+      parentRunId: parentRun.runId,
+      spec: {
+        id: LOCAL_READ_AGENT_ID,
+        name: LOCAL_READ_AGENT_DEFINITION.name,
+        systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+      },
+      prompt: 'inspect the repo',
+    }));
+    furthestWriteGate.release();
+    await parentTurn;
+
+    expect(writeOutcomes).toEqual(['child-stale-in-flight:rejected', 'parent-furthest-in-flight:fulfilled']);
+    expect(physicalCoverage).toEqual([2]);
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -5516,11 +5618,11 @@ class HistoryCompactCheckpointMonotonicProbeBackend implements AgentBackend {
         author: 'user',
         content: { kind: 'text', text: `source ${index}` },
       }));
-      this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+      await this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
         sessionId: this.sessionId,
         coveredRuntimeEvents,
         summary: `${input.turnId} checkpoint`,
-      }), input.turnId);
+      }), input.turnId).catch(() => {});
     }
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }
@@ -5616,6 +5718,51 @@ class RecoveringCheckpointWriteProbeBackend implements AgentBackend {
       } catch {
         this.writeOutcomes.push(`${input.turnId}:rejected`);
       }
+    }
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class CheckpointRecorderContractProbeBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(
+    private readonly ctx: BackendFactoryContext,
+    private readonly beforeRecord: (turnId: string) => Promise<void>,
+    private readonly writeOutcomes: string[],
+  ) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    await this.beforeRecord(input.turnId);
+    const coverage = input.turnId === 'parent-furthest-in-flight' ? 2 : 1;
+    const coveredRuntimeEvents = Array.from({ length: coverage }, (_, index): RuntimeEvent => ({
+      id: `contract-source-event-${index}`,
+      sessionId: this.sessionId,
+      runId: `contract-source-run-${index}`,
+      turnId: `contract-source-turn-${index}`,
+      invocationId: `contract-source-invocation-${index}`,
+      ts: index + 1,
+      partial: false,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: `source ${index}` },
+    }));
+    try {
+      await this.ctx.recordHistoryCompactCheckpoint?.(buildHistoryCompactCheckpoint({
+        sessionId: this.sessionId,
+        coveredRuntimeEvents,
+        summary: `${input.turnId} checkpoint`,
+      }), input.turnId);
+      this.writeOutcomes.push(`${input.turnId}:fulfilled`);
+    } catch {
+      this.writeOutcomes.push(`${input.turnId}:rejected`);
     }
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 4, stopReason: 'end_turn' };
   }
