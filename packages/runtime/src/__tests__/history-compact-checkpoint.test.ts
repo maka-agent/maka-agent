@@ -143,16 +143,42 @@ describe('history compact checkpoint', () => {
     assert.equal(loaded, undefined);
   });
 
-  test('fails open from a damaged bounded projection without enumerating run ledgers', async () => {
+  test('recovers and repairs an uninitialized bounded projection from the canonical ledger', async () => {
+    const checkpoint = buildHistoryCompactCheckpoint({
+      sessionId: 'session-1',
+      coveredRuntimeEvents: [textEvent(0), textEvent(1)],
+      summary: 'recovered checkpoint',
+    });
+    const event = checkpointEvent('recovered-event', 'run-recovered', checkpoint, 20);
+    const repaired: Array<AgentRunEvent | null> = [];
     const store = {
-      readEventProjection: async () => { throw new Error('damaged projection'); },
-      listSessionRuns: async () => { throw new Error('run enumeration must stay cold'); },
-      readEvents: async () => { throw new Error('run ledger reads must stay cold'); },
+      readEventProjection: async () => undefined,
+      repairEventProjection: async (
+        _sessionId: string,
+        _type: AgentRunEvent['type'],
+        repairedEvent: AgentRunEvent | null,
+      ) => { repaired.push(repairedEvent); },
+      listSessionRuns: async () => [run('run-recovered', 10)],
+      readEvents: async () => [event],
     };
 
     const loaded = await loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1');
 
-    assert.equal(loaded, undefined);
+    assert.equal(loaded?.checkpointId, checkpoint.checkpointId);
+    assert.deepEqual(repaired, [event]);
+  });
+
+  test('propagates recovery failure from a damaged bounded projection', async () => {
+    const store = {
+      readEventProjection: async () => { throw new Error('damaged projection'); },
+      listSessionRuns: async () => { throw new Error('ledger recovery failed'); },
+      readEvents: async () => [],
+    };
+
+    await assert.rejects(
+      loadLatestHistoryCompactCheckpointFromRunLedger(store, 'session-1'),
+      /ledger recovery failed/,
+    );
   });
 
   test('replays a matching checkpoint with only the uncovered raw tail', () => {

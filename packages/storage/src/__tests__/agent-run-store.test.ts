@@ -129,6 +129,50 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('initializes an empty checkpoint projection for a new session', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+
+      await store.createRun(makeHeader());
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        null,
+      );
+    });
+  });
+
+  it('preserves a missing checkpoint projection when prior runs require recovery', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-before-crash' }));
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.createRun(makeHeader({ runId: 'run-after-restart' }));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
   it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
     await withStore(async (store, root) => {
       const projectionStore = store as typeof store & {

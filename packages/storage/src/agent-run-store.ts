@@ -39,6 +39,15 @@ class FileAgentRunStore implements AgentRunStore {
       await mkdir(this.runDir(header.sessionId, header.runId), { recursive: true });
       await writeAtomic(this.runPath(header.sessionId, header.runId), JSON.stringify(header, sanitizeJson) + '\n');
     });
+    await this.withProjectionQueue(header.sessionId, 'history_compact_checkpoint_recorded', async () => {
+      await this.initializeEventProjectionUnlocked(
+        header.sessionId,
+        header.runId,
+        'history_compact_checkpoint_recorded',
+      );
+    }).catch(() => {
+      // Projection initialization is derived state; recovery can rebuild it from the run ledger.
+    });
     return header;
   }
 
@@ -148,6 +157,20 @@ class FileAgentRunStore implements AgentRunStore {
     return this.readEventProjectionUnlocked(sessionId, type);
   }
 
+  async repairEventProjection(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+  ): Promise<void> {
+    assertSafeId(sessionId, 'Invalid session id');
+    if (event !== null && !isProjectedAgentRunEvent(event, sessionId, type)) {
+      throw new Error(`Invalid AgentRun event projection repair for ${type}`);
+    }
+    await this.withProjectionQueue(sessionId, type, async () => {
+      await this.writeEventProjectionUnlocked(sessionId, type, event);
+    });
+  }
+
   private async readRunUnlocked(sessionId: string, runId: string): Promise<AgentRunHeader> {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
@@ -221,6 +244,23 @@ class FileAgentRunStore implements AgentRunStore {
       this.eventProjectionPath(sessionId, type),
       JSON.stringify({ version: 1, event }, sanitizeJson) + '\n',
     );
+  }
+
+  private async initializeEventProjectionUnlocked(
+    sessionId: string,
+    currentRunId: string,
+    type: AgentRunEventType,
+  ): Promise<void> {
+    try {
+      await readFile(this.eventProjectionPath(sessionId, type), 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const runs = await readdir(this.runsRoot(sessionId), { withFileTypes: true });
+      if (runs.some((entry) => entry.isDirectory() && isSafeId(entry.name) && entry.name !== currentRunId)) {
+        return;
+      }
+      await this.writeEventProjectionUnlocked(sessionId, type, null);
+    }
   }
 }
 

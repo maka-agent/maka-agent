@@ -96,4 +96,10 @@ export interface AgentRunStore {
     sessionId: string,
     type: AgentRunEventType,
   ): Promise<AgentRunEvent | null | undefined>;
+  /** Rewrites derived state after the canonical event ledger repairs an absent or damaged projection. */
+  repairEventProjection?(
+    sessionId: string,
+    type: AgentRunEventType,
+    event: AgentRunEvent | null,
+  ): Promise<void>;
 }

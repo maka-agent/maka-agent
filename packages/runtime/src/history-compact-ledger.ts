@@ -1,4 +1,4 @@
-import type { AgentRunStore } from '@maka/core';
+import type { AgentRunEvent, AgentRunStore } from '@maka/core';
 import {
   validateHistoryCompactCheckpointShape,
   selectFurthestHistoryCompactCheckpoint,
@@ -8,7 +8,7 @@ import {
 export async function loadLatestHistoryCompactCheckpointFromRunLedger(
   runStore: Pick<
     AgentRunStore,
-    'listSessionRuns' | 'readEvents' | 'readEventProjection'
+    'listSessionRuns' | 'readEvents' | 'readEventProjection' | 'repairEventProjection'
   >,
   sessionId: string,
 ): Promise<HistoryCompactCheckpoint | undefined> {
@@ -22,12 +22,12 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
       const checkpoint = projected?.data?.checkpoint;
       if (validateHistoryCompactCheckpointShape(checkpoint, sessionId)) return checkpoint;
     } catch {
-      // A damaged derived projection safely falls back to raw RuntimeEvent history.
+      // Recover the derived projection from the canonical ledger below.
     }
-    return undefined;
   }
   const runs = await runStore.listSessionRuns(sessionId);
   let selected: HistoryCompactCheckpoint | undefined;
+  let selectedEvent: AgentRunEvent | null = null;
   for (let runIndex = runs.length - 1; runIndex >= 0; runIndex -= 1) {
     const run = runs[runIndex]!;
     const events = await runStore.readEvents(sessionId, run.runId);
@@ -36,9 +36,20 @@ export async function loadLatestHistoryCompactCheckpointFromRunLedger(
       if (event.type !== 'history_compact_checkpoint_recorded') continue;
       const checkpoint = event.data?.checkpoint;
       if (validateHistoryCompactCheckpointShape(checkpoint, sessionId)) {
-        selected = selectFurthestHistoryCompactCheckpoint(selected, checkpoint);
+        const next = selectFurthestHistoryCompactCheckpoint(selected, checkpoint);
+        if (next === checkpoint) {
+          selected = checkpoint;
+          selectedEvent = event;
+        }
       }
     }
   }
+  await runStore.repairEventProjection?.(
+    sessionId,
+    'history_compact_checkpoint_recorded',
+    selectedEvent,
+  ).catch(() => {
+    // Recovery succeeded; a later cold read can retry this derived-state repair.
+  });
   return selected;
 }

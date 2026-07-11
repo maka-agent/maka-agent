@@ -4372,6 +4372,71 @@ describe('SessionManager permission mode updates', () => {
     expect(checkpointCoverage).toEqual([10]);
   });
 
+  test('recovers a missing projection before rejecting a shorter cold-start checkpoint', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MissingCheckpointProjectionAgentRunStore();
+    const writeOutcomes: string[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new CheckpointRecorderContractProbeBackend(
+      ctx,
+      async () => {},
+      writeOutcomes,
+    ));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(12_803),
+    });
+    const session = await manager.createSession(makeInput());
+    const durableCheckpoint = buildHistoryCompactCheckpoint({
+      sessionId: session.id,
+      coveredRuntimeEvents: Array.from({ length: 10 }, (_, index): RuntimeEvent => ({
+        id: `cold-durable-event-${index}`,
+        sessionId: session.id,
+        runId: `cold-durable-run-${index}`,
+        turnId: `cold-durable-turn-${index}`,
+        invocationId: `cold-durable-invocation-${index}`,
+        ts: index + 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: `source ${index}` },
+      })),
+      summary: 'durable checkpoint before projection loss',
+    });
+    const durableEvent = makeRunEvent({
+      sessionId: session.id,
+      runId: 'cold-seed-run',
+      turnId: 'cold-seed-turn',
+      type: 'history_compact_checkpoint_recorded',
+      ts: 1,
+      data: { checkpoint: durableCheckpoint },
+    });
+    await seedRun(runStore, makeRunHeader({
+      sessionId: session.id,
+      runId: 'cold-seed-run',
+      turnId: 'cold-seed-turn',
+      status: 'completed',
+    }), [durableEvent]);
+
+    await drain(manager.sendMessage(session.id, { turnId: 'cold-stale-after-projection-loss', text: 'hello' }));
+
+    expect(writeOutcomes).toEqual(['cold-stale-after-projection-loss:rejected']);
+    expect(runStore.repairedProjection?.id).toBe(durableEvent.id);
+    const checkpointCoverage: number[] = [];
+    for (const run of await runStore.listSessionRuns(session.id)) {
+      for (const event of await runStore.readEvents(session.id, run.runId)) {
+        if (event.type === 'history_compact_checkpoint_recorded') {
+          checkpointCoverage.push((event.data?.checkpoint as HistoryCompactCheckpoint).coverage.eventCount);
+        }
+      }
+    }
+    expect(checkpointCoverage).toEqual([10]);
+  });
+
   test('startup recovery marks persisted running turns as failed instead of leaving them stuck', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -6201,6 +6266,22 @@ class OrderingAgentRunStore extends MemoryAgentRunStore {
   override async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
     await super.appendRuntimeEvent(sessionId, runId, event);
     if (isTerminalRuntimeEvent(event)) this.operations.push('terminalRuntimeEvent');
+  }
+}
+
+class MissingCheckpointProjectionAgentRunStore extends MemoryAgentRunStore {
+  repairedProjection: AgentRunEvent | null | undefined;
+
+  async readEventProjection(): Promise<undefined> {
+    return undefined;
+  }
+
+  async repairEventProjection(
+    _sessionId: string,
+    _type: AgentRunEvent['type'],
+    event: AgentRunEvent | null,
+  ): Promise<void> {
+    this.repairedProjection = event;
   }
 }
 
