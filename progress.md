@@ -125,3 +125,7 @@
     UI 105, Desktop 2329
   - cua-driver bundle gate passed
   - real-machine E2E passed 39/39
+- Pushed `feat/cu-runtime-helper` through `67a1fe15`.
+- Refreshed draft PR #699 title/body with the exact page-targeting architecture,
+  `semantic-targeting-v5` evidence, and the remaining production packaging gap.
+- Remote CI passed: typecheck, test, and e2e.
