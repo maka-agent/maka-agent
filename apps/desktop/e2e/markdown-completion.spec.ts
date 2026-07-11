@@ -34,6 +34,9 @@ test('keeps completed Markdown geometry stable after terminal completion', async
   await sessionComposer.press('Enter');
   await expect(page.getByText('后续说明第二段。')).toBeVisible();
   await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0);
+  await expect(
+    page.locator('.maka-markdown-root').filter({ hasText: '后续说明第二段。' }),
+  ).toBeVisible();
   const terminal = await readMarkdownGeometry(page, '后续说明第二段。');
   await page.waitForTimeout(800);
   const settled = await readMarkdownGeometry(page, '后续说明第二段。');
