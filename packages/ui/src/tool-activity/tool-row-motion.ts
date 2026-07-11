@@ -3,16 +3,15 @@ import { type ToolActivityItem } from '../materialize.js';
 type ToolStatus = ToolActivityItem['status'];
 
 /**
- * The run→done seam (#646). A tool row is visible the instant it starts, but its
- * two motions are gated so history stays quiet and sub-second tools never flicker:
+ * The run→done seam (#646 + #tool-jitter). A tool row is visible the instant it
+ * starts; running statuses shimmer (the light band via `TextShimmer delayed`),
+ * and the row settles by that band stopping — the same seam as the 深度思考
+ * disclosure title, with no opacity fade so parallel tools finishing together
+ * don't stack N fades.
  *
- * - `shimmer` — the working light-band sweeps the label while the tool is
- *   in flight. The ~200ms de-flicker delay is CSS (`animation-delay` on the
- *   sweep, see `TextShimmer delayed`), so a tool that settles inside the window
- *   unmounts mid-delay and never visibly sweeps — no logic needed here.
- * - `settling` — the one-shot "landing" fade only plays for a row that was seen
- *   running in THIS view and just settled, never for a replayed transcript's rows
- *   (mounted already terminal). The caller tracks `everRunning` with a ref.
+ * The ~200ms de-flicker before the sweep starts is CSS (`animation-delay` on
+ * `TextShimmer delayed`), so a sub-second tool that settles inside the window
+ * unmounts mid-delay and never visibly sweeps — no logic needed here.
  */
 
 /**
@@ -28,26 +27,4 @@ export function isToolRowRunning(status: ToolStatus): boolean {
 /** Terminal statuses — the row has landed on a result (success, error, or interrupt). */
 export function isToolRowSettled(status: ToolStatus): boolean {
   return status === 'completed' || status === 'errored' || status === 'interrupted';
-}
-
-export interface ToolRowMotion {
-  /** Shimmer the working label (the delay that de-flickers sub-second tools is CSS). */
-  shimmer: boolean;
-  /** The row is on a terminal result. */
-  settled: boolean;
-  /**
-   * Settled *after being seen running in this view* — plays the one-shot settle
-   * fade. False for a replayed transcript's rows (mounted already terminal), so a
-   * loaded session's tool history stays static instead of fading in on scroll.
-   */
-  settling: boolean;
-}
-
-export function deriveToolRowMotion(input: { status: ToolStatus; everRunning: boolean }): ToolRowMotion {
-  const settled = isToolRowSettled(input.status);
-  return {
-    shimmer: isToolRowRunning(input.status),
-    settled,
-    settling: settled && input.everRunning,
-  };
 }

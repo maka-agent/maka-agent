@@ -130,13 +130,12 @@ export {
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
-// #646 run→done seam: pure status→motion mapping for a tool row (delayed shimmer
-// + one-shot settle fade gated to live settles). Unit-tested.
+// #646 run→done seam: a tool row shimmers while running and settles by the
+// light band stopping (no opacity fade — parallel settles don't stack).
+// Unit-tested.
 export {
   isToolRowRunning,
   isToolRowSettled,
-  deriveToolRowMotion,
-  type ToolRowMotion,
 } from './tool-activity/tool-row-motion.js';
 // Streaming UI rework: per-word fade-in for streamed text (replaces the ▎
 // caret). Pure append-record ring + tokenizer are unit-tested; the hook feeds
