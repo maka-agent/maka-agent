@@ -348,15 +348,15 @@ function durableStreamEvidence(
 }
 
 /**
- * Removes terminal non-text steps only when the persisted transcript can
- * render the same durable evidence. Text steps remain owned by the smoother,
- * whose completion callback performs their handoff after the tail is visible.
+ * Removes evidence-only steps once the persisted transcript can render the
+ * same durable output, including while a later step is still running. Text
+ * steps remain owned by the smoother, whose completion callback performs
+ * their handoff after the tail is visible.
  */
 export function reconcileTerminalLiveTurn(
   current: LiveTurnProjection,
   messages: readonly StoredMessage[],
 ): LiveTurnProjection | undefined {
-  if (!current.terminal) return current;
   const turnMessages = messages.filter((message) => message.turnId === current.turnId);
   const assistantIds = new Set(turnMessages.flatMap((message) => message.type === 'assistant' ? [message.id] : []));
   const toolCallIds = new Set(turnMessages.flatMap((message) => message.type === 'tool_call' ? [message.id] : []));

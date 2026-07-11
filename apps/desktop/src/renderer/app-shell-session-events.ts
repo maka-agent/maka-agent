@@ -91,7 +91,7 @@ export function createAppShellSessionEventHandlers(options: {
   function reconcilePersistedMessages(sessionId: string, messages: readonly StoredMessage[]): void {
     setLiveTurnBySession((current) => {
       const projection = current[sessionId];
-      if (!projection?.terminal) return current;
+      if (!projection) return current;
       const reconciled = reconcileTerminalLiveTurn(projection, messages);
       if (reconciled === projection) return current;
       const next = { ...current };

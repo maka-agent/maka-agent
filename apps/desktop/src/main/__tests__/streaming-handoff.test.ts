@@ -319,6 +319,51 @@ describe('single live-turn handoff', () => {
     assert.equal(liveTurns.get()['session-1'], undefined);
   });
 
+  it('reconciles persisted stream evidence while the next tool batch is running', () => {
+    const projection: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      steps: [
+        {
+          stepId: 'step-1',
+          tools: [{
+            toolUseId: 'old-tool', toolName: 'Bash', status: 'completed', args: {},
+            outputChunks: [{ seq: 0, stream: 'stdout', text: 'old\n', redacted: false, createdAt: 1 }],
+          }],
+          contentOrder: ['tools'],
+        },
+        {
+          stepId: 'step-2',
+          tools: [{ toolUseId: 'new-tool', toolName: 'Bash', status: 'running', args: {} }],
+          contentOrder: ['tools'],
+        },
+      ],
+    };
+    const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({ 'session-1': projection });
+    const ref = { current: liveTurns.get() };
+    const permissions = createStateSetter<PermissionQueues>({});
+    const handlers = createAppShellSessionEventHandlers({
+      activeIdRef: { current: 'session-1' },
+      liveTurnBySessionRef: ref,
+      refreshMessages: async () => true,
+      refreshSessions: async () => [],
+      setLiveTurnBySession: (updater) => {
+        liveTurns.set(updater);
+        ref.current = liveTurns.get();
+      },
+      setPermissionBySession: permissions.set,
+      showModelSetupToast: () => {},
+      toastApi: { error: () => {} },
+    });
+
+    handlers.reconcilePersistedMessages('session-1', [
+      { type: 'tool_call', id: 'old-tool', turnId: 'turn-1', stepId: 'step-1', ts: 1, toolName: 'Bash', args: {} },
+      { type: 'tool_result', id: 'old-result', turnId: 'turn-1', ts: 2, toolUseId: 'old-tool', isError: false, content: { kind: 'text', text: 'old\n' } },
+    ]);
+
+    assert.deepEqual(liveTurns.get()['session-1']?.steps, [projection.steps[1]]);
+  });
+
   it('settles a tool-only terminal projection after persisted history refreshes', async () => {
     const liveTurns = createStateSetter<Record<string, LiveTurnProjection>>({
       'session-1': {

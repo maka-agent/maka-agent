@@ -1039,10 +1039,10 @@ export function AppShell({
     },
   });
 
-  // A terminal tool/thinking projection may survive when its event-triggered
-  // refresh fails. Reconcile from durable evidence whenever either side
-  // changes, so a later poll, manual retry, or session refresh closes the
-  // handoff without deleting text that the smoother still owns.
+  // Tool/thinking evidence may survive its event-triggered refresh, including
+  // between steps of one running turn. Reconcile from durable evidence whenever
+  // either side changes, so old output stays on its original tool instead of
+  // joining the next batch, without deleting text that the smoother still owns.
   const reconcilePersistedMessagesEffect = useEffectEvent(reconcilePersistedMessages);
   useEffect(() => {
     if (!activeId) return;

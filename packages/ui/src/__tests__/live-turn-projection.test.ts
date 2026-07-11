@@ -7,7 +7,7 @@ import {
   settleLiveTurnStep,
   type LiveTurnProjection,
 } from '../live-turn-projection.js';
-import { overlayLiveTurn } from '../materialize.js';
+import { overlayLiveTurn, type ToolActivityItem } from '../materialize.js';
 
 describe('applyLiveTurnEvent', () => {
   it('moves an armed turn from waiting to streamed on its first content event', () => {
@@ -643,5 +643,38 @@ describe('reconcileTerminalLiveTurn', () => {
     assert.equal(reconcileTerminalLiveTurn(thinkingOnly, [
       { type: 'assistant', id: 'step-1', turnId: 'turn-1', ts: 1, text: '', thinking: { text: 'reasoning' }, modelId: 'm' },
     ]), undefined);
+  });
+
+  it('drops persisted stream evidence before the next tool batch settles', () => {
+    const evidence = (toolUseId: string): ToolActivityItem => ({
+      toolUseId,
+      toolName: 'Bash',
+      status: 'completed',
+      args: {},
+      outputChunks: [{ seq: 0, stream: 'stdout', text: 'ok\n', redacted: false, createdAt: 1 }],
+    });
+    const current = (toolUseId: string): ToolActivityItem => ({
+      toolUseId,
+      toolName: 'Bash',
+      status: 'running',
+      args: {},
+    });
+    const projection: LiveTurnProjection = {
+      turnId: 'turn-1',
+      phase: 'streamed',
+      steps: [
+        { stepId: 'step-1', tools: ['old-1', 'old-2', 'old-3'].map(evidence), contentOrder: ['tools'] },
+        { stepId: 'step-2', tools: ['new-1', 'new-2', 'new-3', 'new-4'].map(current), contentOrder: ['tools'] },
+      ],
+    };
+    const persisted = ['old-1', 'old-2', 'old-3'].flatMap((toolUseId, index) => ([
+      { type: 'tool_call' as const, id: toolUseId, turnId: 'turn-1', stepId: 'step-1', ts: index * 2 + 1, toolName: 'Bash', args: {} },
+      { type: 'tool_result' as const, id: `result-${toolUseId}`, turnId: 'turn-1', ts: index * 2 + 2, toolUseId, isError: false, content: { kind: 'text' as const, text: 'ok\n' } },
+    ]));
+
+    assert.deepEqual(reconcileTerminalLiveTurn(projection, persisted), {
+      ...projection,
+      steps: [projection.steps[1]!],
+    });
   });
 });
