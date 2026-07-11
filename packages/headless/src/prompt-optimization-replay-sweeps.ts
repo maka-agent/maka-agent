@@ -1,7 +1,5 @@
 import type {
   FixedPromptControllerResult,
-  FixedPromptTaskCompletedEvent,
-  FixedPromptTaskPlumbingFailedEvent,
   FixedPromptTaskWalEvent,
   FixedPromptWalEvent,
 } from './fixed-prompt-controller.js';
@@ -43,8 +41,8 @@ export function replayControllerSweep(input: {
   return {
     taskIds: [...input.taskIds],
     events: orderedEvents,
-    totalTokens: sum(orderedEvents.map((event) => eventHasRunArtifacts(event) ? event.tokenSummary.total : 0)),
-    totalCostUsd: sum(orderedEvents.map((event) => eventHasRunArtifacts(event) ? event.tokenSummary.costUsd : 0)),
+    totalTokens: sum(orderedEvents.map((event) => 'tokenSummary' in event ? event.tokenSummary?.total ?? 0 : 0)),
+    totalCostUsd: sum(orderedEvents.map((event) => 'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0)),
     resultsTsvPath: input.resultsTsvPath,
   };
 }
@@ -82,12 +80,6 @@ function mergeReplayedTaskEvent(
     return;
   }
   throw new Error(`RSI WAL replay duplicate task event for ${event.roundId}/${event.taskId}`);
-}
-
-function eventHasRunArtifacts(
-  event: FixedPromptTaskWalEvent,
-): event is FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent {
-  return event.type === 'task_completed' || event.type === 'task_plumbing_failed';
 }
 
 function sum(values: readonly number[]): number {

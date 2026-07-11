@@ -92,7 +92,7 @@ export interface FixedPromptTaskCompletedEvent {
   eligible: boolean;
   errorClass?: string;
   promptHash?: string;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
@@ -163,16 +163,16 @@ export interface FixedPromptTaskPlumbingFailedEvent {
   error: string;
   promptHash?: string;
   expectedPromptHash?: string;
-  tokenSummary: HarborCellTokenSummary;
+  tokenSummary?: HarborCellTokenSummary;
   contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
   contextBudgetSummary?: HarborCellContextBudgetSummary;
   continuationSummary?: HarborCellContinuationSummary;
   taskToolSummary?: HarborCellTaskToolSummary;
-  steps: number;
-  durationMs: number;
-  runtimeEventsPath: string;
+  steps?: number;
+  durationMs?: number;
+  runtimeEventsPath?: string;
   traceEventsPath?: string;
-  harbor: {
+  harbor?: {
     reward: number;
   };
 }
@@ -817,6 +817,28 @@ function taskBudgetExhaustedEvent(input: {
   ts: number;
 }): FixedPromptTaskBudgetExhaustedEvent | FixedPromptTaskPlumbingFailedEvent {
   const artifactRefs = budgetExhaustedArtifactRefs(input.error);
+  if (input.requireExecutionIdentity && !artifactRefs.cellOutput) {
+    return {
+      schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
+      type: 'task_plumbing_failed',
+      id: input.id,
+      ts: input.ts,
+      runId: input.runId,
+      roundId: input.roundId,
+      ...(input.resumeFingerprint ? { resumeFingerprint: input.resumeFingerprint } : {}),
+      taskId: input.taskId,
+      status: 'plumbing_failed',
+      passed: false,
+      scored: false,
+      eligible: false,
+      errorClass: 'missing_execution_identity',
+      error: 'Timed-out Harbor attempt did not produce execution identity attestation',
+      expectedPromptHash: input.expectedPromptHash,
+      ...(artifactRefs.tokenSummary ? { tokenSummary: artifactRefs.tokenSummary } : {}),
+      ...(artifactRefs.runtimeEventsPath ? { runtimeEventsPath: artifactRefs.runtimeEventsPath } : {}),
+      ...(artifactRefs.traceEventsPath ? { traceEventsPath: artifactRefs.traceEventsPath } : {}),
+    };
+  }
   if (artifactRefs.cellOutput) {
     const output = { harbor: { reward: 0 }, cell: artifactRefs.cellOutput };
     const plumbingFailure = classifyPlumbingFailure(

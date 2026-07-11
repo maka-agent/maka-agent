@@ -174,7 +174,7 @@ function summarizeTokenCost(
   events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
   const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event);
-  const durations = events.flatMap((event) => 'durationMs' in event ? [event.durationMs] : []);
+  const durations = events.flatMap((event) => 'durationMs' in event && event.durationMs !== undefined ? [event.durationMs] : []);
   return {
     input: sum(withUsage.map((event) => event.tokenSummary.input)),
     cachedInput: sum(withUsage.map((event) => event.tokenSummary.cachedInput)),
