@@ -8,9 +8,11 @@ import { REPO_ROOT, TOKENS_FILE, readAllRendererCss, stripCssComments } from './
  * Governance contract for the #332 PR3 tool live-output stream substrate after
  * its #712 retirement. The stream shell (`streamVariants`), the pulsing "live"
  * dot (`LiveIndicator`), and the canonical `@keyframes maka-pulse` that breathed
- * it are all removed — the tool body now renders through the quiet `ToolTrow`
- * panel (`TOOL_OUTPUT_BODY_CLASS`) whose running dot uses the separate
- * `maka-tool-pulse` keyframe.
+ * it are all removed — the tool body now renders through the flat `ToolTrow`,
+ * which expresses running state via a `TextShimmer` text sweep (not a pulsing
+ * dot), so the retired dot + its keyframe have no successor in the production
+ * path. The separate `maka-tool-pulse` keyframe (the `ToolActivity` card's ring
+ * dot) is a different concern and stays.
  *
  * What stays guarded here: the computed-style fixture stays aligned with the
  * quiet production panel + its disclosure defaults, the retired bespoke
@@ -86,8 +88,10 @@ describe('chat tool-output stream migration contract (#332 PR3)', () => {
       '`LiveIndicator` must stay removed from chat.tsx code',
     );
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
+    // Precise declaration match so a future `@keyframes maka-pulse-ring` (or
+    // similar) is not falsely rejected by a bare substring check.
     assert.ok(
-      !tokens.includes('@keyframes maka-pulse'),
+      !/@keyframes\s+maka-pulse\s*\{/.test(tokens),
       '`@keyframes maka-pulse` must stay removed from maka-tokens.css (its only consumer, LiveIndicator, is gone)',
     );
   });
