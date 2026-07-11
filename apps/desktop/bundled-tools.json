@@ -15,6 +15,7 @@
     "tag": "cua-driver-rs-v0.7.1",
     "asset": "cua-driver-rs-0.7.1-darwin-universal-binary.tar.gz",
     "binaryName": "cua-driver",
-    "sha256": "43a78c1789c6f0fff12f87b5d4089e4d4da5f256832ca9a7c5f5fdaa79ba76d4"
+    "archiveSha256": "43a78c1789c6f0fff12f87b5d4089e4d4da5f256832ca9a7c5f5fdaa79ba76d4",
+    "binarySha256": "66775dd7eec0667bb19e5ba8ca4d92e301690af2a2d4fa88f9953850683dfb0a"
   }
 }

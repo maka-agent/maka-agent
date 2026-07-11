@@ -75,7 +75,14 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
-export type { CuDispatchBackend, CuScreenshot, CuRunResult, CuOverlayHook, CuOverlayHookContext } from './computer-use-tools.js';
+export type {
+  CuDispatchBackend,
+  CuScreenshot,
+  CuRunContext,
+  CuRunResult,
+  CuOverlayHook,
+  CuOverlayHookContext,
+} from './computer-use-tools.js';
 export {
   buildBackgroundBashTool,
   buildForegroundBashTool,

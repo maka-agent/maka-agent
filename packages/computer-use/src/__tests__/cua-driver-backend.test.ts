@@ -18,9 +18,15 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 
 import type { CuAction } from '@maka/core';
-import { createCuaDriverBackend, parseKeyChord } from '../cua-driver-backend.js';
+import type { CuRunContext, CuRunResult } from '@maka/runtime';
+import { createCuaDriverBackend } from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
+const DEFAULT_RUN_CONTEXT: CuRunContext = {
+  sessionId: 'test-session',
+  turnId: 'test-turn',
+  toolCallId: 'test-tool',
+};
 
 // A CommonJS mock cua-driver. No backticks / ${} inside → embedded via
 // String.raw so \n survives as a literal escape in the written file.
@@ -29,8 +35,16 @@ const MOCK_SRC = String.raw`#!/usr/bin/env node
 const fs = require('fs');
 const LOG = process.env.CUA_MOCK_LOG || '';
 const HANG_TOOL = process.env.CUA_MOCK_HANG_TOOL || '';
+const HANG_ONCE_TOOL = process.env.CUA_MOCK_HANG_ONCE_TOOL || '';
+const HANG_ONCE_MARKER = process.env.CUA_MOCK_HANG_ONCE_MARKER || '';
+const DELAY_TOOL = process.env.CUA_MOCK_DELAY_TOOL || '';
+const DELAY_MS = Number(process.env.CUA_MOCK_DELAY_MS || 0);
 const ERR_TOOL = process.env.CUA_MOCK_RPCERR_TOOL || '';
-// 1x1 transparent PNG (tiny, well under the 2MB frame cap).
+const EMPTY_AX = process.env.CUA_MOCK_EMPTY_AX === '1';
+const AX_ROLE = process.env.CUA_MOCK_AX_ROLE || 'AXTextArea';
+const FIELD_VALUES = new Map();
+const SNAPSHOT_DELAY_MS = Number(process.env.CUA_MOCK_SNAPSHOT_DELAY_MS || 0);
+// 1x1 transparent PNG (tiny, well under the frame cap).
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 // A "big" frame (~1.9MB decoded) to exercise the compression threshold path.
 const BIG_IMG = process.env.CUA_MOCK_BIG_IMAGE === '1' ? 'A'.repeat(2600000) : '';
@@ -38,6 +52,7 @@ function logRec(rec) { if (LOG) { try { fs.appendFileSync(LOG, JSON.stringify(re
 logRec({
   kind: 'start',
   pid: process.pid,
+  home: process.env.HOME,
   argv: process.argv.slice(2),
   env: {
     CUA_DRIVER_EMBEDDED: process.env.CUA_DRIVER_EMBEDDED,
@@ -59,7 +74,21 @@ function handle(msg) {
   if (method === 'tools/call') {
     const name = params.name;
     if (name === HANG_TOOL) { return; } // never respond → exercises abort/kill/handshake-timeout
+    if (name === HANG_ONCE_TOOL && HANG_ONCE_MARKER) {
+      try {
+        fs.writeFileSync(HANG_ONCE_MARKER, '1', { flag: 'wx' });
+        logRec({ kind: 'blocked', tool: name });
+        return;
+      } catch (e) {}
+    }
     if (name === ERR_TOOL) { send({ jsonrpc: '2.0', id: id, error: { code: -32000, message: 'mock rpc error' } }); return; }
+    const sendToolReply = (result) => {
+      if (name === DELAY_TOOL && DELAY_MS > 0) {
+        setTimeout(() => reply(id, result), DELAY_MS);
+      } else {
+        reply(id, result);
+      }
+    };
     switch (name) {
       case 'set_config':
         reply(id, { content: [], structuredContent: {} });
@@ -73,14 +102,58 @@ function handle(msg) {
           structuredContent: { screenshot_width: 1440, screenshot_height: 900 },
         });
         return;
+      case 'get_window_state':
+        const snapshotWindowId = Number(params.arguments?.window_id);
+        const snapshotFrame = snapshotWindowId === 88
+          ? { x: 100, y: 650, w: 800, h: 200 }
+          : { x: 250, y: 150, w: 200, h: 120 };
+        setTimeout(() => reply(id, {
+            content: [{ type: 'image', data: PNG, mimeType: 'image/png' }],
+            structuredContent: {
+              screenshot_width: 1200,
+              screenshot_height: 800,
+              elements: EMPTY_AX ? [] : [
+                {
+                  element_index: 7,
+                  element_token: 'snapshot:7',
+                  role: AX_ROLE,
+                  value: FIELD_VALUES.get(snapshotWindowId) || '',
+                  frame: snapshotFrame,
+                },
+              ],
+            },
+          }), SNAPSHOT_DELAY_MS);
+        return;
       case 'click':
-        reply(id, { content: [{ type: 'text', text: 'clicked' }], structuredContent: {} });
+        sendToolReply({
+          content: [{ type: 'text', text: 'clicked' }],
+          structuredContent: params.arguments?.element_index !== undefined
+            ? { path: 'ax', verified: true, effect: 'confirmed' }
+            : { path: 'cgevent', verified: false, effect: 'unverifiable' },
+        });
+        return;
+      case 'double_click':
+        sendToolReply({
+          content: [{ type: 'text', text: 'double-clicked' }],
+          structuredContent: params.arguments?.element_index !== undefined
+            ? {}
+            : { path: 'cgevent', verified: false, effect: 'unverifiable' },
+        });
         return;
       case 'scroll':
         reply(id, { content: [{ type: 'text', text: 'scrolled' }], structuredContent: {} });
         return;
       case 'drag':
         reply(id, { content: [{ type: 'text', text: 'dragged' }], structuredContent: {} });
+        return;
+      case 'zoom':
+        reply(id, {
+          content: [
+            { type: 'image', data: 'SlBFRw==', mimeType: 'image/jpeg' },
+            { type: 'text', text: 'zoomed' },
+          ],
+          structuredContent: { width: 320, height: 180, format: 'jpeg', mime_type: 'image/jpeg' },
+        });
         return;
       case 'get_screen_size':
         reply(id, { content: [], structuredContent: { width: 1512, height: 982, scale_factor: 2 } });
@@ -106,11 +179,12 @@ function handle(msg) {
         // No frontmost app → the backend cannot resolve a target pid.
         reply(id, { content: [], structuredContent: { apps: [{ pid: 4242, frontmost: false }] } });
         return;
-      case 'type_text':
-        reply(id, { content: [{ type: 'text', text: 'typed' }], structuredContent: {} });
-        return;
-      case 'press_key':
-        reply(id, { content: [{ type: 'text', text: 'keyed' }], structuredContent: {} });
+      case 'set_value':
+        FIELD_VALUES.set(
+          Number(params.arguments?.window_id),
+          String(params.arguments?.value ?? ''),
+        );
+        reply(id, { content: [{ type: 'text', text: 'value set' }], structuredContent: {} });
         return;
       default:
         reply(id, { content: [{ type: 'text', text: 'unknown tool' }], isError: true, structuredContent: {} });
@@ -141,6 +215,10 @@ let workDir = '';
 let mockPath = '';
 const backends: Array<{ dispose: () => void }> = [];
 
+type TestBackend = Omit<ReturnType<typeof createCuaDriverBackend>, 'run'> & {
+  run(action: CuAction, signal: AbortSignal, context?: CuRunContext): Promise<CuRunResult>;
+};
+
 function delay(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
 }
@@ -170,24 +248,71 @@ function toolCall(records: Array<Record<string, any>>, name: string): Record<str
   return rec && rec.params ? (rec.params.arguments as Record<string, any>) : undefined;
 }
 
+function toolCalls(records: Array<Record<string, any>>, name: string): Array<Record<string, any>> {
+  return records
+    .filter((r) => r.kind === 'recv' && r.method === 'tools/call' && r.params?.name === name)
+    .map((r) => r.params.arguments as Record<string, any>);
+}
+
+async function waitForRecord(
+  logPath: string,
+  predicate: (record: Record<string, any>) => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await readRecords(logPath)).some(predicate)) return;
+    await delay(10);
+  }
+  assert.fail('timed out waiting for mock record');
+}
+
 /**
  * Create a backend pointed at the mock. The module captures process.env at
  * spawn time, so we set the per-child log path (and optional hang tool) right
  * before returning — tests run sequentially, so there is no env interleave.
  */
-function makeBackend(opts: { hangTool?: string; rpcErrTool?: string; handshakeTimeoutMs?: number; bigImage?: boolean; compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' } } = {}): { backend: ReturnType<typeof createCuaDriverBackend>; logPath: string } {
+function makeBackend(opts: {
+  hangTool?: string;
+  hangOnceTool?: string;
+  delayTool?: string;
+  delayMs?: number;
+  rpcErrTool?: string;
+  handshakeTimeoutMs?: number;
+  bigImage?: boolean;
+  emptyAx?: boolean;
+  axRole?: string;
+  processKind?: 'electron' | 'native' | 'unknown';
+  snapshotDelayMs?: number;
+  compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+} = {}): { backend: TestBackend; logPath: string } {
   const logPath = join(workDir, 'log-' + randomUUID() + '.ndjson');
+  const hangOnceMarker = join(workDir, 'hang-once-' + randomUUID());
   process.env.CUA_MOCK_LOG = logPath;
   process.env.CUA_MOCK_HANG_TOOL = opts.hangTool ?? '';
+  process.env.CUA_MOCK_HANG_ONCE_TOOL = opts.hangOnceTool ?? '';
+  process.env.CUA_MOCK_HANG_ONCE_MARKER = hangOnceMarker;
+  process.env.CUA_MOCK_DELAY_TOOL = opts.delayTool ?? '';
+  process.env.CUA_MOCK_DELAY_MS = String(opts.delayMs ?? 0);
   process.env.CUA_MOCK_RPCERR_TOOL = opts.rpcErrTool ?? '';
   process.env.CUA_MOCK_BIG_IMAGE = opts.bigImage ? '1' : '';
-  const backend = createCuaDriverBackend({
+  process.env.CUA_MOCK_EMPTY_AX = opts.emptyAx ? '1' : '';
+  process.env.CUA_MOCK_AX_ROLE = opts.axRole ?? 'AXTextArea';
+  process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
+  const rawBackend = createCuaDriverBackend({
     binaryPath: mockPath,
     hostBundleId: HOST_BUNDLE_ID,
     timeoutMs: 5000,
     ...(opts.compressFrame ? { compressFrame: opts.compressFrame } : {}),
     ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
+    classifyProcess: async () => opts.processKind ?? 'native',
   });
+  const backend: TestBackend = {
+    preflight: (signal) => rawBackend.preflight(signal),
+    run: (action, signal, context = DEFAULT_RUN_CONTEXT) => rawBackend.run(action, signal, context),
+    clearSession: (sessionId) => rawBackend.clearSession(sessionId),
+    dispose: () => rawBackend.dispose(),
+  };
   backends.push(backend);
   return { backend, logPath };
 }
@@ -214,7 +339,7 @@ after(async () => {
 });
 
 describe('cua-driver backend', () => {
-  it('performs the initialize → initialized → set_config{desktop} handshake and spawns with the right env/args', async () => {
+  it('performs the initialize → initialized → set_config{window} action-client handshake and spawns with the right env/args', async () => {
     const { backend, logPath } = makeBackend();
     // Any call triggers lazy spawn + handshake.
     const pf = await backend.preflight(new AbortController().signal);
@@ -225,7 +350,7 @@ describe('cua-driver backend', () => {
     // Handshake ordering.
     const trace = methodTrace(records);
     assert.deepEqual(trace.slice(0, 3), ['initialize', 'notifications/initialized', 'tools/call:set_config']);
-    assert.equal(toolCall(records, 'set_config')?.capture_scope, 'desktop');
+    assert.equal(toolCall(records, 'set_config')?.capture_scope, 'window');
 
     // Spawn contract: args + env.
     const start = records.find((r) => r.kind === 'start');
@@ -243,6 +368,33 @@ describe('cua-driver backend', () => {
     assert.deepEqual(pf, { accessibility: true, screenRecording: true });
     const records = await readRecords(logPath);
     assert.deepEqual(toolCall(records, 'check_permissions'), { prompt: false });
+  });
+
+  it('isolates desktop capture and window actions into separate children and homes', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+
+    await backend.run(
+      { type: 'screenshot' } as CuAction,
+      sig,
+      { sessionId: 's1', turnId: 't1', toolCallId: 'shot' },
+    );
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+      { sessionId: 's1', turnId: 't1', toolCallId: 'click' },
+    );
+
+    const records = await readRecords(logPath);
+    const starts = records.filter((record) => record.kind === 'start');
+    assert.equal(starts.length, 2, 'capture and action clients spawn distinct children');
+    assert.notEqual(starts[0]!.pid, starts[1]!.pid);
+    assert.notEqual(starts[0]!.home, starts[1]!.home);
+    const scopes = records
+      .filter((record) => record.kind === 'recv' && record.method === 'tools/call' && record.params?.name === 'set_config')
+      .map((record) => record.params.arguments.capture_scope)
+      .sort();
+    assert.deepEqual(scopes, ['desktop', 'window']);
   });
 
   it('screenshot maps get_desktop_state → {base64, mimeType, widthPx, heightPx}', async () => {
@@ -275,13 +427,17 @@ describe('cua-driver backend', () => {
     assert.equal(smallRes.screenshot!.mimeType, 'image/png');
   });
 
-  it('click on an app window → pid+window_id path (no cursor warp), NEVER scope:desktop', async () => {
-    const { backend, logPath } = makeBackend();
+  it('click on an app window with no AX element → same-snapshot pixel path, NEVER scope:desktop', async () => {
+    const { backend, logPath } = makeBackend({ emptyAx: true });
     const sig = new AbortController().signal;
     // scale=2; window covers screen-points (100,100)-(700,500). Device (600,400) →
     // screen (300,200) is inside → resolves. window-local device = (600-200, 400-200).
     const res = await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
     assert.equal(res.outcome.ok, true, 'click on a window succeeds');
+    if (res.outcome.ok) {
+      assert.equal(res.outcome.tier, 'coordinate-background');
+      assert.equal(res.outcome.verified, false);
+    }
 
     const records = await readRecords(logPath);
     const click = toolCall(records, 'click');
@@ -296,6 +452,108 @@ describe('cua-driver backend', () => {
     assert.equal(click!.delivery_mode, undefined, 'must NOT force foreground on click (default Background = no warp / no z-order change)');
   });
 
+  it('click prefers a fresh AX element token for an actionable control', async () => {
+    const { backend, logPath } = makeBackend({ axRole: 'AXButton' });
+    const res = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+
+    assert.equal(res.outcome.ok, true);
+    if (res.outcome.ok) {
+      assert.equal(res.outcome.tier, 'ax');
+      assert.equal(res.outcome.verified, true);
+    }
+    const records = await readRecords(logPath);
+    const trace = methodTrace(records);
+    assert.ok(
+      trace.indexOf('tools/call:get_window_state') < trace.indexOf('tools/call:click'),
+      'fresh window snapshot precedes the AX action',
+    );
+    const click = toolCall(records, 'click');
+    assert.ok(click);
+    assert.equal(click!.pid, 4242);
+    assert.equal(click!.window_id, 77);
+    assert.equal(click!.element_index, 7);
+    assert.equal(click!.element_token, 'snapshot:7');
+    assert.equal(click!.x, undefined);
+    assert.equal(click!.y, undefined);
+  });
+
+  it('click uses same-snapshot pixels to focus an editable control', async () => {
+    const { backend, logPath } = makeBackend();
+    const res = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+
+    assert.equal(res.outcome.ok, true);
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.ok(click);
+    assert.equal(click!.pid, 4242);
+    assert.equal(click!.window_id, 77);
+    assert.equal(click!.element_index, undefined);
+    assert.equal(click!.element_token, undefined);
+    assert.equal(click!.x, 400);
+    assert.equal(click!.y, 200);
+  });
+
+  it('double_click uses the dedicated driver pixel path so evidence is never omitted', async () => {
+    const { backend, logPath } = makeBackend();
+    const res = await backend.run(
+      { type: 'double_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      new AbortController().signal,
+    );
+
+    assert.equal(res.outcome.ok, true);
+    const records = await readRecords(logPath);
+    const call = toolCall(records, 'double_click');
+    assert.ok(call);
+    assert.equal(call!.pid, 4242);
+    assert.equal(call!.window_id, 77);
+    assert.equal(call!.element_index, undefined);
+    assert.equal(call!.element_token, undefined);
+    assert.equal(call!.x, 400);
+    assert.equal(call!.y, 200);
+    assert.equal(call!.count, undefined);
+    assert.equal(toolCalls(records, 'click').length, 0);
+    assert.deepEqual(res.outcome, {
+      ok: true,
+      tier: 'coordinate-background',
+      verified: false,
+      evidence: { path: 'cgevent', effect: 'unverifiable' },
+    });
+  });
+
+  it('serializes fresh snapshot and action across the shared action client', async () => {
+    const { backend, logPath } = makeBackend({ snapshotDelayMs: 120 });
+    const signal = new AbortController().signal;
+    const first = backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+      { sessionId: 's1', turnId: 't1', toolCallId: 'first' },
+    );
+    await delay(20);
+    const second = backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+      { sessionId: 's2', turnId: 't1', toolCallId: 'second' },
+    );
+    await Promise.all([first, second]);
+
+    const trace = methodTrace(await readRecords(logPath));
+    const snapshots = trace
+      .map((method, index) => ({ method, index }))
+      .filter(({ method }) => method === 'tools/call:get_window_state');
+    const clicks = trace
+      .map((method, index) => ({ method, index }))
+      .filter(({ method }) => method === 'tools/call:click');
+    assert.equal(snapshots.length, 2);
+    assert.equal(clicks.length, 2);
+    assert.ok(snapshots[0]!.index < clicks[0]!.index);
+    assert.ok(clicks[0]!.index < snapshots[1]!.index, `trace=${trace.join(' -> ')}`);
+  });
+
   it('click on empty desktop (no window) fails closed — never warps', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
@@ -307,7 +565,7 @@ describe('cua-driver backend', () => {
     assert.ok(!trace.includes('tools/call:click'), 'no click sent when no window (would warp)');
   });
 
-  it('after a screenshot, coordinates use the true device/logical ratio (screenshot_width/logical_width), not scale_factor', async () => {
+  it('after a desktop screenshot, window input uses the fresh window snapshot pixel space', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
     // A screenshot sets lastFrameWidthPx=1440; get_screen_size.width=1512. So the
@@ -323,12 +581,10 @@ describe('cua-driver backend', () => {
     assert.ok(click);
     assert.equal(click!.pid, 4242);
     assert.equal(click!.window_id, 77, 'device (600,400) ÷ 0.952 = screen (630,420) ∈ win 77');
-    const scale = 1440 / 1512;
-    const expectedX = 600 - 100 * scale; // window-local device px = device − origin*scale
-    const expectedY = 400 - 100 * scale;
-    assert.ok(Math.abs(click!.x - expectedX) < 1e-6, `localX ${click!.x} ≈ ${expectedX} (primary scale), not the fallback`);
-    assert.ok(Math.abs(click!.y - expectedY) < 1e-6, `localY ${click!.y} ≈ ${expectedY}`);
-    assert.notEqual(click!.x, 400, 'must NOT be the scale_factor=2 fallback value (400)');
+    // Declared (600,400) → logical screen (630,420) using the desktop frame
+    // width. Window 77 bounds=(100,100,600,400); its fresh snapshot is 1200x800.
+    assert.equal(click!.x, 1060);
+    assert.equal(click!.y, 640);
   });
 
   it('resolveWindowAt picks the highest z-order eligible window; excludes layer!=0 and off-screen', async () => {
@@ -344,8 +600,10 @@ describe('cua-driver backend', () => {
     assert.ok(click);
     assert.equal(click!.window_id, 92, 'highest-z eligible window wins the tiebreak (not 91)');
     assert.equal(click!.pid, 5002, 'winner is 92, and the excluded 93 (layer!=0) / 94 (off-screen) were NOT chosen');
-    assert.equal(click!.x, 2000 - 950 * 2, 'window-local device px = device − origin.x*scale');
-    assert.equal(click!.y, 400 - 150 * 2);
+    // Logical target (1000,200) inside win 92 bounds=(950,150,300,200),
+    // mapped into the fresh 1200x800 window screenshot.
+    assert.equal(click!.x, 200);
+    assert.equal(click!.y, 200);
   });
 
   it('scroll on an app window → pid+window_id (no warp); empty desktop fails closed', async () => {
@@ -420,6 +678,43 @@ describe('cua-driver backend', () => {
     assert.ok(!trace.includes('tools/call:drag'), 'no drag sent when endpoints span windows');
   });
 
+  it('zoom within one window → window-local crop and JPEG screenshot result', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    const res = await backend.run(
+      { type: 'zoom', region: { x1: 600, y1: 400, x2: 800, y2: 600 } } as CuAction,
+      sig,
+    );
+
+    assert.deepEqual(res.outcome, { ok: true, tier: 'coordinate-background' });
+    assert.deepEqual(res.screenshot, {
+      base64: 'SlBFRw==',
+      mimeType: 'image/jpeg',
+      widthPx: 320,
+      heightPx: 180,
+    });
+    const zoom = toolCall(await readRecords(logPath), 'zoom');
+    assert.ok(zoom);
+    assert.equal(zoom!.pid, 4242);
+    assert.equal(zoom!.window_id, 77);
+    assert.equal(zoom!.x1, 400);
+    assert.equal(zoom!.y1, 200);
+    assert.equal(zoom!.x2, 600);
+    assert.equal(zoom!.y2, 400);
+  });
+
+  it('zoom spanning windows fails closed and never calls cua-driver zoom', async () => {
+    const { backend, logPath } = makeBackend();
+    const res = await backend.run(
+      { type: 'zoom', region: { x1: 600, y1: 400, x2: 400, y2: 1400 } } as CuAction,
+      new AbortController().signal,
+    );
+
+    assert.equal(res.outcome.ok, false);
+    if (!res.outcome.ok) assert.equal(res.outcome.error, 'unsupported_action');
+    assert.ok(!methodTrace(await readRecords(logPath)).includes('tools/call:zoom'));
+  });
+
   it('mouse_move succeeds without touching cua-driver (visual agent-cursor only)', async () => {
     const { backend, logPath } = makeBackend();
     const res = await backend.run({ type: 'mouse_move', coordinate: { x: 100, y: 100 } } as CuAction, new AbortController().signal);
@@ -449,7 +744,129 @@ describe('cua-driver backend', () => {
     assert.ok(!trace.includes('tools/call:press_key'), 'press_key must never be sent without a target');
   });
 
-  it('type after a click → type_text to the clicked window (pid+window_id, background, never foreground)', async () => {
+  it('keyboard target is isolated by session and turn', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+      { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'click-a' },
+    );
+
+    const otherSession = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { sessionId: 'session-b', turnId: 'turn-1', toolCallId: 'type-b' },
+    );
+    assert.equal(otherSession.outcome.ok, false);
+    const otherTurn = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { sessionId: 'session-a', turnId: 'turn-2', toolCallId: 'type-a2' },
+    );
+    assert.equal(otherTurn.outcome.ok, false);
+
+    const trace = methodTrace(await readRecords(logPath));
+    assert.ok(!trace.includes('tools/call:type_text'));
+  });
+
+  it('clearSession removes keyboard ownership immediately', async () => {
+    const { backend, logPath } = makeBackend();
+    const signal = new AbortController().signal;
+    const context = { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'click' };
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      signal,
+      context,
+    );
+    backend.clearSession('session-a');
+    const typed = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      signal,
+      { ...context, toolCallId: 'type' },
+    );
+
+    assert.equal(typed.outcome.ok, false);
+    assert.ok(!methodTrace(await readRecords(logPath)).includes('tools/call:type_text'));
+  });
+
+  it('failed click does not establish a keyboard target', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    const context = { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'click-fail' };
+    const click = await backend.run(
+      { type: 'left_click', coordinate: { x: 5, y: 5 } } as CuAction,
+      sig,
+      context,
+    );
+    assert.equal(click.outcome.ok, false);
+    const typed = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { ...context, toolCallId: 'type-after-fail' },
+    );
+    assert.equal(typed.outcome.ok, false);
+    assert.ok(!methodTrace(await readRecords(logPath)).includes('tools/call:type_text'));
+  });
+
+  it('a failed left-click attempt revokes an existing keyboard target', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    const context = { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'click-ok' };
+    const first = await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+      context,
+    );
+    assert.equal(first.outcome.ok, true);
+
+    const failed = await backend.run(
+      { type: 'left_click', coordinate: { x: 5, y: 5 } } as CuAction,
+      sig,
+      { ...context, toolCallId: 'click-fail' },
+    );
+    assert.equal(failed.outcome.ok, false);
+
+    const typed = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { ...context, toolCallId: 'type-after-fail' },
+    );
+    assert.equal(typed.outcome.ok, false);
+    assert.equal(toolCalls(await readRecords(logPath), 'type_text').length, 0);
+  });
+
+  it('scroll and drag do not establish a keyboard target', async () => {
+    const { backend, logPath } = makeBackend();
+    const sig = new AbortController().signal;
+    const context = { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'pointer' };
+    await backend.run(
+      { type: 'scroll', coordinate: { x: 600, y: 400 }, scrollDirection: 'down', scrollAmount: 2 } as CuAction,
+      sig,
+      context,
+    );
+    const afterScroll = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { ...context, toolCallId: 'type-after-scroll' },
+    );
+    assert.equal(afterScroll.outcome.ok, false);
+
+    await backend.run(
+      { type: 'left_click_drag', startCoordinate: { x: 600, y: 400 }, coordinate: { x: 800, y: 600 } } as CuAction,
+      sig,
+      { ...context, toolCallId: 'drag' },
+    );
+    const afterDrag = await backend.run(
+      { type: 'type', text: 'must-not-land' } as CuAction,
+      sig,
+      { ...context, toolCallId: 'type-after-drag' },
+    );
+    assert.equal(afterDrag.outcome.ok, false);
+    assert.ok(!methodTrace(await readRecords(logPath)).includes('tools/call:type_text'));
+  });
+
+  it('type after an editable native click uses AXValue and verifies a fresh snapshot', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
     // Establish the target: click win 77 (device 600,400 → screen 300,200 ∈ win 77).
@@ -460,98 +877,173 @@ describe('cua-driver backend', () => {
     assert.equal(typed.outcome.ok, true, 'type succeeds once a target is established');
 
     const records = await readRecords(logPath);
-    const call = toolCall(records, 'type_text');
-    assert.ok(call, 'type_text sent to the agent-clicked window');
+    const call = toolCall(records, 'set_value');
+    assert.ok(call, 'set_value sent to the agent-clicked native field');
     assert.equal(call!.pid, 4242);
     assert.equal(call!.window_id, 77);
-    assert.equal(call!.text, 'hello world');
-    assert.equal(call!.delivery_mode, undefined, 'must NOT force foreground — default background = no focus steal');
+    assert.equal(call!.element_index, 7);
+    assert.equal(call!.element_token, 'snapshot:7');
+    assert.equal(call!.value, 'hello world');
+    assert.equal(toolCalls(records, 'type_text').length, 0);
+    assert.equal(toolCalls(records, 'press_key').length, 0);
     // Red line: the target came from the click, never from a frontmost lookup.
     assert.ok(!methodTrace(records).includes('tools/call:list_apps'), 'must never resolve a frontmost pid to type into');
   });
 
-  it('key chord after a click → press_key with parsed key + modifiers (cmd+a)', async () => {
+  it('parallel click then type waits for the new click target instead of using the old window', async () => {
+    const { backend, logPath } = makeBackend({ delayTool: 'click', delayMs: 120 });
+    const sig = new AbortController().signal;
+    const context = { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'old-click' };
+    await backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      sig,
+      context,
+    );
+
+    const clickNew = backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 1400 } } as CuAction,
+      sig,
+      { ...context, toolCallId: 'new-click' },
+    );
+    await waitForRecord(
+      logPath,
+      (record) => record.kind === 'recv'
+        && record.params?.name === 'click'
+        && record.params?.arguments?.window_id === 88,
+    );
+    const typeNew = backend.run(
+      { type: 'type', text: 'new-window' } as CuAction,
+      sig,
+      { ...context, toolCallId: 'type-new' },
+    );
+    const [clicked, typed] = await Promise.all([clickNew, typeNew]);
+    assert.equal(clicked.outcome.ok, true);
+    assert.equal(typed.outcome.ok, true);
+
+    const setCalls = toolCalls(await readRecords(logPath), 'set_value');
+    assert.equal(setCalls.length, 1);
+    assert.equal(setCalls[0]!.window_id, 88);
+  });
+
+  it('type with no AX-addressable editable field fails before any keyboard dispatch', async () => {
+    const { backend, logPath } = makeBackend({ emptyAx: true });
+    const sig = new AbortController().signal;
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
+
+    const typed = await backend.run({ type: 'type', text: 'pixel fallback' } as CuAction, sig);
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) {
+      assert.equal(typed.outcome.error, 'unsupported_action');
+    }
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'type_text').length, 0);
+    assert.equal(toolCalls(records, 'set_value').length, 0);
+    assert.equal(toolCalls(records, 'press_key').length, 0);
+  });
+
+  it('key chords fail closed before any key event is posted', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
     await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
 
     const res = await backend.run({ type: 'key', text: 'cmd+a' } as CuAction, sig);
-    assert.equal(res.outcome.ok, true);
-    const call = toolCall(await readRecords(logPath), 'press_key');
-    assert.ok(call, 'press_key sent to the clicked window');
-    assert.equal(call!.pid, 4242);
-    assert.equal(call!.window_id, 77);
-    assert.equal(call!.key, 'a');
-    assert.deepEqual(call!.modifiers, ['cmd']);
-    assert.equal(call!.delivery_mode, undefined, 'background default, never foreground');
+    assert.equal(res.outcome.ok, false);
+    if (!res.outcome.ok) {
+      assert.equal(res.outcome.error, 'unsupported_action');
+    }
+    assert.equal(toolCalls(await readRecords(logPath), 'press_key').length, 0);
   });
 
-  it('plain named key after a click → press_key key:"return" with no modifier array', async () => {
+  it('plain named keys also fail before driver dispatch', async () => {
     const { backend, logPath } = makeBackend();
     const sig = new AbortController().signal;
     await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
 
     const res = await backend.run({ type: 'key', text: 'Return' } as CuAction, sig);
-    assert.equal(res.outcome.ok, true);
-    const call = toolCall(await readRecords(logPath), 'press_key');
-    assert.ok(call);
-    assert.equal(call!.key, 'return');
-    assert.equal(call!.modifiers, undefined, 'omit modifiers when the chord carries none');
+    assert.equal(res.outcome.ok, false);
+    if (!res.outcome.ok) assert.equal(res.outcome.error, 'unsupported_action');
+    assert.equal(toolCalls(await readRecords(logPath), 'press_key').length, 0);
   });
 
-  it('scroll also establishes the keyboard target (any agent-aimed window counts)', async () => {
-    const { backend, logPath } = makeBackend();
+  it('Electron targets refuse type before AXValue or key-event dispatch', async () => {
+    const { backend, logPath } = makeBackend({ processKind: 'electron' });
     const sig = new AbortController().signal;
-    await backend.run({ type: 'scroll', coordinate: { x: 600, y: 400 }, scrollDirection: 'down', scrollAmount: 2 } as CuAction, sig);
+    await backend.run({ type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction, sig);
 
-    const res = await backend.run({ type: 'type', text: 'hi' } as CuAction, sig);
-    assert.equal(res.outcome.ok, true, 'type works after scroll established the target');
-    const call = toolCall(await readRecords(logPath), 'type_text');
-    assert.ok(call);
-    assert.equal(call!.pid, 4242);
-    assert.equal(call!.window_id, 77);
+    const typed = await backend.run({ type: 'type', text: 'must-not-land' } as CuAction, sig);
+    assert.equal(typed.outcome.ok, false);
+    if (!typed.outcome.ok) assert.equal(typed.outcome.error, 'unsupported_action');
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'set_value').length, 0);
+    assert.equal(toolCalls(records, 'type_text').length, 0);
+    assert.equal(toolCalls(records, 'press_key').length, 0);
   });
 
-  it('parseKeyChord maps Anthropic key chords to cua-driver key + mac modifiers', () => {
-    assert.deepEqual(parseKeyChord('Return'), { key: 'return', modifiers: [] });
-    assert.deepEqual(parseKeyChord('cmd+a'), { key: 'a', modifiers: ['cmd'] });
-    assert.deepEqual(parseKeyChord('ctrl+shift+t'), { key: 't', modifiers: ['ctrl', 'shift'] });
-    assert.deepEqual(parseKeyChord('command+Shift+3'), { key: '3', modifiers: ['cmd', 'shift'] });
-    assert.deepEqual(parseKeyChord('alt+Tab'), { key: 'tab', modifiers: ['option'] });
-    assert.deepEqual(parseKeyChord('super+l'), { key: 'l', modifiers: ['cmd'] });
-    assert.deepEqual(parseKeyChord('esc'), { key: 'escape', modifiers: [] });
-    assert.deepEqual(parseKeyChord('Page_Down'), { key: 'pagedown', modifiers: [] });
-    assert.deepEqual(parseKeyChord('+'), { key: '+', modifiers: [] }); // lone plus key
-  });
-
-  it('abort mid-call kills the child and rejects the promise', async () => {
-    const { backend, logPath } = makeBackend({ hangTool: 'get_desktop_state' });
+  it('abort mid-call rejects and the next call restarts on a fresh child', async () => {
+    const { backend, logPath } = makeBackend({ hangOnceTool: 'get_desktop_state' });
     const controller = new AbortController();
     const p = backend.run({ type: 'screenshot' } as CuAction, controller.signal);
-    // Let the handshake finish and the (hanging) capture reach the mock.
-    await delay(150);
-
-    const records = await readRecords(logPath);
-    const start = records.find((r) => r.kind === 'start');
-    assert.ok(start, 'mock started');
-    const pid: number = start!.pid;
-    // Child alive before abort.
-    assert.doesNotThrow(() => process.kill(pid, 0));
+    await waitForRecord(
+      logPath,
+      (record) => record.kind === 'blocked' && record.tool === 'get_desktop_state',
+    );
 
     controller.abort();
     await assert.rejects(p, /abort/i);
 
-    // Child SIGKILLed → process.kill(pid,0) eventually throws ESRCH.
-    let dead = false;
-    for (let i = 0; i < 100 && !dead; i++) {
-      try {
-        process.kill(pid, 0);
-        await delay(20);
-      } catch {
-        dead = true;
-      }
-    }
-    assert.ok(dead, 'cua-driver child was killed on abort');
+    const retry = await backend.run(
+      { type: 'screenshot' } as CuAction,
+      new AbortController().signal,
+    );
+    assert.equal(retry.outcome.ok, true);
+    const starts = (await readRecords(logPath)).filter((record) => record.kind === 'start');
+    assert.equal(starts.length, 2);
+    assert.notEqual(starts[0]!.pid, starts[1]!.pid);
+  });
+
+  it('aborting an in-flight action does not reject another session queued behind it', async () => {
+    const { backend, logPath } = makeBackend({ hangOnceTool: 'click' });
+    const firstController = new AbortController();
+    const first = backend.run(
+      { type: 'left_click', coordinate: { x: 600, y: 400 } } as CuAction,
+      firstController.signal,
+      { sessionId: 'session-a', turnId: 'turn-1', toolCallId: 'first' },
+    );
+    await waitForRecord(logPath, (record) => record.kind === 'blocked' && record.tool === 'click');
+
+    const second = backend.run(
+      { type: 'left_click', coordinate: { x: 2000, y: 400 } } as CuAction,
+      new AbortController().signal,
+      { sessionId: 'session-b', turnId: 'turn-1', toolCallId: 'second' },
+    );
+    firstController.abort();
+    await assert.rejects(first, /abort/i);
+    const secondResult = await second;
+    assert.equal(secondResult.outcome.ok, true);
+
+    const records = await readRecords(logPath);
+    assert.equal(records.filter((record) => record.kind === 'start').length, 2);
+    const clicks = toolCalls(records, 'click');
+    assert.equal(clicks.at(-1)?.pid, 5002);
+    assert.equal(clicks.at(-1)?.window_id, 92);
+  });
+
+  it('dispose during lazy startup prevents a late child spawn and all future calls', async () => {
+    const { backend, logPath } = makeBackend();
+    const pending = backend.preflight(new AbortController().signal);
+    await Promise.resolve();
+    await Promise.resolve();
+    backend.dispose();
+    await assert.rejects(pending, /disposed/i);
+    await assert.rejects(
+      backend.preflight(new AbortController().signal),
+      /disposed/i,
+    );
+    await delay(50);
+    assert.equal(
+      (await readRecords(logPath)).filter((record) => record.kind === 'start').length,
+      0,
+    );
   });
 
   it('a hung handshake times out, kills the child, and fails closed (no deadlock)', async () => {

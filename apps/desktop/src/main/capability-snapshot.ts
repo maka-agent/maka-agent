@@ -42,24 +42,13 @@ export function buildCapabilitySnapshotCollection(input: {
   permissions: PermissionSnapshot;
   botStatuses: Record<BotProvider, BotStatus>;
   officeCliProbe?: OfficeCliProbe;
+  computerUseBackendId?: 'cua-driver' | 'none';
   now?: number;
 }): CapabilitySnapshotCollection {
   const now = input.now ?? Date.now();
   const permissions = input.permissions.permissions;
   const capabilities: CapabilitySnapshot[] = [
-    staticCapability({
-      id: 'computer_use',
-      label: 'Computer Use',
-      now,
-      feature: { state: 'not_available', source: 'scaffold', reason: '本机控制需要独立权限确认与审计；当前不可执行' },
-      requiredPermissions: [
-        { id: 'accessibility', required: true, status: permissions.accessibility.status },
-        { id: 'screen_recording', required: true, status: permissions.screen_recording.status },
-      ],
-      actionApproval: { state: 'required_per_action', source: 'capability_policy' },
-      memoryAcceptance: { state: 'not_applicable', source: 'not_applicable' },
-      runtimeProbe: { state: 'not_available', source: 'not_applicable' },
-    }),
+    computerUseCapability(input.computerUseBackendId ?? 'none', permissions, now),
     staticCapability({
       id: 'activity_recorder',
       label: 'Activity Recorder',
@@ -143,6 +132,35 @@ export function buildCapabilitySnapshotCollection(input: {
   ];
 
   return { checkedAt: now, capabilities };
+}
+
+function computerUseCapability(
+  backendId: 'cua-driver' | 'none',
+  permissions: PermissionSnapshot['permissions'],
+  now: number,
+): CapabilitySnapshot {
+  const available = backendId === 'cua-driver';
+  return staticCapability({
+    id: 'computer_use',
+    label: 'Computer Use',
+    now,
+    feature: {
+      state: available ? 'enabled' : 'not_available',
+      source: 'runtime',
+      reason: available
+        ? '本机控制需要独立权限确认与审计；cua-driver 已接入，可在按次授权后后台操作本机应用。'
+        : '本机控制需要独立权限确认与审计；当前未找到可用的 cua-driver 后端。',
+    },
+    requiredPermissions: [
+      { id: 'accessibility', required: true, status: permissions.accessibility.status },
+      { id: 'screen_recording', required: true, status: permissions.screen_recording.status },
+    ],
+    actionApproval: { state: 'required_per_action', source: 'capability_policy' },
+    memoryAcceptance: { state: 'not_applicable', source: 'not_applicable' },
+    runtimeProbe: available
+      ? { state: 'healthy', source: 'runtime_probe', lastCheckedAt: now, reason: 'cua-driver 后端已就绪' }
+      : { state: 'not_available', source: 'runtime_probe', lastCheckedAt: now, reason: 'cua-driver 后端不可用' },
+  });
 }
 
 function officeDocumentsCapability(probe: OfficeCliProbe | undefined, now: number): CapabilitySnapshot {

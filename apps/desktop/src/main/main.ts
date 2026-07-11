@@ -1501,6 +1501,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUseBackendId: computerUse.backendId,
       now: permissions.checkedAt,
     });
   });
@@ -1514,6 +1515,7 @@ function registerIpc(): void {
       permissions,
       botStatuses: botRegistry.allStatuses(),
       officeCliProbe,
+      computerUseBackendId: computerUse.backendId,
       now,
     });
     const connections = await connectionStore.list();
@@ -1728,6 +1730,7 @@ async function streamEvents(
         emitSessionsChanged('turn-status-change', sessionId);
         // Turn ended (complete/abort/error) → remove this session's agent cursor.
         computerUseOverlay.clearForSession(sessionId);
+        computerUse.backend?.clearSession?.(sessionId);
       }
     }
     if (!finalAppendBroadcasted) {
@@ -1751,6 +1754,7 @@ async function streamEvents(
     emitSessionsChanged('status-change', sessionId);
     emitSessionsChanged('turn-status-change', sessionId);
     computerUseOverlay.clearForSession(sessionId);
+    computerUse.backend?.clearSession?.(sessionId);
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
@@ -2077,6 +2081,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         }
       }
       computerUseOverlay.clearForSession(session.id);
+      computerUse.backend?.clearSession?.(session.id);
       const toolsStr = [...toolCounts.entries()].map(([n, c]) => `${n}×${c}`).join(', ') || 'none';
       summary.push(`${i + 1}. computer×${cuActions} | all: ${toolsStr}`);
     } catch (error) {

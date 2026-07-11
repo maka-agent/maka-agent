@@ -62,4 +62,49 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
       'scripts/check-dead-css-baseline.json must exist',
     );
   });
+
+  it('pins cua-driver archive and extracted-binary checksums separately', () => {
+    const manifestRaw = readFileSync(join(REPO_ROOT, 'apps', 'desktop', 'bundled-tools.json'), 'utf8');
+    const manifest = JSON.parse(manifestRaw) as {
+      cuaDriver?: {
+        archiveSha256?: string;
+        binarySha256?: string;
+        sha256?: string;
+      };
+    };
+    const prepare = readFileSync(join(REPO_ROOT, 'scripts', 'prepare-cua-driver.mjs'), 'utf8');
+    const check = readFileSync(join(REPO_ROOT, 'scripts', 'check-cua-driver-bundle.mjs'), 'utf8');
+    const cua = manifest.cuaDriver;
+    const prepareEntry = prepare.match(
+      /export async function prepareCuaDriver[\s\S]*?const url = cuaDriverDownloadUrl/,
+    );
+
+    assert.ok(cua, 'bundled-tools.json must define cuaDriver');
+    assert.ok(prepareEntry, 'prepareCuaDriver entrypoint must exist');
+    assert.match(cua.archiveSha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.match(cua.binarySha256 ?? '', /^[a-f0-9]{64}$/);
+    assert.notEqual(cua.archiveSha256, cua.binarySha256, 'archive and extracted binary hashes must be independent');
+    assert.equal(cua.sha256, undefined, 'the ambiguous legacy cuaDriver.sha256 field must stay removed');
+
+    assert.match(prepareEntry[0], /assertPinnedCuaDriverChecksums\(cua\)/);
+    assert.ok(
+      prepareEntry[0].indexOf('assertPinnedCuaDriverChecksums(cua)')
+        < prepareEntry[0].indexOf('alreadyPrepared()'),
+      'prepare must validate both manifest pins before accepting an up-to-date marker',
+    );
+    assert.match(prepare, /actualArchiveSha256/);
+    assert.match(prepare, /cua\.archiveSha256/);
+    assert.match(prepare, /actualBinarySha256/);
+    assert.match(prepare, /cua\.binarySha256/);
+
+    assert.match(check, /assertPinnedCuaDriverChecksums\(cua\)/);
+    assert.match(check, /cua\.archiveSha256/);
+    assert.match(check, /actualBinarySha256/);
+    assert.match(check, /cua\.binarySha256/);
+    assert.doesNotMatch(
+      check,
+      /actual(?:Sha256|BinarySha256)\s*!==\s*cua\.archiveSha256/,
+      'the extracted Mach-O must never be compared with the release archive checksum',
+    );
+  });
 });

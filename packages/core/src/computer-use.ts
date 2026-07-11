@@ -161,12 +161,31 @@ export const COMPUTER_USE_DISPATCH_TIERS = [
 ] as const;
 export type ComputerUseDispatchTier = typeof COMPUTER_USE_DISPATCH_TIERS[number];
 
+export const COMPUTER_USE_EFFECTS = [
+  'confirmed',
+  'unverifiable',
+  'suspected_noop',
+] as const;
+export type ComputerUseEffect = typeof COMPUTER_USE_EFFECTS[number];
+
+export interface ComputerUseEscalationEvidence {
+  recommended: string;
+  reason?: string;
+}
+
+/** Raw dispatch evidence reported by the host driver. */
+export interface ComputerUseDispatchEvidence {
+  path?: string;
+  effect?: ComputerUseEffect;
+  escalation?: ComputerUseEscalationEvidence;
+}
+
 /**
  * Runner outcome. Success carries the tier that ran and whether a post-action
- * verification observed the intended state change (`verified:false` on a
- * mutating action means the dispatch silently did nothing → the runner MUST
- * surface it as `capture_failed`/a typed error, not report success). Failure
- * carries the closed S17 error and the count of completed sub-steps (S18).
+ * verification observed the intended state change. An unverifiable driver
+ * result remains a transparent `verified:false` success; `suspected_noop` is
+ * normalized to `capture_failed`. Failure carries the closed S17 error and the
+ * count of completed sub-steps (S18).
  */
 export type ComputerUseActionOutcome =
   | {
@@ -174,6 +193,7 @@ export type ComputerUseActionOutcome =
       tier: ComputerUseDispatchTier;
       /** Post-action verification result; undefined for non-mutating actions (screenshot/wait). */
       verified?: boolean;
+      evidence?: ComputerUseDispatchEvidence;
       frame?: ComputerUseScreenFrame;
       completedSubSteps?: number;
     }
@@ -181,5 +201,6 @@ export type ComputerUseActionOutcome =
       ok: false;
       error: ComputerUseErrorCode;
       message: string;
+      evidence?: ComputerUseDispatchEvidence;
       completedSubSteps?: number;
     };

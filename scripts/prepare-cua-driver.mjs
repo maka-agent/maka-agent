@@ -13,9 +13,9 @@
 // TCC grants (see EMBEDDING.md / cua-driver-backend.ts:5-9) — no signing needed
 // in dev. Production re-signs it during packaging (see signing notes).
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -28,6 +28,7 @@ const repoRoot = resolve(scriptDir, '..');
 const manifestPath = join(repoRoot, 'apps', 'desktop', 'bundled-tools.json');
 const binDir = join(repoRoot, 'apps', 'desktop', 'resources', 'bin');
 const DEFAULT_FETCH_TIMEOUT_MS = 300_000;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 
 const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 const cua = manifest.cuaDriver;
@@ -45,12 +46,44 @@ export function sha256(data) {
   return createHash('sha256').update(Buffer.from(data)).digest('hex');
 }
 
+export function assertPinnedCuaDriverChecksums(entry) {
+  for (const field of ['archiveSha256', 'binarySha256']) {
+    if (!SHA256_PATTERN.test(entry?.[field] ?? '')) {
+      throw new Error(
+        `bundled-tools.json cuaDriver.${field} must be a pinned lowercase 64-character SHA-256 digest ` +
+        `(received ${JSON.stringify(entry?.[field])}).`,
+      );
+    }
+  }
+  if (entry.archiveSha256 === entry.binarySha256) {
+    throw new Error('bundled-tools.json must pin the cua-driver archive and extracted binary separately.');
+  }
+  if (Object.prototype.hasOwnProperty.call(entry, 'sha256')) {
+    throw new Error('bundled-tools.json cuaDriver.sha256 is ambiguous; use archiveSha256 and binarySha256.');
+  }
+}
+
 function destinationPath() {
   return join(binDir, cua.binaryName);
 }
 
 function markerPath() {
   return join(binDir, '.cua-driver.json');
+}
+
+function expectedMarker() {
+  return {
+    version: cua.version,
+    archiveSha256: cua.archiveSha256,
+    binarySha256: cua.binarySha256,
+  };
+}
+
+function markerMatches(marker) {
+  const expected = expectedMarker();
+  return marker?.version === expected.version
+    && marker?.archiveSha256 === expected.archiveSha256
+    && marker?.binarySha256 === expected.binarySha256;
 }
 
 function readPositiveIntEnv(name, fallback) {
@@ -94,11 +127,11 @@ async function alreadyPrepared() {
   try {
     await access(destinationPath(), constants.X_OK);
     const marker = JSON.parse(await readFile(markerPath(), 'utf8'));
-    if (marker.version !== cua.version || marker.sha256 !== cua.sha256) return false;
+    if (!markerMatches(marker)) return false;
     // Re-hash the actual binary so a corrupted/swapped file with an intact marker
     // is not silently trusted — on drift, fall through to re-download/re-verify.
-    const actual = sha256(await readFile(destinationPath()));
-    return actual === cua.sha256;
+    const actualBinarySha256 = sha256(await readFile(destinationPath()));
+    return actualBinarySha256 === cua.binarySha256;
   } catch {
     return false;
   }
@@ -108,21 +141,16 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
   if (!cuaDriverSupported(targetPlatform)) {
     return { skipped: true, reason: `cua-driver is macOS-only; skipping ${targetPlatform}` };
   }
+  assertPinnedCuaDriverChecksums(cua);
   if (await alreadyPrepared()) {
     return { skipped: true, reason: 'up-to-date', destination: destinationPath(), version: cua.version };
   }
 
   const url = cuaDriverDownloadUrl(cua.tag, cua.asset);
   const data = await fetchBytes(url);
-  const actual = sha256(data);
-  if (!cua.sha256 || cua.sha256.startsWith('<')) {
-    throw new Error(
-      `bundled-tools.json cuaDriver.sha256 is not pinned. Downloaded ${cua.asset} has sha256 ${actual}. ` +
-      `Verify it against the release page, then set cuaDriver.sha256 to this value.`,
-    );
-  }
-  if (actual !== cua.sha256) {
-    throw new Error(`Checksum mismatch for ${cua.asset}: expected ${cua.sha256}, got ${actual}`);
+  const actualArchiveSha256 = sha256(data);
+  if (actualArchiveSha256 !== cua.archiveSha256) {
+    throw new Error(`Checksum mismatch for ${cua.asset}: expected ${cua.archiveSha256}, got ${actualArchiveSha256}`);
   }
 
   // Extract the tarball to a temp dir, then copy out the single `cua-driver`
@@ -138,19 +166,37 @@ export async function prepareCuaDriver(targetPlatform = process.platform) {
       throw new Error(`Extracted archive ${cua.asset} did not contain a '${cua.binaryName}' binary`);
     }
 
+    const binaryBytes = await readFile(found[0]);
+    const actualBinarySha256 = sha256(binaryBytes);
+    if (actualBinarySha256 !== cua.binarySha256) {
+      throw new Error(
+        `Checksum mismatch for extracted ${cua.binaryName}: expected ${cua.binarySha256}, got ${actualBinarySha256}`,
+      );
+    }
+
     await mkdir(binDir, { recursive: true });
     const destination = destinationPath();
-    await rm(destination, { force: true });
-    await writeFile(destination, await readFile(found[0]));
-    await chmod(destination, 0o755);
-    // Best-effort: clear the download quarantine xattr so the dev Electron process
-    // can spawn it without a Gatekeeper prompt. Non-fatal if xattr is absent.
+    const marker = markerPath();
+    const installId = randomUUID();
+    const stagedBinary = `${destination}.${installId}.tmp`;
+    const stagedMarker = `${marker}.${installId}.tmp`;
     try {
-      await execFileAsync('xattr', ['-d', 'com.apple.quarantine', destination]);
-    } catch {
-      /* no quarantine attr — fine */
+      await writeFile(stagedBinary, binaryBytes);
+      await chmod(stagedBinary, 0o755);
+      // Best-effort: clear the download quarantine xattr so the dev Electron process
+      // can spawn it without a Gatekeeper prompt. Non-fatal if xattr is absent.
+      try {
+        await execFileAsync('xattr', ['-d', 'com.apple.quarantine', stagedBinary]);
+      } catch {
+        /* no quarantine attr — fine */
+      }
+      await writeFile(stagedMarker, `${JSON.stringify(expectedMarker(), null, 2)}\n`);
+      await rename(stagedBinary, destination);
+      await rename(stagedMarker, marker);
+    } finally {
+      await rm(stagedBinary, { force: true });
+      await rm(stagedMarker, { force: true });
     }
-    await writeFile(markerPath(), `${JSON.stringify({ version: cua.version, sha256: cua.sha256 }, null, 2)}\n`);
 
     return { skipped: false, destination, version: cua.version };
   } finally {

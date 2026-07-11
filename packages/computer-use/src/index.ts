@@ -8,6 +8,20 @@ export type { CuBackendId, SelectedComputerUseBackend } from './select-backend.j
 
 export { createCuaDriverBackend } from './cua-driver-backend.js';
 export type { CuaDriverBackendOptions } from './cua-driver-backend.js';
+export { normalizeCuaDriverOutcome } from './cua-driver-result.js';
+export type { JsonRpcToolResult } from './cua-driver-result.js';
+export {
+  editableElementAtScreenPoint,
+  elementAtScreenPoint,
+  resolveWindowAtDeclaredPoint,
+  windowPointFromSnapshot,
+} from './cua-driver-snapshot.js';
+export type {
+  CuaResolvedWindow,
+  CuaSnapshotElement,
+  CuaWindowBounds,
+  CuaWindowRecord,
+} from './cua-driver-snapshot.js';
 
 export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-path.js';
 

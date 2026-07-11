@@ -5,6 +5,7 @@ import {
   adaptToCuAction,
   buildComputerUseTools,
   type CuDispatchBackend,
+  type CuRunContext,
   type CuRunResult,
 } from '../computer-use-tools.js';
 import type { MakaToolContext } from '../tool-runtime.js';
@@ -25,16 +26,23 @@ function fakeBackend(over: Partial<{
   accessibility: boolean;
   screenRecording: boolean;
   result: CuRunResult;
-}> = {}): CuDispatchBackend & { last?: CuAction } {
-  const b: CuDispatchBackend & { last?: CuAction } = {
+}> = {}): CuDispatchBackend & {
+  last?: CuAction;
+  lastContext?: CuRunContext;
+} {
+  const b: CuDispatchBackend & {
+    last?: CuAction;
+    lastContext?: CuRunContext;
+  } = {
     async preflight() {
       return {
         accessibility: over.accessibility ?? true,
         screenRecording: over.screenRecording ?? true,
       };
     },
-    async run(action) {
+    async run(action, _signal, context) {
       b.last = action;
+      b.lastContext = context;
       return over.result ?? { outcome: { ok: true, tier: 'ax', verified: true } };
     },
   };
@@ -109,11 +117,67 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     assert.match(r.text, /computer\.left_click ok via ax/);
   });
 
-  test('S17: surfaces a typed backend failure verbatim', async () => {
+  test('passes the full runtime context to the dispatch backend', async () => {
+    const backend = fakeBackend();
+    await callComputer(backend, { action: 'left_click', coordinate: [5, 6] });
+    assert.deepEqual(backend.lastContext, {
+      sessionId: 's1',
+      turnId: 't1',
+      toolCallId: 'call1',
+    });
+  });
+
+  test('serializes preflight and dispatch in tool-call arrival order', async () => {
+    const events: string[] = [];
+    let releaseFirstPreflight!: () => void;
+    const firstPreflight = new Promise<void>((resolve) => {
+      releaseFirstPreflight = resolve;
+    });
+    let preflightCount = 0;
+    const backend: CuDispatchBackend = {
+      async preflight() {
+        preflightCount += 1;
+        const call = preflightCount;
+        events.push(`preflight:${call}:start`);
+        if (call === 1) await firstPreflight;
+        events.push(`preflight:${call}:end`);
+        return { accessibility: true, screenRecording: true };
+      },
+      async run(action) {
+        events.push(`run:${action.type}`);
+        return { outcome: { ok: true, tier: 'ax', verified: true } };
+      },
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const first = tool.impl(
+      { action: 'left_click', coordinate: [5, 6] } as never,
+      { ...ctx(), toolCallId: 'call-click' },
+    );
+    const second = tool.impl(
+      { action: 'type', text: 'after-click' } as never,
+      { ...ctx(), toolCallId: 'call-type' },
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(events, ['preflight:1:start']);
+
+    releaseFirstPreflight();
+    await Promise.all([first, second]);
+    assert.deepEqual(events, [
+      'preflight:1:start',
+      'preflight:1:end',
+      'run:left_click',
+      'preflight:2:start',
+      'preflight:2:end',
+      'run:type',
+    ]);
+  });
+
+  test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
     const backend = fakeBackend({ result: { outcome: { ok: false, error: 'capture_failed', message: 'AXPress err -25202', completedSubSteps: 0 } } });
     const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
     assert.match(r.text, /failed: capture_failed/);
-    assert.match(r.text, /AXPress err -25202/);
+    assert.doesNotMatch(r.text, /AXPress err -25202/);
   });
 
   test('an unverified dispatch tells the model to re-screenshot (no silent success)', async () => {
@@ -121,6 +185,42 @@ describe('buildComputerUseTools — the `computer` MakaTool', () => {
     const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
     assert.match(r.text, /verified=false/);
     assert.match(r.text, /re-screenshot/);
+  });
+
+  test('surfaces controlled dispatch evidence without escalation reason or AX text', async () => {
+    const backend = fakeBackend({
+      result: {
+        outcome: {
+          ok: true,
+          tier: 'coordinate-background',
+          verified: false,
+          evidence: {
+            path: 'cgevent',
+            effect: 'unverifiable',
+            escalation: {
+              recommended: 'foreground',
+              reason: 'window Secret Draft, api_key=super-secret-value',
+            },
+          },
+        },
+      },
+    });
+    const r = await callComputer(backend, { action: 'left_click', coordinate: [1, 1] });
+    assert.match(r.text, /path=cgevent/);
+    assert.match(r.text, /effect=unverifiable/);
+    assert.match(r.text, /escalation=foreground\(disallowed\)/);
+    assert.doesNotMatch(r.text, /Secret Draft/);
+    assert.doesNotMatch(r.text, /super-secret-value/);
+  });
+
+  test('redacts synthetic tool errors again at the model-output boundary', () => {
+    const [tool] = buildComputerUseTools({ backend: fakeBackend() });
+    const output = tool.toModelOutput?.({
+      output: { error: 'api_key=super-secret-value' },
+    } as never) as { value: Array<{ type: string; text?: string }> };
+    assert.equal(output.value[0]?.type, 'text');
+    assert.match(output.value[0]?.text ?? '', /\[redacted\]/);
+    assert.doesNotMatch(output.value[0]?.text ?? '', /super-secret-value/);
   });
 
   test('S18: an already-aborted signal short-circuits before any dispatch', async () => {

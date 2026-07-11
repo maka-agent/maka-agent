@@ -4,7 +4,7 @@
 //
 // This is the HEART of the "Codex-style" cursor feel: a MoveTo plans a Dubins
 // glide path, a smootherstep speed profile drives along it (300→900→200 pts/s),
-// then a spring-damper (K=400,C=17,overshoot=0.8) overshoots a touch and settles.
+// then a spring-damper settles at the target.
 // The real system cursor is NEVER touched — this only paints a fake cursor into a
 // click-through overlay (see the empirical 0px-move finding).
 //
@@ -21,9 +21,9 @@ const PEAK_SPEED = 900;
 const MIN_START_SPEED = 300;
 const MIN_END_SPEED = 200;
 const SPRING_K = 400;
-const SPRING_C = 17;
-const SPRING_OVERSHOOT = 0.8;
-const CLICK_OFFSET = 16;
+const SPRING_C = 38;
+const SPRING_OVERSHOOT = 0.15;
+const ARROW_TIP_LENGTH = 14;
 const SENTINEL = -200; // off-screen start; paint hidden while pos.x < -100
 
 /** Resting arrow heading: 45° so the tip points up-left like a normal cursor. */
@@ -39,36 +39,61 @@ export class CursorEngine {
   private spring: Spring | null = null;
   private springTgt: [number, number, number] | null = null;
   private clickT: number | null = null;
+  private clickPoint: [number, number] | null = null;
   private clickOnArrive = false;
   pressed = false;
   private palette: Palette = makaBrandPalette();
 
   setSession(_sessionId: string): void {
-    // Always the Maka brand colour (per 昊卿: match the app theme, not a per-run
-    // hash). Kept the sessionId param so multi-agent hue differentiation can be
-    // added later without touching callers.
     this.palette = makaBrandPalette();
   }
   setPalette(p: Palette): void {
     this.palette = p;
   }
 
-  /** Queue a glide to (x,y). `endHeading` is the resting arrow heading.
-   *  `clickOnArrive` fires the click pulse the moment the cursor lands. */
+  /** Queue a glide to (x,y). The cursor arrow always rests at REST_HEADING
+   *  (tip up-left, standard macOS cursor). `clickOnArrive` fires the click
+   *  pulse the moment the cursor lands. */
   moveTo(x: number, y: number, endHeading: number = REST_HEADING, clickOnArrive = false): void {
-    const tx = x + Math.cos(endHeading) * CLICK_OFFSET;
-    const ty = y + Math.sin(endHeading) * CLICK_OFFSET;
-    // First appearance: enter from up-and-left of the target so the cursor visibly
-    // GLIDES in (Dubins path) rather than popping into place — much easier to spot
-    // on a short turn. (Was: snap to target = instant pop.)
-    if (this.pos[0] < -50) {
-      this.pos = [tx - 240, ty - 170];
-      this.heading = REST_HEADING;
+    // Snap out of spring before planning a new path — otherwise the engine
+    // starts from an oscillating position, causing a visible jitter.
+    if (this.spring && this.springTgt) {
+      this.pos = [this.springTgt[0], this.springTgt[1]];
+      this.heading = this.springTgt[2];
+      this.spring = null;
+      this.springTgt = null;
     }
+
+    // Shift the target so the arrow TIP (not center) lands at
+    // (x,y) when the arrow rests at endHeading (tip up-left).
+    const tx = x + Math.cos(endHeading) * ARROW_TIP_LENGTH;
+    const ty = y + Math.sin(endHeading) * ARROW_TIP_LENGTH;
+    if (clickOnArrive) this.clickPoint = [x, y];
+
+    if (this.pos[0] < -50) {
+      // First appearance: start off-screen, facing TOWARD the target so the
+      // Dubins path glides straight in instead of looping backward.
+      this.pos = [tx - 240, ty - 170];
+      const toTarget = Math.atan2(ty - this.pos[1], tx - this.pos[0]);
+      this.heading = toTarget - PI;
+    } else if (!this.path) {
+      // At rest: override departure heading to face the target. Without this
+      // the cursor departs at REST_HEADING (up-left) regardless of target
+      // direction, creating a U-turn for any target that isn't up-left.
+      const toTarget = Math.atan2(ty - this.pos[1], tx - this.pos[0]);
+      this.heading = toTarget - PI;
+    }
+
     const [x0, y0] = this.pos;
     const th0 = this.heading + PI;
+    // Arrive at the standard cursor heading (tip up-left). The scaled turn
+    // radius keeps the final arc small for short distances.
     const th1 = endHeading + PI;
-    this.path = planPath(x0, y0, th0, tx, ty, th1, endHeading, TURN_RADIUS);
+    // Scale turn radius with distance: R=80 is fine for long moves but creates
+    // tight loops for short ones (50px move, R=80 → arc 250px).
+    const dist = Math.hypot(tx - x0, ty - y0);
+    const radius = Math.max(8, Math.min(TURN_RADIUS, dist / 2.5));
+    this.path = planPath(x0, y0, th0, tx, ty, th1, endHeading, radius);
     this.dist = 0;
     this.spring = null;
     this.springTgt = null;
@@ -79,6 +104,9 @@ export class CursorEngine {
   triggerClick(x?: number, y?: number): void {
     if (typeof x === 'number' && typeof y === 'number' && this.pos[0] < -50) {
       this.pos = [x, y];
+    }
+    if (typeof x === 'number' && typeof y === 'number') {
+      this.clickPoint = [x, y];
     }
     this.clickT = 0;
   }
@@ -91,7 +119,7 @@ export class CursorEngine {
     return this.pos[0] >= -100;
   }
 
-  /** Advance the animation by dt seconds. Faithful to tick_swift_constants. */
+  /** Advance the animation by dt seconds. */
   tick(dt: number): void {
     if (this.path) {
       const pathLen = Math.max(this.path.length, 1);
@@ -139,7 +167,12 @@ export class CursorEngine {
     }
     if (this.clickT !== null) {
       const next = this.clickT + dt * 4; // full pulse over 0.25s
-      this.clickT = next >= 1 ? null : next;
+      if (next >= 1) {
+        this.clickT = null;
+        this.clickPoint = null;
+      } else {
+        this.clickT = next;
+      }
     }
   }
 
@@ -178,10 +211,12 @@ export class CursorEngine {
     if (this.clickT !== null) {
       const t = this.clickT;
       const ringR = (bloomR + 20 * t) * (1 - t * 0.5);
+      const ringX = (this.clickPoint?.[0] ?? this.pos[0]) - originX;
+      const ringY = (this.clickPoint?.[1] ?? this.pos[1]) - originY;
       ctx.strokeStyle = rgba(p.cursorMid, (1 - t) * 180 / 255);
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(px, py, ringR, 0, 2 * PI);
+      ctx.arc(ringX, ringY, ringR, 0, 2 * PI);
       ctx.stroke();
     }
 

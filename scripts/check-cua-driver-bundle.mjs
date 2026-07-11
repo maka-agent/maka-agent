@@ -8,7 +8,10 @@ import { access, readFile, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { cuaDriverSupported } from './prepare-cua-driver.mjs';
+import {
+  assertPinnedCuaDriverChecksums,
+  cuaDriverSupported,
+} from './prepare-cua-driver.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
@@ -21,6 +24,7 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   }
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   const cua = manifest.cuaDriver;
+  assertPinnedCuaDriverChecksums(cua);
   const binaryPath = join(binDir, cua.binaryName);
   const markerPath = join(binDir, '.cua-driver.json');
 
@@ -37,32 +41,35 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
   }
   await access(binaryPath, constants.X_OK);
 
-  // Fail closed on an unpinned pin: a missing/placeholder checksum must NOT pass
-  // the gate — otherwise packaging could ship an unaudited binary.
-  if (!cua.sha256 || cua.sha256.startsWith('<')) {
-    throw new Error(
-      `cua-driver bundle checksum is not pinned in bundled-tools.json ` +
-      `(cuaDriver.sha256=${JSON.stringify(cua.sha256)}). Pin the audited release checksum before packaging.`,
-    );
-  }
-
   // Authoritative check: re-hash the actual binary bytes and fail closed unless
   // they match the pinned checksum. The plaintext marker is trusted only as a
   // secondary signal (below), never on its own.
   const bytes = await readFile(binaryPath);
-  const actualSha256 = createHash('sha256').update(bytes).digest('hex');
-  if (actualSha256 !== cua.sha256) {
+  const actualBinarySha256 = createHash('sha256').update(bytes).digest('hex');
+  if (actualBinarySha256 !== cua.binarySha256) {
     throw new Error(
-      `cua-driver bundle checksum mismatch: expected ${cua.sha256}, got ${actualSha256} (${binaryPath}). ` +
+      `cua-driver bundle checksum mismatch: expected ${cua.binarySha256}, got ${actualBinarySha256} (${binaryPath}). ` +
       `Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
 
-  const marker = JSON.parse(await readFile(markerPath, 'utf8'));
-  if (marker.version !== cua.version || marker.sha256 !== cua.sha256) {
+  let marker;
+  try {
+    marker = JSON.parse(await readFile(markerPath, 'utf8'));
+  } catch {
     throw new Error(
-      `cua-driver bundle marker mismatch: manifest ${cua.version}/${cua.sha256}, ` +
-      `on disk ${marker.version}/${marker.sha256}. Re-run \`npm run prepare:cua-driver\`.`,
+      `cua-driver bundle marker is missing or invalid: ${markerPath}. ` +
+      `Re-run \`npm run prepare:cua-driver\`.`,
+    );
+  }
+  if (
+    marker.version !== cua.version
+    || marker.archiveSha256 !== cua.archiveSha256
+    || marker.binarySha256 !== cua.binarySha256
+  ) {
+    throw new Error(
+      `cua-driver bundle marker mismatch: manifest ${cua.version}/${cua.archiveSha256}/${cua.binarySha256}, ` +
+      `on disk ${marker.version}/${marker.archiveSha256}/${marker.binarySha256}. Re-run \`npm run prepare:cua-driver\`.`,
     );
   }
   return { skipped: false, binaryPath, version: cua.version };

@@ -7,12 +7,15 @@ import {
   COMPUTER_USE_FRAME_MAX_BYTES,
   COMPUTER_USE_FRAME_SOURCE_KINDS,
   COMPUTER_USE_DISPATCH_TIERS,
+  COMPUTER_USE_EFFECTS,
   CU_ACTION_TYPES,
   CU_SCROLL_DIRECTIONS,
   isComputerUseErrorCode,
   exceedsComputerUseFrameCap,
   type CuAction,
   type ComputerUseActionOutcome,
+  type ComputerUseDispatchEvidence,
+  type ComputerUseEffect,
   type ComputerUseScreenFrame,
 } from '../computer-use.js';
 
@@ -42,7 +45,7 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
     expect(isComputerUseErrorCode(42)).toBe(false);
   });
 
-  test('S15b frame cap is 2 MB and the boundary predicate is exclusive', () => {
+  test('S15b frame cap is 8 MB and the boundary predicate is exclusive', () => {
     expect(COMPUTER_USE_FRAME_MAX_BYTES).toBe(8 * 1024 * 1024);
     expect(exceedsComputerUseFrameCap(COMPUTER_USE_FRAME_MAX_BYTES)).toBe(false);
     expect(exceedsComputerUseFrameCap(COMPUTER_USE_FRAME_MAX_BYTES + 1)).toBe(true);
@@ -60,6 +63,21 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
       'coordinate-background',
       'foreground-visible',
     ]);
+  });
+
+  test('dispatch effects distinguish confirmed, unverifiable, and suspected no-op results', () => {
+    expect([...COMPUTER_USE_EFFECTS]).toEqual([
+      'confirmed',
+      'unverifiable',
+      'suspected_noop',
+    ]);
+    const effect: ComputerUseEffect = 'confirmed';
+    const evidence: ComputerUseDispatchEvidence = {
+      path: 'ax',
+      effect,
+      escalation: { recommended: 'px', reason: 'AX action was not advertised' },
+    };
+    expect(evidence.effect).toBe('confirmed');
   });
 
   test('normalized action vocabulary matches computer_20251124 (minus OS-only variants)', () => {
@@ -116,16 +134,31 @@ describe('Computer Use core types (PR-CORE-CU-0)', () => {
       byteLength: 1024,
       capturedAt: 0,
     };
-    const ok: ComputerUseActionOutcome = { ok: true, tier: 'ax', verified: true, frame };
+    const ok: ComputerUseActionOutcome = {
+      ok: true,
+      tier: 'ax',
+      verified: true,
+      frame,
+      evidence: { path: 'ax', effect: 'confirmed' },
+    };
     const err: ComputerUseActionOutcome = {
       ok: false,
       error: 'permission_missing',
       message: 'accessibility not granted at action-start',
       completedSubSteps: 0,
+      evidence: {
+        path: 'ax',
+        effect: 'suspected_noop',
+        escalation: { recommended: 'px', reason: 'AX action was not advertised' },
+      },
     };
     expect(ok.ok).toBe(true);
     expect(err.ok).toBe(false);
     if (!err.ok) expect(isComputerUseErrorCode(err.error)).toBe(true);
-    if (ok.ok) expect(ok.frame?.sourceKind).toBe('live-capture');
+    if (ok.ok) {
+      expect(ok.frame?.sourceKind).toBe('live-capture');
+      expect(ok.evidence?.effect).toBe('confirmed');
+    }
+    if (!err.ok) expect(err.evidence?.escalation?.recommended).toBe('px');
   });
 });

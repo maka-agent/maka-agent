@@ -15,7 +15,10 @@ import { resolveCuaDriverBinaryPath } from './cua-driver-path.js';
 export type CuBackendId = 'cua-driver';
 
 /** A backend that may or may not own a disposable child process. */
-type DisposableBackend = CuDispatchBackend & { dispose?: () => void };
+type DisposableBackend = CuDispatchBackend & {
+  clearSession?: (sessionId: string) => void;
+  dispose?: () => void;
+};
 
 export interface SelectedComputerUseBackend {
   /** The constructed backend, or undefined when the feature is unavailable. */

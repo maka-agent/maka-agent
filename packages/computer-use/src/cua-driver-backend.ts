@@ -13,28 +13,32 @@
 // abort) stay in the @maka/runtime `computer` tool. cua-driver does NOT redact
 // secrets — the runtime redacts every backend-supplied message upstream.
 //
-// KEYBOARD IS TARGET-BOUND, NEVER FRONTMOST. cua-driver's type_text/press_key are
-// background-safe (delivery_mode:"background" = no fronting/raising/focus-steal) and
-// target an explicit pid. The only hazard is *which* pid: the flat Anthropic grammar
-// (type/key carry just `text`, no target), so a naive backend could only GUESS the
-// OS-frontmost app = the user's active window — typing there would violate the
-// non-negotiable "never disturb the user's active app". We resolve the pid instead of
-// guessing it: every click/scroll/drag records the window the AGENT aimed at
-// (`lastTarget` = {pid, windowId}), and type/key deliver ONLY to that window in the
-// background (delivery_mode left DEFAULT). With no established target we FAIL CLOSED —
-// we never fall back to frontmost. This is the standard click-to-focus-then-type flow:
-// the agent's own preceding click both establishes the target and focuses the field.
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+// KEYBOARD IS TARGET-BOUND, VERIFIED, AND NEVER FRONTMOST. A successful left
+// click establishes ownership only for the same Maka session + turn. `type` is
+// allowed only for a native, AX-addressable empty field: Maka writes AXValue and
+// confirms the value in a fresh snapshot. Electron/unknown processes, non-empty
+// fields, and every `key` action fail before any key event is posted. Scroll,
+// drag, failed clicks, another session, and another turn never establish ownership.
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { rmSync } from 'node:fs';
+import { access, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   type CuAction,
-  type ComputerUseActionOutcome,
-  isComputerUseErrorCode,
   exceedsComputerUseFrameCap,
 } from '@maka/core';
-import type { CuDispatchBackend, CuRunResult, CuScreenshot } from '@maka/runtime';
+import type { CuDispatchBackend, CuRunContext, CuRunResult, CuScreenshot } from '@maka/runtime';
+import { normalizeCuaDriverOutcome } from './cua-driver-result.js';
+import {
+  editableElementAtScreenPoint,
+  elementAtScreenPoint,
+  resolveWindowAtDeclaredPoint,
+  windowPointFromSnapshot,
+  type CuaResolvedWindow,
+  type CuaSnapshotElement,
+} from './cua-driver-snapshot.js';
 
 const DEFAULT_TIMEOUT_MS = 20_000;
 const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -62,13 +66,20 @@ export interface CuaDriverBackendOptions {
    * omitted under node --test, where frames pass through untouched.
    */
   compressFrame?: (base64: string, mimeType: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
+  /** Test seam; production classifies the target executable before any keyboard action. */
+  classifyProcess?: (pid: number) => Promise<'electron' | 'native' | 'unknown'>;
 }
 
-interface JsonRpcResponse {
+export interface JsonRpcResponse {
   jsonrpc: '2.0';
   id: number;
   result?: { content?: Array<{ type: string; text?: string; data?: string; mimeType?: string }>; isError?: boolean; structuredContent?: Record<string, unknown> };
   error?: { code: number; message: string };
+}
+
+interface CuaDriverClientOptions extends CuaDriverBackendOptions {
+  captureScope: 'window' | 'desktop';
+  homeDir: string;
 }
 
 interface PendingRequest {
@@ -84,10 +95,16 @@ class CuaDriverClient {
   private buffer = '';
   private stderrTail = '';
   private starting?: Promise<void>;
+  private disposed = false;
 
-  constructor(private readonly opts: CuaDriverBackendOptions) {}
+  constructor(private readonly opts: CuaDriverClientOptions) {}
+
+  private assertActive(): void {
+    if (this.disposed) throw new Error('cua-driver client disposed');
+  }
 
   private async ensureStarted(signal?: AbortSignal): Promise<void> {
+    this.assertActive();
     if (!this.starting) {
       if (this.child && !this.child.killed) return;
       this.starting = this.start().finally(() => {
@@ -108,20 +125,27 @@ class CuaDriverClient {
   }
 
   private async start(): Promise<void> {
+    this.assertActive();
     // Neutralize cua-driver's install-ping (the one telemetry event its env
     // opt-out does NOT stop) by pre-seeding its marker file. Best-effort.
     try {
-      const dir = join(homedir(), '.cua-driver');
+      const dir = join(this.opts.homeDir, '.cua-driver');
       await mkdir(dir, { recursive: true });
+      this.assertActive();
       await writeFile(join(dir, '.installation_recorded'), '1', { flag: 'wx' });
+      this.assertActive();
     } catch {
-      /* non-fatal */
+      this.assertActive();
+      // Marker creation is non-fatal. The isolated HOME still prevents writes
+      // to the user's cua-driver configuration.
     }
 
+    this.assertActive();
     const child = spawn(this.opts.binaryPath, ['mcp', '--embedded', '--no-daemon-relaunch', '--no-overlay', '--host-bundle-id', this.opts.hostBundleId], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
+        HOME: this.opts.homeDir,
         CUA_DRIVER_EMBEDDED: '1',
         CUA_DRIVER_HOST_BUNDLE_ID: this.opts.hostBundleId,
         CUA_DRIVER_RS_TELEMETRY_ENABLED: 'false',
@@ -135,17 +159,17 @@ class CuaDriverClient {
     });
     this.child = child;
     child.stdout.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => this.onStdout(chunk));
+    child.stdout.on('data', (chunk: string) => this.onStdout(child, chunk));
     // Drain stderr into a bounded tail. An undrained piped stderr fills its OS
     // pipe buffer (~64KB), blocks the child's writes, and wedges all RPC.
     child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk: string) => this.onStderr(chunk));
+    child.stderr.on('data', (chunk: string) => this.onStderr(child, chunk));
     // An EPIPE/ERR_STREAM_DESTROYED during the child's crash window is emitted
     // as a stdin 'error' event; unhandled it crashes the Electron main process.
     // Route it into the orderly teardown instead.
-    child.stdin.on('error', () => this.onExit());
-    child.on('exit', () => this.onExit());
-    child.on('error', () => this.onExit());
+    child.stdin.on('error', () => this.onExit(child));
+    child.on('exit', () => this.onExit(child));
+    child.on('error', () => this.onExit(child));
 
     // Bounded, fail-closed handshake. A spawned-but-silent child must not
     // deadlock every future action: each awaited request is timeout-guarded,
@@ -157,26 +181,28 @@ class CuaDriverClient {
         { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'maka', version: '0.1' } },
         { timeoutMs: handshakeTimeoutMs },
       );
+      this.assertActive();
       // `session` is deliberately never opened → no cursor overlay.
       this.notify('notifications/initialized');
-      // Desktop-scope capture must be enabled once (persisted to config.json).
+      // Each client owns an isolated HOME, so set_config cannot mutate the
+      // user's global ~/.cua-driver/config.json or another client role.
       // Fail CLOSED: if set_config errors, reject start() rather than warn-and-
-      // continue — otherwise later scope:'desktop' actions would silently run
-      // against an unconfigured scope while reporting ok. Use request() directly
-      // (not callTool) to avoid re-entering the in-flight ensureStarted().
+      // continue against an unconfigured scope while reporting ok.
       const cfg = await this.request(
         'tools/call',
-        { name: 'set_config', arguments: { capture_scope: 'desktop' } },
+        { name: 'set_config', arguments: { capture_scope: this.opts.captureScope } },
         { timeoutMs: handshakeTimeoutMs },
       );
-      if (cfg.error) throw new Error(`set_config capture_scope=desktop failed: ${cfg.error.message}`);
+      this.assertActive();
+      if (cfg.error) throw new Error(`set_config capture_scope=${this.opts.captureScope} failed: ${cfg.error.message}`);
     } catch (e) {
       this.kill();
       throw e;
     }
   }
 
-  private onStdout(chunk: string): void {
+  private onStdout(child: ChildProcessWithoutNullStreams, chunk: string): void {
+    if (this.child !== child) return;
     this.buffer += chunk;
     if (this.buffer.length > MAX_STDOUT_BUFFER) {
       // Runaway/garbage stream with no line terminator — tear down (fail closed).
@@ -202,11 +228,13 @@ class CuaDriverClient {
     }
   }
 
-  private onStderr(chunk: string): void {
+  private onStderr(child: ChildProcessWithoutNullStreams, chunk: string): void {
+    if (this.child !== child) return;
     this.stderrTail = (this.stderrTail + chunk).slice(-STDERR_TAIL_CAP);
   }
 
-  private onExit(): void {
+  private onExit(child: ChildProcessWithoutNullStreams): void {
+    if (this.child !== child) return;
     const err = new Error('cua-driver exited');
     // Snapshot + clear BEFORE rejecting: each reject runs cleanup() which
     // deletes from `pending`, and mutating the map mid-iteration is unsafe.
@@ -269,7 +297,9 @@ class CuaDriverClient {
 
   /** Invoke a cua-driver tool; returns the JSON-RPC result payload. */
   async callTool(name: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<JsonRpcResponse['result']> {
+    this.assertActive();
     await this.ensureStarted(signal);
+    this.assertActive();
     const timeoutMs = this.opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     try {
       const res = await this.request('tools/call', { name, arguments: args }, { timeoutMs, signal });
@@ -285,85 +315,106 @@ class CuaDriverClient {
   }
 
   kill(): void {
-    this.child?.kill('SIGKILL');
-    this.onExit();
+    const child = this.child;
+    if (!child) return;
+    child.kill('SIGKILL');
+    this.onExit(child);
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    const starting = this.starting;
+    this.kill();
+    const removeHome = () => rmSync(this.opts.homeDir, { recursive: true, force: true });
+    removeHome();
+    void starting?.then(removeHome, removeHome);
   }
 }
 
-function toOutcome(result: JsonRpcResponse['result'], tierVerified: boolean | undefined): ComputerUseActionOutcome {
-  if (result?.isError) {
-    const text = result.content?.find((c) => c.type === 'text')?.text ?? 'cua-driver reported an error';
-    // cua-driver text errors aren't our S17 codes; classify conservatively.
-    const raw = typeof result.structuredContent?.error === 'string' ? result.structuredContent.error : '';
-    const err = isComputerUseErrorCode(raw) ? raw : 'capture_failed';
-    return { ok: false, error: err, message: text };
+async function classifyMacProcess(pid: number): Promise<'electron' | 'native' | 'unknown'> {
+  const executable = await new Promise<string>((resolve, reject) => {
+    execFile('/bin/ps', ['-p', String(pid), '-o', 'comm='], { encoding: 'utf8' }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout.trim());
+    });
+  }).catch(() => '');
+  if (!executable.startsWith('/')) return 'unknown';
+  const contentsDir = dirname(dirname(executable));
+  const electronFramework = join(contentsDir, 'Frameworks', 'Electron Framework.framework');
+  try {
+    await access(electronFramework);
+    return 'electron';
+  } catch {
+    return 'native';
   }
-  return { ok: true, tier: 'coordinate-background', verified: tierVerified };
 }
 
-/**
- * Map an Anthropic `key` chord (e.g. "Return", "cmd+a", "ctrl+shift+t") to
- * cua-driver's press_key grammar: a single lowercased key name + a modifier
- * array drawn from {cmd, shift, option, ctrl, fn}. Best-effort: an unrecognized
- * key name is passed through lowercased and fails cleanly at the driver (a typed
- * error, never a wrong-window keystroke). Synonyms are normalized to the mac set.
- */
-const KEY_MODIFIER_ALIASES: Record<string, string> = {
-  cmd: 'cmd', command: 'cmd', meta: 'cmd', super: 'cmd', win: 'cmd', windows: 'cmd',
-  ctrl: 'ctrl', control: 'ctrl',
-  alt: 'option', option: 'option', opt: 'option',
-  shift: 'shift', fn: 'fn', function: 'fn',
-};
-const KEY_NAME_ALIASES: Record<string, string> = {
-  enter: 'return', 'return': 'return', esc: 'escape', escape: 'escape',
-  del: 'delete', delete: 'delete', backspace: 'delete',
-  ' ': 'space', space: 'space',
-  page_up: 'pageup', pageup: 'pageup', page_down: 'pagedown', pagedown: 'pagedown',
-};
-export function parseKeyChord(text: string): { key: string; modifiers: string[] } {
-  const raw = text.trim();
-  // Split a "+"-joined chord, but keep a lone "+" (the plus key) intact.
-  const tokens = raw === '+' ? ['+'] : raw.split('+').map((t) => t.trim()).filter((t) => t.length > 0);
-  if (tokens.length === 0) return { key: raw.toLowerCase(), modifiers: [] };
-  const keyToken = tokens[tokens.length - 1].toLowerCase();
-  const key = KEY_NAME_ALIASES[keyToken] ?? keyToken;
-  const modifiers = [
-    ...new Set(
-      tokens.slice(0, -1)
-        .map((m) => KEY_MODIFIER_ALIASES[m.toLowerCase()])
-        .filter((m): m is string => Boolean(m)),
-    ),
-  ];
-  return { key, modifiers };
-}
-
-export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatchBackend & { dispose: () => void } {
-  const client = new CuaDriverClient(opts);
+export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatchBackend & {
+  clearSession: (sessionId: string) => void;
+  dispose: () => void;
+} {
+  const clientHome = (role: 'action' | 'capture') =>
+    join(tmpdir(), `maka-cua-${role}-${process.pid}-${randomUUID()}`);
+  const actionClient = new CuaDriverClient({
+    ...opts,
+    captureScope: 'window',
+    homeDir: clientHome('action'),
+  });
+  const captureClient = new CuaDriverClient({
+    ...opts,
+    captureScope: 'desktop',
+    homeDir: clientHome('capture'),
+  });
   // Cached backing scale (device px per logical point). The model's click
   // coordinate is in get_desktop_state DEVICE pixels; window bounds from
   // list_windows are in logical SCREEN POINTS, so we convert with this.
   let lastFrameWidthPx: number | undefined; // device width of the last capture
 
-  // The window the AGENT most recently aimed a click/scroll/drag at, recorded
-  // from resolveWindowAt. Keyboard (type/key) delivers ONLY here — never to the
-  // OS-frontmost (= the user's active) window. Null until the agent has targeted
-  // something, in which case type/key FAIL CLOSED rather than guess a pid. This
-  // is the standard click-to-focus-then-type contract: the click that sets the
-  // target is the same click that focuses the field the keystrokes land in.
-  let lastTarget: { pid: number; windowId: number } | null = null;
-  async function getScale(signal: AbortSignal): Promise<number> {
-    const r = await client.callTool('get_screen_size', {}, signal);
+  // Keyboard ownership is session + turn scoped. Only a successful click may
+  // establish it; pointer-only scroll/drag actions do not imply text focus.
+  interface KeyboardTarget {
+    window: CuaResolvedWindow;
+    editable: boolean;
+  }
+  const targetsBySession = new Map<string, { turnId: string; target: KeyboardTarget }>();
+  const sessionGenerations = new Map<string, number>();
+  let operationQueue = Promise.resolve();
+  let disposed = false;
+
+  async function displayMetrics(signal: AbortSignal): Promise<{
+    desktopFrameWidthPx: number;
+    logicalDisplayWidth: number;
+  }> {
+    const r = await actionClient.callTool('get_screen_size', {}, signal);
     const sc = r?.structuredContent ?? {};
     const logicalW = typeof sc.width === 'number' && sc.width > 0 ? sc.width : 0;
-    // Prefer the TRUE ratio device/logical (screenshot px ÷ logical px). Do NOT
-    // trust get_screen_size.scale_factor: it was observed reporting 1 on a Retina
-    // display, which sent clicks off-screen. Fall back to scale_factor only when a
-    // frame width isn't known yet.
-    if (lastFrameWidthPx && logicalW) return lastFrameWidthPx / logicalW;
-    return typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
+    const fallbackScale = typeof sc.scale_factor === 'number' && sc.scale_factor > 0 ? sc.scale_factor : 1;
+    return {
+      desktopFrameWidthPx: lastFrameWidthPx ?? logicalW * fallbackScale,
+      logicalDisplayWidth: logicalW,
+    };
   }
 
-  interface ResolvedWindow { pid: number; windowId: number; localX: number; localY: number }
+  async function withOperationQueue<T>(
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (disposed) throw new Error('cua-driver backend disposed');
+    const previous = operationQueue;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const current = previous.then(() => gate);
+    operationQueue = current;
+    await previous;
+    try {
+      if (disposed) throw new Error('cua-driver backend disposed');
+      if (signal.aborted) throw new Error('aborted');
+      return await operation();
+    } finally {
+      release();
+    }
+  }
 
   /**
    * Resolve the frontmost on-screen app window under a DEVICE-pixel click point,
@@ -373,47 +424,179 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
    * desktop) — where cua-driver would warp the real cursor, so we must refuse.
    * Excludes non-layer-0 windows, which also excludes Maka's always-on-top overlay.
    */
-  async function resolveWindowAt(deviceX: number, deviceY: number, signal: AbortSignal): Promise<ResolvedWindow | null> {
-    const scale = await getScale(signal);
-    const sx = deviceX / scale;
-    const sy = deviceY / scale;
-    const r = await client.callTool('list_windows', {}, signal);
-    const wins = (r?.structuredContent?.windows ?? []) as Array<Record<string, unknown>>;
-    const containing = wins
-      .filter((w) => {
-        const b = w.bounds as { x: number; y: number; width: number; height: number } | undefined;
-        return w.layer === 0 && w.is_on_screen !== false && b
-          && sx >= b.x && sx < b.x + b.width && sy >= b.y && sy < b.y + b.height
-          && typeof w.pid === 'number' && typeof w.window_id === 'number';
-      })
-      .sort((a, b) => (Number(b.z_index) || 0) - (Number(a.z_index) || 0));
-    const w = containing[0];
-    if (!w) return null;
-    const b = w.bounds as { x: number; y: number };
-    // window-local DEVICE px = model device coord − window origin (device).
+  async function resolveWindowAt(
+    deviceX: number,
+    deviceY: number,
+    signal: AbortSignal,
+  ): Promise<CuaResolvedWindow | undefined> {
+    const metrics = await displayMetrics(signal);
+    const r = await actionClient.callTool('list_windows', {}, signal);
+    return resolveWindowAtDeclaredPoint({
+      declaredPoint: { x: deviceX, y: deviceY },
+      desktopFrameWidthPx: metrics.desktopFrameWidthPx,
+      logicalDisplayWidth: metrics.logicalDisplayWidth,
+      windows: (r?.structuredContent?.windows ?? []) as Array<Record<string, unknown>>,
+    });
+  }
+
+  interface TargetSnapshot {
+    elements: CuaSnapshotElement[];
+    screenshotWidthPx: number;
+    screenshotHeightPx: number;
+    windowPoint: { x: number; y: number };
+  }
+
+  async function snapshotTarget(
+    target: CuaResolvedWindow,
+    signal: AbortSignal,
+  ): Promise<TargetSnapshot> {
+    const state = await actionClient.callTool(
+      'get_window_state',
+      {
+        pid: target.pid,
+        window_id: target.windowId,
+        include_screenshot: true,
+        max_elements: 500,
+        max_depth: 25,
+      },
+      signal,
+    );
+    const outcome = normalizeCuaDriverOutcome(state);
+    if (!outcome.ok) {
+      throw new Error(outcome.message);
+    }
+    const structured = state?.structuredContent ?? {};
+    const windowPoint = windowPointFromSnapshot({
+      screenPoint: target.screenPoint,
+      windowBounds: target.bounds,
+      screenshotWidthPx: Number(structured.screenshot_width),
+      screenshotHeightPx: Number(structured.screenshot_height),
+    });
+    if (!windowPoint) {
+      throw new Error('cua-driver returned invalid window screenshot dimensions');
+    }
     return {
-      pid: w.pid as number,
-      windowId: w.window_id as number,
-      localX: deviceX - b.x * scale,
-      localY: deviceY - b.y * scale,
+      elements: (structured.elements ?? []) as CuaSnapshotElement[],
+      screenshotWidthPx: Number(structured.screenshot_width),
+      screenshotHeightPx: Number(structured.screenshot_height),
+      windowPoint,
     };
+  }
+
+  function targetForContext(context: CuRunContext): KeyboardTarget | undefined {
+    const state = targetsBySession.get(context.sessionId);
+    if (!state) return undefined;
+    if (state.turnId !== context.turnId) {
+      targetsBySession.delete(context.sessionId);
+      return undefined;
+    }
+    return state.target;
+  }
+
+  async function fillEditableTarget(
+    target: KeyboardTarget,
+    text: string,
+    signal: AbortSignal,
+  ): Promise<CuRunResult['outcome']> {
+    if (!target.editable) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background text input requires an AX-addressable editable field',
+      };
+    }
+    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(target.window.pid);
+    if (processKind !== 'native') {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message:
+          processKind === 'electron'
+            ? 'Electron background text requires an explicitly targetable CDP/page channel; key events are refused'
+            : 'target process type could not be verified; background key events are refused',
+      };
+    }
+    const snapshot = await snapshotTarget(target.window, signal);
+    const element = editableElementAtScreenPoint(snapshot.elements, target.window.screenPoint);
+    if (!element) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'editable field was not present in the fresh AX snapshot',
+      };
+    }
+    if (element.value && element.value !== text) {
+      return {
+        ok: false,
+        error: 'unsupported_action',
+        message: 'background AX fill refuses to overwrite a non-empty field',
+      };
+    }
+    if (element.value === text) {
+      return {
+        ok: true,
+        tier: 'ax',
+        verified: true,
+        evidence: { path: 'ax', effect: 'confirmed' },
+      };
+    }
+    const setResult = await actionClient.callTool(
+      'set_value',
+      {
+        pid: target.window.pid,
+        window_id: target.window.windowId,
+        element_index: element.element_index,
+        ...(element.element_token ? { element_token: element.element_token } : {}),
+        value: text,
+      },
+      signal,
+    );
+    if (setResult?.isError) return normalizeCuaDriverOutcome(setResult);
+    const after = await snapshotTarget(target.window, signal);
+    const verified = editableElementAtScreenPoint(
+      after.elements,
+      target.window.screenPoint,
+    )?.value === text;
+    return verified
+      ? {
+          ok: true,
+          tier: 'ax',
+          verified: true,
+          evidence: { path: 'ax', effect: 'confirmed' },
+        }
+      : {
+          ok: false,
+          error: 'capture_failed',
+          message: 'AXValue write could not be confirmed by a fresh snapshot',
+          evidence: { path: 'ax', effect: 'unverifiable' },
+        };
   }
 
   return {
     async preflight(signal) {
-      const r = await client.callTool('check_permissions', { prompt: false }, signal);
-      const sc = r?.structuredContent ?? {};
-      return {
-        accessibility: sc.accessibility === true,
-        // Prefer the live ScreenCaptureKit probe over the cached boolean.
-        screenRecording: sc.screen_recording_capturable === true || sc.screen_recording === true,
-      };
+      return withOperationQueue(signal, async () => {
+        const r = await actionClient.callTool('check_permissions', { prompt: false }, signal);
+        const sc = r?.structuredContent ?? {};
+        return {
+          accessibility: sc.accessibility === true,
+          // Prefer the live ScreenCaptureKit probe over the cached boolean.
+          screenRecording: sc.screen_recording_capturable === true || sc.screen_recording === true,
+        };
+      });
     },
 
-    async run(action, signal): Promise<CuRunResult> {
-      switch (action.type) {
+    async run(action, signal, context: CuRunContext): Promise<CuRunResult> {
+      const sessionGeneration = sessionGenerations.get(context.sessionId) ?? 0;
+      return withOperationQueue(signal, async () => {
+        // A new turn invalidates any prior keyboard ownership before this action.
+        targetForContext(context);
+        // A left-click attempt transfers ownership. Clear the old target before
+        // resolution/snapshot/dispatch so any failure leaves keyboard input
+        // unowned instead of silently routing it to the previous window.
+        if (action.type === 'left_click') targetsBySession.delete(context.sessionId);
+        switch (action.type) {
         case 'screenshot': {
-          const r = await client.callTool('get_desktop_state', {}, signal);
+          const r = await captureClient.callTool('get_desktop_state', {}, signal);
           const img = r?.content?.find((c) => c.type === 'image');
           if (!img?.data) return { outcome: { ok: false, error: 'capture_failed', message: 'no image returned' } };
           let base64 = img.data;
@@ -466,16 +649,57 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               },
             };
           }
-          const args: Record<string, unknown> = { pid: win.pid, window_id: win.windowId, x: win.localX, y: win.localY };
-          if (action.type === 'right_click') args.button = 'right';
-          if (action.type === 'middle_click') args.button = 'middle';
-          if (action.type === 'double_click') args.count = 2;
-          if (action.type === 'triple_click') args.count = 3;
-          const r = await client.callTool('click', args, signal);
-          // The agent aimed a click at this window → it becomes the keyboard target
-          // (and this same click focuses the field a subsequent `type` writes to).
-          lastTarget = { pid: win.pid, windowId: win.windowId };
-          return { outcome: toOutcome(r, undefined) };
+          {
+            let snapshot: TargetSnapshot;
+            try {
+              snapshot = await snapshotTarget(win, signal);
+            } catch (error) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'capture_failed' as const,
+                  message: (error as Error).message,
+                },
+              };
+            }
+            const editableElement = editableElementAtScreenPoint(snapshot.elements, win.screenPoint);
+            const element = action.type === 'middle_click'
+              || action.type === 'double_click'
+              || action.type === 'triple_click'
+              || editableElement !== undefined
+              ? undefined
+              : elementAtScreenPoint(snapshot.elements, win.screenPoint);
+            const args: Record<string, unknown> = {
+              pid: win.pid,
+              window_id: win.windowId,
+              ...(element
+                ? {
+                    element_index: element.element_index,
+                    ...(element.element_token ? { element_token: element.element_token } : {}),
+                  }
+                : { x: snapshot.windowPoint.x, y: snapshot.windowPoint.y }),
+            };
+            if (action.type === 'right_click') args.button = 'right';
+            if (action.type === 'middle_click') args.button = 'middle';
+            if (action.type === 'triple_click') args.count = 3;
+            const toolName = action.type === 'double_click' ? 'double_click' : 'click';
+            const r = await actionClient.callTool(toolName, args, signal);
+            const outcome = normalizeCuaDriverOutcome(r);
+            if (
+              outcome.ok
+              && action.type === 'left_click'
+              && (sessionGenerations.get(context.sessionId) ?? 0) === sessionGeneration
+            ) {
+              targetsBySession.set(context.sessionId, {
+                turnId: context.turnId,
+                target: {
+                  window: win,
+                  editable: editableElement !== undefined,
+                },
+              });
+            }
+            return { outcome };
+          }
         }
         case 'scroll': {
           // Scroll REQUIRES a pid and posts via scroll_wheel_at_xy → post_to_pid
@@ -492,14 +716,33 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               },
             };
           }
-          const r = await client.callTool(
-            'scroll',
-            { pid: win.pid, window_id: win.windowId, x: win.localX, y: win.localY, direction: action.scrollDirection, amount: action.scrollAmount },
-            signal,
-          );
-          // The agent aimed input at this window → it becomes the keyboard target.
-          lastTarget = { pid: win.pid, windowId: win.windowId };
-          return { outcome: toOutcome(r, undefined) };
+          {
+            let snapshot: TargetSnapshot;
+            try {
+              snapshot = await snapshotTarget(win, signal);
+            } catch (error) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'capture_failed' as const,
+                  message: (error as Error).message,
+                },
+              };
+            }
+            const r = await actionClient.callTool(
+              'scroll',
+              {
+                pid: win.pid,
+                window_id: win.windowId,
+                x: snapshot.windowPoint.x,
+                y: snapshot.windowPoint.y,
+                direction: action.scrollDirection,
+                amount: action.scrollAmount,
+              },
+              signal,
+            );
+            return { outcome: normalizeCuaDriverOutcome(r) };
+          }
         }
         case 'left_click_drag': {
           // Press-drag-release WITHIN a single window. cua-driver's `drag` sends the
@@ -540,49 +783,181 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               },
             };
           }
-          const r = await client.callTool(
-            'drag',
-            { pid: from.pid, window_id: from.windowId, from_x: from.localX, from_y: from.localY, to_x: to.localX, to_y: to.localY },
-            signal,
-          );
-          // Both endpoints are in this one window (checked above) → keyboard target.
-          lastTarget = { pid: from.pid, windowId: from.windowId };
-          return { outcome: toOutcome(r, undefined) };
+          {
+            let snapshot: TargetSnapshot;
+            try {
+              snapshot = await snapshotTarget(from, signal);
+            } catch (error) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'capture_failed' as const,
+                  message: (error as Error).message,
+                },
+              };
+            }
+            const toPoint = windowPointFromSnapshot({
+              screenPoint: to.screenPoint,
+              windowBounds: from.bounds,
+              screenshotWidthPx: snapshot.screenshotWidthPx,
+              screenshotHeightPx: snapshot.screenshotHeightPx,
+            });
+            if (!toPoint) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'invalid_coordinate' as const,
+                  message: 'drag endpoint does not map into the target window snapshot',
+                },
+              };
+            }
+            const r = await actionClient.callTool(
+              'drag',
+              {
+                pid: from.pid,
+                window_id: from.windowId,
+                from_x: snapshot.windowPoint.x,
+                from_y: snapshot.windowPoint.y,
+                to_x: toPoint.x,
+                to_y: toPoint.y,
+              },
+              signal,
+            );
+            return { outcome: normalizeCuaDriverOutcome(r) };
+          }
         }
-        case 'type':
-        case 'key': {
-          // Target-bound keyboard: deliver ONLY to the window the agent last aimed
-          // a click/scroll/drag at (lastTarget) — never the OS-frontmost window,
-          // which is the user's active app. With no established target we FAIL
-          // CLOSED rather than guess a pid (the one non-negotiable rule). Both
-          // type_text and press_key default to delivery_mode:"background" (no
-          // fronting/raising/focus-steal) — we deliberately never pass 'foreground'.
-          if (!lastTarget) {
+        case 'zoom': {
+          // cua-driver zoom is window-scoped. Resolve both region corners in
+          // the declared desktop pixel space and require one owning window,
+          // then convert the crop to that window's screenshot-pixel space.
+          const x1 = Math.min(action.region.x1, action.region.x2);
+          const y1 = Math.min(action.region.y1, action.region.y2);
+          const x2 = Math.max(action.region.x1, action.region.x2);
+          const y2 = Math.max(action.region.y1, action.region.y2);
+          const topLeft = await resolveWindowAt(x1, y1, signal);
+          const bottomRight = await resolveWindowAt(x2, y2, signal);
+          if (!topLeft || !bottomRight) {
             return {
               outcome: {
                 ok: false,
                 error: 'unsupported_action',
-                message:
-                  `keyboard action '${action.type}' has no target window yet — refusing: `
-                  + 'keystrokes go ONLY to the window the agent last clicked (never your frontmost app). '
-                  + 'Click the field/control you want to type into first, then send the keys.',
+                message: 'zoom region is not fully contained in an app window.',
+              },
+            };
+          }
+          if (topLeft.pid !== bottomRight.pid || topLeft.windowId !== bottomRight.windowId) {
+            return {
+              outcome: {
+                ok: false,
+                error: 'unsupported_action',
+                message: 'zoom region spans different windows; keep the region inside one app window.',
+              },
+            };
+          }
+          {
+            let snapshot: TargetSnapshot;
+            try {
+              snapshot = await snapshotTarget(topLeft, signal);
+            } catch (error) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'capture_failed' as const,
+                  message: (error as Error).message,
+                },
+              };
+            }
+            const bottomRightPoint = windowPointFromSnapshot({
+              screenPoint: bottomRight.screenPoint,
+              windowBounds: topLeft.bounds,
+              screenshotWidthPx: snapshot.screenshotWidthPx,
+              screenshotHeightPx: snapshot.screenshotHeightPx,
+            });
+            if (!bottomRightPoint) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'invalid_coordinate' as const,
+                  message: 'zoom region does not map into the target window snapshot',
+                },
+              };
+            }
+            const r = await actionClient.callTool(
+              'zoom',
+              {
+                pid: topLeft.pid,
+                window_id: topLeft.windowId,
+                x1: snapshot.windowPoint.x,
+                y1: snapshot.windowPoint.y,
+                x2: bottomRightPoint.x,
+                y2: bottomRightPoint.y,
+              },
+              signal,
+            );
+            if (r?.isError) return { outcome: normalizeCuaDriverOutcome(r) };
+            const image = r?.content?.find((content) => content.type === 'image');
+            if (!image?.data) {
+              return { outcome: { ok: false as const, error: 'capture_failed' as const, message: 'zoom returned no image' } };
+            }
+            const byteLength = Buffer.from(image.data, 'base64').byteLength;
+            if (exceedsComputerUseFrameCap(byteLength)) {
+              return {
+                outcome: {
+                  ok: false as const,
+                  error: 'sensitivity_blocked' as const,
+                  message: `zoom frame ${byteLength}B exceeds cap`,
+                },
+              };
+            }
+            const structured = r?.structuredContent ?? {};
+            return {
+              outcome: { ok: true as const, tier: 'coordinate-background' as const },
+              screenshot: {
+                base64: image.data,
+                mimeType: image.mimeType === 'image/png' ? 'image/png' as const : 'image/jpeg' as const,
+                widthPx: typeof structured.width === 'number' ? structured.width : 0,
+                heightPx: typeof structured.height === 'number' ? structured.height : 0,
+              },
+            };
+          }
+        }
+        case 'type':
+        case 'key': {
+          // Target-bound keyboard: `type` may fill a native empty AX field only
+          // after fresh read-back. `key` is refused because cua-driver reports
+          // key events as unverifiable and user clicks can redirect renderer focus.
+          const target = targetForContext(context);
+          if (!target) {
+            return {
+              outcome: {
+                ok: false,
+                  error: 'unsupported_action',
+                  message:
+                    `keyboard action '${action.type}' has no target window yet — refusing: `
+                  + 'click an editable native field before a verified text fill.',
               },
             };
           }
           if (action.type === 'type') {
-            const r = await client.callTool(
-              'type_text',
-              { pid: lastTarget.pid, window_id: lastTarget.windowId, text: action.text },
-              signal,
-            );
-            return { outcome: toOutcome(r, undefined) };
+            try {
+              return { outcome: await fillEditableTarget(target, action.text, signal) };
+            } catch (error) {
+              return {
+                outcome: {
+                  ok: false,
+                  error: 'capture_failed',
+                  message: (error as Error).message,
+                },
+              };
+            }
           }
-          // action.type === 'key': a single chord → press_key {key, modifiers}.
-          const { key, modifiers } = parseKeyChord(action.text);
-          const keyArgs: Record<string, unknown> = { pid: lastTarget.pid, window_id: lastTarget.windowId, key };
-          if (modifiers.length > 0) keyArgs.modifiers = modifiers;
-          const r = await client.callTool('press_key', keyArgs, signal);
-          return { outcome: toOutcome(r, undefined) };
+          return {
+            outcome: {
+              ok: false,
+              error: 'unsupported_action',
+              message: 'background key chords cannot be verified without risking focus races',
+            },
+          };
         }
         case 'wait':
           await new Promise((res) => setTimeout(res, Math.min(action.durationMs, 10_000)));
@@ -595,11 +970,22 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           return { outcome: { ok: true, tier: 'coordinate-background' } };
         default:
           return { outcome: { ok: false, error: 'unsupported_action', message: `action '${action.type}' not mapped to cua-driver` } };
-      }
+        }
+      });
+    },
+
+    clearSession(sessionId) {
+      targetsBySession.delete(sessionId);
+      sessionGenerations.set(sessionId, (sessionGenerations.get(sessionId) ?? 0) + 1);
     },
 
     dispose() {
-      client.kill();
+      if (disposed) return;
+      disposed = true;
+      targetsBySession.clear();
+      sessionGenerations.clear();
+      actionClient.dispose();
+      captureClient.dispose();
     },
   };
 }

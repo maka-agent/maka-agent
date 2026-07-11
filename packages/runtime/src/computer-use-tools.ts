@@ -12,6 +12,7 @@ import {
   type CuAction,
   type CuPoint,
   type ComputerUseActionOutcome,
+  type ComputerUseDispatchEvidence,
 } from '@maka/core';
 import { redactSecrets } from '@maka/core/redaction';
 import type { MakaTool } from './tool-runtime.js';
@@ -33,6 +34,12 @@ export interface CuRunResult {
   screenshot?: CuScreenshot;
 }
 
+export interface CuRunContext {
+  sessionId: string;
+  turnId: string;
+  toolCallId: string;
+}
+
 /**
  * The host dispatch seam. Implemented in @maka/computer-use by the cua-driver
  * backend, which spawns trycua/cua-driver and speaks its JSON-RPC protocol over
@@ -43,7 +50,7 @@ export interface CuDispatchBackend {
    *  insufficient because the user can revoke at any time (S12). */
   preflight(signal: AbortSignal): Promise<{ accessibility: boolean; screenRecording: boolean }>;
   /** Execute one normalized action; capture a fresh frame where applicable. */
-  run(action: CuAction, signal: AbortSignal): Promise<CuRunResult>;
+  run(action: CuAction, signal: AbortSignal, context: CuRunContext): Promise<CuRunResult>;
 }
 
 /** Context the overlay hook needs to key its per-action cursor + per-session teardown. */
@@ -132,19 +139,40 @@ export function adaptToCuAction(args: ComputerParams): CuAction {
 }
 
 /** Concise, model-facing summary of an outcome (S16-safe: no screen text here). */
+function summarizeEvidence(evidence: ComputerUseDispatchEvidence | undefined): string {
+  if (!evidence) return '';
+  const safeToken = (value: string): string | undefined =>
+    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(value) ? value : undefined;
+  const fields: string[] = [];
+  const path = evidence.path ? safeToken(evidence.path) : undefined;
+  if (path) fields.push(`path=${path}`);
+  if (evidence.effect) fields.push(`effect=${evidence.effect}`);
+  if (evidence.escalation) {
+    const recommended = safeToken(evidence.escalation.recommended);
+    if (recommended) {
+      fields.push(
+        recommended === 'foreground'
+          ? 'escalation=foreground(disallowed)'
+          : `escalation=${recommended}`,
+      );
+    }
+  }
+  return fields.length > 0 ? `; dispatch ${fields.join(', ')}` : '';
+}
+
 function summarize(action: CuAction, result: CuRunResult): string {
   const { outcome } = result;
+  const evidence = summarizeEvidence(outcome.evidence);
   if (!outcome.ok) {
-    // S16: a backend-supplied message may echo screen/AX-derived text (cua-driver
-    // does not redact — the runtime is the redaction chokepoint). Redact before it
-    // reaches the model.
-    const msg = outcome.message ? ` — ${redactSecrets(outcome.message)}` : '';
-    return `computer.${action.type} failed: ${outcome.error}${msg}`
+    // Driver messages and escalation reasons may contain AX labels, window
+    // titles, or screen text. Keep them in internal evidence only; the
+    // model/session summary exposes controlled codes and short identifiers.
+    return `computer.${action.type} failed: ${outcome.error}${evidence}`
       + (typeof outcome.completedSubSteps === 'number' ? ` (completed ${outcome.completedSubSteps} sub-steps)` : '');
   }
   const verified = outcome.verified === undefined ? 'n/a' : String(outcome.verified);
   const shot = result.screenshot ? `; screenshot ${result.screenshot.widthPx}x${result.screenshot.heightPx}` : '';
-  return `computer.${action.type} ok via ${outcome.tier} (verified=${verified})${shot}`
+  return `computer.${action.type} ok via ${outcome.tier} (verified=${verified})${evidence}${shot}`
     + (outcome.verified === false ? ' — dispatch could not be confirmed; re-screenshot to verify' : '');
 }
 
@@ -153,7 +181,7 @@ function summarize(action: CuAction, result: CuRunResult): string {
  * records to session history (via coerceResultContent's text-only projection:
  * this object has no `kind`, so only `text` survives). `screenshot`, when
  * present, rides along ONLY to feed `toModelOutput` — it never enters `text`, so
- * the ≤2MB frame base64 stays out of session history.
+ * the bounded frame base64 stays out of session history.
  */
 interface ComputerToolResult {
   text: string;
@@ -161,6 +189,25 @@ interface ComputerToolResult {
 }
 
 export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overlay?: CuOverlayHook }): MakaTool[] {
+  let invocationQueue = Promise.resolve();
+
+  async function withInvocationQueue<T>(
+    signal: AbortSignal,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = invocationQueue;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    invocationQueue = previous.then(() => gate);
+    await previous;
+    try {
+      if (signal.aborted) throw new Error('aborted');
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+
   const tool: MakaTool<ComputerParams, ComputerToolResult> = {
     name: 'computer',
     displayName: '电脑控制',
@@ -171,43 +218,52 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
       + 'agent-cursor to a target, then click/scroll to act there. Use left_click_drag (start_coordinate → coordinate) for marquee/lasso '
       + 'selection, sliders, or resizing — but only WITHIN a single window; a drag whose endpoints land in different windows is refused '
       + '(cross-app drag-and-drop is not supported). Coordinates are in the declared display-pixel space (the runtime maps '
-      + 'them to the real screen). Prefer this over shelling out to cliclick/screencapture for host GUI control. Keyboard: type/key '
-      + 'deliver keystrokes to the window you last clicked (click the field first to focus it, then type) — never to your other windows; '
-      + 'a type/key with no prior click is refused. Never used for web pages inside Maka (use the browser tools for those).',
+      + 'them to the real screen). Prefer this over shelling out to cliclick/screencapture for host GUI control. Text: after clicking an '
+      + 'empty native AX text field, type may fill it only when a fresh AX read-back confirms the value. Electron/unknown targets, '
+      + 'non-empty fields, and all key chords are refused because background key events race with the user\'s focus. '
+      + 'Never used for web pages inside Maka (use the browser tools for those).',
     parameters: computerParams,
     categoryHint: COMPUTER_USE_CATEGORY as MakaTool['categoryHint'],
-    impl: async (args, { abortSignal, sessionId, toolCallId }): Promise<ComputerToolResult> => {
+    impl: async (args, {
+      abortSignal,
+      sessionId,
+      turnId,
+      toolCallId,
+    }): Promise<ComputerToolResult> => {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
-      // S12: re-check TCC at action-start; cached "granted" is insufficient.
-      const tcc = await deps.backend.preflight(abortSignal);
-      if (!tcc.accessibility) {
-        return { text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)' };
-      }
-      const action = adaptToCuAction(args);
-      // A capture-bearing action additionally needs Screen Recording (S12).
-      const capturing = action.type === 'screenshot' || action.type === 'zoom';
-      if (capturing && !tcc.screenRecording) {
-        return { text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
-      }
-      // Visual seam: drive the agent-cursor overlay at the coordinate authority
-      // point (declared px in `action`), backend-agnostic and display-only. Never
-      // throws into dispatch — a broken overlay must not break the action.
-      const overlayCtx = { sessionId, toolCallId };
-      try { deps.overlay?.onActionBegin(action, overlayCtx); } catch { /* overlay is best-effort */ }
-      try {
-        const result = await deps.backend.run(action, abortSignal);
-        // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
-        // tool `output`) so `toModelOutput` below can hand the vision model an image
-        // block. Kept OFF `text`: coerceResultContent projects this object to a
-        // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
-        // ≤2MB frame never bloats history.
-        const text = summarize(action, result);
-        return result.screenshot
-          ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
-          : { text };
-      } finally {
-        try { deps.overlay?.onActionEnd?.(overlayCtx); } catch { /* best-effort */ }
-      }
+      return withInvocationQueue(abortSignal, async () => {
+        // S12: re-check TCC at action-start; cached "granted" is insufficient.
+        const tcc = await deps.backend.preflight(abortSignal);
+        if (!tcc.accessibility) {
+          return { text: 'computer failed: permission_missing — Accessibility not granted (System Settings → Privacy & Security → Accessibility)' };
+        }
+        const action = adaptToCuAction(args);
+        // A capture-bearing action additionally needs Screen Recording (S12).
+        const capturing = action.type === 'screenshot' || action.type === 'zoom';
+        if (capturing && !tcc.screenRecording) {
+          return { text: 'computer failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)' };
+        }
+        // Visual seam: drive the agent-cursor overlay at the coordinate authority
+        // point (declared px in `action`), backend-agnostic and display-only. Never
+        // throws into dispatch — a broken overlay must not break the action.
+        const overlayCtx = { sessionId, toolCallId };
+        const runCtx: CuRunContext = { sessionId, turnId, toolCallId };
+        try { deps.overlay?.onActionBegin(action, overlayCtx); } catch { /* overlay is best-effort */ }
+        try {
+          const result = await deps.backend.run(action, abortSignal, runCtx);
+          // Carry the screenshot base64 on the raw result (which becomes the ai-sdk
+          // tool `output`) so `toModelOutput` below can hand the vision model an image
+          // block. Kept OFF `text`: coerceResultContent projects this object to a
+          // text-only session-log entry (no `kind` ⇒ only `text` survives), so the
+          // bounded frame never bloats history.
+          const text = summarize(action, result);
+          return result.screenshot
+            ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
+            : { text };
+        } finally {
+          try { deps.overlay?.onActionEnd?.(overlayCtx); } catch { /* best-effort */ }
+        }
+      });
     },
     // Map the raw result into model-visible content: the summary as text, plus the
     // screenshot as a native image block when present. @ai-sdk/anthropic maps
@@ -217,9 +273,9 @@ export function buildComputerUseTools(deps: { backend: CuDispatchBackend; overla
     toModelOutput: ({ output }) => {
       const o = (output ?? {}) as Partial<ComputerToolResult> & { error?: unknown };
       const text = typeof o.text === 'string'
-        ? o.text
+        ? redactSecrets(o.text)
         : typeof o.error === 'string'
-          ? o.error
+          ? redactSecrets(o.error)
           : 'computer: no result';
       return {
         type: 'content',

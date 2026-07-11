@@ -9,6 +9,8 @@ import { planPath } from '../../renderer/computer-use-overlay/engine/dubins.js';
 import { paletteForInstance, defaultPalette, gradientAt } from '../../renderer/computer-use-overlay/engine/palette.js';
 
 const finite = (v: number): boolean => Number.isFinite(v);
+const REST_HEADING = Math.PI / 4;
+const ARROW_TIP_LENGTH = 14;
 
 test('Dubins path: exact endpoints, finite length, C0 continuity', () => {
   const path = planPath(0, 0, 0, 400, 200, Math.PI / 4, Math.PI / 4, 80);
@@ -39,9 +41,9 @@ test('engine glides + spring-settles onto target+offset, no NaN', () => {
   const e = new CursorEngine();
   e.setSession('conv-test');
   const tx = 500, ty = 300;
-  e.moveTo(tx, ty); // default endHeading π/4 → +16px offset
-  const offX = tx + Math.cos(Math.PI / 4) * 16;
-  const offY = ty + Math.sin(Math.PI / 4) * 16;
+  e.moveTo(tx, ty); // center is offset so the 14px arrow tip lands on (tx, ty)
+  const offX = tx + Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
+  const offY = ty + Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
   let frames = 0;
   const dt = 1 / 60;
   while (e.isMoving() && frames < 60 * 8) {
@@ -63,9 +65,42 @@ test('first move glides IN from off-screen (not a pop) and converges to target',
   assert.ok(e.pos[0] > 0 && e.pos[0] < 400, `entering, still gliding (pos ${e.pos[0]})`);
   let frames = 1;
   while (e.isMoving() && frames < 600) { e.tick(1 / 60); frames++; }
-  const tx = 400 + Math.cos(Math.PI / 4) * 16;
-  const ty = 400 + Math.sin(Math.PI / 4) * 16;
+  const tx = 400 + Math.cos(REST_HEADING) * ARROW_TIP_LENGTH;
+  const ty = 400 + Math.sin(REST_HEADING) * ARROW_TIP_LENGTH;
   assert.ok(Math.hypot(e.pos[0] - tx, e.pos[1] - ty) < 1.5, 'converged to target+offset');
+});
+
+test('click pulse is centered on the action coordinate, not the arrow body', () => {
+  const e = new CursorEngine();
+  const targetX = 320;
+  const targetY = 240;
+  e.moveTo(targetX, targetY, undefined, true);
+  for (let frames = 0; e.isMoving() && frames < 600; frames++) e.tick(1 / 60);
+  e.triggerClick(targetX, targetY);
+
+  const arcs: Array<{ x: number; y: number; radius: number }> = [];
+  const gradient = { addColorStop() {} };
+  const ctx = {
+    createRadialGradient: () => gradient,
+    createLinearGradient: () => gradient,
+    beginPath() {},
+    arc(x: number, y: number, radius: number) { arcs.push({ x, y, radius }); },
+    fill() {},
+    stroke() {},
+    moveTo() {},
+    lineTo() {},
+    closePath() {},
+    set fillStyle(_value: unknown) {},
+    set strokeStyle(_value: unknown) {},
+    set lineWidth(_value: number) {},
+    set lineJoin(_value: CanvasLineJoin) {},
+  } as unknown as CanvasRenderingContext2D;
+
+  e.paint(ctx, 0, 0);
+  assert.ok(
+    arcs.some((arc) => Math.hypot(arc.x - targetX, arc.y - targetY) < 0.01),
+    `click pulse should include action coordinate (${targetX},${targetY}); arcs=${JSON.stringify(arcs)}`,
+  );
 });
 
 test('click pulse clears over ~0.25s', () => {
