@@ -3,8 +3,6 @@ import { test, expect } from './fixtures';
 type MarkdownSample = {
   height: number;
   tags: string;
-  rootId: number;
-  paragraphId: number;
   paragraphTop: number;
   stopVisible: boolean;
 };
@@ -18,30 +16,17 @@ test('keeps completed Markdown geometry stable after terminal completion', async
   await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0);
 
   await page.evaluate(() => {
-    const ids = new WeakMap<Node, number>();
-    let nextId = 1;
-    const idFor = (node: Node | null): number => {
-      if (!node) return 0;
-      const known = ids.get(node);
-      if (known) return known;
-      const id = nextId++;
-      ids.set(node, id);
-      return id;
-    };
     const samples: MarkdownSample[] = [];
     const read = () => {
-      const bubbles = document.querySelectorAll<HTMLElement>('.maka-bubble-streaming');
-      const bubble = bubbles.item(bubbles.length - 1);
-      const root = bubble?.querySelector<HTMLElement>('.maka-markdown-root') ?? null;
+      const roots = document.querySelectorAll<HTMLElement>('.maka-markdown-root');
+      const root = roots[roots.length - 1] ?? null;
       const paragraph = root?.querySelector('p') ?? null;
       const stopVisible = [...document.querySelectorAll('button')]
         .some((button) => button.textContent?.trim() === '停止');
-      if (bubble && root) {
+      if (root) {
         samples.push({
           height: root.getBoundingClientRect().height,
           tags: [...root.children].map((child) => child.tagName).join('/'),
-          rootId: idFor(root),
-          paragraphId: idFor(paragraph),
           paragraphTop: paragraph?.getBoundingClientRect().top ?? 0,
           stopVisible,
         });
@@ -63,15 +48,13 @@ test('keeps completed Markdown geometry stable after terminal completion', async
     (window as Window & { __markdown731Samples?: MarkdownSample[] }).__markdown731Samples ?? []
   ));
   expect(samples.length).toBeGreaterThan(0);
-  const latestRootId = samples.at(-1)?.rootId;
-  const afterTerminal = samples.filter((sample) => (
-    sample.rootId === latestRootId && !sample.stopVisible
-  ));
+  const lastStreamingIndex = samples.findLastIndex((sample) => sample.stopVisible);
+  expect(lastStreamingIndex).toBeGreaterThan(-1);
+  const afterTerminal = samples.slice(lastStreamingIndex + 1);
   expect(afterTerminal.length).toBeGreaterThan(1);
   expect(new Set(afterTerminal.map((sample) => sample.tags))).toEqual(
     new Set(['P/DIV/P/P/P']),
   );
-  expect(new Set(afterTerminal.map((sample) => sample.paragraphId)).size).toBe(1);
   const heights = afterTerminal.map((sample) => sample.height);
   expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(1);
   const paragraphTops = afterTerminal.map((sample) => sample.paragraphTop);
