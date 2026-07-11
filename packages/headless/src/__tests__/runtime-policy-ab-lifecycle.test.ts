@@ -101,6 +101,46 @@ test('pilot without candidate activation does not launch full execution', async 
   });
 });
 
+test('maps an invalid full summary to invalid lifecycle status', async () => {
+  await withDir(async (dir) => {
+    const promptPath = join(dir, 'prompt.md');
+    await writeFile(promptPath, 'shared prompt\n', 'utf8');
+    const state = await runRuntimePolicyAbLifecycle({
+      runId: 'run-1',
+      runRoot: dir,
+      manifestFingerprint: 'sha256:manifest',
+      config,
+      systemPromptPath: promptPath,
+      resultsJsonlPath: join(dir, 'results.jsonl'),
+      pilotTasks: [{ id: 'pilot', path: '/tasks/pilot' }],
+      evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
+      fullReps: 2,
+      arms: [
+        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+      ],
+      executionProfile,
+      harborRunner: async (runInput) => {
+        const result = output(runInput, runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on');
+        if (runInput.roundId.startsWith('full-')) {
+          return {
+            ...result,
+            cell: {
+              ...result.cell,
+              executionIdentity: { ...result.cell.executionIdentity!, model: 'wrong-model' },
+            },
+          };
+        }
+        return result;
+      },
+    });
+
+    assert.equal(state.full?.decision, 'invalid');
+    assert.equal(state.status, 'invalid');
+    assert.equal(state.reason, 'plumbing_failure_observed');
+  });
+});
+
 function output(input: HarborTaskRunInput, activated: boolean): HarborTaskRunOutput {
   return {
     harbor: { reward: 1 },

@@ -115,7 +115,7 @@ async function main() {
   });
   await writeFile(join(runRoot, 'runtime-policy-ab-result.json'), `${JSON.stringify({ runManifest, spec, state }, null, 2)}\n`, 'utf8');
   if (state.full) await writeFile(join(runRoot, 'runtime-policy-ab-report.md'), renderRuntimePolicyAbComparisonMarkdown(state.full), 'utf8');
-  console.log(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}`);
+  console.log(`status: ${state.status}${state.reason ? ` (${state.reason})` : ''}${state.full ? `; decision: ${state.full.decision}` : ''}`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

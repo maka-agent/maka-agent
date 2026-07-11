@@ -70,10 +70,11 @@ export async function runRuntimePolicyAbLifecycle(
       roundIdPrefix: 'full',
       executionProfile: { ...input.executionProfile, observedCostStopUsd: remainingCostUsd },
     });
+    const invalidReason = full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
     state = {
       ...state,
-      status: full.stopReason ? 'invalid' : 'full_completed',
-      ...(full.stopReason ? { reason: full.stopReason } : {}),
+      status: invalidReason ? 'invalid' : 'full_completed',
+      ...(invalidReason ? { reason: invalidReason } : {}),
       full,
     };
     await writeState(statePath, state);
