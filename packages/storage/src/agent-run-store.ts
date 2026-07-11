@@ -320,34 +320,34 @@ class FileRuntimeEventStore implements RuntimeEventStore {
       await mkdir(this.runDir(sessionId, runId), { recursive: true });
       const partial = partialRuntimeStream(event);
       if (partial) {
-        const metadataPath = this.runtimePartialMetadataPath(sessionId, runId, partial.key);
+        const partialPath = this.runtimePartialPath(sessionId, runId, partial.key);
         try {
-          await readFile(metadataPath, 'utf8');
+          await readFile(partialPath, 'utf8');
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
           const immutableEvents = await readRuntimeEventJsonl(
             this.runtimeEventsPath(sessionId, runId),
             runId,
           );
+          if (immutableEvents.some((item) => completedPartialRuntimeStreamKey(item) === partial.key)) {
+            return;
+          }
           const metadata: RuntimePartialSnapshot = {
             version: 1,
             event: partial.snapshot,
             ...(immutableEvents.at(-1)?.id ? { afterEventId: immutableEvents.at(-1)!.id } : {}),
           };
-          await writeAtomic(metadataPath, JSON.stringify(metadata, sanitizeJson) + '\n');
+          await writeAtomic(partialPath, JSON.stringify(metadata, sanitizeJson) + '\n');
         }
         if (partial.text) {
-          await appendFile(this.runtimePartialContentPath(sessionId, runId, partial.key), partial.text, 'utf8');
+          await appendFile(partialPath, partial.text, 'utf8');
         }
         return;
       }
       await appendFile(this.runtimeEventsPath(sessionId, runId), JSON.stringify(event, sanitizeJson) + '\n', 'utf8');
       const completedPartialKey = completedPartialRuntimeStreamKey(event);
       if (completedPartialKey) {
-        await Promise.all([
-          rm(this.runtimePartialMetadataPath(sessionId, runId, completedPartialKey), { force: true }),
-          rm(this.runtimePartialContentPath(sessionId, runId, completedPartialKey), { force: true }),
-        ]).catch(() => {
+        await rm(this.runtimePartialPath(sessionId, runId, completedPartialKey), { force: true }).catch(() => {
           // The immutable final is already durable. Reads suppress any stale snapshot.
         });
       }
@@ -414,12 +414,8 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     return join(this.runDir(sessionId, runId), 'runtime-partials');
   }
 
-  private runtimePartialMetadataPath(sessionId: string, runId: string, key: string): string {
-    return join(this.runtimePartialsDir(sessionId, runId), `${key}.json`);
-  }
-
-  private runtimePartialContentPath(sessionId: string, runId: string, key: string): string {
-    return join(this.runtimePartialsDir(sessionId, runId), `${key}.txt`);
+  private runtimePartialPath(sessionId: string, runId: string, key: string): string {
+    return join(this.runtimePartialsDir(sessionId, runId), `${key}.partial`);
   }
 
   private async readRuntimePartials(sessionId: string, runId: string): Promise<RuntimePartialSnapshot[]> {
@@ -432,24 +428,17 @@ class FileRuntimeEventStore implements RuntimeEventStore {
     }
     const partials: RuntimePartialSnapshot[] = [];
     for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-      const key = entry.name.slice(0, -'.json'.length);
+      if (!entry.isFile() || !entry.name.endsWith('.partial')) continue;
+      const key = entry.name.slice(0, -'.partial'.length);
       try {
-        const snapshot = JSON.parse(await readFile(
-          this.runtimePartialMetadataPath(sessionId, runId, key),
-          'utf8',
-        )) as RuntimePartialSnapshot;
+        const stored = await readFile(this.runtimePartialPath(sessionId, runId, key), 'utf8');
+        const headerEnd = stored.indexOf('\n');
+        if (headerEnd < 0) continue;
+        const snapshot = JSON.parse(stored.slice(0, headerEnd)) as RuntimePartialSnapshot;
         if (snapshot.version !== 1 || !snapshot.event?.partial) continue;
         const event = snapshot.event;
         if (event.content?.kind === 'text' || event.content?.kind === 'thinking') {
-          const text = await readFile(
-            this.runtimePartialContentPath(sessionId, runId, key),
-            'utf8',
-          ).catch((error) => {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
-            throw error;
-          });
-          event.content = { ...event.content, text };
+          event.content = { ...event.content, text: stored.slice(headerEnd + 1) };
         }
         partials.push({ ...snapshot, event });
       } catch {
@@ -526,7 +515,7 @@ function partialRuntimeStream(event: RuntimeEvent): {
     identity = `tool:call:${event.refs.toolCallId}`;
   }
   if (!identity) return undefined;
-  const key = runtimePartialStreamKey(identity);
+  const key = runtimePartialStreamKey(identity, event);
   const snapshot = content?.kind === 'text' || content?.kind === 'thinking'
     ? { ...event, content: { ...content, text: '' } }
     : event;
@@ -542,11 +531,20 @@ function completedPartialRuntimeStreamKey(event: RuntimeEvent): string | undefin
   } else if (content?.kind === 'function_response' && event.refs?.toolCallId) {
     identity = `tool:call:${event.refs.toolCallId}`;
   }
-  return identity ? runtimePartialStreamKey(identity) : undefined;
+  return identity ? runtimePartialStreamKey(identity, event) : undefined;
 }
 
-function runtimePartialStreamKey(identity: string): string {
-  return createHash('sha256').update(identity).digest('hex');
+function runtimePartialStreamKey(identity: string, event: RuntimeEvent): string {
+  return createHash('sha256').update(JSON.stringify([
+    identity,
+    event.sessionId,
+    event.invocationId,
+    event.runId,
+    event.turnId,
+    event.branch ?? null,
+    event.role,
+    event.author,
+  ])).digest('hex');
 }
 
 function hasOnlyKeys(value: object, allowed: readonly string[]): boolean {

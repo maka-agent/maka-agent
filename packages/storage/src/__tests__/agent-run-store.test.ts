@@ -418,6 +418,42 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('does not merge partial streams across branch lineage', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-branch-a',
+        ts: 1,
+        branch: 'agent-a',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'alpha' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-branch-b',
+        ts: 2,
+        branch: 'agent-b',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'beta' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => ({
+        branch: event.branch,
+        text: event.content?.kind === 'text' ? event.content.text : undefined,
+      })), [
+        { branch: 'agent-a', text: 'alpha' },
+        { branch: 'agent-b', text: 'beta' },
+      ]);
+    });
+  });
+
   it('recovers the accumulated partial snapshot after reopening the store', async () => {
     await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
@@ -466,7 +502,8 @@ describe('AgentRunStore', () => {
 
       assert.equal(events.length, 1);
       assert.equal(events[0]?.content?.kind === 'text' && events[0].content.text.length, 10_000);
-      assert.equal(partialFiles.filter((name) => name.endsWith('.json')).length, 1);
+      assert.equal(partialFiles.filter((name) => name.endsWith('.partial')).length, 1);
+      assert.equal(partialFiles.length, 1);
       const immutableLedger = await readFile(join(
         root,
         'sessions',
@@ -589,8 +626,44 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('produces equivalent durable replay for differently chunked final output', async () => {
+    const replayFor = async (chunks: readonly string[]) => {
+      let replay: RuntimeEvent[] = [];
+      await withStores(async (runStore, runtimeEventStore) => {
+        await runStore.createRun(makeHeader());
+        for (const [index, text] of chunks.entries()) {
+          await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+            id: `runtime-partial-${index}`,
+            ts: index + 1,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text },
+            refs: { providerEventId: 'message-1' },
+          }));
+        }
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: 'runtime-final',
+          ts: 10,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'same final output' },
+          refs: { providerEventId: 'message-1' },
+        }));
+        replay = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      });
+      return replay;
+    };
+
+    const finelyChunked = await replayFor(['same ', 'final ', 'output']);
+    const coarselyChunked = await replayFor(['same final output']);
+
+    assert.deepEqual(finelyChunked, coarselyChunked);
+    assert.deepEqual(finelyChunked.map((event) => event.id), ['runtime-final']);
+  });
+
   it('ignores a stale partial snapshot when its final event is already durable', async () => {
-    await withStores(async (runStore, runtimeEventStore) => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
       await runStore.createRun(makeHeader());
       await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
         id: 'runtime-final',
@@ -611,8 +684,20 @@ describe('AgentRunStore', () => {
       }));
 
       const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const partialFiles = await readdir(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-partials',
+      )).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      });
 
       assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(partialFiles, []);
     });
   });
 
