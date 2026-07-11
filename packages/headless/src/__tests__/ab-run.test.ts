@@ -101,4 +101,29 @@ describe('runAbComparison', () => {
       'ab-tools-on-r0-t1',
     ]);
   });
+
+  test('stops scheduling pairs after the hard cost ceiling is reached', async () => {
+    const calls: string[] = [];
+    const result = await runAbComparison({
+      runId: 'ab-run',
+      arms: [
+        { id: 'tools-off', kind: 'tools', fingerprint: sha256('tools-off') },
+        { id: 'tools-on', kind: 'tools', fingerprint: sha256('tools-on') },
+      ],
+      evaluationTasks: [
+        { id: 't1', path: '/tasks/t1' },
+        { id: 't2', path: '/tasks/t2' },
+      ],
+      reps: 1,
+      maxConcurrency: 1,
+      costCeilingUsd: 0.02,
+      runArm: async ({ roundId, task }) => {
+        calls.push(roundId);
+        return completed(task.id, true);
+      },
+    });
+
+    assert.deepEqual(calls, ['ab-tools-off-r0-t1', 'ab-tools-on-r0-t1']);
+    assert.equal(result.stopReason, 'cost_ceiling_reached');
+  });
 });

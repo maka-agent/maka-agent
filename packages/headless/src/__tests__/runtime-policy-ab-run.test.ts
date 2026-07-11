@@ -38,7 +38,8 @@ describe('runRuntimePolicyAbComparison', () => {
       evaluationTaskIds: ['t1', 't2'],
       reps: 3,
       candidateLimit: null,
-      maxConcurrency: 4,
+      maxConcurrentAttempts: 4,
+      costCeilingUsd: 20,
       nonInferiorityMargin: 0.1,
       sharedAgentEnv: {
         MAKA_HARBOR_CONTINUATION: 'on',
@@ -48,6 +49,8 @@ describe('runRuntimePolicyAbComparison', () => {
     });
 
     assert.equal(manifest.experimentKind, 'runtime');
+    assert.equal(manifest.maxConcurrentAttempts, 4);
+    assert.equal(manifest.maxConcurrency, 2);
     assert.equal(manifest.toolchainFingerprint, sha256('c'));
     assert.deepEqual(manifest.evaluationTaskIds, ['t1', 't2']);
     assert.deepEqual(manifest.arms.map((arm) => arm.metadata?.promptHash), [sha256('p'), sha256('p')]);
@@ -93,18 +96,22 @@ describe('runRuntimePolicyAbComparison', () => {
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
+        maxConcurrentAttempts: 2,
+        costCeilingUsd: 20,
       });
       const calls: string[] = [];
 
       await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath,
         resultsJsonlPath,
         evaluationTasks: [{ id: 't1', path: '/bench/t1' }],
         reps: 1,
         arms: [taskToolsOff, taskToolsOn],
+        costCeilingUsd: 20,
+        maxConcurrentAttempts: 2,
         resumeFingerprint: 'caller-salt',
         harborRunner: async (input) => {
           calls.push(`${input.roundId}:${JSON.stringify(input.agentEnv ?? {})}`);
@@ -133,6 +140,7 @@ describe('runRuntimePolicyAbComparison', () => {
           { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
           { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on', MAKA_CONTEXT_FOO: '1' } as never },
         ],
+        costCeilingUsd: 20,
         promptHash: sha256('p'),
         provider: 'deepseek',
         baseUrl: 'https://api.deepseek.com',
@@ -145,7 +153,7 @@ describe('runRuntimePolicyAbComparison', () => {
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
+        maxConcurrentAttempts: 2,
       }),
       /unsupported Harbor context env key: MAKA_CONTEXT_FOO/,
     );
@@ -171,7 +179,8 @@ describe('runRuntimePolicyAbComparison', () => {
         evaluationTaskIds: ['t1'],
         reps: 1,
         candidateLimit: null,
-        maxConcurrency: 1,
+        maxConcurrentAttempts: 2,
+        costCeilingUsd: 20,
       }),
       /unsupported runtime policy shared agent env key: MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE/,
     );
@@ -185,6 +194,7 @@ describe('runRuntimePolicyAbComparison', () => {
 
       const result = await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath: promptPath,
         resultsJsonlPath: join(dir, 'results.jsonl'),
@@ -200,6 +210,8 @@ describe('runRuntimePolicyAbComparison', () => {
             },
           },
         ],
+        costCeilingUsd: 20,
+        maxConcurrentAttempts: 2,
         harborRunner: async (input) => {
           calls.push(input);
           return harborOutput(input);
@@ -272,12 +284,15 @@ describe('runRuntimePolicyAbComparison', () => {
       const run = async (arms: Parameters<typeof runRuntimePolicyAbComparison>[0]['arms']) => {
         await runRuntimePolicyAbComparison({
           runId: 'runtime-ab-run',
+          runRoot: dir,
           config,
           systemPromptPath: promptPath,
           resultsJsonlPath,
           evaluationTasks: [task],
           reps: 1,
           arms,
+          costCeilingUsd: 20,
+          maxConcurrentAttempts: 2,
           sharedAgentEnv: { MAKA_HARBOR_CONTINUATION: 'on' },
           resumeFingerprint: 'caller-salt',
           harborRunner: async (input) => {
@@ -305,12 +320,15 @@ describe('runRuntimePolicyAbComparison', () => {
       calls = [];
       await runRuntimePolicyAbComparison({
         runId: 'runtime-ab-run',
+        runRoot: dir,
         config,
         systemPromptPath: promptPath,
         resultsJsonlPath,
         evaluationTasks: [task],
         reps: 1,
         arms: [pruneOff, pruneOnChanged],
+        costCeilingUsd: 20,
+        maxConcurrentAttempts: 2,
         sharedAgentEnv: {
           MAKA_HARBOR_CONTINUATION: 'on',
           MAKA_HARBOR_CONTINUATION_MAX_TURNS: '3',

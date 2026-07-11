@@ -9,6 +9,7 @@ import { buildAbRunManifest } from './ab-manifest.js';
 import { runAbComparison } from './ab-run.js';
 import type { AbArmSpec, AbComparisonSummary, AbRunManifest, AbRunManifestInput } from './ab-types.js';
 import type { Config } from './contracts.js';
+import { withAbRunLock } from './ab-run-lock.js';
 import {
   HARBOR_CELL_CONTEXT_ENV_KEYS,
   normalizeHarborCellContextEnv,
@@ -33,13 +34,15 @@ export interface RuntimePolicyAbArmInput {
 
 export interface RunRuntimePolicyAbComparisonInput {
   runId: string;
+  runRoot: string;
   config: Config;
   systemPromptPath: string;
   resultsJsonlPath: string;
   evaluationTasks: readonly FixedPromptTask[];
   arms: readonly [RuntimePolicyAbArmInput, RuntimePolicyAbArmInput];
   reps?: number;
-  maxConcurrency?: number;
+  maxConcurrentAttempts: number;
+  costCeilingUsd: number;
   resumeFingerprint?: string;
   budgetMs?: number;
   nonInferiorityMargin?: number;
@@ -51,23 +54,28 @@ export interface RunRuntimePolicyAbComparisonInput {
 
 export type RuntimePolicyAbComparisonSummary = AbComparisonSummary;
 
-export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput, 'experimentKind' | 'arms'> {
+export interface RuntimePolicyAbRunManifestInput extends Omit<AbRunManifestInput, 'experimentKind' | 'arms' | 'maxConcurrency' | 'maxConcurrentAttempts'> {
   arms: readonly [RuntimePolicyAbArmInput, RuntimePolicyAbArmInput];
   promptHash: string;
   provider: string;
   baseUrl: string;
   model: string;
   sharedAgentEnv?: Partial<Record<RuntimePolicySharedAgentEnvKey, string>>;
+  costCeilingUsd: number;
+  maxConcurrentAttempts: number;
 }
 
 export type RuntimePolicyAbRunManifest = AbRunManifest;
 
 export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifestInput): RuntimePolicyAbRunManifest {
   const { arms, promptHash, provider, baseUrl, model, sharedAgentEnv: rawSharedAgentEnv, ...abInput } = input;
+  const maxConcurrency = pairConcurrency(input.maxConcurrentAttempts);
   const sharedAgentEnv = sanitizeSharedAgentEnv(rawSharedAgentEnv ?? {});
   const sharedMetadata = { promptHash, provider, baseUrl, model, sharedAgentEnv };
   return buildAbRunManifest({
     ...abInput,
+    maxConcurrency,
+    maxConcurrentAttempts: input.maxConcurrentAttempts,
     experimentKind: 'runtime',
     arms: [
       runtimeArmSpec(arms[0], sharedMetadata),
@@ -79,6 +87,13 @@ export function buildRuntimePolicyAbRunManifest(input: RuntimePolicyAbRunManifes
 export async function runRuntimePolicyAbComparison(
   input: RunRuntimePolicyAbComparisonInput,
 ): Promise<RuntimePolicyAbComparisonSummary> {
+  return withAbRunLock(input.runRoot, () => runRuntimePolicyAbComparisonUnlocked(input));
+}
+
+async function runRuntimePolicyAbComparisonUnlocked(
+  input: RunRuntimePolicyAbComparisonInput,
+): Promise<RuntimePolicyAbComparisonSummary> {
+  const maxConcurrency = pairConcurrency(input.maxConcurrentAttempts);
   const sharedConfigFingerprint = runtimePolicySharedConfigFingerprint(input.config);
   const sharedAgentEnv = sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {});
   return runAbComparison({
@@ -86,7 +101,8 @@ export async function runRuntimePolicyAbComparison(
     arms: [runtimeArmSpec(input.arms[0]), runtimeArmSpec(input.arms[1])],
     evaluationTasks: input.evaluationTasks,
     ...(input.reps !== undefined ? { reps: input.reps } : {}),
-    ...(input.maxConcurrency !== undefined ? { maxConcurrency: input.maxConcurrency } : {}),
+    maxConcurrency,
+    costCeilingUsd: input.costCeilingUsd,
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
     ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
     runArm: async ({ roundId, arm, task }) => {
@@ -118,6 +134,13 @@ export async function runRuntimePolicyAbComparison(
       return event;
     },
   });
+}
+
+function pairConcurrency(maxConcurrentAttempts: number): number {
+  if (!Number.isSafeInteger(maxConcurrentAttempts) || maxConcurrentAttempts < 2 || maxConcurrentAttempts % 2 !== 0) {
+    throw new Error('maxConcurrentAttempts must be an even integer of at least 2 so each A/B pair starts together');
+  }
+  return maxConcurrentAttempts / 2;
 }
 
 export function renderRuntimePolicyAbComparisonMarkdown(summary: RuntimePolicyAbComparisonSummary): string {

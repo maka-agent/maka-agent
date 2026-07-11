@@ -1,4 +1,5 @@
 import { BUDGET_EXHAUSTED_RUNTIME_UNAVAILABLE_REASON, type FixedPromptTaskWalEvent } from './fixed-prompt-controller.js';
+import type { HarborCellTokenSummary } from './cell-output.js';
 import { assertRatio } from './numeric-guards.js';
 import type {
   AbArmSummary,
@@ -169,7 +170,7 @@ function pairTaskId(pairId: string): string {
 function summarizeTokenCost(
   events: readonly FixedPromptTaskWalEvent[],
 ): AbTokenCostSummary {
-  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: FixedPromptTaskCompletedEvent['tokenSummary'] } => 'tokenSummary' in event);
+  const withUsage = events.filter((event): event is FixedPromptTaskWalEvent & { tokenSummary: HarborCellTokenSummary } => 'tokenSummary' in event);
   const durations = events.flatMap((event) => 'durationMs' in event ? [event.durationMs] : []);
   return {
     input: sum(withUsage.map((event) => event.tokenSummary.input)),

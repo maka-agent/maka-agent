@@ -7,7 +7,7 @@ import type {
   FixedPromptTask,
   FixedPromptTaskWalEvent,
 } from './fixed-prompt-controller.js';
-import { assertPositiveInt } from './numeric-guards.js';
+import { assertFinitePositive, assertPositiveInt } from './numeric-guards.js';
 import { summarizeAbComparison } from './ab-summary.js';
 
 export async function runAbComparison(input: RunAbComparisonInput): Promise<AbComparisonSummary> {
@@ -15,6 +15,7 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   const reps = input.reps ?? 3;
   assertPositiveInt('reps', reps);
   const maxConcurrency = input.maxConcurrency !== undefined ? assertPositiveInt('maxConcurrency', input.maxConcurrency) : 1;
+  if (input.costCeilingUsd !== undefined) assertFinitePositive('costCeilingUsd', input.costCeilingUsd);
   const baselineRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const candidateRuns: FixedPromptTaskWalEvent[][] = Array.from({ length: reps }, () => []);
   const pairs: { rep: number; taskIndex: number; task: FixedPromptTask }[] = [];
@@ -23,6 +24,8 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
   }
 
   let nextPairIndex = 0;
+  let observedCostUsd = 0;
+  let stopReason: AbComparisonSummary['stopReason'];
   const active = new Map<number, Promise<{
     pairIndex: number;
     rep: number;
@@ -30,7 +33,7 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     candidate: FixedPromptTaskWalEvent;
   }>>();
   const launchReadyPairs = () => {
-    while (active.size < maxConcurrency && nextPairIndex < pairs.length) {
+    while (!stopReason && active.size < maxConcurrency && nextPairIndex < pairs.length) {
       const pairIndex = nextPairIndex;
       const pair = pairs[nextPairIndex++]!;
       active.set(pairIndex, runComparisonPair(input, pair).then((result) => ({ pairIndex, ...result })));
@@ -43,6 +46,10 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     active.delete(result.pairIndex);
     baselineRuns[result.rep]!.push(result.baseline);
     candidateRuns[result.rep]!.push(result.candidate);
+    observedCostUsd += eventCostUsd(result.baseline) + eventCostUsd(result.candidate);
+    if (input.costCeilingUsd !== undefined && observedCostUsd >= input.costCeilingUsd) {
+      stopReason = 'cost_ceiling_reached';
+    }
     launchReadyPairs();
   }
   const taskOrder = new Map(input.evaluationTasks.map((task, index) => [task.id, index]));
@@ -50,7 +57,7 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     run.sort((a, b) => (taskOrder.get(a.taskId) ?? 0) - (taskOrder.get(b.taskId) ?? 0));
   }
 
-  return summarizeAbComparison({
+  const summary = summarizeAbComparison({
     runId: input.runId,
     roundId: 'ab-summary',
     baselineArmId: input.arms[0].id,
@@ -61,6 +68,11 @@ export async function runAbComparison(input: RunAbComparisonInput): Promise<AbCo
     ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
     ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
   });
+  return stopReason ? { ...summary, stopReason } : summary;
+}
+
+function eventCostUsd(event: FixedPromptTaskWalEvent): number {
+  return 'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0;
 }
 
 async function runComparisonPair(

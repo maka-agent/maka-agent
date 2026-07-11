@@ -25,6 +25,8 @@ export function buildAbRunManifest(input: AbRunManifestInput): AbRunManifest {
     reps: input.reps,
     candidateLimit: input.candidateLimit,
     maxConcurrency: input.maxConcurrency,
+    maxConcurrentAttempts: input.maxConcurrentAttempts,
+    costCeilingUsd: input.costCeilingUsd,
     selectionMode: input.selectionMode,
     candidateTaskIds: input.candidateTaskIds ? [...input.candidateTaskIds] : undefined,
     maxExpertTimeEstimateMin: input.maxExpertTimeEstimateMin,
@@ -65,12 +67,27 @@ export async function ensureAbRunManifest<T extends { fingerprint: string }>(
     return manifest;
   }
   const existing = JSON.parse(raw) as T;
+  if (hasFullBodyFingerprint(existing)) {
+    const { fingerprint: existingFingerprint, ...existingBody } = existing;
+    const recomputedFingerprint = buildRunManifestFingerprint(existingBody);
+    if (existingFingerprint !== recomputedFingerprint) {
+      throw new Error(
+        `stored A/B run manifest fingerprint is invalid: stored ${existingFingerprint ?? 'missing'}, recomputed ${recomputedFingerprint}`,
+      );
+    }
+  }
   if (existing.fingerprint !== manifest.fingerprint) {
     throw new Error(
       `A/B run manifest does not match existing run id: existing ${existing.fingerprint ?? 'missing'}, current ${manifest.fingerprint}. Use a new run id or restore the original run config.`,
     );
   }
   return existing;
+}
+
+function hasFullBodyFingerprint(value: unknown): value is { schemaVersion: string; fingerprint: string } {
+  if (!value || typeof value !== 'object' || !('schemaVersion' in value)) return false;
+  const schemaVersion = (value as { schemaVersion?: unknown }).schemaVersion;
+  return schemaVersion === 'maka.ab.run_manifest.v1';
 }
 
 function canonicalJson(value: unknown): string {

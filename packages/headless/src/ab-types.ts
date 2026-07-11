@@ -28,6 +28,7 @@ export interface RunAbComparisonInput {
   evaluationTasks: readonly FixedPromptTask[];
   reps?: number;
   maxConcurrency?: number;
+  costCeilingUsd?: number;
   budgetMs?: number;
   nonInferiorityMargin?: number;
   runArm: AbArmRunner;
@@ -243,6 +244,7 @@ export interface AbComparisonSummary {
   taskLevel: AbTaskLevelSummary;
   pairedAttempts: AbAttemptPairSummary;
   investigationRefs: AbInvestigationRefs;
+  stopReason?: 'cost_ceiling_reached';
 }
 
 export interface AbRunManifestInput {
@@ -257,6 +259,8 @@ export interface AbRunManifestInput {
   reps: number;
   candidateLimit: number | null;
   maxConcurrency: number;
+  maxConcurrentAttempts?: number;
+  costCeilingUsd?: number;
   selectionMode?: 'explicit' | 'metadata';
   candidateTaskIds?: readonly string[];
   maxExpertTimeEstimateMin?: number | null;
