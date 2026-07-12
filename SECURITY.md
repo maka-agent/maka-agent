@@ -106,8 +106,8 @@ execution). When that lands it will be documented here.
    (`maskAppSettings` in `apps/desktop/src/main/settings-ipc-helpers.ts`).
    Re-submitting the mask sentinel `••••••` is interpreted as
    "keep current" by the merge logic; an empty string is
-   interpreted as an explicit clear. This is the SAME pattern
-   PR-WEB-SEARCH-TAVILY-0 applied to the Tavily API key.
+   interpreted as an explicit clear. The Tavily API key follows the
+   same boundary.
 5. **Network egress through user-configured proxies.** The
    `network.proxy` settings drive Electron's session proxy. Tools
    that bypass `proxiedFetch` (Tavily lives in main, uses
@@ -134,8 +134,8 @@ are welcome as ordinary issues, not security advisories.
    prompts. `execute` mode autopilots — the user is opting into
    "yolo".
 5. **Modal-lifecycle contract test.** Catches the React
-   `useEffect`-before-`if (!open) return null` pattern that
-   crashed Phase 3. Static analysis only.
+   `useEffect`-before-`if (!open) return null` pattern that can
+   violate React hook ordering. Static analysis only.
 6. **WebSearch fail-closed chain.** `invalid_query →
    incognito_active → not_configured → invalid_credentials`. All
    four return generalized Chinese copy without ever revealing
@@ -150,18 +150,16 @@ privacy commitments:
   results, telemetry, settings are stored under
   `app.getPath('userData')`. Cloud sync is not shipped.
 - **Tool query strings are NEVER logged.** The WebSearch tool's
-  `argsSummary` is scrubbed at the recordToolInvocation hook
-  (PR-AGENT-WEB-SEARCH-TOOL-0).
+  `argsSummary` is scrubbed at the `recordToolInvocation` hook.
 - **Incognito context.** When the workspace privacy context
   reports `incognitoActive: true`, the WebSearch tool fails
   closed before any network call. Other surfaces that consume
   the same context are listed in `packages/core/src/incognito.ts`.
 - **Token boundary.** Cleartext API keys / OAuth tokens / bot
-  tokens NEVER cross the main→renderer IPC boundary. The
-  PR-AGENT-WEB-SEARCH-TOOL-0 contract test
-  (`apps/desktop/src/main/__tests__/web-search-boundary.test.ts`)
-  is the gate that enforces this for the Tavily key; PR-OAUTH-SUBSCRIPTION-0
-  applies the same gate to the Claude subscription tokens.
+  tokens NEVER cross the main→renderer IPC boundary.
+  `apps/desktop/src/main/__tests__/web-search-boundary.test.ts` and
+  `claude-subscription-ipc-boundary.test.ts` enforce this for Tavily
+  and Claude subscription credentials.
 
 ## 3. Scope of vulnerability reports
 
@@ -204,11 +202,9 @@ sentinel is interpreted by
 "keep current", so a round-trip through `settings:get →
 settings:update` cannot accidentally overwrite the stored value.
 
-When an experimental gate is enabled to send a cleartext token in
-a tool request (the test button on PR-WEB-SEARCH-TAVILY-0 sends a
-draft `apiKey` so the user can verify before saving), the main
-process accepts it for that single request and does NOT echo it
-back in the response.
+Credential-test requests may submit an unsaved cleartext token so the
+user can verify it before saving. The main process accepts it for that
+single request and does not echo it in the response.
 
 The static-analysis contract tests for this policy:
 - `apps/desktop/src/main/__tests__/web-search-boundary.test.ts`
