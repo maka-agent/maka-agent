@@ -69,6 +69,7 @@ export function assertPinnedCuaDriverChecksums(entry) {
     typeof entry?.expectedVersion !== 'string'
     || typeof entry?.sourceCommit !== 'string'
     || typeof entry?.upstreamCommit !== 'string'
+    || typeof entry?.upstreamMergeCommit !== 'string'
     || typeof entry?.cargoLockSha256 !== 'string'
     || !Array.isArray(entry?.architectures)
     || entry.architectures.length === 0
@@ -91,6 +92,7 @@ function expectedMarker() {
     expectedVersion: cua.expectedVersion,
     sourceCommit: cua.sourceCommit,
     upstreamCommit: cua.upstreamCommit,
+    upstreamMergeCommit: cua.upstreamMergeCommit,
     archiveSha256: cua.archiveSha256,
     binarySha256: cua.binarySha256,
     licenseSha256: cua.licenseSha256,
@@ -104,6 +106,7 @@ function markerMatches(marker) {
     && marker?.expectedVersion === expected.expectedVersion
     && marker?.sourceCommit === expected.sourceCommit
     && marker?.upstreamCommit === expected.upstreamCommit
+    && marker?.upstreamMergeCommit === expected.upstreamMergeCommit
     && marker?.archiveSha256 === expected.archiveSha256
     && marker?.binarySha256 === expected.binarySha256
     && marker?.licenseSha256 === expected.licenseSha256

@@ -73,6 +73,7 @@ export async function checkCuaDriverBundle(targetPlatform = process.platform) {
     || marker.expectedVersion !== cua.expectedVersion
     || marker.sourceCommit !== cua.sourceCommit
     || marker.upstreamCommit !== cua.upstreamCommit
+    || marker.upstreamMergeCommit !== cua.upstreamMergeCommit
     || marker.archiveSha256 !== cua.archiveSha256
     || marker.binarySha256 !== cua.binarySha256
     || marker.licenseSha256 !== cua.licenseSha256

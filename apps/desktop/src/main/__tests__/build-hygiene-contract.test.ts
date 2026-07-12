@@ -73,6 +73,7 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
         sourceSha256?: string;
         sourceCommit?: string;
         upstreamCommit?: string;
+        upstreamMergeCommit?: string;
         architectures?: string[];
         sha256?: string;
       };
@@ -92,6 +93,7 @@ describe('build-hygiene contract (PR-BUILD-HYGIENE-0)', () => {
     assert.match(cua.sourceSha256 ?? '', /^[a-f0-9]{64}$/);
     assert.match(cua.sourceCommit ?? '', /^[a-f0-9]{40}$/);
     assert.match(cua.upstreamCommit ?? '', /^[a-f0-9]{40}$/);
+    assert.match(cua.upstreamMergeCommit ?? '', /^[a-f0-9]{40}$/);
     assert.deepEqual(cua.architectures, ['arm64', 'x86_64']);
     assert.notEqual(cua.archiveSha256, cua.binarySha256, 'archive and extracted binary hashes must be independent');
     assert.equal(cua.sha256, undefined, 'the ambiguous legacy cuaDriver.sha256 field must stay removed');

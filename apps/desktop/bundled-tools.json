@@ -11,21 +11,22 @@
   },
   "cuaDriver": {
     "repo": "hqhq1025/cua",
-    "version": "v0.7.1-maka.1",
+    "version": "v0.7.1-maka.2",
     "expectedVersion": "0.7.1",
-    "tag": "cua-driver-rs-v0.7.1-maka.1",
-    "asset": "cua-driver-rs-0.7.1-maka.1-darwin-universal-binary.tar.gz",
+    "tag": "cua-driver-rs-v0.7.1-maka.2",
+    "asset": "cua-driver-rs-0.7.1-maka.2-darwin-universal-binary.tar.gz",
     "binaryName": "cua-driver",
-    "sourceCommit": "adef3e87405986cc82df52ae59aef4c32e08a082",
+    "sourceCommit": "35fa565846ec60747603fa3e7b94160f796c5ecf",
     "upstreamTag": "cua-driver-rs-v0.7.1",
-    "upstreamCommit": "7caf72bee2286f47a985c3121b56aaabdebd62b9",
+    "upstreamCommit": "8c921b2b3bf13494724ead4f0a814d80c56a7e8b",
+    "upstreamMergeCommit": "fb5bc192a5311d0519447f1d301bdf0b0c93bbb0",
     "patchPullRequest": "https://github.com/trycua/cua/pull/2166",
     "cargoLockSha256": "87c1fe447c7d5b26f987fe3b91975fb3516013329c7cc0341b8b43e800123a1d",
     "architectures": ["arm64", "x86_64"],
     "signature": "adhoc",
-    "archiveSha256": "5bf872376f581b64942330dca2033449b1e33cbccd7afb26d4db9ce7d87167b8",
-    "binarySha256": "44a7b8ebc559934b93c9751d1eb695724d6108428f6f077336cef7dc3d14fde5",
+    "archiveSha256": "c15e65138200cac5a03d013c455201bcfae2b9a7fb16be7c9d332e595481862c",
+    "binarySha256": "683dad5cccb47dd0a8bb5d534d62fbb9e6edfb1cded232509cf4c2b190066040",
     "licenseSha256": "c0779290c1d4783169aa3dbfb55feb505e563ef8a004bbf55298ceffcfbda8d9",
-    "sourceSha256": "6a06a7b60153c9451db0eafc885face0e8889f97f6c308a3b073126ddf08c3c8"
+    "sourceSha256": "8a9124055ed9a6473c8243325ccabb2c2d93dad3acab680488eb0e6af1dcfa13"
   }
 }
