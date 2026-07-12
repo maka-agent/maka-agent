@@ -1,5 +1,7 @@
 # Maka full product completion and test plan
 
+> Archived on 2026-07-13. This one-month delivery plan is retained as historical context; current work and progress belong in GitHub issues and pull requests.
+
 > Owner: @xuan
 > Date: 2026-05-22
 > Scope: one-month completion plan for Maka desktop product capability, quality gates, and release testing.

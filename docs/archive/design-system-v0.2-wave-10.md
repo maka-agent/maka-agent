@@ -1,5 +1,7 @@
 # Maka 设计系统契约 · design-system.md
 
+> Archived on 2026-07-13. This wave document mixes historical implementation plans and snapshots with design rules; use the local frontend READMEs, source, and contract tests for current guidance.
+
 > 编写者：@yuejing · 编辑伙伴：claude-code agents · 版本：v0.2-wave-10
 >
 > 这是 Maka 桌面端的设计系统**契约**，不是手册、不是规范文档、不是 marketing

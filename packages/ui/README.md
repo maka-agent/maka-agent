@@ -46,6 +46,6 @@ Acknowledged transitional states — not TODOs; track actual work in issues/PRs.
 
 ## Contracts & guardrails
 
-Component contracts (5-state, ARIA, keyboard, tone/token per component), the token registry, and anti-patterns live in `docs/design-system.md`. Where that doc disagrees with the code or the contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, …), the code and the tests are the source of truth.
+Component behavior, ARIA, keyboard, tone, and token contracts are enforced by source and the focused contract tests (`*-converge-contract.test.ts`, `state-token-governance-*`, and related suites). `docs/frontend-css-governance.md` owns the remaining cross-cutting CSS rules.
 
 Selected primitives and features have stories (`stories/`) and unit tests (`src/__tests__/`); coverage is partial, not exhaustive. Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).

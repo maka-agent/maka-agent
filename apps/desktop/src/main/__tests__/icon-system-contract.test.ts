@@ -134,9 +134,4 @@ describe('icon system contract (single chrome size token)', () => {
     );
   });
 
-  it('registers the iconography contract in design-system.md', async () => {
-    const doc = await readFile(join(repoRoot, 'docs', 'design-system.md'), 'utf8');
-    assert.match(doc, /###\s*1\.9\s*图标/, 'design-system.md must carry §1.9 图标');
-    assert.match(doc, /--icon-size\b/, 'doc must register the icon-size token');
-  });
 });

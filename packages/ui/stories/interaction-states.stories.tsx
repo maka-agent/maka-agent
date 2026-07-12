@@ -16,7 +16,7 @@ type Story = StoryObj<typeof meta>;
 //   pressed   -> :active background = --state-selected-bg (no scale transform)
 // The rows below pin each state statically so reviewers can compare wash
 // intensity and confirm hover (4%) < selected (6.5%). Press feedback is a
-// background change, not a scale — see design-system.md §3 + #499.
+// background change, not a scale — pinned by the state-token contracts from #499.
 
 const rowStyle: React.CSSProperties = {
   display: 'flex',

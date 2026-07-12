@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Workspace a11y audit (PR-IR-03 per `docs/ui-quality-plan.md` §5).
+ * Workspace accessibility audit. This script is the executable source of
+ * truth for the static checks below.
  *
  * Walks all .tsx source under apps/ and packages/ (excluding __tests__/,
- * dist/, node_modules/) and flags common a11y regressions that block §3.2
- * keyboard / §1 a11y gates from the UI quality plan:
+ * dist/, node_modules/) and flags common accessibility regressions:
  *
  *  1. **Icon-only buttons** — `<button>` whose only children are
  *     self-closing JSX elements (e.g. `<Icon />`) and which lack

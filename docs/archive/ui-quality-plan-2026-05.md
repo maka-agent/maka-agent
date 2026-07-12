@@ -1,7 +1,9 @@
 # Maka UI Quality Plan (one-month delivery contract)
 
+> Archived on 2026-07-13. This month-one rollout plan and coverage snapshot are no longer current; use `docs/frontend-css-governance.md`, the local frontend READMEs, source, and contract tests.
+
 This is the **UI-side delivery contract** complementing
-`docs/full-product-test-plan.md` (full-product roadmap, @xuan's) and
+the archived full-product roadmap (`docs/archive/full-product-test-plan-2026-05.md`, @xuan's) and
 @kenji's `notes/maka-one-month-completion-test-plan.md` (cross-cutting
 test/release matrix). Where those define "what features ship and how the
 overall test matrix is laid out", this document defines the UI-specific

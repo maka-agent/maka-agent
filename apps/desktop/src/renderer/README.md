@@ -38,12 +38,12 @@ Note the `--foreground-N` split: the wash stops (`-2/-3/-5/-8/-10`) are surface 
 
 Acknowledged transitional states — not TODOs; track work in issues/PRs.
 
-- Hand-written `styles/*.css` recipes + overrides on `@maka/ui` primitives: end state is structure carried by primitives, renderer CSS left only with layout primitives can't cover. Per-recipe retirement is tracked in `notes/ui-convergence-map-2026-07-09.md`.
+- Hand-written `styles/*.css` recipes + overrides on `@maka/ui` primitives: end state is structure carried by primitives, renderer CSS left only with layout primitives can't cover. Track concrete retirement work in GitHub issues and PRs.
 - `reference-shell.css`: end state is folded into the token/style system and the file removed.
 - `maka-tokens.css` mixing tokens + recipes: end state is tokens-only here, recipes living on primitives / `styles/`.
 
 ## Contracts & guardrails
 
 - CSS cascade / layer / `!important` / dead-CSS / token rules: `docs/frontend-css-governance.md`. The dead-CSS check runs from the repo root via `check:release` (`scripts/check-dead-css.mjs --check`); its baseline is `scripts/check-dead-css-baseline.json`.
-- Component 5-state / ARIA / token / copy contracts: `docs/design-system.md`.
-- Where either doc disagrees with the code or the contract tests, the code and the tests are the source of truth. Key guardrail tests live in `apps/desktop/src/main/__tests__/` (style-layer-cascade, important-audit, typography / spacing / radius / state-token / foreground-tier governance). Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).
+- Component state, ARIA, token, and copy behavior is owned by source and focused contract tests.
+- Where prose disagrees with the code or contract tests, the code and tests are the source of truth. Key guardrail tests live in `apps/desktop/src/main/__tests__/` (style-layer-cascade, important-audit, typography / spacing / radius / state-token / foreground-tier governance). Build/test entry points are the npm scripts in the root `package.json` (see the top-level `README.md`).

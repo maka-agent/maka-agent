@@ -221,13 +221,6 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(tabs, /bg-control data-\[orientation=horizontal\]:h-0\.5/);
     assert.doesNotMatch(tabs, /bg-primary data-\[orientation=horizontal\]:h-0\.5/);
 
-    const docs = await readFile(resolve(REPO_ROOT, 'docs/design-system.md'), 'utf8');
-    // Direction A: pale-blue CTA chip + deep-blue text (8.64:1) and control
-    // L0.65 for WCAG 1.4.11 non-text 3:1 (3.09:1) replace the old
-    // "don't flip to --foreground / 2.46:1" rationale.
-    assert.match(docs, /8\.64:1/);
-    assert.match(docs, /3\.09:1/);
-    assert.match(docs, /WCAG 1\.4\.11/);
   });
 
   it('permission-mode chip text is readable across all tones (>=4.5:1)', async () => {

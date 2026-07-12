@@ -31,10 +31,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ### Frontend and validation
 
-- [Design system](./design-system.md)
 - [Frontend CSS governance](./frontend-css-governance.md)
-- [Full product test plan](./full-product-test-plan.md)
-- [UI quality plan](./ui-quality-plan.md)
 
 ### Security and privacy
 
@@ -53,18 +50,11 @@ These documents include target-state design or work that is not fully implemente
 - [Heavy-task mainline system design](./heavy-task-mainline-system-design.md)
 - [Runtime v2 architecture evolution](./runtime-v2-architecture-evolution.md)
 - [Runtime v2 implementation notes](./runtime-v2-implementation-notes.md)
-- [Design refinement roadmap](./design-refinement-roadmap-2026-07.md)
-
-## Research and audits
-
-- [Capability maturity audit v1](./maka-capability-audit-v1.md)
-
-There are currently no tracked research notes. New research should record dated evidence and avoid presenting proposals as shipped behavior.
 
 ## Historical material
 
 - [Runtime kernel extraction](./runtime-kernel.md)
-- [Completed implementation plans](./archive/)
+- [Documentation archive](./archive/README.md)
 
 ## Maintenance
 

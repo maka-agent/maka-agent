@@ -219,7 +219,7 @@
   /* === shadow recipes ===
      Always include the 1px border ring as the FIRST inset-like layer.
      Subsequent layers are very low-opacity blurs that stack into a soft glow. */
-  /* P-SHADOW (design-refinement-roadmap-2026-07 §1.2): blur layers were
+  /* P-SHADOW (archived design-refinement-roadmap-2026-07 §1.2): blur layers were
      pure-black rgba — on a light warm-gray shell a pure black shadow
      reads as a dirty smudge (taste-skill ban). Every layer now derives
      from the warm foreground so shadow, border ring, and ink share one

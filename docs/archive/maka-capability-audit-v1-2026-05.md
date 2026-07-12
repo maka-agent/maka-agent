@@ -1,5 +1,7 @@
 # Maka 能力成熟度审计 v1
 
+> Archived on 2026-07-13. This is a point-in-time audit against a May 2026 code baseline; its progress and frontend-document references are not current guidance.
+
 > 编写：@xuan
 > 日期：2026-05-22
 > 基线：`main` at `832bbac`

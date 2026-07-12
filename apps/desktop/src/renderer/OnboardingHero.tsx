@@ -599,8 +599,8 @@ function ReadyEmptyHero(props: {
       // Composer's IME composition guard. Without this, a Chinese /
       // Japanese / Korean user committing an IME composition with
       // Enter immediately fires `submit()` and sends the unfinished
-      // draft. The same guard at packages/ui/src/components.tsx:5640
-      // already covers the main chat input; the onboarding-hero clone
+      // draft. The same guard in packages/ui/src/composer.tsx already
+      // covers the main chat input; the onboarding-hero clone
       // had drifted.
       if (isChatInputComposing(event, compositionActiveRef.current)) return;
       // Enter (without modifier) → submit. Shift+Enter inserts newline.

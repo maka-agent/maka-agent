@@ -1,5 +1,7 @@
 # Maka 质感提升路线图（2026-07）
 
+> Archived on 2026-07-13. Completed decisions remain visible for provenance; unfinished queues must be tracked in GitHub issues rather than treated as a current documentation backlog.
+
 > 来源：四个设计 skill 资源的系统学习（taste-skill / superdesign /
 > ui-skills.com 生态 / vercel-labs agent-skills），对照 maka 现状
 > （2026-06-24 skills 轮已 shipped 项 + 2026-07-03 三层 code review）

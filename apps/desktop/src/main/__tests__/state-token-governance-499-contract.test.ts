@@ -55,12 +55,6 @@ describe('issue #499 state-token governance contract', () => {
     assert.deepEqual(violations, [], `--hover/--active must be fully retired:\n${violations.join('\n')}`);
   });
 
-  it('design-system.md registers the new state tokens in the §1.1 color table', async () => {
-    const docs = await readFile(resolve(REPO_ROOT, 'docs', 'design-system.md'), 'utf8');
-    assert.match(docs, /`--state-hover-bg`/, 'design-system.md must register --state-hover-bg');
-    assert.match(docs, /`--state-selected-bg`/, 'design-system.md must register --state-selected-bg');
-  });
-
   it(':hover backgrounds use --state-hover-bg, not --foreground-N, inline oklch, or brand tokens (allowlist: base-brand controls whose hover stays brand)', async () => {
     const allCss = [TOKENS_FILE, ...(await readCssTree(RENDERER_STYLES_DIR)), STYLES_FILE];
     // Base-brand controls keep a brand hover (consistent with their brand base);
