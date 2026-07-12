@@ -83,7 +83,7 @@ Components are compact, predictable, and quietly tactile. Exact geometry and beh
 
 ### Controls
 
-Buttons, fields, chips, and navigation share one interaction language: clear focus, neutral structural states, restrained Maka-blue emphasis, and no bounce or scale feedback.
+Buttons, fields, chips, and navigation share one interaction language: clear focus, neutral structural states, restrained Maka-blue emphasis, and tokenized press or hover feedback without bounce, overshoot, or decorative choreography.
 
 ### Containers
 
