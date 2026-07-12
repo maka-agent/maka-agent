@@ -45,6 +45,13 @@ export type OpenAIComputerLoopResult =
       turns: number;
     };
 
+export interface OpenAIComputerLoopObservation {
+  turn: number;
+  responseId: string;
+  callId?: string;
+  actions: Readonly<OpenAIComputerCall['actions']>;
+}
+
 function throwIfAborted(signal: AbortSignal): void {
   if (signal.aborted) throw new Error('openai_computer_loop_aborted');
 }
@@ -64,6 +71,11 @@ export async function runOpenAIComputerLoop(input: {
     call: OpenAIComputerCall,
     signal: AbortSignal,
   ) => Promise<boolean>;
+  observeTurn?: (observation: OpenAIComputerLoopObservation) => void | Promise<void>;
+  allowAction?: (
+    action: OpenAIComputerCall['actions'][number],
+    context: { turn: number; actionIndex: number; call: OpenAIComputerCall },
+  ) => boolean | Promise<boolean>;
 }): Promise<OpenAIComputerLoopResult> {
   const signal = input.signal ?? new AbortController().signal;
   const maxTurns = input.maxTurns ?? 64;
@@ -86,6 +98,11 @@ export async function runOpenAIComputerLoop(input: {
       throw new Error('openai_computer_response_incomplete');
     }
     if (response.calls.length === 0) {
+      await input.observeTurn?.({
+        turn: turns,
+        responseId: response.id,
+        actions: [],
+      });
       return { status: 'completed', response, turns };
     }
     if (response.calls.length !== 1) {
@@ -93,6 +110,12 @@ export async function runOpenAIComputerLoop(input: {
     }
 
     const call = response.calls[0];
+    await input.observeTurn?.({
+      turn: turns,
+      responseId: response.id,
+      callId: call.callId,
+      actions: call.actions,
+    });
     let acknowledgedSafetyChecks: OpenAIComputerSafetyCheck[] | undefined;
     if (call.pendingSafetyChecks.length > 0) {
       const acknowledged = await input.acknowledgeSafetyChecks?.(
@@ -114,6 +137,23 @@ export async function runOpenAIComputerLoop(input: {
 
     const converted: CuAction[][] = [];
     for (let actionIndex = 0; actionIndex < call.actions.length; actionIndex += 1) {
+      if (
+        input.allowAction
+        && !await input.allowAction(call.actions[actionIndex], { turn: turns, actionIndex, call })
+      ) {
+        return {
+          status: 'unsupported_action',
+          response,
+          call,
+          actionIndex,
+          failure: {
+            ok: false,
+            code: 'unsupported_action_policy',
+            message: `OpenAI computer action '${call.actions[actionIndex].type}' was rejected by the scenario policy`,
+          },
+          turns,
+        };
+      }
       const conversion = convertOpenAIComputerAction(call.actions[actionIndex]);
       if (!conversion.ok) {
         return {

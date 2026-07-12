@@ -68,7 +68,8 @@ export type OpenAIComputerActionConversion =
         | 'unsupported_drag_path'
         | 'unsupported_keypress_chord'
         | 'unsupported_modifier_keys'
-        | 'unsupported_scroll_delta';
+        | 'unsupported_scroll_delta'
+        | 'unsupported_action_policy';
       message: string;
     };
 

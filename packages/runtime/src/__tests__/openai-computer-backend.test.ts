@@ -47,6 +47,21 @@ describe('OpenAIComputerBackend', () => {
     assert.equal(harness.telemetry.length, 2);
   });
 
+  test('reuses an explicit screenshot action without a fallback capture', async () => {
+    const harness = createHarness({
+      permissionMode: 'bypass',
+      responses: [
+        computerResponse([{ type: 'screenshot' }]),
+        finalResponse('captured'),
+      ],
+    });
+
+    const events = await collect(harness.backend.send(sendInput()));
+
+    assert.equal(events.at(-1)?.type, 'complete');
+    assert.deepEqual(harness.actions.map((args) => args.action), ['screenshot']);
+  });
+
   test('parks the background pump until SessionManager-style permission response arrives', async () => {
     const harness = createHarness({
       permissionMode: 'ask',

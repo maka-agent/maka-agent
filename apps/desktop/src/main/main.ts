@@ -69,6 +69,7 @@ import {
   AiSdkBackend,
   BackendRegistry,
   FakeBackend,
+  OpenAIComputerBackend,
   PermissionEngine,
   SessionManager,
   buildBuiltinTools,
@@ -86,6 +87,7 @@ import {
   testBotChannel as testRuntimeBotChannel,
   setActiveProxy,
   ShellRunProcessManager,
+  createOpenAIResponsesTransport,
 } from '@maka/runtime';
 import type {
   BotIncomingMessage,
@@ -176,6 +178,7 @@ import {
   selectComputerUseBackend,
 } from '@maka/computer-use';
 import { createCursorOverlayController } from './computer-use/cursor-overlay-window.js';
+import { isOwnedComputerUseFixtureTarget } from './computer-use/e2e-target-guard.js';
 import { releaseBrowserSession } from './browser/session.js';
 import { createMainWindowController } from './main-window.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
@@ -218,7 +221,10 @@ const isE2e = hasIsolatedTestProfile && process.env.MAKA_E2E === '1';
 const isComputerUseRealE2e =
   hasIsolatedTestProfile &&
   process.env.MAKA_CU_REAL_E2E === '1';
-const isIsolatedTest = isE2e || isComputerUseRealE2e;
+const isOpenAIComputerUseRealE2e =
+  hasIsolatedTestProfile &&
+  process.env.MAKA_CU_OPENAI_REAL_E2E === '1';
+const isIsolatedTest = isE2e || isComputerUseRealE2e || isOpenAIComputerUseRealE2e;
 
 // E2E isolation: redirect userData BEFORE the single-instance lock so the
 // lock judges the throwaway dir, not the real user data — otherwise a
@@ -629,6 +635,49 @@ function computerUseToolsForConnection(connection: LlmConnection): MakaTool[] {
       return computerUseTools;
   }
 }
+
+function openAIRealE2eComputerTool(tool: MakaTool): MakaTool {
+  if (!isOpenAIComputerUseRealE2e) return tool;
+  const inspectWindowAt = (
+    computerUse.backend as typeof computerUse.backend & {
+      inspectWindowAt?: (
+        point: { x: number; y: number },
+        signal: AbortSignal,
+      ) => Promise<{ pid: number; title?: string } | undefined>;
+    }
+  )?.inspectWindowAt;
+  return {
+    ...tool,
+    impl: async (args, context) => {
+      const action = args as {
+        action?: string;
+        coordinate?: [number, number];
+        start_coordinate?: [number, number];
+        region?: [number, number, number, number];
+      };
+      const points: Array<[number, number]> = [];
+      if (action.coordinate) points.push(action.coordinate);
+      if (action.start_coordinate) points.push(action.start_coordinate);
+      if (action.region) {
+        points.push(
+          [action.region[0], action.region[1]],
+          [action.region[2], action.region[3]],
+        );
+      }
+      for (const [x, y] of points) {
+        const target = await inspectWindowAt?.({ x, y }, context.abortSignal);
+        if (!isOwnedComputerUseFixtureTarget(target, process.pid)) {
+          return {
+            text:
+              `computer.${action.action ?? 'action'} failed: unsupported_action; `
+              + `target_occluded at (${x},${y})`,
+          };
+        }
+      }
+      return tool.impl(args, context);
+    },
+  };
+}
 console.log(`[cu-startup] backend=${computerUse.backendId} tools=${computerUseTools.length}`);
 const agentTools: MakaTool[] = [buildSubagentSpawnTool(), ...buildSubagentProjectionTools()];
 const deferredTools: MakaTool[] = [...riveTools, ...officeTools, ...browserTools, ...computerUseTools, ...agentTools];
@@ -850,6 +899,26 @@ backends.register('ai-sdk', async (ctx) => {
   const memoryPromptSnapshot = await systemPromptService.buildLocalMemoryPromptFragment();
   const supportsVision = modelSupportsVision(connection, model);
   const providerComputerTools = computerUseToolsForConnection(connection);
+  if (isOpenAIComputerUseRealE2e && connection.providerType === 'openai') {
+    const computerTool = computerUseTools[0];
+    if (!computerTool) throw new Error('OpenAI Computer Use E2E requires a computer backend');
+    return new OpenAIComputerBackend({
+      sessionId: ctx.sessionId,
+      header: { ...ctx.header, model },
+      connection,
+      modelId: model,
+      dialect: 'ga',
+      transport: createOpenAIResponsesTransport({
+        baseUrl: connection.baseUrl ?? 'http://127.0.0.1:8538/v1',
+      }),
+      computerTool: openAIRealE2eComputerTool(computerTool),
+      appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
+      permissionEngine,
+      maxTurns: 16,
+      recordToolInvocation: (event) =>
+        recordToolInvocation({ repo: telemetryRepo }, event),
+    });
+  }
   const runtimeTools = isComputerUseRealE2e
     ? providerComputerTools
     : [...(ctx.tools ?? builtinTools)].flatMap((tool) =>
@@ -2204,7 +2273,7 @@ app.whenReady().then(async () => {
 let computerUseRealE2eFixture: BrowserWindow | undefined;
 
 async function maybeCreateComputerUseRealE2eFixture(): Promise<void> {
-  if (!isComputerUseRealE2e) return;
+  if (!isComputerUseRealE2e && !isOpenAIComputerUseRealE2e) return;
   const display = screen.getPrimaryDisplay();
   const width = Math.min(720, Math.max(560, display.workArea.width - 80));
   const height = Math.min(520, Math.max(420, display.workArea.height - 80));
@@ -2358,8 +2427,16 @@ async function maybeRunComputerUseE2e(): Promise<void> {
         );
         fixtureState = state;
         console.log(`${tag} fixture_state ${JSON.stringify(state)}`);
-        if (isComputerUseRealE2e && (state?.blue !== 1 || state?.red !== 0)) {
-          throw new Error(`real model fixture verification failed: ${JSON.stringify(state)}`);
+        const expectedBlue = Number(process.env.MAKA_CU_E2E_EXPECT_BLUE ?? 1);
+        const expectedRed = Number(process.env.MAKA_CU_E2E_EXPECT_RED ?? 0);
+        if (
+          (isComputerUseRealE2e || isOpenAIComputerUseRealE2e)
+          && (state?.blue !== expectedBlue || state?.red !== expectedRed)
+        ) {
+          throw new Error(
+            `real model fixture verification failed: expected blue=${expectedBlue},red=${expectedRed}; `
+            + JSON.stringify(state),
+          );
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 50));
@@ -2379,7 +2456,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
       };
       console.log(`${tag} metrics ${JSON.stringify(metricReport)}`);
       const reportPath = process.env.MAKA_CU_REAL_E2E_REPORT;
-      if (isComputerUseRealE2e && reportPath) {
+      if ((isComputerUseRealE2e || isOpenAIComputerUseRealE2e) && reportPath) {
         await writeFile(reportPath, `${JSON.stringify(metricReport, null, 2)}\n`, 'utf8');
       }
       computerUseOverlay.clearForSession(session.id);
@@ -2395,7 +2472,7 @@ async function maybeRunComputerUseE2e(): Promise<void> {
   console.log('[cu-e2e] ===== SUITE SUMMARY =====');
   for (const line of summary) console.log(`[cu-e2e] ${line}`);
   console.log('[cu-e2e] done');
-  if (isComputerUseRealE2e) {
+  if (isComputerUseRealE2e || isOpenAIComputerUseRealE2e) {
     if (failed) process.exitCode = 1;
     app.quit();
   }

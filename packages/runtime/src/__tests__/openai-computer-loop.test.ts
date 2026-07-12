@@ -231,4 +231,45 @@ describe('runOpenAIComputerLoop', () => {
       }), /openai_computer_response_(failed|incomplete)/);
     }
   });
+
+  test('reports model action plans and enforces a scenario action budget before execution', async () => {
+    const observations: Array<{ turn: number; actions: string[] }> = [];
+    let screenshots = 0;
+    let executions = 0;
+    const result = await runOpenAIComputerLoop({
+      dialect: 'ga',
+      model: 'gpt',
+      prompt: 'observe once',
+      transport: {
+        async create() {
+          return {
+            id: `resp_${screenshots + 1}`,
+            status: 'completed',
+            error: null,
+            output: [call({ actions: [{ type: 'screenshot' }] })],
+          };
+        },
+      },
+      executor: { async execute() { executions += 1; } },
+      screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      observeTurn: (observation) => {
+        observations.push({
+          turn: observation.turn,
+          actions: observation.actions.map((action) => action.type),
+        });
+      },
+      allowAction: (action) => {
+        if (action.type !== 'screenshot') return false;
+        screenshots += 1;
+        return screenshots <= 1;
+      },
+      maxTurns: 2,
+    });
+    assert.equal(result.status, 'unsupported_action');
+    assert.equal(executions, 1);
+    assert.deepEqual(observations, [
+      { turn: 1, actions: ['screenshot'] },
+      { turn: 2, actions: ['screenshot'] },
+    ]);
+  });
 });
