@@ -131,6 +131,14 @@ const ALL_SCENARIOS = [
   // Reviewers should see the single overflow trigger cleanly painted with
   // NO `Nm ago` peeking through and NO unread dot stacked behind.
   'sidebar-row-actions-visible',
+  // #819: BrowserPanel renderer-chrome fixture. Seeds
+  // `liveBrowserSessionIds` with the active turn session so the panel
+  // mounts; with no native WebContentsView in visual-smoke mode,
+  // browser.getState resolves null → EMPTY_STATE → the empty-state
+  // chrome (toolbar all-nav-disabled + <Empty> strip) the #818
+  // narrow-layout defect regressed against. 1280/990 × light/dark
+  // variants baseline the chrome layout at wide + narrow gates.
+  'browser-empty',
 ];
 
 const VARIANTS = [

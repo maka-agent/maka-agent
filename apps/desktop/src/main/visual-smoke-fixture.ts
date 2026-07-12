@@ -121,6 +121,12 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // session on boot, so off-screen turns mount as content-visibility
   // placeholders (see e2e/scroll-geometry.spec.ts).
   'long-transcript',
+  // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
+  // with the active turn session so `BrowserPanel` mounts; with no native
+  // `WebContentsView` in visual-smoke mode, `browser.getState` resolves null
+  // → `EMPTY_STATE` → the empty-state chrome (toolbar all-nav-disabled +
+  // `<Empty>` strip) the #818 narrow-layout defect regressed against.
+  'browser-empty',
 ]);
 
 // Fixed clock for screenshot fixtures. All seeded timestamps and
@@ -325,6 +331,16 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       return { ...state, activeSessionId: ARTIFACT_SESSION_ID };
     case 'turn-narrative':
       return { ...state, activeSessionId: TURN_SESSION_ID };
+    case 'browser-empty':
+      // #819: the active turn session is also seeded as a live browser
+      // session so BrowserPanel mounts over the chat. No native
+      // WebContentsView exists in visual-smoke mode, so browser.getState
+      // resolves null → BrowserPanel renders EMPTY_STATE → the empty-state
+      // chrome is what screenshots capture (the #818 defect surface).
+      // Loaded / loading / nav chrome states are locked by the
+      // `browser-panel-chrome` source contract; their screenshots add no
+      // layout value over this empty-state baseline.
+      return { ...state, activeSessionId: TURN_SESSION_ID, liveBrowserSessionIds: [TURN_SESSION_ID] };
     case 'streaming-sidebar':
       return {
         ...state,

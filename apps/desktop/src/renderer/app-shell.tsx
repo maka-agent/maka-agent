@@ -941,6 +941,7 @@ export function AppShell({
     openSettingsSection,
     refreshSessions,
     setActiveId,
+    setLiveBrowserSessionIds,
     setLiveTurnBySession,
     setNavSelection,
     setPermissionBySession,
