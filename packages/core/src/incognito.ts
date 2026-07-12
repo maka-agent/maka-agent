@@ -24,9 +24,10 @@ export interface WorkspacePrivacyContext {
    * the main process; renderers may read but cannot durably claim
    * incognito on their own. Defaults to `false` on a fresh workspace.
    *
-   * Current durable-data consumers block thread search and local-memory
-   * reads and writes while this is true. New consumers must define their
-   * own fail-closed result at the main-process boundary.
+   * Current consumers block thread search, local-memory reads/writes,
+   * plan-reminder and automation actions, outbound web search, and system
+   * notifications while this is true. New consumers must define their own
+   * fail-closed result at the main-process boundary.
    */
   incognitoActive: boolean;
 }

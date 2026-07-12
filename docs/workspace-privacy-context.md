@@ -24,10 +24,13 @@ The current authority path is:
 
 `incognitoActive: false` only means that incognito mode did not block the operation. It is not general permission to read, write, search, capture, or transmit data. Every consumer must still apply its own settings, permission, and retention rules.
 
-When `incognitoActive` is true, current durable-data consumers enforce these boundaries:
+When `incognitoActive` is true, current consumers enforce these boundaries:
 
 - Thread search returns a disabled result instead of searching stored threads.
 - Local memory rejects durable reads and writes.
+- Plan reminders and automation reject creation or execution that would persist or act on workspace state.
+- Web search rejects outbound queries.
+- System notifications are suppressed.
 
 New privacy-sensitive consumers must take the main-owned context at their existing boundary and define a fail-closed incognito result. Do not add another incognito flag, copy the state into a parallel store, or let a renderer self-attest.
 

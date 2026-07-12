@@ -17,7 +17,7 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 
 ## Former repository notes
 
-Tracked `notes/` files were retired as an undocumented parallel authority. Point-in-time audits, migration plans, reference reverse-engineering, and design research remain here only for provenance. Current rules live in `AGENTS.md`, `ARCHITECTURE.md`, `DESIGN.md`, active cross-cutting contracts, local READMEs, source, and tests.
+Tracked `notes/` files were retired as an undocumented parallel authority. Point-in-time audits, migration plans, reference reverse-engineering, and design research remain here only for provenance. Current repository rules live in `ARCHITECTURE.md`, `DESIGN.md`, active cross-cutting contracts, local READMEs, source, and tests; workspace-specific agent instructions are supplied outside the tracked documentation set.
 
 ## Security contract snapshots
 
