@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import {
   mergeShellRunState,
   mergeShellRunStateWithDiagnostics,
+  normalizeShellToolResultContent,
   type ShellRunMergeDiagnostic,
   type ShellRunToolResult,
 } from '../index.js';
@@ -57,6 +58,57 @@ describe('mergeShellRunState', () => {
       currentRevision: 2,
       candidateRevision: 2,
     }]);
+  });
+});
+
+describe('normalizeShellToolResultContent', () => {
+  it('accepts canonical current terminal state and rejects contradictory exit status', () => {
+    const current = {
+      kind: 'terminal',
+      cwd: '/repo',
+      cmd: 'printf ok',
+      status: 'completed',
+      exitCode: 0,
+      output: pipeOutput('ok'),
+    };
+    assert.equal(normalizeShellToolResultContent(current).state, 'valid');
+    assert.equal(normalizeShellToolResultContent({ ...current, exitCode: 1 }).state, 'invalid');
+    assert.equal(normalizeShellToolResultContent({
+      kind: 'terminal',
+      cwd: '/repo',
+      cmd: 'printf bad',
+      status: 'completed',
+      exitCode: 1,
+      stdout: 'bad',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    }).state, 'invalid');
+  });
+
+  it('rejects non-canonical nested output and contradictory current state', () => {
+    const valid = shellRun();
+    assert.equal(normalizeShellToolResultContent(valid).state, 'valid');
+
+    const invalid = [
+      {
+        ...valid,
+        output: { ...pipeOutput(''), stdoutTail: 'legacy' },
+      },
+      {
+        ...valid,
+        completedAt: 2,
+      },
+      {
+        ...valid,
+        status: 'completed',
+        completedAt: 2,
+        exitCode: 1,
+      },
+    ];
+    for (const value of invalid) {
+      assert.equal(normalizeShellToolResultContent(value).state, 'invalid');
+    }
   });
 });
 

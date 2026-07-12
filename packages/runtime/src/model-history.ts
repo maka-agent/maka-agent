@@ -42,6 +42,7 @@ import {
   type RuntimeEventContent,
   type RuntimeEventRole,
 } from '@maka/core/runtime-event';
+import { normalizeShellToolResultContent } from '@maka/core';
 import type { AttachmentRef } from '@maka/core/events';
 
 // ============================================================================
@@ -275,8 +276,11 @@ export function buildRuntimeEventModelReplayPlan(
   const includeSystemEvents = options.includeSystemEvents ?? false;
   const items: RuntimeEventModelReplayItem[] = [];
   const diagnostics: RuntimeEventReplayDiagnostic[] = [];
-  const callsById = new Map<string, { name: string; eventId: string }>();
-  const semanticKinds = new Set<RuntimeEventReplaySemanticKind>();
+  const callsById = new Map<string, {
+    name: string;
+    eventId: string;
+    item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
+  }>();
 
   // Signed thinking in a tool turn is only replayable when the turn's tool calls
   // carry a step id (RuntimeEventRefs.stepId, stamped from tool_start): the
@@ -381,7 +385,6 @@ export function buildRuntimeEventModelReplayPlan(
           }));
           continue;
         }
-        semanticKinds.add('text');
         items.push({
           kind: 'text',
           role,
@@ -433,7 +436,6 @@ export function buildRuntimeEventModelReplayPlan(
           ));
           continue;
         }
-        semanticKinds.add('thinking');
         items.push({
           kind: 'thinking',
           text: event.content.text,
@@ -451,9 +453,7 @@ export function buildRuntimeEventModelReplayPlan(
           }));
           continue;
         }
-        semanticKinds.add('tool_call');
-        callsById.set(event.content.id, { name: event.content.name, eventId: event.id });
-        items.push({
+        const item: Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }> = {
           kind: 'tool_call',
           toolCallId: event.content.id,
           toolName: event.content.name,
@@ -461,7 +461,9 @@ export function buildRuntimeEventModelReplayPlan(
           ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
           eventId: event.id,
           ts: event.ts,
-        });
+        };
+        callsById.set(event.content.id, { name: event.content.name, eventId: event.id, item });
+        items.push(item);
         break;
       }
       case 'function_response': {
@@ -469,6 +471,21 @@ export function buildRuntimeEventModelReplayPlan(
           diagnostics.push(diagnostic(event, 'unsupported_role', 'function_response RuntimeEvent must use tool role', {
             role: event.role,
           }));
+          continue;
+        }
+        const normalizedShellResult = normalizeShellToolResultContent(event.content.result);
+        if (normalizedShellResult.state === 'invalid') {
+          const call = callsById.get(event.content.id);
+          if (call) {
+            const callIndex = items.indexOf(call.item);
+            if (callIndex >= 0) items.splice(callIndex, 1);
+            callsById.delete(event.content.id);
+          }
+          diagnostics.push(diagnostic(
+            event,
+            'unsupported_content',
+            'function_response contains an invalid shell tool result',
+          ));
           continue;
         }
         const call = callsById.get(event.content.id);
@@ -484,16 +501,18 @@ export function buildRuntimeEventModelReplayPlan(
             callEventId: call.eventId,
           }));
         }
-        semanticKinds.add('tool_result');
         items.push({
           kind: 'tool_result',
           toolCallId: event.content.id,
           toolName: event.content.name,
-          output: event.content.result,
+          output: normalizedShellResult.state === 'valid'
+            ? normalizedShellResult.content
+            : event.content.result,
           isError: event.content.isError === true,
           eventId: event.id,
           ts: event.ts,
         });
+        callsById.delete(event.content.id);
         break;
       }
       default:
@@ -510,14 +529,15 @@ export function buildRuntimeEventModelReplayPlan(
   const textMessages = items
     .filter((item): item is Extract<RuntimeEventModelReplayItem, { kind: 'text' }> => item.kind === 'text')
     .map((item) => ({ role: item.role, content: item.content }));
+  const semanticKinds = [...new Set(items.map((item) => item.kind))];
   return {
     items,
     textMessages,
-    semanticKinds: [...semanticKinds],
+    semanticKinds,
     diagnostics,
-    hasProviderNativeSemantics: semanticKinds.has('thinking')
-      || semanticKinds.has('tool_call')
-      || semanticKinds.has('tool_result'),
+    hasProviderNativeSemantics: semanticKinds.includes('thinking')
+      || semanticKinds.includes('tool_call')
+      || semanticKinds.includes('tool_result'),
   };
 }
 

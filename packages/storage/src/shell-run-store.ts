@@ -3,9 +3,11 @@ import { access, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/pro
 import { dirname, join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  isValidLegacyShellRunState,
   isShellOutput,
   isShellRunId,
   isShellRunStatus,
+  isValidShellRunState,
   type ShellRunRecord,
   type ShellRunPatch,
   type ShellRunStore,
@@ -41,28 +43,30 @@ const SHELL_RUN_RECORD_KEYS = new Set([
   'observedAt',
   'output',
 ]);
-const PIPE_OUTPUT_KEYS = new Set([
-  'mode',
-  'stdout',
-  'stderr',
-  'latestStream',
+const LEGACY_SHELL_RUN_RECORD_KEYS = new Set([
+  'shellRunId',
+  'sessionId',
+  'sourceRunId',
+  'sourceTurnId',
+  'sourceToolCallId',
+  'cwd',
+  'command',
+  'status',
+  'startedAt',
+  'updatedAt',
+  'completedAt',
+  'timeoutMs',
+  'exitCode',
+  'failureMessage',
+  'stdoutTail',
+  'stderrTail',
+  'latestOutputStream',
   'stdoutTruncated',
   'stderrTruncated',
-  'redacted',
+  'observedAt',
+  'orphanedReason',
+  'pid',
 ]);
-const PTY_OUTPUT_KEYS = new Set([
-  'mode',
-  'screen',
-  'scrollback',
-  'lastAlternateScreen',
-  'cols',
-  'rows',
-  'cursor',
-  'alternateScreen',
-  'truncated',
-  'redacted',
-]);
-const PTY_CURSOR_KEYS = new Set(['x', 'y', 'visible']);
 
 export function createShellRunStore(workspaceRoot: string): ShellRunStore {
   return new FileShellRunStore(workspaceRoot);
@@ -203,7 +207,7 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: expected an object`);
   }
-  const record = value as Partial<ShellRunRecord>;
+  const record = (normalizeLegacyShellRunRecord(value, sessionId, shellRunId) ?? value) as Partial<ShellRunRecord>;
   const requiredStrings = [
     record.shellRunId,
     record.sessionId,
@@ -216,8 +220,7 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
     record.sourceRunId,
     record.failureMessage,
   ];
-  const valid = hasOnlyKeys(value, SHELL_RUN_RECORD_KEYS) &&
-    hasOnlyShellOutputKeys(record.output) &&
+  const valid = hasOnlyKeys(record, SHELL_RUN_RECORD_KEYS) &&
     requiredStrings.every((item) => typeof item === 'string') &&
     record.sessionId === sessionId &&
     record.shellRunId === shellRunId &&
@@ -234,41 +237,83 @@ function normalizeShellRunRecord(value: unknown, sessionId: string, shellRunId: 
   if (!valid) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: malformed fields`);
   }
-  if (!hasValidStateFields(record)) {
+  if (!isValidShellRunState(record)) {
     throw new Error(`Invalid ShellRun record for ${shellRunId}: inconsistent state fields`);
   }
   return canonicalShellRunRecord(record as ShellRunRecord);
 }
 
-function hasValidStateFields(record: Partial<ShellRunRecord>): boolean {
-  switch (record.status) {
-    case 'running':
-      return record.completedAt === undefined &&
-        record.exitCode === undefined &&
-        record.failureMessage === undefined &&
-        record.observedAt === undefined;
-    case 'completed':
-      return record.completedAt !== undefined &&
-        record.exitCode === 0 &&
-        record.failureMessage === undefined;
-    case 'failed':
-      return record.completedAt !== undefined &&
-        ((typeof record.exitCode === 'number' && record.exitCode !== 0)
-          || (record.exitCode === undefined && typeof record.failureMessage === 'string' && record.failureMessage.length > 0));
-    case 'timed_out':
-      return record.completedAt !== undefined &&
-        record.exitCode === 124;
-    case 'cancelled':
-      return record.completedAt !== undefined &&
-        record.exitCode === 130;
-    case 'orphaned':
-      return record.completedAt !== undefined &&
-        record.exitCode === undefined &&
-        typeof record.failureMessage === 'string' &&
-        record.failureMessage.length > 0;
-    default:
-      return false;
-  }
+function normalizeLegacyShellRunRecord(
+  value: object,
+  sessionId: string,
+  shellRunId: string,
+): ShellRunRecord | undefined {
+  if (!hasOnlyKeys(value, LEGACY_SHELL_RUN_RECORD_KEYS)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (
+    record.output !== undefined
+    || record.revision !== undefined
+    || record.shellRunId !== shellRunId
+    || record.sessionId !== sessionId
+    || typeof record.sourceTurnId !== 'string'
+    || typeof record.sourceToolCallId !== 'string'
+    || typeof record.cwd !== 'string'
+    || typeof record.command !== 'string'
+    || !isShellRunStatus(record.status)
+    || !isFiniteNumber(record.startedAt)
+    || !isFiniteNumber(record.updatedAt)
+    || typeof record.stdoutTail !== 'string'
+    || typeof record.stderrTail !== 'string'
+    || typeof record.stdoutTruncated !== 'boolean'
+    || typeof record.stderrTruncated !== 'boolean'
+    || (record.sourceRunId !== undefined && typeof record.sourceRunId !== 'string')
+    || (record.completedAt !== undefined && !isFiniteNumber(record.completedAt))
+    || (record.timeoutMs !== undefined && !isFiniteNumber(record.timeoutMs))
+    || (record.exitCode !== undefined && !isFiniteNumber(record.exitCode))
+    || (record.failureMessage !== undefined && typeof record.failureMessage !== 'string')
+    || (record.observedAt !== undefined && !isFiniteNumber(record.observedAt))
+    || (record.orphanedReason !== undefined && typeof record.orphanedReason !== 'string')
+    || (record.pid !== undefined && !isFiniteNumber(record.pid))
+    || (record.latestOutputStream !== undefined
+      && record.latestOutputStream !== 'stdout'
+      && record.latestOutputStream !== 'stderr')
+    || !isValidLegacyShellRunState(record)
+  ) return undefined;
+
+  const failureMessage = typeof record.failureMessage === 'string'
+    ? record.failureMessage
+    : record.status === 'orphaned'
+      ? record.orphanedReason as string
+      : undefined;
+  return {
+    shellRunId,
+    sessionId,
+    ...(typeof record.sourceRunId === 'string' ? { sourceRunId: record.sourceRunId } : {}),
+    sourceTurnId: record.sourceTurnId,
+    sourceToolCallId: record.sourceToolCallId,
+    cwd: record.cwd,
+    command: record.command,
+    status: record.status,
+    startedAt: record.startedAt,
+    updatedAt: record.updatedAt,
+    ...(isFiniteNumber(record.completedAt) ? { completedAt: record.completedAt } : {}),
+    ...(isFiniteNumber(record.timeoutMs) ? { timeoutMs: record.timeoutMs } : {}),
+    ...(isFiniteNumber(record.exitCode) ? { exitCode: record.exitCode } : {}),
+    ...(failureMessage !== undefined ? { failureMessage } : {}),
+    revision: 1,
+    ...(isFiniteNumber(record.observedAt) ? { observedAt: record.observedAt } : {}),
+    output: {
+      mode: 'pipes',
+      stdout: record.stdoutTail,
+      stderr: record.stderrTail,
+      ...(record.latestOutputStream === 'stdout' || record.latestOutputStream === 'stderr'
+        ? { latestStream: record.latestOutputStream }
+        : {}),
+      stdoutTruncated: record.stdoutTruncated,
+      stderrTruncated: record.stderrTruncated,
+      redacted: false,
+    },
+  };
 }
 
 function assertSessionId(value: string): void {
@@ -293,14 +338,6 @@ function assertShellRunPatch(patch: ShellRunPatch): void {
       throw new Error(`ShellRun field is immutable: ${key}`);
     }
   }
-}
-
-function hasOnlyShellOutputKeys(value: unknown): boolean {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const output = value as { mode?: unknown; cursor?: unknown };
-  if (output.mode === 'pipes') return hasOnlyKeys(value, PIPE_OUTPUT_KEYS);
-  if (output.mode !== 'pty' || !hasOnlyKeys(value, PTY_OUTPUT_KEYS)) return false;
-  return hasOnlyKeys(output.cursor, PTY_CURSOR_KEYS);
 }
 
 function hasOnlyKeys(value: unknown, allowed: ReadonlySet<string>): boolean {

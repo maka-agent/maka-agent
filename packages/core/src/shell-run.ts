@@ -18,6 +18,28 @@ export const SHELL_RUN_TERMINAL_STATUSES = [
 ] as const;
 
 const SHELL_RUN_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
+const PIPE_SHELL_OUTPUT_KEYS = new Set([
+  'mode',
+  'stdout',
+  'stderr',
+  'latestStream',
+  'stdoutTruncated',
+  'stderrTruncated',
+  'redacted',
+]);
+const PTY_SHELL_OUTPUT_KEYS = new Set([
+  'mode',
+  'screen',
+  'scrollback',
+  'lastAlternateScreen',
+  'cols',
+  'rows',
+  'cursor',
+  'alternateScreen',
+  'truncated',
+  'redacted',
+]);
+const PTY_CURSOR_KEYS = new Set(['x', 'y', 'visible']);
 
 export type ShellRunTerminalStatus = typeof SHELL_RUN_TERMINAL_STATUSES[number];
 export type ShellMode = 'pipes' | 'pty';
@@ -129,7 +151,8 @@ export function isShellOutput(value: unknown): value is ShellOutput {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const output = value as Partial<ShellOutput>;
   if (output.mode === 'pipes') {
-    return typeof output.stdout === 'string'
+    return hasOnlyKeys(output, PIPE_SHELL_OUTPUT_KEYS)
+      && typeof output.stdout === 'string'
       && typeof output.stderr === 'string'
       && (output.latestStream === undefined
         || output.latestStream === 'stdout'
@@ -141,12 +164,14 @@ export function isShellOutput(value: unknown): value is ShellOutput {
   if (output.mode !== 'pty') return false;
   const pty = output as Partial<PtyShellOutput>;
   const cursor = pty.cursor;
-  return typeof pty.screen === 'string'
+  return hasOnlyKeys(pty, PTY_SHELL_OUTPUT_KEYS)
+    && typeof pty.screen === 'string'
     && typeof pty.scrollback === 'string'
     && (pty.lastAlternateScreen === undefined || typeof pty.lastAlternateScreen === 'string')
     && isPositiveInteger(pty.cols)
     && isPositiveInteger(pty.rows)
     && !!cursor
+    && hasOnlyKeys(cursor, PTY_CURSOR_KEYS)
     && isNonNegativeInteger(cursor.x)
     && cursor.x <= pty.cols
     && isNonNegativeInteger(cursor.y)
@@ -155,6 +180,51 @@ export function isShellOutput(value: unknown): value is ShellOutput {
     && typeof pty.alternateScreen === 'boolean'
     && typeof pty.truncated === 'boolean'
     && typeof pty.redacted === 'boolean';
+}
+
+export function isValidShellRunState(value: {
+  status?: unknown;
+  completedAt?: unknown;
+  exitCode?: unknown;
+  failureMessage?: unknown;
+  observedAt?: unknown;
+}): boolean {
+  switch (value.status) {
+    case 'running':
+      return value.completedAt === undefined
+        && value.exitCode === undefined
+        && value.failureMessage === undefined
+        && value.observedAt === undefined;
+    case 'completed':
+      return isFiniteNumber(value.completedAt)
+        && value.exitCode === 0
+        && value.failureMessage === undefined;
+    case 'failed':
+      return isFiniteNumber(value.completedAt)
+        && ((isFiniteNumber(value.exitCode) && value.exitCode !== 0)
+          || (value.exitCode === undefined
+            && typeof value.failureMessage === 'string'
+            && value.failureMessage.length > 0));
+    case 'timed_out':
+      return isFiniteNumber(value.completedAt) && value.exitCode === 124;
+    case 'cancelled':
+      return isFiniteNumber(value.completedAt) && value.exitCode === 130;
+    case 'orphaned':
+      return isFiniteNumber(value.completedAt)
+        && value.exitCode === undefined
+        && typeof value.failureMessage === 'string'
+        && value.failureMessage.length > 0;
+    default:
+      return false;
+  }
+}
+
+function hasOnlyKeys(value: object, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(value).every((key) => allowed.has(key));
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
 }
 
 function isPositiveInteger(value: unknown): value is number {

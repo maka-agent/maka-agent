@@ -2,7 +2,14 @@ import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { chainWrite } from './write-queue.js';
-import { deriveTurnRecords, isPermissionMode, isSessionBlockedReason, isSessionStatus, normalizeUserSessionName } from '@maka/core';
+import {
+  deriveTurnRecords,
+  isPermissionMode,
+  isSessionBlockedReason,
+  isSessionStatus,
+  normalizeShellToolResultContent,
+  normalizeUserSessionName,
+} from '@maka/core';
 import type {
   CreateSessionInput,
   SessionHeader,
@@ -318,7 +325,7 @@ class FileSessionStore implements SessionStore {
       for (const line of completeLines) {
         if (line.trim().length === 0) continue;
         try {
-          messages.push(JSON.parse(line) as StoredMessage);
+          messages.push(normalizeStoredMessageForRead(JSON.parse(line)));
         } catch {
           // Tail previews are best-effort; full reads still surface durable corruption notes.
         }
@@ -346,7 +353,7 @@ class FileSessionStore implements SessionStore {
     const lastLineNumber = lines.at(-1)?.lineNumber;
     for (const entry of lines.slice(1)) {
       try {
-        messages.push(JSON.parse(entry.line) as StoredMessage);
+        messages.push(normalizeStoredMessageForRead(JSON.parse(entry.line)));
       } catch (error) {
         if (!endsWithNewline && entry.lineNumber === lastLineNumber) continue;
         messages.push(createJsonlCorruptionNote(header, entry.lineNumber, error));
@@ -366,6 +373,14 @@ class FileSessionStore implements SessionStore {
     assertSafeSessionId(sessionId);
     return chainWrite(this.writeQueues, sessionId, operation);
   }
+}
+
+function normalizeStoredMessageForRead(value: unknown): StoredMessage {
+  const message = value as StoredMessage;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || message.type !== 'tool_result') return message;
+  const normalized = normalizeShellToolResultContent(message.content);
+  if (normalized.state === 'invalid') throw new Error('Invalid shell tool result content');
+  return normalized.state === 'valid' ? { ...message, content: normalized.content } : message;
 }
 
 /** Shared guard for stores that derive filesystem paths from a session id. */

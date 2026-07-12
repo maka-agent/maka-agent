@@ -13,6 +13,7 @@ import {
   isPartialRuntimeEvent,
   isTerminalRuntimeEvent,
   isTerminalRuntimeEventStatus,
+  normalizeShellToolResultContent,
 } from '@maka/core';
 import { isArchivedToolResultPlaceholder } from './context-budget.js';
 
@@ -541,8 +542,15 @@ function projectFunctionResponse(
   const archivedPlaceholder = isArchivedToolResultPlaceholder(event.content.result)
     ? event.content.result
     : undefined;
-  if (!archivedPlaceholder && !isToolResultContent(event.content.result)) {
-    diagnostic(state, event, 'incomplete_event', 'function_response result is not a legacy ToolResultContent');
+  const normalizedShellResult = archivedPlaceholder
+    ? { state: 'not_shell' as const }
+    : normalizeShellToolResultContent(event.content.result);
+  if (normalizedShellResult.state === 'invalid') {
+    diagnostic(state, event, 'incomplete_event', 'function_response contains an invalid shell tool result');
+    return false;
+  }
+  if (!archivedPlaceholder && normalizedShellResult.state === 'not_shell' && !isToolResultContent(event.content.result)) {
+    diagnostic(state, event, 'incomplete_event', 'function_response result is not a supported ToolResultContent');
     return false;
   }
   if (archivedPlaceholder) {
@@ -570,7 +578,9 @@ function projectFunctionResponse(
         rewriteVersion: archivedPlaceholder.rewriteVersion,
         reason: archivedPlaceholder.reason,
       }
-    : event.content.result as ToolResultContent;
+    : normalizedShellResult.state === 'valid'
+      ? normalizedShellResult.content
+      : event.content.result as ToolResultContent;
   messages.push({
     type: 'tool_result',
     id: stableMessageId(event, state, 'tool_result'),

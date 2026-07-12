@@ -346,6 +346,89 @@ describe('FileSessionStore CRUD', () => {
     });
   });
 
+  test('normalizes exact legacy shell tool results while reading session JSONL', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const header = await store.create(makeInput({ name: 'Legacy shell results' }));
+      const path = join(workspaceRoot, 'sessions', header.id, 'session.jsonl');
+      const existing = await readFile(path, 'utf8');
+      const legacyResults = [
+        {
+          type: 'tool_result', id: 'terminal-result', turnId: 'turn-1', ts: 2,
+          toolUseId: 'terminal-call', isError: false,
+          content: {
+            kind: 'terminal', cwd: '/workspace', cmd: 'printf ok', status: 'completed', exitCode: 0,
+            stdout: 'ok', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          },
+        },
+        {
+          type: 'tool_result', id: 'shell-result', turnId: 'turn-2', ts: 4,
+          toolUseId: 'shell-call', isError: false,
+          content: {
+            kind: 'shell_run', ref: 'maka://runtime/background-tasks/shell-1', status: 'cancelled',
+            cwd: '/workspace', cmd: 'sleep 30', startedAt: 1, updatedAt: 4, completedAt: 4,
+            exitCode: 130, stdout: 'ready', stderr: '', latestOutputStream: 'stdout',
+            stdoutTruncated: false, stderrTruncated: false, observedAt: 4, cancelled: true,
+          },
+        },
+      ];
+      const mixedResult = {
+        type: 'tool_result', id: 'mixed-terminal-result', turnId: 'turn-3', ts: 6,
+        toolUseId: 'mixed-terminal-call', isError: false,
+        content: {
+          kind: 'terminal', cwd: '/workspace', cmd: 'printf bad', status: 'completed', exitCode: 0,
+          stdout: 'bad', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          output: {
+            mode: 'pipes', stdout: 'bad', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        },
+      };
+      await writeFile(
+        path,
+        existing + [...legacyResults, mixedResult].map((message) => JSON.stringify(message)).join('\n') + '\n',
+        'utf8',
+      );
+
+      const messages = await store.readMessages(header.id);
+      const terminal = messages.find((message) => message.id === 'terminal-result');
+      const shellRun = messages.find((message) => message.id === 'shell-result');
+      assert.deepEqual(terminal?.type === 'tool_result' ? terminal.content : undefined, {
+        kind: 'terminal',
+        cwd: '/workspace',
+        cmd: 'printf ok',
+        status: 'completed',
+        exitCode: 0,
+        output: {
+          mode: 'pipes', stdout: 'ok', stderr: '',
+          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        },
+      });
+      assert.deepEqual(shellRun?.type === 'tool_result' ? shellRun.content : undefined, {
+        kind: 'shell_run',
+        ref: 'maka://runtime/background-tasks/shell-1',
+        mode: 'pipes',
+        status: 'cancelled',
+        cwd: '/workspace',
+        cmd: 'sleep 30',
+        startedAt: 1,
+        updatedAt: 4,
+        completedAt: 4,
+        exitCode: 130,
+        revision: 1,
+        output: {
+          mode: 'pipes', stdout: 'ready', stderr: '', latestStream: 'stdout',
+          stdoutTruncated: false, stderrTruncated: false, redacted: false,
+        },
+        operation: { kind: 'stop', applied: true },
+      });
+      assert.equal(messages.some((message) => message.id === 'mixed-terminal-result'), false);
+      assert.equal(
+        messages.some((message) => message.type === 'system_note' && message.id.startsWith('jsonl-corrupt-')),
+        true,
+      );
+    });
+  });
+
   test('recovers readable messages around a corrupt JSONL message line', async () => {
     await withStore(async (store, workspaceRoot) => {
       const sessionId = 'corrupt-middle-line';

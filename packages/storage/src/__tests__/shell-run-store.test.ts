@@ -141,6 +141,92 @@ describe('ShellRunStore', () => {
     });
   });
 
+  it('normalizes an exact legacy ShellRun record and writes only the current shape on update', async () => {
+    await withStore(async (store, root) => {
+      const dir = join(root, 'sessions', 'session-1', 'shell-runs', 'shell-legacy');
+      const path = join(dir, 'shell-run.json');
+      await mkdir(dir, { recursive: true });
+      await writeFile(path, JSON.stringify({
+        shellRunId: 'shell-legacy',
+        sessionId: 'session-1',
+        sourceRunId: 'run-1',
+        sourceTurnId: 'turn-1',
+        sourceToolCallId: 'tool-1',
+        cwd: '/workspace',
+        command: 'printf ready; sleep 30',
+        status: 'running',
+        startedAt: 1,
+        updatedAt: 1,
+        timeoutMs: 30_000,
+        stdoutTail: 'ready',
+        stderrTail: '',
+        latestOutputStream: 'stdout',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        pid: 123,
+      }) + '\n', 'utf8');
+
+      const restored = await store.readShellRun('session-1', 'shell-legacy');
+      assert.equal(restored.revision, 1);
+      assert.deepEqual(restored.output, {
+        mode: 'pipes', stdout: 'ready', stderr: '', latestStream: 'stdout',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      });
+
+      await store.updateShellRun('session-1', 'shell-legacy', {
+        updatedAt: 2,
+        output: pipeOutput({ stdout: 'ready\nnext', latestStream: 'stdout' }),
+      });
+      const written = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+      assert.equal(written.revision, 2);
+      assert.equal(Object.hasOwn(written, 'stdoutTail'), false);
+      assert.equal(Object.hasOwn(written, 'pid'), false);
+      assert.deepEqual(written.output, {
+        mode: 'pipes', stdout: 'ready\nnext', stderr: '', latestStream: 'stdout',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      });
+    });
+  });
+
+  it('rejects legacy ShellRun records that violate the preceding state invariants', async () => {
+    await withStore(async (store, root) => {
+      const cases = [
+        {
+          shellRunId: 'legacy-completed-with-orphan-reason',
+          status: 'completed', completedAt: 2, exitCode: 0, orphanedReason: 'contradictory',
+        },
+        {
+          shellRunId: 'legacy-failed-without-exit',
+          status: 'failed', completedAt: 2, failureMessage: 'old store required a non-zero exit code',
+        },
+      ] as const;
+      for (const invalid of cases) {
+        const dir = join(root, 'sessions', 'session-1', 'shell-runs', invalid.shellRunId);
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, 'shell-run.json'), JSON.stringify({
+          sessionId: 'session-1',
+          sourceRunId: 'run-1',
+          sourceTurnId: 'turn-1',
+          sourceToolCallId: 'tool-1',
+          cwd: '/workspace',
+          command: 'printf ready',
+          ...invalid,
+          startedAt: 1,
+          updatedAt: 2,
+          stdoutTail: 'ready',
+          stderrTail: '',
+          latestOutputStream: 'stdout',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+        }) + '\n', 'utf8');
+        await assert.rejects(
+          () => store.readShellRun('session-1', invalid.shellRunId),
+          /Invalid ShellRun record/,
+        );
+      }
+    });
+  });
+
   it('rejects inconsistent ShellRun state fields', async () => {
     await withStore(async (store) => {
       await assert.rejects(

@@ -168,8 +168,11 @@ export type {
 export {
   mergeShellRunState,
   mergeShellRunStateWithDiagnostics,
+  isValidLegacyShellRunState,
+  normalizeShellToolResultContent,
   shellRunStateProjection,
 } from './shell-run-result.js';
+export type { ShellToolResultNormalization } from './shell-run-result.js';
 export {
   ptyCompactTerminalLine,
   ptyHumanTerminalText,
@@ -190,6 +193,7 @@ export {
   isShellOutput,
   isShellRunId,
   isShellRunStatus,
+  isValidShellRunState,
   isTerminalShellRunStatus,
 } from './shell-run.js';
 
