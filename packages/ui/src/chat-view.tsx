@@ -352,11 +352,13 @@ export function ChatView(props: {
     });
   }, [props.activeSession?.id]);
 
-  // Warm up `content-visibility: auto` turns once per session load so every
+  // Warm up `content-visibility: auto` turns once per transcript DOM so every
   // turn's real height replaces the 250px `contain-intrinsic-size` estimate.
   // Without this, scrolling up through never-rendered history keeps inflating
   // the document and the top recedes ("endless scroll"). Keyed on hasTurns so
-  // the walk starts when history arrives, without re-walking per message.
+  // the walk starts when history arrives, without re-walking per message, and
+  // on mode (like the follower above) because leaving chat unmounts the
+  // scroller — the rebuilt `.maka-turn` nodes have no remembered sizes.
   // Gated so sizes are remembered from the FINAL layout, not a transient one
   // (a stale remembered size gets re-corrected on every viewport arrival —
   // exactly the drift this walk exists to remove):
@@ -394,7 +396,7 @@ export function ChatView(props: {
       window.clearTimeout(pollTimer);
       cancelWarmup?.();
     };
-  }, [props.activeSession?.id, hasTurns]);
+  }, [props.activeSession?.id, props.mode, hasTurns]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
