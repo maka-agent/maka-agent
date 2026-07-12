@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
-import type { SessionStatus, SessionSummary } from '@maka/core';
+import type { SessionSummary } from '@maka/core';
 import { formatCompactTimestamp } from '@maka/core';
 import {
   Archive,
@@ -412,8 +412,7 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
   if (status === 'active') return null;
   const Icon = STATUS_ICON_BY_STATUS[status as keyof typeof STATUS_ICON_BY_STATUS];
   if (!Icon) return null;
-  const label = STATUS_LABEL_BY_STATUS[status as keyof typeof STATUS_LABEL_BY_STATUS];
-  const tone = STATUS_TONE_BY_STATUS[status as keyof typeof STATUS_TONE_BY_STATUS];
+  const { label, tone } = presentSessionStatus(status);
   // `blocked` may attach a reason; we surface the generalized text in
   // the tooltip without exposing the raw enum identifier (per @kenji
   // i18n contract). The reason mapping lives in the renderer side; this
@@ -463,29 +462,6 @@ const STATUS_ICON_BY_STATUS = {
   done: CircleCheckBig,
   archived: Archive,
   aborted: Ban,
-} as const;
-
-const STATUS_LABEL_BY_STATUS = Object.fromEntries(
-  Object.keys(STATUS_ICON_BY_STATUS).map((status) => [status, presentSessionStatus(status as SessionStatus).label]),
-) as Record<keyof typeof STATUS_ICON_BY_STATUS, string>;
-
-// `blocked` was 'destructive' (red), which read as a hard error in the
-// chat header even when the session was just waiting on permission or a
-// connection retry. The chat top-right cluster sits visually alongside
-// monochrome quiet-icon buttons, so the bright red pill clashed. Most
-// blocked sessions are recoverable (permission_required, auth retry,
-// missing connection), so 'warning' (warm yellow) is the honest tone —
-// "you need to do something" rather than "this failed". The destructive
-// red is reserved for hard failures (e.g. permanent connection / auth
-// rejection), which surface through ChatHeaderAlertBadge instead.
-const STATUS_TONE_BY_STATUS = {
-  running: 'accent',
-  waiting_for_user: 'warning',
-  blocked: 'warning',
-  review: 'info',
-  done: 'success',
-  archived: 'muted',
-  aborted: 'muted',
 } as const;
 
 const BLOCKED_REASON_TOOLTIP = {
