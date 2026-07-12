@@ -471,7 +471,8 @@ describe('MARKDOWN-PROSE-RENDER-OWNER-0 contract (#739)', () => {
   // drop it and let Streamdown's utilities back in (which would re-break the
   // heading ladder and table fit the moment Tailwind generates those classes
   // from elsewhere in the codebase).
-  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'blockquote', 'hr', 'strong', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
+  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'ul', 'li', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
+  const NOT_OVERRIDDEN = ['p', 'ol', 'section', 'h5', 'h6'] as const;
 
   it('markdown-body overrides heading + table-structure elements with bareElement so prose.css reaches the DOM', async () => {
     const src = await readFile(MARKDOWN_BODY, 'utf8');
@@ -483,5 +484,24 @@ describe('MARKDOWN-PROSE-RENDER-OWNER-0 contract (#739)', () => {
         `markdown-body.tsx components prop must override ${tag} with bareElement('${tag}') so prose.css rules reach the rendered ${tag} instead of Streamdown's Tailwind utilities`,
       );
     }
+  });
+
+  it('markdown-body does NOT override p/ol/section/h5/h6 (functional logic or no prose.css rule)', async () => {
+    const src = await readFile(MARKDOWN_BODY, 'utf8');
+    for (const tag of NOT_OVERRIDDEN) {
+      assert.ok(
+        !new RegExp(`\\b${tag}:\\s*bareElement\\(['"]${tag}['"]\\)`).test(src),
+        `markdown-body.tsx must NOT override ${tag} with bareElement — p/ol/section carry Streamdown functional logic (p unwraps a lone image; ol/section clean streaming footnotes), and h5/h6 have no prose.css rule so stripping would lose Streamdown's heading styling`,
+      );
+    }
+  });
+
+  it('Daily Review section-body carries .maka-prose so heading/table get a prose-css owner outside the chat bubble', async () => {
+    const src = await readFile(resolve(REPO_ROOT, 'packages', 'ui', 'src', 'daily-review-panel.tsx'), 'utf8');
+    assert.match(
+      src,
+      /maka-daily-review-archive-section-body[^"]* maka-prose|maka-prose[^"]* maka-daily-review-archive-section-body/,
+      'daily-review-panel.tsx must put .maka-prose on the section-body div so heading/table/blockquote get prose.css styling — they have no Streamdown utility fallback now that markdown-body strips utilities, and Daily Review has no chat-bubble .maka-prose ancestor (#739)',
+    );
   });
 });

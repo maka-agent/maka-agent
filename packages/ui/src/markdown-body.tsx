@@ -62,20 +62,30 @@ const MARKDOWN_REHYPE_PLUGINS = [
 ];
 
 /**
- * Streamdown tags every markdown element with Tailwind utility classes
- * (h1 `text-3xl`, h3 `text-xl`, th/td `px-4 py-2 text-sm`, thead `bg-muted/80`,
- * tbody `divide-y`, blockquote `border-l-4`, ul `list-disc`, ...). Those sit in
- * the `utilities` cascade layer and override prose.css's `components`-layer
- * markdown styles, so the .maka-prose layer never reaches the rendered DOM
- * (#739: heading ladder and table padding declared in prose.css were silently
- * overwritten). Render bare semantic elements instead: prose.css owns all
- * markdown typography, and elements without a prose.css rule (h5/h6/strong/
- * sup/sub) fall back to the browser's semantic default (strong→bold,
- * em→italic), which is correct. `node` (react-markdown's AST node) and
- * `className` (Streamdown's utility) are dropped so neither leaks to the DOM.
+ * Streamdown's default components merge Tailwind utility classes into every
+ * markdown element (h1 "text-3xl", h3 "text-xl", th/td "px-4 py-2 text-sm",
+ * thead "bg-muted/80", ul "list-disc", ...) via an internal `r(utility, t)`
+ * call. Those utilities sit in the `utilities` cascade layer and override
+ * prose.css's `components`-layer markdown rules, so the .maka-prose layer
+ * never reaches the rendered DOM (#739: the heading ladder and table padding
+ * declared in prose.css were silently overwritten).
+ *
+ * A `components` override REPLACES the default component, so Streamdown's
+ * internal utility merge never runs. The `className` react-markdown forwards
+ * here is the HAST node's semantic class (remark-gfm's `contains-task-list`/
+ * `task-list-item`, rehype-highlight's `language-*`) — NOT Streamdown's
+ * utilities. So render the element with its HAST className preserved and only
+ * `node` (the AST node, which would otherwise leak to the DOM as
+ * `node="[object Object]"`) dropped. prose.css then styles the bare element.
+ *
+ * Only apply this to elements whose ONLY Streamdown default is the utility
+ * merge — p, ol, and section carry functional logic (p unwraps a lone image,
+ * ol/section clean streaming footnotes) and must stay on Streamdown's default
+ * renderer; h5/h6 have no prose.css rule and would lose all heading styling
+ * if stripped. See the components prop below for the exact override set.
  */
 function bareElement<K extends keyof React.JSX.IntrinsicElements>(Tag: K) {
-  return ({ node: _node, className: _className, children, ...rest }: React.JSX.IntrinsicElements[K] & ExtraProps) =>
+  return ({ node: _node, children, ...rest }: React.JSX.IntrinsicElements[K] & ExtraProps) =>
     React.createElement(Tag, rest, children);
 }
 
@@ -105,24 +115,15 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
           </MarkdownLink>
         ),
         // Inline `code` keeps the bubble's foreground color; only block code
-        // gets the framed treatment via `pre > code` in CSS.
-        //
-        // #739: Streamdown tags inline code with Tailwind utilities
-        // (`rounded bg-muted px-1.5 py-0.5 font-mono text-sm`) that sit in the
-        // `utilities` layer and override prose.css's `components`-layer
-        // inline-code pill. Block code instead carries a `language-*` class
-        // from rehype-highlight that the code-block chrome + hljs need. Pass
-        // through only the block-code language class; drop inline-code
-        // utilities so prose.css styles the pill.
-        code: ({ children, className, ...rest }) => {
-          const blockLanguage =
-            typeof className === 'string' && /language-/.test(className) ? className : undefined;
-          return (
-            <code {...rest} className={blockLanguage}>
-              {children}
-            </code>
-          );
-        },
+        // gets the framed treatment via `pre > code` in CSS. react-markdown
+        // forwards the HAST className here (inline code has none; block code
+        // carries `language-*` from rehype-highlight), so passing it through
+        // styles block code for hljs and leaves inline code to prose.css.
+        code: ({ children, className, ...rest }) => (
+          <code {...rest} className={className}>
+            {children}
+          </code>
+        ),
         // Wrap block code with a language pill header + copy affordance.
         // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
         // detected language so users can verify hljs got it right.
@@ -137,24 +138,23 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
             <table {...rest}>{children}</table>
           </div>
         ),
-        // #739: render bare heading + table-structure elements so prose.css
-        // (heading ladder, frameless table, cell padding) actually applies —
-        // Streamdown's default components tag them with Tailwind utilities that
-        // sit in the `utilities` layer and override the `components`-layer
-        // prose.css rules. See bareElement above.
+        // #739: render bare heading + table-structure + list elements so
+        // prose.css (heading ladder, frameless table, cell padding, task-list)
+        // actually applies — Streamdown's default components tag them with
+        // Tailwind utilities in the `utilities` layer that override the
+        // `components`-layer prose.css rules. bareElement preserves the HAST
+        // className (task-list, language-*) so prose.css's `.maka-prose
+        // ul.contains-task-list` rules still match. p/ol/section are NOT
+        // overridden — Streamdown's default p unwraps a lone image, and
+        // ol/section clean streaming footnotes; stripping them breaks that
+        // logic. h5/h6 are NOT overridden — prose.css has no rule for them, so
+        // stripping would lose Streamdown's heading styling. See bareElement.
         h1: bareElement('h1'),
         h2: bareElement('h2'),
         h3: bareElement('h3'),
         h4: bareElement('h4'),
-        h5: bareElement('h5'),
-        h6: bareElement('h6'),
-        p: bareElement('p'),
         ul: bareElement('ul'),
-        ol: bareElement('ol'),
         li: bareElement('li'),
-        blockquote: bareElement('blockquote'),
-        hr: bareElement('hr'),
-        strong: bareElement('strong'),
         thead: bareElement('thead'),
         tbody: bareElement('tbody'),
         tr: bareElement('tr'),
