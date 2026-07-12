@@ -199,10 +199,6 @@ npm --workspace @maka/desktop run smoke:real-window
 
 ## 文档入口
 
+- [文档索引与权威来源说明](./docs/README.md)
 - [后端架构总览](./ARCHITECTURE.md)
-- [Headless 使用与隔离边界](./packages/headless/README.md)
-- [设计系统](./docs/design-system.md)
-- [产品测试计划](./docs/full-product-test-plan.md)
-- [Workspace 隐私上下文](./docs/workspace-privacy-context.md)
-- [能力成熟度审计](./docs/maka-capability-audit-v1.md)
 - [安全政策](./SECURITY.md)

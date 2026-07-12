@@ -1,0 +1,75 @@
+# Maka documentation
+
+This page is the authority map for Maka documentation. Code and contract tests remain the final authority when documentation disagrees with the implementation.
+
+## Where information belongs
+
+- Root and package READMEs describe stable product entry points, public seams, and local ownership.
+- `docs/` contains current cross-cutting architecture, security, product, and validation contracts.
+- GitHub issues and pull requests contain implementation plans, migration progress, and time-sensitive TODOs.
+- `docs/archive/` preserves completed plans and superseded material for historical context. Archived documents are not current implementation guidance.
+
+## Start here
+
+- [Backend architecture](../ARCHITECTURE.en.md) ([中文](../ARCHITECTURE.md))
+- [Desktop architecture](../apps/desktop/README.md)
+- [Renderer architecture](../apps/desktop/src/renderer/README.md)
+- [Headless usage and isolation](../packages/headless/README.md)
+- [UI package architecture](../packages/ui/README.md)
+- [Security policy](../SECURITY.md)
+
+## Current contracts
+
+### Runtime and Headless
+
+- [Durable task lifecycle](./durable-task-lifecycle.md)
+- [AHE target protocol](./ahe-target-protocol.md)
+- [AHE evidence export](./ahe-evidence-export.md)
+- [Skill catalog policy](./skill-catalog-policy.md)
+- [Runtime mainline teaching manual](./runtime-mainline-teaching-manual.md)
+- [Backend architecture chapters](./architecture/)
+
+### Frontend and validation
+
+- [Design system](./design-system.md)
+- [Frontend CSS governance](./frontend-css-governance.md)
+- [Full product test plan](./full-product-test-plan.md)
+- [UI quality plan](./ui-quality-plan.md)
+
+### Security and privacy
+
+- [Workspace privacy context](./workspace-privacy-context.md)
+- [Memory threat model](./memory-threat-model.md)
+- [Search service threat model](./search-service-threat-model.md)
+- [Voice threat model](./voice-threat-model.md)
+- [Sandbox direction and implementation status](./sandbox/agent-runtime-codex-sandbox-todo.md)
+- [Sandbox design background](./sandbox/agent-runtime-codex-sandbox-alignment.md)
+
+## Active proposals and design material
+
+These documents include target-state design or work that is not fully implemented. Check the linked source and current GitHub issues before treating a proposal as shipped behavior.
+
+- [DeepSeek Reasonix cost runtime design](./deepseek-reasonix-cost-runtime-design.md)
+- [Heavy-task mainline system design](./heavy-task-mainline-system-design.md)
+- [Runtime v2 architecture evolution](./runtime-v2-architecture-evolution.md)
+- [Runtime v2 implementation notes](./runtime-v2-implementation-notes.md)
+- [Design refinement roadmap](./design-refinement-roadmap-2026-07.md)
+
+## Research and audits
+
+- [Capability maturity audit v1](./maka-capability-audit-v1.md)
+
+There are currently no tracked research notes. New research should record dated evidence and avoid presenting proposals as shipped behavior.
+
+## Historical material
+
+- [Runtime kernel extraction](./runtime-kernel.md)
+- [Completed implementation plans](./archive/)
+
+## Maintenance
+
+- Add stable cross-cutting documentation to the closest section above.
+- Put local architecture beside the code and link it from **Start here**.
+- Keep progress and TODOs in issues or pull requests instead of copying them into stable documents.
+- Move completed plans to `docs/archive/`; remove a document only after its unique references are updated or no longer needed.
+- Prefer updating an existing authority over adding a parallel document.

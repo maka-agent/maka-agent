@@ -1,5 +1,7 @@
 # Sandbox Manager Skeleton Implementation Plan
 
+> Archived: the implementation landed in PR #631. This plan is retained only as historical execution context.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a runtime-layer `SandboxManager` skeleton that selects a platform sandbox and transforms argv-based commands without wiring it into current tool execution yet.

@@ -4,8 +4,7 @@
 
 关联背景文档：
 
-- `docs/agent-runtime-codex-sandbox-alignment.md`
-- `docs/agent-runtime-sandbox-executor.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-alignment.md`
 
 当前路线已经明确：
 
@@ -63,8 +62,7 @@ Phase 10: Linux sandbox backend
 
 范围：
 
-- `docs/agent-runtime-sandbox-executor.md`
-- `docs/agent-runtime-codex-sandbox-alignment.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-alignment.md`
 - GitHub issue 后续评论
 
 任务：

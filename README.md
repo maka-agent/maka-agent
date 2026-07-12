@@ -199,10 +199,6 @@ Before submitting code, run typecheck, build, and focused tests proportionate to
 
 ## Documentation
 
+- [Documentation index and authority map](./docs/README.md)
 - [Backend architecture](./ARCHITECTURE.en.md)
-- [Headless usage and isolation](./packages/headless/README.md)
-- [Design system](./docs/design-system.md)
-- [Full product test plan](./docs/full-product-test-plan.md)
-- [Workspace privacy context](./docs/workspace-privacy-context.md)
-- [Capability maturity audit](./docs/maka-capability-audit-v1.md)
 - [Security policy](./SECURITY.md)

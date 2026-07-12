@@ -1,5 +1,7 @@
 # Runtime Ledger Backfill Implementation Plan
 
+> Archived: the implementation landed in PR #188. This plan is retained only as historical execution context.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let Agent runtime reads and subsequent turns continue when a completed top-level run has an empty RuntimeEvent ledger, by reconstructing only low-risk RuntimeEvents from legacy StoredMessage rows.
