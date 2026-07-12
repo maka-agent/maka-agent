@@ -414,8 +414,10 @@ describe('MARKDOWN-PROSE-HEADING-HIERARCHY-0 contract (#739)', () => {
   // integer px targets at the 13px base, but h3 (1.0769em, +8% over body) was
   // too close to body copy — long answers relied on weight alone to
   // distinguish H3 sections. #739 re-pins the ladder to a uniform 0.15em
-  // step (1.45 / 1.30 / 1.15 / 1) so each tier clears the one below by +15%,
-  // CDP-verified as the minimum distinguishable gap.
+  // step (1.45 / 1.30 / 1.15 / 1): each tier clears the one below by a fixed
+  // 0.15em increment (≈2px at the 13px base; the relative gap widens per tier
+  // — +15% over body for h3, +13% over h3 for h2, +12% over h2 for h1),
+  // CDP-verified as the minimum distinguishable step.
   //
   // This contract locks the STEP, not specific em values: a future patch
   // may widen the step (e.g. 0.20em for a roomier ladder), but must not
@@ -425,7 +427,7 @@ describe('MARKDOWN-PROSE-HEADING-HIERARCHY-0 contract (#739)', () => {
   //
   // Source of truth: issue #739 acceptance ("H2/H3 sections clearly
   // distinguishable from body copy") + CDP comparison of +8% / +15% / +23%
-  // h3 tiers — the +15% step was the smallest gap that read as a section.
+  // h3 tiers — the 0.15em step was the smallest gap that read as a section.
   const HEADING_STEP_EM = 0.15;
 
   const headingEm = (blocks: ReturnType<typeof cssBlocks>, sel: string): number => {
@@ -436,21 +438,50 @@ describe('MARKDOWN-PROSE-HEADING-HIERARCHY-0 contract (#739)', () => {
     return parseFloat(m![1]);
   };
 
-it('each heading tier clears the one below by >=0.15em so hierarchy reads by size, not weight alone', async () => {
+  it('each heading tier clears the one below by >=0.15em so hierarchy reads by size, not weight alone', async () => {
     const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
     const blocks = cssBlocks(css);
     const h1 = headingEm(blocks, '.maka-prose h1');
     const h2 = headingEm(blocks, '.maka-prose h2');
     const h3 = headingEm(blocks, '.maka-prose h3');
     const h4 = headingEm(blocks, '.maka-prose h4');
-    // Compare in centi-em (Math.round(x * 100)) so 1.15 - 1.0 does not fail
-    // on float noise (0.14999999... < 0.15). 1.15em -> 115, 1.0em -> 100,
-    // gap 15 >= 15.
-    const cemi = (em: number) => Math.round(em * 100);
-    const step = cemi(HEADING_STEP_EM);
-    assert.equal(cemi(h4), 100, 'h4 sits at 1em and reads as a heading via weight + secondary color (GitHub 1em h4 convention)');
-    assert.ok(cemi(h3) - cemi(h4) >= step, `h3 (${h3}em) must clear body by >=${HEADING_STEP_EM}em so it reads as a section, not body; got ${h3 - h4}em (the #546 ladder's 0.0769em gap was the #739 defect)`);
-    assert.ok(cemi(h2) - cemi(h3) >= step, `h2 (${h2}em) must clear h3 by >=${HEADING_STEP_EM}em; got ${h2 - h3}em`);
-    assert.ok(cemi(h1) - cemi(h2) >= step, `h1 (${h1}em) must clear h2 by >=${HEADING_STEP_EM}em; got ${h1 - h2}em`);
+    // Compare via toFixed(4) — exact enough to reject a 0.1451em gap, but
+    // robust to float noise (1.15 - 1.0 = 0.14999... rounds to 0.1500). A
+    // centi-em Math.round(x*100) check would let 1.1451em through (115 vs
+    // 100, gap "15"), understating the threshold.
+    const gap = (a: number, b: number) => parseFloat((a - b).toFixed(4));
+    assert.equal(h4, 1, 'h4 sits at 1em and reads as a heading via weight + secondary color (GitHub 1em h4 convention)');
+    assert.ok(gap(h3, h4) >= HEADING_STEP_EM, `h3 (${h3}em) must clear body by >=${HEADING_STEP_EM}em so it reads as a section, not body; got ${gap(h3, h4)}em (the #546 ladder's 0.0769em gap was the #739 defect)`);
+    assert.ok(gap(h2, h3) >= HEADING_STEP_EM, `h2 (${h2}em) must clear h3 by >=${HEADING_STEP_EM}em; got ${gap(h2, h3)}em`);
+    assert.ok(gap(h1, h2) >= HEADING_STEP_EM, `h1 (${h1}em) must clear h2 by >=${HEADING_STEP_EM}em; got ${gap(h1, h2)}em`);
+  });
+});
+
+describe('MARKDOWN-PROSE-RENDER-OWNER-0 contract (#739)', () => {
+  // Streamdown's default components tag every markdown element with Tailwind
+  // utility classes (h1 "text-3xl", h3 "text-xl", th/td "px-4 py-2 text-sm",
+  // thead "bg-muted/80", tbody "divide-y", blockquote "border-l-4", ul
+  // "list-disc", ...). Those sit in the `utilities` cascade layer and override
+  // prose.css's `components`-layer markdown rules, so the .maka-prose layer
+  // never reached the rendered DOM — the heading ladder and table padding
+  // declared in prose.css were silently overwritten (#739). markdown-body.tsx
+  // renders bare semantic elements via bareElement so prose.css owns all
+  // markdown typography. This contract locks the bare override for the
+  // heading + table-structure elements so a future patch does not silently
+  // drop it and let Streamdown's utilities back in (which would re-break the
+  // heading ladder and table fit the moment Tailwind generates those classes
+  // from elsewhere in the codebase).
+  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'ul', 'ol', 'li', 'blockquote', 'hr', 'strong', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
+
+  it('markdown-body overrides heading + table-structure elements with bareElement so prose.css reaches the DOM', async () => {
+    const src = await readFile(MARKDOWN_BODY, 'utf8');
+    assert.match(src, /function bareElement/, 'markdown-body.tsx must define a bareElement helper that strips Streamdown utility classes so prose.css reaches the rendered markdown (#739)');
+    for (const tag of BARE_OVERRIDDEN) {
+      assert.match(
+        src,
+        new RegExp(`\\b${tag}:\\s*bareElement\\(['"]${tag}['"]\\)`),
+        `markdown-body.tsx components prop must override ${tag} with bareElement('${tag}') so prose.css rules reach the rendered ${tag} instead of Streamdown's Tailwind utilities`,
+      );
+    }
   });
 });

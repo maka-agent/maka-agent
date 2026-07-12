@@ -16,7 +16,7 @@
 
 import { useContext, type ReactNode } from 'react';
 import * as React from 'react';
-import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown } from 'streamdown';
+import { defaultRehypePlugins, defaultRemarkPlugins, Streamdown, type ExtraProps } from 'streamdown';
 import rehypeHighlight from 'rehype-highlight';
 import remarkBreaks from 'remark-breaks';
 import { Check, Copy } from './icons.js';
@@ -61,6 +61,24 @@ const MARKDOWN_REHYPE_PLUGINS = [
   ],
 ];
 
+/**
+ * Streamdown tags every markdown element with Tailwind utility classes
+ * (h1 `text-3xl`, h3 `text-xl`, th/td `px-4 py-2 text-sm`, thead `bg-muted/80`,
+ * tbody `divide-y`, blockquote `border-l-4`, ul `list-disc`, ...). Those sit in
+ * the `utilities` cascade layer and override prose.css's `components`-layer
+ * markdown styles, so the .maka-prose layer never reaches the rendered DOM
+ * (#739: heading ladder and table padding declared in prose.css were silently
+ * overwritten). Render bare semantic elements instead: prose.css owns all
+ * markdown typography, and elements without a prose.css rule (h5/h6/strong/
+ * sup/sub) fall back to the browser's semantic default (strong→bold,
+ * em→italic), which is correct. `node` (react-markdown's AST node) and
+ * `className` (Streamdown's utility) are dropped so neither leaks to the DOM.
+ */
+function bareElement<K extends keyof React.JSX.IntrinsicElements>(Tag: K) {
+  return ({ node: _node, className: _className, children, ...rest }: React.JSX.IntrinsicElements[K] & ExtraProps) =>
+    React.createElement(Tag, rest, children);
+}
+
 export function MarkdownBody(props: { text: string; streaming?: boolean }) {
   return (
     <Streamdown
@@ -88,11 +106,23 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
         ),
         // Inline `code` keeps the bubble's foreground color; only block code
         // gets the framed treatment via `pre > code` in CSS.
-        code: ({ children, className, ...rest }) => (
-          <code {...rest} className={className}>
-            {children}
-          </code>
-        ),
+        //
+        // #739: Streamdown tags inline code with Tailwind utilities
+        // (`rounded bg-muted px-1.5 py-0.5 font-mono text-sm`) that sit in the
+        // `utilities` layer and override prose.css's `components`-layer
+        // inline-code pill. Block code instead carries a `language-*` class
+        // from rehype-highlight that the code-block chrome + hljs need. Pass
+        // through only the block-code language class; drop inline-code
+        // utilities so prose.css styles the pill.
+        code: ({ children, className, ...rest }) => {
+          const blockLanguage =
+            typeof className === 'string' && /language-/.test(className) ? className : undefined;
+          return (
+            <code {...rest} className={blockLanguage}>
+              {children}
+            </code>
+          );
+        },
         // Wrap block code with a language pill header + copy affordance.
         // The pill is from an external design reference (40-markdown-deep §7a) — surfaces the
         // detected language so users can verify hljs got it right.
@@ -107,6 +137,29 @@ export function MarkdownBody(props: { text: string; streaming?: boolean }) {
             <table {...rest}>{children}</table>
           </div>
         ),
+        // #739: render bare heading + table-structure elements so prose.css
+        // (heading ladder, frameless table, cell padding) actually applies —
+        // Streamdown's default components tag them with Tailwind utilities that
+        // sit in the `utilities` layer and override the `components`-layer
+        // prose.css rules. See bareElement above.
+        h1: bareElement('h1'),
+        h2: bareElement('h2'),
+        h3: bareElement('h3'),
+        h4: bareElement('h4'),
+        h5: bareElement('h5'),
+        h6: bareElement('h6'),
+        p: bareElement('p'),
+        ul: bareElement('ul'),
+        ol: bareElement('ol'),
+        li: bareElement('li'),
+        blockquote: bareElement('blockquote'),
+        hr: bareElement('hr'),
+        strong: bareElement('strong'),
+        thead: bareElement('thead'),
+        tbody: bareElement('tbody'),
+        tr: bareElement('tr'),
+        th: bareElement('th'),
+        td: bareElement('td'),
       }}
     >
       {props.text}
