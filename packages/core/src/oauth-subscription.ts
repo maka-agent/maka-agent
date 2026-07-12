@@ -2,7 +2,7 @@
  * OAuth subscription contract — core types + pure helpers.
  *
  * PR-OAUTH-SUBSCRIPTION-0 (WAWQAQ msg `f6d38739` + kenji `cf41871b` +
- * xuan `2c5aa125`). Gate doc: `notes/pr-oauth-subscription-0-gate.md`.
+ * xuan `2c5aa125`). Historical gate: `docs/archive/pr-oauth-subscription-0-gate.md`.
  *
  * Scope locked to **Claude subscription only**. Codex / Gemini /
  * Copilot are explicit follow-up PRs (one provider per PR per
@@ -17,8 +17,7 @@
  * Anchor docs:
  *   - upstream Claude.ai web client reverse engineering: external
  *     reference at main.js:15913-16400
- *   - research note: `notes/oauth-subscription-research-2026-05-28.md`
- *   - gate checklist: `notes/pr-oauth-subscription-0-gate.md`
+ *   - historical gate checklist: `docs/archive/pr-oauth-subscription-0-gate.md`
  */
 
 /**

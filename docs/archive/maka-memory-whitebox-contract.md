@@ -1,5 +1,7 @@
 # Maka memory — white-box contract anchor (2026-05-29)
 
+> Archived on 2026-07-13. This snapshot no longer owns the current memory contract.
+
 Owner: yuejing. Anchor for the team's evolving local-memory feature
 once xuan's transparent-file MVP landed at `c06e13f`. Aligned to:
 - `packages/core/src/local-memory.ts` (xuan)

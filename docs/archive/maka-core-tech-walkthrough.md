@@ -1,5 +1,7 @@
 # Maka 核心技术解读
 
+> Archived on 2026-07-13. Current backend guidance lives in `ARCHITECTURE.md`, its architecture chapters, source, and tests.
+
 > 一份面向工程师的 Maka 技术栈通读笔记。覆盖 runtime 内核、权限系统、持久化与恢复、Electron 集成。
 > 生成日期：2026-06-25
 

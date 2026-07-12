@@ -1,5 +1,7 @@
 # UI Convergence Map (2026-07-09)
 
+> Archived on 2026-07-13. The campaign is complete; current ownership lives in the frontend READMEs, source, and contract tests.
+
 Maintainer complaint: shared UI solutions re-implemented per call site. This map inventories
 every duplicated recipe family and the extraction sequence. Produced by a read-only audit
 agent; token layer (--state-hover-bg/--state-selected-bg, Chip alphas, tabular-nums) is

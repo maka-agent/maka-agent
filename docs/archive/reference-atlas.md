@@ -1,5 +1,7 @@
 # Reference Layout — UI Atlas
 
+> Archived on 2026-07-13. This reverse-engineering snapshot is provenance, not current product design authority.
+
 Systematic reverse-engineering pass of the external reference layout used as the
 visual north star for Maka. Built from the extracted bundle at
 `/tmp/qoder-extracted/out/renderer/`.

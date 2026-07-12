@@ -19,9 +19,8 @@ import {
  * Unified Select primitive for settings-style pickers.
  *
  * Consolidates three local wrappers that all wrapped the same Base UI
- * Select primitives with slightly-different option shapes (kenji
- * inventory `notes/maka-styles-css-inventory-2026-06-25-task-128.md`
- * + audit msg `e4cfbfb0`):
+ * Select primitives with slightly-different option shapes (audit msg
+ * `e4cfbfb0`):
  *
  *   - `apps/desktop/.../SettingsModal.tsx :: SettingsSelect`
  *     `[value, label]` tuples, fixed `.settingsBaseSelectTrigger` chrome.

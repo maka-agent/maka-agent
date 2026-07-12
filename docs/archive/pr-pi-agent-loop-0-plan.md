@@ -1,5 +1,7 @@
 # PR-PI-AGENT-LOOP-0 Plan
 
+> Archived on 2026-07-13. `PiAgentBackend` has landed; this file remains only as migration rationale.
+
 Scope: replace Maka's primary chat agent loop with a pi / ACP-style coding-agent
 loop in a staged way, while preserving Maka's event stream, storage, permission
 UI, privacy boundaries, and existing tools.

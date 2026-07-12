@@ -486,7 +486,7 @@
       §4: the reference layout's signature recipe is `1px tertiary border +
       6px radius + 0 1px 2px @ 4% lift` — every workbench-card, aux-panel,
       and agents-chat-panel uses these three values. See
-      notes/reference-atlas.md §9 for the per-surface gap analysis. */
+      docs/archive/reference-atlas.md §9 for the historical per-surface gap analysis. */
   --card-border-color: oklch(from var(--foreground) l c h / 0.08);
   --card-bg: var(--background);
   --card-shadow: 0 1px 2px oklch(from var(--foreground) l c h / 0.04);

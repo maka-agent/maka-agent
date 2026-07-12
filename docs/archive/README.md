@@ -15,6 +15,10 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 
 - `maka-capability-audit-v1-2026-05.md` — a point-in-time capability and release-gate audit whose frontend authority references are no longer current.
 
+## Former repository notes
+
+Tracked `notes/` files were retired as an undocumented parallel authority. Point-in-time audits, migration plans, reference reverse-engineering, and design research remain here only for provenance. Current rules live in `AGENTS.md`, `ARCHITECTURE.md`, `DESIGN.md`, active cross-cutting contracts, local READMEs, source, and tests.
+
 ## Security contract snapshots
 
 - `memory-threat-model-pr-memory-1.md` — the contract-only PR-MEMORY-1 boundary, superseded as a description of the current product.

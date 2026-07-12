@@ -1,5 +1,7 @@
 # PR-OAUTH-SUBSCRIPTION-0 Gate
 
+> Archived on 2026-07-13. The gate predates the current subscription send path; source, tests, and `SECURITY.md` own current behavior.
+
 Scope: Claude subscription authentication, account state, and quota display only.
 The chat send path remains blocked until a later runtime-smoke PR.
 

@@ -1,5 +1,7 @@
 # UI Skills Deep Read — 2026-06-23 (yuejing)
 
+> Archived on 2026-07-13. This research snapshot is not current product design authority.
+
 3 parallel Explore agents deep-read 5 design-skill collections per WAWQAQ
 ask `f424c6b5`. Synthesis below — converged rules + maka delta + 1 final
 ship list.

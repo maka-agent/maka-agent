@@ -13,7 +13,7 @@
  * any attempt to `getAuthorizationUrl()` returns a clear
  * `unknown` failure envelope explaining that the Google
  * client_id is not bundled. Once the client_id question is
- * resolved (see notes/pr-model-oauth-all-0-gate.md), this file
+ * resolved, this file
  * keeps its shape and only the `GOOGLE_CLIENT_ID` constant gets
  * a real value.
  *

@@ -1,5 +1,7 @@
 # Maka Code Bug / Flow Audit - 2026-05-22
 
+> Archived on 2026-07-13. This is a point-in-time audit, not current implementation guidance.
+
 Owner: @xuan  
 Thread: #my-ai:02c56cb6  
 Scope: current Maka code, runtime/main/renderer/core/storage/settings surfaces. Layout work is tracked separately by @yuejing.

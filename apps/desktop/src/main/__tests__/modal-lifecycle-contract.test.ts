@@ -1,7 +1,7 @@
 /**
  * Static-analysis contract test for ALL renderer modals
  * (PR-MODAL-LIFECYCLE-0, kenji boundary 2 from
- * `notes/maka-code-health-2026-05-27.md`).
+ * the modal lifecycle audit).
  *
  * Background: WAWQAQ hit React #310 (rules-of-hooks) in
  * SearchModal because hooks sat BEFORE an `if (!open) return null`

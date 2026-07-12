@@ -41,7 +41,7 @@
   gap: var(--space-1);
 }
 
-/* Phase 2 — atlas-driven rewrite (notes/reference-atlas.md §10). Skills page
+/* Phase 2 — atlas-driven rewrite (docs/archive/reference-atlas.md §10). Skills page
    card mirrors the Plan shell: 1px hairline border + 6px radius + 4% lift +
    1px inner top highlight, with tight 4-6px internal gaps. */
 .maka-skill-library {
@@ -582,7 +582,7 @@ color: oklch(from var(--brand-deep) 0.55 min(c, 0.015) h);
 /* PR-UI-PIXEL-0 (2026-06-21): reference rule #2 — hover/selected states are
    NEUTRAL gray (#efefef ≈ foreground/0.06), never tinted with the brand color.
    The purple-tinted row hover read as "themed"; neutral reads calmer/native.
-   See notes/近期 UI study §1.4, §4. */
+   This is a deliberate local alignment exception. */
 .maka-skill-library-item:hover,
 .maka-skill-library-item:focus-within {
   background: var(--state-hover-bg);

@@ -1,5 +1,7 @@
 # UI Skills Deep Read — 2026-06-24 (yuejing, round 2)
 
+> Archived on 2026-07-13. This research snapshot is not current product design authority.
+
 WAWQAQ msg `802dda4c` asked me to deeply learn ALL skills + 6 external
 URLs he sent at msg `cdfd68eb`. This is the round-2 synthesis,
 extending [[ui-skills-deep-read-2026-06-23]] from yesterday.

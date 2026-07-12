@@ -1,5 +1,7 @@
 # Reference Settings — full reverse-engineer (2026-06-23)
 
+> Archived on 2026-07-13. This reverse-engineering snapshot is provenance, not the current Settings contract.
+
 Cross-checked by 4 parallel Explore agents on the extracted bundle at
 `/tmp/qoder-asar/out/renderer/assets/`.
 

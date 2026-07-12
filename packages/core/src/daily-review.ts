@@ -17,7 +17,7 @@
  * - No background daemon — the summary is computed on demand when the
  *   user opens the panel, not pushed via cron.
  * - No automatic memory promotion of "what I worked on" — that would
- *   need user opt-in per `notes/maka-daily-review-contract.md` privacy
+ *   need explicit user opt-in under the daily-review privacy
  *   defaults.
  *
  * risk
