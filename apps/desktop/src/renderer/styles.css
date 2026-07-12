@@ -1,10 +1,7 @@
 @import "tailwindcss";
 @source "../../../../packages/ui/src";
 
-/* Variable-axis Geist Sans + Mono — replaces system-ui as the primary
-   typeface per the taste-skill / redesign-skill recommendations
-   ("Inter and system fonts banned for premium aesthetic"). System fallback
-   remains so the app stays legible even if the font fails to load. */
+/* Bundled Geist fallbacks; maka-tokens.css owns the product font stacks. */
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 @import "overlayscrollbars/overlayscrollbars.css";
@@ -41,9 +38,6 @@
 @import "./styles/prompt-rail.css";
 
 @theme inline {
-  --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--background);
