@@ -75,22 +75,16 @@
   justify-content: space-between;
   gap: var(--space-6);
   overflow: hidden;
-  border: var(--border-width-hairline) solid oklch(from var(--brand-deep) 0.88 min(c, 0.035) h / 0.72);
+  border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
-  background:
-    radial-gradient(circle at 80% 50%, oklch(100% 0 0 / 0.44) 0 24%, transparent 25%),
-    linear-gradient(100deg, oklch(from var(--brand-deep) 0.925 min(c, 0.035) h) 0%, oklch(from var(--brand-deep) 0.935 min(c, 0.045) h) 56%, oklch(from var(--brand-deep) 0.888 min(c, 0.052) h) 100%);
-  box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.65);
+  background: var(--background-elevated);
+  box-shadow: var(--shadow-minimal);
   padding: var(--space-6) var(--space-8);
 }
 
-/* Banner wash + inks derive their hue from --accent (owner decision:
-   the old fixed 199-224 teal read as residual brand-green after the
-   accent moved to logo blue). Lightness stays pinned on both sides so
-   dark mode keeps readable ink-on-pale-wash contrast. */
 .maka-skill-featured-banner h3 {
   margin: 0;
-  color: oklch(from var(--brand-deep) 0.26 min(c, 0.025) h);
+  color: var(--foreground);
   font-size: 1.2em;
   font-weight: var(--font-weight-semibold);
   line-height: var(--leading-tight);
@@ -99,7 +93,7 @@
 .maka-skill-featured-banner p {
   max-width: 540px;
   margin: var(--space-2-5) 0 0;
-  color: oklch(from var(--brand-deep) 0.42 min(c, 0.02) h);
+  color: var(--foreground-secondary);
   font-size: var(--font-size-ui);
   line-height: var(--leading-normal);
 }

@@ -97,6 +97,14 @@ function mixOklchToSrgb(c1: [number, number, number], c2: [number, number, numbe
 }
 
 describe('issue #406 design-system governance contract', () => {
+  it('keeps featured skill banners neutral instead of using blue as decorative texture', async () => {
+    const source = stripCssComments(await readFile(resolve(REPO_ROOT, 'apps/desktop/src/renderer/styles/module-pages/skills.css'), 'utf8'));
+    const block = source.match(/\.maka-skill-featured-banner\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+    assert.ok(block, 'featured skill banner rule must exist');
+    assert.doesNotMatch(block, /gradient\(/, 'featured banner must not use decorative gradients');
+    assert.doesNotMatch(block, /background[^;]*--brand-deep/s, 'blue may not become the banner background fill');
+  });
+
   it('does not ship decorative enter/exit motion by default', async () => {
     const rendererCss = stripCssComments(await readAllRendererCss());
     const tokens = stripCssComments(await readFile(TOKENS_FILE, 'utf8'));
