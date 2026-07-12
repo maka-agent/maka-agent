@@ -67,8 +67,11 @@ describe('PR-FE-BUG-HUNT-13 tabs.tsx design contract', () => {
 
   it('uses canonical motion tokens for the indicator transition', async () => {
     const src = await readFile(TABS_FILE, 'utf8');
-    assert.match(src, /duration-\[var\(--duration-base\)\]/);
-    assert.match(src, /ease-\[var\(--ease-in-out-strong\)\]/);
-    assert.doesNotMatch(src, /\bduration-200\b/);
+    const indicator = src.match(/<TabsPrimitive\.Indicator[\s\S]*?data-slot="tab-indicator"[\s\S]*?\/>/)?.[0] ?? '';
+    assert.ok(indicator, 'TabsPrimitive.Indicator block must remain discoverable');
+    assert.match(indicator, /transition-\[width,translate\]/);
+    assert.match(indicator, /duration-\[var\(--duration-base\)\]/);
+    assert.match(indicator, /ease-\[var\(--ease-in-out-strong\)\]/);
+    assert.doesNotMatch(indicator, /\bduration-200\b/);
   });
 });
