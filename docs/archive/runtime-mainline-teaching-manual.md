@@ -17,6 +17,8 @@ primary_spine:
   - ToolRuntime
 ---
 
+> Archived on 2026-07-13. The backend architecture chapters now own this runtime and headless narrative. Start with `ARCHITECTURE.md`.
+
 # Maka Runtime 主线教学手册
 
 Maka runtime 的核心设计，不是把一条用户消息直接送给模型，而是把“一次对话回合”拆成可展示、可运行、可追溯、可恢复的几类事实。
