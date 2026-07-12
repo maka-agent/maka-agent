@@ -9,12 +9,16 @@ import {
   MAX_SKILL_TOOL_BODY_CHARS,
   buildSkillAgentTool,
   buildSkillsPromptFragment,
+  gateSkillsByHostCapabilities,
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
   scanWorkspaceSkills,
   writeSkillRuntimeState,
+  type HostCapabilities,
+  type ScannedSkill,
 } from '../skills.js';
+import type { MakaToolContext } from '../tool-runtime.js';
 
 describe('runtime skills', () => {
   it('scanWorkspaceSkills lists SKILL.md metadata with declared tools as declaration only', async () => {
@@ -304,6 +308,146 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
     });
   });
 
+  it('buildSkillAgentTool honors the host capability gate when loading skills', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'office-helper', `---
+name: Office Helper
+description: Office document work.
+allowed-tools: [Read]
+required-tools: [OfficeDocument]
+---
+# Office Helper
+Use Office tools.`);
+
+      const tool = buildSkillAgentTool(workspaceRoot, { toolNames: new Set(['Read']) });
+      const result = await tool.impl({ name: 'office-helper' }, {} as unknown as MakaToolContext);
+      assert.equal(result.ok, false);
+      if (result.ok) return;
+      assert.equal(result.reason, 'host_incompatible');
+
+      // without host: legacy behavior, loads ok.
+      const legacyTool = buildSkillAgentTool(workspaceRoot);
+      const legacy = await legacyTool.impl({ name: 'office-helper' }, {} as unknown as MakaToolContext);
+      assert.equal(legacy.ok, true);
+    });
+  });
+
+  it('loadSkillInstructions rejects skills hidden by the host capability gate with host_incompatible', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'office-helper', `---
+name: Office Helper
+description: Office document work.
+allowed-tools: [Read]
+required-tools: [OfficeDocument]
+---
+# Office Helper
+Use Office tools.`);
+
+      // host without OfficeDocument: load returns host_incompatible, no available skills.
+      const hidden = await loadSkillInstructions(workspaceRoot, 'office-helper', { toolNames: new Set(['Read']) });
+      assert.equal(hidden.ok, false);
+      if (hidden.ok) return;
+      assert.equal(hidden.reason, 'host_incompatible');
+      assert.deepEqual(hidden.availableSkills, []);
+
+      // host with OfficeDocument: load ok.
+      const ok = await loadSkillInstructions(workspaceRoot, 'office-helper', { toolNames: new Set(['Read', 'OfficeDocument']) });
+      assert.equal(ok.ok, true);
+
+      // no host: legacy behavior, load ok.
+      const legacy = await loadSkillInstructions(workspaceRoot, 'office-helper');
+      assert.equal(legacy.ok, true);
+    });
+  });
+
+  it('buildSkillsPromptFragment filters out skills whose required tools are missing on the host', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'office-helper', `---
+name: Office Helper
+description: Office document work.
+allowed-tools: [Read]
+required-tools: [OfficeDocument]
+---
+# Office Helper
+Use Office tools.`);
+      await writeSkill(workspaceRoot, 'plain-helper', `---
+name: Plain Helper
+description: Plain work.
+allowed-tools: [Read]
+---
+# Plain Helper
+Plain work.`);
+
+      // host without OfficeDocument: office-helper hard-hidden, plain-helper shown.
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, { toolNames: new Set(['Read']) });
+      assert.ok(prompt);
+      assert.match(prompt, /<available-skill id="plain-helper"/);
+      assert.doesNotMatch(prompt, /<available-skill id="office-helper"/);
+
+      // host with OfficeDocument: both shown.
+      const full = await buildSkillsPromptFragment(workspaceRoot, { toolNames: new Set(['Read', 'OfficeDocument']) });
+      assert.ok(full);
+      assert.match(full, /<available-skill id="plain-helper"/);
+      assert.match(full, /<available-skill id="office-helper"/);
+
+      // no host (undefined): legacy behavior, both shown (no gating).
+      const legacy = await buildSkillsPromptFragment(workspaceRoot);
+      assert.ok(legacy);
+      assert.match(legacy, /<available-skill id="plain-helper"/);
+      assert.match(legacy, /<available-skill id="office-helper"/);
+    });
+  });
+
+  it('gateSkillsByHostCapabilities hard-hides skills whose required tools are missing and only hints at missing declared tools', () => {
+    const skills: ScannedSkill[] = [
+      { id: 'office', name: 'Office', description: '', path: '/p', declaredTools: ['Read', 'OfficeDocument'], requiredTools: ['OfficeDocument'], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:x' },
+      { id: 'plain', name: 'Plain', description: '', path: '/p', declaredTools: ['Bash'], requiredTools: [], requiredCapabilities: [], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:y' },
+    ];
+    const host: HostCapabilities = { toolNames: new Set(['Read']) };
+    const gated = gateSkillsByHostCapabilities(skills, host);
+    const office = gated.find((g) => g.id === 'office')!;
+    assert.equal(office.eligible, false);
+    assert.equal(office.hiddenReason, 'required_tools_missing');
+    assert.deepEqual(office.missingDeclaredTools, ['OfficeDocument']);
+    const plain = gated.find((g) => g.id === 'plain')!;
+    assert.equal(plain.eligible, true);
+    assert.equal(plain.hiddenReason, undefined);
+    assert.deepEqual(plain.missingDeclaredTools, ['Bash']);
+  });
+
+  it('gateSkillsByHostCapabilities hides skills whose required capabilities are missing', () => {
+    const skills: ScannedSkill[] = [
+      { id: 'cap', name: 'Cap', description: '', path: '/p', declaredTools: [], requiredTools: [], requiredCapabilities: ['office'], enabled: true, runtimeStatus: 'enabled', content: '', contentSha256: 'sha256:z' },
+    ];
+    const noCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set() });
+    assert.equal(noCap[0].eligible, false);
+    assert.equal(noCap[0].hiddenReason, 'required_capabilities_missing');
+    const withCap = gateSkillsByHostCapabilities(skills, { toolNames: new Set(), capabilities: new Set(['office']) });
+    assert.equal(withCap[0].eligible, true);
+    assert.equal(withCap[0].hiddenReason, undefined);
+  });
+
+  it('scanWorkspaceSkills surfaces required-tools and required-capabilities from front matter', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      await writeSkill(workspaceRoot, 'office-helper', `---
+name: Office Helper
+description: Office document work.
+allowed-tools: [Read]
+required-tools: [OfficeDocument, OfficeDocumentEdit]
+required-capabilities: [office]
+---
+# Office Helper
+Route through Office tools.`);
+
+      const skills = await scanWorkspaceSkills(workspaceRoot);
+      assert.equal(skills.length, 1);
+      assert.equal(skills[0].id, 'office-helper');
+      assert.deepEqual(skills[0].declaredTools, ['Read']);
+      assert.deepEqual(skills[0].requiredTools, ['OfficeDocument', 'OfficeDocumentEdit']);
+      assert.deepEqual(skills[0].requiredCapabilities, ['office']);
+    });
+  });
+
   it('scanWorkspaceSkills returns empty when no skills directory exists', async () => {
     await withWorkspace(async (workspaceRoot) => {
       assert.deepEqual(await scanWorkspaceSkills(workspaceRoot), []);
@@ -316,11 +460,32 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       name: 'A',
       description: 'Desc one.',
       allowedTools: ['Read', 'Write'],
+      requiredTools: [],
+      requiredCapabilities: [],
     });
     assert.deepEqual(parseSkillFrontMatter('---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\n  - Bash\n---\nbody'), {
       name: 'B',
       description: 'Desc two.',
       allowedTools: ['Read', 'Bash'],
+      requiredTools: [],
+      requiredCapabilities: [],
+    });
+  });
+
+  it('parseSkillFrontMatter parses required-tools and required-capabilities alongside allowed-tools', () => {
+    assert.deepEqual(parseSkillFrontMatter('---\nname: A\ndescription: Desc one.\nallowed-tools: [Read]\nrequired-tools: [OfficeDocument, OfficeDocumentEdit]\nrequired-capabilities: [office]\n---\nbody'), {
+      name: 'A',
+      description: 'Desc one.',
+      allowedTools: ['Read'],
+      requiredTools: ['OfficeDocument', 'OfficeDocumentEdit'],
+      requiredCapabilities: ['office'],
+    });
+    assert.deepEqual(parseSkillFrontMatter('---\nname: B\ndescription: Desc two.\nallowed-tools:\n  - Read\nrequired-tools:\n  - OfficeDocument\n---\nbody'), {
+      name: 'B',
+      description: 'Desc two.',
+      allowedTools: ['Read'],
+      requiredTools: ['OfficeDocument'],
+      requiredCapabilities: [],
     });
   });
 });

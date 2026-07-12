@@ -37,6 +37,15 @@ export interface RuntimeSkillDefinition {
   description: string;
   path: string;
   declaredTools: string[];
+  /**
+   * Tools the host must have registered for this skill to be advertised or
+   * loaded. Independent from `declaredTools` (which is declaration only): a
+   * missing `requiredTools` entry hard-hides the skill on incompatible hosts,
+   * while a missing `declaredTools` entry is only an informational hint.
+   */
+  requiredTools: string[];
+  /** Host capability tags the host must provide for this skill to be eligible. */
+  requiredCapabilities: string[];
   enabled: boolean;
   runtimeStatus: SkillRuntimeStatus;
 }
@@ -52,6 +61,30 @@ export interface ScannedSkill extends RuntimeSkillDefinition {
   contentSha256: string;
 }
 
+/**
+ * Host capability surface used to gate which skills a host can advertise or
+ * load. `toolNames` is the set of tool names registered on the host;
+ * `capabilities` is an optional set of capability tags (e.g. `office`).
+ */
+export interface HostCapabilities {
+  toolNames: Set<string>;
+  capabilities?: Set<string>;
+}
+
+/**
+ * Per-skill host-compatibility verdict produced by {@link gateSkillsByHostCapabilities}.
+ * `missingDeclaredTools` is informational only (a hint); an explicit
+ * `requiredTools` / `requiredCapabilities` mismatch hard-hides via `hiddenReason`.
+ */
+export interface SkillHostCompatibility {
+  eligible: boolean;
+  hiddenReason?: 'required_tools_missing' | 'required_capabilities_missing';
+  missingDeclaredTools: string[];
+}
+
+/** A scanned skill annotated with its host-compatibility verdict. */
+export type GatedSkill = ScannedSkill & SkillHostCompatibility;
+
 export interface LoadedSkillInstructions {
   id: string;
   name: string;
@@ -64,7 +97,7 @@ export interface LoadedSkillInstructions {
 
 export type LoadSkillInstructionsResult =
   | { ok: true; skill: LoadedSkillInstructions }
-  | { ok: false; reason: 'invalid_name' | 'not_found' | 'disabled'; availableSkills: Array<Pick<RuntimeSkillDefinition, 'id' | 'name' | 'description'>> };
+  | { ok: false; reason: 'invalid_name' | 'not_found' | 'disabled' | 'host_incompatible'; availableSkills: Array<Pick<RuntimeSkillDefinition, 'id' | 'name' | 'description'>> };
 
 export type SkillRuntimeStateReadResult =
   | { ok: true; states: Map<string, boolean> }
@@ -109,7 +142,7 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
       if (!read.ok) continue;
       const bytes = read.bytes;
       const text = bytes.toString('utf8');
-      const { name, description, allowedTools } = parseSkillFrontMatter(text);
+      const { name, description, allowedTools, requiredTools, requiredCapabilities } = parseSkillFrontMatter(text);
       const runtimeStatus: SkillRuntimeStatus = runtimeState.ok
         ? runtimeState.states.get(entry.name) === false ? 'disabled' : 'enabled'
         : 'state_error';
@@ -119,6 +152,8 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
         description: description ?? '',
         path: skillPath,
         declaredTools: allowedTools,
+        requiredTools,
+        requiredCapabilities,
         content: stripFrontMatter(text).trim(),
         contentSha256: `sha256:${sha256Buffer(bytes)}`,
         enabled: runtimeStatus === 'enabled',
@@ -132,8 +167,28 @@ export async function scanWorkspaceSkills(root: string): Promise<ScannedSkill[]>
   return out;
 }
 
-export async function buildSkillsPromptFragment(root: string): Promise<string | undefined> {
-  const skills = (await scanWorkspaceSkills(root)).filter((skill) => skill.enabled);
+export function gateSkillsByHostCapabilities(skills: ScannedSkill[], host: HostCapabilities): GatedSkill[] {
+  const caps = host.capabilities ?? new Set<string>();
+  return skills.map((skill) => {
+    const missingDeclaredTools = skill.declaredTools.filter((tool) => !host.toolNames.has(tool));
+    const requiredToolsMissing = skill.requiredTools.some((tool) => !host.toolNames.has(tool));
+    const requiredCapabilitiesMissing = skill.requiredCapabilities.some((cap) => !caps.has(cap));
+    const eligible = !requiredToolsMissing && !requiredCapabilitiesMissing;
+    const hiddenReason: SkillHostCompatibility['hiddenReason'] = requiredToolsMissing
+      ? 'required_tools_missing'
+      : requiredCapabilitiesMissing
+        ? 'required_capabilities_missing'
+        : undefined;
+    return { ...skill, eligible, hiddenReason, missingDeclaredTools };
+  });
+}
+
+export async function buildSkillsPromptFragment(root: string, host?: HostCapabilities): Promise<string | undefined> {
+  let skills = (await scanWorkspaceSkills(root)).filter((skill) => skill.enabled);
+  // Gate before MAX_SKILLS_IN_PROMPT truncation so a host lacking a required
+  // tool never advertises the skill. `host === undefined` keeps the legacy
+  // no-gating behavior (desktop call sites stay unchanged).
+  if (host) skills = gateSkillsByHostCapabilities(skills, host).filter((gated) => gated.eligible);
   if (skills.length === 0) return undefined;
 
   // External-reference-style lazy skill loading: keep the always-on system
@@ -171,11 +226,18 @@ export async function buildSkillsPromptFragment(root: string): Promise<string | 
   return parts.join('\n');
 }
 
-export async function loadSkillInstructions(root: string, name: string): Promise<LoadSkillInstructionsResult> {
+export async function loadSkillInstructions(root: string, name: string, host?: HostCapabilities): Promise<LoadSkillInstructionsResult> {
   const raw = typeof name === 'string' ? name.trim() : '';
   const skills = await scanWorkspaceSkills(root);
   const enabledSkills = skills.filter((skill) => skill.enabled);
-  const availableSkills = enabledSkills.map((skill) => ({
+  // Gate eligible skills before exposing them as available or loading them.
+  // `host === undefined` keeps the legacy no-gating behavior (desktop call
+  // sites stay unchanged).
+  const gated = host
+    ? gateSkillsByHostCapabilities(enabledSkills, host)
+    : enabledSkills.map((skill) => ({ ...skill, eligible: true, hiddenReason: undefined, missingDeclaredTools: [] as string[] }));
+  const eligibleSkills = gated.filter((candidate) => candidate.eligible);
+  const availableSkills = eligibleSkills.map((skill) => ({
     id: skill.id,
     name: skill.name,
     description: skill.description,
@@ -185,7 +247,7 @@ export async function loadSkillInstructions(root: string, name: string): Promise
   }
 
   const normalized = raw.toLowerCase();
-  const skill = enabledSkills.find((candidate) =>
+  const skill = eligibleSkills.find((candidate) =>
     candidate.id.toLowerCase() === normalized ||
     candidate.name.toLowerCase() === normalized,
   );
@@ -213,10 +275,16 @@ export async function loadSkillInstructions(root: string, name: string): Promise
   );
   if (disabledSkill) return { ok: false, reason: 'disabled', availableSkills };
 
+  const hiddenSkill = gated.find((candidate) => !candidate.eligible &&
+      (candidate.id.toLowerCase() === normalized ||
+        candidate.name.toLowerCase() === normalized),
+  );
+  if (hiddenSkill) return { ok: false, reason: 'host_incompatible', availableSkills };
+
   return { ok: false, reason: 'not_found', availableSkills };
 }
 
-export function buildSkillAgentTool(root: string): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
+export function buildSkillAgentTool(root: string, host?: HostCapabilities): MakaTool<{ name: string }, LoadSkillInstructionsResult> {
   return {
     name: 'Skill',
     description:
@@ -226,41 +294,63 @@ export function buildSkillAgentTool(root: string): MakaTool<{ name: string }, Lo
     }),
     permissionRequired: false,
     displayName: 'Skill',
-    impl: async ({ name }) => loadSkillInstructions(root, name),
+    impl: async ({ name }) => loadSkillInstructions(root, name, host),
   };
 }
 
-export function parseSkillFrontMatter(text: string): { name?: string; description?: string; allowedTools: string[] } {
-  if (!text.startsWith('---')) return { allowedTools: [] };
+export function parseSkillFrontMatter(text: string): {
+  name?: string;
+  description?: string;
+  allowedTools: string[];
+  requiredTools: string[];
+  requiredCapabilities: string[];
+} {
+  const empty = { allowedTools: [], requiredTools: [], requiredCapabilities: [] };
+  if (!text.startsWith('---')) return empty;
   const close = text.indexOf('\n---', 3);
-  if (close < 0) return { allowedTools: [] };
+  if (close < 0) return empty;
   const block = text.slice(3, close);
   const lines = block.split(/\r?\n/);
-  const result: { name?: string; description?: string; allowedTools: string[] } = { allowedTools: [] };
-  let key: 'name' | 'description' | 'allowed-tools' | null = null;
+  const result: {
+    name?: string;
+    description?: string;
+    allowedTools: string[];
+    requiredTools: string[];
+    requiredCapabilities: string[];
+  } = { allowedTools: [], requiredTools: [], requiredCapabilities: [] };
+  // `allowed-tools`, `required-tools`, and `required-capabilities` all share the
+  // same inline `[A, B, C]` / bare-line list forms.
+  type ListKey = 'allowed-tools' | 'required-tools' | 'required-capabilities';
+  const listField: Record<ListKey, 'allowedTools' | 'requiredTools' | 'requiredCapabilities'> = {
+    'allowed-tools': 'allowedTools',
+    'required-tools': 'requiredTools',
+    'required-capabilities': 'requiredCapabilities',
+  };
+  let key: 'name' | 'description' | ListKey | null = null;
   for (const raw of lines) {
-    const match = raw.match(/^(name|description|allowed-tools):\s*(.*)$/);
+    const match = raw.match(/^(name|description|allowed-tools|required-tools|required-capabilities):\s*(.*)$/);
     if (match) {
-      key = match[1] as 'name' | 'description' | 'allowed-tools';
+      key = match[1] as 'name' | 'description' | ListKey;
       const value = rawValue(match[2]);
-      if (key === 'allowed-tools') {
+      if (key === 'name' || key === 'description') {
+        if (value) result[key] = value;
+      } else {
+        const field = listField[key];
         // Accept either inline `[A, B, C]` or a bare-line list that follows.
         if (value.startsWith('[') && value.endsWith(']')) {
-          result.allowedTools = value
+          result[field] = value
             .slice(1, -1)
             .split(',')
             .map((token) => rawValue(token))
             .filter(Boolean);
         }
-      } else if (value) {
-        result[key] = value;
       }
       continue;
     }
-    if (key === 'allowed-tools') {
+    if (key === 'allowed-tools' || key === 'required-tools' || key === 'required-capabilities') {
       const item = raw.trim().match(/^-\s+(.+)$/);
       if (item) {
-        result.allowedTools.push(rawValue(item[1]));
+        result[listField[key]].push(rawValue(item[1]));
         continue;
       }
     }
