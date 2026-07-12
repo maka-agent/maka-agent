@@ -473,8 +473,8 @@
  * prefers-reduced-motion. */
 .maka-list-row-streaming-dot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: 50%;
   background: var(--status-running);
   box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
@@ -525,7 +525,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  min-height: 24px;
+  min-height: var(--h-control-sm);
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
@@ -544,8 +544,8 @@
  * removed. */
 
 .maka-list-row-unread {
-  width: 8px;
-  height: 8px;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--status-running);
   box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
@@ -580,6 +580,10 @@
   justify-content: center;
   flex-shrink: 0;
   margin-right: var(--space-1);
+  /* #743: 14px is a documented dense exception — --icon-size is 16px
+     (chrome glyphs on nav/button icons), and 16px here would degrade the
+     session row's density. Pinned by sidebar-indicator-size-contract so a
+     new bare 14px elsewhere in the indicator path needs its own exception. */
   width: 14px;
   height: 14px;
   color: var(--foreground-secondary);
