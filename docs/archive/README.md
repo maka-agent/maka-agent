@@ -24,3 +24,5 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 ## Implementation plans
 
 The dated runtime and sandbox files are completed execution plans. Each file records the pull request that landed its implementation.
+
+`runtime-v2-implementation-notes.md` records the initial Phase 1–4 runtime skeleton and is superseded by the backend architecture chapters and current source.

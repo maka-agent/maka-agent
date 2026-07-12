@@ -1,5 +1,7 @@
 # Runtime v2 implementation notes
 
+> Archived on 2026-07-13. These notes describe the initial Phase 1–4 skeleton; the backend architecture chapters and current source now describe the active runtime.
+
 Status: Phase 1–4 skeleton landed (compile-safe, tested). The production
 `SessionManager.sendMessage` hot path is **unchanged**; the v2 seam exists
 in parallel so future work can migrate onto it incrementally.

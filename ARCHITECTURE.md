@@ -98,7 +98,7 @@ The “code map” in each deep-dive article is the preferred implementation ent
 
 - [`docs/runtime-kernel.md`](./docs/runtime-kernel.md)
 - [`docs/runtime-v2-architecture-evolution.md`](./docs/runtime-v2-architecture-evolution.md)
-- [`docs/runtime-v2-implementation-notes.md`](./docs/runtime-v2-implementation-notes.md)
+- [`docs/archive/runtime-v2-implementation-notes.md`](./docs/archive/runtime-v2-implementation-notes.md)
 
 Those documents provide historical design context and implementation notes. The six chapters indexed here are the narrative entry point for current backend mechanisms.
 
