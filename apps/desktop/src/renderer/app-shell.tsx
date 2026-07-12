@@ -163,7 +163,7 @@ export function AppShell({
     pickAttachments,
     attachFilePaths,
     removeAttachment,
-    clearAttachments,
+    clearSubmittedAttachments,
   } = useAppShellComposerAttachments({ draftKey: attachmentDraftKey, toastApi });
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
@@ -965,7 +965,7 @@ export function AppShell({
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
     const ok = await send(text, pending);
-    if (ok !== false) clearAttachments();
+    if (ok !== false && pending) clearSubmittedAttachments(pending);
     return ok;
   }
 

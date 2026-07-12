@@ -17,6 +17,17 @@ export function removePending<T>(map: PendingByKey<T>, key: string, index: numbe
   return { ...map, [key]: current.filter((_, i) => i !== index) };
 }
 
+export function removePendingItems<T>(
+  map: PendingByKey<T>,
+  key: string,
+  items: readonly T[],
+): PendingByKey<T> {
+  const submitted = new Set(items);
+  const remaining = (map[key] ?? []).filter((item) => !submitted.has(item));
+  if (remaining.length === 0) return clearPending(map, key);
+  return { ...map, [key]: remaining };
+}
+
 export function clearPending<T>(map: PendingByKey<T>, key: string): PendingByKey<T> {
   const next = { ...map };
   delete next[key];

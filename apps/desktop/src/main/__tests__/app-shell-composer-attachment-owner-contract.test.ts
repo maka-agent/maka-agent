@@ -18,7 +18,8 @@ describe('AppShell composer attachment ownership', () => {
     assert.match(owner, /useState<PendingByKey<PendingAttachment>>/);
     assert.match(owner, /window\.maka\.attachments\.pickFiles\(\)/);
     assert.match(owner, /const ownerKey = options\.draftKey/);
-    assert.match(owner, /clearAttachments/);
+    assert.match(owner, /clearSubmittedAttachments/);
+    assert.match(owner, /removePendingItems\(map, ownerKey, submitted\)/);
   });
 
   it('keeps chat send and compact routing in the composition layer', async () => {

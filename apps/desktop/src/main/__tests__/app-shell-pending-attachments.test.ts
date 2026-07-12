@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { appendPending, clearPending, removePending, selectPending } from '../../renderer/app-shell-pending-attachments.js';
+import { appendPending, clearPending, removePending, removePendingItems, selectPending } from '../../renderer/app-shell-pending-attachments.js';
 
 describe('pending attachments by draft key', () => {
   test('selecting another key never leaks pending from a different session', () => {
@@ -23,5 +23,16 @@ describe('pending attachments by draft key', () => {
     const next = clearPending(map, 'a');
     assert.deepEqual(selectPending(next, 'a'), []);
     assert.deepEqual(selectPending(next, 'b'), ['b1']);
+  });
+
+  test('successful send removes only its submitted snapshot', () => {
+    const submitted = { name: 'submitted' };
+    const addedWhileSending = { name: 'added later' };
+    let map = appendPending({}, 'draft', [submitted]);
+    map = appendPending(map, 'draft', [addedWhileSending]);
+
+    const next = removePendingItems(map, 'draft', [submitted]);
+
+    assert.deepEqual(selectPending(next, 'draft'), [addedWhileSending]);
   });
 });

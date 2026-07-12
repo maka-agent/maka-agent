@@ -3,8 +3,8 @@ import { attachmentKindFromMimeType, generalizedErrorMessageChinese, guessMimeFr
 import type { PendingAttachment } from './app-shell-chat-actions';
 import {
   appendPending,
-  clearPending,
   removePending,
+  removePendingItems,
   selectPending,
   type PendingByKey,
 } from './app-shell-pending-attachments';
@@ -69,9 +69,9 @@ export function useAppShellComposerAttachments(options: {
     setPendingByKey((map) => removePending(map, ownerKey, index));
   }
 
-  function clearAttachments(): void {
+  function clearSubmittedAttachments(submitted: readonly PendingAttachment[]): void {
     const ownerKey = options.draftKey;
-    setPendingByKey((map) => clearPending(map, ownerKey));
+    setPendingByKey((map) => removePendingItems(map, ownerKey, submitted));
   }
 
   return {
@@ -79,6 +79,6 @@ export function useAppShellComposerAttachments(options: {
     pickAttachments,
     attachFilePaths,
     removeAttachment,
-    clearAttachments,
+    clearSubmittedAttachments,
   };
 }
