@@ -1,29 +1,18 @@
 /**
  * OAuth subscription contract — core types + pure helpers.
  *
- * PR-OAUTH-SUBSCRIPTION-0 (WAWQAQ msg `f6d38739` + kenji `cf41871b` +
- * xuan `2c5aa125`). Historical gate: `docs/archive/pr-oauth-subscription-0-gate.md`.
- *
- * Scope locked to **Claude subscription only**. Codex / Gemini /
- * Copilot are explicit follow-up PRs (one provider per PR per
- * kenji's boundary).
+ * Scope: Claude subscription types and pure helpers.
  *
  * This module is `@maka/core` so it is consumable from both main
  * and renderer. The types here MUST NOT include any token-shaped
  * field (no `accessToken`, no `refreshToken`, no `idToken`); those
  * live ONLY inside the main-process service. The renderer consumes
  * the state enum + profile slice + quota snapshot ONLY.
- *
- * Anchor docs:
- *   - upstream Claude.ai web client reverse engineering: external
- *     reference at main.js:15913-16400
- *   - historical gate checklist: `docs/archive/pr-oauth-subscription-0-gate.md`
  */
 
 /**
- * Subscription provider kind. v1 is `claude-subscription` only;
- * Codex / Gemini / Copilot enter as separate variants in follow-up
- * PRs. The discriminated union keeps each provider's nuances
+ * Subscription provider kind. This contract currently contains
+ * `claude-subscription` only. The discriminated union keeps provider nuances
  * (Anthropic PKCE vs Codex potentially loopback vs Copilot
  * device-flow) typed separately.
  */

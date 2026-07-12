@@ -1,8 +1,6 @@
 /**
  * Claude subscription OAuth service (main-process only).
  *
- * PR-OAUTH-SUBSCRIPTION-0. Historical gate: `docs/archive/pr-oauth-subscription-0-gate.md`.
- *
  * Responsibilities:
  *   1. PKCE authorize URL generation + pending state (G-X1).
  *   2. Paste-code parsing + state validation (G-X2).
@@ -458,11 +456,6 @@ export class ClaudeSubscriptionService {
    * until natural expiry (~1 hour); refresh tokens remain valid
    * until their TTL or until the user explicitly revokes them via
    * the claude.ai account-side UI.
-   *
-   * If Anthropic ships a revocation endpoint, follow-up
-   * `PR-OAUTH-SUBSCRIPTION-LOGOUT-REVOKE-0` wires it; until then
-   * the gate doc records this as a known limitation
-   * (`docs/archive/pr-oauth-subscription-0-gate.md` § "Logout revoke gate").
    *
    * What this method DOES:
    *   - Delete token file (ENOENT is treated as success — already gone).
