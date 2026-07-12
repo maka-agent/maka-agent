@@ -73,6 +73,8 @@ import {
   SessionManager,
   buildBuiltinTools,
   buildPermissionAwareBuiltinTools,
+  createDefaultSandboxManager,
+  createPermissionAwareSandboxContext,
   buildChildAgentTools,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
@@ -401,10 +403,32 @@ const openGateway = new OpenGatewayService({
 });
 const backends = new BackendRegistry();
 const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
+const sandboxManager = createDefaultSandboxManager();
 const shellRuns = new ShellRunProcessManager({
   store: shellRunStore,
   newId: randomUUID,
   now: Date.now,
+  getSandboxContext: async (input) => {
+    try {
+      const header = await store.readHeader(input.sessionId);
+      const cwd = await normalizedExistingPath(header.cwd);
+      return {
+        ok: true,
+        context: createPermissionAwareSandboxContext({
+          mode: header.permissionMode,
+          cwd,
+          workspaceRoots: [cwd],
+          sandboxManager,
+        }).context,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: 'context_resolution_failed',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  },
 });
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
@@ -461,6 +485,7 @@ async function buildSessionBuiltinTools(header: SessionHeader): Promise<MakaTool
     mode: header.permissionMode,
     cwd,
     workspaceRoots: [cwd],
+    sandboxManager,
     shellRuns,
   });
   return [

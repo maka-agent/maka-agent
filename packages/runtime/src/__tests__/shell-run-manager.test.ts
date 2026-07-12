@@ -4,9 +4,137 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { ShellRunRecord, ShellRunStore } from '@maka/core';
-import { ShellRunProcessManager } from '../shell-run-manager.js';
+import { createDangerFullAccessPermissionProfile } from '@maka/core/permission-profile';
+import {
+  ShellRunProcessManager,
+  ShellRunSandboxError,
+} from '../shell-run-manager.js';
 
 describe('ShellRunProcessManager', () => {
+  test('transforms background commands and records the canonical context cwd', async () => {
+    const store = new MemoryShellRunStore();
+    const calls: Array<{ program: string; args: readonly string[]; cwd: string }> = [];
+    const cwd = process.cwd();
+    const manager = new ShellRunProcessManager({
+      store,
+      newId: () => 'shell-run-1',
+      now: Date.now,
+      getSandboxContext: async () => ({
+        ok: true,
+        context: {
+          cwd,
+          profile: createDangerFullAccessPermissionProfile(),
+          workspaceRoots: [cwd],
+          sandboxManager: {
+            transform: (request) => {
+              calls.push({
+                program: request.command.program,
+                args: request.command.args,
+                cwd: request.command.cwd,
+              });
+              return {
+                ok: true,
+                exec: {
+                  argv: [request.command.program, ...request.command.args],
+                  cwd: request.command.cwd,
+                  env: request.command.env,
+                  sandboxType: 'none',
+                  effectiveProfile: request.command.profile,
+                },
+                sandboxType: 'none',
+                requiresSandbox: false,
+                preference: 'auto',
+              };
+            },
+          },
+          pathContext: { workspaceRoots: [cwd] },
+        },
+      }),
+    });
+
+    const result = await manager.runBash(shellInput({
+      cwd: '/ignored-input-cwd',
+      command: 'printf "ok"',
+      yieldTimeMs: 30_000,
+    }));
+
+    assert.equal(result.kind, 'terminal');
+    assert.deepEqual(calls, [{ program: '/bin/sh', args: ['-lc', 'printf "ok"'], cwd }]);
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).cwd, cwd);
+  });
+
+  test('fails before id allocation, spawn, and durable record when context resolution fails', async () => {
+    const store = new MemoryShellRunStore();
+    let ids = 0;
+    let spawnCalls = 0;
+    const manager = new ShellRunProcessManager({
+      store,
+      newId: () => `shell-run-${++ids}`,
+      now: Date.now,
+      getSandboxContext: async () => ({
+        ok: false,
+        reason: 'session_not_found',
+      }),
+      spawnProcess: () => {
+        spawnCalls += 1;
+        throw new Error('must not spawn');
+      },
+    });
+
+    await assert.rejects(
+      manager.runBash(shellInput({ cwd: '/ignored', command: 'echo no' })),
+      (error: unknown) => error instanceof ShellRunSandboxError
+        && error.stage === 'context'
+        && error.reason === 'session_not_found',
+    );
+    assert.equal(ids, 0);
+    assert.equal(spawnCalls, 0);
+    assert.deepEqual(await store.listSessionShellRuns('session-1'), []);
+  });
+
+  test('fails before spawn and durable record when sandbox transform fails', async () => {
+    const store = new MemoryShellRunStore();
+    let spawnCalls = 0;
+    const cwd = process.cwd();
+    const manager = new ShellRunProcessManager({
+      store,
+      newId: () => 'shell-run-1',
+      now: Date.now,
+      getSandboxContext: async () => ({
+        ok: true,
+        context: {
+          cwd,
+          profile: createDangerFullAccessPermissionProfile(),
+          workspaceRoots: [cwd],
+          sandboxManager: {
+            transform: () => ({
+              ok: false,
+              reason: 'backend_not_available',
+              sandboxType: 'macos-seatbelt',
+              requiresSandbox: true,
+              platform: 'darwin',
+              preference: 'auto',
+            }),
+          },
+          pathContext: { workspaceRoots: [cwd] },
+        },
+      }),
+      spawnProcess: () => {
+        spawnCalls += 1;
+        throw new Error('must not spawn');
+      },
+    });
+
+    await assert.rejects(
+      manager.runBash(shellInput({ cwd: '/ignored', command: 'echo no' })),
+      (error: unknown) => error instanceof ShellRunSandboxError
+        && error.stage === 'transform'
+        && error.reason === 'backend_not_available',
+    );
+    assert.equal(spawnCalls, 0);
+    assert.deepEqual(await store.listSessionShellRuns('session-1'), []);
+  });
+
   test('persists every Bash run and returns observed terminal results for quick commands', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
@@ -304,6 +432,30 @@ function createManager(store: ShellRunStore): ShellRunProcessManager {
     store,
     newId: () => `shell-run-${++id}`,
     now: () => ++now,
+    getSandboxContext: async () => ({
+      ok: true,
+      context: {
+        cwd: process.cwd(),
+        profile: createDangerFullAccessPermissionProfile(),
+        workspaceRoots: [process.cwd()],
+        sandboxManager: {
+          transform: (request) => ({
+            ok: true,
+            exec: {
+              argv: [request.command.program, ...request.command.args],
+              cwd: request.command.cwd,
+              env: request.command.env,
+              sandboxType: 'none',
+              effectiveProfile: request.command.profile,
+            },
+            sandboxType: 'none',
+            requiresSandbox: false,
+            preference: request.preference ?? 'auto',
+          }),
+        },
+        pathContext: { workspaceRoots: [process.cwd()] },
+      },
+    }),
     flushIntervalMs: 10,
     killGraceMs: 50,
   });
@@ -321,7 +473,6 @@ function shellInput(input: {
     sourceRunId: 'run-1',
     sourceTurnId: 'turn-1',
     sourceToolCallId: 'tool-1',
-    cwd: input.cwd,
     command: input.command,
     ...(input.yieldTimeMs !== undefined ? { yieldTimeMs: input.yieldTimeMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),

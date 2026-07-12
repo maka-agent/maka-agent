@@ -115,7 +115,6 @@ export function buildBackgroundBashTool(
       ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
       sourceTurnId: ctx.turnId,
       sourceToolCallId: ctx.toolCallId,
-      cwd: ctx.cwd,
       command,
       ...(yield_time_ms !== undefined ? { yieldTimeMs: yield_time_ms } : {}),
       ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),

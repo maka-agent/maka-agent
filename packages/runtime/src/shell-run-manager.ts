@@ -19,6 +19,12 @@ import {
   terminateChildProcessTree,
 } from './shell-exec.js';
 import { truncateToolOutput } from './tool-output.js';
+import type { PermissionAwareSandboxContext } from './sandbox/permission-aware-context.js';
+import type { SandboxErrorDomain, SandboxErrorStage } from './sandbox/errors.js';
+import type {
+  SandboxTransformFailureReason,
+  SandboxType,
+} from './sandbox/types.js';
 
 export const DEFAULT_BASH_YIELD_TIME_MS = 10_000;
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
@@ -35,6 +41,8 @@ export interface ShellRunProcessManagerInput {
   store: ShellRunStore;
   newId: () => string;
   now: () => number;
+  getSandboxContext: ShellRunSandboxContextProvider;
+  spawnProcess?: ShellRunProcessSpawner;
   maxLiveShellRuns?: number;
   flushIntervalMs?: number;
   flushBytes?: number;
@@ -48,7 +56,6 @@ export interface ShellRunBashInput {
   sourceRunId?: string;
   sourceTurnId: string;
   sourceToolCallId: string;
-  cwd: string;
   command: string;
   yieldTimeMs?: number;
   timeoutMs?: number;
@@ -56,9 +63,67 @@ export interface ShellRunBashInput {
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
 }
 
+export type ShellRunSandboxContextFailureReason =
+  | 'session_not_found'
+  | 'invalid_cwd'
+  | 'missing_workspace_roots'
+  | 'profile_compile_failed'
+  | 'context_resolution_failed';
+
+export type ShellRunSandboxContextResult =
+  | { ok: true; context: PermissionAwareSandboxContext }
+  | {
+      ok: false;
+      reason: ShellRunSandboxContextFailureReason;
+      message?: string;
+    };
+
+export type ShellRunSandboxContextProvider = (
+  input: ShellRunBashInput,
+) => Promise<ShellRunSandboxContextResult>;
+
+export interface ShellRunSpawnRequest {
+  argv: readonly string[];
+  cwd: string;
+  env?: Readonly<Record<string, string | undefined>>;
+}
+
+export type ShellRunProcessSpawner = (request: ShellRunSpawnRequest) => ShellRunChildProcess;
+
+export type ShellRunSandboxErrorReason =
+  | ShellRunSandboxContextFailureReason
+  | 'missing_workspace_roots'
+  | 'invalid_exec_argv'
+  | SandboxTransformFailureReason;
+
+export class ShellRunSandboxError extends Error {
+  readonly code = 'SANDBOX_BACKGROUND_COMMAND_BLOCKED';
+  readonly domain: SandboxErrorDomain = 'background_command';
+  readonly recoverable = false;
+  readonly stage: SandboxErrorStage;
+  readonly reason: ShellRunSandboxErrorReason;
+  readonly backend?: SandboxType;
+  readonly requiresSandbox?: boolean;
+
+  constructor(input: {
+    stage: SandboxErrorStage;
+    reason: ShellRunSandboxErrorReason;
+    message?: string;
+    backend?: SandboxType;
+    requiresSandbox?: boolean;
+  }) {
+    super(input.message ?? `Background command sandbox failed: ${input.reason}.`);
+    this.name = 'ShellRunSandboxError';
+    this.stage = input.stage;
+    this.reason = input.reason;
+    this.backend = input.backend;
+    this.requiresSandbox = input.requiresSandbox;
+  }
+}
+
 type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
-type ShellRunChildProcess = ChildProcessByStdio<null, Readable, Readable>;
+export type ShellRunChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 type ShellRunResourceTarget = { shellRunId: string };
 
 interface LiveShellRun {
@@ -100,6 +165,7 @@ export class ShellRunProcessManager {
   private readonly maxRetainedChars: number;
   private readonly maxLiveEmitChars: number;
   private readonly killGraceMs: number;
+  private readonly spawnProcess: ShellRunProcessSpawner;
 
   constructor(private readonly input: ShellRunProcessManagerInput) {
     this.maxLiveShellRuns = input.maxLiveShellRuns ?? DEFAULT_MAX_LIVE_SHELL_RUNS;
@@ -108,6 +174,7 @@ export class ShellRunProcessManager {
     this.maxRetainedChars = input.maxRetainedChars ?? BASH_MAX_RETAINED_CHARS;
     this.maxLiveEmitChars = input.maxLiveEmitChars ?? BASH_MAX_LIVE_EMIT_CHARS;
     this.killGraceMs = input.killGraceMs ?? SIGKILL_GRACE_MS;
+    this.spawnProcess = input.spawnProcess ?? spawnShellRunProcess;
   }
 
   async runBash(input: ShellRunBashInput): Promise<TerminalToolResult | ShellRunToolResult> {
@@ -221,13 +288,9 @@ export class ShellRunProcessManager {
       throw new Error(`Too many live background tasks (${this.maxLiveShellRuns}); read or stop an existing task first`);
     }
 
+    const launch = await this.buildSpawnRequest(input);
     const shellRunId = this.input.newId();
-    const child = spawn(input.command, {
-      cwd: input.cwd,
-      shell: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-    });
+    const child = this.spawnProcess(launch);
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
@@ -279,7 +342,7 @@ export class ShellRunProcessManager {
         ...(input.sourceRunId ? { sourceRunId: input.sourceRunId } : {}),
         sourceTurnId: input.sourceTurnId,
         sourceToolCallId: input.sourceToolCallId,
-        cwd: input.cwd,
+        cwd: launch.cwd,
         command: redactSecrets(input.command),
         status: 'running',
         startedAt: now,
@@ -303,6 +366,58 @@ export class ShellRunProcessManager {
       this.beginTermination(live, { kind: 'shutdown' });
       throw error;
     }
+  }
+
+  private async buildSpawnRequest(input: ShellRunBashInput): Promise<ShellRunSpawnRequest> {
+    const resolved = await this.input.getSandboxContext(input);
+    if (!resolved.ok) {
+      throw new ShellRunSandboxError({
+        stage: 'context',
+        reason: resolved.reason,
+        message: resolved.message,
+      });
+    }
+    const { context } = resolved;
+    if (context.workspaceRoots.length === 0 || context.pathContext.workspaceRoots.length === 0) {
+      throw new ShellRunSandboxError({
+        stage: 'validation',
+        reason: 'missing_workspace_roots',
+      });
+    }
+
+    const transformed = context.sandboxManager.transform({
+      command: {
+        program: '/bin/sh',
+        args: ['-lc', input.command],
+        cwd: context.cwd,
+        profile: context.profile,
+        pathContext: context.pathContext,
+      },
+      ...(context.preference ? { preference: context.preference } : {}),
+      ...(context.platform ? { platform: context.platform } : {}),
+    });
+    if (!transformed.ok) {
+      throw new ShellRunSandboxError({
+        stage: 'transform',
+        reason: transformed.reason,
+        message: transformed.message,
+        backend: transformed.sandboxType,
+        requiresSandbox: transformed.requiresSandbox,
+      });
+    }
+    if (transformed.exec.argv.length === 0 || !transformed.exec.argv[0]) {
+      throw new ShellRunSandboxError({
+        stage: 'validation',
+        reason: 'invalid_exec_argv',
+        backend: transformed.sandboxType,
+        requiresSandbox: transformed.requiresSandbox,
+      });
+    }
+    return {
+      argv: transformed.exec.argv,
+      cwd: transformed.exec.cwd,
+      ...(transformed.exec.env ? { env: transformed.exec.env } : {}),
+    };
   }
 
   private append(live: LiveShellRun, stream: 'stdout' | 'stderr', chunk: string): void {
@@ -676,6 +791,18 @@ function clampInt(value: number, min: number, max: number): number {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function spawnShellRunProcess(request: ShellRunSpawnRequest): ShellRunChildProcess {
+  const [program, ...args] = request.argv;
+  if (!program) throw new Error('Background command argv must include a program');
+  return spawn(program, args, {
+    cwd: request.cwd,
+    ...(request.env ? { env: request.env as NodeJS.ProcessEnv } : {}),
+    shell: false,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32',
+  });
 }
 
 function waitForAbort(signal: AbortSignal | undefined): Promise<void> {

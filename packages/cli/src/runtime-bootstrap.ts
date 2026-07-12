@@ -8,6 +8,8 @@ import {
   SessionManager,
   ShellRunProcessManager,
   buildPermissionAwareBuiltinTools,
+  createDefaultSandboxManager,
+  createPermissionAwareSandboxContext,
   buildDefaultContextBudgetPolicy,
   buildLlmHistorySummarizer,
   buildManualCompactLookupPolicy,
@@ -74,16 +76,39 @@ export async function createMakaCliRuntimeContext(
   });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
+  const sandboxManager = createDefaultSandboxManager();
   const shellRuns = new ShellRunProcessManager({
     store: shellRunStore,
     newId: randomUUID,
     now: Date.now,
+    getSandboxContext: async (shellInput) => {
+      try {
+        const header = await store.readHeader(shellInput.sessionId);
+        const cwd = await normalizedExistingPath(header.cwd);
+        return {
+          ok: true,
+          context: createPermissionAwareSandboxContext({
+            mode: header.permissionMode,
+            cwd,
+            workspaceRoots: [cwd],
+            sandboxManager,
+          }).context,
+        };
+      } catch (error) {
+        return {
+          ok: false,
+          reason: 'context_resolution_failed',
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
   });
   const initialCwd = await normalizedExistingPath(input.cwd);
   const tools = buildPermissionAwareBuiltinTools({
     mode: 'ask',
     cwd: initialCwd,
     workspaceRoots: [initialCwd],
+    sandboxManager,
     shellRuns,
   }).tools;
 
@@ -110,6 +135,7 @@ export async function createMakaCliRuntimeContext(
       mode: ctx.header.permissionMode,
       cwd,
       workspaceRoots: [cwd],
+      sandboxManager,
       shellRuns,
     }).tools;
     return new AiSdkBackend({

@@ -83,6 +83,14 @@ describe('Maka CLI runtime bootstrap', () => {
         cwd: workspaceRoot,
       });
       try {
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'bypass',
+          name: 'background-test',
+        });
         const names = context.tools.map((tool) => tool.name);
         assert.ok(names.includes('StopBackgroundTask'));
 
@@ -94,7 +102,7 @@ describe('Maka CLI runtime bootstrap', () => {
         const result = await bash.impl(
           { command, yield_time_ms: 250 },
           {
-            sessionId: 'session-1',
+            sessionId: session.id,
             runId: 'run-1',
             turnId: 'turn-1',
             cwd: workspaceRoot,
@@ -113,7 +121,7 @@ describe('Maka CLI runtime bootstrap', () => {
         const detail = await read.impl(
           { path: result.ref },
           {
-            sessionId: 'session-1',
+            sessionId: session.id,
             runId: 'run-1',
             turnId: 'turn-1',
             cwd: workspaceRoot,
@@ -125,7 +133,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.match(detail.content ?? '', /stdout:\nstart/);
 
         await context.close();
-        const record = await createShellRunStore(workspaceRoot).readShellRun('session-1', backgroundTaskId(result.ref));
+        const record = await createShellRunStore(workspaceRoot).readShellRun(session.id, backgroundTaskId(result.ref));
         assert.equal(record.status, 'cancelled');
         assert.equal(record.exitCode, 130);
       } finally {

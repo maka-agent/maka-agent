@@ -100,12 +100,20 @@ export {
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   SHELL_RUN_RESOURCE_PREFIX,
   ShellRunProcessManager,
+  ShellRunSandboxError,
   isShellRunResourceRef,
   shellRunResourceRef,
 } from './shell-run-manager.js';
 export type {
   ShellRunBashInput,
+  ShellRunChildProcess,
   ShellRunProcessManagerInput,
+  ShellRunProcessSpawner,
+  ShellRunSandboxContextFailureReason,
+  ShellRunSandboxContextProvider,
+  ShellRunSandboxContextResult,
+  ShellRunSandboxErrorReason,
+  ShellRunSpawnRequest,
 } from './shell-run-manager.js';
 export {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
