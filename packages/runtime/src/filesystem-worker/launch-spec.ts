@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { access, realpath } from 'node:fs/promises';
-import { delimiter, isAbsolute, join } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path';
 
 import {
   resolveFilesystemWorkerBundle,
@@ -50,7 +50,10 @@ export function buildFilesystemWorkerEnv(
   hostEnv: NodeJS.ProcessEnv = process.env,
   controlledTmpdir = '/tmp',
 ): Readonly<Record<string, string>> {
-  const env: Record<string, string> = { TMPDIR: controlledTmpdir };
+  const env: Record<string, string> = {
+    TMPDIR: controlledTmpdir,
+    OPENSSL_CONF: '/dev/null',
+  };
   for (const key of ['LANG', 'LC_ALL', 'LC_CTYPE'] as const) {
     const value = hostEnv[key];
     if (value) env[key] = value;
@@ -79,10 +82,29 @@ async function resolveLaunchSpec(
       message: 'Filesystem worker runtime executable is unavailable.',
     };
   }
+  const runtimeRoot = await resolveReadableRoot(resolve(dirname(program), '..'));
+  if (!runtimeRoot) {
+    return {
+      ok: false,
+      reason: 'runtime_executable_unavailable',
+      message: 'Filesystem worker runtime root is unavailable.',
+    };
+  }
+  const dependencyRoots = await resolveRuntimeDependencyRoots(program);
 
   const grepExecutable = await resolveRipgrepExecutable(
     input.rgCandidates ?? defaultRipgrepCandidates(input.hostEnv ?? process.env),
   );
+  const electronFrameworks = input.runtime === 'electron'
+    ? await resolveReadableRoot(resolve(dirname(program), '..', 'Frameworks'))
+    : undefined;
+  if (input.runtime === 'electron' && !electronFrameworks) {
+    return {
+      ok: false,
+      reason: 'runtime_executable_unavailable',
+      message: 'Electron framework roots are unavailable for the filesystem worker.',
+    };
+  }
   const args = [
     bundle.path,
     ...(grepExecutable ? ['--grep-executable', grepExecutable] : []),
@@ -93,11 +115,21 @@ async function resolveLaunchSpec(
       program,
       args,
       env: buildFilesystemWorkerEnv(input.runtime, input.hostEnv, input.tmpdir),
-      runtimeReadableRoots: [bundle.path],
-      executableRoots: [program, ...(grepExecutable ? [grepExecutable] : [])],
+      runtimeReadableRoots: unique([bundle.path, runtimeRoot, ...dependencyRoots]),
+      executableRoots: unique([
+        program,
+        runtimeRoot,
+        ...(electronFrameworks ? [electronFrameworks] : []),
+        ...dependencyRoots,
+        ...(grepExecutable ? [grepExecutable] : []),
+      ]),
       ...(grepExecutable ? { grepExecutable } : {}),
     },
   };
+}
+
+function unique(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 async function resolveRipgrepExecutable(candidates: readonly string[]): Promise<string | undefined> {
@@ -118,10 +150,28 @@ async function resolveExecutable(candidate: string): Promise<string | undefined>
   }
 }
 
+async function resolveReadableRoot(candidate: string): Promise<string | undefined> {
+  try {
+    return await realpath(candidate);
+  } catch {
+    return undefined;
+  }
+}
+
 function defaultRipgrepCandidates(env: NodeJS.ProcessEnv): readonly string[] {
   const fromPath = (env.PATH ?? '')
     .split(delimiter)
     .filter(Boolean)
     .map((directory) => join(directory, 'rg'));
   return [...fromPath, '/opt/homebrew/bin/rg', '/usr/local/bin/rg', '/usr/bin/rg'];
+}
+
+async function resolveRuntimeDependencyRoots(program: string): Promise<readonly string[]> {
+  const candidates = program.startsWith('/opt/homebrew/')
+    ? ['/opt/homebrew/opt', '/opt/homebrew/Cellar']
+    : program.startsWith('/usr/local/')
+      ? ['/usr/local/opt', '/usr/local/Cellar']
+      : [];
+  const roots = await Promise.all(candidates.map(resolveReadableRoot));
+  return roots.filter((root): root is string => root !== undefined);
 }

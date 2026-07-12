@@ -201,6 +201,8 @@ interface ResolvedRoots {
   deniedRoots: readonly string[];
   protectedWritableRoots: readonly string[];
   protectedMetadataNames: readonly string[];
+  runtimeReadableRoots: readonly string[];
+  executableRoots: readonly string[];
 }
 
 export function escapeSeatbeltRegex(value: string): string {
@@ -212,6 +214,8 @@ export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatb
   const definitionArgs = [
     ...roots.readableRoots.map((root, index) => `-DREADABLE_ROOT_${index}=${root}`),
     ...roots.writableRoots.map((root, index) => `-DWRITABLE_ROOT_${index}=${root}`),
+    ...roots.runtimeReadableRoots.map((root, index) => `-DRUNTIME_READABLE_ROOT_${index}=${root}`),
+    ...roots.executableRoots.map((root, index) => `-DEXECUTABLE_ROOT_${index}=${root}`),
   ];
 
   const sections = [
@@ -219,6 +223,7 @@ export function buildSeatbeltPolicy(input: BuildSeatbeltPolicyInput): BuildSeatb
     MACOS_SEATBELT_PLATFORM_DEFAULTS_POLICY,
     buildReadableRootsPolicy(roots),
     buildWritableRootsPolicy(roots),
+    buildRuntimeRootsPolicy(roots),
     buildNetworkPolicy(input.profile),
   ].filter(Boolean);
 
@@ -283,6 +288,8 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
       deniedRoots: [],
       protectedWritableRoots: [],
       protectedMetadataNames: [],
+      runtimeReadableRoots: [],
+      executableRoots: [],
     };
   }
 
@@ -315,6 +322,8 @@ function resolveRoots(profile: PermissionProfile, pathContext: SandboxPathContex
     deniedRoots,
     protectedWritableRoots: profile.fileSystem.protectedMetadata ? protectedWritableRoots : [],
     protectedMetadataNames: profile.fileSystem.protectedMetadata?.names ?? [],
+    runtimeReadableRoots: uniqueRoots(pathContext.runtimeReadableRoots ?? []),
+    executableRoots: uniqueRoots(pathContext.executableRoots ?? []),
   };
 }
 
@@ -344,6 +353,12 @@ function addUniqueRoots(target: string[], roots: readonly string[]): void {
   }
 }
 
+function uniqueRoots(roots: readonly string[]): readonly string[] {
+  const unique: string[] = [];
+  addUniqueRoots(unique, roots);
+  return unique;
+}
+
 function buildReadableRootsPolicy(roots: ResolvedRoots): string {
   if (roots.readableRoots.length === 0) return '';
 
@@ -361,6 +376,23 @@ function buildWritableRootsPolicy(roots: ResolvedRoots): string {
     .map((root, index) => writableRootClause(root, index, roots))
     .join('\n');
   return `(allow file-write*\n${params})`;
+}
+
+function buildRuntimeRootsPolicy(roots: ResolvedRoots): string {
+  const sections: string[] = [];
+  if (roots.runtimeReadableRoots.length > 0) {
+    const clauses = roots.runtimeReadableRoots
+      .map((_, index) => `  (subpath (param "RUNTIME_READABLE_ROOT_${index}"))`)
+      .join('\n');
+    sections.push(`(allow file-read* file-test-existence\n${clauses})`);
+  }
+  if (roots.executableRoots.length > 0) {
+    const clauses = roots.executableRoots
+      .map((_, index) => `  (subpath (param "EXECUTABLE_ROOT_${index}"))`)
+      .join('\n');
+    sections.push(`(allow file-read* file-test-existence file-map-executable\n${clauses})`);
+  }
+  return sections.join('\n\n');
 }
 
 function writableRootClause(

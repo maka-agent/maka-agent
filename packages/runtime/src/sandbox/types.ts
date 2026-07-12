@@ -20,6 +20,8 @@ export interface SandboxPathContext {
   tmpdir?: string;
   slashTmp?: string;
   minimalRoots?: readonly string[];
+  runtimeReadableRoots?: readonly string[];
+  executableRoots?: readonly string[];
 }
 
 export interface SandboxCommand {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -21,6 +21,8 @@ import {
   type FilesystemWorkerProcessRunResult,
 } from '../filesystem-worker/process-runner.js';
 import type { PermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
+import { createPermissionAwareSandboxContext } from '../sandbox/permission-aware-context.js';
+import { createDefaultSandboxManager } from '../sandbox/default-sandbox-manager.js';
 import type { SandboxTransformRequest, SandboxTransformResult } from '../sandbox/types.js';
 
 describe('FilesystemWorkerClient', () => {
@@ -54,6 +56,10 @@ describe('FilesystemWorkerClient', () => {
     assert.equal(profile?.name, 'read-only');
     assert.equal(profile?.type, 'managed');
     if (profile?.type === 'managed') assert.equal(profile.network.kind, 'restricted');
+    assert.deepEqual(transformCalls[0]?.command.pathContext.runtimeReadableRoots, [
+      '/runtime/filesystem-worker.js',
+    ]);
+    assert.deepEqual(transformCalls[0]?.command.pathContext.executableRoots, ['/runtime/node']);
     assert.deepEqual(processCalls[0]?.argv, ['/runtime/node', '/runtime/filesystem-worker.js']);
     const request = JSON.parse(processCalls[0]!.stdin) as { operation: { cwd: string } };
     assert.equal(request.operation.cwd, '/workspace');
@@ -216,11 +222,13 @@ describe('filesystem worker launch spec', () => {
     };
     assert.deepEqual(buildFilesystemWorkerEnv('node', hostEnv), {
       TMPDIR: '/tmp',
+      OPENSSL_CONF: '/dev/null',
       LANG: 'en_US.UTF-8',
       LC_ALL: 'C',
     });
     assert.deepEqual(buildFilesystemWorkerEnv('electron', hostEnv), {
       TMPDIR: '/tmp',
+      OPENSSL_CONF: '/dev/null',
       LANG: 'en_US.UTF-8',
       LC_ALL: 'C',
       ELECTRON_RUN_AS_NODE: '1',
@@ -245,7 +253,7 @@ describe('filesystem worker launch spec', () => {
     if (!result.ok) return;
     assert.equal(result.spec.program, await realpath(process.execPath));
     assert.equal(result.spec.grepExecutable, await realpath(rg));
-    assert.deepEqual(result.spec.env, { TMPDIR: '/tmp' });
+    assert.deepEqual(result.spec.env, { TMPDIR: '/tmp', OPENSSL_CONF: '/dev/null' });
     assert.equal('API_KEY' in result.spec.env, false);
     assert.equal('NODE_OPTIONS' in result.spec.env, false);
   });
@@ -293,6 +301,83 @@ describe('runFilesystemWorkerProcess', () => {
     assert.equal((await aborted).aborted, true);
   });
 });
+
+if (process.platform === 'darwin') {
+  describe('macOS sandboxed filesystem worker smoke', () => {
+    test('writes normal workspace files and denies protected metadata writes', async () => {
+      const cwd = await realpath(await mkdtemp(join(tmpdir(), 'maka-fs-worker-seatbelt-')));
+      await mkdir(join(cwd, '.git'));
+      await writeFile(join(cwd, '.git', 'config'), 'protected', 'utf8');
+      const sandboxManager = createDefaultSandboxManager();
+      const context = createPermissionAwareSandboxContext({
+        mode: 'execute',
+        cwd,
+        workspaceRoots: [cwd],
+        sandboxManager,
+        platform: 'darwin',
+      }).context;
+      const getLaunchSpec = createFilesystemWorkerLaunchSpecProvider({
+        runtime: 'node',
+        resourceLocation: { kind: 'runtime' },
+      });
+      const client = new FilesystemWorkerClient({
+        getLaunchSpec,
+      });
+
+      await client.execute({
+        context,
+        operation: { kind: 'write', path: 'allowed.txt', content: 'allowed' },
+      });
+      assert.equal(await readFile(join(cwd, 'allowed.txt'), 'utf8'), 'allowed');
+
+      await assert.rejects(
+        client.execute({
+          context,
+          operation: { kind: 'write', path: '.git/config', content: 'denied' },
+        }),
+        (error: unknown) => error instanceof FilesystemWorkerClientError
+          && error.stage === 'operation'
+          && error.reason === 'filesystem_denied',
+      );
+      assert.equal(await readFile(join(cwd, '.git', 'config'), 'utf8'), 'protected');
+
+      await writeFile(join(cwd, 'search.txt'), 'sandbox-search-token\n', 'utf8');
+      const launch = await getLaunchSpec();
+      assert.equal(launch.ok, true);
+      if (!launch.ok) return;
+      if (launch.spec.grepExecutable) {
+        const grep = await client.execute({
+          context,
+          operation: {
+            kind: 'grep',
+            path: '.',
+            pattern: 'sandbox-search-token',
+            maxCountPerFile: 50,
+            limit: 200,
+            timeoutMs: 5_000,
+          },
+        });
+        assert.equal(grep.kind, 'grep');
+        if (grep.kind === 'grep') assert.equal(grep.matches.some((line) => line.includes('search.txt')), true);
+      } else {
+        await assert.rejects(
+          client.execute({
+            context,
+            operation: {
+              kind: 'grep',
+              path: '.',
+              pattern: 'sandbox-search-token',
+              maxCountPerFile: 50,
+              limit: 200,
+              timeoutMs: 5_000,
+            },
+          }),
+          matchesClientError('operation', 'grep_unavailable'),
+        );
+      }
+    });
+  });
+}
 
 function sandboxContext(
   calls: SandboxTransformRequest[] = [],

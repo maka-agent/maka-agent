@@ -154,6 +154,31 @@ describe('buildSeatbeltPolicy', () => {
     ]);
   });
 
+  it('grants worker runtime roots read and executable mapping without write access', () => {
+    const result = buildSeatbeltPolicy({
+      profile: createWorkspaceWritePermissionProfile(),
+      pathContext: {
+        workspaceRoots: ['/repo'],
+        runtimeReadableRoots: ['/runtime/filesystem-worker.js'],
+        executableRoots: ['/runtime/node', '/runtime/rg'],
+      },
+    });
+
+    assert.match(result.policy, /\(allow file-read\* file-test-existence\n  \(subpath \(param "RUNTIME_READABLE_ROOT_0"\)\)\)/);
+    assert.match(result.policy, /\(allow file-read\* file-test-existence file-map-executable/);
+    assert.match(result.policy, /\(subpath \(param "EXECUTABLE_ROOT_0"\)\)/);
+    assert.deepEqual(result.definitionArgs, [
+      '-DREADABLE_ROOT_0=/repo',
+      '-DREADABLE_ROOT_1=/tmp',
+      '-DWRITABLE_ROOT_0=/repo',
+      '-DWRITABLE_ROOT_1=/tmp',
+      '-DRUNTIME_READABLE_ROOT_0=/runtime/filesystem-worker.js',
+      '-DEXECUTABLE_ROOT_0=/runtime/node',
+      '-DEXECUTABLE_ROOT_1=/runtime/rg',
+    ]);
+    assert.doesNotMatch(result.policy, /WRITABLE_ROOT_2/);
+  });
+
   it('protects metadata names with require-not regex under writable workspace roots', () => {
     const policy = policyText(createWorkspaceWritePermissionProfile());
 

@@ -151,7 +151,11 @@ export class FilesystemWorkerClient {
         cwd: input.context.cwd,
         env: launch.spec.env,
         profile: operationProfile,
-        pathContext: input.context.pathContext,
+        pathContext: {
+          ...input.context.pathContext,
+          runtimeReadableRoots: launch.spec.runtimeReadableRoots,
+          executableRoots: launch.spec.executableRoots,
+        },
       },
       ...(input.context.preference ? { preference: input.context.preference } : {}),
       ...(input.context.platform ? { platform: input.context.platform } : {}),
