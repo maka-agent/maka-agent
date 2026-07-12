@@ -213,7 +213,7 @@ describe('issue #406 design-system governance contract', () => {
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--accent\);/);
     assert.doesNotMatch(styles, /--color-primary:\s*var\(--foreground\);/);
     for (const token of emphasisTokens) {
-      assert.match(tokens, new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`));
+      assert.match(styles, new RegExp(`--color-${token}:\\s*var\\(--${token}\\);`));
     }
 
     const ui = await readUiSource();

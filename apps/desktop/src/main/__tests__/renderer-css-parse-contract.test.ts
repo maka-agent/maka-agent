@@ -56,4 +56,11 @@ describe('renderer CSS parse contract', () => {
     assert.match(tokens, /--font-sans\s*:/, 'maka-tokens.css must own --font-sans');
     assert.match(tokens, /--font-mono\s*:/, 'maka-tokens.css must own --font-mono');
   });
+
+  it('keeps one Tailwind theme bridge in styles.css', async () => {
+    const owners = (await readRendererCssFiles())
+      .filter(({ source }) => /@theme\s+inline\s*\{/.test(stripCssComments(source)))
+      .map(({ file }) => file.replaceAll('\\', '/'));
+    assert.deepEqual(owners, [`${REPO_ROOT}/apps/desktop/src/renderer/styles.css`]);
+  });
 });

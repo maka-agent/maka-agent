@@ -39,22 +39,32 @@
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
   --color-foreground: var(--foreground);
+  --color-foreground-dimmed: var(--foreground-dimmed);
   --color-card: var(--background);
   --color-card-foreground: var(--foreground);
   --color-popover: var(--background-elevated);
   --color-popover-foreground: var(--foreground);
   --color-primary: var(--action);
   --color-primary-foreground: var(--action-foreground);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
   --color-secondary: var(--foreground-5);
   --color-secondary-foreground: var(--foreground);
   --color-muted: var(--foreground-5);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: oklch(from var(--accent) 0.985 min(c, 0.003) h);
+  --color-link: var(--link);
+  --color-focus-ring: var(--focus-ring);
+  --color-status-running: var(--status-running);
+  --color-nav-active: var(--nav-active);
+  --color-toast-accent: var(--toast-accent);
   --color-control: var(--control);
   --color-control-foreground: var(--control-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
   --color-destructive-foreground: oklch(from var(--destructive) 0.985 min(c, 0.003) h);
   --color-info: var(--info);
   --color-info-foreground: var(--info-text);
@@ -63,8 +73,18 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-text);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--border-strong);
   --color-ring: var(--ring);
+  --color-foreground-2: var(--foreground-2);
+  --color-foreground-3: var(--foreground-3);
+  --color-foreground-5: var(--foreground-5);
+  --color-foreground-8: var(--foreground-8);
+  --color-foreground-10: var(--foreground-10);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-hover: var(--state-hover-bg);
+  --color-active: var(--state-selected-bg);
+  --color-user-message-bubble: var(--user-message-bubble);
 
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-surface);

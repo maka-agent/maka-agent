@@ -897,42 +897,6 @@
    See https://tailwindcss.com/docs/v4-beta for @theme inline semantics.
 ============================================================================= */
 
-@theme inline {
-  --color-background: var(--background);
-  --color-background-elevated: var(--background-elevated);
-  --color-foreground: var(--foreground);
-  --color-foreground-dimmed: var(--foreground-dimmed);
-  --color-accent: var(--accent);
-  --color-action: var(--action);
-  --color-action-foreground: var(--action-foreground);
-  --color-control: var(--control);
-  --color-control-foreground: var(--control-foreground);
-  --color-link: var(--link);
-  --color-focus-ring: var(--focus-ring);
-  --color-status-running: var(--status-running);
-  --color-nav-active: var(--nav-active);
-  --color-toast-accent: var(--toast-accent);
-  --color-info: var(--info);
-  --color-success: var(--success);
-  --color-destructive: var(--destructive);
-  --color-destructive-text: var(--destructive-text);
-
-  --color-foreground-2:  var(--foreground-2);
-  --color-foreground-3:  var(--foreground-3);
-  --color-foreground-5:  var(--foreground-5);
-  --color-foreground-8:  var(--foreground-8);
-  --color-foreground-10: var(--foreground-10);
-  --color-foreground-secondary: var(--foreground-secondary);
-
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-hover: var(--state-hover-bg);
-  --color-active: var(--state-selected-bg);
-  --color-user-message-bubble: var(--user-message-bubble);
-}
-
 /* =============================================================================
    BASE STYLES
 ============================================================================= */
