@@ -170,9 +170,8 @@ function planDubins(x0: number, y0: number, th0: number, x1: number, y1: number,
 export function planPath(x0: number, y0: number, th0: number, x1: number, y1: number, th1: number, endVisualHeading: number, turnRadius: number): PlannedPath {
   const r = Math.max(turnRadius, 1);
   const dubins = planDubins(x0, y0, th0, x1, y1, th1, r, endVisualHeading);
+  if (dubins) return dubins;
   const d = Math.max(Math.hypot(x1 - x0, y1 - y0), 1);
-  const maxCurvedLength = Math.max(d * 1.45, d + 36);
-  if (dubins && dubins.length <= maxCurvedLength) return dubins;
   return new PlannedPath({
     length: d, endVisualHeading, kind: 'straight',
     x0, y0, th0, r, seg1: 0, seg2: 0, seg3: 0, types: ['S', 'S', 'S'], x1, y1, th1,

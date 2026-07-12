@@ -6,6 +6,21 @@ Complete PR #699 by retaining cua-driver as the sole executor while replacing
 the desktop-coordinate-first adapter with an app/window-scoped, fresh-snapshot,
 AX-first background ladder modeled after Codex/Sky.
 
+## PR Boundary Decision
+
+- PR #699 owns deterministic backend correctness only:
+  - exact PID/window/page targeting
+  - cua-driver-only execution and readback
+  - effect verification and fail-closed fallback rules
+  - driver provenance and deterministic real-machine regression coverage
+- Model-in-loop behavior is a separate follow-up PR:
+  - screenshot-to-tool-call model latency and coordinate quality
+  - model retry/observation strategy
+  - visual cursor begin/completion phase synchronization
+  - cursor path aesthetics and display lag
+- The follow-up starts from branch `codex/cu-model-loop-ux`.
+- PR #699 must not delay backend execution to accommodate the visual overlay.
+
 ## Phases
 
 - [x] Recover the prior Claude Code design and real-machine E2E history.

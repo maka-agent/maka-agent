@@ -61,7 +61,6 @@ export type {
 } from './minimax-computer-harness.js';
 export type {
   CursorActionKind,
-  CursorCompleteInput,
   CursorMoveInput,
   OverlayCursorSink,
   OverlayScreenLike,
