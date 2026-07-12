@@ -4,7 +4,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--space-3) var(--space-6) var(--space-4);
+  padding: var(--space-2) var(--space-6) var(--space-2);
   /* PR-GRAY-CARD-LIFT-5 (WAWQAQ msg `d4277aba` round 3): the composer
      outer used to paint a vertical white-fade over `--background`,
      designed for the older parchment shell where the page bg was
@@ -28,7 +28,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: var(--space-1);
   padding-top: var(--space-0-5);
   border-top: 0;
 }
@@ -202,7 +202,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2-5);
+  gap: var(--space-1-5);
   width: min(var(--maka-chat-measure), 100%);
   max-width: var(--maka-chat-measure);
   margin: 0 auto;
@@ -210,7 +210,7 @@
   box-sizing: border-box;
   border: var(--border-width-hairline) solid var(--color-border-tertiary);
   border-radius: var(--radius-modal);
-  padding: var(--space-2-5) var(--space-3) var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-1-5);
   background-color: var(--agents-content-area-bg);
   /* Ring alpha is a token so dark mode can strengthen the edge without a
      second rest rule (composer-container-single-source-contract). In dark

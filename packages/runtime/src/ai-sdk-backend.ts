@@ -6,11 +6,11 @@
  * machinery: PermissionEngine (policy + park/resume), materializer,
  * AsyncEventQueue, SessionStore JSONL persistence.
  *
- * The agent loop (multi-step tool calling) is owned by ai-sdk's
- * `streamText` with `stopWhen: stepCountIs(N)`. Permission gating happens
- * inside each tool's `execute()` callback — that's the seam where we
- * consult PermissionEngine and either run, deny synthetically, or park
- * awaiting user.
+ * The agent loop (multi-step tool calling) is owned by ai-sdk's `streamText`.
+ * An explicit `maxSteps` uses `stopWhen: stepCountIs(N)`; otherwise the loop
+ * has no step cap. Permission gating happens inside each tool's `execute()`
+ * callback — that's the seam where we consult PermissionEngine and either run,
+ * deny synthetically, or park awaiting user.
  *
  * Design:
  *   send()
@@ -437,7 +437,7 @@ export interface AiSdkBackendInput {
   newId?: () => string;
   /** Clock; default `Date.now()`. */
   now?: () => number;
-  /** Cap on tool-call steps per turn; default 50. */
+  /** Optional cap on tool-call steps per turn; omitted means no step cap. */
   maxSteps?: number;
   /** Timeout before first SDK stream event; default 30s. */
   streamConnectTimeoutMs?: number;
@@ -543,7 +543,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly input: AiSdkBackendInput;
   private readonly newId: () => string;
   private readonly now: () => number;
-  private readonly maxSteps: number;
+  private readonly maxSteps: number | undefined;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
   private readonly toolAvailabilityRuntime: ToolAvailabilityRuntime;
@@ -571,7 +571,7 @@ export class AiSdkBackend implements AgentBackend {
     this.sessionId = input.sessionId;
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
-    this.maxSteps = input.maxSteps ?? 50;
+    this.maxSteps = input.maxSteps;
     this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
       input.tools,
       input.toolAvailability,
@@ -1123,17 +1123,21 @@ export class AiSdkBackend implements AgentBackend {
           publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
-        // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): when the
-        // ai-sdk loop exits with `finishReason === 'tool-calls'` it
-        // means we tripped `stopWhen: stepCountIs(maxSteps)` mid-loop
-        // — the model wanted to keep calling tools but we capped it.
+        // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): with an
+        // explicit maxSteps, `finishReason === 'tool-calls'` means we tripped
+        // `stopWhen: stepCountIs(maxSteps)` mid-loop — the model wanted to keep
+        // calling tools but we capped it.
         // The user previously saw no closing assistant text in that
         // path; just the last tool result. Inject a deterministic
         // "step cap reached" notice so the UI has SOMETHING and the
         // user can choose to send "继续" for a fresh turn.
         const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
         rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
-        if (finishReasonForGrace === 'tool-calls' && runtimeSteps < this.maxSteps) {
+        if (
+          this.maxSteps !== undefined
+          && finishReasonForGrace === 'tool-calls'
+          && runtimeSteps < this.maxSteps
+        ) {
           runtimeSteps = this.maxSteps;
         }
         // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
@@ -1142,6 +1146,7 @@ export class AiSdkBackend implements AgentBackend {
         // the user can send "继续" for a fresh turn.
         if (
           !this.aborted
+          && this.maxSteps !== undefined
           && !turnHadAnyText
           && finishReasonForGrace === 'tool-calls'
         ) {

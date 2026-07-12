@@ -119,7 +119,7 @@ export type {
   CuOverlayHookContext,
 } from './computer-use-tools.js';
 export {
-  buildBackgroundBashTool,
+  buildManagedBashTool,
   buildForegroundBashTool,
   buildLocalForegroundBashTool,
   buildStopBackgroundTaskTool,
@@ -132,14 +132,12 @@ export type {
   ShellRunToolController,
 } from './shell-tools.js';
 export {
-  DEFAULT_BASH_YIELD_TIME_MS,
   DEFAULT_BASH_TIMEOUT_MS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
-  MAX_BASH_YIELD_TIME_MS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
-  MIN_BASH_YIELD_TIME_MS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   SHELL_RUN_RESOURCE_PREFIX,
   ShellRunProcessManager,

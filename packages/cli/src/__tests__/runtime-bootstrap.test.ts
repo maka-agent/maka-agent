@@ -227,7 +227,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(read);
         const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => {}, 5000)"`;
         const result = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1',
             runId: 'run-1',
@@ -244,6 +244,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(result.stdout, '');
         assert.ok(result.ref);
         if (!result.ref) throw new Error('expected background task resource ref');
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
         const detail = await read.impl(
           { path: result.ref },
@@ -271,7 +272,7 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('publishes yielded ShellRun completion without a model resource read', async () => {
+  test('publishes background ShellRun completion without a model resource read', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
       await connectionStore.create({
@@ -285,7 +286,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => process.stdout.write('done'), 500)"`;
         const result = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',
@@ -328,7 +329,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`;
         const started = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: parent.id, runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',
@@ -359,7 +360,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 500)"`;
         const started = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',

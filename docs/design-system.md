@@ -247,7 +247,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 | `--w-rail` | 240px | 右侧（artifact panel 等） |
 | `--h-titlebar` | 36px | 标题栏 |
 | `--h-toolbar` | 40px | 二级工具栏 |
-| `--h-composer-min` | 56px | composer 最小高 |
+| `--h-composer-min` | 44px | 输入框(textarea)最小高 |
 
 ---
 
@@ -274,7 +274,7 @@ spinner、status pulse、streaming caret、shimmer，以及必要的 hover/press
 
 **规则**：
 
-1. **新组件按 surface 明确写出稳定间距**。聊天主 surface 当前使用 18px turn gap、24px horizontal message padding、18px composer vertical padding。
+1. **新组件按 surface 明确写出稳定间距**。聊天主 surface 当前使用 18px turn gap、24px horizontal message padding、14px composer vertical padding (8px top / 6px bottom)。
 
 2. **不要用全局密度切换改 typography**。字号、行高保持稳定；具体页面需要更紧或更松时，在该页面局部调整。
 

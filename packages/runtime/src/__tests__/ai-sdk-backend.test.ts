@@ -3502,6 +3502,53 @@ describe('AiSdkBackend usage telemetry', () => {
     });
   });
 
+  test('lets an unconfigured turn continue past the former 50-step default', async () => {
+    const loop = countingToolLoopModel(51);
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(loop.callCount(), 52);
+    assert.equal(events.at(-1)?.type, 'complete');
+  });
+
+  test('keeps an explicitly configured step limit', async () => {
+    const loop = countingToolLoopModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 3,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
+
+    assert.equal(loop.callCount(), 3);
+  });
+
   test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
     const messages: unknown[] = [];
     const events: SessionEvent[] = [];
@@ -6744,6 +6791,7 @@ describe('AiSdkBackend thinking persistence', () => {
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => completionModel(),
       tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 2,
       newId: idGenerator(),
       now: monotonicClock(),
     });
@@ -7062,6 +7110,47 @@ function completionModel(): MockLanguageModelV3 {
       }),
     },
   });
+}
+
+function countingToolLoopModel(toolCallsBeforeStop?: number): {
+  model: MockLanguageModelV3;
+  callCount: () => number;
+} {
+  let calls = 0;
+  const model = new MockLanguageModelV3({
+    doStream: async () => {
+      calls += 1;
+      const shouldStop = toolCallsBeforeStop !== undefined && calls > toolCallsBeforeStop;
+      const chunks: LanguageModelV3StreamPart[] = shouldStop
+        ? [
+            { type: 'stream-start', warnings: [] },
+            { type: 'text-start', id: 'text-final' },
+            { type: 'text-delta', id: 'text-final', delta: 'done' },
+            { type: 'text-end', id: 'text-final' },
+            {
+              type: 'finish',
+              finishReason: { unified: 'stop', raw: 'stop' },
+              usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+            },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            {
+              type: 'tool-call',
+              toolCallId: `tool-${calls}`,
+              toolName: 'Read',
+              input: JSON.stringify({ path: `notes-${calls}.md` }),
+            },
+            {
+              type: 'finish',
+              finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+              usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+            },
+          ];
+      return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+    },
+  });
+  return { model, callCount: () => calls };
 }
 
 function runtimeTextEvent(input: {
