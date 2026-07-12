@@ -23,6 +23,7 @@ import {
   MakaUriContext,
   type NavSelection,
   SessionListPanel,
+  type BundledSkillCatalogEntry,
   type ManagedSkillSourceEntry,
   type SessionViewMode,
   type SkillEntry,
@@ -249,6 +250,7 @@ export function AppShell({
   const [defaultPermissionMode, setDefaultPermissionMode] = useState<ChatDefaultPermissionMode>('ask');
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [managedSkillSources, setManagedSkillSources] = useState<ManagedSkillSourceEntry[]>([]);
+  const [bundledSkillCatalog, setBundledSkillCatalog] = useState<BundledSkillCatalogEntry[]>([]);
   const [planReminders, setPlanReminders] = useState<PlanReminder[]>([]);
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
@@ -919,9 +921,11 @@ export function AppShell({
   const {
     refreshSkills,
     refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
     createSkillTemplate,
     importManagedSkillSource,
     installManagedSkill,
+    installBundledSkill,
     previewManagedSkillUpdate,
     updateManagedSkill,
     setSkillEnabled,
@@ -930,6 +934,7 @@ export function AppShell({
     isSkillsSurfaceActive,
     setSkills,
     setManagedSkillSources,
+    setBundledSkillCatalog,
     toastApi,
   });
 
@@ -1113,6 +1118,7 @@ export function AppShell({
     refreshShellSettings,
     refreshSkills,
     refreshManagedSkillSources,
+    refreshBundledSkillCatalog,
     refreshSessions,
     rendererMountedRef,
     setActiveId,
@@ -1588,14 +1594,17 @@ export function AppShell({
                 onLineageBadgeClick={handleLineageBadgeClick}
                 skills={skills}
                 managedSkillSources={managedSkillSources}
+                bundledSkillCatalog={bundledSkillCatalog}
                 onRefreshSkills={() => refreshSkills()}
                 onRefreshManagedSkillSources={() => refreshManagedSkillSources()}
+                onRefreshBundledSkillCatalog={() => refreshBundledSkillCatalog()}
                 onCreateSkillTemplate={() => createSkillTemplate()}
                 onOpenSkill={(skillId) => openSkill(skillId)}
                 onUseSkill={useSkillInChat}
                 onOpenSkillsFolder={() => openSkillsFolder()}
                 onImportManagedSkillSource={() => importManagedSkillSource()}
                 onInstallManagedSkill={(sourceId) => installManagedSkill(sourceId)}
+                onInstallBundledSkill={(id) => installBundledSkill(id)}
                 onPreviewManagedSkillUpdate={(skillId) => previewManagedSkillUpdate(skillId)}
                 onUpdateManagedSkill={(skillId, options) => updateManagedSkill(skillId, options)}
                 onSetSkillEnabled={(skillId, enabled) => setSkillEnabled(skillId, enabled)}

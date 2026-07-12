@@ -480,6 +480,9 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
         },
       };
   }
+  // Fallback so the function is total over the scenario union (TS2366); the
+  // base state is the safe default for any scenario without a bespoke mapping.
+  return state;
 }
 
 export async function seedVisualSmokeFixture(input: {

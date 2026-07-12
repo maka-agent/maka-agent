@@ -68,7 +68,7 @@ import type { TestProxyInput } from '@maka/core/settings/network-settings';
 import type { Result } from '@maka/core/settings/result';
 import type { CreateSessionInput } from '@maka/core';
 import type { BotStatus, WechatBridgeQrCodeResult } from '@maka/runtime';
-import type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
+import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type {
   OnboardingMilestone,
@@ -542,6 +542,13 @@ declare global {
       };
       skills: {
         list(): Promise<SkillEntry[]>;
+        catalog: {
+          list(): Promise<BundledSkillCatalogEntry[]>;
+          install(id: string): Promise<
+            | { ok: true; skill: SkillEntry }
+            | { ok: false; reason: 'not_found' | 'already_exists' | 'blocked_path' | 'write_failed' }
+          >;
+        };
         sources: {
           list(): Promise<ManagedSkillSourceEntry[]>;
           importLocalFile(): Promise<

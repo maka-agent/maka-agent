@@ -7,7 +7,9 @@ import type { createMainWindowController } from './main-window.js';
 import {
   createStarterSkill,
   getSkillGovernanceDetails,
+  installBundledSkill,
   installManagedSkill,
+  listBundledSkillCatalog,
   listSkillEntries,
   previewManagedSkillUpdate,
   resolveSkillOpenPath,
@@ -29,14 +31,6 @@ interface WorkspaceResourcesIpcDeps {
   artifactStore: ArtifactStore;
   mainWindowController: MainWindowController;
   sendToRenderer: MainWindowController['send'];
-  /**
-   * Resolves once background startup has finished copying the bundled
-   * Office skills into the workspace (#456 moved that off the
-   * first-paint path). skills:list awaits it so an early Skills-page
-   * open cannot observe a half-bundled list. Already-settled after
-   * startup, so steady-state reads pay nothing.
-   */
-  bundledSkillsReady?: Promise<unknown>;
 }
 
 export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): void {
@@ -114,8 +108,15 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
   });
 
   ipcMain.handle('skills:list', async () => {
-    await deps.bundledSkillsReady?.catch(() => {});
     return listSkillEntries(deps.workspaceRoot);
+  });
+  ipcMain.handle('skills:catalog:list', async () => {
+    return listBundledSkillCatalog(deps.workspaceRoot);
+  });
+  ipcMain.handle('skills:catalog:install', async (_event, id: string) => {
+    const result = await installBundledSkill(deps.workspaceRoot, id);
+    if (!result.ok) return result;
+    return { ok: true as const, skill: toSkillEntry(result.skill) };
   });
   ipcMain.handle('skills:sources:list', async () => {
     const sources = await listManagedSkillSources();

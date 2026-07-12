@@ -42,6 +42,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js
 import type { NavSelection } from './nav-selection.js';
 import { EmptyState } from './empty-state.js';
 import type {
+  BundledSkillCatalogEntry,
   DailyReviewBridge,
   DailyReviewMarkdownActionInput,
   ManagedSkillSourceEntry,
@@ -251,6 +252,9 @@ export function ChatView(props: {
   onRefreshManagedSkillSources?(): void | Promise<void>;
   onImportManagedSkillSource?(): void | Promise<void>;
   onInstallManagedSkill?(sourceId: string): void | Promise<void>;
+  bundledSkillCatalog?: BundledSkillCatalogEntry[];
+  onRefreshBundledSkillCatalog?(): void | Promise<void>;
+  onInstallBundledSkill?(id: string): void | Promise<void>;
   onPreviewManagedSkillUpdate?(skillId: string): Promise<ManagedSkillUpdatePreview | null>;
   onUpdateManagedSkill?(skillId: string, options?: { force?: boolean; expectedCurrentSha256?: string; expectedSourceSha256?: string }): boolean | Promise<boolean>;
   onSetSkillEnabled?(skillId: string, enabled: boolean): void | Promise<void>;
@@ -484,6 +488,9 @@ export function ChatView(props: {
           onRefreshManagedSkillSources={props.onRefreshManagedSkillSources}
           onImportManagedSkillSource={props.onImportManagedSkillSource}
           onInstallManagedSkill={props.onInstallManagedSkill}
+          bundledSkillCatalog={props.bundledSkillCatalog}
+          onRefreshBundledSkillCatalog={props.onRefreshBundledSkillCatalog}
+          onInstallBundledSkill={props.onInstallBundledSkill}
           onPreviewManagedSkillUpdate={props.onPreviewManagedSkillUpdate}
           onUpdateManagedSkill={props.onUpdateManagedSkill}
           onSetSkillEnabled={props.onSetSkillEnabled}
