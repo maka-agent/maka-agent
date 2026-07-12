@@ -153,6 +153,19 @@ export function mapSessionEventToRuntimeEvent(
         refs: { providerEventId: event.messageId },
       };
 
+    // ── Mid-turn user guidance ──────────────────────────────────────────
+    case 'guidance':
+      // Project as a `user` text message so it shows in the conversation
+      // and is replayed as history for future turns, in addition to being
+      // fed to the running turn's next LLM step by prepareStep.
+      return {
+        ...base,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: event.text },
+      };
+
     // ── Model thinking ────────────────────────────────────────────────────
     case 'thinking_delta':
       return {

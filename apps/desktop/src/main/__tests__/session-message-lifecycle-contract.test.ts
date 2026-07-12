@@ -55,7 +55,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       activeReadSuccess,
-      /if \(!isDisposed\(\) && options\.activeIdRef\.current === sessionId\) \{[\s\S]*options\.markSessionReadLocally\(sessionId, next\);[\s\S]*if \(next\.length > 0\) options\.setMessages\(next\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*\}/,
+      /if \(!isDisposed\(\) && options\.activeIdRef\.current === sessionId\) \{[\s\S]*options\.markSessionReadLocally\(sessionId, next\);[\s\S]*if \(next\.length > 0\) options\.setMessages\([\s\S]*?next\)\);[\s\S]*options\.setMessageLoadPending\(false\);[\s\S]*\}/,
       'late active-session reads skip an empty result so an in-flight optimistic user message is not blanked while the same session is still active',
     );
     assert.match(
@@ -86,7 +86,7 @@ describe('active session message lifecycle contract', () => {
     );
     assert.match(
       refreshMessages,
-      /try \{[\s\S]*readMessagesForRefresh\(sessionId, options\)[\s\S]*const next = result\.messages[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\(next\)[\s\S]*setMessageLoadErrorBySession[\s\S]*return result\.settled;[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
+      /try \{[\s\S]*readMessagesForRefresh\(sessionId, options\)[\s\S]*const next = result\.messages[\s\S]*activeIdRef\.current === sessionId[\s\S]*setMessages\([\s\S]*?next\)\)[\s\S]*setMessageLoadErrorBySession[\s\S]*return result\.settled;[\s\S]*\} catch \(error\) \{[\s\S]*const message = messageRefreshErrorMessage\(error\);[\s\S]*setMessageLoadErrorBySession\(\(current\) => \(\{ \.\.\.current, \[sessionId\]: message \}\)\);[\s\S]*toastApi\.error\('刷新对话失败', message\)/,
       'shared refreshMessages path must surface stage-specific read failures through the same per-session load error state',
     );
     assert.match(refreshMessages, /readMessagesForRefresh\(sessionId, options\)/);

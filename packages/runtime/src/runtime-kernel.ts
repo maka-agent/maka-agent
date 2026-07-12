@@ -45,6 +45,7 @@ export interface RuntimeKernelLike {
   stopSession(sessionId: string, input?: StopSessionInput): Promise<void>;
   respondToPermission(sessionId: string, response: PermissionResponse): Promise<void>;
   hasActiveRuns(sessionId: string): boolean;
+  injectGuidance(sessionId: string, text: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
   disposeBackend(sessionId: string): Promise<void>;
 }
@@ -512,6 +513,20 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
   hasActiveRuns(sessionId: string): boolean {
     return this.activeSessionsFor(sessionId).some((active) => active.activeRuns.size > 0);
+  }
+
+  injectGuidance(sessionId: string, text: string): boolean {
+    // Target the top-level run ONLY — the parent session's active backend.
+    // Fanning out to every child subagent sharing the sessionId would inject
+    // one steer into the parent AND all running subagents (duplicate
+    // 引导已注入 rows, stray user messages in subagent transcripts). The
+    // top-level backend's turn owns the user-facing conversation; subagents
+    // are internal and never steered directly by the user.
+    // Returns true if the running turn accepted the guidance; the caller
+    // (IPC) treats false as "no running turn — fall back to a new turn".
+    const active = this.active.get(sessionId);
+    if (!active) return false;
+    return active.backend.injectGuidance?.(text) ?? false;
   }
 
   updateCachedHeader(sessionId: string, header: SessionHeader): void {

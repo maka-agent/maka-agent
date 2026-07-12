@@ -1,6 +1,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { reconcileHistorySync, type ComposerHistoryState } from '../composer-helpers.js';
+import {
+  enqueueComposerQueuedInput,
+  isComposerResponseBusy,
+  takeComposerQueuedInput,
+  type ComposerHistoryState,
+  type ComposerQueuedInput,
+  reconcileHistorySync,
+} from '../composer-helpers.js';
 
 // reconcileHistorySync reconciles the Composer's in-memory history state
 // with what localStorage reports, right before a history-navigation keystroke
@@ -53,5 +60,56 @@ describe('reconcileHistorySync', () => {
     const current: ComposerHistoryState = { entries: [], index: -1, savedDraft: '保留的草稿' };
     const result = reconcileHistorySync(current, ['a']);
     assert.equal(result.state.savedDraft, '保留的草稿');
+  });
+});
+
+describe('composer queued inputs', () => {
+  it('treats a running session as busy even before assistant text starts streaming', () => {
+    assert.equal(isComposerResponseBusy({ streaming: false, sessionStatus: 'running' }), true);
+  });
+
+  it('treats active text streaming as busy even when the session status is not available', () => {
+    assert.equal(isComposerResponseBusy({ streaming: true, sessionStatus: undefined }), true);
+  });
+
+  it('does not treat an active non-running session as busy', () => {
+    assert.equal(isComposerResponseBusy({ streaming: false, sessionStatus: 'active' }), false);
+  });
+
+  it('treats a session parked on a permission prompt (waiting_for_user) as busy so a send steers the running turn', () => {
+    assert.equal(isComposerResponseBusy({ streaming: false, sessionStatus: 'waiting_for_user' }), true);
+  });
+
+  it('trims and appends a queued input while preserving existing order', () => {
+    const current: ComposerQueuedInput[] = [{ id: 'q1', text: 'first' }];
+
+    const next = enqueueComposerQueuedInput(current, '  guide the answer  ', 'q2');
+
+    assert.deepEqual(next, [
+      { id: 'q1', text: 'first' },
+      { id: 'q2', text: 'guide the answer' },
+    ]);
+  });
+
+  it('ignores blank queued input text', () => {
+    const current: ComposerQueuedInput[] = [{ id: 'q1', text: 'first' }];
+
+    assert.equal(enqueueComposerQueuedInput(current, '   ', 'q2'), current);
+  });
+
+  it('takes one queued input by id and leaves the rest in order', () => {
+    const current: ComposerQueuedInput[] = [
+      { id: 'q1', text: 'first' },
+      { id: 'q2', text: 'urgent direction' },
+      { id: 'q3', text: 'later' },
+    ];
+
+    const result = takeComposerQueuedInput(current, 'q2');
+
+    assert.deepEqual(result.item, { id: 'q2', text: 'urgent direction' });
+    assert.deepEqual(result.queue, [
+      { id: 'q1', text: 'first' },
+      { id: 'q3', text: 'later' },
+    ]);
   });
 });

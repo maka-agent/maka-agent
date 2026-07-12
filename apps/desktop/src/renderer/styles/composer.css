@@ -324,6 +324,79 @@
   cursor: not-allowed;
 }
 
+.maka-composer-queue {
+  width: min(var(--maka-chat-measure), 100%);
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 auto var(--space-1);
+}
+
+.maka-composer-queue-item {
+  min-width: 0;
+  min-height: 38px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--foreground-5);
+  color: var(--foreground);
+  border: var(--border-width-hairline) solid oklch(from var(--foreground) l c h / 0.06);
+}
+
+.maka-composer-queue-grip {
+  color: var(--muted-foreground);
+  justify-self: center;
+}
+
+.maka-composer-queue-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-ui);
+  line-height: var(--leading-snug);
+}
+
+.maka-composer-queue-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.maka-composer-queue-now {
+  min-width: 76px;
+  height: 30px;
+  gap: var(--space-1);
+  border-radius: var(--radius-control);
+  background: var(--foreground-5);
+  color: var(--foreground);
+}
+
+.maka-composer-queue-now:hover:not(:disabled),
+.maka-composer-queue-icon:hover:not(:disabled) {
+  background: var(--state-hover-bg);
+}
+
+.maka-composer-queue-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--foreground-secondary);
+  border-radius: var(--radius-control);
+}
+
+@media (max-width: 620px) {
+  .maka-composer-queue-item {
+    grid-template-columns: 18px minmax(0, 1fr);
+  }
+
+  .maka-composer-queue-actions {
+    grid-column: 2;
+    justify-self: end;
+  }
+}
+
 .maka-composer-workspace-row {
   /* PR-PARCHMENT-HOME-2: must share the new composer card measure
      (620px) so the "选择工作目录 ▾" pill stays aligned with the card

@@ -267,6 +267,15 @@ const dailyReviewArchiveStore = createDailyReviewArchiveStore(workspaceRoot);
 const artifactStore = createArtifactStore(workspaceRoot);
 const attachmentApprovals = createAttachmentApprovalRegistry();
 const credentialStore = createFileCredentialStore(workspaceRoot);
+// Per-session send serialiser. The runtime's AiSdkBackend holds single-
+// turn mutable state, so two turns can't run concurrently on one
+// session. Each `sessions:send` resolves its turnId immediately (so the
+// renderer can react), but the actual `runtime.sendMessage` + stream
+// pump is chained behind the previous turn's stream completing — this
+// is what lets a user commit a follow-up (“立即”) while a turn is still
+// running and have it answered after the current answer finishes,
+// without interrupting it and without racing the backend state.
+const sessionSendChain = new Map<string, Promise<unknown>>();
 // PR-OAUTH-SUBSCRIPTION-0: Claude subscription OAuth service.
 // Lives in main process only; renderer accesses via IPC. Tokens
 // never cross the IPC boundary (xuan G-X3). Cloak path is dynamic-
@@ -1337,6 +1346,9 @@ function registerIpc(): void {
   ipcMain.handle('sessions:respondToPermission', (_event, sessionId: string, response) =>
     runtime.respondToPermission(sessionId, normalizePermissionResponse(response)),
   );
+  ipcMain.handle('sessions:injectGuidance', (_event, sessionId: string, text: string) =>
+    runtime.injectGuidance(sessionId, String(text ?? '')),
+  );
   ipcMain.handle('sessions:send', async (event, sessionId: string, command: unknown) => {
     const sendCommand = normalizeSessionSendCommand(command);
     if (!sendCommand) return;
@@ -1356,7 +1368,18 @@ function registerIpc(): void {
       text: sendCommand.text,
       ...(attachments.length > 0 ? { attachments } : {}),
     });
-    void streamEvents(sessionId, iterator, turnId);
+    // Chain behind any in-flight turn on this session so we never run two
+    // turns concurrently (see sessionSendChain above). The previous turn's
+    // stream pump resolves once its generator closes — which is after the
+    // runtime has finalised that run — so this turn's `sendMessage` only
+    // begins once the prior turn is fully done.
+    const prev = sessionSendChain.get(sessionId) ?? Promise.resolve();
+    const run = prev.catch(() => {}).then(() => streamEvents(sessionId, iterator, turnId));
+    sessionSendChain.set(sessionId, run);
+    // Don't let a stuck chain block future sends forever if the pump rejects.
+    run.catch(() => {}).finally(() => {
+      if (sessionSendChain.get(sessionId) === run) sessionSendChain.delete(sessionId);
+    });
     return { turnId, attachments };
   });
   ipcMain.handle(
@@ -1760,6 +1783,11 @@ async function streamEvents(
       turnError = turnError ?? turnFailureMessageFromSessionEvent(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
+      if (event.type === 'guidance') {
+        // Guidance is persisted as a new user message mid-turn; bump the
+        // session list (lastMessageAt) and let the renderer refresh.
+        emitSessionsChanged('message-appended', sessionId);
+      }
       if (isStatusChangingSessionEvent(event)) {
         emitSessionsChanged('status-change', sessionId);
       }

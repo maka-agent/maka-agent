@@ -424,6 +424,21 @@ export class AgentRun {
 
   async recordSessionEvent(ev: SessionEvent): Promise<void> {
     this.lastTs = ev.ts;
+    // Mid-turn user guidance is projected as a `user` message so it is
+    // visible in the conversation while the turn is still running. The
+    // in-flight read path serves messages from the session store rather
+    // than the runtime-event ledger, so without this append the guidance
+    // only reappears after the turn completes and the read model reprojects
+    // from the ledger.
+    if (ev.type === 'guidance' && this.recordsSessionMessages()) {
+      await this.input.store.appendMessage(this.sessionId, {
+        type: 'user',
+        id: ev.id,
+        turnId: ev.turnId,
+        ts: ev.ts,
+        text: ev.text,
+      } satisfies UserMessage);
+    }
     const transition = statusFromEvent(ev);
     const terminalSessionEvent = (ev.type === 'complete' || ev.type === 'abort') && !this.turnFailed;
     const turnStatus = terminalSessionEvent ? turnStatusFromEvent(ev) : undefined;

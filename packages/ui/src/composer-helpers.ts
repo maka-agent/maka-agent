@@ -42,6 +42,43 @@ export interface ComposerHistoryState {
   savedDraft: string;
 }
 
+export interface ComposerQueuedInput {
+  id: string;
+  text: string;
+}
+
+export function isComposerResponseBusy(input: {
+  streaming?: boolean;
+  sessionStatus?: string;
+}): boolean {
+  // `waiting_for_user` is a running turn parked on a permission prompt — the
+  // single most natural moment to steer. Treat it as busy so a send routes
+  // to `injectGuidance` (steering the running turn) instead of queuing a new
+  // turn that cannot start while the current one holds the session.
+  return input.streaming === true
+    || input.sessionStatus === 'running'
+    || input.sessionStatus === 'waiting_for_user';
+}
+
+export function enqueueComposerQueuedInput(
+  queue: ComposerQueuedInput[],
+  text: string,
+  id: string,
+): ComposerQueuedInput[] {
+  const trimmed = text.trim();
+  if (!trimmed) return queue;
+  return [...queue, { id, text: trimmed }];
+}
+
+export function takeComposerQueuedInput(
+  queue: ComposerQueuedInput[],
+  id: string,
+): { item: ComposerQueuedInput | undefined; queue: ComposerQueuedInput[] } {
+  const item = queue.find((entry) => entry.id === id);
+  if (!item) return { item: undefined, queue };
+  return { item, queue: queue.filter((entry) => entry.id !== id) };
+}
+
 export function appendPromptContextDraft(current: string, fragment: string): string {
   const base = current.trimEnd();
   const next = fragment.trim();

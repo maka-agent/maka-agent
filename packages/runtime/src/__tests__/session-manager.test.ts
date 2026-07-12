@@ -5451,6 +5451,42 @@ describe('SessionManager permission mode updates', () => {
   });
 });
 
+describe('SessionManager mid-turn guidance', () => {
+  test('guidance injected mid-turn is persisted as a user message in the session transcript', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeEventStore = new MemoryRuntimeEventStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new GuidanceBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_625),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    // The guidance must land in the session message store (session.jsonl),
+    // which is the source the in-flight read path serves while the turn is
+    // still running. Without the recordSessionEvent append it would only be
+    // in the runtime-event ledger and never reach the chat during the turn.
+    const stored = await store.readMessages(session.id);
+    const guidance = stored.find((message) => message.type === 'user' && message.id === 'turn-1-guidance');
+    expect(guidance).toBeDefined();
+    expect((guidance as { text?: string }).text).toBe('请补充本地修改的说明');
+
+    // It also remains visible through the runtime-event read model after the
+    // turn completes (projected from the ledger).
+    const messages = await manager.getMessages(session.id);
+    expect(messages.some((message) => message.type === 'user' && message.id === 'turn-1-guidance')).toBe(true);
+  });
+});
+
 class DelegatingRuntimeKernel implements RuntimeKernelLike {
   readonly starts: Array<{ sessionId: string; input: Parameters<RuntimeKernelLike['startTurn']>[1] }> = [];
   readonly stopped: string[] = [];
@@ -5512,6 +5548,10 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
 
   hasActiveRuns(): boolean {
     return this.activeRuns;
+  }
+
+  injectGuidance(_sessionId: string, _text: string): boolean {
+    return false;
   }
 
   updateCachedHeader(_sessionId: string, header: SessionHeader): void {
@@ -5786,6 +5826,29 @@ class TextCompleteBackend implements AgentBackend {
       ts: 7_002,
       stopReason: 'end_turn',
     };
+  }
+
+  async stop(): Promise<void> {}
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+  async dispose(): Promise<void> {}
+}
+
+class GuidanceBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    const messageId = `${input.turnId}-m`;
+    yield { type: 'text_delta', id: `${input.turnId}-delta`, turnId: input.turnId, ts: 7_000, messageId, text: 'ok' };
+    // Mid-turn user guidance, mirroring what `sessions:injectGuidance` pushes
+    // into the running turn's event stream.
+    yield { type: 'guidance', id: `${input.turnId}-guidance`, turnId: input.turnId, ts: 7_001, text: '请补充本地修改的说明' };
+    yield { type: 'text_complete', id: `${input.turnId}-text-complete`, turnId: input.turnId, ts: 7_002, messageId, text: 'ok' };
+    yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 7_003, stopReason: 'end_turn' };
   }
 
   async stop(): Promise<void> {}

@@ -50,8 +50,8 @@ import type {
   ToolCallMessage,
   ToolResultMessage,
   PermissionDecisionMessage,
-  TokenUsageMessage,
   SystemNoteMessage,
+  TokenUsageMessage,
   BackendKind,
   SessionHeader,
 } from '@maka/core/session';
@@ -93,6 +93,7 @@ import {
   ModelAdapter,
   normalizeAiSdkUsage,
   rawFinishReasonString,
+  sumNormalizedAiSdkUsage,
   type ModelFactory,
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
@@ -125,7 +126,6 @@ import { computeCost } from './telemetry/cost.js';
 import { getBuiltinPricing } from './telemetry/builtin-pricing.js';
 import {
   buildRuntimeEventModelReplayPlan,
-  collectToolActivityTurnIds,
   formatTextWithAttachmentRefs,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -203,6 +203,20 @@ export type {
 
 export const INVALID_TOOL_NAME = 'invalid';
 
+/**
+ * Join non-empty prompt fragments with a blank-line separator. Returns
+ * `undefined` when nothing survives so callers can omit the field entirely.
+ * Used to merge trailing context fragments (turn tail prompt + live shell
+ * run context summary) into one append-only block on the current user turn.
+ */
+function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
+  const joined = fragments
+    .map((fragment) => fragment?.trim())
+    .filter((fragment): fragment is string => Boolean(fragment))
+    .join('\n\n');
+  return joined.length > 0 ? joined : undefined;
+}
+
 export function composePrepareStep(
   toolAvailability: PrepareStepFunctionLike | undefined,
   activeToolResultPrune: PrepareStepFunctionLike | undefined,
@@ -270,14 +284,6 @@ function projectAcceptedActiveFullCompactMessages(
     ...acceptedProjection.projectedMessages,
     ...incomingMessages.slice(acceptedProjection.sourceSignatures.length),
   ];
-}
-
-function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
-  const joined = fragments
-    .map((fragment) => fragment?.trim())
-    .filter((fragment): fragment is string => Boolean(fragment))
-    .join('\n\n');
-  return joined.length > 0 ? joined : undefined;
 }
 
 // ============================================================================
@@ -559,9 +565,43 @@ export class AiSdkBackend implements AgentBackend {
   private currentRunTrace: RunTrace | null = null;
   private priorRequestShape: RequestShapeDiagnostic | undefined;
   /**
-   * Id of the assistant step currently streaming. Read by ToolRuntime via
-   * `getCurrentStepId` so each tool call's `tool_start` carries the step it
-   * belongs to. Rotated at every step boundary in `send()`; null between turns.
+   * User guidance injected mid-turn via `injectGuidance`. Append-only for the
+   * whole turn (not drained): prepareStep re-appends every entry as a trailing
+   * `user` message before each LLM step, so the steer persists across steps —
+   * the model still has it when it produces its final answer, not only on the
+   * single step that followed injection. Reset at turn start and in
+   * cleanupAfterTurn.
+   */
+  private injectedGuidance: string[] = [];
+
+  /**
+   * Monotonic index of how many `injectedGuidance` entries have been appended
+   * to the model's messages (via the standing-steer prepareStep or a
+   * continuation pass). Only ever advanced (set to `injectedGuidance.length`
+   * at the moment the slice is read), never decremented, so a steer arriving
+   * during a prepareStep's async body is NOT marked delivered before it is
+   * actually read — it stays `length > index` and the continuation pass picks
+   * it up. The post-turn continuation fires while
+   * `injectedGuidance.length > deliveredToModelIndex`.
+   */
+  private deliveredToModelIndex = 0;
+
+  /**
+   * Monotonic index of how many `injectedGuidance` entries have been emitted
+   * as `guidance` events into the turn's stream (and thus appended to the
+   * session ledger as `user` rows). Guidance events are buffered and flushed
+   * only at step boundaries (finish-step / turn end) — NEVER mid-step while a
+   * `tool_call` is awaiting its `tool_result` — so a steer injected during a
+   * tool window or a permission park lands AFTER the tool result in the
+   * ledger, keeping next-turn replay well-formed (no orphan `tool_use`).
+   */
+  private pendingGuidanceEventIndex = 0;
+
+  /**
+   * Id of the assistant step currently streaming, stamped onto each tool
+   * call`s `tool_start` event (via `getCurrentStepId`) so model replay can
+   * group a step`s reasoning + tool calls into one provider assistant message.
+   * Rotated to a fresh id at each step boundary. Reset at turn start/end.
    */
   private currentStepMessageId: string | null = null;
 
@@ -712,8 +752,8 @@ export class AiSdkBackend implements AgentBackend {
         enabled: true,
         mode: 'read_write',
         highWaterRatio: 0.000001,
-        targetRatio: current?.targetRatio ?? 0.2,
         tailEstimatedTokens: 1,
+        targetRatio: current?.targetRatio ?? 0.2,
         minRecentTurns: current?.minRecentTurns ?? base.minRecentTurns ?? 1,
         maxBlocks: current?.maxBlocks ?? 1,
         maxEstimatedTokens: current?.maxEstimatedTokens ?? 2048,
@@ -739,6 +779,9 @@ export class AiSdkBackend implements AgentBackend {
     const turnId = input.turnId;
     this.currentTurnId = turnId;
     this.currentRunId = input.runId ?? null;
+    this.injectedGuidance = [];
+    this.deliveredToModelIndex = 0;
+    this.pendingGuidanceEventIndex = 0;
     this.input.permissionEngine.beginTurn(turnId);
     this.abortController = new AbortController();
 
@@ -746,24 +789,29 @@ export class AiSdkBackend implements AgentBackend {
     this.currentQueue = queue;
 
     // One AssistantMessage is flushed per AI SDK step (not per turn), so the
-    // ledger records the text↔tool timeline at step granularity and each step's
+    // ledger records the text<->tool timeline at step granularity and each step`s
     // Anthropic thinking signature stays paired with its own thinking text. The
-    // turn's first step reuses this id; every later step rotates to a fresh one
+    // turn`s first step reuses this id; every later step rotates to a fresh one
     // at its step boundary (see the fullStream loop below).
     this.currentStepMessageId = this.newId();
     let stepText = '';
     let stepThinking = '';
     let stepSignature: string | undefined;
+    // Whether any step flushed non-empty text this turn — drives the step-cap
+    // grace notice below (a turn whose every step was tool-only gets the notice).
+    // Assistant text produced in the current pass (main loop or a guidance
+    // continuation pass). The continuation appends it as the model`s answer so
+    // far before re-running with the steer; reset at the start of each pass.
+    let passAssistantText = '';
     const startedAt = this.now();
-
-    // Flush the current step's AssistantMessage (text + thinking) and the paired
+    // Flush the current step`s AssistantMessage (text + thinking) and the paired
     // terminal thinking/text events, then clear the per-step accumulators.
     // Persist when the step produced text OR reasoning — a thinking-only step
-    // (Anthropic's signed/omitted reasoning has empty text) still round-trips its
+    // (Anthropic`s signed/omitted reasoning has empty text) still round-trips its
     // signed block; a pure-tool step (no text, no thinking) writes nothing, so
     // tool-only steps leave no placeholder assistant row. thinking_complete
-    // precedes text_complete so the read-model attaches this step's reasoning to
-    // this step's assistant row. Hoisted to send() scope so both the streaming
+    // precedes text_complete so the read-model attaches this step`s reasoning to
+    // this step`s assistant row. Hoisted to send() scope so both the streaming
     // path and the abort/error handler can flush a partial step.
     const flushStep = async (): Promise<void> => {
       const hasThinking = stepThinking.length > 0 || stepSignature !== undefined;
@@ -805,6 +853,7 @@ export class AiSdkBackend implements AgentBackend {
         messageId: stepId,
         text: stepText,
       } satisfies TextCompleteEvent);
+      if (stepText.length > 0) passAssistantText += stepText;
       stepText = '';
       stepThinking = '';
       stepSignature = undefined;
@@ -818,8 +867,8 @@ export class AiSdkBackend implements AgentBackend {
     let requestShapeForTelemetry: RequestShapeDiagnostic | undefined;
     let promptSegmentsForTelemetry: PromptSegmentEstimate[] = [];
     let contextBudgetForTelemetry: ContextBudgetDiagnostic | undefined;
-    let contextCompactedNoteWritten = false;
-    let contextCompactionFailedOpenNoteWritten = false;
+	    let contextCompactedNoteWritten = false;
+	    let contextCompactionFailedOpenNoteWritten = false;
     const trace = new RunTrace({
       sessionId: this.sessionId,
       turnId,
@@ -914,6 +963,9 @@ export class AiSdkBackend implements AgentBackend {
         watchdog.start();
         const activeTools = plan.activeTools;
         const systemPrompt = await this.resolveSystemPrompt();
+        // Keep live shell context visible to the model: the turn tail prompt
+        // and the shell run context summary are both trailing, append-only
+        // context fragments, joined so neither is dropped.
         const turnTailPrompt = joinPromptFragments([
           await this.resolveTurnTailPrompt(),
           await this.resolveShellRunContextSummary(),
@@ -1010,7 +1062,7 @@ export class AiSdkBackend implements AgentBackend {
           activeTools: activeToolsForStep ?? plan.activeTools,
           priorMessages: stepMessages,
         }, priorShapeBaseline).requestShapeHash;
-        const prepareStep = composePrepareStep(
+        const composedPrepareStep = composePrepareStep(
           plan.prepareStep,
           this.buildActiveToolResultPrunePrepareStep(turnId, (patch) => {
             activeToolResultPruneDiagnosticPatch = mergeActiveToolResultPruneDiagnosticPatches(
@@ -1042,6 +1094,45 @@ export class AiSdkBackend implements AgentBackend {
           ),
         );
 
+        // Mid-turn user guidance: re-append everything injected via
+        // `injectGuidance` as trailing `user` message(s) before each LLM
+        // step, after every other prepareStep rewrite so compaction/pruning
+        // never touches the steer. The buffer is NOT drained — the steer is
+        // a standing instruction that persists across steps, so the model
+        // still has it on the step that produces its final answer (not only
+        // on the single step that followed injection). `deliveredToModelIndex`
+        // is advanced synchronously at the moment we read the slice, so a
+        // steer arriving during the async `composedPrepareStep` body is read
+        // fresh (it is in `injectedGuidance` by the time we sample) and a
+        // steer arriving AFTER this sample stays `length > index` for the
+        // continuation pass — never marked delivered before it is read.
+        const prepareStep: PrepareStepFunctionLike | undefined = composedPrepareStep
+          ? async (options) => {
+              const inner = await composedPrepareStep(options);
+              const guidance = this.currentGuidance();
+              if (guidance.length === 0) return inner;
+              this.deliveredToModelIndex = this.injectedGuidance.length;
+              const baseMessages = inner?.messages ?? options.messages;
+              return {
+                ...(inner ?? {}),
+                messages: [
+                  ...baseMessages,
+                  ...guidance.map((text) => ({ role: 'user' as const, content: text }) as ModelMessage),
+                ],
+              };
+            }
+          : async (options) => {
+              const guidance = this.currentGuidance();
+              if (guidance.length === 0) return undefined;
+              this.deliveredToModelIndex = this.injectedGuidance.length;
+              return {
+                messages: [
+                  ...options.messages,
+                  ...guidance.map((text) => ({ role: 'user' as const, content: text }) as ModelMessage),
+                ],
+              };
+            };
+
         const result = await this.modelAdapter.startStream({
           model,
           messages,
@@ -1058,7 +1149,7 @@ export class AiSdkBackend implements AgentBackend {
           },
           system: systemPrompt,
           abortSignal: this.abortController!.signal,
-          ...(prepareStep ? { prepareStep } : {}),
+          prepareStep,
         });
 
         for await (const chunk of result.fullStream) {
@@ -1081,6 +1172,7 @@ export class AiSdkBackend implements AgentBackend {
             onText: (t) => { stepText += t; },
             onTextComplete: (t) => { stepText = t; },
             onThinking: (t) => { stepThinking += t; },
+            onThinkingComplete: (t, sig) => { stepThinking = t; stepSignature = sig; },
             onThinkingSignature: (sig) => { stepSignature = sig; },
           });
           // The step's text/thinking deltas are all in (the fullStream is
@@ -1091,6 +1183,10 @@ export class AiSdkBackend implements AgentBackend {
           // reasoning even though they land before this row in the ledger.
           if (isStepFinishChunk) {
             await flushStep();
+            // Step boundary: safe to flush buffered guidance events — any
+            // tool_call this step issued already has its tool_result in the
+            // ledger, so the steer `user` row lands after it, not between.
+            await this.flushPendingGuidanceEvents();
             this.currentStepMessageId = this.newId();
           }
         }
@@ -1106,6 +1202,11 @@ export class AiSdkBackend implements AgentBackend {
         // Catch-all: flush any residual step content if the provider closed the
         // stream without a trailing `finish-step` for the last step.
         await flushStep();
+        // Turn-end boundary: flush any guidance buffered during the final
+        // step (e.g. a steer that arrived while the last tool was parking on
+        // a permission prompt, or after the last finish-step) so it is
+        // persisted before the continuation pass / completion.
+        await this.flushPendingGuidanceEvents();
 
         // Same-turn deferred load: prepareStep expanded the provider tool set on
         // later steps, so refine the durable cost record + prefix baseline against
@@ -1127,11 +1228,136 @@ export class AiSdkBackend implements AgentBackend {
         if (stepLimitReached && runtimeSteps < stepLimit) {
           runtimeSteps = stepLimit;
         }
-
-        // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
+        // Mid-turn guidance continuation (steer): if the user injected guidance
+        // that no step has consumed yet (injectedGuidance.length >
+        // deliveredToModelIndex), the turn ended without giving the model a chance
+        // to respond to it — e.g. a pure-text answer that was already streaming
+        // when the steer arrived, so there was no next prepareStep to land it
+        // on. Run a follow-up pass on top of the full history (incl. the
+        // just-generated answer); the standing-steer prepareStep re-appends the
+        // pending steer as a trailing user message, so the model produces a
+        // visible response addressing it. The already-output answer is never
+        // edited — only subsequent output is constrained.
+        // steers injected during a pass are picked up by the next pass
+        // (length > index again). Capped by maxSteps and a hard guard; the
+        // monotonic `deliveredToModelIndex` guarantees we never re-trigger on
+        // the same steer.
+        let continuationFinishReason: unknown = finishReason;
+        let continuationGuard = 0;
+        // An omitted maxSteps means the primary tool loop is unbounded. Keep a
+        // separate finite cap for late-guidance follow-up passes so repeated
+        // steers cannot create an unbounded continuation loop.
+        const continuationStepLimit = this.maxSteps ?? 50;
+        // Accumulates the conversation across passes: prior history + prompt,
+        // then each pass's answer. A later steer builds on the full running
+        // transcript (incl. earlier steers + their responses) so context stays
+        // continuous. The standing-steer prepareStep appends the pending steer
+        // batch at each step's tail, so it is NOT added to continuationMessages
+        // here (that would double-append).
+        let continuationBase: ModelMessage[] = [...messages];
+        // Accumulated continuation token usage, merged into the turn's final
+        // token_usage event so continuation passes no longer underreport
+        // usage/cost (each pass re-sends the full history).
+        let continuationAccumUsage: NormalizedAiSdkUsage | undefined;
+        while (
+          !this.aborted
+          && this.injectedGuidance.length > this.deliveredToModelIndex
+          && runtimeSteps < continuationStepLimit
+          && continuationGuard < continuationStepLimit
+          && continuationFinishReason !== 'tool-calls'
+        ) {
+          continuationGuard += 1;
+          // Flush buffered guidance events BEFORE this pass produces any
+          // assistant text, so the steer `user` row lands in the ledger
+          // ahead of the follow-up assistant row (never between a tool_call
+          // and its tool_result — those already flushed at the prior
+          // finish-step / turn-end boundary).
+          await this.flushPendingGuidanceEvents();
+          // Build on the full conversation: prior history + prompt + the
+          // already-generated answer. The standing-steer prepareStep appends
+          // the pending steer batch at the tail; the answer so far is the
+          // assistant text produced in the current pass (one AssistantMessage
+          // per step was already persisted above via flushStep).
+          const continuationMessages: ModelMessage[] = [
+            ...continuationBase,
+            { role: 'assistant', content: passAssistantText } as ModelMessage,
+          ];
+          // The next pass (if any) builds on this pass's transcript, including
+          // the answer it produced and the steer it addressed.
+          continuationBase = continuationMessages;
+          passAssistantText = '';
+          this.currentStepMessageId = this.newId();
+          stepText = '';
+          stepThinking = '';
+          stepSignature = undefined;
+          const continuationResult = await this.modelAdapter.startStream({
+            model,
+            messages: continuationMessages,
+            tools: aiSdkTools,
+            activeTools,
+            repairToolCall: async (
+              { toolCall, error }: { toolCall: RepairableAiSdkToolCall; error: unknown },
+            ) => repairMakaToolCall({
+              toolCall,
+              availableToolNames: currentRepairToolNames(),
+              error,
+            }),
+            system: systemPrompt,
+            abortSignal: this.abortController!.signal,
+            prepareStep,
+          });
+          for await (const chunk of continuationResult.fullStream) {
+            if (this.aborted) break;
+            watchdog.markActivity();
+            const isStepFinishChunk = chunk.type === 'finish-step' || chunk.type === 'step-finish';
+            if (isStepFinishChunk) runtimeSteps += 1;
+            if (chunk.type === 'finish' || isStepFinishChunk) {
+              rawFinishReason = rawFinishReasonString(chunk.finishReason) ?? rawFinishReason;
+            }
+            this.modelAdapter.handleStreamChunk(chunk, turnId, this.currentStepMessageId!, queue, {
+              onText: (t) => { stepText += t; },
+              onTextComplete: (t) => { stepText = t; },
+              onThinking: (t) => { stepThinking += t; },
+              onThinkingComplete: (t, sig) => { stepThinking = t; stepSignature = sig; },
+              onThinkingSignature: (sig) => { stepSignature = sig; },
+            });
+            if (isStepFinishChunk) {
+              await flushStep();
+              await this.flushPendingGuidanceEvents();
+              this.currentStepMessageId = this.newId();
+            }
+          }
+          if (this.aborted) {
+            throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+          }
+          await flushStep();
+          await this.flushPendingGuidanceEvents();
+          continuationFinishReason = await continuationResult.finishReason.catch(() => 'stop');
+          // Mark everything currently buffered as delivered to the model; a
+          // steer injected during this pass keeps length > index and earns its
+          // own next pass.
+          this.deliveredToModelIndex = this.injectedGuidance.length;
+          // Accumulate this pass's usage into the turn total.
+          const passUsage = normalizeAiSdkUsage(
+            await (continuationResult.totalUsage ?? continuationResult.usage),
+            { rawFinishReason },
+          );
+          if (passUsage) {
+            continuationAccumUsage = continuationAccumUsage
+              ? sumNormalizedAiSdkUsage(continuationAccumUsage, passUsage)
+              : passUsage;
+          }
+        }        // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
         // is the billing-relevant sum across all internal tool-loop steps.
         try {
           tokenUsage = normalizeAiSdkUsage(await (result.totalUsage ?? result.usage), { rawFinishReason });
+          // Merge accumulated continuation-pass usage so guidance follow-ups no
+          // longer underreport usage/cost (each pass re-sends the full history).
+          if (tokenUsage && continuationAccumUsage) {
+            tokenUsage = sumNormalizedAiSdkUsage(tokenUsage, continuationAccumUsage);
+          } else if (!tokenUsage && continuationAccumUsage) {
+            tokenUsage = continuationAccumUsage;
+          }
           if (tokenUsage) {
             const systemPromptHash = turnDiagnostics.requestShape.componentHashes.systemPromptHash;
             tokenUsageCostUsd = this.computeTokenUsageCostUsd(tokenUsage);
@@ -1622,10 +1848,6 @@ export class AiSdkBackend implements AgentBackend {
 
     const plan = buildRuntimeEventModelReplayPlan(
       runtimeContext,
-      // `runtimeContext` may be a budget/history-search slice; the tool-turn
-      // thinking skip is a whole-history invariant, so seed it from the full
-      // prior ledger so a sliced-in tool-turn thinking still gets skipped.
-      { toolActivityTurnIds: collectToolActivityTurnIds(priorRuntimeContext) },
     );
     if (plan.items.length === 0) {
       return {
@@ -2435,6 +2657,21 @@ export class AiSdkBackend implements AgentBackend {
             failOpenReason: Object.keys(skippedReasonCounts)[0] ?? 'write_empty',
             ...(Object.keys(skippedReasonCounts).length > 0 ? { skippedReasonCounts } : {}),
           });
+      if (replacementBlocks.length > 0) {
+        const note: SystemNoteMessage = {
+          type: 'system_note',
+          id: this.newId(),
+          turnId: input.turnId,
+          ts: this.now(),
+          kind: 'context_compacted',
+          data: {
+            blockIds: replacementBlocks.map((block) => block.blockId),
+            estimatedTokensBefore,
+            estimatedTokensAfter: estimatedTokens,
+          },
+        };
+        await this.input.appendMessage(note).catch(() => {});
+      }
       return {
         replacementBlocks,
         diagnosticPatch: {
@@ -2490,21 +2727,6 @@ export class AiSdkBackend implements AgentBackend {
     return true;
   }
 
-  /**
-   * Materialize a replay plan into provider messages, grouping each assistant
-   * step's reasoning + text + tool calls into ONE assistant message (Anthropic
-   * requires the signed thinking block to lead the tool-use assistant message).
-   *
-   * The ledger lands a step's parts as: tool_call(s), tool_result(s), thinking,
-   * text (the per-step AssistantMessage flushes at `finish-step`, after the
-   * step's tool events). Model text carries the step id and closes the step: it
-   * emits `[reasoning, text, tool-call…]` then the tool results. Steps with no
-   * text closer — a thinking + tool step (its empty text closer is skipped from
-   * the plan as `empty_text_skipped`) or a pure-tool step — flush grouped by
-   * stepId, claiming any parked reasoning for that step. Legacy per-turn items
-   * (no step id) keep the older shape: tool calls form a tool-only assistant,
-   * text/thinking become standalone messages.
-   */
   private async materializeRuntimeReplayPlan(plan: RuntimeEventModelReplayPlan): Promise<ModelMessage[]> {
     type ToolCallItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_call' }>;
     type ToolResultItem = Extract<RuntimeEventModelReplayItem, { kind: 'tool_result' }>;
@@ -2633,7 +2855,6 @@ export class AiSdkBackend implements AgentBackend {
     }
     return out;
   }
-
   private async materializeRuntimeReplayItem(item: RuntimeEventModelReplayItem): Promise<ModelMessage> {
     switch (item.kind) {
       case 'text':
@@ -2771,9 +2992,53 @@ export class AiSdkBackend implements AgentBackend {
     this.currentTurnId = null;
     this.currentRunId = null;
     this.currentRunTrace = null;
-    this.currentStepMessageId = null;
     this.toolRuntime.resetTurnState();
     this.aborted = false;
+    this.injectedGuidance = [];
+    this.deliveredToModelIndex = 0;
+    this.pendingGuidanceEventIndex = 0;
+    this.currentStepMessageId = null;
+  }
+
+  injectGuidance(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed || this.currentTurnId === null) return false;
+    this.injectedGuidance.push(trimmed);
+    // NOTE: the guidance event is NOT emitted here. It is buffered and
+    // flushed at the next step boundary by `flushPendingGuidanceEvents()`
+    // so the steer `user` row never lands between a `tool_call` and its
+    // `tool_result` in the session ledger (which would corrupt next-turn
+    // replay with an orphan `tool_use`). prepareStep still feeds the steer
+    // to the model immediately from `injectedGuidance`.
+    return true;
+  }
+
+  /**
+   * Emit buffered guidance events into the running turn's stream at a step
+   * boundary. Called at each `finish-step` and at turn end / before a
+   * continuation pass. By construction no `tool_call` is awaiting its
+   * `tool_result` at these points, so the appended `user` rows keep the
+   * ledger replay well-formed.
+   */
+  private async flushPendingGuidanceEvents(): Promise<void> {
+    const queue = this.currentQueue;
+    const turnId = this.currentTurnId;
+    if (!queue || turnId === null) return;
+    while (this.pendingGuidanceEventIndex < this.injectedGuidance.length) {
+      const text = this.injectedGuidance[this.pendingGuidanceEventIndex];
+      this.pendingGuidanceEventIndex += 1;
+      queue.push({
+        type: 'guidance',
+        id: this.newId(),
+        turnId,
+        ts: this.now(),
+        text,
+      });
+    }
+  }
+
+  private currentGuidance(): string[] {
+    return this.injectedGuidance;
   }
 }
 
@@ -2836,13 +3101,10 @@ function stableStringifyForSignature(value: unknown): string {
 }
 
 function hasBlockingReplayDiagnostics(plan: RuntimeEventModelReplayPlan): boolean {
-  // `unmatched_tool_result` is deliberately NOT blocking: the materializer
-  // drops an orphan tool result (its call sliced away or the ledger corrupt)
-  // on its own — see pushToolResults — so one orphan must not degrade the
-  // whole ledger to stored-message projection.
   return plan.diagnostics.some((diagnostic) =>
     diagnostic.code === 'unsupported_role' ||
     diagnostic.code === 'unsupported_content' ||
+    diagnostic.code === 'unsigned_thinking_skipped' ||
     diagnostic.code === 'tool_id_mismatch'
   );
 }

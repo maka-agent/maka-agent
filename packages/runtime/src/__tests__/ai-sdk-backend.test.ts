@@ -7023,6 +7023,247 @@ describe('AiSdkBackend thinking persistence', () => {
   });
 });
 
+describe('AiSdkBackend mid-turn guidance injection', () => {
+  // Re-armable gate: the model awaits `holder.current.promise` at the tail of
+  // each doStream call; the test releases it (and re-arms for the next pass)
+  // once it has injected a steer, so it can drive multi-pass continuation.
+  function rearmableGate(): { current: { promise: Promise<void>; release: () => void } } {
+    const make = () => {
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => { release = resolve; });
+      return { promise, release };
+    };
+    return { current: make() };
+  }
+
+  function backendWith(
+    model: MockLanguageModelV3,
+    tools: MakaTool[],
+    opts: { appendMessage?: (m: unknown) => Promise<void>; maxSteps?: number } = {},
+  ): AiSdkBackend {
+    return new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: opts.appendMessage ?? (async () => {}),
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'perm', now: () => 1 }),
+      modelFactory: () => model,
+      tools,
+      newId: idGenerator(),
+      now: monotonicClock(),
+      ...(opts.maxSteps !== undefined ? { maxSteps: opts.maxSteps } : {}),
+    });
+  }
+
+  function usage() {
+    return {
+      inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+      outputTokens: { total: 1, text: 1, reasoning: 0 },
+    };
+  }
+
+  test('guidance injected during a tool window lands after the tool_result (no orphan tool_use)', async () => {
+    const toolGate = makeGate();
+    let toolReached = false;
+    const readTool: MakaTool = {
+      name: 'Read',
+      description: 'read',
+      parameters: z.object({ path: z.string() }),
+      permissionRequired: false,
+      impl: async () => { toolReached = true; await toolGate.promise; return { ok: true }; },
+    };
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV3StreamPart[] = streamCalls === 1
+          ? [
+              { type: 'stream-start', warnings: [] },
+              { type: 'tool-call', toolCallId: 'tool-1', toolName: 'Read', input: JSON.stringify({ path: 'notes.md' }) },
+              { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage: usage() },
+            ]
+          : [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: 't1' },
+              { type: 'text-delta', id: 't1', delta: 'done' },
+              { type: 'text-end', id: 't1' },
+              { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage() },
+            ];
+        return { stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }) };
+      },
+    });
+    const events: SessionEvent[] = [];
+    const backend = backendWith(model, [readTool]);
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) events.push(event);
+    })();
+    await waitFor(() => toolReached);
+    // Inject WHILE the tool is executing (between tool_start and tool_result).
+    assert.equal(backend.injectGuidance('steer mid tool'), true);
+    toolGate.release();
+    await sendPromise;
+
+    const toolResultIdx = events.findIndex((e) => e.type === 'tool_result');
+    const guidanceIdx = events.findIndex((e) => e.type === 'guidance');
+    assert.notEqual(toolResultIdx, -1, 'tool_result event should be emitted');
+    assert.notEqual(guidanceIdx, -1, 'guidance event should be emitted');
+    assert.ok(
+      guidanceIdx > toolResultIdx,
+      `guidance (${guidanceIdx}) must land after tool_result (${toolResultIdx}), never between tool_call and tool_result`,
+    );
+    // No orphan tool_use: the tool_start has a matching tool_result.
+    const toolStart = events.find((e) => e.type === 'tool_start') as Extract<SessionEvent, { type: 'tool_start' }> | undefined;
+    const toolResult = events.find((e) => e.type === 'tool_result') as Extract<SessionEvent, { type: 'tool_result' }> | undefined;
+    assert.equal(toolResult?.toolUseId, toolStart?.toolUseId);
+  });
+
+  test('a late steer on a text-only turn triggers exactly one continuation pass that addresses it', async () => {
+    const gate = rearmableGate();
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const first = streamCalls === 1;
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            async start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ type: 'text-start', id: 't1' });
+              controller.enqueue({ type: 'text-delta', id: 't1', delta: first ? 'answer' : 'followup' });
+              controller.enqueue({ type: 'text-end', id: 't1' });
+              // Hold the first pass open after the text so the steer arrives
+              // after its prepareStep (no step consumed it) and before finish.
+              if (first) await gate.current.promise;
+              controller.enqueue({ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage() });
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    const events: SessionEvent[] = [];
+    const backend = backendWith(model, []);
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) events.push(event);
+    })();
+    await waitFor(() => events.some((e) => e.type === 'text_delta'));
+    assert.equal(backend.injectGuidance('please add two points'), true);
+    gate.current.release();
+    await sendPromise;
+
+    // Exactly one continuation pass (main + 1 follow-up).
+    assert.equal(streamCalls, 2);
+    assert.equal(model.doStreamCalls.length, 2);
+    // The continuation prompt carries the steer as a trailing user message.
+    const continuationPrompt = model.doStreamCalls[1]?.prompt as { role: string; content: unknown }[] | undefined;
+    const last = continuationPrompt?.[continuationPrompt.length - 1];
+    assert.equal(last?.role, 'user');
+    const lastText = typeof last?.content === 'string'
+      ? last.content
+      : (last?.content as { type: string; text?: string }[] | undefined)?.find((p) => p.type === 'text')?.text;
+    assert.equal(lastText, 'please add two points');
+    assert.equal(events.filter((e) => e.type === 'guidance').length, 1);
+    assert.equal(events.filter((e) => e.type === 'text_complete').length, 2);
+  });
+
+  test('repeated injection terminates via the step cap instead of looping forever', async () => {
+    const gate = rearmableGate();
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const gated = streamCalls <= 2;
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            async start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ type: 'text-start', id: 't1' });
+              controller.enqueue({ type: 'text-delta', id: 't1', delta: `pass ${streamCalls}` });
+              controller.enqueue({ type: 'text-end', id: 't1' });
+              // Gate only the passes the test drives (main + first continuation);
+              // later passes stream freely so the loop can terminate without
+              // anyone holding a gate open.
+              if (gated) await gate.current.promise;
+              controller.enqueue({ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage() });
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    const events: SessionEvent[] = [];
+    // maxSteps=3 caps the continuation loop at 3 follow-ups via continuationGuard.
+    const backend = backendWith(model, [], { maxSteps: 3 });
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) events.push(event);
+    })();
+    // Drive 2 passes: inject a fresh steer on each (so length > index again),
+    // release the gate to let the pass finish, then re-arm for the next pass.
+    for (let pass = 0; pass < 2; pass += 1) {
+      await waitFor(() => events.filter((e) => e.type === 'text_delta').length === pass + 1);
+      backend.injectGuidance(`steer-${pass}`);
+      gate.current.release();
+      let release!: () => void;
+      const promise = new Promise<void>((resolve) => { release = resolve; });
+      gate.current = { promise, release };
+    }
+    await sendPromise;
+    // The loop must terminate (bounded by the step cap), not run forever.
+    assert.ok(streamCalls >= 2, `at least one continuation should have run, got ${streamCalls}`);
+    assert.ok(streamCalls <= 4, `streamCalls should be bounded by the step cap, got ${streamCalls}`);
+  });
+
+  test('aborting during a continuation pass routes to the abort path cleanly', async () => {
+    const gate = rearmableGate();
+    let streamCalls = 0;
+    let continuationReached = false;
+    const model = new MockLanguageModelV3({
+      doStream: async () => {
+        streamCalls += 1;
+        const first = streamCalls === 1;
+        return {
+          stream: new ReadableStream<LanguageModelV3StreamPart>({
+            async start(controller) {
+              controller.enqueue({ type: 'stream-start', warnings: [] });
+              controller.enqueue({ type: 'text-start', id: 't1' });
+              controller.enqueue({ type: 'text-delta', id: 't1', delta: first ? 'answer' : 'followup' });
+              controller.enqueue({ type: 'text-end', id: 't1' });
+              if (first) {
+                // Hold the first pass open so the steer arrives after prepareStep.
+                await gate.current.promise;
+              } else {
+                // Hold the continuation open so stop() can flip this.aborted.
+                continuationReached = true;
+                await gate.current.promise;
+              }
+              controller.enqueue({ type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage: usage() });
+              controller.close();
+            },
+          }),
+        };
+      },
+    });
+    const events: SessionEvent[] = [];
+    const backend = backendWith(model, []);
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) events.push(event);
+    })();
+    await waitFor(() => events.some((e) => e.type === 'text_delta'));
+    backend.injectGuidance('steer to abort');
+    gate.current.release();
+    // Re-arm so the continuation pass awaits it.
+    let release2!: () => void;
+    gate.current = { promise: new Promise<void>((r) => { release2 = r; }), release: release2 };
+    await waitFor(() => continuationReached);
+    await backend.stop('user_stop');
+    release2();
+    await sendPromise; // must not throw
+    assert.ok(events.some((e) => e.type === 'abort'), 'an abort event should be emitted');
+    assert.ok(events.some((e) => e.type === 'complete'), 'a complete event should close the turn');
+  });
+});
 async function runArchiveGatedReplay(input: {
   query: string;
   selectedResult: unknown;

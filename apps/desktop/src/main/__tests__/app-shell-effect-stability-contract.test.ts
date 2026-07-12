@@ -251,7 +251,7 @@ async function importAppShellEffects(): Promise<AppShellEffectsModule> {
     entryPoints: [resolve(REPO_ROOT, 'apps/desktop/src/renderer/app-shell-effects.ts')],
     outfile,
     bundle: true,
-    external: ['react'],
+    packages: 'external',
     platform: 'node',
     format: 'esm',
     target: 'node20',

@@ -59,6 +59,7 @@ export {
   GitBranch,
   GitMerge,
   Globe,
+  GripVertical,
   Grid3X3,
   HelpCircle,
   History,

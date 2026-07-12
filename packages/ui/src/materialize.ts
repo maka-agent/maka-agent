@@ -199,6 +199,7 @@ function mergeLiveOverPersisted(persisted: ToolActivityItem, live: ToolActivityI
 export type TurnTimelineItem =
   | { kind: 'thinking'; text: string; messageId: string; live?: boolean; truncated?: boolean }
   | { kind: 'text'; text: string; messageId: string; ts?: number; live?: boolean; complete?: boolean; truncated?: boolean }
+  | { kind: 'steer'; text: string; messageId: string; ts?: number }
   | { kind: 'tools'; items: ToolActivityItem[] };
 
 /**
@@ -393,14 +394,19 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
     if (turnMessageList) turnMessageList.push(message);
     else messagesByTurn.set(turnId, [message]);
     if (message.type === 'user') {
-      turn.user = {
-        id: message.id,
-        role: 'user',
-        text: message.text,
-        ts: message.ts,
-        ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
-        ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),
-      };
+      // The first user row in a turn is the prompt. Any later user row is a
+      // mid-turn guidance injection (sessions:injectGuidance) — keep `user`
+      // intact and let `buildTurnTimeline` surface it as a `steer` entry.
+      if (!turn.user) {
+        turn.user = {
+          id: message.id,
+          role: 'user',
+          text: message.text,
+          ts: message.ts,
+          ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+          ...(message.origin?.kind === 'automation' ? { automationOrigin: { automationId: message.origin.automationId } } : {}),
+        };
+      }
     } else if (message.type === 'assistant') {
       // A turn now holds one AssistantMessage per model step. Concatenate their
       // text (and thinking) in step order so the turn reads as one answer; keep
@@ -510,11 +516,24 @@ function buildTurnTimeline(
 ): TurnTimelineItem[] {
   const raw: TurnTimelineItem[] = [];
   let pending: ToolActivityItem[] = [];
+  // The first `user` row in a turn is the prompt (already surfaced as
+  // `turn.user`); later `user` rows are mid-turn guidance injections and
+  // become `steer` entries. Guidance is buffered to step boundaries before
+  // reaching the ledger (runtime contract), so a steer never splits a
+  // `tool_call` from its `tool_result` — pending tools stay pending across
+  // a steer and flush on the next assistant row, exactly as without it.
+  let seenPrompt = false;
   const flushTools = (items: ToolActivityItem[]): void => {
     if (items.length > 0) raw.push({ kind: 'tools', items });
   };
   for (const message of turnMessages) {
-    if (message.type === 'tool_call') {
+    if (message.type === 'user') {
+      if (!seenPrompt) {
+        seenPrompt = true;
+      } else if (message.text.length > 0) {
+        raw.push({ kind: 'steer', text: message.text, messageId: message.id, ts: message.ts });
+      }
+    } else if (message.type === 'tool_call') {
       const item = toolItemByUseId.get(message.id);
       if (item) pending.push(item);
     } else if (message.type === 'assistant') {

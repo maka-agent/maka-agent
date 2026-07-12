@@ -712,6 +712,10 @@ export class SessionManager {
     await this.runtimeKernel.respondToPermission(sessionId, response);
   }
 
+  injectGuidance(sessionId: string, text: string): boolean {
+    return this.runtimeKernel.injectGuidance(sessionId, text);
+  }
+
   // --------------------------------------------------------------------------
   // Internal helpers
   // --------------------------------------------------------------------------
