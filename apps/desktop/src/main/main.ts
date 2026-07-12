@@ -603,14 +603,6 @@ function computerUseToolsForConnection(_connection: LlmConnection): MakaTool[] {
 function realE2eMakaComputerTool(tool: MakaTool): MakaTool {
   if (!isOpenAIComputerUseRealE2e) return tool;
   const actionCounts = new Map<string, number>();
-  const inspectWindowAt = (
-    computerUse.backend as typeof computerUse.backend & {
-      inspectWindowAt?: (
-        point: { x: number; y: number },
-        signal: AbortSignal,
-      ) => Promise<{ pid: number; title?: string } | undefined>;
-    }
-  )?.inspectWindowAt;
   return {
     ...tool,
     impl: async (args, context) => {
@@ -634,25 +626,6 @@ function realE2eMakaComputerTool(tool: MakaTool): MakaTool {
         if (maximum !== undefined && count > maximum) {
           return {
             text: `maka_computer.${actionName} failed: action_budget_exceeded`,
-          };
-        }
-      }
-      const points: Array<[number, number]> = [];
-      if (action.coordinate) points.push(action.coordinate);
-      if (action.start_coordinate) points.push(action.start_coordinate);
-      if (action.region) {
-        points.push(
-          [action.region[0], action.region[1]],
-          [action.region[2], action.region[3]],
-        );
-      }
-      for (const [x, y] of points) {
-        const target = await inspectWindowAt?.({ x, y }, context.abortSignal);
-        if (!isOwnedComputerUseFixtureTarget(target, process.pid)) {
-          return {
-            text:
-              `maka_computer.${action.action ?? 'action'} failed: unsupported_action; `
-              + `target_occluded at (${x},${y})`,
           };
         }
       }

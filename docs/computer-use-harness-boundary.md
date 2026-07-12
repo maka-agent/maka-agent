@@ -73,6 +73,29 @@ fingerprint change. Such changes are tolerated when target identity and the
 bound transform remain valid; a changed target becomes stale or is uniquely
 refetched.
 
+## Production Sky Evidence Update
+
+The pinned synthetic-app run now contains a provenance-checked 15-scenario
+semantic matrix covering full state, AX diff, element click, set value, type
+text, key navigation, select text, checkbox, secondary AX action, scroll,
+modal, stale-element refetch, duplicate-name disambiguation, coordinate click,
+and drag.
+
+These results narrow the contract:
+
+- stale element indices are not automatically invalid. The native service may
+  continue only when it can uniquely refetch the same semantic element;
+  missing or ambiguous matches require re-observation;
+- `user_intervened` is an explicit physical-input/session state, not a label for
+  arbitrary AX or DOM content changes;
+- coordinate and drag actions belong to the immediately preceding app/window
+  screenshot. A desktop atlas is one possible capture surface, not the universal
+  coordinate contract;
+- transport success is not effect success. A later scroll sequence fixture
+  records a successful production call whose business oracle did not change, so
+  every action still needs a fresh postcondition and action-specific verifier;
+- screenshot pixels, AX full state, AX diff, and business-state verification
+  are separate evidence channels and must not be collapsed into one hash.
 
 Provider harnesses own:
 

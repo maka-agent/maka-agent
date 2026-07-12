@@ -53,9 +53,9 @@ test('all providers share the Maka Computer function harness', () => {
   assert.doesNotMatch(source, /createMiniMaxComputerHarness/);
 });
 
-test('Maka Computer wires display snapshots without restoring the old owned-target guard', () => {
-  assert.match(source, /resolveCuaDisplaySnapshots/);
-  assert.match(source, /resolveDisplays:\s*async\s*\(\{\s*screenshotWidthPx,\s*screenshotHeightPx\s*\}\)/);
+test('Maka Computer leaves capture-local coordinate authority in the backend', () => {
+  assert.doesNotMatch(source, /resolveCuaDisplaySnapshots/);
+  assert.doesNotMatch(source, /resolveDisplays:\s*async/);
   assert.doesNotMatch(source, /inspectWindowAt/);
   assert.doesNotMatch(source, /isOwnedComputerUseFixtureTarget\s*\(/);
 });
