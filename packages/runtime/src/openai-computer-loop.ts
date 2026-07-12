@@ -20,7 +20,7 @@ export interface OpenAIComputerTransport {
 }
 
 export interface OpenAIComputerExecutor {
-  execute(action: CuAction, signal: AbortSignal): Promise<void>;
+  execute(action: CuAction, signal: AbortSignal): Promise<OpenAIComputerScreenshot | void>;
 }
 
 export interface OpenAIComputerScreenshotProvider {
@@ -75,6 +75,16 @@ export async function runOpenAIComputerLoop(input: {
       await input.transport.create(request, signal),
       input.dialect,
     );
+    if (response.status === 'failed' || response.error) {
+      throw new Error(
+        `openai_computer_response_failed: ${
+          response.error?.code ?? response.error?.type ?? response.status
+        }: ${response.error?.message ?? 'request failed'}`,
+      );
+    }
+    if (response.status === 'incomplete') {
+      throw new Error('openai_computer_response_incomplete');
+    }
     if (response.calls.length === 0) {
       return { status: 'completed', response, turns };
     }
@@ -118,14 +128,16 @@ export async function runOpenAIComputerLoop(input: {
       converted.push(conversion.actions);
     }
 
+    let lastScreenshot: OpenAIComputerScreenshot | undefined;
     for (const actions of converted) {
       for (const action of actions) {
         throwIfAborted(signal);
-        await input.executor.execute(action, signal);
+        const result = await input.executor.execute(action, signal);
+        if (action.type === 'screenshot' && result) lastScreenshot = result;
       }
     }
 
-    const screenshot = await input.screenshot.capture(signal);
+    const screenshot = lastScreenshot ?? await input.screenshot.capture(signal);
     request = createOpenAIComputerContinuationRequest({
       dialect: input.dialect,
       model: input.model,

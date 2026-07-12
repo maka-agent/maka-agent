@@ -20,7 +20,7 @@ describe('runOpenAIComputerLoop', () => {
     const executed: CuAction[] = [];
     const responses = [
       {
-        id: 'resp_1',
+        id: 'resp_1', status: 'completed', error: null,
         output: [call({
           actions: [
             { type: 'move', x: 1, y: 2 },
@@ -29,7 +29,7 @@ describe('runOpenAIComputerLoop', () => {
           ],
         })],
       },
-      { id: 'resp_2', output: [{ type: 'message', content: [] }] },
+      { id: 'resp_2', status: 'completed', error: null, output: [{ type: 'message', content: [] }] },
     ];
     const result = await runOpenAIComputerLoop({
       dialect: 'ga',
@@ -60,7 +60,7 @@ describe('runOpenAIComputerLoop', () => {
       transport: {
         async create() {
           return {
-            id: 'resp_1',
+            id: 'resp_1', status: 'completed', error: null,
             output: [call({
               pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
               actions: [{ type: 'click', button: 'left', x: 1, y: 2 }],
@@ -84,7 +84,7 @@ describe('runOpenAIComputerLoop', () => {
       transport: {
         async create() {
           return {
-            id: 'resp_1',
+            id: 'resp_1', status: 'completed', error: null,
             output: [call({
               actions: [
                 { type: 'click', button: 'left', x: 1, y: 2 },
@@ -109,13 +109,13 @@ describe('runOpenAIComputerLoop', () => {
     const requests: OpenAIComputerRequest[] = [];
     const responses = [
       {
-        id: 'resp_1',
+        id: 'resp_1', status: 'completed', error: null,
         output: [call({
           pending_safety_checks: [{ id: 'safe_1', code: 'confirm', message: 'Confirm' }],
           actions: [{ type: 'screenshot' }],
         })],
       },
-      { id: 'resp_2', output: [] },
+      { id: 'resp_2', status: 'completed', error: null, output: [] },
     ];
     const result = await runOpenAIComputerLoop({
       dialect: 'ga',
@@ -142,7 +142,7 @@ describe('runOpenAIComputerLoop', () => {
     const requests: OpenAIComputerRequest[] = [];
     const responses = [
       {
-        id: 'resp_1',
+        id: 'resp_1', status: 'completed', error: null,
         output: [{
           type: 'computer_call',
           id: 'item_1',
@@ -152,7 +152,7 @@ describe('runOpenAIComputerLoop', () => {
           action: { type: 'wait' },
         }],
       },
-      { id: 'resp_2', output: [] },
+      { id: 'resp_2', status: 'completed', error: null, output: [] },
     ];
     const result = await runOpenAIComputerLoop({
       dialect: 'preview',
@@ -177,5 +177,58 @@ describe('runOpenAIComputerLoop', () => {
       environment: 'browser',
     }]);
     assert.equal(requests[1].truncation, 'auto');
+  });
+
+  test('reuses a screenshot returned by the final screenshot action', async () => {
+    let fallbackCaptures = 0;
+    const responses = [
+      {
+        id: 'resp_1',
+        status: 'completed',
+        error: null,
+        output: [call({ actions: [{ type: 'screenshot' }] })],
+      },
+      { id: 'resp_2', status: 'completed', error: null, output: [] },
+    ];
+    const result = await runOpenAIComputerLoop({
+      dialect: 'ga',
+      model: 'gpt',
+      prompt: 'go',
+      transport: { async create() { return responses.shift(); } },
+      executor: {
+        async execute(action) {
+          if (action.type === 'screenshot') return { base64: 'AQ==', mimeType: 'image/png' };
+        },
+      },
+      screenshot: {
+        async capture() {
+          fallbackCaptures += 1;
+          return { base64: 'AA==', mimeType: 'image/png' };
+        },
+      },
+    });
+    assert.equal(result.status, 'completed');
+    assert.equal(fallbackCaptures, 0);
+  });
+
+  test('does not treat failed or incomplete responses as completion', async () => {
+    for (const response of [
+      {
+        id: 'failed',
+        status: 'failed',
+        error: { type: 'server_error', code: 'capacity', message: 'No capacity' },
+        output: [],
+      },
+      { id: 'incomplete', status: 'incomplete', error: null, output: [] },
+    ]) {
+      await assert.rejects(() => runOpenAIComputerLoop({
+        dialect: 'ga',
+        model: 'gpt',
+        prompt: 'go',
+        transport: { async create() { return response; } },
+        executor: { async execute() {} },
+        screenshot: { async capture() { return { base64: 'AA==', mimeType: 'image/png' }; } },
+      }), /openai_computer_response_(failed|incomplete)/);
+    }
   });
 });

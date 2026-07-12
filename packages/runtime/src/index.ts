@@ -119,6 +119,8 @@ export type {
   OpenAIComputerScreenshotProvider,
   OpenAIComputerTransport,
 } from './openai-computer-loop.js';
+export { OpenAIComputerBackend } from './openai-computer-backend.js';
+export type { OpenAIComputerBackendInput } from './openai-computer-backend.js';
 export {
   OpenAIResponsesTransport,
   createOpenAIResponsesTransport,
