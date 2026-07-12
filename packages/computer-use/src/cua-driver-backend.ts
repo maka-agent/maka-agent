@@ -873,9 +873,76 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
   ): boolean {
     if (!identity) return false;
     if (element.role !== identity.role) return false;
-    if (identity.label !== undefined) return element.label === identity.label;
     if (identity.token !== undefined && element.element_token === identity.token) return true;
-    return identity.value !== undefined && element.value === identity.value;
+    const label = identity.label?.trim();
+    return !!label && element.label === identity.label;
+  }
+
+  async function validateSemanticElementVisibility(
+    window: CuaResolvedWindow,
+    element: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
+    signal: AbortSignal,
+  ): Promise<CuRunResult | undefined> {
+    const point = {
+      x: element.frame.x + element.frame.w / 2,
+      y: element.frame.y + element.frame.h / 2,
+    };
+    if (
+      point.x < window.bounds.x
+      || point.x >= window.bounds.x + window.bounds.width
+      || point.y < window.bounds.y
+      || point.y >= window.bounds.y + window.bounds.height
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'semantic element moved outside the observed target window',
+        },
+      };
+    }
+    const winner = (await listWindowRecords(signal))
+      .flatMap((candidate) => {
+        if (
+          candidate.layer !== 0
+          || candidate.is_on_screen === false
+          || typeof candidate.pid !== 'number'
+          || typeof candidate.window_id !== 'number'
+          || !candidate.bounds
+          || typeof candidate.bounds !== 'object'
+        ) return [];
+        const bounds = candidate.bounds as Record<string, unknown>;
+        if (
+          typeof bounds.x !== 'number'
+          || typeof bounds.y !== 'number'
+          || typeof bounds.width !== 'number'
+          || typeof bounds.height !== 'number'
+        ) return [];
+        const inside = point.x >= bounds.x
+          && point.x < bounds.x + bounds.width
+          && point.y >= bounds.y
+          && point.y < bounds.y + bounds.height;
+        return inside ? [{
+          pid: candidate.pid,
+          windowId: candidate.window_id,
+          zIndex: Number(candidate.z_index) || 0,
+        }] : [];
+      })
+      .sort((left, right) => right.zIndex - left.zIndex)[0];
+    if (
+      !winner
+      || winner.pid !== window.pid
+      || winner.windowId !== window.windowId
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_occluded',
+          message: 'another window now owns the semantic element position',
+        },
+      };
+    }
+    return undefined;
   }
 
   async function validateStoredWindow(
@@ -1570,6 +1637,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         }
         const refetched = await refetchSemanticElement(observation, action, signal);
         if ('outcome' in refetched) return refetched;
+        const visibilityFailure = await validateSemanticElementVisibility(
+          validated,
+          refetched,
+          signal,
+        );
+        if (visibilityFailure) return visibilityFailure;
         const args = {
           pid: validated.pid,
           window_id: validated.windowId,

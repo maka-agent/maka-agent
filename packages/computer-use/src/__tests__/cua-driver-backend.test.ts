@@ -122,6 +122,8 @@ const DELAY_MS = Number(process.env.CUA_MOCK_DELAY_MS || 0);
 const ERR_TOOL = process.env.CUA_MOCK_RPCERR_TOOL || '';
 const EMPTY_AX = process.env.CUA_MOCK_EMPTY_AX === '1';
 const AX_ROLE = process.env.CUA_MOCK_AX_ROLE || 'AXTextArea';
+const AX_LABEL = process.env.CUA_MOCK_AX_LABEL || '';
+const SEMANTIC_OCCLUDED = process.env.CUA_MOCK_SEMANTIC_OCCLUDED === '1';
 const PAGE_EXEC_RESULT = process.env.CUA_MOCK_PAGE_EXEC_RESULT || '';
 const PAGE_READBACK_VALUE = process.env.CUA_MOCK_PAGE_READBACK_VALUE || '';
 let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
@@ -198,6 +200,7 @@ function handle(msg) {
           element_index: 7,
           element_token: 'snapshot:7',
           role: AX_ROLE,
+          label: AX_LABEL || undefined,
           value: FIELD_VALUES.get(snapshotWindowId) || '',
           frame: snapshotFrame,
         };
@@ -269,6 +272,9 @@ function handle(msg) {
           { window_id: 92, pid: 5002, layer: 0, is_on_screen: true, z_index: 9, bounds: { x: 950, y: 150, width: 300, height: 200 } },
           { window_id: 93, pid: 5003, layer: 3, is_on_screen: true, z_index: 99, bounds: { x: 900, y: 100, width: 400, height: 300 } },
           { window_id: 94, pid: 5004, layer: 0, is_on_screen: false, z_index: 50, bounds: { x: 900, y: 100, width: 400, height: 300 } },
+          ...(SEMANTIC_OCCLUDED
+            ? [{ window_id: 95, pid: 5005, layer: 0, is_on_screen: true, z_index: 20, bounds: { x: 300, y: 180, width: 100, height: 100 } }]
+            : []),
         ] } });
         return;
       case 'list_apps':
@@ -413,6 +419,8 @@ function makeBackend(opts: {
   bigImage?: boolean;
   emptyAx?: boolean;
   axRole?: string;
+  axLabel?: string;
+  semanticOccluded?: boolean;
   processKind?: 'electron' | 'native' | 'unknown';
   pageTarget?: CuaResolvedPageTextTarget;
   pageFieldValue?: string;
@@ -435,6 +443,8 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_BIG_IMAGE = opts.bigImage ? '1' : '';
   process.env.CUA_MOCK_EMPTY_AX = opts.emptyAx ? '1' : '';
   process.env.CUA_MOCK_AX_ROLE = opts.axRole ?? 'AXTextArea';
+  process.env.CUA_MOCK_AX_LABEL = opts.axLabel ?? '';
+  process.env.CUA_MOCK_SEMANTIC_OCCLUDED = opts.semanticOccluded ? '1' : '';
   process.env.CUA_MOCK_PAGE_EXEC_RESULT = opts.semanticPointerResult
     ? JSON.stringify(opts.semanticPointerResult)
     : '';
@@ -650,6 +660,7 @@ describe('cua-driver backend', () => {
   it('refetches a stale element index by unique semantic identity', async () => {
     const { backend, logPath } = makeBackend({
       axRole: 'AXButton',
+      axLabel: 'Continue',
       refetchMode: 'replacement',
     });
     const signal = new AbortController().signal;
@@ -669,6 +680,29 @@ describe('cua-driver backend', () => {
     const click = toolCall(await readRecords(logPath), 'click');
     assert.equal(click?.element_index, 9);
     assert.equal(click?.element_token, 'snapshot:9');
+  });
+
+  it('rejects stale refetch without a stable token or label', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      refetchMode: 'replacement',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
   });
 
   for (const refetchMode of ['missing', 'ambiguous'] as const) {
@@ -892,6 +926,52 @@ describe('cua-driver backend', () => {
     assert.equal(result.outcome.ok, false);
     if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_occluded');
     assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('rejects an observed semantic element occluded by another window', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Continue',
+      semanticOccluded: true,
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_occluded');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('allows semantic actions on a visible background window', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      axLabel: 'Continue',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, true);
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 1);
   });
 
   it('rejects a changed Electron page target without pixel fallback', async () => {

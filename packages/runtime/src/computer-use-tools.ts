@@ -496,7 +496,7 @@ export function buildComputerUseTools(deps: {
   overlay?: CuOverlayHook;
   frameAdapter?: CuFrameAdapter;
 }): ComputerUseToolSet {
-  let invocationQueue = Promise.resolve();
+  const invocationQueues = new Map<string, Promise<void>>();
   interface SessionObservationRecord {
     turnId: string;
     state: CuaFrameState;
@@ -683,19 +683,24 @@ export function buildComputerUseTools(deps: {
   }
 
   async function withInvocationQueue<T>(
+    sessionId: string,
     signal: AbortSignal,
     operation: () => Promise<T>,
   ): Promise<T> {
-    const previous = invocationQueue;
+    const previous = invocationQueues.get(sessionId) ?? Promise.resolve();
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    invocationQueue = previous.then(() => gate);
+    const current = previous.then(() => gate);
+    invocationQueues.set(sessionId, current);
     await previous;
     try {
       if (signal.aborted) throw new Error('aborted');
       return await operation();
     } finally {
       release();
+      if (invocationQueues.get(sessionId) === current) {
+        invocationQueues.delete(sessionId);
+      }
     }
   }
 
@@ -740,7 +745,7 @@ export function buildComputerUseTools(deps: {
     }): Promise<ComputerToolResult> => {
       if (abortSignal.aborted) return { text: 'computer aborted before start' };
       const input = snapshotComputerParams(computerParams.parse(args));
-      return withInvocationQueue(abortSignal, async () => {
+      return withInvocationQueue(sessionId, abortSignal, async () => {
         // S12: re-check TCC at action-start; cached "granted" is insufficient.
         const tcc = await deps.backend.preflight(abortSignal);
         if (!tcc.accessibility) {
@@ -806,6 +811,9 @@ export function buildComputerUseTools(deps: {
         ) {
           if (!deps.backend.runSemantic) {
             return { text: `maka_computer.${input.action} failed: unsupported_action` };
+          }
+          if (!tcc.screenRecording) {
+            return { text: `maka_computer.${input.action} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)` };
           }
           const record = sessionObservation(sessionId, turnId);
           const modelAction: CuSemanticAction = input.action === 'click_element'
@@ -890,12 +898,13 @@ export function buildComputerUseTools(deps: {
           const freshState = freshObservation
             ? `\nFresh observation:\n${observationText(freshObservation)}`
             : '';
-          return result.screenshot
+          const screenshot = freshObservation?.screenshot ?? result.screenshot;
+          return screenshot
             ? {
                 text: `${text}${freshState}`,
                 screenshot: {
-                  base64: result.screenshot.base64,
-                  mimeType: result.screenshot.mimeType,
+                  base64: screenshot.base64,
+                  mimeType: screenshot.mimeType,
                 },
               }
             : { text: `${text}${freshState}` };
@@ -908,6 +917,9 @@ export function buildComputerUseTools(deps: {
         const record = sessionObservation(sessionId, turnId);
         let boundAction: CuaBoundAction | undefined;
         if ('coordinate' in action || action.type === 'zoom') {
+          if (!tcc.screenRecording) {
+            return { text: `computer.${action.type} failed: permission_missing — Screen Recording not granted (System Settings → Privacy & Security → Screen Recording)` };
+          }
           if (!observationId) return bindingFailure('no_active_frame');
           const binding = claimBoundAction(record, observationId, action);
           if ('rejection' in binding) return bindingFailure(binding.rejection);
@@ -969,8 +981,9 @@ export function buildComputerUseTools(deps: {
               ? '\nObservation consumed; call observe before the next coordinate or element action.'
               : '';
           const text = `${summarize(modelAction, result)}${refresh}`;
-          return result.screenshot
-            ? { text, screenshot: { base64: result.screenshot.base64, mimeType: result.screenshot.mimeType } }
+          const screenshot = freshObservation?.screenshot ?? result.screenshot;
+          return screenshot
+            ? { text, screenshot: { base64: screenshot.base64, mimeType: screenshot.mimeType } }
             : { text };
         } finally {
           try { deps.overlay?.onActionEnd?.(action, result, overlayCtx); } catch { /* best-effort */ }

@@ -12,7 +12,10 @@ import {
 } from '../computer-use-tools.js';
 import type { MakaToolContext } from '../tool-runtime.js';
 
-function ctx(signal?: AbortSignal): MakaToolContext {
+function ctx(
+  signal?: AbortSignal,
+  overrides: Partial<MakaToolContext> = {},
+): MakaToolContext {
   return {
     sessionId: 's1',
     turnId: 't1',
@@ -20,6 +23,7 @@ function ctx(signal?: AbortSignal): MakaToolContext {
     toolCallId: 'call1',
     abortSignal: signal ?? new AbortController().signal,
     emitOutput: () => {},
+    ...overrides,
   };
 }
 
@@ -274,7 +278,10 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       action: 'click_element',
       observation_id: observationId,
       element_id: '5',
-    } as never, ctx()) as { text: string };
+    } as never, ctx()) as {
+      text: string;
+      screenshot?: { base64: string; mimeType: string };
+    };
 
     assert.equal((seen[0]?.action as { observationId: string }).observationId, 'backend-obs-1');
     assert.deepEqual((seen[0]?.action as { elementIdentity?: unknown }).elementIdentity, {
@@ -285,6 +292,10 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     assert.equal(seen[0]?.context.boundAction?.target?.windowId, 7);
     assert.match(result.text, /Fresh observation/);
     assert.doesNotMatch(result.text, new RegExp(observationId));
+    assert.deepEqual(result.screenshot, {
+      base64: 'AA==',
+      mimeType: 'image/png',
+    });
   });
 
   test('coordinate action is bound to a window-local screenshot and consumes the observation', async () => {
@@ -307,11 +318,18 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       action: 'left_click',
       observation_id: observationId,
       coordinate: [25, 30],
-    } as never, ctx()) as { text: string };
+    } as never, ctx()) as {
+      text: string;
+      screenshot?: { base64: string; mimeType: string };
+    };
 
     assert.equal(backend.lastContext?.boundAction?.coordinateSpace, 'window-screenshot-local');
     assert.deepEqual(backend.lastContext?.boundAction?.windowCoordinate, { x: 25, y: 30 });
     assert.match(result.text, /Fresh observation/);
+    assert.deepEqual(result.screenshot, {
+      base64: 'AA==',
+      mimeType: 'image/png',
+    });
 
     const replay = await tool.impl({
       action: 'left_click',
@@ -339,6 +357,54 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
     } as never, ctx()) as { text: string };
 
     assert.match(result.text, /capture_failed/);
+  });
+
+  test('bound mutating actions require Screen Recording before dispatch', async () => {
+    let dispatches = 0;
+    const backend = fakeBackend({ screenRecording: false }) as CuDispatchBackend & {
+      observeApp: NonNullable<CuDispatchBackend['observeApp']>;
+      runSemantic: NonNullable<CuDispatchBackend['runSemantic']>;
+    };
+    backend.observeApp = async () => observation({ screenshot: undefined });
+    backend.runSemantic = async () => {
+      dispatches += 1;
+      return {
+        outcome: { ok: true, tier: 'ax', verified: true },
+        observation: observation({ observationId: 'backend-obs-2' }),
+      };
+    };
+    backend.run = async () => {
+      dispatches += 1;
+      return { outcome: { ok: true, tier: 'coordinate-background' } };
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const observed = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+      include_screenshot: false,
+    } as never, ctx()) as { text: string };
+    const observationId = JSON.parse(observed.text).observation_id as string;
+
+    const semantic = await tool.impl({
+      action: 'click_element',
+      observation_id: observationId,
+      element_id: '5',
+    } as never, ctx()) as { text: string };
+    assert.match(semantic.text, /permission_missing/);
+    assert.equal(dispatches, 0);
+
+    const observedAgain = await tool.impl({
+      action: 'observe',
+      app: 'Fixture',
+      include_screenshot: false,
+    } as never, ctx()) as { text: string };
+    const coordinate = await tool.impl({
+      action: 'left_click',
+      observation_id: JSON.parse(observedAgain.text).observation_id,
+      coordinate: [25, 30],
+    } as never, ctx()) as { text: string };
+    assert.match(coordinate.text, /permission_missing/);
+    assert.equal(dispatches, 0);
   });
 
   test('zoom consumes the source observation and cannot reuse crop coordinates as the old frame', async () => {
@@ -573,6 +639,43 @@ describe('buildComputerUseTools — the `maka_computer` MakaTool', () => {
       'preflight:2:end',
       'run:wait',
     ]);
+  });
+
+  test('does not serialize independent sessions behind one invocation queue', async () => {
+    const events: string[] = [];
+    let releaseFirstPreflight!: () => void;
+    const firstPreflight = new Promise<void>((resolve) => {
+      releaseFirstPreflight = resolve;
+    });
+    const backend: CuDispatchBackend = {
+      async preflight(_signal) {
+        const session = events.includes('preflight:s1:start') ? 's2' : 's1';
+        events.push(`preflight:${session}:start`);
+        if (session === 's1') await firstPreflight;
+        events.push(`preflight:${session}:end`);
+        return { accessibility: true, screenRecording: true };
+      },
+      async run(action, _signal, context) {
+        events.push(`run:${context.sessionId}:${action.type}`);
+        return { outcome: { ok: true, tier: 'ax', verified: true } };
+      },
+    };
+    const [tool] = buildComputerUseTools({ backend });
+    const first = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's1', toolCallId: 'call-s1' }),
+    );
+    const second = tool.impl(
+      { action: 'wait' } as never,
+      ctx(undefined, { sessionId: 's2', toolCallId: 'call-s2' }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.ok(events.includes('preflight:s2:end'), `events=${events.join(',')}`);
+    assert.ok(events.includes('run:s2:wait'), `events=${events.join(',')}`);
+
+    releaseFirstPreflight();
+    await Promise.all([first, second]);
   });
 
   test('S17: surfaces the typed backend failure code without leaking raw driver text', async () => {
