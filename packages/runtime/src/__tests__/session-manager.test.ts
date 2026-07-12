@@ -3255,7 +3255,7 @@ describe('SessionManager permission mode updates', () => {
     const session = await manager.createSession(makeInput());
     const turn = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
     await turn.next();
-    store.failNextAppendMessage = (message) => message.type === 'system_note' && message.kind === 'abort';
+    store.failAfterNextAppendMessage = (message) => message.type === 'system_note' && message.kind === 'abort';
 
     await expectRejects(manager.stopSession(session.id, { source: 'stop_button' }), /append message failed/);
     await manager.stopSession(session.id, { source: 'stop_button' });
@@ -6444,6 +6444,7 @@ class MemorySessionStore implements SessionStore {
   readonly failUpdateHeaderFor = new Set<string>();
   readonly interleaveBeforeMarkSessionReadWriteFor = new Map<string, () => Promise<void> | void>();
   failNextAppendMessage: ((message: StoredMessage) => boolean) | undefined;
+  failAfterNextAppendMessage: ((message: StoredMessage) => boolean) | undefined;
   disposeCount = 0;
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
@@ -6513,6 +6514,10 @@ class MemorySessionStore implements SessionStore {
       throw new Error('append message failed');
     }
     this.messages.set(sessionId, [...(this.messages.get(sessionId) ?? []), ...messages]);
+    if (this.failAfterNextAppendMessage && messages.some(this.failAfterNextAppendMessage)) {
+      this.failAfterNextAppendMessage = undefined;
+      throw new Error('append message failed');
+    }
   }
 
   async updateHeader(sessionId: string, patch: Partial<SessionHeader>): Promise<SessionHeader> {

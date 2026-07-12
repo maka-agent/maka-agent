@@ -4,9 +4,12 @@ import type {
   SessionBlockedReason,
   SessionHeader,
   SessionStatus,
+  StoredMessage,
   SystemNoteMessage,
   TurnRecord,
+  TurnStateMessage,
 } from '@maka/core/session';
+import { isDeepStrictEqual } from 'node:util';
 import type { ChildAgentTurnInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import { AgentRun, type AgentRunActiveSession, type AgentRunBeginResult, type AgentRunLineage } from './agent-run.js';
@@ -85,8 +88,8 @@ interface StopOperation {
   abortSource: string | undefined;
   ts: number;
   statusProjected: boolean;
-  turnProjections: Map<AgentRun, { id: string; projected: boolean }>;
-  abortNoteId: string;
+  turnProjections: Map<AgentRun, { id: string; message?: TurnStateMessage; projected: boolean }>;
+  abortNote: SystemNoteMessage;
   abortNoteProjected: boolean;
   targets: Map<ActiveSession, StopTarget>;
 }
@@ -419,12 +422,20 @@ export class RuntimeKernel implements RuntimeKernelLike {
     const activeSessions = this.activeSessionsFor(sessionId);
     let operation = this.stopOperations.get(sessionId);
     if (!operation) {
+      const abortSource = normalizeStopSessionSource(input.source);
+      const ts = this.deps.now();
       operation = {
-        abortSource: normalizeStopSessionSource(input.source),
-        ts: this.deps.now(),
+        abortSource,
+        ts,
         statusProjected: false,
         turnProjections: new Map(),
-        abortNoteId: this.deps.newId(),
+        abortNote: {
+          type: 'system_note',
+          id: this.deps.newId(),
+          ts,
+          kind: 'abort',
+          ...(abortSource ? { data: { source: abortSource } } : {}),
+        },
         abortNoteProjected: false,
         targets: new Map(),
       };
@@ -463,27 +474,35 @@ export class RuntimeKernel implements RuntimeKernelLike {
     }
     for (const [run, projection] of operation.turnProjections) {
       if (projection.projected) continue;
-      await this.appendTurnState(
-        sessionId,
-        run.turnId,
-        'aborted',
-        run.lineage,
-        { id: projection.id, ts: operation.ts, abortSource: operation.abortSource },
-      );
+      projection.message ??= buildTurnStateMessage({
+        id: projection.id,
+        turnId: run.turnId,
+        ts: operation.ts,
+        status: 'aborted',
+        lineage: run.lineage,
+        ...(operation.abortSource ? { abortSource: operation.abortSource } : {}),
+        partialOutputRetained: await this.turnHasRetainedOutput(sessionId, run.turnId),
+      });
+      await this.appendStopProjection(sessionId, projection.message);
       projection.projected = true;
     }
     if (!operation.abortNoteProjected) {
-      await this.deps.store.appendMessage(sessionId, {
-        type: 'system_note',
-        id: operation.abortNoteId,
-        ts: operation.ts,
-        kind: 'abort',
-        ...(operation.abortSource ? { data: { source: operation.abortSource } } : {}),
-      } satisfies SystemNoteMessage);
+      await this.appendStopProjection(sessionId, operation.abortNote);
       operation.abortNoteProjected = true;
     }
     for (const run of stoppedRuns) run.completeStop();
     this.stopOperations.delete(sessionId);
+  }
+
+  private async appendStopProjection(sessionId: string, message: StoredMessage): Promise<void> {
+    const existing = (await this.deps.store.readMessages(sessionId)).find((candidate) => candidate.id === message.id);
+    if (existing) {
+      if (!isDeepStrictEqual(existing, message)) {
+        throw new Error(`stop projection ${message.id} conflicts with an existing message`);
+      }
+      return;
+    }
+    await this.deps.store.appendMessage(sessionId, message);
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {
