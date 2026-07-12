@@ -13,6 +13,7 @@ import {
   buildAutomationTool,
   buildBuiltinTools,
   buildDefaultContextBudgetPolicy,
+  buildSkillAgentTool,
   buildGoalTools,
   buildLlmHistorySummarizer,
   cleanupLegacyHistoryCompactArtifacts,
@@ -23,6 +24,8 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   type AutomationDefinition,
   type GoalContinuationDeps,
+  type HostCapabilities,
+  type MakaTool,
   type InvocationResult,
   type ShellRunUpdate,
 } from '@maka/runtime';
@@ -50,7 +53,8 @@ export interface MakaCliRuntimeContext {
   target: ReadySessionTarget;
   /** Selectable models across every ready connection, for the `/model` picker. */
   modelChoices: ModelChoice[];
-  tools: ReturnType<typeof buildBuiltinTools>;
+  /** Tools passed to the backend (builtins + automation + goals + Skill). */
+  tools: MakaTool[];
   automationManager: AutomationManager;
   automationScheduler: AutomationScheduler;
   subscribeShellRunUpdates(listener: (update: ShellRunUpdate) => void): () => void;
@@ -182,7 +186,15 @@ export async function createMakaCliRuntimeContext(
     goalManager,
     getTokenCount: (sessionId) => goalTokenCache.get(sessionId) ?? 0,
   });
-  const allTools = [...tools, automationTool, ...goalTools];
+  // CLI host capability surface for the skill-compatibility gate: the tool
+  // names registered on this host. The CLI has no Office tools, so bundled
+  // Office skills (requiredTools includes OfficeDocument/OfficeDocumentEdit)
+  // are hard-hidden here without seeding them — desktop owns Office seeding.
+  const host: HostCapabilities = {
+    toolNames: new Set([...tools, automationTool, ...goalTools].map((tool) => tool.name)),
+  };
+  const skillTool = buildSkillAgentTool(input.workspaceRoot, host);
+  const allTools = [...tools, automationTool, ...goalTools, skillTool];
 
   backends.register('ai-sdk', async (ctx) => {
     const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
@@ -237,7 +249,7 @@ export async function createMakaCliRuntimeContext(
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       systemPrompt: async ({ cwd }) => {
         const settings = await settingsStore.get();
-        return buildCliSystemPrompt({ settings, cwd });
+        return buildCliSystemPrompt({ settings, cwd, workspaceRoot: input.workspaceRoot, host });
       },
       turnTailPrompt: ({ cwd }) => buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
@@ -417,7 +429,7 @@ export async function createMakaCliRuntimeContext(
     runtime,
     target,
     modelChoices,
-    tools,
+    tools: allTools,
     automationManager,
     automationScheduler,
     subscribeShellRunUpdates: (listener) => {

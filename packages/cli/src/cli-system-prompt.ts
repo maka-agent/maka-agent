@@ -2,10 +2,12 @@ import { redactSecrets, type PersonalizationSettings } from '@maka/core';
 import {
   buildPersonalizationPromptFragment,
   buildSessionEnvironmentPromptFragment,
+  buildSkillsPromptFragment,
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
   type AutomationManager,
   type GoalManager,
+  type HostCapabilities,
 } from '@maka/runtime';
 
 /**
@@ -29,14 +31,29 @@ export interface BuildCliSystemPromptInput {
     workspaceInstructions: { enabled: boolean };
   };
   cwd: string;
+  /**
+   * Workspace root holding the shared `skills/` directory (distinct from the
+   * session `cwd` so the project directory is never scanned for skills). The
+   * skill catalog fragment is built from `{workspaceRoot}/skills/`.
+   */
+  workspaceRoot: string;
+  /**
+   * Host capability surface for the skill-compatibility gate. When omitted,
+   * the catalog is built without gating (legacy behavior). The CLI host
+   * passes its registered tool names so skills whose `requiredTools` are not
+   * available (e.g. bundled Office skills without the Office tools) are hidden.
+   */
+  host?: HostCapabilities;
 }
 
 export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Promise<string | undefined> {
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
+  // personalization -> skills -> workspaceInstructions, matching the desktop app.
+  const skills = await buildSkillsPromptFragment(input.workspaceRoot, input.host);
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;
-  const fragments = [personalization.text, workspaceInstructions].filter((v): v is string => Boolean(v));
+  const fragments = [personalization.text, skills, workspaceInstructions].filter((v): v is string => Boolean(v));
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }
 

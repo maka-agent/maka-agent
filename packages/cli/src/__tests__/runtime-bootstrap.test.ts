@@ -180,6 +180,29 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('registers the Skill tool so the CLI can load workspace skills', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        const skill = context.tools.find((tool) => tool.name === 'Skill');
+        assert.ok(skill, 'Skill tool must be registered on the CLI host');
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('enables background ShellRuns for the TUI runtime and cleans them up on close', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
