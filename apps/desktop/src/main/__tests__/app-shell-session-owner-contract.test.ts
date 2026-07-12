@@ -8,10 +8,11 @@ const RENDERER_ROOT = resolve(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer');
 
 describe('AppShell session workspace ownership boundary', () => {
   it('keeps active session, messages, session collection, and transient UI behind one workspace owner', async () => {
-    const [shell, workspace, listOwner] = await Promise.all([
+    const [shell, workspace, listOwner, effects] = await Promise.all([
       readFile(resolve(RENDERER_ROOT, 'app-shell.tsx'), 'utf8'),
       readFile(resolve(RENDERER_ROOT, 'use-app-shell-session-workspace.ts'), 'utf8'),
       readFile(resolve(RENDERER_ROOT, 'use-app-shell-session-list.ts'), 'utf8'),
+      readFile(resolve(RENDERER_ROOT, 'app-shell-effects.ts'), 'utf8'),
     ]);
 
     assert.match(shell, /useAppShellSessionWorkspace\(/);
@@ -25,6 +26,8 @@ describe('AppShell session workspace ownership boundary', () => {
     assert.match(workspace, /useAppShellSessionList\(toastApi\)/);
     assert.match(workspace, /useAppShellSessionUiState\(\)/);
     assert.match(workspace, /function setActiveId/);
+    assert.match(workspace, /activeIdRef\.current = next/);
+    assert.doesNotMatch(effects, /activeIdRef\.current\s*=(?!=)/);
     assert.match(workspace, /function startNewSession/);
     assert.match(workspace, /function clearOwnedSessionState/);
     assert.match(workspace, /const \[messages, setMessages\] = useState<StoredMessage\[\]>/);

@@ -40,19 +40,18 @@ describe('session row actions fail soft', () => {
 
   it('cleans active session renderer state consistently after archive or delete', async () => {
     const main = await readRendererShellCombinedSource();
-    const cleanupBlock = main.slice(
-      main.indexOf('function clearSessionRendererState'),
-      main.indexOf('// PR109e: per-turn auxiliary view-model'),
-    );
+    const cleanupBlock = main.match(/function clearSessionRendererState\(sessionId: string\): void \{[\s\S]*?\n  \}/)?.[0] ?? '';
+    const ownedCleanupBlock = main.match(/function clearOwnedSessionState\(sessionId: string\): void \{[\s\S]*?\n  \}/)?.[0] ?? '';
 
-    assert.match(cleanupBlock, /messageRetryPendingRef\.current\.delete\(sessionId\);/);
-    assert.match(cleanupBlock, /stopPendingRef\.current\.delete\(sessionId\);/);
+    assert.match(cleanupBlock, /clearOwnedSessionState\(sessionId\);/);
+    assert.match(ownedCleanupBlock, /messageRetryPendingRef\.current\.delete\(sessionId\);/);
+    assert.match(ownedCleanupBlock, /stopPendingRef\.current\.delete\(sessionId\);/);
     assert.match(cleanupBlock, /clearPendingTurnActionsForSession\(sessionId\);/);
     assert.match(cleanupBlock, /pendingPermissionModeChangesRef\.current\.delete\(sessionId\);/);
     assert.match(cleanupBlock, /pendingSessionModelChangesRef\.current\.delete\(sessionId\);/);
     assert.match(
-      cleanupBlock,
-      /clearSessionUiState\(sessionId\);/,
+      ownedCleanupBlock,
+      /sessionUi\.clearSessionUiState\(sessionId\);/,
       'archive/delete cleanup must use the centralized per-session UI state cleanup',
     );
 

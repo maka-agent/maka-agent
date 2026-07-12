@@ -108,7 +108,7 @@ import {
   useAppShellBootstrapSubscriptions,
   useAppShellHostEffects,
   useAppShellPersistenceEffects,
-  useAppShellRefSync,
+  useAppShellNavRefSync,
   useSessionEventHealthPolling,
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
@@ -1019,9 +1019,7 @@ export function AppShell({
 
   const hasModalOpen = Boolean(activePermission) || helpOpen || paletteOpen || searchModalOpen;
 
-  useAppShellRefSync({
-    activeId,
-    activeIdRef,
+  useAppShellNavRefSync({
     navSelection,
     navSelectionRef,
   });

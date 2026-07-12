@@ -40,16 +40,10 @@ type ToastApi = {
   }): void;
 };
 
-export function useAppShellRefSync(options: {
-  activeId: string | undefined;
-  activeIdRef: RefBox<string | undefined>;
+export function useAppShellNavRefSync(options: {
   navSelection: NavSelection;
   navSelectionRef: RefBox<NavSelection>;
 }) {
-  useEffect(() => {
-    options.activeIdRef.current = options.activeId;
-  }, [options.activeId]);
-
   useEffect(() => {
     options.navSelectionRef.current = options.navSelection;
   }, [options.navSelection]);
