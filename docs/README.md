@@ -31,6 +31,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ### Frontend and validation
 
+- [Product design](./DESIGN.md)
 - [Frontend CSS governance](./frontend-css-governance.md)
 
 ### Security and privacy
