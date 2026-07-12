@@ -43,6 +43,9 @@ const summary = {
 
 const runtime: MakaRunRuntime = {
   async createSession(input) {
+    if (process.env.MAKA_RUN_EXPECT_NO_CREATE === '1') {
+      throw new Error('unexpected createSession call');
+    }
     if (
       process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
       && input.permissionMode !== process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
@@ -51,7 +54,13 @@ const runtime: MakaRunRuntime = {
     }
     return summary;
   },
-  async *sendMessage(_sessionId, input): AsyncIterable<SessionEvent> {
+  async *sendMessage(sessionId, input): AsyncIterable<SessionEvent> {
+    if (
+      process.env.MAKA_RUN_EXPECT_SESSION_ID
+      && sessionId !== process.env.MAKA_RUN_EXPECT_SESSION_ID
+    ) {
+      throw new Error(`unexpected sessionId ${sessionId}`);
+    }
     if (scenario === 'runtime-error') throw new Error('provider failed after startup');
     if (scenario === 'permission') {
       yield {
@@ -110,8 +119,33 @@ async function createContext(input: CreateMakaCliRuntimeContextInput): Promise<M
       throw new Error(`unexpected permissionRules ${actual}`);
     }
   }
+  if (process.env.MAKA_RUN_EXPECT_CONTEXT_CWD && input.cwd !== process.env.MAKA_RUN_EXPECT_CONTEXT_CWD) {
+    throw new Error(`unexpected context cwd ${input.cwd}`);
+  }
+  if (
+    process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION
+    && input.requestedConnectionSlug !== process.env.MAKA_RUN_EXPECT_CONTEXT_CONNECTION
+  ) {
+    throw new Error(`unexpected context connection ${String(input.requestedConnectionSlug)}`);
+  }
+  if (
+    process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL
+    && input.requestedModel !== process.env.MAKA_RUN_EXPECT_CONTEXT_MODEL
+  ) {
+    throw new Error(`unexpected context model ${String(input.requestedModel)}`);
+  }
+  if (process.env.MAKA_RUN_EXPECT_CWD_OVERRIDE) {
+    const actual = JSON.stringify(input.sessionCwdOverride);
+    if (actual !== process.env.MAKA_RUN_EXPECT_CWD_OVERRIDE) {
+      throw new Error(`unexpected sessionCwdOverride ${actual}`);
+    }
+  }
   observer = input.runtimeInvocationObserver;
   return { runtime, target, close: async () => {} };
+}
+
+async function listSessions(): Promise<SessionSummary[]> {
+  return JSON.parse(process.env.MAKA_RUN_FIXTURE_SESSIONS ?? '[]') as SessionSummary[];
 }
 
 function completedResult(finalOutput: string): InvocationResult {
@@ -146,7 +180,7 @@ async function notify(result: InvocationResult): Promise<void> {
   await observer?.(result);
 }
 
-runMakaTextCli(process.argv.slice(2), { createContext }).then(
+runMakaTextCli(process.argv.slice(2), { createContext, listSessions }).then(
   (code) => { process.exitCode = code; },
   (error) => {
     process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);

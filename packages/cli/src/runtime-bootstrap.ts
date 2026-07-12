@@ -70,6 +70,8 @@ export interface CreateMakaCliRuntimeContextInput {
   requestedModel?: string;
   maxSteps?: number;
   permissionRules?: readonly ToolPermissionRule[];
+  /** Canonical cwd used for one resumed session without rewriting its stored header. */
+  sessionCwdOverride?: { sessionId: string; cwd: string };
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   /**
    * Optional cron executor. When provided, the Automation tool advertises the
@@ -183,13 +185,16 @@ export async function createMakaCliRuntimeContext(
   const allTools = [...tools, automationTool, ...goalTools];
 
   backends.register('ai-sdk', async (ctx) => {
+    const header = input.sessionCwdOverride?.sessionId === ctx.sessionId
+      ? { ...ctx.header, cwd: input.sessionCwdOverride.cwd }
+      : ctx.header;
     // Resolve the session's own connection — not the global default — so a
     // /model switch that rebinds the session to another provider actually runs
     // on that provider (the desktop app resolves the backend the same way).
-    const ready = await resolveSessionTargetForSlug(ctx.header.llmConnectionSlug, {
+    const ready = await resolveSessionTargetForSlug(header.llmConnectionSlug, {
       connectionStore,
       credentialStore,
-      requestedModel: ctx.header.model,
+      requestedModel: header.model,
     });
     const modelFetch = buildSubscriptionModelFetch({
       connection: ready.connection,
@@ -205,7 +210,7 @@ export async function createMakaCliRuntimeContext(
     });
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
-      header: { ...ctx.header, model: ready.model },
+      header: { ...header, model: ready.model },
       appendMessage: ctx.appendMessage ?? ((message) => ctx.store.appendMessage(ctx.sessionId, message)),
       connection: ready.connection,
       apiKey: ready.apiKey,
@@ -213,7 +218,7 @@ export async function createMakaCliRuntimeContext(
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
       tools: allTools,
-      providerOptions: buildProviderOptions(ready.connection, ready.model, ctx.header.thinkingLevel),
+      providerOptions: buildProviderOptions(ready.connection, ready.model, header.thinkingLevel),
       contextBudget: buildCliContextBudgetPolicy(ready.connection, ready.model),
       loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
       loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,

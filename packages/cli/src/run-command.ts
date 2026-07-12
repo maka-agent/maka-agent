@@ -11,11 +11,13 @@ import {
 import type { CreateSessionInput, UserMessageInput } from '@maka/core/runtime-inputs';
 import type { SessionSummary } from '@maka/core/session';
 import type { InvocationResult } from '@maka/runtime';
+import { createSessionStore } from '@maka/storage';
 import {
   createMakaCliRuntimeContext,
   type CreateMakaCliRuntimeContextInput,
 } from './runtime-bootstrap.js';
 import type { ReadySessionTarget } from './connection-target.js';
+import { selectMakaRunSession } from './run-session-selection.js';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
 
 export type NonInteractivePermissionMode = Exclude<PermissionMode, 'ask'>;
@@ -31,6 +33,9 @@ export interface MakaRunOptions {
   maxSteps?: number;
   permissionMode?: NonInteractivePermissionMode;
   permissionRules?: ToolPermissionRule[];
+  resumeId?: string;
+  continueLatest?: boolean;
+  thinkingDefaultExplicit?: boolean;
 }
 
 export type ParseMakaRunArgsResult =
@@ -56,6 +61,7 @@ export interface MakaRunContext {
 
 export interface MakaRunDeps {
   createContext(input: CreateMakaCliRuntimeContextInput): Promise<MakaRunContext>;
+  listSessions(workspaceRoot: string): Promise<SessionSummary[]>;
   workspaceRoot(): string;
   processCwd(): string;
   stdinIsTTY(): boolean;
@@ -78,13 +84,16 @@ const VALUE_FLAGS = new Set([
   'permission-mode',
   'allow',
   'deny',
+  'resume',
 ]);
 
 const REPEATABLE_VALUE_FLAGS = new Set(['allow', 'deny']);
+const BOOLEAN_FLAGS = new Set(['continue']);
 
 export function parseMakaRunArgs(argv: readonly string[]): ParseMakaRunArgsResult {
   const positional: string[] = [];
   const flags = new Map<string, string>();
+  const booleanFlags = new Set<string>();
   const permissionRuleFlags: Array<{ effect: 'allow' | 'deny'; value: string }> = [];
   let literal = false;
   for (let index = 0; index < argv.length; index += 1) {
@@ -96,6 +105,11 @@ export function parseMakaRunArgs(argv: readonly string[]): ParseMakaRunArgsResul
     }
     if (!literal && arg.startsWith('--')) {
       const name = arg.slice(2);
+      if (BOOLEAN_FLAGS.has(name)) {
+        if (booleanFlags.has(name)) return { kind: 'error', message: `option repeated: ${arg}` };
+        booleanFlags.add(name);
+        continue;
+      }
       if (!VALUE_FLAGS.has(name)) return { kind: 'error', message: `unknown option: ${arg}` };
       if (!REPEATABLE_VALUE_FLAGS.has(name) && flags.has(name)) {
         return { kind: 'error', message: `option repeated: ${arg}` };
@@ -126,6 +140,11 @@ export function parseMakaRunArgs(argv: readonly string[]): ParseMakaRunArgsResul
   const maxSteps = flags.get('max-steps');
   const thinking = flags.get('thinking');
   const permissionMode = flags.get('permission-mode');
+  const resumeId = flags.get('resume');
+  const continueLatest = booleanFlags.has('continue');
+  if (resumeId !== undefined && continueLatest) {
+    return { kind: 'error', message: '--resume and --continue cannot be used together' };
+  }
   const timeoutSeconds = timeout === undefined ? undefined : Number(timeout);
   if (timeoutSeconds !== undefined && (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0)) {
     return { kind: 'error', message: '--timeout must be a positive number of seconds' };
@@ -168,6 +187,9 @@ export function parseMakaRunArgs(argv: readonly string[]): ParseMakaRunArgsResul
       ...(parsedMaxSteps !== undefined ? { maxSteps: parsedMaxSteps } : {}),
       ...(permissionMode !== undefined ? { permissionMode } : {}),
       ...(permissionRules.length > 0 ? { permissionRules } : {}),
+      ...(resumeId !== undefined ? { resumeId } : {}),
+      ...(continueLatest ? { continueLatest: true } : {}),
+      ...(thinking === 'default' ? { thinkingDefaultExplicit: true } : {}),
     },
   };
 }
@@ -188,10 +210,32 @@ export async function runMakaTextCli(
   }
 
   let prompt: string;
-  let cwd: string;
+  let selection: Awaited<ReturnType<typeof selectMakaRunSession>>;
+  const workspaceRoot = deps.workspaceRoot();
   try {
     prompt = await resolveRunPrompt(parsed.options, deps);
-    cwd = await canonicalDirectory(parsed.options.cwd ?? deps.processCwd());
+    const sessions = parsed.options.resumeId !== undefined || parsed.options.continueLatest === true
+      ? await deps.listSessions(workspaceRoot)
+      : [];
+    selection = await selectMakaRunSession({
+      sessions,
+      ...(parsed.options.resumeId !== undefined ? { resumeId: parsed.options.resumeId } : {}),
+      continueLatest: parsed.options.continueLatest === true,
+      ...(parsed.options.cwd !== undefined ? { explicitCwd: parsed.options.cwd } : {}),
+      processCwd: deps.processCwd(),
+      ...(parsed.options.connection !== undefined
+        ? { explicitConnection: parsed.options.connection }
+        : {}),
+      ...(parsed.options.model !== undefined ? { explicitModel: parsed.options.model } : {}),
+      thinkingSpecified: parsed.options.thinking !== undefined
+        || parsed.options.thinkingDefaultExplicit === true,
+      ...(parsed.options.thinking !== undefined
+        ? { explicitThinking: parsed.options.thinking }
+        : {}),
+      ...(parsed.options.permissionMode !== undefined
+        ? { explicitPermissionMode: parsed.options.permissionMode }
+        : {}),
+    }, { canonicalizeDirectory: canonicalDirectory });
   } catch (error) {
     deps.writeStderr(`maka run: ${errorMessage(error)}\n`);
     return 2;
@@ -201,10 +245,25 @@ export async function runMakaTextCli(
   let context: MakaRunContext;
   try {
     context = await deps.createContext({
-      workspaceRoot: deps.workspaceRoot(),
-      cwd,
-      ...(parsed.options.connection ? { requestedConnectionSlug: parsed.options.connection } : {}),
-      ...(parsed.options.model ? { requestedModel: parsed.options.model } : {}),
+      workspaceRoot,
+      cwd: selection.cwd,
+      ...((selection.kind === 'existing' || parsed.options.connection)
+        ? {
+            requestedConnectionSlug: selection.kind === 'existing'
+              ? selection.session.llmConnectionSlug
+              : parsed.options.connection,
+          }
+        : {}),
+      ...((selection.kind === 'existing' || parsed.options.model)
+        ? {
+            requestedModel: selection.kind === 'existing'
+              ? selection.session.model
+              : parsed.options.model,
+          }
+        : {}),
+      ...(selection.kind === 'existing'
+        ? { sessionCwdOverride: { sessionId: selection.session.id, cwd: selection.cwd } }
+        : {}),
       ...(parsed.options.maxSteps !== undefined ? { maxSteps: parsed.options.maxSteps } : {}),
       ...(parsed.options.permissionRules !== undefined
         ? { permissionRules: parsed.options.permissionRules }
@@ -220,15 +279,17 @@ export async function runMakaTextCli(
 
   let session: SessionSummary;
   try {
-    session = await context.runtime.createSession({
-      cwd,
-      name: firstLine(prompt).slice(0, 42) || 'Maka run',
-      backend: 'ai-sdk',
-      llmConnectionSlug: context.target.connection.slug,
-      model: context.target.model,
-      permissionMode: parsed.options.permissionMode ?? 'explore',
-      ...(parsed.options.thinking !== undefined ? { thinkingLevel: parsed.options.thinking } : {}),
-    });
+    session = selection.kind === 'existing'
+      ? selection.session
+      : await context.runtime.createSession({
+          cwd: selection.cwd,
+          name: firstLine(prompt).slice(0, 42) || 'Maka run',
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: parsed.options.permissionMode ?? 'explore',
+          ...(parsed.options.thinking !== undefined ? { thinkingLevel: parsed.options.thinking } : {}),
+        });
   } catch (error) {
     await context.close();
     deps.writeStderr(`maka run: ${errorMessage(error)}\n`);
@@ -336,6 +397,8 @@ function makaRunHelpText(): string {
     '  --permission-mode <mode>  explore|execute|bypass (default: explore)',
     '  --allow <rule>            Repeatable category:<name> or Bash(<exact command>)',
     '  --deny <rule>             Repeatable category:<name> or Bash(<exact command>)',
+    '  --resume <session-id>     Continue an explicit compatible session',
+    '  --continue                Continue the latest compatible session for cwd',
     '  -h, --help                Show help',
   ].join('\n');
 }
@@ -367,6 +430,7 @@ function parseToolPermissionRule(
 function defaultMakaRunDeps(): MakaRunDeps {
   return {
     createContext: createMakaCliRuntimeContext,
+    listSessions: (workspaceRoot) => createSessionStore(workspaceRoot).list(),
     workspaceRoot: () => resolveMakaWorkspaceRoot(),
     processCwd: () => process.cwd(),
     stdinIsTTY: () => process.stdin.isTTY === true,
