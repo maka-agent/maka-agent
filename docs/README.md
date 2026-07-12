@@ -15,6 +15,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 - [Desktop architecture](../apps/desktop/README.md)
 - [Renderer architecture](../apps/desktop/src/renderer/README.md)
 - [Headless usage and isolation](../packages/headless/README.md)
+- [Runtime package](../packages/runtime/README.md)
 - [UI package architecture](../packages/ui/README.md)
 - [Security policy](../SECURITY.md)
 
