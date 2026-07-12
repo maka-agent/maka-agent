@@ -12,13 +12,11 @@ it('projects WriteStdin activity to a bounded human-readable input preview', () 
     ref: 'maka://runtime/background-tasks/one',
     input: '中\r',
     size: { cols: 100, rows: 30 },
-    observe_for_ms: 0,
   });
   assert.deepEqual(projected, {
     ref: 'maka://runtime/background-tasks/one',
     inputPreview: { text: '中\\r', bytes: 4, truncated: false },
     size: { cols: 100, rows: 30 },
-    observe_for_ms: 0,
   });
   assert.doesNotMatch((projected as { inputPreview: { text: string } }).inputPreview.text, /\r/);
   assert.deepEqual(projectToolActivityArgs('WriteStdin', projected), projected);

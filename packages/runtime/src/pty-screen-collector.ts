@@ -120,17 +120,28 @@ export class PtyScreenCollector {
     return result;
   }
 
+  mutateAndSnapshotAtCut(mutation: () => void | Promise<void>): Promise<PtySnapshotAtCut> {
+    return this.mutateAtCut(async () => {
+      await mutation();
+      this.throwIfUnavailable();
+      return this.captureSnapshot();
+    });
+  }
+
   snapshotAtCut(): Promise<PtySnapshotAtCut> {
-    const snapshot = this.mutateAtCut(() => {
+    return this.mutateAtCut(() => this.captureSnapshot());
+  }
+
+  private captureSnapshot(): PtySnapshotAtCut {
+    try {
       const output = this.createSnapshot();
       this.lastGood = output;
       return { output, generation: this.parsedGeneration };
-    });
-    return snapshot.catch((error: unknown) => {
+    } catch (error) {
       const failure = asError(error, 'PTY snapshot failed');
       this.fail(failure);
       throw failure;
-    });
+    }
   }
 
   resize(cols: number, rows: number): void {

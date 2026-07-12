@@ -42,7 +42,6 @@ import {
   DEFAULT_MAX_LIVE_SHELL_RUNS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
-  DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS,
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
@@ -167,6 +166,12 @@ interface SnapshotAtCut {
   generation: number;
 }
 
+interface PersistOptions {
+  allowLastGood?: boolean;
+  bestEffort?: boolean;
+  snapshotBarrier?: Promise<SnapshotAtCut | undefined>;
+}
+
 interface SessionCloseLease {
   readonly sessionId: string;
   readonly token: symbol;
@@ -257,39 +262,49 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     let resizeApplied = false;
     let resizeChanged = false;
     let operationFailed = false;
-    try {
-      await live.collector.mutateAtCut(() => {
-        if (input.abortSignal?.aborted) {
-          throw abortError('WriteStdin aborted before the control operation was committed');
-        }
-        if (live.driverExit || live.termination) return;
-        if (input.size) {
-          const currentSize = live.collector.currentSize();
-          if (currentSize.cols === input.size.cols && currentSize.rows === input.size.rows) {
-            resizeApplied = true;
-          } else {
-            live.driver.resize(input.size.cols, input.size.rows);
-            resizeApplied = true;
-            resizeChanged = true;
-            try {
-              live.collector.resize(input.size.cols, input.size.rows);
-            } catch (error) {
-              operationFailed = true;
-              this.handleIntegrityFailure(live, asError(error, 'PTY screen resize failed'));
-              return;
-            }
-          }
-        }
-        if (input.input !== undefined) {
+    let exitBeforeControlCut = false;
+    const controlCut = live.collector.mutateAndSnapshotAtCut(() => {
+      if (input.abortSignal?.aborted) {
+        throw abortError('WriteStdin aborted before the control operation was committed');
+      }
+      if (live.driverExit) {
+        exitBeforeControlCut = true;
+        return;
+      }
+      if (live.termination) return;
+      if (input.size) {
+        const currentSize = live.collector.currentSize();
+        if (currentSize.cols === input.size.cols && currentSize.rows === input.size.rows) {
+          resizeApplied = true;
+        } else {
+          live.driver.resize(input.size.cols, input.size.rows);
+          resizeApplied = true;
+          resizeChanged = true;
           try {
-            live.driver.write(input.input);
-            inputApplied = true;
+            live.collector.resize(input.size.cols, input.size.rows);
           } catch (error) {
             operationFailed = true;
-            this.handleIntegrityFailure(live, asError(error, 'PTY input write failed'));
+            this.handleIntegrityFailure(live, asError(error, 'PTY screen resize failed'));
+            return;
           }
         }
-      });
+      }
+      if (input.input !== undefined) {
+        try {
+          live.driver.write(input.input);
+          inputApplied = true;
+        } catch (error) {
+          operationFailed = true;
+          this.handleIntegrityFailure(live, asError(error, 'PTY input write failed'));
+        }
+      }
+    });
+    const persistedControl = this.persistObservation(live, controlCut.then(
+      (snapshot) => operationFailed || exitBeforeControlCut ? undefined : snapshot,
+      () => undefined,
+    ));
+    try {
+      await controlCut;
     } catch (error) {
       if (isAbortError(error)) throw error;
       operationFailed = true;
@@ -302,19 +317,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       resizeChanged,
       failed: operationFailed,
     });
-    if (operationFailed) {
+    if (exitBeforeControlCut || operationFailed) {
       const record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, operation);
     }
-    const observeForMs = input.observeForMs ?? DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS;
     let record: ShellRunRecord;
     try {
-      const observation = observeForMs === 0
-        ? 'delay'
-        : await live.finished.wait(observeForMs, input.abortSignal);
-      record = observation === 'settled'
-        ? await live.finished.join()
-        : await this.persistObservation(live);
+      record = await persistedControl;
     } catch (error) {
       if (live.integrityFailure && !live.persistFailure) {
         record = await this.markObserved(await live.finished.join());
@@ -757,27 +766,31 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     });
   }
 
-  private async persistObservation(live: LiveShellRun): Promise<ShellRunRecord> {
+  private persistObservation(
+    live: LiveShellRun,
+    snapshotBarrier?: Promise<SnapshotAtCut | undefined>,
+  ): Promise<ShellRunRecord> {
     if (live.integrityFailure || live.driverExit) return live.finished.join();
     if (live.flushTimer) {
       clearTimeout(live.flushTimer);
       live.flushTimer = undefined;
     }
     if (live.mode === 'pipes') live.pendingFlushChars = 0;
-    try {
-      return await this.queuePersist(live);
-    } catch (error) {
+    const task = this.queuePersist(live, {}, snapshotBarrier ? { snapshotBarrier } : {});
+    return task.catch((error: unknown) => {
       if (!live.integrityFailure || live.persistFailure) throw error;
       return live.finished.join();
-    }
+    });
   }
 
   private queuePersist(
     live: LiveShellRun,
     patch: PersistPatch = {},
-    options: { allowLastGood?: boolean; bestEffort?: boolean } = {},
+    options: PersistOptions = {},
   ): Promise<ShellRunRecord> {
-    const barrier = this.snapshotAtCut(live, Boolean(options.allowLastGood));
+    const barrier = options.snapshotBarrier
+      ? options.snapshotBarrier
+      : this.snapshotAtCut(live, Boolean(options.allowLastGood));
     let failureStage: 'snapshot' | 'persist' = 'snapshot';
     const settledBarrier = barrier.then(
       (snapshot) => ({ ok: true as const, snapshot }),
@@ -787,6 +800,13 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       const settled = await settledBarrier;
       if (!settled.ok) throw settled.error;
       const { snapshot } = settled;
+      if (!snapshot) {
+        if (!live.record) throw new Error(`ShellRun ${live.shellRunId} is not durable`);
+        if (this.currentGeneration(live) > live.lastPersistedGeneration) {
+          this.scheduleAutomaticFlush(live);
+        }
+        return live.record;
+      }
       failureStage = 'persist';
       if (!live.record) throw new Error(`ShellRun ${live.shellRunId} is not durable`);
       if (live.persistFailure && !options.bestEffort) throw live.persistFailure;

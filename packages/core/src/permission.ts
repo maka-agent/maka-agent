@@ -559,7 +559,7 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
     case 'Bash':
       return `${category}:${toolName}:${normalizeScopeText(stringArg(args, 'command'))}`;
     case 'WriteStdin':
-      return `${category}:${toolName}:${stringArg(args, 'ref')}`;
+      return `${category}:${toolName}:${writeStdinScopeArgs(args)}`;
     case 'WebSearch':
       return `${category}:${toolName}:${stringArg(args, 'query')}`;
     default:
@@ -580,6 +580,19 @@ function normalizeScopeText(value: string): string {
 function stableScopeJson(value: unknown): string {
   const json = JSON.stringify(normalizeForScope(value, new WeakSet<object>()));
   return (json ?? String(value)).slice(0, 1024);
+}
+
+function writeStdinScopeArgs(args: unknown): string {
+  const value = args && typeof args === 'object' && !Array.isArray(args)
+    ? args as Record<string, unknown>
+    : {};
+  const sideEffect: Record<string, unknown> = {
+    ref: typeof value.ref === 'string' ? value.ref : '',
+  };
+  if (typeof value.input === 'string') sideEffect.input = value.input;
+  if (value.size !== undefined) sideEffect.size = value.size;
+  const json = JSON.stringify(normalizeForScope(sideEffect, new WeakSet<object>()));
+  return json ?? String(sideEffect);
 }
 
 function normalizeForScope(value: unknown, seen: WeakSet<object>): unknown {

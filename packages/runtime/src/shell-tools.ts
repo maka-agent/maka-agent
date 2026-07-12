@@ -13,10 +13,8 @@ import {
   MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
-  MAX_WRITE_STDIN_OBSERVE_FOR_MS,
   MIN_PTY_COLS,
   MIN_PTY_ROWS,
-  MIN_WRITE_STDIN_OBSERVE_FOR_MS,
   type BackgroundTaskStopper,
   type PtyControlWriter,
   type ShellRunBashInput,
@@ -201,10 +199,6 @@ export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
       cols: z.number().int().min(MIN_PTY_COLS).max(MAX_PTY_COLS),
       rows: z.number().int().min(MIN_PTY_ROWS).max(MAX_PTY_ROWS),
     }).strict().optional(),
-    observe_for_ms: z.number().int()
-      .min(MIN_WRITE_STDIN_OBSERVE_FOR_MS)
-      .max(MAX_WRITE_STDIN_OBSERVE_FOR_MS)
-      .optional(),
   }).strict().refine((value) => value.input !== undefined || value.size !== undefined, {
     message: 'input and/or size is required',
   });
@@ -212,18 +206,16 @@ export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
     name: 'WriteStdin',
     activityKind: 'command',
     description:
-      'Send exact characters to a background PTY and/or resize it first, then return an updated snapshot. '
-      + 'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is audited and must not contain secrets. '
-      + 'observe_for_ms is a bounded output-observation window after the control operation (default 250ms); '
-      + '0 returns at the current parser cut. Completion within the window returns early, but the window is never extended to await completion.',
+      'Send exact characters to a background PTY and/or resize it, then return the terminal state at the next parser cut. '
+      + 'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is ordinary audited tool-call data, not a secure secret channel. '
+      + 'The returned output is the terminal state at that cut, not output attributed to this input; use Read on the ref to observe later output.',
     parameters,
     permissionRequired: true,
-    impl: ({ ref, input, size, observe_for_ms }, ctx) => ptyControls.writeStdin({
+    impl: ({ ref, input, size }, ctx) => ptyControls.writeStdin({
       sessionId: ctx.sessionId,
       ref,
       ...(input !== undefined ? { input } : {}),
       ...(size !== undefined ? { size } : {}),
-      ...(observe_for_ms !== undefined ? { observeForMs: observe_for_ms } : {}),
       abortSignal: ctx.abortSignal,
     }),
   };

@@ -9,7 +9,11 @@ import { failureClassFromCompleteStopReason } from '@maka/core/events';
 import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
-import { mergeShellRunStateWithDiagnostics, readWriteStdinInputPreview } from '@maka/core';
+import {
+  mergeShellRunStateWithDiagnostics,
+  projectToolActivityArgs,
+  readWriteStdinInputPreview,
+} from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
@@ -307,7 +311,7 @@ export function applyMakaSessionEventToTranscript(
         toolUseId: event.toolUseId,
         toolName: event.toolName,
         ...(event.displayName ? { title: event.displayName } : {}),
-        input: event.args,
+        input: projectToolActivityArgs(event.toolName, event.args),
         resultVersion: 0,
         progress: createProgressBuffer(),
         outputDeltas: createOutputBuffer(),

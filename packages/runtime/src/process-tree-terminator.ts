@@ -5,6 +5,7 @@ export type ProcessTerminationSignal = 'SIGTERM' | 'SIGKILL';
 export const DEFAULT_PROCESS_TERMINATION_GRACE_MS = 2000;
 
 const WINDOWS_TASKKILL_TIMEOUT_MS = 2000;
+const POSIX_PS_PATHS = ['/bin/ps', '/usr/bin/ps'] as const;
 
 interface ProcessTreeTerminationOptions {
   pid: number;
@@ -110,32 +111,42 @@ function forceKillEscapedDescendants(rootPid: number, processes: PosixProcess[])
 
 function readPosixProcesses(): Promise<PosixProcess[]> {
   if (posixProcessSnapshot) return posixProcessSnapshot;
-  const snapshot = new Promise<PosixProcess[]>((resolve) => {
-    try {
-      execFile('/bin/ps', ['-axo', 'pid=,ppid=,pgid='], {
-        encoding: 'utf8',
-        maxBuffer: 4 * 1024 * 1024,
-        timeout: 1_000,
-      }, (error, output) => {
-        if (error) {
-          resolve([]);
-          return;
-        }
-        try {
-          resolve(parsePosixProcesses(output));
-        } catch {
-          resolve([]);
-        }
-      });
-    } catch {
-      resolve([]);
-    }
-  });
+  const snapshot = readPosixProcessesUncached();
   posixProcessSnapshot = snapshot;
   void snapshot.finally(() => {
     if (posixProcessSnapshot === snapshot) posixProcessSnapshot = undefined;
   });
   return snapshot;
+}
+
+async function readPosixProcessesUncached(): Promise<PosixProcess[]> {
+  for (const path of POSIX_PS_PATHS) {
+    const output = await readPosixProcessTable(path);
+    if (output === undefined) continue;
+    try {
+      const processes = parsePosixProcesses(output);
+      if (processes.length > 0) return processes;
+    } catch {
+      // Try the next fixed system path before degrading to process groups.
+    }
+  }
+  return [];
+}
+
+function readPosixProcessTable(path: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    try {
+      execFile(path, ['-axo', 'pid=,ppid=,pgid='], {
+        encoding: 'utf8',
+        maxBuffer: 4 * 1024 * 1024,
+        timeout: 1_000,
+      }, (error, output) => {
+        resolve(error ? undefined : output);
+      });
+    } catch {
+      resolve(undefined);
+    }
+  });
 }
 
 function parsePosixProcesses(output: string): PosixProcess[] {

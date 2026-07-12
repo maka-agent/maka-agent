@@ -451,6 +451,26 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });
 
+  test('projects raw live WriteStdin args at the TUI transcript boundary', () => {
+    const state = createMakaPiTranscriptState();
+    const ref = 'maka://runtime/background-tasks/pty-live';
+
+    applyMakaSessionEventToTranscript(state, event({
+      type: 'tool_start',
+      toolUseId: 'write-live',
+      toolName: 'WriteStdin',
+      args: { ref, input: 'echo live\r' },
+    }));
+
+    const entry = state.entries.find(
+      (candidate): candidate is Extract<typeof candidate, { kind: 'tool' }> => candidate.kind === 'tool',
+    );
+    assert.deepEqual(entry?.input, {
+      ref,
+      inputPreview: { text: 'echo live\\r', bytes: 10, truncated: false },
+    });
+  });
+
   test('restores the total elapsed time of a settled background Bash card', () => {
     const state = createMakaPiTranscriptState();
     replaceTranscriptWithStoredMessages(state, [

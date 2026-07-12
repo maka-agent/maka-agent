@@ -273,7 +273,7 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args: projectToolActivityArgs(tool.name, args),
+      args,
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -544,7 +544,7 @@ export class ToolRuntime {
           modelId: this.input.modelId,
           durationMs,
           status: toolResultStatus,
-          argsSummary: summarizeArgs(args),
+          argsSummary: summarizeArgs(tool.name, args),
           bytesIn: byteLength(args),
           bytesOut: byteLength(result),
           startedAt,
@@ -620,7 +620,7 @@ export class ToolRuntime {
           durationMs,
           status: 'error',
           errorClass: classifyError(err),
-          argsSummary: summarizeArgs(args),
+          argsSummary: summarizeArgs(tool.name, args),
           bytesIn: byteLength(args),
           bytesOut: byteLength(terminalFailure.content),
           startedAt,
@@ -646,7 +646,7 @@ export class ToolRuntime {
         durationMs: Math.max(0, this.input.now() - startedAt),
         status: 'error',
         errorClass: classifyError(err),
-        argsSummary: summarizeArgs(args),
+        argsSummary: summarizeArgs(tool.name, args),
         bytesIn: byteLength(args),
         bytesOut: 0,
         startedAt,
@@ -909,9 +909,10 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
   return 'success';
 }
 
-function summarizeArgs(args: unknown): string {
-  const raw = typeof args === 'string' ? args : JSON.stringify(args ?? null);
-  const text = redactSecrets(raw);
+function summarizeArgs(toolName: string, args: unknown): string {
+  const projected = projectToolActivityArgs(toolName, args);
+  const raw = typeof projected === 'string' ? projected : JSON.stringify(projected ?? null);
+  const text = toolName === 'WriteStdin' ? raw : redactSecrets(raw);
   return text.length <= 512 ? text : `${text.slice(0, 511)}…`;
 }
 

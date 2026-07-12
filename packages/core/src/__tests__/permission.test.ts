@@ -603,19 +603,36 @@ describe('preToolUse — turnRemembered', () => {
     );
   });
 
-  test('WriteStdin scope memory follows the PTY ref rather than control contents', () => {
+  test('WriteStdin scope memory follows the exact untruncated side effect', () => {
     const first = permissionScopeKey(
       'WriteStdin',
       { ref: 'maka://runtime/background-tasks/a', input: 'one' },
       'shell_unsafe',
     );
-    const second = permissionScopeKey(
+    const sameEffect = permissionScopeKey(
       'WriteStdin',
-      { ref: 'maka://runtime/background-tasks/a', input: 'two', size: { cols: 100, rows: 30 } },
+      { input: 'one', ref: 'maka://runtime/background-tasks/a' },
       'shell_unsafe',
     );
-    expect(first).toBe(second);
-    expect(first).toBe('shell_unsafe:WriteStdin:maka://runtime/background-tasks/a');
+    const differentInput = permissionScopeKey(
+      'WriteStdin',
+      { ref: 'maka://runtime/background-tasks/a', input: 'two' },
+      'shell_unsafe',
+    );
+    const resized = permissionScopeKey(
+      'WriteStdin',
+      { ref: 'maka://runtime/background-tasks/a', input: 'one', size: { cols: 100, rows: 30 } },
+      'shell_unsafe',
+    );
+    expect(first).toBe(sameEffect);
+    expect(first === differentInput).toBe(false);
+    expect(first === resized).toBe(false);
+
+    const longPrefix = 'x'.repeat(1_100);
+    expect(
+      permissionScopeKey('WriteStdin', { ref: 'r', input: `${longPrefix}a` }, 'shell_unsafe') ===
+      permissionScopeKey('WriteStdin', { ref: 'r', input: `${longPrefix}b` }, 'shell_unsafe'),
+    ).toBe(false);
   });
 });
 

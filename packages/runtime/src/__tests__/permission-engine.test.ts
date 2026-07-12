@@ -292,7 +292,6 @@ describe('PermissionEngine.evaluate — prompt path', () => {
         ref: 'maka://runtime/background-tasks/pty-1',
         input: 'private input\r',
         size: { cols: 100, rows: 30 },
-        observe_for_ms: 500,
       },
       mode: 'ask',
     });
@@ -303,7 +302,6 @@ describe('PermissionEngine.evaluate — prompt path', () => {
       ref: 'maka://runtime/background-tasks/pty-1',
       inputPreview: { text: 'private input\\r', bytes: 14, truncated: false },
       size: { cols: 100, rows: 30 },
-      observe_for_ms: 500,
     });
   });
 

@@ -333,15 +333,13 @@ describe('builtin Bash streaming output', () => {
     if (!write) throw new Error('WriteStdin tool missing');
     const parameters = write.parameters as z.ZodTypeAny;
 
-    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r', observe_for_ms: 0 }).success).toBe(true);
+    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r' }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'ref', size: { cols: 240, rows: 100 } }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'ref' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: '' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: '\uD800' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', size: { cols: 1, rows: 24 } }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: 'x', observe_for_ms: 30_001 }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: 'x', yield_time_ms: 250 }).success).toBe(false);
   });
 
   test('delegates Bash execution to an injected workspace executor', async () => {

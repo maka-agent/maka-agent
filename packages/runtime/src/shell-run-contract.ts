@@ -2,11 +2,8 @@ import { isShellRunId, type ShellRunStore, type ShellRunUpdate, type ToolResultC
 
 import type { ShellPlan } from './shell-detect.js';
 
-export const DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS = 250;
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
 export const MAX_FOREGROUND_BASH_TIMEOUT_MS = 10 * 60 * 1_000;
-export const MIN_WRITE_STDIN_OBSERVE_FOR_MS = 0;
-export const MAX_WRITE_STDIN_OBSERVE_FOR_MS = 30_000;
 export const MAX_WRITE_STDIN_INPUT_BYTES = 64 * 1024;
 export const MIN_PTY_COLS = 2;
 export const MAX_PTY_COLS = 240;
@@ -58,7 +55,6 @@ export interface ShellRunWriteInput {
   ref: string;
   input?: string;
   size?: { cols: number; rows: number };
-  observeForMs?: number;
   abortSignal?: AbortSignal;
 }
 
@@ -85,18 +81,6 @@ export interface PtyControlWriter {
 export function validateWriteStdinInput(input: ShellRunWriteInput): void {
   if (input.input === undefined && input.size === undefined) {
     throw new Error('WriteStdin requires input and/or size');
-  }
-  if (
-    input.observeForMs !== undefined
-    && (
-      !Number.isInteger(input.observeForMs)
-      || input.observeForMs < MIN_WRITE_STDIN_OBSERVE_FOR_MS
-      || input.observeForMs > MAX_WRITE_STDIN_OBSERVE_FOR_MS
-    )
-  ) {
-    throw new Error(
-      `WriteStdin observeForMs must be between ${MIN_WRITE_STDIN_OBSERVE_FOR_MS} and ${MAX_WRITE_STDIN_OBSERVE_FOR_MS}ms`,
-    );
   }
   if (input.input !== undefined) {
     if (input.input.length === 0) throw new Error('WriteStdin input must not be empty');

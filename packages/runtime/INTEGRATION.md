@@ -29,3 +29,18 @@ handlers. The runtime package provides:
   capability slots to add background Bash, runtime-resource Read,
   `StopBackgroundTask`, and `WriteStdin` to Desktop or TUI hosts. Headless and
   subagent hosts omit those capabilities.
+
+PTY Bash uses `node-pty` with an in-process headless terminal parser. This keeps
+process, parser, persistence, and cleanup ownership inside the existing
+`ShellRunProcessManager`, and supports native Windows ConPTY without requiring
+an external session server such as tmux. The parser is required for truthful
+screen state after clear, redraw, cursor movement, and alternate-screen
+transitions; resize alone is not the reason for this architecture. POSIX PTY
+commands explicitly use `/bin/sh -c`, matching the current `shell: true` pipe
+dialect.
+
+Terminal output redaction is deliberately conservative because sensitive text
+can cross wrapped rows and parser boundaries; a match may replace more context
+than the exact secret span. Process-tree cleanup is also bounded by the host OS:
+processes that remain uninterruptible even after `SIGKILL` are reported as an
+integrity failure rather than held forever or reported as successfully cleaned.
