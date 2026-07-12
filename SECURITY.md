@@ -55,9 +55,8 @@ and they are NOT equally load-bearing.
   its exact allow, prompt, and block decisions come from
   `PERMISSION_POLICY`.
 - **Input surface.** Any channel through which content enters the
-  agent's context: chat input, file reads, web fetches (Tavily),
-  bot platform messages (Telegram / Feishu), MCP server responses
-  (not yet shipped), tool results.
+  agent's context: chat input, file reads, web fetches, enabled bot-platform
+  messages, tool results, and future external integrations.
 - **Trust envelope.** The set of resources Maka inherits from the
   user's OS account: filesystem, network, OS permissions
   (Keychain / Microphone / Screen recording).
@@ -100,7 +99,7 @@ execution). When that lands it will be documented here.
    boundary between renderer-controlled input and main-process
    action. Renderer code is treated as semi-trusted: it can read
    masked / sanitized data, but cleartext secrets never cross the
-   boundary in the renderer-to-main direction either (see §4).
+   boundary in the main-to-renderer direction (see §4).
 4. **Settings sensitive masking.** Tokens, API keys, and proxy
    passwords are masked at the IPC store boundary
    (`maskAppSettings` in `apps/desktop/src/main/settings-ipc-helpers.ts`).
