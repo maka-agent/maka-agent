@@ -242,7 +242,11 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.mode !== 'pty') throw new Error('WriteStdin requires a PTY background task ref');
     if (live.driverExit) {
       const record = await this.markObserved(await live.finished.join());
-      return shellRunContent(record, ptyControlOperation(input, false, false));
+      return shellRunContent(record, ptyControlOperation(input, {
+        inputApplied: false,
+        resizeApplied: false,
+        resizeChanged: false,
+      }));
     }
     if (!isPtyControlOpen(live)) {
       throw new Error('This PTY is stopping and no longer accepts input; use Read to observe its final state');
@@ -251,6 +255,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
 
     let inputApplied = false;
     let resizeApplied = false;
+    let resizeChanged = false;
     let operationFailed = false;
     try {
       await live.collector.mutateAtCut(() => {
@@ -259,14 +264,20 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
         }
         if (live.driverExit || live.termination) return;
         if (input.size) {
-          live.driver.resize(input.size.cols, input.size.rows);
-          resizeApplied = true;
-          try {
-            live.collector.resize(input.size.cols, input.size.rows);
-          } catch (error) {
-            operationFailed = true;
-            this.handleIntegrityFailure(live, asError(error, 'PTY screen resize failed'));
-            return;
+          const currentSize = live.collector.currentSize();
+          if (currentSize.cols === input.size.cols && currentSize.rows === input.size.rows) {
+            resizeApplied = true;
+          } else {
+            live.driver.resize(input.size.cols, input.size.rows);
+            resizeApplied = true;
+            resizeChanged = true;
+            try {
+              live.collector.resize(input.size.cols, input.size.rows);
+            } catch (error) {
+              operationFailed = true;
+              this.handleIntegrityFailure(live, asError(error, 'PTY screen resize failed'));
+              return;
+            }
           }
         }
         if (input.input !== undefined) {
@@ -285,7 +296,12 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       this.handleIntegrityFailure(live, asError(error, 'PTY control failed'));
     }
 
-    const operation = ptyControlOperation(input, inputApplied, resizeApplied, operationFailed);
+    const operation = ptyControlOperation(input, {
+      inputApplied,
+      resizeApplied,
+      resizeChanged,
+      failed: operationFailed,
+    });
     if (operationFailed) {
       const record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, operation);
@@ -302,13 +318,23 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     } catch (error) {
       if (live.integrityFailure && !live.persistFailure) {
         record = await this.markObserved(await live.finished.join());
-        return shellRunContent(record, ptyControlOperation(input, inputApplied, resizeApplied, true));
+        return shellRunContent(record, ptyControlOperation(input, {
+          inputApplied,
+          resizeApplied,
+          resizeChanged,
+          failed: true,
+        }));
       }
       throw error;
     }
     if (live.integrityFailure && !live.persistFailure) {
       record = await this.markObserved(await live.finished.join());
-      return shellRunContent(record, ptyControlOperation(input, inputApplied, resizeApplied, true));
+      return shellRunContent(record, ptyControlOperation(input, {
+        inputApplied,
+        resizeApplied,
+        resizeChanged,
+        failed: true,
+      }));
     }
     if (isTerminalShellRunStatus(record.status)) record = await this.markObserved(record);
     return shellRunContent(record, operation);
@@ -1168,7 +1194,11 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       throw abortError('WriteStdin aborted before the terminal state was observed');
     }
     record = await this.markObserved(record);
-    return shellRunContent(record, ptyControlOperation(input, false, false));
+    return shellRunContent(record, ptyControlOperation(input, {
+      inputApplied: false,
+      resizeApplied: false,
+      resizeChanged: false,
+    }));
   }
 
   private async stopWithoutLive(

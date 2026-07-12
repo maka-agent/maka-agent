@@ -6,6 +6,7 @@
  * headline + body text. Primary fields win the main body, but remaining fields
  * are always appended so diagnostics (error/ok/truncated) cannot disappear.
  */
+import { readWriteStdinInputPreview } from '@maka/core';
 import { redactSecrets } from '../redact.js';
 import type { ToolActivityItem } from '../materialize.js';
 import { extractToolCommand } from './tool-command.js';
@@ -151,9 +152,8 @@ export function formatToolInvocationLine(
 
   if (name === 'WriteStdin') {
     const parts: string[] = ['后台终端交互'];
-    const inputBytes = numberField(args, 'inputBytes')
-      ?? (typeof args.input === 'string' ? new TextEncoder().encode(args.input).byteLength : undefined);
-    if (inputBytes !== undefined) parts.push(`${inputBytes} 字节`);
+    const input = readWriteStdinInputPreview(args);
+    if (input) parts.push(input.truncated ? `${input.text}… · 共 ${input.bytes} 字节` : input.text);
     const size = asRecord(args.size);
     const cols = size ? numberField(size, 'cols') : undefined;
     const rows = size ? numberField(size, 'rows') : undefined;

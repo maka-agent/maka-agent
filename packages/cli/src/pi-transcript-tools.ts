@@ -3,6 +3,7 @@ import {
   ptyCompactTerminalLine,
   ptyTuiTerminalRows,
   ptyTuiTerminalView,
+  readWriteStdinInputPreview,
   type PtyShellOutput,
   type ShellRunOperation,
 } from '@maka/core';
@@ -109,7 +110,7 @@ function compactToolSummary(entry: MakaPiToolEntry, width: number): CompactToolS
   if (result?.kind === 'shell_run') {
     if (entry.toolName === 'WriteStdin') {
       return {
-        text: formatPtyControlOperation(result.operation),
+        text: formatPtyControlOperation(result.operation, entry.input),
         expandable: result.operation?.kind === 'pty_control' && result.operation.failed,
       };
     }
@@ -441,7 +442,7 @@ function renderToolResult(entry: MakaPiToolEntry, width: number): string[] {
   // cap only the stdout/stderr stream bodies.
   if (result?.kind === 'shell_run') {
     if (entry.toolName === 'WriteStdin') {
-      return renderIndented(formatPtyControlOperation(result.operation), width, 2);
+      return renderIndented(formatPtyControlOperation(result.operation, entry.input), width, 2);
     }
     return renderShellRunResult(entry, result, width);
   }
@@ -594,15 +595,25 @@ function byteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
 }
 
-function formatPtyControlOperation(operation: ShellRunOperation | undefined): string {
+function formatPtyControlOperation(operation: ShellRunOperation | undefined, args: unknown): string {
   if (operation?.kind !== 'pty_control') return 'Background terminal interaction failed';
   const parts: string[] = [];
   if (operation.input) {
-    parts.push(`${operation.input.applied ? 'Sent' : 'Did not send'} ${operation.input.bytes} bytes`);
+    const preview = readWriteStdinInputPreview(args);
+    const action = operation.input.applied ? 'Sent' : 'Did not send';
+    if (preview) {
+      parts.push(preview.truncated
+        ? `${action}: ${preview.text}… · ${operation.input.bytes} bytes total`
+        : `${action}: ${preview.text}`);
+    } else {
+      parts.push(`${action} ${operation.input.bytes} bytes`);
+    }
   }
   if (operation.resize) {
     const size = `${operation.resize.cols}x${operation.resize.rows}`;
-    parts.push(operation.resize.applied ? `Resized to ${size}` : `Did not resize to ${size}`);
+    if (!operation.resize.applied) parts.push(`Did not resize to ${size}`);
+    else if (operation.resize.changed) parts.push(`Resized to ${size}`);
+    else if (!operation.input) parts.push(`Size already ${size}`);
   }
   if (operation.failed) parts.push('Background terminal interaction failed');
   return parts.join(' · ') || 'Background terminal interaction completed';
@@ -631,7 +642,8 @@ function toolInputSummary(entry: MakaPiToolEntry): string {
     }
     case 'WriteStdin': {
       const parts: string[] = [];
-      if (typeof obj?.inputBytes === 'number') parts.push(`${obj.inputBytes} bytes`);
+      const input = readWriteStdinInputPreview(obj);
+      if (input) parts.push(input.truncated ? `${input.text}… · ${input.bytes} bytes` : input.text);
       if (obj?.size && typeof obj.size === 'object') {
         const size = obj.size as { cols?: unknown; rows?: unknown };
         if (typeof size.cols === 'number' && typeof size.rows === 'number') {

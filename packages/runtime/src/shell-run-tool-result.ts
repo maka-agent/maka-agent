@@ -64,18 +64,28 @@ export function compactShellRunContent(record: ShellRunRecord): ShellRunToolResu
 
 export function ptyControlOperation(
   input: ShellRunWriteInput,
-  inputApplied: boolean,
-  resizeApplied: boolean,
-  failed = false,
+  outcome: {
+    inputApplied: boolean;
+    resizeApplied: boolean;
+    resizeChanged: boolean;
+    failed?: boolean;
+  },
 ): Extract<ShellRunOperation, { kind: 'pty_control' }> {
   return {
     kind: 'pty_control',
-    failed,
+    failed: outcome.failed === true,
     ...(input.input !== undefined
-      ? { input: { bytes: Buffer.byteLength(input.input, 'utf8'), applied: inputApplied } }
+      ? { input: { bytes: Buffer.byteLength(input.input, 'utf8'), applied: outcome.inputApplied } }
       : {}),
     ...(input.size
-      ? { resize: { cols: input.size.cols, rows: input.size.rows, applied: resizeApplied } }
+      ? {
+          resize: {
+            cols: input.size.cols,
+            rows: input.size.rows,
+            applied: outcome.resizeApplied,
+            changed: outcome.resizeChanged,
+          },
+        }
       : {}),
   };
 }

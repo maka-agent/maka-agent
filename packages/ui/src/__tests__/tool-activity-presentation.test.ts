@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { StoredMessage } from '@maka/core';
+import type { StoredMessage, ToolResultContent } from '@maka/core';
 import { ToolActivity, ToolTrow } from '../tool-activity.js';
+import { ToolResultPreview } from '../tool-activity/tool-result-preview.js';
 import {
   createToolDisclosureState,
   deriveToolActivityPresentation,
@@ -524,7 +525,7 @@ describe('tool activity presentation', () => {
         status: 'errored',
         args: {
           ref: 'maka://runtime/background-tasks/pty-1',
-          inputBytes: 7,
+          inputPreview: { text: 'echo x\\n', bytes: 7, truncated: false },
           size: { cols: 100, rows: 30 },
         },
         result: {
@@ -554,17 +555,61 @@ describe('tool activity presentation', () => {
             kind: 'pty_control',
             failed: true,
             input: { bytes: 7, applied: false },
-            resize: { cols: 100, rows: 30, applied: true },
+            resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         },
       } satisfies ToolActivityItem],
     }));
 
-    assert.match(markup, /未发送 7 字节/);
+    assert.match(markup, /未发送：echo x\\n/);
     assert.match(markup, /已调整为 100x30/);
     assert.match(markup, /后台终端交互失败/);
     assert.doesNotMatch(markup, /PRIVATE-CWD|PRIVATE-COMMAND|PRIVATE-FAILURE|PRIVATE-TERMINAL-FRAME/);
     assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
+  });
+
+  it('renders useful WriteStdin input while suppressing a repeated no-op size', () => {
+    const args = {
+      ref: 'maka://runtime/background-tasks/pty-1',
+      inputPreview: { text: 'echo hello\\n', bytes: 11, truncated: false },
+      size: { cols: 80, rows: 24 },
+    };
+    const content = {
+      kind: 'shell_run',
+      ref: 'maka://runtime/background-tasks/pty-1',
+      mode: 'pty',
+      status: 'running',
+      cwd: '/workspace',
+      cmd: 'bash',
+      startedAt: 1,
+      updatedAt: 2,
+      revision: 2,
+      output: {
+        mode: 'pty',
+        screen: '$ ',
+        scrollback: '',
+        cols: 80,
+        rows: 24,
+        cursor: { x: 2, y: 0, visible: true },
+        alternateScreen: false,
+        truncated: false,
+        redacted: false,
+      },
+      operation: {
+        kind: 'pty_control',
+        failed: false,
+        input: { bytes: 11, applied: true },
+        resize: { cols: 80, rows: 24, applied: true, changed: false },
+      },
+    } satisfies ToolResultContent;
+    const markup = renderToStaticMarkup(createElement(ToolResultPreview, {
+      content,
+      toolName: 'WriteStdin',
+      args,
+    }));
+
+    assert.match(markup, /已发送：echo hello\\n/);
+    assert.doesNotMatch(markup, /11 字节|80x24|已调整/);
   });
 
   it('keeps pre-handoff live output when shell_run lands with empty streams', () => {

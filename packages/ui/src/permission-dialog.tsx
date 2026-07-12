@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PermissionRequestEvent, PermissionResponse } from '@maka/core';
-import { derivePermissionRequestHealth, formatPermissionRequestWait } from '@maka/core';
+import { derivePermissionRequestHealth, formatPermissionRequestWait, readWriteStdinInputPreview } from '@maka/core';
 import { AlertOctagon, AlertTriangle, FileEdit, GitMerge, Globe, HelpCircle, ShieldAlert, Terminal, Wifi } from './icons.js';
 import { Alert, AlertDescription } from './primitives/alert.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
@@ -255,6 +255,33 @@ function renderPermissionSummary(request: PermissionRequestEvent): ReactNode | u
           <pre className="maka-code maka-permission-command">{redactSecrets(command)}</pre>
           {timeout !== undefined && (
             <p className="maka-permission-meta">超时 <strong>{timeout} ms</strong></p>
+          )}
+        </>
+      );
+    }
+    case 'WriteStdin': {
+      const input = readWriteStdinInputPreview(args);
+      const size = args.size && typeof args.size === 'object' && !Array.isArray(args.size)
+        ? args.size as Record<string, unknown>
+        : undefined;
+      const cols = typeof size?.cols === 'number' ? size.cols : undefined;
+      const rows = typeof size?.rows === 'number' ? size.rows : undefined;
+      if (!input && (cols === undefined || rows === undefined)) return undefined;
+      return (
+        <>
+          <p className="maka-permission-line">即将与后台终端交互：</p>
+          {input && (
+            <>
+              <pre className="maka-code maka-permission-preview">
+                {input.text}{input.truncated ? '…' : ''}
+              </pre>
+              {input.truncated && (
+                <p className="maka-permission-meta">完整输入共 <strong>{input.bytes}</strong> 字节</p>
+              )}
+            </>
+          )}
+          {cols !== undefined && rows !== undefined && (
+            <p className="maka-permission-meta">目标尺寸 <strong>{cols}x{rows}</strong></p>
           )}
         </>
       );

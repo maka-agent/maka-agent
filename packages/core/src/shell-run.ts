@@ -67,6 +67,7 @@ export type ShellRunOperation =
         cols: number;
         rows: number;
         applied: boolean;
+        changed: boolean;
       };
     };
 

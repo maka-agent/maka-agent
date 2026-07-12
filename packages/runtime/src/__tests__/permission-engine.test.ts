@@ -280,7 +280,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     expect(r.event.requestId).toMatch(/^id-/);
   });
 
-  test('projects WriteStdin permission args without exposing its audited input', () => {
+  test('projects WriteStdin permission args to a bounded human-readable preview', () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');
     const r = engine.evaluate({
@@ -301,7 +301,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     if (r.kind !== 'prompt') return;
     assert.deepEqual(r.event.args, {
       ref: 'maka://runtime/background-tasks/pty-1',
-      inputBytes: 14,
+      inputPreview: { text: 'private input\\r', bytes: 14, truncated: false },
       size: { cols: 100, rows: 30 },
       observe_for_ms: 500,
     });

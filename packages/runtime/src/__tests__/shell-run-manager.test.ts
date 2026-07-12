@@ -832,6 +832,19 @@ describe('ShellRunProcessManager', () => {
     assert.equal(initial.kind, 'shell_run');
     await waitForPtyText(manager, initial.ref, /ready/i);
 
+    const unchanged = await manager.writeStdin({
+      sessionId: 'session-1',
+      ref: initial.ref,
+      size: { cols: 80, rows: 24 },
+      observeForMs: 0,
+      abortSignal: NO_ABORT,
+    });
+    assert.deepEqual(unchanged.operation, {
+      kind: 'pty_control',
+      failed: false,
+      resize: { cols: 80, rows: 24, applied: true, changed: false },
+    });
+
     const result = await manager.writeStdin({
       sessionId: 'session-1',
       ref: initial.ref,
@@ -849,7 +862,7 @@ describe('ShellRunProcessManager', () => {
       kind: 'pty_control',
       failed: false,
       input: { bytes: 1, applied: true },
-      resize: { cols: 100, rows: 30, applied: true },
+      resize: { cols: 100, rows: 30, applied: true, changed: true },
     });
   });
 

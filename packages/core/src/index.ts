@@ -174,7 +174,13 @@ export {
   ptyTuiTerminalRows,
 } from './pty-output-view.js';
 export type { PtyTuiTerminalView } from './pty-output-view.js';
-export { projectToolActivityArgs } from './tool-activity-args.js';
+export {
+  projectToolActivityArgs,
+  projectWriteStdinInput,
+  readWriteStdinInputPreview,
+  WRITE_STDIN_INPUT_PREVIEW_MAX_CHARS,
+  type WriteStdinInputPreview,
+} from './tool-activity-args.js';
 export {
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,

@@ -361,10 +361,10 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(expanded, /pty-row-[45]/);
   });
 
-  test('replays WriteStdin as a safe operation row while merging its PTY revision into Bash', () => {
+  test('replays WriteStdin as a human-readable operation row while merging its PTY revision into Bash', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/pty-1';
-    const rawInput = 'PRIVATE-INPUT\r';
+    const rawInput = 'echo hello\r';
     const updatedOutput = ptyOutput({ screen: 'READY\nUNIQUE-PTY-FRAME' });
     replaceTranscriptWithStoredMessages(state, [
       {
@@ -393,7 +393,7 @@ describe('Maka Pi TUI transcript', () => {
             kind: 'pty_control',
             failed: false,
             input: { bytes: Buffer.byteLength(rawInput, 'utf8'), applied: true },
-            resize: { cols: 100, rows: 30, applied: true },
+            resize: { cols: 100, rows: 30, applied: true, changed: true },
           },
         }),
       },
@@ -405,14 +405,13 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(tools[0]?.result?.kind === 'shell_run' ? tools[0].result.operation : undefined, undefined);
     assert.deepEqual(tools[1]?.kind === 'tool' ? tools[1].input : undefined, {
       ref,
-      inputBytes: Buffer.byteLength(rawInput, 'utf8'),
+      inputPreview: { text: 'echo hello\\r', bytes: Buffer.byteLength(rawInput, 'utf8'), truncated: false },
       size: { cols: 100, rows: 30 },
     });
 
     assert.equal(toggleAllToolExpansion(state), true);
     const rendered = renderMakaPiTranscript(state, meta(), 100).map(stripAnsi).join('\n');
-    assert.doesNotMatch(rendered, /PRIVATE-INPUT/);
-    assert.match(rendered, /Sent 14 bytes/);
+    assert.match(rendered, /Sent: echo hello\\r/);
     assert.match(rendered, /Resized to 100x30/);
     assert.equal(rendered.split('UNIQUE-PTY-FRAME').length - 1, 1);
   });

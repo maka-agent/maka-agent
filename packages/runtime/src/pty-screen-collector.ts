@@ -144,6 +144,11 @@ export class PtyScreenCollector {
     }
   }
 
+  currentSize(): { cols: number; rows: number } {
+    this.throwIfUnavailable();
+    return { cols: this.terminal.cols, rows: this.terminal.rows };
+  }
+
   closeDataAdmission(): void {
     this.dataOpen = false;
   }

@@ -3,6 +3,7 @@ import {
   isShellOutput,
   normalizeSearchUrl,
   ptyHumanTerminalText,
+  readWriteStdinInputPreview,
   type ShellOutput,
   type ToolResultContent,
 } from '@maka/core';
@@ -31,7 +32,7 @@ export const TOOL_OUTPUT_NOTE_CLASS =
   'm-0 text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
-export function ToolResultPreview(props: { content: ToolResultContent; toolName?: string }) {
+export function ToolResultPreview(props: { content: ToolResultContent; toolName?: string; args?: unknown }) {
   const { content } = props;
 
   if (content.kind === 'file_diff') {
@@ -70,7 +71,7 @@ export function ToolResultPreview(props: { content: ToolResultContent; toolName?
   }
 
   if (content.kind === 'shell_run') {
-    if (props.toolName === 'WriteStdin') return <PtyControlPreview result={content} />;
+    if (props.toolName === 'WriteStdin') return <PtyControlPreview result={content} args={props.args} />;
     return <ShellRunPreview result={content} />;
   }
 
@@ -124,6 +125,7 @@ export function ToolResultPreview(props: { content: ToolResultContent; toolName?
 
 function PtyControlPreview(props: {
   result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+  args?: unknown;
 }) {
   const operation = props.result.operation;
   if (operation?.kind !== 'pty_control') {
@@ -131,17 +133,29 @@ function PtyControlPreview(props: {
   }
   const parts: string[] = [];
   if (operation.input) {
-    parts.push(operation.input.applied
-      ? `已发送 ${operation.input.bytes} 字节`
-      : `未发送 ${operation.input.bytes} 字节`);
+    const preview = readWriteStdinInputPreview(props.args);
+    const action = operation.input.applied ? '已发送' : '未发送';
+    if (preview) {
+      parts.push(preview.truncated
+        ? `${action}：${preview.text}… · 共 ${operation.input.bytes} 字节`
+        : `${action}：${preview.text}`);
+    } else {
+      parts.push(`${action} ${operation.input.bytes} 字节`);
+    }
   }
   if (operation.resize) {
     const size = `${operation.resize.cols}x${operation.resize.rows}`;
-    parts.push(operation.resize.applied ? `已调整为 ${size}` : `未调整为 ${size}`);
+    if (!operation.resize.applied) parts.push(`未调整为 ${size}`);
+    else if (operation.resize.changed) parts.push(`已调整为 ${size}`);
+    else if (!operation.input) parts.push(`尺寸已是 ${size}`);
   }
   if (operation.failed) parts.push('后台终端交互失败');
   return (
-    <p className={cn(TOOL_OUTPUT_NOTE_CLASS, operation.failed && 'text-[color:var(--destructive)]')}>
+    <p className={cn(
+      TOOL_OUTPUT_NOTE_CLASS,
+      'min-w-0 [overflow-wrap:anywhere]',
+      operation.failed && 'text-[color:var(--destructive)]',
+    )}>
       {parts.join(' · ') || '后台终端交互已完成'}
     </p>
   );

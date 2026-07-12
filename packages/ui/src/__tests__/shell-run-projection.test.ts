@@ -26,7 +26,7 @@ describe('ShellRun UI projection', () => {
           kind: 'pty_control',
           failed: false,
           input: { bytes: 14, applied: true },
-          resize: { cols: 100, rows: 30, applied: true },
+          resize: { cols: 100, rows: 30, applied: true, changed: true },
         },
       }), 4),
     ];
@@ -42,7 +42,7 @@ describe('ShellRun UI projection', () => {
     assert.equal(write?.toolName, 'WriteStdin');
     assert.deepEqual(write?.args, {
       ref: REF,
-      inputBytes: 14,
+      inputPreview: { text: 'private-value\\n', bytes: 14, truncated: false },
       size: { cols: 100, rows: 30 },
     });
     assert.deepEqual(
@@ -51,7 +51,7 @@ describe('ShellRun UI projection', () => {
         kind: 'pty_control',
         failed: false,
         input: { bytes: 14, applied: true },
-        resize: { cols: 100, rows: 30, applied: true },
+        resize: { cols: 100, rows: 30, applied: true, changed: true },
       },
     );
   });

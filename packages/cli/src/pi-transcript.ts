@@ -8,7 +8,7 @@ import type {
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
-import { mergeShellRunStateWithDiagnostics } from '@maka/core';
+import { mergeShellRunStateWithDiagnostics, readWriteStdinInputPreview } from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
@@ -938,6 +938,10 @@ function permissionRequestSummary(request: PermissionRequestEvent): string {
   if (request.toolName === 'Bash' && args !== null && typeof args === 'object') {
     const command = (args as { command?: unknown }).command;
     if (typeof command === 'string' && command.trim()) return `$ ${command}`;
+  }
+  if (request.toolName === 'WriteStdin') {
+    const input = readWriteStdinInputPreview(args);
+    if (input) return input.truncated ? `${input.text}… · ${input.bytes} bytes total` : input.text;
   }
   if ((request.toolName === 'Write' || request.toolName === 'Edit') && args !== null && typeof args === 'object') {
     const path = (args as { path?: unknown }).path;
