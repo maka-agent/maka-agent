@@ -71,26 +71,20 @@ export type PrepareStepFunctionLike = (
   options: PrepareStepLike,
 ) => PrepareStepResultLike | undefined | PromiseLike<PrepareStepResultLike | undefined>;
 
-export interface NoToolsTextRequest {
+export interface CompactSummaryRequest {
   model: unknown;
   system: string;
   messages: readonly ModelMessage[];
-  maxOutputTokens?: number;
+  maxOutputTokens: number;
   abortSignal?: AbortSignal;
 }
 
-export interface NoToolsTextResult {
+export interface CompactSummaryResult {
   text: string;
   usage?: NormalizedAiSdkUsage;
   finishReason?: string;
   providerRequestId?: string;
 }
-
-export interface CompactSummaryRequest extends NoToolsTextRequest {
-  maxOutputTokens: number;
-}
-
-export type CompactSummaryResult = NoToolsTextResult;
 
 export interface ModelAdapterStreamInput {
   model: unknown;
@@ -178,10 +172,6 @@ export class ModelAdapter {
   }
 
   async generateCompactSummary(input: CompactSummaryRequest): Promise<CompactSummaryResult> {
-    return this.generateTextWithoutTools(input);
-  }
-
-  async generateTextWithoutTools(input: NoToolsTextRequest): Promise<NoToolsTextResult> {
     const ai = await import('ai').catch((err) => {
       throw new Error(`Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
     });
@@ -200,7 +190,7 @@ export class ModelAdapter {
       model: input.model,
       system: input.system,
       messages: input.messages,
-      ...(input.maxOutputTokens !== undefined ? { maxOutputTokens: input.maxOutputTokens } : {}),
+      maxOutputTokens: input.maxOutputTokens,
       abortSignal: input.abortSignal,
     });
     const usage = normalizeAiSdkUsage(result.totalUsage ?? result.usage, {
@@ -360,7 +350,6 @@ export interface StreamTextResult {
   usage: Promise<AiSdkUsageLike | undefined>;
   totalUsage?: Promise<AiSdkUsageLike | undefined>;
   finishReason: Promise<unknown>;
-  response?: PromiseLike<{ messages: ModelMessage[] }>;
 }
 
 type TokenCountBreakdown = {

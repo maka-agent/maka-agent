@@ -398,7 +398,8 @@ function completeRuntimeEvent(
     : mapCompleteStopReason(stopReason);
   const stateDelta: Record<string, unknown> = { stopReason };
   if (status === 'failed') {
-    stateDelta.failureClass = memory.failureClass ?? (stopReason === 'step_limit' ? 'step_limit' : 'runtime_error');
+    stateDelta.failureClass = memory.failureClass
+      ?? (stopReason === 'step_limit' ? 'tool_step_cap_reached' : 'runtime_error');
   }
   if (status === 'aborted') stateDelta.abortSource = stopReason;
   return {

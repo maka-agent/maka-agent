@@ -1041,7 +1041,7 @@ function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status'
     case 'complete':
       if (event.stopReason === 'user_stop') return { status: 'aborted' };
       if (event.stopReason === 'error') return { status: 'failed', errorClass: 'runtime_error' };
-      if (event.stopReason === 'step_limit') return { status: 'failed', errorClass: 'step_limit' };
+      if (event.stopReason === 'step_limit') return { status: 'failed', errorClass: 'tool_step_cap_reached' };
       if (event.stopReason === 'permission_handoff') return { status: 'running' };
       return { status: 'completed' };
     default:

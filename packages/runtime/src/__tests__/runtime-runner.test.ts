@@ -493,7 +493,7 @@ describe('RuntimeRunner', () => {
       ...flowTerminalEvent(ctx, 'failed'),
       actions: {
         endInvocation: true,
-        stateDelta: { stopReason: 'step_limit', failureClass: 'step_limit' },
+        stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
       },
     }]);
     const runner = new RuntimeRunner({ flow, providers });
@@ -501,7 +501,7 @@ describe('RuntimeRunner', () => {
     const result = await runner.run(makeRequest());
 
     expect(result.status).toBe('failed');
-    expect(result.failure?.class).toBe('step_limit');
+    expect(result.failure?.class).toBe('tool_step_cap_reached');
     expect(result.failure?.terminalStatus).toBe('failed');
   });
 

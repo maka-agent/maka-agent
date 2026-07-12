@@ -608,6 +608,19 @@ describe('mapSessionEventToRuntimeEvent (pure)', () => {
     assert.equal(mapCompleteStopReason('step_limit'), 'failed');
   });
 
+  test('step_limit uses the established tool-step-cap failure class', () => {
+    const mapped = mapSessionEventToRuntimeEvent(
+      ev({ type: 'complete', stopReason: 'step_limit' }),
+      ctx,
+      createSessionEventMapMemory(),
+    );
+
+    assert.deepEqual(mapped.actions?.stateDelta, {
+      stopReason: 'step_limit',
+      failureClass: 'tool_step_cap_reached',
+    });
+  });
+
   test('tool_output_delta and tool_progress map to partial tool-role heartbeats', () => {
     const mem = createSessionEventMapMemory();
     const a = mapSessionEventToRuntimeEvent(

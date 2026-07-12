@@ -333,11 +333,15 @@ export interface SystemNoteMessage {
     | 'model_change'
     | 'context_compacted'
     | 'context_compaction_failed_open'
+    | 'step_limit'
     | 'error'
     | 'abort';
   /** Shape depends on `kind`. */
   data?: unknown;
 }
+
+export const STEP_LIMIT_NOTICE_TEXT =
+  'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.';
 
 export function deriveTurnRecords(messages: readonly StoredMessage[]): TurnRecord[] {
   const order: string[] = [];

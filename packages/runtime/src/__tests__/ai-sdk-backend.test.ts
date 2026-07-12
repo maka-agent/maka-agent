@@ -3549,9 +3549,8 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.equal(loop.callCount(), 3);
   });
 
-  test('finalizes an explicit step limit without tools even after earlier assistant text', async () => {
+  test('reports an explicit step limit without making an auxiliary model call', async () => {
     const appended: StoredMessage[] = [];
-    const llmRecords: LlmCallRecord[] = [];
     let streamCalls = 0;
     const model = new MockLanguageModelV3({
       doGenerate: {
@@ -3601,7 +3600,6 @@ describe('AiSdkBackend usage telemetry', () => {
       modelFactory: () => model,
       tools: [testTool('Read', z.object({ path: z.string() }))],
       maxSteps: 2,
-      recordLlmCall: (record) => { llmRecords.push(record); },
       newId: idGenerator(),
       now: monotonicClock(),
     });
@@ -3612,12 +3610,10 @@ describe('AiSdkBackend usage telemetry', () => {
     }
 
     assert.equal(streamCalls, 2);
-    assert.equal(model.doGenerateCalls.length, 1);
-    assert.equal(model.doGenerateCalls[0]?.tools, undefined);
-    assert.equal(llmRecords.filter((record) => record.callKind === 'step_limit_finalization').length, 1);
+    assert.equal(model.doGenerateCalls.length, 0);
     assert.equal(
       appended.filter((message): message is AssistantMessage => message.type === 'assistant').at(-1)?.text,
-      'Completed the edits; verification is still pending. Send continue to resume.',
+      'Still working.',
     );
     assert.equal(events.at(-1)?.type, 'complete');
     assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
@@ -6842,13 +6838,7 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.match(prompt, /sig-omitted/);
   });
 
-  test('grace notice never reuses a taken step id when the stream ends without a trailing finish-step', async () => {
-    // ChatGPT P2: on the catch-all path (no trailing finish-step) the last
-    // step's id is already taken — by the thinking-only AssistantMessage the
-    // catch-all flush just wrote, and by the tool step's tool_start.stepId. The
-    // grace notice must mint its own id or the ledger gets a duplicate message
-    // id / replay adopts the grace text as the tool step's closer.
-    //
+  test('does not synthesize assistant text when a capped stream ends without a trailing finish-step', async () => {
     // streamText always synthesizes trailing step boundaries, so drive the
     // backend through a patched startStream: step 1 runs a real tool via the
     // wrapped execute (genuine tool_start.stepId), step 2 is thinking-only and
@@ -6895,20 +6885,12 @@ describe('AiSdkBackend thinking persistence', () => {
     }
 
     const assistants = appended.filter((m): m is AssistantMessage => m.type === 'assistant');
-    // Catch-all flush persisted the thinking-only step; grace added its own row.
-    assert.equal(assistants.length, 2);
+    // Catch-all flush persists the thinking-only step, but the harness owns the
+    // visible step-limit notice instead of fabricating another assistant row.
+    assert.equal(assistants.length, 1);
     const thinkingOnly = assistants.find((m) => m.thinking?.signature === 'sig-last');
-    const grace = assistants.find((m) => m.text.includes('步工具调用上限'));
     assert.ok(thinkingOnly, 'thinking-only last step must persist');
-    assert.ok(grace, 'grace notice must persist');
-    // The grace id collides with nothing: not the last step's assistant row...
-    assert.notEqual(grace.id, thinkingOnly.id);
-    // ...and not any tool step's stepId.
-    const toolStepIds = events
-      .filter((event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start')
-      .map((event) => event.stepId);
-    assert.equal(toolStepIds.length, 1);
-    assert.equal(toolStepIds.includes(grace.id), false);
+    assert.equal(thinkingOnly.text, '');
     // No duplicate message ids anywhere in the ledger.
     const ids = appended.map((m) => (m as { id: string }).id);
     assert.equal(new Set(ids).size, ids.length, `duplicate ledger ids: ${ids.join(', ')}`);

@@ -100,7 +100,6 @@ import {
   type PrepareStepLike,
   type PrepareStepResultLike,
   type RepairableAiSdkToolCall,
-  type StreamTextResult,
 } from './model-adapter.js';
 import {
   rewriteActiveToolResultsInMessages,
@@ -755,8 +754,6 @@ export class AiSdkBackend implements AgentBackend {
     let stepText = '';
     let stepThinking = '';
     let stepSignature: string | undefined;
-    // Whether any step flushed non-empty text this turn — drives the step-cap
-    // grace notice below (a turn whose every step was tool-only gets the notice).
     const startedAt = this.now();
 
     // Flush the current step's AssistantMessage (text + thinking) and the paired
@@ -1130,39 +1127,6 @@ export class AiSdkBackend implements AgentBackend {
         if (stepLimitReached && runtimeSteps < stepLimit) {
           runtimeSteps = stepLimit;
         }
-        if (!this.aborted && stepLimitReached) {
-          // Always a fresh id. When the stream closed without a trailing
-          // finish-step, `currentStepMessageId` is already taken: the catch-all
-          // flush just used it for a thinking-only last step's AssistantMessage
-          // (reuse would duplicate a ledger id), and a pure-tool last step's
-          // tool_starts carry it as stepId (replay would adopt the grace text
-          // as that step's closer). A rotated-but-unused id is discardable.
-          const graceId = this.newId();
-          const graceText = await this.generateStepLimitFinalization({
-            result,
-            model,
-            messages,
-            maxSteps: stepLimit,
-            turnId,
-            abortSignal: this.abortController!.signal,
-          });
-          await this.input.appendMessage({
-            type: 'assistant',
-            id: graceId,
-            turnId,
-            ts: this.now(),
-            text: graceText,
-            modelId: this.input.modelId,
-          });
-          queue.push({
-            type: 'text_complete',
-            id: this.newId(),
-            turnId,
-            ts: this.now(),
-            messageId: graceId,
-            text: graceText,
-          } satisfies TextCompleteEvent);
-        }
 
         // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
         // is the billing-relevant sum across all internal tool-loop steps.
@@ -1427,59 +1391,6 @@ export class AiSdkBackend implements AgentBackend {
     queue: AsyncEventQueue<SessionEvent>,
   ): Promise<void> {
     return this.toolRuntime.writeSyntheticToolResult(toolUseId, turnId, text, queue);
-  }
-
-  private async generateStepLimitFinalization(input: {
-    result: StreamTextResult;
-    model: unknown;
-    messages: ModelMessage[];
-    maxSteps: number;
-    turnId: string;
-    abortSignal: AbortSignal;
-  }): Promise<string> {
-    const fallback =
-      `⚠️ 已达到本轮 ${input.maxSteps} 步工具调用上限。\n\n`
-      + '上一步工具调用已落盘；任务可能尚未完成。如需继续，可以直接输入「继续」。';
-    const startedAt = this.now();
-    const callId = `step_limit_finalization_${input.turnId}_${startedAt}`;
-    try {
-      const response = await input.result.response;
-      const generated = await this.modelAdapter.generateTextWithoutTools({
-        model: input.model,
-        system:
-          'The explicit tool-step limit ended this Maka agent turn before it could continue. '
-          + 'Tools are unavailable. Give the user a concise final update in their language: '
-          + 'what was completed, what remains unfinished or unverified, and that they can send "continue" to resume. '
-          + 'Do not claim the task is complete unless the conversation proves it.',
-        messages: [...input.messages, ...(response?.messages ?? [])],
-        maxOutputTokens: 1_024,
-        abortSignal: input.abortSignal,
-      });
-      this.recordAuxiliaryModelCall({
-        callKind: 'step_limit_finalization',
-        callId,
-        turnId: input.turnId,
-        modelId: this.input.modelId,
-        startedAt,
-        latencyMs: Math.max(0, this.now() - startedAt),
-        usage: generated.usage,
-        finishReason: generated.finishReason,
-        status: 'success',
-      });
-      return generated.text.trim() || fallback;
-    } catch (error) {
-      this.recordAuxiliaryModelCall({
-        callKind: 'step_limit_finalization',
-        callId,
-        turnId: input.turnId,
-        modelId: this.input.modelId,
-        startedAt,
-        latencyMs: Math.max(0, this.now() - startedAt),
-        status: input.abortSignal.aborted ? 'aborted' : 'error',
-        errorClass: this.modelAdapter.classifyError(error),
-      });
-      return fallback;
-    }
   }
 
   /** Map ai-sdk finishReason → our CompleteEvent.stopReason. */
@@ -1919,8 +1830,7 @@ export class AiSdkBackend implements AgentBackend {
               maxOutputTokens: request.maxOutputTokens,
               abortSignal: request.abortSignal,
             });
-            this.recordAuxiliaryModelCall({
-              callKind: 'semantic_compact',
+            this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -1932,8 +1842,7 @@ export class AiSdkBackend implements AgentBackend {
             });
             return result;
           } catch (error) {
-            this.recordAuxiliaryModelCall({
-              callKind: 'semantic_compact',
+            this.recordSemanticCompactSummaryCall({
               callId,
               turnId,
               modelId: summarizerModelId,
@@ -2010,8 +1919,7 @@ export class AiSdkBackend implements AgentBackend {
     };
   }
 
-  private recordAuxiliaryModelCall(input: {
-    callKind: Exclude<NonNullable<LlmCallRecord['callKind']>, 'main'>;
+  private recordSemanticCompactSummaryCall(input: {
     callId: string;
     turnId: string;
     modelId: string;
@@ -2026,7 +1934,7 @@ export class AiSdkBackend implements AgentBackend {
     this.input.recordLlmCall?.({
       sessionId: this.sessionId,
       turnId: input.turnId,
-      callKind: input.callKind,
+      callKind: 'semantic_compact',
       callId: input.callId,
       connectionSlug: this.input.connection.slug,
       providerId: this.input.connection.providerType,

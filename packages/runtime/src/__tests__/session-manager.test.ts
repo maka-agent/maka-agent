@@ -3676,13 +3676,13 @@ describe('SessionManager permission mode updates', () => {
     expect((await store.readHeader(session.id)).status).toBe('active');
     const [turn] = await store.listTurns(session.id);
     expect(turn?.status).toBe('failed');
-    expect(turn?.errorClass).toBe('step_limit');
+    expect(turn?.errorClass).toBe('tool_step_cap_reached');
     const [run] = await runStore.listSessionRuns(session.id);
     expect(run?.status).toBe('failed');
-    expect(run?.failureClass).toBe('step_limit');
+    expect(run?.failureClass).toBe('tool_step_cap_reached');
     const terminal = (await runStore.readRuntimeEvents(session.id, run!.runId)).find((event) => event.actions?.endInvocation);
     expect(terminal?.status).toBe('failed');
-    expect(terminal?.actions?.stateDelta).toMatchObject({ stopReason: 'step_limit', failureClass: 'step_limit' });
+    expect(terminal?.actions?.stateDelta).toMatchObject({ stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' });
   });
 
   test('does not let a late complete event overwrite a prior turn error', async () => {
