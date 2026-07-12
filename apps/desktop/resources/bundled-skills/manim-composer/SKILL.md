@@ -81,16 +81,14 @@ class ExpandSquare(Scene):
 
 ### 第 3 步：检测环境并渲染
 
-用 Bash 先确认 manim 是否可用，缺失则安装（manim 依赖系统的 ffmpeg，LaTeX 公式还需 TeX 发行版）：
+用 Bash 先确认 manim 是否可用。LaTeX 公式还需 TeX 发行版：
 
 ```bash
 # 检测
 manim --version || python3 -c "import manim" 2>/dev/null || echo "MANIM_MISSING"
-which ffmpeg || echo "FFMPEG_MISSING"
 
 # 安装（按需，向用户说明后再执行）
 pip install manim            # 或 python3 -m pip install manim
-# ffmpeg： brew install ffmpeg
 # LaTeX（用到 MathTex 时）： brew install --cask mactex-no-gui  或  basictex
 ```
 
