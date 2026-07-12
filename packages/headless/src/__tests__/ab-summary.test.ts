@@ -82,7 +82,7 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.taskLevel.losses, 1);
   });
 
-  test('does not count an unattested budget exhaustion as valid A/B coverage', () => {
+  test('counts an unattested timeout as an observed budget failure with an attestation warning', () => {
     const unverifiedTimeout = {
       ...budgetExhausted('long-task'),
       eligible: false,
@@ -99,19 +99,21 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.baseline.budgetExhausted, 0);
-    assert.equal(result.baseline.plumbingFailed, 1);
-    assert.equal(result.baseline.valid, 0);
-    assert.equal(result.baseline.coverageRate, 0);
-    assert.equal(result.candidate.valid, 0);
-    assert.equal(result.candidate.coverageRate, 0);
-    assert.equal(result.pairedAttempts.observedPairs, 0);
-    assert.deepEqual(result.pairedAttempts.missingPairIds, ['long-task#r0']);
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'plumbing_failure_observed');
+    assert.equal(result.baseline.budgetExhausted, 1);
+    assert.equal(result.baseline.plumbingFailed, 0);
+    assert.equal(result.baseline.valid, 1);
+    assert.equal(result.baseline.passRate, 0);
+    assert.equal(result.baseline.coverageRate, 1);
+    assert.equal(result.baseline.attestationWarnings, 1);
+    assert.equal(result.candidate.valid, 1);
+    assert.equal(result.candidate.coverageRate, 1);
+    assert.equal(result.pairedAttempts.observedPairs, 1);
+    assert.deepEqual(result.pairedAttempts.missingPairIds, []);
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
   });
 
-  test('classifies a timeout with rate-limit evidence as an invalid infra outcome', () => {
+  test('excludes a provider timeout without reporting the observed pair as missing', () => {
     const providerTimeout = {
       ...budgetExhausted('task-a'),
       eligible: false,
@@ -131,12 +133,228 @@ describe('summarizeAbComparison', () => {
     assert.equal(result.baseline.infraFailed, 1);
     assert.equal(result.baseline.plumbingFailed, 0);
     assert.equal(result.baseline.budgetExhausted, 0);
+    assert.equal(result.baseline.missing, 0);
+    assert.equal(result.pairedAttempts.observedPairs, 1);
+    assert.equal(result.pairedAttempts.evaluatedPairs, 0);
+    assert.deepEqual(result.pairedAttempts.missingPairIds, []);
+    assert.deepEqual(result.pairedAttempts.excludedPairIds, ['task-a#r0']);
+    assert.deepEqual(result.taskLevel.missingTaskIds, []);
+    assert.deepEqual(result.taskLevel.excludedTaskIds, ['task-a']);
     assert.deepEqual(result.pairedAttempts.infraOrPlumbingDiscordantPairIds, ['task-a#r0']);
-    assert.equal(result.decision, 'invalid');
-    assert.equal(result.reason, 'infra_failure_observed');
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
   });
 
-  test('does not count ineligible completed attempts as valid A/B coverage', () => {
+  test('allows an isolated provider exclusion at the effective coverage threshold', () => {
+    const taskIds = Array.from({ length: 10 }, (_, index) => `task-${index}`);
+    const providerTimeout = {
+      ...budgetExhausted(taskIds[0]!),
+      eligible: false,
+      evidenceErrorClass: 'provider_unavailable' as const,
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: taskIds,
+      baselineRuns: [[providerTimeout, ...taskIds.slice(1).map((taskId) => completed(taskId, true))]],
+      candidateRuns: [[...taskIds.map((taskId) => completed(taskId, true))]],
+    });
+
+    assert.equal(result.baseline.coverageRate, 0.9);
+    assert.equal(result.decision, 'diagnostic');
+    assert.equal(result.reason, 'single_rep_diagnostic_only');
+  });
+
+  test('uses evaluated pairs for both the formal point estimate and confidence bound', () => {
+    const taskIds = Array.from({ length: 10 }, (_, index) => `task-${index}`);
+    const baselineRuns = [0, 1].map((rep) => taskIds.map((taskId, index) => completed(taskId, rep === 0 && index < 3)));
+    const candidateRuns = [0, 1].map((rep) => taskIds.map((taskId, index) => {
+      if (rep === 0 && index < 2) {
+        return {
+          ...completed(taskId, false),
+          status: 'failed' as const,
+          scored: false,
+          eligible: false,
+          errorClass: 'network',
+        };
+      }
+      return completed(taskId, false);
+    }));
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: taskIds,
+      baselineRuns,
+      candidateRuns,
+    });
+
+    assert.equal(result.candidate.coverageRate, 0.9);
+    assert.equal(result.pairedAttempts.evaluatedPairs, 18);
+    assert.equal(result.pairedAttempts.losses, 1);
+    assert.equal(result.passRateDelta, -0.055555555556);
+    assert.equal(result.decision, 'not_cleared');
+    assert.equal(result.reason, 'non_inferiority_confidence_interval_crosses_margin');
+  });
+
+  test('classifies an unscored completed infra result as an infra exclusion', () => {
+    const infraResult = {
+      ...completed('task-a', false),
+      scored: false,
+      eligible: false,
+      errorClass: 'infra_failed',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[infraResult]],
+      candidateRuns: [[completed('task-a', true)]],
+    });
+
+    assert.equal(result.baseline.completed, 0);
+    assert.equal(result.baseline.infraFailed, 1);
+    assert.equal(result.baseline.missing, 0);
+    assert.deepEqual(result.pairedAttempts.excludedPairIds, ['task-a#r0']);
+  });
+
+  test('fails closed on an unscored completed provider error class', () => {
+    const providerFailure = {
+      ...completed('task-a', false),
+      status: 'failed' as const,
+      scored: false,
+      eligible: false,
+      errorClass: 'network',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[providerFailure]],
+      candidateRuns: [[completed('task-a', true)]],
+    });
+
+    assert.equal(result.baseline.valid, 0);
+    assert.equal(result.baseline.infraFailed, 1);
+    assert.deepEqual(result.pairedAttempts.excludedPairIds, ['task-a#r0']);
+  });
+
+  test('applies the effective coverage gate to evaluable pairs', () => {
+    const taskIds = Array.from({ length: 10 }, (_, index) => `t${index}`);
+    const excluded = (taskId: string) => ({
+      ...completed(taskId, false),
+      scored: false,
+      eligible: false,
+      errorClass: 'network' as const,
+    });
+    const baselineRun = taskIds.map((taskId, index) => index === 0 ? excluded(taskId) : completed(taskId, true));
+    const candidateRun = taskIds.map((taskId, index) => index === 1 ? excluded(taskId) : completed(taskId, true));
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: taskIds,
+      baselineRuns: [baselineRun, baselineRun],
+      candidateRuns: [candidateRun, candidateRun],
+    });
+
+    assert.equal(result.baseline.coverageRate, 0.9);
+    assert.equal(result.candidate.coverageRate, 0.9);
+    assert.equal(result.pairedAttempts.evaluatedPairs, 16);
+    assert.equal(result.decision, 'not_cleared');
+    assert.equal(result.reason, 'low_effective_coverage');
+  });
+
+  test('derives task-level outcomes from matching evaluable pairs', () => {
+    const excluded = { ...completed('task', false), scored: false, eligible: false, errorClass: 'network' as const };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task'],
+      baselineRuns: [[completed('task', false)], [excluded]],
+      candidateRuns: [[completed('task', false)], [completed('task', true)]],
+    });
+
+    assert.equal(result.taskLevel.tasks[0]?.passRateDelta, 0);
+    assert.equal(result.taskLevel.tasks[0]?.outcome, 'tie');
+  });
+
+  test('includes timeout task-tool evidence in the arm summary', () => {
+    const timeout = { ...budgetExhausted('task'), taskToolSummary: taskToolSummary({ todoWriteCalls: 7 }) };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task'],
+      baselineRuns: [[completed('task', false)]],
+      candidateRuns: [[timeout]],
+    });
+
+    assert.equal(result.candidate.taskTools?.activatedAttempts, 1);
+    assert.equal(result.candidate.taskTools?.todoWriteCalls, 7);
+  });
+
+  test('invalidates an explicit execution identity mismatch without reporting missing data', () => {
+    const identityMismatch = {
+      ...budgetExhausted('task-a'),
+      eligible: false,
+      evidenceErrorClass: 'execution_identity_mismatch' as const,
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[identityMismatch]],
+      candidateRuns: [[completed('task-a', true)]],
+    });
+
+    assert.equal(result.baseline.plumbingFailed, 1);
+    assert.equal(result.baseline.attestationWarnings, 0);
+    assert.equal(result.baseline.missing, 0);
+    assert.deepEqual(result.pairedAttempts.missingPairIds, []);
+    assert.deepEqual(result.pairedAttempts.excludedPairIds, ['task-a#r0']);
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'plumbing_failure_observed');
+  });
+
+  test('fails closed on a legacy completed execution identity mismatch', () => {
+    const identityMismatch = {
+      ...completed('task-a', false),
+      status: 'failed' as const,
+      scored: false,
+      eligible: false,
+      errorClass: 'execution_identity_mismatch',
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['task-a'],
+      baselineRuns: [[identityMismatch]],
+      candidateRuns: [[completed('task-a', true)]],
+    });
+
+    assert.equal(result.baseline.valid, 0);
+    assert.equal(result.baseline.plumbingFailed, 1);
+    assert.equal(result.decision, 'invalid');
+    assert.equal(result.reason, 'plumbing_failure_observed');
+  });
+
+  test('counts an observed verifier failure even when a legacy event marked it ineligible', () => {
     const ineligibleCompleted = { ...completed('task-a', false), eligible: false };
     const result = summarizeAbComparison({
       runId: 'ab-run',
@@ -149,19 +367,20 @@ describe('summarizeAbComparison', () => {
       budgetMs: 600_000,
     });
 
-    assert.equal(result.baseline.valid, 0);
-    assert.equal(result.baseline.coverageRate, 0);
-    assert.equal(result.candidate.valid, 0);
-    assert.equal(result.candidate.coverageRate, 0);
-    assert.equal(result.pairedAttempts.observedPairs, 0);
+    assert.equal(result.baseline.valid, 1);
+    assert.equal(result.baseline.passRate, 0);
+    assert.equal(result.baseline.coverageRate, 1);
+    assert.equal(result.candidate.valid, 1);
+    assert.equal(result.candidate.coverageRate, 1);
+    assert.equal(result.pairedAttempts.observedPairs, 1);
   });
 
-  test('counts an agent step-cap failure as a failed A/B outcome', () => {
+  test('counts a legacy ineligible step-cap event as a failed A/B outcome', () => {
     const stepCapFailure = {
       ...completed('task-a', false),
       status: 'failed' as const,
       scored: false,
-      eligible: true,
+      eligible: false,
       errorClass: 'tool_step_cap_reached',
     };
     const result = summarizeAbComparison({
@@ -270,6 +489,7 @@ describe('summarizeAbComparison', () => {
       budgetExhausted: 0,
       infraFailed: 0,
       plumbingFailed: 0,
+      attestationWarnings: 0,
       missing: 0,
       coverageRate: 1,
       totalCostUsd: 0.01,
@@ -317,6 +537,7 @@ describe('summarizeAbComparison', () => {
       budgetExhausted: 0,
       infraFailed: 0,
       plumbingFailed: 0,
+      attestationWarnings: 0,
       missing: 0,
       coverageRate: 1,
       totalCostUsd: 0.01,

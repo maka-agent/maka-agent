@@ -420,7 +420,7 @@ async function main() {
   });
 
   const output = {
-    schemaVersion: 'maka.prompt_ab.v1',
+    schemaVersion: 'maka.prompt_ab.v2',
     runId,
     candidatePromptSourcePath,
     maxConcurrency,
