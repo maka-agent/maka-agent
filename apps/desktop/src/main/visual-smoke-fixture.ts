@@ -114,7 +114,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // `focusActiveRow: true`, which programmatically focuses the
   // active row's button after mount so `:focus-within` triggers
   // and the `.maka-list-row-menu-trigger` becomes visible.
-  // Captures the actions-revealed state so reviewers can verify
+  // Captures the overflow-trigger state so reviewers can verify
   // the time meta + unread dot are hidden underneath (no overlap).
   'sidebar-row-actions-visible',
 ]);
@@ -467,7 +467,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
       // same 60-session seed; `focusActiveRow: true` makes the
       // renderer focus the active row's button after mount so
       // `:focus-within` triggers and the overflow action appears.
-      // Captures the actions-revealed state for the overlap gate.
+      // Captures the overflow-trigger state for the overlap gate.
       return {
         ...state,
         activeSessionId: LONG_SIDEBAR_SESSION_PREFIX + '00',

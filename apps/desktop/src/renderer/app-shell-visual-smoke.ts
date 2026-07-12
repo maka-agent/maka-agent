@@ -136,8 +136,8 @@ export function createAppShellVisualSmokeActions(options: {
     // kenji `b3d156e9`): when the fixture sets `focusActiveRow`,
     // focus the active row's button after the next paint so the
     // row's `:focus-within` triggers and the `.maka-list-row-menu-trigger`
-    // overlay becomes visible. The auto-capture then shows the
-    // actions cluster against the slim row, proving the time meta
+    // becomes visible. The auto-capture then shows the overflow
+    // trigger against the slim row, proving the time meta
     // + unread dot are hidden underneath (no overlap with the
     // action icons — the bug WAWQAQ flagged). Two RAFs let React
     // commit the active selection before we query the DOM.

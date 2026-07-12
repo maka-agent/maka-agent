@@ -600,6 +600,7 @@ const SessionRow = memo(function SessionRow(props: {
       className="maka-list-row"
       data-active={active}
       data-editing={editing}
+      data-menu-open={menuOpen ? 'true' : undefined}
       data-streaming={streaming ? 'true' : undefined}
       data-stale={stale ? 'true' : undefined}
       onMouseEnter={() => setActionsVisible(true)}
@@ -758,7 +759,7 @@ const SessionRow = memo(function SessionRow(props: {
           >
             <MoreHorizontal size={16} aria-hidden="true" />
           </MenuTrigger>
-          <MenuPopup className="maka-list-row-menu" align="end" side="bottom" sideOffset={4}>
+          <MenuPopup align="end" side="bottom">
             <MenuItem
               disabled={actionBusy}
               onClick={() => runRowAction('flag', () => actions.onToggleFlag(session.id, !session.isFlagged))}
