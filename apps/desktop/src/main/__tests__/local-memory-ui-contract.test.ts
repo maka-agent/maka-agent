@@ -13,6 +13,22 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('local MEMORY.md Settings UI contract', () => {
+  it('wires every behavior-bearing controller output at the page composition root', async () => {
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
+
+    assert.match(page, /<WorkspaceInstructionsSection[\s\S]*state=\{workspaceInstructionState\}[\s\S]*disabled=\{memoryControlsDisabled\}[\s\S]*isActionPending=\{isMemoryActionPending\}[\s\S]*onOpen=\{openWorkspaceInstructionFile\}[\s\S]*onCreate=\{createWorkspaceInstructionFile\}/);
+    assert.match(page, /<MemoryPromptPreviewSection[\s\S]*active=\{promptPreviewWillInject\}[\s\S]*preview=\{localMemoryPromptPreview\}[\s\S]*budgetLabel=\{localMemoryPromptPreviewBudgetLabel\}[\s\S]*blockedReason=\{promptPreviewBlockedReason\}[\s\S]*safeMode=\{effective\.status === 'safe_mode'\}[\s\S]*copyPending=\{isMemoryActionPending\('memory:prompt-preview:copy'\)\}[\s\S]*onCopy=\{copyLocalMemoryPromptPreview\}/);
+
+    const entryLists = [...page.matchAll(/<MemoryEntryList[\s\S]*?\/>/g)].map((match) => match[0]);
+    assert.equal(entryLists.length, 2, 'active and archived entry lists must both be wired');
+    for (const list of entryLists) {
+      assert.match(list, /pendingCopyIds=\{pendingMemoryActions\}/);
+      assert.match(list, /onCopyReference=\{copyMemoryEntryReference\}/);
+      assert.match(list, /onFocusDraft=\{focusMemoryEntryInDraft\}/);
+      assert.match(list, /onStatusChange=\{updateMemoryEntryStatus\}/);
+    }
+  });
+
   it('renders active and archived memory entries as separate visible groups', async () => {
     const src = await readSettingsCombinedSource();
 
