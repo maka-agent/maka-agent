@@ -61,7 +61,6 @@ import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
 import { deriveSessionStatusGroups } from './session-status-grouping';
 import {
-  normalizeSessionSummaryForDisplay,
   presentSessionStatus,
   sessionStatusAriaLabel,
 } from './session-status-presentation';
@@ -74,7 +73,6 @@ import { hasInFlightToolActivity } from './session-event-health';
 import { MODEL_CONTINUING_DELAY_MS, MODEL_PROCESSING_DELAY_MS, deriveModelWait } from './model-wait-state';
 import { useDelayedFlag } from './use-delayed-flag';
 import { safeLocalStorageSet } from './browser-storage';
-import { applyLocalSessionRead, applySessionReadOverrides, createSessionListRefresher, type SessionListRefresher, type SessionReadBoundaries } from './session-read-state';
 import { filterSessions, readNavSelection } from './nav-selection';
 import {
   readSessionListCollapsed,
@@ -117,6 +115,7 @@ import {
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
+import { useAppShellSessionList } from './use-app-shell-session-list';
 
 function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
   if (a.length !== b.length) return false;
@@ -169,28 +168,16 @@ export function AppShell({
   initialOnboardingSnapshot?: OnboardingSnapshot | null;
 } = {}) {
   const toastApi = useToast();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const sessionsRef = useRef<SessionSummary[]>([]);
-  const sessionReadBoundariesRef = useRef<SessionReadBoundaries>({});
-  const sessionListRefresherRef = useRef<SessionListRefresher | null>(null);
-  if (!sessionListRefresherRef.current) {
-    sessionListRefresherRef.current = createSessionListRefresher({
-      listSessions: () => window.maka.sessions.list(),
-      readBoundaries: () => sessionReadBoundariesRef.current,
-      currentSessions: () => sessionsRef.current,
-      commitSessions: (next) => {
-        // Display normalization at the state boundary: non-actionable
-        // blocked (missing terminal bookkeeping) reads as an ordinary
-        // resumable session everywhere in the renderer.
-        const displayNext = next.map(normalizeSessionSummaryForDisplay);
-        sessionsRef.current = displayNext;
-        setSessions(displayNext);
-      },
-      onError: (error) => {
-        toastApi.error('刷新会话列表失败', generalizedErrorMessageChinese(error, '刷新会话列表失败，请稍后重试。'));
-      },
-    });
-  }
+  const {
+    sessions,
+    sessionsRef,
+    setSessions,
+    refreshSessions,
+    seedSessions,
+    upsertSessionSummary,
+    markSessionRunningOptimistic,
+    markSessionReadLocally,
+  } = useAppShellSessionList(toastApi);
   const [activeId, setActiveIdState] = useState<string | undefined>();
   const [pendingByKey, setPendingByKey] = useState<PendingByKey<PendingAttachment>>({});
   const attachmentDraftKey = activeId ?? 'new-session';
@@ -828,10 +815,7 @@ export function AppShell({
     // sessions flash an 已阻塞 group on first paint until the first
     // refreshSessions() overwrites the seed.
     if (snapshot.sessions.length > 0) {
-      const next = applySessionReadOverrides(snapshot.sessions, sessionReadBoundariesRef.current)
-        .map(normalizeSessionSummaryForDisplay);
-      sessionsRef.current = next;
-      setSessions(next);
+      const next = seedSessions(snapshot.sessions);
       if (!activeIdRef.current && next[0]?.lastMessageAt) setActiveId(next[0].id);
     }
     // Seed connections — avoids separate connections:list + getDefault IPCs
@@ -1086,8 +1070,6 @@ export function AppShell({
     activeIdRef,
     navSelection,
     navSelectionRef,
-    sessions,
-    sessionsRef,
   });
   useAppShellHostEffects({
     activeId,
@@ -1186,10 +1168,6 @@ export function AppShell({
       && activeIdRef.current === owner.sessionId;
   }
 
-  async function refreshSessions(): Promise<SessionSummary[]> {
-    return sessionListRefresherRef.current!.refresh();
-  }
-
   async function refreshShellSettings() {
     try {
       const next = await window.maka.settings.get();
@@ -1212,69 +1190,6 @@ export function AppShell({
     } catch (error) {
       toastApi.error('载入外观设置失败', generalizedErrorMessageChinese(error, '外观设置暂时无法载入，请稍后重试。'));
     }
-  }
-
-  function upsertSessionSummary(session: SessionSummary): void {
-    setSessions((current) => {
-      const next = [
-        normalizeSessionSummaryForDisplay(session),
-        ...current.filter((entry) => entry.id !== session.id),
-      ];
-      sessionsRef.current = next;
-      return next;
-    });
-  }
-
-  // #646: on send() we KNOW locally that a turn is starting, but the session's
-  // persisted status only flips to 'running' after an IPC round-trip
-  // (runtime → subscribeChanges). The head "正在处理…" indicator is gated on
-  // `status === 'running'` (that gate self-heals a backgrounded session whose
-  // terminal event was missed), so without a local nudge the first-token wait
-  // races — and usually loses — against the lagging status. Set it optimistically
-  // so the gate opens synchronously; subscribeChanges reconciles the real value.
-  //
-  // Returns a restore callback (or undefined when nothing was nudged). If send()
-  // fails before the turn reaches the runtime, no subscribeChanges event will
-  // arrive to reconcile the optimistic value, so the caller must revert it — but
-  // only while it is STILL the optimistic 'running' (a real status that landed
-  // meanwhile wins). Prevents a failed send from leaving a phantom running dot
-  // that also blocks the permission-mode toggle until the next unrelated refresh.
-  function markSessionRunningOptimistic(sessionId: string): (() => void) | undefined {
-    const prior = sessionsRef.current.find((entry) => entry.id === sessionId);
-    if (!prior || prior.status === 'running') return undefined;
-    const priorStatus = prior.status;
-    setSessions((current) => {
-      let changed = false;
-      const next = current.map((entry) => {
-        if (entry.id !== sessionId || entry.status === 'running') return entry;
-        changed = true;
-        return { ...entry, status: 'running' as const };
-      });
-      if (!changed) return current;
-      sessionsRef.current = next;
-      return next;
-    });
-    return () => {
-      setSessions((current) => {
-        let changed = false;
-        const next = current.map((entry) => {
-          if (entry.id !== sessionId || entry.status !== 'running') return entry;
-          changed = true;
-          return { ...entry, status: priorStatus };
-        });
-        if (!changed) return current;
-        sessionsRef.current = next;
-        return next;
-      });
-    };
-  }
-
-  function markSessionReadLocally(sessionId: string, readMessages: readonly StoredMessage[]): void {
-    setSessions((current) => {
-      const next = applyLocalSessionRead(sessionReadBoundariesRef.current, current, sessionId, readMessages);
-      sessionsRef.current = next;
-      return next;
-    });
   }
 
   async function bootstrapSessions() {

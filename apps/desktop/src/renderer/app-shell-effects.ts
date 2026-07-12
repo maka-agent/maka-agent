@@ -45,8 +45,6 @@ export function useAppShellRefSync(options: {
   activeIdRef: RefBox<string | undefined>;
   navSelection: NavSelection;
   navSelectionRef: RefBox<NavSelection>;
-  sessions: SessionSummary[];
-  sessionsRef: RefBox<SessionSummary[]>;
 }) {
   useEffect(() => {
     options.activeIdRef.current = options.activeId;
@@ -55,10 +53,6 @@ export function useAppShellRefSync(options: {
   useEffect(() => {
     options.navSelectionRef.current = options.navSelection;
   }, [options.navSelection]);
-
-  useEffect(() => {
-    options.sessionsRef.current = options.sessions;
-  }, [options.sessions]);
 }
 
 export function useAppShellHostEffects(options: {
