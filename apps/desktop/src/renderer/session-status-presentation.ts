@@ -164,6 +164,7 @@ export function describeTurnErrorClass(errorClass: string | undefined): string {
     return '网络错误';
   }
   if (lower === 'provider_unavailable' || /\b5\d\d\b/.test(lower)) return '模型服务返回错误';
+  if (lower === 'tool_step_cap_reached') return '达到工具步骤上限';
   if (lower === 'tool_failed' || lower.includes('tool')) return '工具调用失败';
   if (lower === 'permission_required' || lower.includes('permission')) return '等待权限确认';
   if (lower === 'app_restarted') return '本地应用重启，上一轮没有完成';
@@ -193,6 +194,9 @@ export interface FailedTurnRecoveryInput {
  */
 export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput): FailedTurnRecoveryPresentation {
   const lower = input.errorClass?.toLowerCase() ?? '';
+  if (lower === 'tool_step_cap_reached') {
+    return { action: 'continue', label: '任务可能尚未完成，可以继续' };
+  }
   if (input.erroredToolCount > 0 || lower === 'tool_failed' || lower.includes('tool')) {
     return { action: 'inspect_tool', label: '先检查工具结果，再决定是否重试' };
   }

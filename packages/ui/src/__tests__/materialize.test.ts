@@ -60,4 +60,17 @@ describe('materializeChat attachments', () => {
       'Context summary failed; the session continued without a new summary.',
     );
   });
+
+  test('surfaces a step-limit system notice inline', () => {
+    const items = materializeChat([
+      { type: 'system_note', id: 'note-1', turnId: 't1', ts: 1, kind: 'step_limit' },
+    ]);
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].role, 'system');
+    assert.equal(
+      items[0].text,
+      'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    );
+  });
 });

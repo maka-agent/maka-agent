@@ -1,7 +1,16 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { withAbRunLock } from './ab-run-lock.js';
+import { buildAbRoundId } from './ab-run.js';
+import { summarizeAbComparison } from './ab-summary.js';
 import {
+  hashSystemPrompt,
+  readFixedPromptWal,
+  selectFixedPromptRoundTaskEvents,
+  type FixedPromptTaskWalEvent,
+} from './fixed-prompt-controller.js';
+import {
+  runtimePolicyArmResumeFingerprint,
   runRuntimePolicyAbComparisonUnlocked,
   type RunRuntimePolicyAbComparisonInput,
   type RuntimePolicyAbComparisonSummary,
@@ -15,12 +24,21 @@ export interface RunRuntimePolicyAbLifecycleInput extends Omit<RunRuntimePolicyA
 }
 
 export interface RuntimePolicyAbLifecycleState {
-  schemaVersion: 'maka.runtime_policy_ab.lifecycle.v1';
+  schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2';
   manifestFingerprint: string;
   status: 'pilot_pending' | 'pilot_not_cleared' | 'pilot_cleared' | 'full_completed' | 'invalid';
   reason?: string;
   pilot?: RuntimePolicyAbComparisonSummary;
   full?: RuntimePolicyAbComparisonSummary;
+}
+
+interface LegacyRuntimePolicyAbLifecycleState {
+  schemaVersion: 'maka.runtime_policy_ab.lifecycle.v1';
+  manifestFingerprint: string;
+  status: RuntimePolicyAbLifecycleState['status'];
+  reason?: string;
+  pilot?: Pick<RuntimePolicyAbComparisonSummary, 'stopReason'>;
+  full?: Pick<RuntimePolicyAbComparisonSummary, 'stopReason'>;
 }
 
 export async function runRuntimePolicyAbLifecycle(
@@ -29,6 +47,10 @@ export async function runRuntimePolicyAbLifecycle(
   return withAbRunLock(input.runRoot, async () => {
     const statePath = join(input.runRoot, 'runtime-policy-ab-state.json');
     let state = await readState(statePath, input.manifestFingerprint);
+    if (state.schemaVersion === 'maka.runtime_policy_ab.lifecycle.v1') {
+      state = await rebuildLegacyState(input, state);
+      await writeState(statePath, state);
+    }
     if (state.status === 'full_completed' || state.status === 'invalid' || state.status === 'pilot_not_cleared') return state;
 
     if (state.status === 'pilot_pending') {
@@ -41,7 +63,7 @@ export async function runRuntimePolicyAbLifecycle(
       const pilot: RuntimePolicyAbComparisonSummary = pilotResult;
       const clearanceFailure = pilotClearanceFailure(pilot);
       state = {
-        schemaVersion: 'maka.runtime_policy_ab.lifecycle.v1',
+        schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
         manifestFingerprint: input.manifestFingerprint,
         status: clearanceFailure ? 'pilot_not_cleared' : 'pilot_cleared',
         ...(clearanceFailure ? { reason: clearanceFailure } : {}),
@@ -91,20 +113,115 @@ function pilotClearanceFailure(summary: RuntimePolicyAbComparisonSummary): strin
   return undefined;
 }
 
-async function readState(path: string, manifestFingerprint: string): Promise<RuntimePolicyAbLifecycleState> {
+async function readState(
+  path: string,
+  manifestFingerprint: string,
+): Promise<RuntimePolicyAbLifecycleState | LegacyRuntimePolicyAbLifecycleState> {
   try {
-    const state = JSON.parse(await readFile(path, 'utf8')) as RuntimePolicyAbLifecycleState;
-    if (state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v1') throw new Error('unsupported runtime policy A/B lifecycle state');
+    const state = JSON.parse(await readFile(path, 'utf8')) as RuntimePolicyAbLifecycleState | LegacyRuntimePolicyAbLifecycleState;
+    if (
+      state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v1'
+      && state.schemaVersion !== 'maka.runtime_policy_ab.lifecycle.v2'
+    ) throw new Error('unsupported runtime policy A/B lifecycle state');
     if (state.manifestFingerprint !== manifestFingerprint) throw new Error('runtime policy A/B lifecycle state does not match manifest');
     return state;
   } catch (error) {
     if (!isNotFound(error)) throw error;
     return {
-      schemaVersion: 'maka.runtime_policy_ab.lifecycle.v1',
+      schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
       manifestFingerprint,
       status: 'pilot_pending',
     };
   }
+}
+
+async function rebuildLegacyState(
+  input: RunRuntimePolicyAbLifecycleInput,
+  legacy: LegacyRuntimePolicyAbLifecycleState,
+): Promise<RuntimePolicyAbLifecycleState> {
+  const events = (await readFixedPromptWal(input.resultsJsonlPath)).filter(
+    (event): event is FixedPromptTaskWalEvent =>
+      event.type === 'task_completed'
+      || event.type === 'task_budget_exhausted'
+      || event.type === 'task_infra_failed'
+      || event.type === 'task_plumbing_failed',
+  );
+  const expectedPromptHash = hashSystemPrompt(await readFile(input.systemPromptPath, 'utf8'));
+  const pilot = legacy.pilot
+    ? summarizeRecordedRound(input, events, expectedPromptHash, 'pilot', input.pilotTasks, 1, legacy.pilot.stopReason)
+    : undefined;
+  const full = legacy.full
+    ? summarizeRecordedRound(input, events, expectedPromptHash, 'full', input.evaluationTasks, input.fullReps, legacy.full.stopReason)
+    : undefined;
+  if (full) {
+    const invalidReason = full.stopReason ?? (full.decision === 'invalid' ? full.reason : undefined);
+    return {
+      schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
+      manifestFingerprint: input.manifestFingerprint,
+      status: invalidReason ? 'invalid' : 'full_completed',
+      ...(invalidReason ? { reason: invalidReason } : {}),
+      ...(pilot ? { pilot } : {}),
+      full,
+    };
+  }
+  if (pilot) {
+    const reason = pilotClearanceFailure(pilot);
+    return {
+      schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
+      manifestFingerprint: input.manifestFingerprint,
+      status: reason ? 'pilot_not_cleared' : 'pilot_cleared',
+      ...(reason ? { reason } : {}),
+      pilot,
+    };
+  }
+  return {
+    schemaVersion: 'maka.runtime_policy_ab.lifecycle.v2',
+    manifestFingerprint: input.manifestFingerprint,
+    status: 'pilot_pending',
+  };
+}
+
+function summarizeRecordedRound(
+  input: RunRuntimePolicyAbLifecycleInput,
+  events: readonly FixedPromptTaskWalEvent[],
+  expectedPromptHash: string,
+  prefix: 'pilot' | 'full',
+  tasks: RunRuntimePolicyAbComparisonInput['evaluationTasks'],
+  reps: number,
+  stopReason: RuntimePolicyAbComparisonSummary['stopReason'],
+): RuntimePolicyAbComparisonSummary {
+  const runsFor = (arm: RunRuntimePolicyAbComparisonInput['arms'][number]): FixedPromptTaskWalEvent[][] => {
+    const resumeFingerprint = runtimePolicyArmResumeFingerprint(input, arm);
+    const runs = Array.from({ length: reps }, (_, rep) => tasks.flatMap((task) => {
+      const roundId = buildAbRoundId(prefix, arm.id, rep, task.id);
+      const event = selectFixedPromptRoundTaskEvents(
+        events,
+        input.runId,
+        roundId,
+        expectedPromptHash,
+        resumeFingerprint,
+      ).get(task.id);
+      if (!event && !stopReason) throw new Error(`cannot rebuild runtime policy A/B state: missing WAL event for ${roundId}`);
+      if (event?.type === 'task_plumbing_failed' && event.errorClass === 'missing_execution_identity') {
+        throw new Error(`cannot rebuild runtime policy A/B state: legacy missing-identity event ${event.id} has no authoritative outcome`);
+      }
+      return event ? [event] : [];
+    }));
+    if (runs.every((run) => run.length === 0)) throw new Error(`cannot rebuild runtime policy A/B state: no WAL evidence for ${prefix} round`);
+    return runs;
+  };
+  const summary = summarizeAbComparison({
+    runId: input.runId,
+    roundId: 'ab-summary',
+    baselineArmId: input.arms[0].id,
+    candidateArmId: input.arms[1].id,
+    evaluationTaskIds: tasks.map((task) => task.id),
+    baselineRuns: runsFor(input.arms[0]),
+    candidateRuns: runsFor(input.arms[1]),
+    ...(input.budgetMs !== undefined ? { budgetMs: input.budgetMs } : {}),
+    ...(input.nonInferiorityMargin !== undefined ? { nonInferiorityMargin: input.nonInferiorityMargin } : {}),
+  });
+  return stopReason ? { ...summary, stopReason } : summary;
 }
 
 async function writeState(path: string, state: RuntimePolicyAbLifecycleState): Promise<void> {

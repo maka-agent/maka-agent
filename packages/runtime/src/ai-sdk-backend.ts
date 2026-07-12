@@ -754,9 +754,6 @@ export class AiSdkBackend implements AgentBackend {
     let stepText = '';
     let stepThinking = '';
     let stepSignature: string | undefined;
-    // Whether any step flushed non-empty text this turn — drives the step-cap
-    // grace notice below (a turn whose every step was tool-only gets the notice).
-    let turnHadAnyText = false;
     const startedAt = this.now();
 
     // Flush the current step's AssistantMessage (text + thinking) and the paired
@@ -808,7 +805,6 @@ export class AiSdkBackend implements AgentBackend {
         messageId: stepId,
         text: stepText,
       } satisfies TextCompleteEvent);
-      if (stepText.length > 0) turnHadAnyText = true;
       stepText = '';
       stepThinking = '';
       stepSignature = undefined;
@@ -1122,60 +1118,14 @@ export class AiSdkBackend implements AgentBackend {
           publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
-        // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): with an
-        // explicit maxSteps, `finishReason === 'tool-calls'` means we tripped
-        // `stopWhen: stepCountIs(maxSteps)` mid-loop — the model wanted to keep
-        // calling tools but we capped it.
-        // The user previously saw no closing assistant text in that
-        // path; just the last tool result. Inject a deterministic
-        // "step cap reached" notice so the UI has SOMETHING and the
-        // user can choose to send "继续" for a fresh turn.
-        const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
-        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
-        if (
-          this.maxSteps !== undefined
-          && finishReasonForGrace === 'tool-calls'
-          && runtimeSteps < this.maxSteps
-        ) {
-          runtimeSteps = this.maxSteps;
-        }
-        // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
-        // mid-tool-loop and no step ever produced closing text, append a final
-        // assistant message (its own step id) so the UI has a closing line and
-        // the user can send "继续" for a fresh turn.
-        if (
-          !this.aborted
-          && this.maxSteps !== undefined
-          && !turnHadAnyText
-          && finishReasonForGrace === 'tool-calls'
-        ) {
-          // Always a fresh id. When the stream closed without a trailing
-          // finish-step, `currentStepMessageId` is already taken: the catch-all
-          // flush just used it for a thinking-only last step's AssistantMessage
-          // (reuse would duplicate a ledger id), and a pure-tool last step's
-          // tool_starts carry it as stepId (replay would adopt the grace text
-          // as that step's closer). A rotated-but-unused id is discardable.
-          const graceId = this.newId();
-          const graceText =
-            `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
-            + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
-          await this.input.appendMessage({
-            type: 'assistant',
-            id: graceId,
-            turnId,
-            ts: this.now(),
-            text: graceText,
-            modelId: this.input.modelId,
-          });
-          queue.push({
-            type: 'text_complete',
-            id: this.newId(),
-            turnId,
-            ts: this.now(),
-            messageId: graceId,
-            text: graceText,
-          } satisfies TextCompleteEvent);
-          turnHadAnyText = true;
+        // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
+        // model wanted another tool step but the configured budget stopped it.
+        const finishReason = await result.finishReason.catch(() => 'stop');
+        const stepLimit = this.maxSteps;
+        const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
+        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
+        if (stepLimitReached && runtimeSteps < stepLimit) {
+          runtimeSteps = stepLimit;
         }
 
         // Final usage event. AI SDK `usage` is the last step only; `totalUsage`
@@ -1288,8 +1238,12 @@ export class AiSdkBackend implements AgentBackend {
           // best-effort; ai-sdk usage promise may reject on abort
         }
 
-        const finishReason = await result.finishReason.catch(() => 'stop');
-        const stopReason = this.mapFinishReason(finishReason);
+        // Nothing may await between this check and terminal emission: Stop must
+        // win even when it arrives during post-stream usage persistence.
+        if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
+          ? 'step_limit'
+          : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
         queue.push({
           type: 'complete',

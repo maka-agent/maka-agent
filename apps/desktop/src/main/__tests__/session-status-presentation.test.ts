@@ -315,6 +315,19 @@ describe('describeTurnErrorClass (PR109e-d @kenji gate #3)', () => {
     assert.match(describeTurnErrorClass('tool_failed'), /工具/);
   });
 
+  it('distinguishes a tool step cap from a failed tool call', () => {
+    assert.equal(describeTurnErrorClass('tool_step_cap_reached'), '达到工具步骤上限');
+    assert.deepEqual(deriveFailedTurnRecovery({
+      errorClass: 'tool_step_cap_reached',
+      partialOutputRetained: true,
+      toolActivityCount: 1,
+      erroredToolCount: 0,
+    }), {
+      action: 'continue',
+      label: '任务可能尚未完成，可以继续',
+    });
+  });
+
   it('returns a specific Chinese label for app restart recovery', () => {
     assert.equal(describeTurnErrorClass('app_restarted'), '本地应用重启，上一轮没有完成');
   });

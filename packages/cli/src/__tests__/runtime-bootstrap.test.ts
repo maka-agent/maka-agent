@@ -249,24 +249,25 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(result.output, undefined);
         assert.ok(result.ref);
         if (!result.ref) throw new Error('expected background task resource ref');
-        await new Promise((resolve) => setTimeout(resolve, 50));
-
-        const detail = await read.impl(
-          { ref: result.ref },
-          {
-            sessionId: 'session-1',
-            runId: 'run-1',
-            turnId: 'turn-1',
-            cwd: workspaceRoot,
-            toolCallId: 'tool-2',
-            abortSignal: new AbortController().signal,
-            emitOutput: () => {},
-          },
-        ) as {
-          kind?: string;
-          status?: string;
-          output?: { mode: string; stdout?: string };
-        };
+        const detail = await waitFor(async () => {
+          const snapshot = await read.impl(
+            { ref: result.ref },
+            {
+              sessionId: 'session-1',
+              runId: 'run-1',
+              turnId: 'turn-1',
+              cwd: workspaceRoot,
+              toolCallId: 'tool-2',
+              abortSignal: new AbortController().signal,
+              emitOutput: () => {},
+            },
+          ) as {
+            kind?: string;
+            status?: string;
+            output?: { mode: string; stdout?: string };
+          };
+          return snapshot.output?.stdout === 'start' ? snapshot : undefined;
+        });
         assert.equal(detail.kind, 'shell_run');
         assert.equal(detail.status, 'running');
         assert.equal(detail.output?.mode, 'pipes');
@@ -306,11 +307,10 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(result.kind, 'shell_run');
         assert.equal(result.status, 'running');
 
-        await new Promise((resolve) => setTimeout(resolve, 650));
-        const terminal = updates.find((update) => update.result.status === 'completed');
-        assert.equal(terminal?.sourceToolCallId, 'tool-1');
+        const terminal = await waitFor(() => updates.find((update) => update.result.status === 'completed'));
+        assert.equal(terminal.sourceToolCallId, 'tool-1');
         assert.equal(
-          terminal?.result.output?.mode === 'pipes' ? terminal.result.output.stdout : '',
+          terminal.result.output?.mode === 'pipes' ? terminal.result.output.stdout : '',
           'startdone',
         );
       } finally {
@@ -383,8 +383,10 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(started.status, 'running');
         assert.ok(started.ref);
 
-        await new Promise((resolve) => setTimeout(resolve, 650));
-        const hydrated = await context.readShellRun('session-1', started.ref);
+        const hydrated = await waitFor(async () => {
+          const snapshot = await context.readShellRun('session-1', started.ref!);
+          return snapshot.result.status === 'completed' ? snapshot : undefined;
+        });
         assert.equal(hydrated.result.status, 'completed');
         const stored = await createShellRunStore(workspaceRoot).readShellRun(
           'session-1',
@@ -570,6 +572,16 @@ async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Prom
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
+}
+
+async function waitFor<T>(read: () => T | undefined | Promise<T | undefined>): Promise<T> {
+  const deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    const value = await read();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for ShellRun state');
 }
 
 function backgroundTaskId(ref: string): string {

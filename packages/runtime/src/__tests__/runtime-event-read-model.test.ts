@@ -596,6 +596,30 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics).toEqual([]);
   });
 
+  test('tool step cap terminal fact projects a persistent system notice', () => {
+    const out = projectRuntimeEventsToStoredMessages([
+      ev({
+        id: 'evt-step-limit',
+        ts: ts + 9,
+        status: 'failed',
+        actions: {
+          endInvocation: true,
+          stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
+        },
+      }),
+    ], {
+      runHeaders: [{ ...header, status: 'failed', failureClass: 'tool_step_cap_reached' }],
+    });
+
+    expect(out.messages.find((message) => message.type === 'system_note')).toEqual({
+      type: 'system_note',
+      id: 'evt-step-limit:step-limit-notice',
+      turnId,
+      ts: ts + 9,
+      kind: 'step_limit',
+    });
+  });
+
   test('aborted terminal RuntimeEvent preserves abort source from runtime state', () => {
     const out = projectRuntimeEventsToStoredMessages([
       ev({

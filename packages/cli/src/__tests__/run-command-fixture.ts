@@ -91,6 +91,10 @@ const runtime: MakaRunRuntime = {
       await notify(failedResult('missing_final_output', 'completed invocation produced no final output'));
       return;
     }
+    if (scenario === 'step-limit') {
+      await notify(failedResult('step_limit', 'explicit tool-step limit reached; send continue to resume'));
+      return;
+    }
     const maxSteps = process.env.MAKA_RUN_EXPECT_MAX_STEPS;
     const output = maxSteps
       ? `maxSteps=${maxSteps};prompt=${input.text}`
