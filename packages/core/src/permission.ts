@@ -72,6 +72,23 @@ export interface ToolExecutionFacts {
   secrets: ToolExecutionSecrets;
 }
 
+export const TOOL_SANDBOX_REQUIREMENTS = ['none', 'command', 'filesystem', 'external'] as const;
+export type ToolSandboxRequirement = typeof TOOL_SANDBOX_REQUIREMENTS[number];
+
+export const SANDBOX_CAPABILITY_STATUSES = [
+  'available',
+  'not_required',
+  'external',
+  'unavailable',
+] as const;
+export type SandboxCapabilityStatus = typeof SANDBOX_CAPABILITY_STATUSES[number];
+
+export interface PreToolUseSandboxContext {
+  requirement: ToolSandboxRequirement;
+  status: SandboxCapabilityStatus;
+  unavailableReason?: string;
+}
+
 // ============================================================================
 // Policy matrix
 // ============================================================================
@@ -288,6 +305,8 @@ export interface PreToolUseInput {
    * intentionally introduced in a later policy change.
    */
   executionFacts?: ToolExecutionFacts;
+  /** Minimal runtime-owned capability state for this tool's execution boundary. */
+  sandbox?: PreToolUseSandboxContext;
 }
 
 export interface PreToolUseResult {
@@ -308,6 +327,17 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
     if (typeof cmd === 'string') {
       category = categorizeBash(cmd);
     }
+  }
+
+  const sandboxBlockReason = sandboxCapabilityBlockReason(input.sandbox);
+  if (sandboxBlockReason) {
+    return {
+      proceed: false,
+      needsPrompt: false,
+      category,
+      scopeKey: permissionScopeKey(input.toolName, input.args, category),
+      blockReason: sandboxBlockReason,
+    };
   }
 
   // (2) Policy lookup + turn-remembered check
@@ -342,6 +372,28 @@ export function preToolUse(input: PreToolUseInput): PreToolUseResult {
       args: input.args,
     },
   };
+}
+
+function sandboxCapabilityBlockReason(
+  sandbox: PreToolUseSandboxContext | undefined,
+): string | undefined {
+  if (!sandbox || sandbox.requirement === 'none') return undefined;
+  if (sandbox.status === 'unavailable') {
+    return sandbox.unavailableReason
+      ? `Sandbox capability "${sandbox.requirement}" is unavailable: ${sandbox.unavailableReason}`
+      : `Sandbox capability "${sandbox.requirement}" is unavailable`;
+  }
+  if (sandbox.requirement === 'external' && sandbox.status !== 'external') {
+    return 'Tool requires an explicit external sandbox capability';
+  }
+  if (
+    sandbox.requirement !== 'external'
+    && sandbox.status !== 'available'
+    && sandbox.status !== 'not_required'
+  ) {
+    return `Sandbox capability "${sandbox.requirement}" is not satisfied by status "${sandbox.status}"`;
+  }
+  return undefined;
 }
 
 export function permissionScopeKey(toolName: string, args: unknown, category: ToolCategory): string {

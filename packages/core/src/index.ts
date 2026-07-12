@@ -178,12 +178,17 @@ export type {
   ToolExecutionNetwork,
   ToolExecutionSecrets,
   ToolExecutionWriteBack,
+  ToolSandboxRequirement,
+  SandboxCapabilityStatus,
+  PreToolUseSandboxContext,
   PreToolUseInput,
   PreToolUseResult,
   PermissionRequest,
   PermissionResponse,
 } from './permission.js';
 export {
+  TOOL_SANDBOX_REQUIREMENTS,
+  SANDBOX_CAPABILITY_STATUSES,
   PERMISSION_MODES,
   TOOL_CATEGORIES,
   PERMISSION_POLICY,

@@ -296,6 +296,68 @@ describe('preToolUse — bypass mode', () => {
   });
 });
 
+describe('preToolUse — sandbox capability gate', () => {
+  function withSandbox(
+    toolName: string,
+    args: unknown,
+    mode: PermissionMode,
+    requirement: 'command' | 'filesystem' | 'external',
+    status: 'available' | 'not_required' | 'external' | 'unavailable',
+  ) {
+    return preToolUse({
+      toolName,
+      args,
+      mode,
+      turnRemembered: new Set(),
+      sandbox: { requirement, status },
+    });
+  }
+
+  test('execute shell requires command capability before the existing allow decision', () => {
+    expect(withSandbox('Bash', { command: 'npm install x' }, 'execute', 'command', 'available').proceed)
+      .toBe(true);
+    const unavailable = withSandbox(
+      'Bash',
+      { command: 'npm install x' },
+      'execute',
+      'command',
+      'unavailable',
+    );
+    expect(unavailable.proceed).toBe(false);
+    expect(unavailable.needsPrompt).toBe(false);
+    expect(unavailable.blockReason).toContain('unavailable');
+  });
+
+  test('capability success does not change ask/explore or destructive policy semantics', () => {
+    expect(withSandbox('Bash', { command: 'npm install x' }, 'ask', 'command', 'available').needsPrompt)
+      .toBe(true);
+    expect(withSandbox('Bash', { command: 'npm install x' }, 'explore', 'command', 'available').proceed)
+      .toBe(false);
+    expect(withSandbox('Bash', { command: 'rm file' }, 'execute', 'command', 'available').needsPrompt)
+      .toBe(true);
+  });
+
+  test('bypass satisfies local requirements as not_required', () => {
+    expect(withSandbox('Bash', { command: 'npm install x' }, 'bypass', 'command', 'not_required').proceed)
+      .toBe(true);
+  });
+
+  test('filesystem unavailable blocks before ask can create an approval prompt', () => {
+    const result = withSandbox('Write', { path: 'file.txt' }, 'ask', 'filesystem', 'unavailable');
+    expect(result.proceed).toBe(false);
+    expect(result.needsPrompt).toBe(false);
+    expect(result.blockReason).toContain('filesystem');
+  });
+
+  test('external requirements accept only explicit external capability', () => {
+    expect(withSandbox('Read', { path: 'file.txt' }, 'explore', 'external', 'external').proceed)
+      .toBe(true);
+    const local = withSandbox('Read', { path: 'file.txt' }, 'explore', 'external', 'available');
+    expect(local.proceed).toBe(false);
+    expect(local.blockReason).toContain('explicit external');
+  });
+});
+
 describe('preToolUse — turnRemembered', () => {
   test('remembered scope → allow the same tool intent when policy says prompt', () => {
     const args = { path: '/x' };
