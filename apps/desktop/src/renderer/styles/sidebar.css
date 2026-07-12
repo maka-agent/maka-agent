@@ -525,10 +525,6 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  /* #743: content min-height, not a control height — use the spacing ruler
-     (var(--space-6) = 24px), not --h-control-sm (which control-height-converge-
-     contract reserves for interactive controls). */
-  min-height: var(--space-6);
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
@@ -583,16 +579,18 @@
   justify-content: center;
   flex-shrink: 0;
   margin-right: var(--space-1);
-  /* #743: dense meta icon — per docs/design-system.md §1.9, status/dense-meta
-     icons are call-site 12–14px, NOT --icon-size (16px, reserved for chrome/nav/
-     button glyphs). The row's UiButton buttonVariants would force 16px via
-     [&_svg]:size-[var(--icon-size,1rem)] (a cascade leak from borrowing the
-     button for its interaction contract), so scope a local 12px override on the
-     SVG to restore the <Icon size={12}> intent. The wrapper carries no
-     width/height — the SVG owns the footprint. */
+  /* #743: 14px layout slot for the dense-meta status icon
+     (docs/design-system.md §1.9: dense-meta icons are call-site 12–14px). Kept
+     as a documented exception — the wrapper reserves the row's status footprint
+     so the title does not shift when the SVG is overridden to 12px below. */
+  width: 14px;
+  height: 14px;
   color: var(--foreground-secondary);
 }
 .maka-list-row-status-icon svg {
+  /* #743: restore <Icon size={12}> — buttonVariants' [&_svg]:size-[var(--icon-size,1rem)]
+     would force 16px (chrome tier, a cascade leak from borrowing UiButton), so
+     scope a local 12px dense-meta override. The 14px wrapper centers it. */
   width: var(--space-3);
   height: var(--space-3);
 }

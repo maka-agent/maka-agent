@@ -1,15 +1,20 @@
 /**
  * PR-SIDEBAR-INDICATOR-SIZE-CONVERGE-0 (issue #743, follow-up to #738):
  * session-row indicator sizes converge onto tokens. After the fresh-eye
- * codex review the status icon keeps its dense-meta 12px (per
- * docs/design-system.md §1.9 — dense-meta icons are call-site 12–14px, NOT
- * --icon-size 16px) via a local SVG override, instead of the earlier "converge
- * to 16px" which violated the design contract and silently grew the icon
- * 14→16px. The contract pins each indicator's width/height exactly-once per
- * property (a height-only override is caught, not just a width block) and
- * drops the over-broad `.maka-list-row-*` prefix scanner (it governed
- * non-indicators like -main/-text/-menu-trigger and false-positived on
- * `calc(…)`).
+ * codex review:
+ *   - streaming-dot/unread 8px → var(--space-2)
+ *   - status icon keeps its 14px wrapper layout slot (a documented dense-meta
+ *     exception per docs/design-system.md §1.9) AND scopes a local 12px SVG
+ *     override so buttonVariants' [&_svg]:size-[var(--icon-size,1rem)] (16px
+ *     chrome tier, a cascade leak from borrowing UiButton) does not grow the
+ *     <Icon size={12}> dense-meta glyph. The wrapper footprint stays 14px so
+ *     the title does not shift.
+ *   - .maka-list-row-text min-height was dropped — the row's 32px control
+ *     min-height + grid center owns the height, so the 24px was redundant.
+ *
+ * The contract pins each indicator's width/height/min-height exactly-once
+ * across rest blocks AND within each block (a `height: a; height: b` in one
+ * block is caught, not just a second block).
  */
 
 import { strict as assert } from 'node:assert';
@@ -24,15 +29,14 @@ function styleRules(css: string): Array<[string, string]> {
   });
 }
 
-function decl(body: string, prop: string): string | undefined {
-  const re = new RegExp(`(?:^|[\\n;])\\s*${prop}\\s*:\\s*([^;}]*)`, 'i');
-  const m = body.match(re);
-  return m ? m[1].trim().replace(/\s+/g, ' ') : undefined;
+/** ALL declarations of `prop` within one block (global match), so a
+ *  `height: var(--space-2); height: var(--space-3)` same-block override is
+ *  surfaced as two declarations, not collapsed to the first. */
+function declarationsIn(body: string, prop: string): string[] {
+  const re = new RegExp(`(?:^|[\\n;])\\s*${prop}\\s*:\\s*([^;}]*)`, 'ig');
+  return [...body.matchAll(re)].map((m) => m[1].trim().replace(/\s+/g, ' '));
 }
 
-/** All rest-state blocks whose subject is exactly `subjectSelector` (no state
- *  pseudo, no attribute, no @media prelude). Returns ALL matches so a later
- *  same-selector override (the cascade winner) is caught, not just the first. */
 function restBlocks(css: string, subjectSelector: string): string[] {
   const escaped = subjectSelector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const re = new RegExp(`^${escaped}\\s*$`);
@@ -45,57 +49,46 @@ function restBlocks(css: string, subjectSelector: string): string[] {
   return blocks;
 }
 
-/** Rest blocks that actually set `prop` — e.g. the @media animation-only block
- *  for streaming-dot sets no width, so it is excluded. Counting these lets a
- *  height-only override (a second block setting just height) be caught. */
-function restBlocksSetting(css: string, subjectSelector: string, prop: string): string[] {
-  return restBlocks(css, subjectSelector).filter((b) => decl(b, prop) !== undefined);
-}
-
-/** Assert `prop` is set in exactly one rest block of `selector`, with `expected`
- *  value. Catches both first-match and height-only-override false-greens. */
+/** Assert `prop` is declared exactly once across all rest blocks of `selector`,
+ *  with `expected` value. Catches both a second rest block and a same-block
+ *  duplicate (`height: a; height: b`) — either yields two declarations. */
 function assertExactlyOnce(css: string, selector: string, prop: string, expected: string, label: string): void {
-  const blocks = restBlocksSetting(css, selector, prop);
-  assert.equal(blocks.length, 1, `${label}: ${prop} must be set in exactly one rest block (a later same-selector override would win the cascade); got ${blocks.length}`);
-  assert.equal(decl(blocks[0]!, prop), expected, `${label}: ${prop} must be ${expected}`);
+  const blocks = restBlocks(css, selector);
+  const decls = blocks.flatMap((b) => declarationsIn(b, prop));
+  assert.equal(decls.length, 1, `${label}: ${prop} must be declared exactly once (a later rest block OR a same-block duplicate would both win the cascade); got ${decls.length}: ${JSON.stringify(decls)}`);
+  assert.equal(decls[0], expected, `${label}: ${prop} must be ${expected}`);
 }
 
 describe('PR-SIDEBAR-INDICATOR-SIZE-CONVERGE-0 contract (issue #743)', () => {
-  it('.maka-list-row-streaming-dot width and height are each var(--space-2), set exactly once', async () => {
+  it('.maka-list-row-streaming-dot width and height are each var(--space-2), declared exactly once', async () => {
     const css = stripCssComments(await readAllRendererCss());
     assertExactlyOnce(css, '.maka-list-row-streaming-dot', 'width', 'var(--space-2)', 'streaming-dot');
     assertExactlyOnce(css, '.maka-list-row-streaming-dot', 'height', 'var(--space-2)', 'streaming-dot');
   });
 
-  it('.maka-list-row-unread width and height are each var(--space-2), set exactly once', async () => {
+  it('.maka-list-row-unread width and height are each var(--space-2), declared exactly once', async () => {
     const css = stripCssComments(await readAllRendererCss());
     assertExactlyOnce(css, '.maka-list-row-unread', 'width', 'var(--space-2)', 'unread');
     assertExactlyOnce(css, '.maka-list-row-unread', 'height', 'var(--space-2)', 'unread');
   });
 
-  it('.maka-list-row-text min-height is var(--space-6) (content spacing, not a control token)', async () => {
+  it('.maka-list-row-text declares no min-height (the row 32px control min-height + grid center own the height)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    assertExactlyOnce(css, '.maka-list-row-text', 'min-height', 'var(--space-6)', 'list-row-text');
+    const decls = restBlocks(css, '.maka-list-row-text').flatMap((b) => declarationsIn(b, 'min-height'));
+    assert.equal(decls.length, 0, `.maka-list-row-text must not set min-height (redundant with .maka-list-row's 32px); got ${JSON.stringify(decls)}`);
   });
 
-  it('.maka-list-row-status-icon wrapper declares no width/height; the SVG is var(--space-3) (12px dense meta)', async () => {
+  it('.maka-list-row-status-icon wrapper is 14px (dense-meta slot) and the SVG is var(--space-3) (12px)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    // wrapper: no width/height (the SVG owns the footprint)
-    const wrapper = restBlocks(css, '.maka-list-row-status-icon');
-    for (const b of wrapper) {
-      assert.equal(decl(b, 'width'), undefined, 'status-icon wrapper must not set width');
-      assert.equal(decl(b, 'height'), undefined, 'status-icon wrapper must not set height');
-    }
-    // svg: 12px dense-meta override (var(--space-3)), not --icon-size 16px
+    assertExactlyOnce(css, '.maka-list-row-status-icon', 'width', '14px', 'status-icon wrapper');
+    assertExactlyOnce(css, '.maka-list-row-status-icon', 'height', '14px', 'status-icon wrapper');
     assertExactlyOnce(css, '.maka-list-row-status-icon svg', 'width', 'var(--space-3)', 'status-icon svg');
     assertExactlyOnce(css, '.maka-list-row-status-icon svg', 'height', 'var(--space-3)', 'status-icon svg');
   });
 
-  it('assertExactlyOnce flags a height-only same-selector override (negative case)', () => {
-    const fakeCss =
-      '.maka-list-row-unread { width: var(--space-2); height: var(--space-2); }\n' +
-      '.maka-list-row-unread { height: var(--space-3); }';
-    const blocks = restBlocksSetting(fakeCss, '.maka-list-row-unread', 'height');
-    assert.equal(blocks.length, 2, 'a height-only override must be caught (two height blocks), not silently pass via first-match');
+  it('assertExactlyOnce flags a same-block duplicate override (negative case)', () => {
+    const fakeCss = '.maka-list-row-unread { width: var(--space-2); height: var(--space-2); height: var(--space-3); }';
+    const decls = restBlocks(fakeCss, '.maka-list-row-unread').flatMap((b) => declarationsIn(b, 'height'));
+    assert.equal(decls.length, 2, 'a same-block height duplicate must be caught (two declarations), not silently pass via first-match');
   });
 });
