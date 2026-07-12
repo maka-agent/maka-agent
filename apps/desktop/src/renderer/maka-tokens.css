@@ -499,7 +499,7 @@
   --w-rail: 240px;
   --h-titlebar: 36px;
   --h-toolbar: 40px;
-  --h-composer-min: 56px;
+  --h-composer-min: 44px;
 
   /* titlebar control baseline (macOS traffic-light center) */
   --maka-titlebar-control-safe-left: 94px;
