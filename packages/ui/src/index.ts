@@ -33,15 +33,11 @@ export * from './bot-brand.js';
 export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
 export * from './primitives/card.js';
-// `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
-// deliberately NOT re-exported here: they are internal styling tables / a
-// single-consumer dot that the chat call sites apply via relative import, so
-// keeping them off the package
-// barrel preserves the governance goal — they stay renamable/removable without a
-// public-API break. (Contrast `buttonVariants`, which IS public because it has
-// external consumers.) `LiveIndicator` is exported to public only when the
-// reasoning / composer / onboarding live dots actually migrate onto it — not
-// speculatively before a second consumer exists.
+// `markerVariants` / `toolVariants` are deliberately NOT re-exported here:
+// they are internal styling tables that the chat call sites apply via relative
+// import, so keeping them off the package barrel preserves the governance goal
+// — they stay renamable/removable without a public-API break. (Contrast
+// `buttonVariants`, which IS public because it has external consumers.)
 //
 // `previewVariants` (#332 PR4) IS re-exported: its file-diff parts have a second,
 // cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the
@@ -125,18 +121,16 @@ export type { PageHeaderProps } from './primitives/page-header.js';
 export {
   summarizeTrowTools,
   trowActivityKind,
-  activeTrowTool,
   isTrowRunning,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
-// #646 run→done seam: pure status→motion mapping for a tool row (delayed shimmer
-// + one-shot settle fade gated to live settles). Unit-tested.
+// #646 run→done seam: a tool row shimmers while running and settles by the
+// light band stopping (no opacity fade — parallel settles don't stack).
+// Unit-tested.
 export {
   isToolRowRunning,
   isToolRowSettled,
-  deriveToolRowMotion,
-  type ToolRowMotion,
 } from './tool-activity/tool-row-motion.js';
 // Streaming UI rework: per-word fade-in for streamed text (replaces the ▎
 // caret). Pure append-record ring + tokenizer are unit-tested; the hook feeds

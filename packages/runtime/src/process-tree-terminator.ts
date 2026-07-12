@@ -32,6 +32,7 @@ export function terminateChildProcessTree(
   return terminateProcessTree({
     pid,
     signal,
+    hasExited: () => child.exitCode !== null || child.signalCode !== null,
     fallback: () => {
       try { return child.kill(signal); } catch { return false; }
     },

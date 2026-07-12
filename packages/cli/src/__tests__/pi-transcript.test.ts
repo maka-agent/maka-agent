@@ -109,6 +109,60 @@ describe('Maka Pi TUI transcript', () => {
     assert.ok(changes >= 2);
   });
 
+  // Goal kill-switch (B1): the turn outcome must distinguish a clean end from a
+  // user-stop / abort / error so the runner can skip goal auto-continuation and
+  // never re-inject after the user interrupts (or after a failing turn).
+  test('reports a clean turn as not aborted / not errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'end_turn' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.deepEqual(outcome, { aborted: false, errored: false });
+  });
+
+  test('reports a user_stop completion as aborted (Stop affordance)', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'user_stop' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.aborted, true);
+    assert.equal(outcome.errored, false);
+  });
+
+  test('reports an abort event as aborted', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'abort', reason: 'user_stop' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.aborted, true);
+  });
+
+  test('reports a stream error event as errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'error', recoverable: false, message: 'boom' })]);
+    let errorRaised = false;
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi', onError: () => { errorRaised = true; } });
+    assert.equal(outcome.errored, true);
+    assert.equal(errorRaised, true);
+  });
+
+  test('reports a complete{stopReason:error} finish as errored (non-throwing error, e.g. content-filter)', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'error' })]);
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.errored, true);
+    assert.equal(outcome.aborted, false);
+  });
+
+  test('reports a thrown sendPrompt as errored', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = {
+      async *sendPrompt(): AsyncIterable<SessionEvent> {
+        throw new Error('network down');
+      },
+    };
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+    assert.equal(outcome.errored, true);
+    assert.equal(outcome.aborted, false);
+  });
+
   test('reports completed manual compact runs when there was nothing to compact', async () => {
     const state = createMakaPiTranscriptState();
     const driver = new RecordingDriver([
@@ -401,6 +455,24 @@ describe('Maka Pi TUI transcript', () => {
         text: 'Context compacted to keep this session within the model window.',
       },
     ]);
+  });
+
+  test('rebuilds fail-open notes without claiming history was trimmed', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [{
+      type: 'system_note',
+      id: 'note-failed-open',
+      turnId: 'turn-1',
+      ts: 1,
+      kind: 'context_compaction_failed_open',
+    }] satisfies StoredMessage[]);
+
+    assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice'), [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Context summary failed; the session continued without a new summary.',
+    }]);
   });
 
   test('renders every transcript line within the terminal width', () => {
@@ -703,7 +775,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(compact, /step one/);
   });
 
-  test('keeps a yielded background Bash card running until the process settles', () => {
+  test('keeps a background Bash card running until the process settles', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
@@ -794,7 +866,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(rendered, /still running/);
   });
 
-  test('shows polled background output instead of the stale pre-yield live delta', () => {
+  test('shows polled background output instead of a stale live delta', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';
     applyMakaSessionEventToTranscript(state, event({
@@ -1122,9 +1194,9 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /boom-stderr/);
   });
 
-  test('does not repeat the command when a Bash yield already shows it', () => {
+  test('does not repeat the command when a background Bash result already shows it', () => {
     const state = createMakaPiTranscriptState();
-    // A Bash background yield carries the command on both the input and the
+    // A Bash background handoff carries the command on both the input and the
     // shell_run result; the expanded card must print `$ cmd` once, not twice.
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash', args: { command: 'npm run watch' },
@@ -1145,7 +1217,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /cwd: \/repo/); // cwd is not in the input summary, so shown once here
   });
 
-  test('renders the full command for a multiline background Bash yield', () => {
+  test('renders the full command for a multiline background Bash result', () => {
     const state = createMakaPiTranscriptState();
     // The Bash input summary shows only the first line, so a multiline command
     // must be rendered in full by the result or the rest is lost.

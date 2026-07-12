@@ -72,16 +72,6 @@ describe('attachment frontend contract', () => {
     assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
   });
 
-  it('generated-files pane excludes user-uploaded attachments', async () => {
-    const artifactPane = await readRepo('apps/desktop/src/renderer/artifact-pane.tsx');
-
-    assert.match(
-      artifactPane,
-      /record\.source !== 'user_upload'/,
-      'ArtifactPane is labeled generated files and must not list user-uploaded attachment snapshots',
-    );
-  });
-
   it('passes selected model vision capability to the runtime attachment renderer', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
 

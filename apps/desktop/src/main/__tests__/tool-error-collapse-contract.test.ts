@@ -1,0 +1,110 @@
+/**
+ * PR-TOOL-ERROR-COLLAPSE-0 (issue #741): an errored tool must show one concise
+ * summary (ToolErrorBanner) by default and keep the raw diagnostic payload
+ * behind a collapsed disclosure, so a verbose validation/runtime failure
+ * cannot grow a turn to ~2631px and dominate the conversation until expanded.
+ *
+ * The banner already truncates errorText to 240px and offers a copy action;
+ * the fix adds an inner Collapsible (closed by default, keyboard-reachable
+ * trigger) that owns the raw result, and removes the raw result from the
+ * shared panel so the truncated banner summary is not duplicated inline.
+ *
+ * These tests render the public ToolActivity surface (boxed card path) with
+ * a single errored item whose error text is long enough that its tail sits
+ * past the banner's 240px truncation. The tail marker must NOT appear in the
+ * default (collapsed) markup — it only renders inside the CollapsiblePanel,
+ * which Base UI leaves unmounted while closed.
+ */
+
+import { strict as assert } from 'node:assert';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, it } from 'node:test';
+import type { ToolActivityItem } from '@maka/ui';
+import { ToolActivity, ToolErrorDetails } from '@maka/ui';
+
+const TAIL_MARKER = 'TAIL_MARKER_SCHEMA_DETAILS';
+
+// A long, natural-language error whose tail sits past the banner's 240px
+// truncation. Repeating varied prose (not a single-char run) so redactSecrets
+// does not collapse it to <redacted> and shorten it under the truncation.
+const LONG_ERROR = 'Validation failed: ' + Array.from({length: 15}, (_, i) => `field ${i} invalid; `).join('') + TAIL_MARKER;
+
+function erroredItem(errorText: string): ToolActivityItem {
+  return {
+    toolUseId: 'tu_err_1',
+    toolName: 'read',
+    status: 'errored',
+    args: { path: '/some/file.ts' },
+    result: { kind: 'text', text: errorText },
+  };
+}
+
+function renderErrored(errorText: string): string {
+  return renderToStaticMarkup(createElement(ToolActivity, { items: [erroredItem(errorText)] }));
+}
+
+describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
+  it('renders the concise failure banner by default for an errored tool', () => {
+    const markup = renderErrored(LONG_ERROR);
+    assert.match(markup, /工具调用失败/, 'errored tool must show the ToolErrorBanner summary');
+    assert.match(markup, /Validation failed:/, 'banner must show the start of the error text');
+  });
+
+  it('collapses the raw diagnostic payload by default (tail marker not rendered alongside the banner)', () => {
+    const markup = renderErrored(LONG_ERROR);
+    assert.doesNotMatch(
+      markup,
+      new RegExp(TAIL_MARKER),
+      'raw payload tail must be collapsed by default — the banner already shows the first 240px, the rest must not render until expanded',
+    );
+  });
+
+  it('exposes a keyboard-reachable trigger to expand the raw diagnostics', () => {
+    const markup = renderErrored(LONG_ERROR);
+    assert.match(markup, /显示原始诊断/, 'errored tool must label the raw-details disclosure trigger');
+  });
+
+  it('does not collapse the banner summary itself — the first 240px stays visible', () => {
+    // A short error (under the 240px banner truncation) still renders its text
+    // in the banner; only the raw payload (which would duplicate it) collapses.
+    const markup = renderErrored('short failure reason');
+    assert.match(markup, /short failure reason/, 'a short error must still appear in the banner');
+    assert.match(markup, /显示原始诊断/, '...and still offers the raw-details disclosure');
+  });
+
+  it('does not render an empty shared output panel for an errored tool with no invocation (args:{})', () => {
+    // #741 P2: args:{} + errored + non-owned used to leave an empty destructive
+    // tool-output box (the raw moved to the disclosure, but showResult kept the
+    // shared panel open with nothing in it).
+    const markup = renderToStaticMarkup(createElement(ToolActivity, { items: [{
+      toolUseId: 'tu_empty', toolName: 'unknown_tool', status: 'errored', args: {},
+      result: { kind: 'text', text: 'validation failed' },
+    }] }));
+    assert.doesNotMatch(markup, /data-slot="tool-output"/, 'an errored tool whose raw lives in the disclosure must not also render an empty shared output panel');
+  });
+
+  it('renders the raw payload inside the disclosure when expanded (open=true)', () => {
+    // #741 P3: the collapsed-default tests above prove the tail is hidden; this
+    // proves the disclosure actually mounts the raw when open, so "reachable"
+    // is verified, not just "hidden by default".
+    const markup = renderToStaticMarkup(createElement(ToolErrorDetails, { open: true, children: TAIL_MARKER }));
+    assert.match(markup, new RegExp(TAIL_MARKER), 'an expanded disclosure must render the raw payload');
+  });
+
+  it('hides the raw payload when the disclosure is collapsed (open=false)', () => {
+    const markup = renderToStaticMarkup(createElement(ToolErrorDetails, { open: false, children: TAIL_MARKER }));
+    assert.doesNotMatch(markup, new RegExp(TAIL_MARKER), 'a collapsed disclosure must not render the raw payload');
+  });
+
+  it('caps the banner summary at 4 logical lines so a multi-line error cannot grow it to ~2.6kpx', () => {
+    // #741 P2: a 240-char slice kept newlines, so a 180-line error still
+    // rendered ~161 lines (~2656px). The summary now caps both chars and lines.
+    const multiLine = Array.from({ length: 180 }, (_, i) => `line ${i}`).join('\n');
+    const markup = renderErrored(multiLine);
+    const m = markup.match(/data-slot="alert-description"[^>]*>([\s\S]*?)<\/div>/);
+    const summary = m?.[1] ?? '';
+    assert.ok(summary.split('\n').length <= 4, `banner summary must cap at 4 lines, got ${summary.split('\n').length}`);
+    assert.ok(summary.endsWith('…'), 'a truncated multi-line summary must end with an ellipsis');
+  });
+});

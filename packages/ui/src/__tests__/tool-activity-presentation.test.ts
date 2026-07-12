@@ -567,7 +567,7 @@ describe('tool activity presentation', () => {
     assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
   });
 
-  it('keeps pre-yield live output when shell_run lands with empty streams', () => {
+  it('keeps pre-handoff live output when shell_run lands with empty streams', () => {
     const markup = renderToStaticMarkup(createElement(ToolActivity, {
       items: [{
         toolUseId: 'tool-shell-run-empty',

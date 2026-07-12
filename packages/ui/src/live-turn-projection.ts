@@ -298,7 +298,7 @@ export function applyLiveTurnEvent(
  * Text smoother handoff: drop the committed text/thinking slots for `stepId`.
  * Tools that still carry live stream evidence (outputChunks) stay — empty
  * shell_run durable results do not cover them, and co-located Bash+answer
- * steps must not lose pre-yield output when the answer settles.
+ * steps must not lose pre-handoff output when the answer settles.
  */
 export function settleLiveTurnStep(
   current: LiveTurnProjection,
@@ -327,7 +327,7 @@ export function settleLiveTurnStep(
 /**
  * True when a persisted tool_result can replace live stream evidence for the
  * same toolUseId. Empty shell_run/terminal bodies do not cover live chunks —
- * background Bash yields an empty shell_run while live output is the only
+ * background Bash returns an empty shell_run while live output is the only
  * evidence the user already saw.
  */
 function durableStreamEvidence(

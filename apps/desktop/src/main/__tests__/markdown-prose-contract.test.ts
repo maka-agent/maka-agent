@@ -408,3 +408,100 @@ describe('TABLE-A11Y-SEMANTICS-0 contract (#618 item 5)', () => {
     assert.match(wrapper!.decls, /max-width:\s*100%/, 'the wrapper caps at the prose measure so wide tables scroll instead of stretching the bubble');
   });
 });
+
+describe('MARKDOWN-PROSE-HEADING-HIERARCHY-0 contract (#739)', () => {
+  // Issue #739: the #546 Phase B ladder (1.4615 / 1.2308 / 1.0769 / 1) chased
+  // integer px targets at the 13px base, but h3 (1.0769em, +8% over body) was
+  // too close to body copy — long answers relied on weight alone to
+  // distinguish H3 sections. #739 re-pins the ladder to a uniform 0.15em
+  // step (1.45 / 1.30 / 1.15 / 1): each tier clears the one below by a fixed
+  // 0.15em increment (≈2px at the 13px base; the relative gap widens per tier
+  // — +15% over body for h3, +13% over h3 for h2, +12% over h2 for h1),
+  // CDP-verified as the minimum distinguishable step.
+  //
+  // This contract locks the STEP, not specific em values: a future patch
+  // may widen the step (e.g. 0.20em for a roomier ladder), but must not
+  // narrow it back to the #546 shape where h3-h4 = 0.08em and hierarchy
+  // collapses back onto weight. h4 stays at 1em (GitHub's 1em h4
+  // convention: a heading via weight + secondary color, not size).
+  //
+  // Source of truth: issue #739 acceptance ("H2/H3 sections clearly
+  // distinguishable from body copy") + CDP comparison of +8% / +15% / +23%
+  // h3 tiers — the 0.15em step was the smallest gap that read as a section.
+  const HEADING_STEP_EM = 0.15;
+
+  const headingEm = (blocks: ReturnType<typeof cssBlocks>, sel: string): number => {
+    const b = blocks.find(({ selectors }) => selectors === sel);
+    assert.ok(b, `expected ${sel} rule in prose.css`);
+    const m = b!.decls.match(/font-size:\s*([\d.]+)em/);
+    assert.ok(m, `expected a font-size em declaration on ${sel}; got ${b!.decls}`);
+    return parseFloat(m![1]);
+  };
+
+  it('each heading tier clears the one below by >=0.15em so hierarchy reads by size, not weight alone', async () => {
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const h1 = headingEm(blocks, '.maka-prose h1');
+    const h2 = headingEm(blocks, '.maka-prose h2');
+    const h3 = headingEm(blocks, '.maka-prose h3');
+    const h4 = headingEm(blocks, '.maka-prose h4');
+    // Compare via toFixed(4) — exact enough to reject a 0.1451em gap, but
+    // robust to float noise (1.15 - 1.0 = 0.14999... rounds to 0.1500). A
+    // centi-em Math.round(x*100) check would let 1.1451em through (115 vs
+    // 100, gap "15"), understating the threshold.
+    const gap = (a: number, b: number) => parseFloat((a - b).toFixed(4));
+    assert.equal(h4, 1, 'h4 sits at 1em and reads as a heading via weight + secondary color (GitHub 1em h4 convention)');
+    assert.ok(gap(h3, h4) >= HEADING_STEP_EM, `h3 (${h3}em) must clear body by >=${HEADING_STEP_EM}em so it reads as a section, not body; got ${gap(h3, h4)}em (the #546 ladder's 0.0769em gap was the #739 defect)`);
+    assert.ok(gap(h2, h3) >= HEADING_STEP_EM, `h2 (${h2}em) must clear h3 by >=${HEADING_STEP_EM}em; got ${gap(h2, h3)}em`);
+    assert.ok(gap(h1, h2) >= HEADING_STEP_EM, `h1 (${h1}em) must clear h2 by >=${HEADING_STEP_EM}em; got ${gap(h1, h2)}em`);
+  });
+});
+
+describe('MARKDOWN-PROSE-RENDER-OWNER-0 contract (#739)', () => {
+  // Streamdown's default components tag every markdown element with Tailwind
+  // utility classes (h1 "text-3xl", h3 "text-xl", th/td "px-4 py-2 text-sm",
+  // thead "bg-muted/80", tbody "divide-y", blockquote "border-l-4", ul
+  // "list-disc", ...). Those sit in the `utilities` cascade layer and override
+  // prose.css's `components`-layer markdown rules, so the .maka-prose layer
+  // never reached the rendered DOM — the heading ladder and table padding
+  // declared in prose.css were silently overwritten (#739). markdown-body.tsx
+  // renders bare semantic elements via bareElement so prose.css owns all
+  // markdown typography. This contract locks the bare override for the
+  // heading + table-structure elements so a future patch does not silently
+  // drop it and let Streamdown's utilities back in (which would re-break the
+  // heading ladder and table fit the moment Tailwind generates those classes
+  // from elsewhere in the codebase).
+  const BARE_OVERRIDDEN = ['h1', 'h2', 'h3', 'h4', 'blockquote', 'ul', 'li', 'thead', 'tbody', 'tr', 'th', 'td'] as const;
+  const NOT_OVERRIDDEN = ['p', 'ol', 'section', 'h5', 'h6'] as const;
+
+  it('markdown-body overrides heading + table-structure elements with bareElement so prose.css reaches the DOM', async () => {
+    const src = await readFile(MARKDOWN_BODY, 'utf8');
+    assert.match(src, /function bareElement/, 'markdown-body.tsx must define a bareElement helper that strips Streamdown utility classes so prose.css reaches the rendered markdown (#739)');
+    for (const tag of BARE_OVERRIDDEN) {
+      assert.match(
+        src,
+        new RegExp(`\\b${tag}:\\s*bareElement\\(['"]${tag}['"]\\)`),
+        `markdown-body.tsx components prop must override ${tag} with bareElement('${tag}') so prose.css rules reach the rendered ${tag} instead of Streamdown's Tailwind utilities`,
+      );
+    }
+  });
+
+  it('markdown-body does NOT override p/ol/section/h5/h6 (functional logic or no prose.css rule)', async () => {
+    const src = await readFile(MARKDOWN_BODY, 'utf8');
+    for (const tag of NOT_OVERRIDDEN) {
+      assert.ok(
+        !new RegExp(`\\b${tag}:\\s*bareElement\\(['"]${tag}['"]\\)`).test(src),
+        `markdown-body.tsx must NOT override ${tag} with bareElement — p/ol/section carry Streamdown functional logic (p unwraps a lone image; ol/section clean streaming footnotes), and h5/h6 have no prose.css rule so stripping would lose Streamdown's heading styling`,
+      );
+    }
+  });
+
+  it('Daily Review section-body carries .maka-prose so heading/table get a prose-css owner outside the chat bubble', async () => {
+    const src = await readFile(resolve(REPO_ROOT, 'packages', 'ui', 'src', 'daily-review-panel.tsx'), 'utf8');
+    assert.match(
+      src,
+      /maka-daily-review-archive-section-body[^"]* maka-prose|maka-prose[^"]* maka-daily-review-archive-section-body/,
+      'daily-review-panel.tsx must put .maka-prose on the section-body div so heading/table/blockquote get prose.css styling — they have no Streamdown utility fallback now that markdown-body strips utilities, and Daily Review has no chat-bubble .maka-prose ancestor (#739)',
+    );
+  });
+});

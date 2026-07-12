@@ -182,6 +182,13 @@ export function toggleAllThinkingExpansion(state: MakaPiTranscriptState): boolea
   return true;
 }
 
+export interface TurnOutcome {
+  /** The turn was user-stopped or aborted (double-Escape → driver.stop()). */
+  aborted: boolean;
+  /** The turn ended in an error (stream `error` event or thrown failure). */
+  errored: boolean;
+}
+
 export async function submitPromptToTranscript(input: {
   state: MakaPiTranscriptState;
   driver: Pick<MakaSessionDriver, 'sendPrompt'>;
@@ -193,17 +200,36 @@ export async function submitPromptToTranscript(input: {
    * attention on failures without diffing transcript entries every render.
    */
   onError?: () => void;
-}): Promise<void> {
+}): Promise<TurnOutcome> {
   appendUserPrompt(input.state, input.prompt);
   input.onChange?.();
 
+  // Surface how the turn ended so the host can gate goal auto-continuation: a
+  // user_stop/abort (the Stop affordance) or an errored turn must NOT trigger
+  // another autonomous turn — mirrors the desktop `turnAborted` guard.
+  let aborted = false;
+  let errored = false;
   try {
     for await (const event of input.driver.sendPrompt(input.prompt)) {
       applyMakaSessionEventToTranscript(input.state, event);
-      if (event.type === 'error') input.onError?.();
+      if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
+        aborted = true;
+      }
+      if (event.type === 'error') {
+        errored = true;
+        input.onError?.();
+      }
+      // A non-throwing error finish (e.g. content-filter) arrives as
+      // complete{stopReason:'error'} with no separate `error` event — treat it as
+      // errored too, so goal continuation never re-injects into a failed turn
+      // (self-sufficient, not reliant on the session-status backstop).
+      if (event.type === 'complete' && event.stopReason === 'error') {
+        errored = true;
+      }
       input.onChange?.();
     }
   } catch (error) {
+    errored = true;
     input.state.entries.push({
       kind: 'notice',
       level: 'error',
@@ -212,6 +238,7 @@ export async function submitPromptToTranscript(input: {
     input.onError?.();
     input.onChange?.();
   }
+  return { aborted, errored };
 }
 
 export async function submitCompactToTranscript(input: {
@@ -620,6 +647,8 @@ function systemNoteText(message: SystemNoteMessage): string | undefined {
       return 'Model changed.';
     case 'context_compacted':
       return 'Context compacted to keep this session within the model window.';
+    case 'context_compaction_failed_open':
+      return 'Context summary failed; the session continued without a new summary.';
     case 'error':
       return 'Session recorded an error.';
     case 'abort':

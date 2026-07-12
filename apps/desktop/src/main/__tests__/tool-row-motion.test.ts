@@ -9,7 +9,6 @@ import { describe, it } from 'node:test';
 import {
   isToolRowRunning,
   isToolRowSettled,
-  deriveToolRowMotion,
   type ToolActivityItem,
 } from '@maka/ui';
 
@@ -33,28 +32,4 @@ describe('tool-row run→done seam (#646)', () => {
     }
   });
 
-  it('shimmers while running regardless of whether it was ever running', () => {
-    for (const status of RUNNING) {
-      const motion = deriveToolRowMotion({ status, everRunning: true });
-      assert.deepEqual(motion, { shimmer: true, settled: false, settling: false });
-    }
-  });
-
-  it('plays the settle fade only for a row that was seen running in this view', () => {
-    for (const status of SETTLED) {
-      // A live run→done: the row was running, then settled → land it.
-      assert.deepEqual(
-        deriveToolRowMotion({ status, everRunning: true }),
-        { shimmer: false, settled: true, settling: true },
-        `${status} after a live run settles with a fade`,
-      );
-      // A replayed transcript row: mounted already terminal, never ran here →
-      // stays static so loaded history does not fade in on scroll.
-      assert.deepEqual(
-        deriveToolRowMotion({ status, everRunning: false }),
-        { shimmer: false, settled: true, settling: false },
-        `${status} replayed from history does not fade`,
-      );
-    }
-  });
 });

@@ -217,7 +217,10 @@ describe('AiSdkFlow seam', () => {
       },
     ];
     const backend = new ScriptedBackend({
-      events: [ev({ type: 'complete', stopReason: 'end_turn' })],
+      events: [
+        ev({ type: 'text_complete', messageId: 'm1', text: 'ok' }),
+        ev({ type: 'complete', stopReason: 'end_turn' }),
+      ],
     });
     const flow = new AiSdkFlow({ backend });
     let idSeq = 0;
@@ -240,6 +243,7 @@ describe('AiSdkFlow seam', () => {
     });
 
     assert.equal(result.status, 'completed');
+    assert.equal(result.finalOutput, 'ok');
     assert.equal(backend.sendInputs.length, 1);
     assert.deepEqual(backend.sendInputs[0], {
       runId: 'rt-2',

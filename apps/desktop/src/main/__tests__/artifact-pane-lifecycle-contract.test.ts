@@ -64,8 +64,8 @@ describe('ArtifactPane async lifecycle contract', () => {
     );
     assert.match(
       src,
-      /const activeRecords = useMemo\([\s\S]*recordsSessionId === sessionId \? records\.filter\(\(record\) => record\.source !== 'user_upload'\) : \[\][\s\S]*\[records, recordsSessionId, sessionId\]/,
-      'rendering must filter artifact records by the current active session id and exclude user uploads from the generated-file pane',
+      /const activeRecords = useMemo\([\s\S]*recordsSessionId === sessionId \? filterUserVisibleArtifacts\(records\) : \[\][\s\S]*\[records, recordsSessionId, sessionId\]/,
+      'rendering must filter artifact records by the current active session id and generated-file visibility policy',
     );
     assert.doesNotMatch(
       src,

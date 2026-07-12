@@ -7,15 +7,16 @@ import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.j
 import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
 import {
-  MAX_BASH_YIELD_TIME_MS,
+  DEFAULT_BASH_TIMEOUT_MS,
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
-  MAX_WRITE_STDIN_YIELD_TIME_MS,
-  MIN_BASH_YIELD_TIME_MS,
+  MAX_WRITE_STDIN_OBSERVE_FOR_MS,
   MIN_PTY_COLS,
   MIN_PTY_ROWS,
+  MIN_WRITE_STDIN_OBSERVE_FOR_MS,
   type BackgroundTaskStopper,
   type PtyControlWriter,
   type ShellRunBashInput,
@@ -57,7 +58,8 @@ type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 
 export interface ShellRunLauncher {
-  runBash(input: ShellRunBashInput): Promise<TerminalToolResult | ShellRunToolResult>;
+  runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult>;
+  runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult>;
 }
 
 export function buildForegroundBashTool(options: BuildForegroundBashToolOptions): MakaTool {
@@ -108,7 +110,7 @@ export function buildLocalForegroundBashTool(
   });
 }
 
-export function buildBackgroundBashTool(
+export function buildManagedBashTool(
   shellRuns: ShellRunLauncher,
   options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
 ): MakaTool {
@@ -118,17 +120,38 @@ export function buildBackgroundBashTool(
     activityKind: 'command',
     description:
       withShellGuidance('Run a shell command in the session cwd.', shell)
-      + ' Set pty: true only for terminal semantics or later input; then use Read or WriteStdin on the returned ref. '
-      + 'Commands that outlive yield_time_ms continue as runtime background tasks. Subject to permission policy.',
+      + ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).`
+      + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms).`
+      + ' Set pty=true together with run_in_background=true only for terminal semantics or later input; use the returned ref with Read or WriteStdin. Subject to permission policy.',
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
-      yield_time_ms: z.number().int().min(MIN_BASH_YIELD_TIME_MS).max(MAX_BASH_YIELD_TIME_MS).optional(),
+      run_in_background: z.boolean().optional(),
       pty: z.boolean().optional(),
+    }).strict().superRefine(({ timeout_ms, run_in_background, pty }, ctx) => {
+      if (!run_in_background && timeout_ms !== undefined && timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
+        ctx.addIssue({
+          code: 'too_big',
+          maximum: MAX_FOREGROUND_BASH_TIMEOUT_MS,
+          origin: 'number',
+          inclusive: true,
+          path: ['timeout_ms'],
+          message: `Foreground Bash timeout may not exceed ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
+        });
+      }
+      if (pty && !run_in_background) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['pty'],
+          message: 'PTY Bash requires run_in_background=true',
+        });
+      }
     }),
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
-    impl: async ({ command, timeout_ms, yield_time_ms, pty }, ctx) => shellRuns.runBash({
+    impl: async ({ command, timeout_ms, run_in_background, pty }, ctx) => shellRuns[
+      run_in_background ? 'runBackgroundBash' : 'runForegroundBash'
+    ]({
       sessionId: ctx.sessionId,
       ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
       sourceTurnId: ctx.turnId,
@@ -137,7 +160,6 @@ export function buildBackgroundBashTool(
       command,
       ...(pty !== undefined ? { pty } : {}),
       shell,
-      ...(yield_time_ms !== undefined ? { yieldTimeMs: yield_time_ms } : {}),
       ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
       abortSignal: ctx.abortSignal,
       emitOutput: ctx.emitOutput,
@@ -178,9 +200,12 @@ export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
     size: z.object({
       cols: z.number().int().min(MIN_PTY_COLS).max(MAX_PTY_COLS),
       rows: z.number().int().min(MIN_PTY_ROWS).max(MAX_PTY_ROWS),
-    }).optional(),
-    yield_time_ms: z.number().int().min(0).max(MAX_WRITE_STDIN_YIELD_TIME_MS).optional(),
-  }).refine((value) => value.input !== undefined || value.size !== undefined, {
+    }).strict().optional(),
+    observe_for_ms: z.number().int()
+      .min(MIN_WRITE_STDIN_OBSERVE_FOR_MS)
+      .max(MAX_WRITE_STDIN_OBSERVE_FOR_MS)
+      .optional(),
+  }).strict().refine((value) => value.input !== undefined || value.size !== undefined, {
     message: 'input and/or size is required',
   });
   return {
@@ -189,15 +214,16 @@ export function buildWriteStdinTool(ptyControls: PtyControlWriter): MakaTool {
     description:
       'Send exact characters to a background PTY and/or resize it first, then return an updated snapshot. '
       + 'No newline is added: use \\r for Enter and \\u0003 for Ctrl-C. Input is audited and must not contain secrets. '
-      + 'yield_time_ms defaults to 250ms; 0 returns at the current parser cut.',
+      + 'observe_for_ms is a bounded output-observation window after the control operation (default 250ms); '
+      + '0 returns at the current parser cut. Completion within the window returns early, but the window is never extended to await completion.',
     parameters,
     permissionRequired: true,
-    impl: ({ ref, input, size, yield_time_ms }, ctx) => ptyControls.writeStdin({
+    impl: ({ ref, input, size, observe_for_ms }, ctx) => ptyControls.writeStdin({
       sessionId: ctx.sessionId,
       ref,
       ...(input !== undefined ? { input } : {}),
       ...(size !== undefined ? { size } : {}),
-      ...(yield_time_ms !== undefined ? { yieldTimeMs: yield_time_ms } : {}),
+      ...(observe_for_ms !== undefined ? { observeForMs: observe_for_ms } : {}),
       abortSignal: ctx.abortSignal,
     }),
   };

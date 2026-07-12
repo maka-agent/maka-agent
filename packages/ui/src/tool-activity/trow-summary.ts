@@ -90,12 +90,19 @@ function isFailed(status: ToolActivityItem['status']): boolean {
 }
 
 /**
- * Build the settled-state summary line for a trow: one clause per distinct
- * activity kind in first-seen order, joined with "，", then a trailing
- * "N 个失败" clause when any tool errored. A failed tool still counts toward
- * its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
+ * Build the summary line for a trow: one clause per distinct activity kind in
+ * first-seen order, joined with "，". With `{ live: true }` (a multi-tool
+ * running group) the line is prefixed with "正在" and the trailing "N 个失败"
+ * clause is suppressed — the failed count changes mid-group, and errored tools
+ * still force-open their disclosure (trowNeedsAttention), so the failure signal
+ * is not lost, just kept off the jittering summary line. Settled (default)
+ * includes the "N 个失败" clause when any tool errored. A failed tool still
+ * counts toward its type bucket (a failed read is "读取 1 个文件" + "1 个失败").
  */
-export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
+export function summarizeTrowTools(
+  items: readonly ToolActivityItem[],
+  options?: { live?: boolean },
+): string {
   const order: TrowActivityKind[] = [];
   const counts = new Map<TrowActivityKind, number>();
   let failed = 0;
@@ -106,24 +113,13 @@ export function summarizeTrowTools(items: readonly ToolActivityItem[]): string {
     if (isFailed(item.status)) failed += 1;
   }
   const clauses = order.map((kind) => KIND_CLAUSE[kind](counts.get(kind) ?? 0));
-  if (failed > 0) clauses.push(`${failed} 个失败`);
-  return clauses.join('，');
-}
-
-/**
- * The "active" tool in a running trow — the last one still in flight
- * (running / pending / waiting_permission). Its description drives the
- * shimmering summary line while the group is working. Falls back to the last
- * item so the summary is never empty.
- */
-export function activeTrowTool(items: readonly ToolActivityItem[]): ToolActivityItem | undefined {
-  for (let i = items.length - 1; i >= 0; i -= 1) {
-    const status = items[i]!.status;
-    if (status === 'running' || status === 'pending' || status === 'waiting_permission') {
-      return items[i];
-    }
-  }
-  return items[items.length - 1];
+  // Running summary prioritizes stability: the failed count changes as tools
+  // error mid-group, so it is shown only once the group settles. Errored tools
+  // still force-open their disclosure (trowNeedsAttention), so the failure
+  // signal is not lost — it just doesn't jitter the summary line mid-run.
+  if (!options?.live && failed > 0) clauses.push(`${failed} 个失败`);
+  const base = clauses.join('，');
+  return options?.live ? `正在${base}` : base;
 }
 
 /** True when any tool in the group is still in flight. */

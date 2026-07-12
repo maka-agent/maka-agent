@@ -229,7 +229,9 @@
   left: var(--border-width-hairline);
   right: var(--border-width-hairline);
   bottom: var(--border-width-hairline);
-  height: 28px;
+  /* 56px: tall enough to fully veil a half-clipped row's text — at 28px the
+     cut row stayed half-legible under the fade and still read as broken. */
+  height: 56px;
   border-radius: 0 0 var(--radius-surface) var(--radius-surface);
   background: linear-gradient(to bottom, oklch(from var(--background-elevated) l c h / 0), var(--background-elevated));
   pointer-events: none;

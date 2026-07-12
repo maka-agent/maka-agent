@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { access, mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { access, mkdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import type {
   ArtifactBinaryReadResult,
   ArtifactKind,
@@ -31,9 +31,10 @@ export interface ArtifactStore {
   append(record: ArtifactRecord): Promise<ArtifactRecord>;
   list(sessionId: string, opts?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
   get(artifactId: string): Promise<ArtifactRecord | null>;
-  readText(artifactId: string, opts?: { maxBytes?: number }): Promise<ArtifactTextReadResult>;
+  readText(artifactId: string, opts?: { maxBytes?: number; includeDeleted?: boolean }): Promise<ArtifactTextReadResult>;
   readBinary(artifactId: string, opts?: { maxBytes?: number }): Promise<ArtifactBinaryReadResult>;
   delete(artifactId: string): Promise<void>;
+  purge(artifactIds: readonly string[]): Promise<void>;
 }
 
 export function createArtifactStore(workspaceRoot: string): ArtifactStore {
@@ -110,8 +111,15 @@ class FileArtifactStore implements ArtifactStore {
     return record ? { ...record } : null;
   }
 
-  async readText(artifactId: string, opts: { maxBytes?: number } = {}): Promise<ArtifactTextReadResult> {
-    const prepared = await this.prepareRead(artifactId, opts.maxBytes ?? ARTIFACT_TEXT_PREVIEW_LIMIT_BYTES);
+  async readText(
+    artifactId: string,
+    opts: { maxBytes?: number; includeDeleted?: boolean } = {},
+  ): Promise<ArtifactTextReadResult> {
+    const prepared = await this.prepareRead(
+      artifactId,
+      opts.maxBytes ?? ARTIFACT_TEXT_PREVIEW_LIMIT_BYTES,
+      opts.includeDeleted ?? false,
+    );
     if (!prepared.ok) return prepared;
     try {
       return { ok: true, text: await readFile(prepared.path, 'utf8') };
@@ -143,16 +151,61 @@ class FileArtifactStore implements ArtifactStore {
     });
   }
 
+  async purge(artifactIds: readonly string[]): Promise<void> {
+    await this.load();
+    await this.enqueue(async () => {
+      const ids = new Set(artifactIds);
+      const records = this.records.filter((record) => ids.has(record.id));
+      if (records.length === 0) return;
+      const root = await ensureRealDirectory(this.artifactRoot);
+      const paths = new Map<string, ArtifactRecord>();
+      const relativePaths = new Map(records.map((record) => [record.relativePath, record] as const));
+      for (const record of records) {
+        validateRelativeArtifactPath(record.relativePath);
+        const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
+        if (!path) continue;
+        if (!isInsideOrSamePath(root, dirname(path))) {
+          throw new Error(`Artifact ${record.id} resolves outside the artifact root`);
+        }
+        paths.set(path, record);
+      }
+      for (const record of this.records) {
+        if (ids.has(record.id)) continue;
+        const exactTarget = relativePaths.get(record.relativePath);
+        if (exactTarget) {
+          throw new Error(
+            `Artifact ${exactTarget.id} path is still referenced by artifact ${record.id}`,
+          );
+        }
+        const path = await resolveArtifactRemovalEntry(this.artifactRoot, record.relativePath);
+        const target = path ? paths.get(path) : undefined;
+        if (target) {
+          throw new Error(`Artifact ${target.id} path is still referenced by artifact ${record.id}`);
+        }
+      }
+      for (const path of paths.keys()) await rm(path, { force: true });
+      const previous = this.records;
+      this.records = this.records.filter((record) => !ids.has(record.id));
+      try {
+        await this.writeMetadataUnlocked();
+      } catch (error) {
+        this.records = previous;
+        throw error;
+      }
+    });
+  }
+
   private async prepareRead(
     artifactId: string,
     maxBytes: number,
+    includeDeleted = false,
   ): Promise<
     | { ok: true; path: string; record: ArtifactRecord }
     | { ok: false; reason: 'not_found' | 'too_large' | 'read_failed' | 'not_allowed' | 'deleted' }
   > {
     const record = await this.get(artifactId);
     if (!record) return { ok: false, reason: 'not_found' };
-    if (record.status === 'deleted') return { ok: false, reason: 'deleted' };
+    if (record.status === 'deleted' && !includeDeleted) return { ok: false, reason: 'deleted' };
     const resolved = await resolveArtifactPath({
       artifactRoot: this.artifactRoot,
       relativePath: record.relativePath,
@@ -276,6 +329,20 @@ async function ensureRealDirectory(path: string): Promise<string> {
   await mkdir(path, { recursive: true });
   await access(path, fsConstants.R_OK);
   return realpath(path);
+}
+
+async function resolveArtifactRemovalEntry(
+  artifactRoot: string,
+  relativePath: string,
+): Promise<string | undefined> {
+  const target = join(artifactRoot, relativePath);
+  try {
+    const parent = await realpath(dirname(target));
+    return join(parent, basename(target));
+  } catch (error) {
+    if (isNotFound(error)) return undefined;
+    throw error;
+  }
 }
 
 function isInsideOrSamePath(root: string, target: string): boolean {

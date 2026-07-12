@@ -78,7 +78,12 @@ function eventCostUsd(event: FixedPromptTaskWalEvent): number {
 }
 
 function isSystemicProviderFailure(event: FixedPromptTaskWalEvent): boolean {
-  return event.type === 'task_infra_failed' && (event.errorClass === 'provider_billing' || event.errorClass === 'auth');
+  const errorClass = event.type === 'task_infra_failed'
+    ? event.errorClass
+    : event.type === 'task_budget_exhausted'
+      ? event.evidenceErrorClass
+      : undefined;
+  return errorClass === 'provider_billing' || errorClass === 'auth';
 }
 
 async function runComparisonPair(

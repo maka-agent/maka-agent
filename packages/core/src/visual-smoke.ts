@@ -8,6 +8,11 @@ export type VisualSmokeScenario =
   | 'fallback-source'
   | 'fetched-empty'
   | 'connection-error'
+  // OAuth re-login: seeds a codex-subscription (OAuth) connection that last
+  // tested needs_reauth and focuses its detail sheet, so the inline 登录 /
+  // 重新登录 affordance the detail sheet gained is visible where an expired
+  // OAuth login must be re-run — the surface that used to be dead prose.
+  | 'oauth-relogin'
   | 'turn-narrative'
   | 'artifact-pane'
   | 'artifact-errors'

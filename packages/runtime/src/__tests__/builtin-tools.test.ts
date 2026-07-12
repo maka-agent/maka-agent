@@ -28,6 +28,7 @@ describe('builtin tool activity kinds', () => {
       Read: 'read',
       Write: 'edit',
       Edit: 'edit',
+      FormatJson: 'edit',
       Glob: 'search',
       Grep: 'search',
     });
@@ -35,7 +36,8 @@ describe('builtin tool activity kinds', () => {
 
   test('categorizes background task controls as command activity', () => {
     const shellRuns = {
-      runBash: () => Promise.reject(new Error('not used')),
+      runForegroundBash: () => Promise.reject(new Error('not used')),
+      runBackgroundBash: () => Promise.reject(new Error('not used')),
     } satisfies ShellRunLauncher;
     const backgroundTasks = {
       stopBackgroundTask: () => Promise.reject(new Error('not used')),
@@ -105,10 +107,68 @@ describe('builtin Bash description declares the executing shell', () => {
 });
 
 describe('builtin Bash streaming output', () => {
-  test('background-capable Bash returns runtime refs and forwards yield_time_ms', async () => {
+  test('Bash schema exposes only explicit background execution', () => {
+    const bash = buildBuiltinTools({ shellRuns: {
+      runForegroundBash: () => Promise.reject(new Error('not used')),
+      runBackgroundBash: () => Promise.reject(new Error('not used')),
+    } }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+    const parameters = bash.parameters as { safeParse(input: unknown): { success: boolean } };
+
+    expect(parameters.safeParse({ command: 'sleep 60', run_in_background: true }).success).toBe(true);
+    expect(parameters.safeParse({ command: 'sleep 60', run_in_background: true, pty: true }).success).toBe(true);
+    expect(parameters.safeParse({ command: 'sleep 60', pty: true }).success).toBe(false);
+    expect(parameters.safeParse({ command: 'sleep 60', yield_time_ms: 250 }).success).toBe(false);
+    expect(parameters.safeParse({ command: 'sleep 60', timeout_ms: 600_001 }).success).toBe(false);
+    expect(parameters.safeParse({ command: 'sleep 60', timeout_ms: 600_001, run_in_background: true }).success).toBe(true);
+  });
+
+  test('background-capable Bash stays foreground unless explicitly requested', async () => {
+    const calls: string[] = [];
+    const shellRuns = {
+      async runForegroundBash() {
+        calls.push('foreground');
+        return {
+          kind: 'terminal', cwd: '/workspace', cmd: 'sleep 60', status: 'completed', exitCode: 0,
+          output: {
+            mode: 'pipes', stdout: '', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+        } as const;
+      },
+      async runBackgroundBash() {
+        calls.push('background');
+        throw new Error('unexpected background execution');
+      },
+      async readResource() {
+        throw new Error('not used');
+      },
+      async stopResource() {
+        throw new Error('not used');
+      },
+    };
+    const bash = buildBuiltinTools({ shellRuns }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: 'sleep 60' },
+      {
+        sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+        abortSignal: new AbortController().signal, emitOutput: () => {},
+      },
+    );
+
+    expect((result as { kind: string }).kind).toBe('terminal');
+    expect(calls).toEqual(['foreground']);
+  });
+
+  test('explicit background Bash returns runtime refs and forwards its optional timeout', async () => {
     const calls: unknown[] = [];
     const shellRuns = {
-      async runBash(input: unknown) {
+      async runForegroundBash() {
+        throw new Error('not used');
+      },
+      async runBackgroundBash(input: unknown) {
         calls.push(input);
         return {
           kind: 'shell_run',
@@ -131,7 +191,7 @@ describe('builtin Bash streaming output', () => {
     const bash = tools.find((tool) => tool.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
     const result = await bash.impl(
-      { command: 'sleep 60', timeout_ms: 2_000, yield_time_ms: 1_234, pty: true },
+      { command: 'sleep 60', timeout_ms: 2_000, run_in_background: true, pty: true },
       {
         sessionId: 'session-1',
         runId: 'run-1',
@@ -145,7 +205,6 @@ describe('builtin Bash streaming output', () => {
 
     expect((result as { kind: string }).kind).toBe('shell_run');
     expect((result as { ref?: string }).ref).toBe('maka://runtime/background-tasks/shell-run-1');
-    expect((calls[0] as { yieldTimeMs?: number }).yieldTimeMs).toBe(1_234);
     expect((calls[0] as { timeoutMs?: number }).timeoutMs).toBe(2_000);
     expect((calls[0] as { sourceRunId?: string }).sourceRunId).toBe('run-1');
     expect((calls[0] as { pty?: boolean }).pty).toBe(true);
@@ -274,14 +333,15 @@ describe('builtin Bash streaming output', () => {
     if (!write) throw new Error('WriteStdin tool missing');
     const parameters = write.parameters as z.ZodTypeAny;
 
-    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r', yield_time_ms: 0 }).success).toBe(true);
+    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r', observe_for_ms: 0 }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'ref', size: { cols: 240, rows: 100 } }).success).toBe(true);
     expect(parameters.safeParse({ ref: 'ref' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: '' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: '\uD800' }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
     expect(parameters.safeParse({ ref: 'ref', size: { cols: 1, rows: 24 } }).success).toBe(false);
-    expect(parameters.safeParse({ ref: 'ref', input: 'x', yield_time_ms: 30_001 }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: 'x', observe_for_ms: 30_001 }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: 'x', yield_time_ms: 250 }).success).toBe(false);
   });
 
   test('delegates Bash execution to an injected workspace executor', async () => {
@@ -801,6 +861,117 @@ describe('builtin write tools path containment', () => {
     await expectRejects(runTool(edit, { path: 'data.txt', old_string: 'absent', new_string: 'x' }, root), /./);
     await runTool(edit, { path: 'data.txt', old_string: 'world', new_string: 'Maka' }, root);
     expect(await readFile(join(root, 'data.txt'), 'utf8')).toBe('hello Maka\n');
+  });
+});
+
+describe('builtin FormatJson (file in place)', () => {
+  async function writeInput(root: string, name: string, content: string): Promise<string> {
+    const path = join(root, name);
+    await writeFile(path, content, 'utf8');
+    return name;
+  }
+
+  async function runFormatJson(args: { path: string; sort_keys?: boolean }, root: string) {
+    const t = tool('FormatJson');
+    return (await runTool(t, args, root)) as {
+      ok: boolean;
+      path: string;
+      valid: boolean;
+      error?: string;
+      bytesBefore: number;
+      bytesAfter?: number;
+      byteDelta: number;
+      changed: boolean;
+    };
+  }
+
+  test('happy path: validates and rewrites a minified JSON file in place', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const input = '{"b":1,"a":[2,3],"c":{"d":true}}';
+    const name = await writeInput(root, 'data.json', input);
+
+    const result = await runFormatJson({ path: name }, root);
+
+    const onDisk = await readFile(join(root, name), 'utf8');
+    expect(onDisk).toBe(JSON.stringify(JSON.parse(input), null, 2));
+    expect(result.ok).toBe(true);
+    expect(result.valid).toBe(true);
+    expect(result.changed).toBe(true);
+    expect(result.bytesBefore).toBe(Buffer.byteLength(input, 'utf8'));
+    expect(result.bytesAfter).toBe(Buffer.byteLength(onDisk, 'utf8'));
+    expect(result.byteDelta).toBe((result.bytesAfter ?? 0) - result.bytesBefore);
+  });
+
+  test('sort_keys: true orders object keys lexicographically', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'data.json', '{"z":1,"a":2,"m":3}');
+
+    const result = await runFormatJson({ path: name, sort_keys: true }, root);
+
+    const onDisk = await readFile(join(root, name), 'utf8');
+    expect(onDisk).toBe('{\n  "a": 2,\n  "m": 3,\n  "z": 1\n}');
+    expect(result.changed).toBe(true);
+  });
+
+  test('sort_keys: true preserves __proto__ as a data property', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'data.json', '{"__proto__":{"polluted":true},"a":1}');
+
+    await runFormatJson({ path: name, sort_keys: true }, root);
+
+    const parsed = JSON.parse(await readFile(join(root, name), 'utf8')) as Record<string, unknown>;
+    expect(Object.prototype.hasOwnProperty.call(parsed, '__proto__')).toBe(true);
+    expect(parsed['__proto__']).toEqual({ polluted: true });
+    expect(parsed.a).toBe(1);
+  });
+
+  test('sort_keys: true sorts nested objects recursively', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'data.json', '{"outer":{"z":1,"a":2},"list":[{"b":1,"a":2}]}');
+
+    await runFormatJson({ path: name, sort_keys: true }, root);
+
+    const parsed = JSON.parse(await readFile(join(root, name), 'utf8'));
+    expect(Object.keys(parsed.outer)).toEqual(['a', 'z']);
+    expect(Object.keys(parsed.list[0])).toEqual(['a', 'b']);
+  });
+
+  test('invalid JSON returns a structured error diagnostic (no write, byteDelta 0)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'data.json', 'not json');
+
+    const result = await runFormatJson({ path: name }, root);
+
+    expect(result.ok).toBe(false);
+    expect(result.valid).toBe(false);
+    expect(result.error).toMatch(/FormatJson: invalid JSON/);
+    expect(result.byteDelta).toBe(0);
+    expect(result.changed).toBe(false);
+    // File is left untouched on invalid input.
+    expect(await readFile(join(root, name), 'utf8')).toBe('not json');
+  });
+
+  test('already-canonical content reports changed: false with zero byte delta', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'empty.json', '{}');
+
+    const result = await runFormatJson({ path: name }, root);
+
+    expect(result.changed).toBe(false);
+    expect(result.byteDelta).toBe(0);
+    expect(await readFile(join(root, name), 'utf8')).toBe('{}');
+  });
+
+  test('handles unicode and special characters in strings', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-formatjson-'));
+    const name = await writeInput(root, 'data.json', '{"emoji":"🎉","cjk":"你好"}');
+
+    const result = await runFormatJson({ path: name }, root);
+
+    const onDisk = await readFile(join(root, name), 'utf8');
+    expect(result.valid).toBe(true);
+    expect(onDisk).toContain('🎉');
+    expect(onDisk).toContain('你好');
   });
 });
 

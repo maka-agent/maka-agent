@@ -38,18 +38,13 @@ import {
 import { loadPtyStack, type PtyStack } from './pty-stack.js';
 import {
   DEFAULT_BASH_TIMEOUT_MS,
-  DEFAULT_BASH_YIELD_TIME_MS,
   DEFAULT_MAX_LIVE_PTY_RUNS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
-  DEFAULT_PTY_BASH_YIELD_TIME_MS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
-  DEFAULT_WRITE_STDIN_YIELD_TIME_MS,
-  MAX_BASH_YIELD_TIME_MS,
+  DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
-  MAX_WRITE_STDIN_YIELD_TIME_MS,
-  MIN_BASH_YIELD_TIME_MS,
-  MIN_WRITE_STDIN_YIELD_TIME_MS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   parseShellRunResourceRef,
   shellRunResourceRef,
@@ -120,7 +115,7 @@ interface LiveShellRunBase {
   sessionId: string;
   mode: ShellMode;
   startedAt: number;
-  timeoutMs: number;
+  timeoutMs?: number;
   record?: ShellRunRecord;
   visibleRef: boolean;
   driverExit?: DriverExit;
@@ -204,42 +199,38 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     this.exitAcknowledgementMs = input.exitAcknowledgementMs ?? DEFAULT_PROCESS_TERMINATION_GRACE_MS;
   }
 
-  async runBash(input: ShellRunBashInput): Promise<TerminalToolResult | ShellRunToolResult> {
+  async runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult> {
     if (input.abortSignal?.aborted) throw abortError('Command aborted before shell process started');
     const mode: ShellMode = input.pty ? 'pty' : 'pipes';
-    const defaultYield = mode === 'pty' ? DEFAULT_PTY_BASH_YIELD_TIME_MS : DEFAULT_BASH_YIELD_TIME_MS;
-    const yieldTimeMs = clampInt(
-      input.yieldTimeMs ?? defaultYield,
-      MIN_BASH_YIELD_TIME_MS,
-      MAX_BASH_YIELD_TIME_MS,
-    );
-    const timeoutMs = clampInt(
-      input.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS,
-      1,
-      MAX_SHELL_RUN_TIMEOUT_MS,
-    );
-    const live = await this.start(input, mode, timeoutMs);
-    const initial = await live.finished.wait(yieldTimeMs, input.abortSignal);
-    if (initial === 'settled') {
-      return this.markObservedAndReturnTerminal(await live.finished.join());
-    }
-    if (initial === 'abort') {
-      this.requestForcedTermination(live, 'cancel');
-      return this.markObservedAndReturnTerminal(await live.finished.join());
-    }
-
+    const timeoutMs = normalizeBackgroundTimeoutMs(input.timeoutMs);
+    const live = await this.start(input, mode, timeoutMs, false);
     const record = await this.persistObservation(live);
     if (input.abortSignal?.aborted) {
       this.requestForcedTermination(live, 'cancel');
-      return this.markObservedAndReturnTerminal(await live.finished.join());
+      return shellRunContent(await this.markObserved(await live.finished.join()));
     }
-    if (live.mode === 'pipes') live.forwardLive = false;
     live.visibleRef = true;
-    const handoffRecord = live.record && live.record.revision >= record.revision
+    let handoffRecord = live.record && live.record.revision >= record.revision
       ? live.record
       : record;
+    if (isTerminalShellRunStatus(handoffRecord.status)) {
+      handoffRecord = await this.markObserved(handoffRecord);
+    }
     this.notifyShellRunUpdate(handoffRecord);
-    return compactShellRunContent(handoffRecord);
+    return isTerminalShellRunStatus(handoffRecord.status)
+      ? shellRunContent(handoffRecord)
+      : compactShellRunContent(handoffRecord);
+  }
+
+  async runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult> {
+    if (input.pty) throw new Error('Foreground Bash does not support PTY mode; set run_in_background=true');
+    if (input.abortSignal?.aborted) throw abortError('Command aborted before shell process started');
+    const timeoutMs = normalizeForegroundTimeoutMs(input.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS);
+    const live = await this.start(input, 'pipes', timeoutMs, true);
+    if (await live.finished.waitFor(input.abortSignal) === 'abort') {
+      this.requestForcedTermination(live, 'cancel');
+    }
+    return this.markObservedAndReturnTerminal(await live.finished.join());
   }
 
   async writeStdin(input: ShellRunWriteInput): Promise<ShellRunToolResult> {
@@ -299,16 +290,12 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       const record = await this.markObserved(await live.finished.join());
       return shellRunContent(record, operation);
     }
-    const yieldTimeMs = clampInt(
-      input.yieldTimeMs ?? DEFAULT_WRITE_STDIN_YIELD_TIME_MS,
-      MIN_WRITE_STDIN_YIELD_TIME_MS,
-      MAX_WRITE_STDIN_YIELD_TIME_MS,
-    );
+    const observeForMs = input.observeForMs ?? DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS;
     let record: ShellRunRecord;
     try {
-      const observation = yieldTimeMs === 0
+      const observation = observeForMs === 0
         ? 'delay'
-        : await live.finished.wait(yieldTimeMs, input.abortSignal);
+        : await live.finished.wait(observeForMs, input.abortSignal);
       record = observation === 'settled'
         ? await live.finished.join()
         : await this.persistObservation(live);
@@ -472,7 +459,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   private async start(
     input: ShellRunBashInput,
     mode: ShellMode,
-    timeoutMs: number,
+    timeoutMs: number | undefined,
+    forwardLive: boolean,
   ): Promise<LiveShellRun> {
     const sessionEpoch = this.sessionTerminationEpoch(input.sessionId);
     this.assertStartAllowed(input.sessionId, sessionEpoch);
@@ -480,7 +468,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     try {
       const shellRunId = this.input.newId();
       if (mode === 'pipes') {
-        return await this.startPipe(input, shellRunId, timeoutMs, slotReservation);
+        return await this.startPipe(input, shellRunId, timeoutMs, forwardLive, slotReservation);
       }
 
       const stack = await racePromiseWithAbort(loadPtyStack(), input.abortSignal);
@@ -496,7 +484,8 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   private async startPipe(
     input: ShellRunBashInput,
     shellRunId: string,
-    timeoutMs: number,
+    timeoutMs: number | undefined,
+    forwardLive: boolean,
     slotReservation: ShellRunSlotReservation,
   ): Promise<LivePipeShellRun> {
     const pending: Array<(live: LivePipeShellRun) => void> = [];
@@ -520,7 +509,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       driver,
       collector,
       pendingFlushChars: 0,
-      forwardLive: true,
+      forwardLive,
       liveEmitted: { stdout: 0, stderr: 0 },
       liveSuppressed: { stdout: false, stderr: false },
       emitOutput: input.emitOutput,
@@ -547,7 +536,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   private async startPty(
     input: ShellRunBashInput,
     shellRunId: string,
-    timeoutMs: number,
+    timeoutMs: number | undefined,
     stack: PtyStack,
     slotReservation: ShellRunSlotReservation,
   ): Promise<LivePtyShellRun> {
@@ -627,7 +616,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     input: ShellRunBashInput,
     shellRunId: string,
     mode: ShellMode,
-    timeoutMs: number,
+    timeoutMs: number | undefined,
     slotReservation: ShellRunSlotReservation,
   ): LiveShellRunBase {
     return {
@@ -635,7 +624,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       sessionId: input.sessionId,
       mode,
       startedAt: 0,
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       visibleRef: false,
       pendingStops: new Set(),
       persistChain: Promise.resolve(),
@@ -660,7 +649,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
       status: 'running',
       startedAt: live.startedAt,
       updatedAt: live.startedAt,
-      timeoutMs: live.timeoutMs,
+      ...(live.timeoutMs !== undefined ? { timeoutMs: live.timeoutMs } : {}),
       revision: 1,
       output: live.mode === 'pipes' ? live.collector.snapshot() : live.collector.lastGoodSnapshot(),
     };
@@ -743,13 +732,18 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   }
 
   private async persistObservation(live: LiveShellRun): Promise<ShellRunRecord> {
-    if (live.driverExit) return live.finished.join();
+    if (live.integrityFailure || live.driverExit) return live.finished.join();
     if (live.flushTimer) {
       clearTimeout(live.flushTimer);
       live.flushTimer = undefined;
     }
     if (live.mode === 'pipes') live.pendingFlushChars = 0;
-    return this.queuePersist(live);
+    try {
+      return await this.queuePersist(live);
+    } catch (error) {
+      if (!live.integrityFailure || live.persistFailure) throw error;
+      return live.finished.join();
+    }
   }
 
   private queuePersist(
@@ -907,7 +901,9 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     if (live.lifecycleCause === 'timeout') {
       return {
         status: 'timed_out',
-        failureMessage: `Command timed out after ${live.timeoutMs}ms`,
+        failureMessage: live.timeoutMs === undefined
+          ? 'Command timed out'
+          : `Command timed out after ${live.timeoutMs}ms`,
         exitCode: 124,
         completedAt,
       };
@@ -1133,7 +1129,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
     const live = this.liveResource(sessionId, target.shellRunId);
     let record: ShellRunRecord;
     if (live) {
-      if (live.driverExit) {
+      if (live.integrityFailure || live.driverExit) {
         record = await live.finished.join();
       } else {
         if (abortSignal.aborted) throw abortError('Read aborted before the runtime snapshot cut was established');
@@ -1245,6 +1241,7 @@ export class ShellRunProcessManager implements RuntimeResourceReader, Background
   }
 
   private armTimeout(live: LiveShellRun): void {
+    if (live.timeoutMs === undefined) return;
     live.timeoutTimer = setTimeout(() => this.requestForcedTermination(live, 'timeout'), live.timeoutMs);
   }
 
@@ -1349,11 +1346,6 @@ function compareActionableShellRuns(a: ShellRunRecord, b: ShellRunRecord): numbe
     || a.shellRunId.localeCompare(b.shellRunId);
 }
 
-function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-}
-
 async function racePromiseWithAbort<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) throw abortError('Operation aborted');
@@ -1369,6 +1361,21 @@ async function racePromiseWithAbort<T>(promise: Promise<T>, signal: AbortSignal 
       (error) => { cleanup(); reject(error); },
     );
   });
+}
+
+function normalizeBackgroundTimeoutMs(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_SHELL_RUN_TIMEOUT_MS) {
+    throw new Error(`Background Bash timeout must be between 1 and ${MAX_SHELL_RUN_TIMEOUT_MS}ms`);
+  }
+  return value;
+}
+
+function normalizeForegroundTimeoutMs(value: number): number {
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
+    throw new Error(`Foreground Bash timeout must be between 1 and ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`);
+  }
+  return value;
 }
 
 function abortError(message: string): Error {

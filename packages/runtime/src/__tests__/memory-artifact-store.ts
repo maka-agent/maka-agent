@@ -30,6 +30,9 @@ export function memoryArtifactStore(): HistoryCompactArtifactStore {
       const entry = records.get(artifactId);
       if (entry) entry.record.status = 'deleted';
     },
+    async purge(artifactIds) {
+      for (const artifactId of artifactIds) records.delete(artifactId);
+    },
     async list() {
       return [...records.values()].map((entry) => entry.record);
     },

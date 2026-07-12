@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { LlmConnection } from '@maka/core';
 import { thinkingVariantsForModel, type ThinkingLevel } from '@maka/core';
-import { changesBackendConfig, buildProviderOptions } from '@maka/runtime';
+import { changesBackendConfig, buildProviderOptions, getAIModel } from '@maka/runtime';
 
 function conn(providerType: LlmConnection['providerType'], slug = 'test'): LlmConnection {
   return {
@@ -74,6 +74,48 @@ describe('buildProviderOptions: thinking level', () => {
   test('a level the model does not support is dropped (defensive)', () => {
     assert.deepEqual(buildProviderOptions(conn('openai'), 'gpt-4o', 'high'), { openai: {} });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), { anthropic: {} });
+  });
+});
+
+describe('getAIModel: litellm provider', () => {
+  test('creates an OpenAI-compatible client with provider name "litellm" and correct modelId', () => {
+    const model = getAIModel({
+      connection: conn('litellm', 'litellm-gateway'),
+      apiKey: 'sk-test-key',
+      modelId: 'gpt-4o',
+    });
+    assert.equal(model.modelId, 'gpt-4o');
+    assert.equal(model.provider, 'litellm.chat');
+  });
+
+  test('uses the connection baseUrl override when provided', () => {
+    const model = getAIModel({
+      connection: { ...conn('litellm', 'litellm-custom'), baseUrl: 'https://litellm.company.internal/v1' },
+      apiKey: 'sk-test-key',
+      modelId: 'claude-sonnet-4-5-20250929',
+    });
+    assert.equal(model.modelId, 'claude-sonnet-4-5-20250929');
+    assert.equal(model.provider, 'litellm.chat');
+  });
+
+  test('falls back to localhost:4000 default when no baseUrl override is set', () => {
+    const model = getAIModel({
+      connection: conn('litellm', 'litellm-default'),
+      apiKey: 'sk-test-key',
+      modelId: 'gpt-4o-mini',
+    });
+    // The model is created successfully with default base URL
+    assert.equal(model.provider, 'litellm.chat');
+    assert.equal(model.modelId, 'gpt-4o-mini');
+  });
+});
+
+describe('buildProviderOptions: litellm falls through to default (empty options)', () => {
+  test('litellm returns empty options regardless of thinking level', () => {
+    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o'), {});
+    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'high'), {});
+    assert.deepEqual(buildProviderOptions(conn('litellm'), 'gpt-4o', 'off'), {});
+    assert.deepEqual(buildProviderOptions(conn('litellm'), 'claude-sonnet-4-5-20250929'), {});
   });
 });
 

@@ -576,7 +576,7 @@ export const Composer = forwardRef<
           ref={textareaRef}
           unstyled
           name="text"
-          className="maka-composer-textarea min-h-11 resize-none"
+          className="maka-composer-textarea resize-none"
           placeholder={copy.placeholder}
           aria-label={copy.textareaAriaLabel}
           disabled={props.disabled}
@@ -703,6 +703,7 @@ export const Composer = forwardRef<
               <UiButton
                 className="maka-button"
                 variant="default"
+                size="sm"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {

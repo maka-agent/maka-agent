@@ -57,7 +57,9 @@ const EMPTY_MODEL_OPTIONS: ReadonlyArray<readonly [string, string]> = [];
 // no_model = the run could not produce a report (destructive). no_data /
 // skipped are expected non-events and stay neutral (exception-only color).
 function dailyReviewArchiveChipTone(status: DailyReviewArchive['status']): ChipProps['variant'] {
-  if (status === 'ok') return 'success';
+  // Status-color restraint (#651 rule): 已生成 is the EXPECTED outcome —
+  // neutral ink, matching 健康 正常 and 权限 已授权. Color stays reserved
+  // for the failures that need attention.
   if (status === 'failed' || status === 'no_model') return 'destructive';
   return 'neutral';
 }
@@ -690,7 +692,7 @@ function DailyReviewArchiveBody(props: { archive: DailyReviewArchive | null; loa
               {/* Reports are LLM-generated markdown — bullet lists and
                   inline code rendered as flat pre-wrap text read as mush.
                   Reuse the shared Markdown pipeline (same one chat uses). */}
-              <div className="maka-daily-review-archive-section-body">
+              <div className="maka-daily-review-archive-section-body maka-prose">
                 <Markdown text={section.content} />
               </div>
             </section>

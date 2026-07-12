@@ -84,10 +84,9 @@ export async function runRuntimePolicyAbLifecycle(
 
 function pilotClearanceFailure(summary: RuntimePolicyAbComparisonSummary): string | undefined {
   if (summary.stopReason) return summary.stopReason;
-  if (summary.pairedAttempts.budgetDiscordantPairIds.length > 0) return 'pilot_asymmetric_budget_exhaustion';
-  if (summary.baseline.coverageRate !== 1 || summary.candidate.coverageRate !== 1) return 'pilot_incomplete';
   if (summary.baseline.infraFailed + summary.candidate.infraFailed > 0) return 'pilot_infra_failure';
   if (summary.baseline.plumbingFailed + summary.candidate.plumbingFailed > 0) return 'pilot_plumbing_failure';
+  if (summary.baseline.coverageRate !== 1 || summary.candidate.coverageRate !== 1) return 'pilot_incomplete';
   if ((summary.candidate.contextBudget?.activatedAttempts ?? 0) === 0) return 'pilot_candidate_not_activated';
   return undefined;
 }

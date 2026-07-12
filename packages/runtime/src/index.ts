@@ -50,6 +50,10 @@ export type {
   HistoryCompactWriter,
   HistoryCompactWriteInput,
   HistoryCompactWriteResult,
+  HistoryCompactCheckpointLoader,
+  HistoryCompactCheckpointRecorder,
+  HistoryCompactSummarizer,
+  HistoryCompactSummaryInput,
   SynthesisCacheLoader,
   SynthesisCacheLoadInput,
   SynthesisCacheLoadResult,
@@ -75,7 +79,7 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export {
-  buildBackgroundBashTool,
+  buildManagedBashTool,
   buildForegroundBashTool,
   buildLocalForegroundBashTool,
   buildStopBackgroundTaskTool,
@@ -89,23 +93,21 @@ export type {
   ShellRunLauncher,
 } from './shell-tools.js';
 export {
-  DEFAULT_BASH_YIELD_TIME_MS,
-  DEFAULT_PTY_BASH_YIELD_TIME_MS,
   DEFAULT_BASH_TIMEOUT_MS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
   DEFAULT_MAX_LIVE_PTY_RUNS,
-  DEFAULT_WRITE_STDIN_YIELD_TIME_MS,
+  DEFAULT_WRITE_STDIN_OBSERVE_FOR_MS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
-  MAX_BASH_YIELD_TIME_MS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_PTY_COLS,
   MAX_PTY_ROWS,
   MAX_SHELL_RUN_TIMEOUT_MS,
   MAX_WRITE_STDIN_INPUT_BYTES,
-  MAX_WRITE_STDIN_YIELD_TIME_MS,
-  MIN_BASH_YIELD_TIME_MS,
+  MAX_WRITE_STDIN_OBSERVE_FOR_MS,
   MIN_PTY_COLS,
   MIN_PTY_ROWS,
+  MIN_WRITE_STDIN_OBSERVE_FOR_MS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   SHELL_RUN_RESOURCE_PREFIX,
   isWellFormedTerminalInput,
@@ -336,6 +338,12 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
+export type {
+  HistoryCompactCleanupDiagnostic,
+  HistoryCompactCleanupResult,
+  HistoryCompactCleanupSkip,
+} from './history-compact-cleanup.js';
 export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,
@@ -695,3 +703,63 @@ export { buildAutomationTool, AUTOMATION_TOOL_NAME } from './automation-tools.js
 export type { AutomationToolDeps } from './automation-tools.js';
 export { evaluateAutomationCanFire, HEARTBEAT_IDLE_STATUSES } from './automation-can-fire.js';
 export type { CanFireSessionHeader, EvaluateAutomationCanFireDeps } from './automation-can-fire.js';
+
+// ───────────────────────────────────────────────────────────────────────────
+// Goal execution (Issue #15 Primitive 6).
+// ───────────────────────────────────────────────────────────────────────────
+export { GoalManager, TERMINAL_GOAL_STATUSES, DEFAULT_MAX_ITERATIONS, DEFAULT_BLOCK_CAP } from './goal-state.js';
+export type { GoalState, GoalStatus, GoalManagerDeps } from './goal-state.js';
+export {
+  evaluateGoal,
+  buildGoalEvaluationPrompt,
+  parseGoalEvaluation,
+  DEFAULT_EVALUATOR_TIMEOUT_MS,
+} from './goal-evaluator.js';
+export type { GoalEvaluation, GoalEvaluatorDeps } from './goal-evaluator.js';
+export {
+  buildGoalTools,
+  GOAL_SET_TOOL_NAME,
+  GOAL_CLEAR_TOOL_NAME,
+  GOAL_STATUS_TOOL_NAME,
+  GOAL_PAUSE_TOOL_NAME,
+  GOAL_RESUME_TOOL_NAME,
+} from './goal-tools.js';
+export type { GoalToolsDeps } from './goal-tools.js';
+export { handleGoalContinuation } from './goal-continuation.js';
+export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+
+export {
+  MAX_SKILLS_IN_PROMPT,
+  MAX_SKILL_BODY_CHARS,
+  MAX_SKILL_TOOL_BODY_CHARS,
+  MAX_SKILLS_PROMPT_CHARS,
+  scanWorkspaceSkills,
+  scanSkills,
+  resolveSkillDiscoveryPaths,
+  buildSkillsPromptFragment,
+  loadSkillInstructions,
+  buildSkillAgentTool,
+  gateSkillsByHostCapabilities,
+  parseSkillFrontMatter,
+  readSkillRuntimeState,
+  writeSkillRuntimeState,
+  readContainedRegularFile,
+  readContainedRegularTextFile,
+  writeContainedRegularTextFile,
+  isContainedPath,
+  isSafeSkillId,
+  isRecord,
+} from './skills.js';
+export type {
+  SkillRuntimeStatus,
+  RuntimeSkillDefinition,
+  ScannedSkill,
+  HostCapabilities,
+  SkillHostCompatibility,
+  GatedSkill,
+  LoadedSkillInstructions,
+  LoadSkillInstructionsResult,
+  SkillRuntimeStateReadResult,
+  SkillSource,
+  SkillDiscoveryEntry,
+} from './skills.js';

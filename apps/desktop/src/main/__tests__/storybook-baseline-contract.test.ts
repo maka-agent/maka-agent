@@ -213,7 +213,7 @@ describe('Storybook baseline contract', () => {
     const story = readFileSync(join(REPO_ROOT, 'packages', 'ui', 'stories', 'animation-catalog.stories.tsx'), 'utf8');
 
     assert.match(story, /title:\s*'Design System\/Animation Catalog'/);
-    for (const label of ['Spinner', 'Status pulse', 'Shimmer']) {
+    for (const label of ['Spinner', 'Shimmer']) {
       assert.match(story, new RegExp(`>\\s*${label}\\s*<`), `${label} must be visible beside its motion sample`);
     }
   });

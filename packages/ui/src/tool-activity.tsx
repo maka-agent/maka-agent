@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { isShellOutput, type ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
@@ -20,13 +20,12 @@ import { useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { detectUiLocale } from './locale-helpers.js';
 import { type ToolActivityItem, type ToolOutputChunk } from './materialize.js';
 import {
-  activeTrowTool,
   isTrowRunning,
   summarizeTrowTools,
   trowNeedsAttention,
   type TrowActivityKind,
 } from './tool-activity/trow-summary.js';
-import { deriveToolRowMotion, isToolRowRunning } from './tool-activity/tool-row-motion.js';
+import { isToolRowRunning, isToolRowSettled } from './tool-activity/tool-row-motion.js';
 import {
   createToolDisclosureState,
   deriveToolActivityPresentation,
@@ -257,7 +256,7 @@ function resultHasCapturedStreams(result: ToolActivityItem['result']): boolean {
 }
 
 /**
- * Background Bash yields an empty shell_run body; keep the live chunks the
+ * Background Bash returns an empty shell_run body; keep the live chunks the
  * user already saw by filling empty stdout/stderr from outputChunks. Also
  * forward truncation / redaction hints so settled preview matches live.
  */
@@ -389,7 +388,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
     : undefined;
   // While running the live stream is the output; once a structured result
   // preview exists it is the single quiet output block — never render both.
-  // Owned terminal/shell_run panels absorb empty-body yield via
+  // Owned terminal/shell_run panels absorb an empty-body handoff via
   // withLiveStreamFallback (never a second live panel).
   const showLiveStream = !!item.outputChunks
     && item.outputChunks.length > 0
@@ -419,7 +418,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
       showInvocation
       || !!resultHeadline
       || showLiveStream
-      || showResult
+      || (showResult && !errored)
       || (!!item.args && !permissionDenied && !invocationLine && !showResult && !showLiveStream)
     );
 
@@ -459,7 +458,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               truncated={item.outputTruncated === true}
             />
           )}
-          {showResult && !ownsPanel && displayResult && (
+          {showResult && !ownsPanel && displayResult && !errored && (
             quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
@@ -467,6 +466,15 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             )
           )}
         </div>
+      )}
+      {errored && showResult && displayResult && !ownsPanel && (
+        <ToolErrorDetails>
+          {quietJson ? (
+            <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
+          ) : (
+            <ToolResultPreview content={displayResult} />
+          )}
+        </ToolErrorDetails>
       )}
     </div>
   );
@@ -486,13 +494,15 @@ const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
   tool: Settings,
 };
 
-// #646 run→done seam: the one-shot settle "landing". Reuses the whitelisted
-// `maka-stream-fade-in` keyframe (opacity 0→1, one-shot `both`) — no new keyframe
-// (design-406 governance) — and rides `var(--duration-emphasized)` /
-// `var(--ease-out-strong)` so it converges with the motion tokens. Applied only
-// when `motion.settling` (the row was seen running here and just settled), so a
-// replayed transcript's rows stay static. Auto-frozen under reduced-motion /
-// visual-smoke by the global rules in styles/base.css.
+// #646 run→done seam: the one-shot settle "landing" for the group summary line.
+// Reuses the whitelisted `maka-stream-fade-in` keyframe (opacity 0→1, one-shot
+// `both`) — no new keyframe (design-406 governance) — and rides
+// `var(--duration-emphasized)` / `var(--ease-out-strong)` so it converges with
+// the motion tokens. Applied only when the group was seen running here and
+// just settled, so a replayed transcript's summary stays static. Auto-frozen
+// under reduced-motion / visual-smoke by the global rules in styles/base.css.
+// The per-row seam is a light-band stop (no opacity fade) so parallel tools
+// finishing together don't stack N fades (#tool-jitter).
 const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphasized)_var(--ease-out-strong)_both]';
 
 /**
@@ -510,12 +520,16 @@ export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
 function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const running = isTrowRunning(items);
   const attention = trowNeedsAttention(items);
-  const active = activeTrowTool(items) ?? items[0]!;
-  const activePresentation = deriveToolActivityPresentation(active);
+  // The group's presentation follows the first item (the first-seen bucket the
+  // summary clauses and icon use). The active-tool lookup is gone: a multi-tool
+  // running group shows the whole-group aggregation, a single-tool group's
+  // active tool is items[0] anyway, and disclosure attention is overridden by
+  // the whole-group trowNeedsAttention below.
+  const firstPresentation = deriveToolActivityPresentation(items[0]!);
   // Groups share the same disclosure state as a single row: ordinary work is
   // summarized; a new permission/error state opens diagnostics; manual choice
   // survives ordinary status changes.
-  const disclosure = useToolDisclosure({ ...activePresentation, needsAttention: attention });
+  const disclosure = useToolDisclosure({ ...firstPresentation, needsAttention: attention });
   // #646: a group settles when all its tools do; the settle fade plays only if
   // the group was ever seen running here (not a replayed transcript). The
   // delayed shimmer de-flickers a group whose tools all finish sub-second.
@@ -524,9 +538,18 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   const settled = !running;
   const settling = settled && everRunningRef.current;
   const hasError = items.some((item) => item.status === 'errored');
-  const SummaryIcon = TROW_KIND_ICON[activePresentation.kind];
+  // #tool-jitter: the group icon stays on the first bucket's kind (the same
+  // first-seen order the summary clauses use), not the active tool's kind — so
+  // a mixed-kind group's icon doesn't flip as the active tool changes mid-run.
+  const SummaryIcon = TROW_KIND_ICON[firstPresentation.kind];
+  // Multi-tool running group shows the whole-group bucket aggregation with a
+  // "正在" prefix instead of the active tool's description, so the summary line
+  // stops cycling through each tool's intent as tools start/finish in
+  // parallel (the 1234567 jitter). Single-tool rows keep the tool's own
+  // description — the "what exactly is running" signal is useful when there is
+  // only one, and it is locked by existing tests.
   const summary = running
-    ? activePresentation.summary
+    ? (items.length > 1 ? summarizeTrowTools(items, { live: true }) : firstPresentation.summary)
     : summarizeTrowTools(items);
   return (
     <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
@@ -568,13 +591,12 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   const presentation = deriveToolActivityPresentation(item);
   const disclosure = useToolDisclosure(presentation);
   const duration = formatDuration(item.durationMs);
-  // #646 run→done seam: `everRunning` is sticky across this row's renders so the
-  // settle fade fires only for a tool that ran here, never for a replayed row
-  // mounted already terminal. The delayed shimmer + one-shot fade share the same
-  // ~200ms window, so a sub-second tool neither sweeps nor lands — it just appears.
-  const everRunningRef = useRef(false);
-  if (isToolRowRunning(item.status)) everRunningRef.current = true;
-  const motion = deriveToolRowMotion({ status: item.status, everRunning: everRunningRef.current });
+  // #tool-jitter: a row settles by its shimmer stopping — the same seam as the
+  // 深度思考 disclosure title (light band → static muted text), with no opacity
+  // fade. Parallel tools finishing together each just drop their light band
+  // instead of stacking N opacity-0→1 fades, so a batch settle no longer 1234567.
+  const running = isToolRowRunning(item.status);
+  const settled = isToolRowSettled(item.status);
   const errored = item.status === 'errored';
   const RowIcon = TROW_KIND_ICON[presentation.kind];
   // One row language with the multi-tool summary row: a kind icon + a
@@ -582,21 +604,20 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   // word. Running shimmers the model's intent (or the friendly tool name);
   // settled prefers the intent, falls back to the display name.
   const summaryTone = errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]';
-  const settleFade = motion.settling ? SETTLE_FADE : undefined;
   return (
-    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={motion.settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
+    <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
         <RowIcon
           size={16}
           aria-hidden="true"
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
         />
-        {motion.shimmer ? (
+        {running ? (
           <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{presentation.summary}</TextShimmer>
         ) : item.intent ? (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone, settleFade)}>{formatToolIntent(item.intent)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{formatToolIntent(item.intent)}</span>
         ) : (
-          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone, settleFade)}>{resolveToolDisplayName(item)}</span>
+          <span className={cn('min-w-0 truncate text-[length:var(--font-size-base)]', summaryTone)}>{resolveToolDisplayName(item)}</span>
         )}
         {/* Quiet meta sits right after the label (near the text, not pinned to
             the far edge): duration + chevron ride in on hover / open, matching
@@ -672,6 +693,20 @@ function ToolOutputStream(props: {
   );
 }
 
+/** One concise default summary of a tool failure: cap both characters and
+ *  logical lines so a multi-line validation error cannot grow the banner to
+ *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
+ *  still rendered ~161 lines). The full redacted text stays in the disclosure
+ *  for copy. */
+function summarizeErrorText(text: string): string {
+  const MAX_CHARS = 240;
+  const MAX_LINES = 4;
+  const lines = text.split('\n');
+  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
+  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
+  return `${trimmed}…`;
+}
+
 // Preserve the retired `.maka-tool-error*` leaf utilities onto Alert (#332 PR3c) —
 // Alert owns the shell; these are the few declarations it doesn't set, kept arbitrary
 // so they map 1:1 to the old CSS (`[align-self:start]`, not Tailwind's `flex-start`).
@@ -703,7 +738,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
         <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
-          {errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}
+          {summarizeErrorText(errorText)}
         </AlertDescription>
       )}
       {errorText && (
@@ -726,6 +761,49 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
         </AlertAction>
       )}
     </Alert>
+  );
+}
+
+/**
+ * Raw diagnostic details for an errored tool, collapsed by default so a verbose
+ * validation/runtime failure cannot dominate the conversation. The ToolErrorBanner
+ * already shows the first 240px of the error text + a copy action; this disclosure
+ * owns the full raw payload (quiet JSON body / structured ToolResultPreview) so it
+ * is reachable but not loud. Keyboard-accessible via CollapsibleTrigger (a real
+ * <button>); secret redaction + size caps stay enforced upstream (redactSecrets,
+ * the banner's 240px truncation, and the result preview's own caps).
+ */
+export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
+  children: ReactNode;
+  /** Controlled open state. When omitted the disclosure manages its own state
+   *  (collapsed by default). Passed by tests to render the expanded state in
+   *  static markup; production callers leave it uncontrolled. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  // Always update internalOpen so an onOpenChange-only caller still sees the
+  // panel toggle (the old `onOpenChange ?? setInternalOpen` left internalOpen
+  // stuck closed when only the callback was passed).
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
+      <CollapsibleTrigger className="flex w-fit items-center gap-1 self-start rounded-[var(--radius-control)] text-[length:var(--font-size-ui)] text-[color:var(--muted-foreground)] outline-none transition-colors hover:text-[color:var(--foreground-secondary)] focus-visible:shadow-[0_0_0_var(--focus-ring-width)_oklch(from_var(--focus-ring)_l_c_h_/_0.14)]">
+        <ChevronRight
+          size={12}
+          aria-hidden="true"
+          className={cn('shrink-0 transition-transform duration-[var(--duration-quick)] [transition-timing-function:var(--ease-out-strong)]', open && 'rotate-90')}
+        />
+        <span>{open ? '隐藏原始诊断' : '显示原始诊断'}</span>
+      </CollapsibleTrigger>
+      <CollapsiblePanel className="mt-1">
+        {children}
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 

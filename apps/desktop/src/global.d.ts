@@ -161,6 +161,12 @@ declare global {
         list(sessionId: string): Promise<ShellRunUpdate[]>;
         subscribeUpdates(handler: (update: ShellRunUpdate) => void): () => void;
       };
+      goal: {
+        /** The session's current goal (null when none is set). */
+        get(sessionId: string): Promise<import('@maka/runtime').GoalState | null>;
+        /** Clear the active goal, stopping autonomous continuation. */
+        clear(sessionId: string): Promise<void>;
+      };
       connections: {
         list(): Promise<LlmConnection[]>;
         getDefault(): Promise<string | null>;

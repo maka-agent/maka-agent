@@ -259,7 +259,7 @@ function TerminalPreview(props: {
 }
 
 /**
- * Background shell-run result (desktop Bash after yield). Keep cmd, status,
+ * Background shell-run result (desktop Bash after handoff). Keep cmd, status,
  * ref, and any captured streams — never collapse to `[shell_run]`.
  */
 function ShellRunPreview(props: {

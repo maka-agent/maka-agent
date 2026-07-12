@@ -320,6 +320,7 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
 
       const text = await readFile(result.filePath, 'utf8');
       assert.match(text, /name: 示例技能/);
+
       assert.match(text, /allowed-tools:\n  - Read/);
       assert.match(text, /不会自动获得权限/);
 
@@ -335,6 +336,17 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       assert.equal(skills[0].id, 'starter-skill');
       assert.equal(skills[0].sourceType, 'workspace');
       assert.equal(skills[0].validationStatus, 'missing_lock');
+
+      // Repeated creates mint DISTINGUISHABLE names (the id ordinal flows
+      // into the display name + front-matter) — three clicks used to
+      // produce three identical 「示例技能」 rows.
+      const second = await createStarterSkill(workspaceRoot);
+      assert.equal(second.ok, true);
+      if (second.ok) {
+        assert.equal(second.skill.id, 'starter-skill-2');
+        assert.equal(second.skill.name, '示例技能 2');
+        assert.match(await readFile(second.filePath, 'utf8'), /name: 示例技能 2/);
+      }
     });
   });
 
@@ -367,6 +379,9 @@ name: Existing
       assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocument')));
       assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocumentEdit')));
       assert.ok(skills.every((skill) => !skill.declaredTools.includes('Bash')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocument')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocumentEdit')));
+      assert.ok(skills.every((skill) => !skill.requiredTools.includes('Read')));
       assert.ok(skills.every((skill) => skill.sourceType === 'bundled'));
       assert.ok(skills.every((skill) => skill.sourceName === 'maka-officecli'));
       assert.ok(skills.every((skill) => skill.sourceVersion === '1'));

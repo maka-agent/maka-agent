@@ -70,7 +70,7 @@ export function promptStructuralSmokeReport(
     : [];
   const quarantineCount = decisionEvents.filter((event) => isQuarantineDecision(event)).length;
   const totalCostUsd = roundCost(sum(taskEvents.map((event) => (
-    event.type === 'task_completed' || event.type === 'task_plumbing_failed' ? event.tokenSummary?.costUsd ?? 0 : 0
+    'tokenSummary' in event ? event.tokenSummary?.costUsd ?? 0 : 0
   ))));
   const failures: PromptStructuralSmokeFailure[] = [];
   if (observedRounds < minimumRounds) failures.push('minimum_rounds_not_met');

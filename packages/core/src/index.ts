@@ -223,6 +223,8 @@ export type {
   PreToolUseResult,
   PermissionRequest,
   PermissionResponse,
+  ToolPermissionRule,
+  ToolPermissionRuleMatchInput,
 } from './permission.js';
 export {
   PERMISSION_MODES,
@@ -234,8 +236,10 @@ export {
   FS_DESTRUCTIVE_PATTERNS,
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
+  classifyToolUse,
   isPermissionMode,
   isToolCategory,
+  matchToolPermissionRules,
   preToolUse,
 } from './permission.js';
 

@@ -160,8 +160,8 @@ import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   buildLlmHistorySummarizer,
+  cleanupLegacyHistoryCompactArtifacts,
   loadHistoryCompactBlocksFromArtifacts,
-  persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
@@ -178,6 +178,8 @@ import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
+import { createMainGoalWiring } from './goal-wiring.js';
+import { handleGoalContinuation } from '@maka/runtime';
 import { createOAuthModelConnectionsMainService } from './oauth-model-connections-main.js';
 import {
   applyNetworkPatch,
@@ -391,6 +393,60 @@ const automationWiring = createMainAutomationWiring({
 // Load durable automations from disk on startup (fire-and-forget; errors are logged inside).
 void automationWiring.loadDurableAutomations();
 
+// Goal execution — autonomous turn-boundary continuation with an external
+// evaluator (CC-style). Self-contained: no automation coupling (a goal is
+// bounded by its own caps; a waiting goal re-checks via normal continuation).
+const goalWiring = createMainGoalWiring({
+  getDefaultConnectionSlug: () => connectionStore.getDefault(),
+  getConnection: (slug) => connectionStore.get(slug),
+  getSessionModel: async (sessionId) => {
+    const header = await store.readHeader(sessionId);
+    if (!header) return null;
+    return { connectionSlug: header.llmConnectionSlug, model: header.model };
+  },
+  resolveConnectionSecret,
+  buildSubscriptionModelFetch,
+  getAIModel: (input) => getAIModel(input),
+  buildProviderOptions: (connection, modelId) => buildProviderOptions(connection, modelId),
+  getRecentMessages: async (sessionId) => {
+    const messages = await runtime.getMessages(sessionId);
+    return messages.slice(-10).map((m) => ({
+      type: m.type,
+      text: m.type === 'user' || m.type === 'assistant' ? m.text : undefined,
+    }));
+  },
+  getTokenCount: async (sessionId) => {
+    const messages = await runtime.getMessages(sessionId);
+    let total = 0;
+    for (const m of messages) {
+      if (m.type === 'token_usage') total += (m.total ?? (m.input + m.output));
+    }
+    return total;
+  },
+  injectTurn: (sessionId, text) => {
+    const turnId = randomUUID();
+    const iterator = runtime.sendMessage(sessionId, { turnId, text });
+    void streamEvents(sessionId, iterator, turnId);
+  },
+  canContinue: async (sessionId) => {
+    const header = await store.readHeader(sessionId);
+    if (!header || header.archivedAt) return false;
+    // Never auto-continue into a session that is running (mid-turn), aborted,
+    // blocked, or parked waiting on the user — injecting a turn there would
+    // race the live turn or override the human the agent is waiting on.
+    if (
+      header.status === 'running' ||
+      header.status === 'blocked' ||
+      header.status === 'aborted' ||
+      header.status === 'waiting_for_user'
+    ) return false;
+    return true;
+  },
+  // Surface every goal transition to the renderer so an active autonomous loop
+  // is visible (badge + clear affordance) — never a silent token burn.
+  onGoalChange: (goal) => emitSessionsChanged('goal-change', goal.sessionId),
+});
+
 async function getWorkspacePrivacyContext(): Promise<WorkspacePrivacyContext> {
   const settings = await settingsStore.get();
   return { incognitoActive: settings.privacy.incognitoActive === true };
@@ -407,6 +463,7 @@ const systemPromptService = createSystemPromptMainService({
   workspaceRoot,
   localMemory,
   taskLedger: taskLedgerStore,
+  goalManager: goalWiring.manager,
 });
 // Window is created hidden for E2E and visual-smoke runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
@@ -517,6 +574,8 @@ const builtinTools: MakaTool[] = [
   ...taskLedgerWiring.tools,
   // Unified Automation: heartbeat (session-internal polling) + cron (standalone scheduled runs).
   ...automationWiring.tools,
+  // Goal execution: GoalSet/Clear/Status/Pause/Resume — autonomous turn-boundary continuation.
+  ...goalWiring.tools,
   // The `load_tools` connector is built by ToolAvailabilityRuntime; deferred
   // group tools just need to be present so they are dispatchable once loaded.
   ...deferredTools,
@@ -741,22 +800,13 @@ backends.register('ai-sdk', async (ctx) => {
     readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-    writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
-      summarize: buildLlmHistorySummarizer({
-        // Reuse the same connection/model the session already drives, so the
-        // summary stays consistent with the model that will consume it.
-        resolveModel: () =>
-          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-        maxOutputTokens: 4096,
-      }),
-      onArtifactCreated: (artifact) => {
-        safeSendToRenderer('artifacts:changed', {
-          reason: 'created',
-          artifactId: artifact.id,
-          sessionId: artifact.sessionId,
-          ts: Date.now(),
-        });
-      },
+    loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
+    summarizeHistoryCompact: buildLlmHistorySummarizer({
+      // Reuse the same connection/model the session already drives, so the
+      // summary stays consistent with the model that will consume it.
+      resolveModel: () =>
+        getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+      maxOutputTokens: 4096,
     }),
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
@@ -770,6 +820,7 @@ backends.register('ai-sdk', async (ctx) => {
       },
     }),
     recordRunTrace: ctx.recordRunTrace,
+    recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,
@@ -815,6 +866,13 @@ const runtime = new SessionManager({
     (await artifactStore.list(sessionId)).filter((artifact) =>
       artifact.turnId === turnId && artifact.status !== 'deleted'
     ),
+  cleanupHistoryCompactArtifacts: async (input) => {
+    await cleanupLegacyHistoryCompactArtifacts({
+      ...input,
+      artifactStore,
+      onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+    });
+  },
   newId: randomUUID,
   now: Date.now,
 });
@@ -1212,6 +1270,14 @@ function registerIpc(): void {
     return messages;
   });
   ipcMain.handle('sessions:listTurns', (_event, sessionId: string) => runtime.listTurns(sessionId));
+  // Goal kill-switch surface: the renderer reads the active goal to badge a
+  // session running an autonomous loop, and clears it to stop the loop. `get`
+  // returns null when no goal is set; `clear` settles it (continuation stops
+  // after the current turn). Both are pure local state, so no permission gate.
+  ipcMain.handle('goal:get', (_event, sessionId: string) => goalWiring.manager.get(sessionId) ?? null);
+  ipcMain.handle('goal:clear', (_event, sessionId: string) => {
+    goalWiring.manager.clear(sessionId);
+  });
   // PR-SEARCH-2: local thread search. Renderer-facing channel; the pure
   // helper in `./search/thread-search.ts` enforces all gates (G1 snippet
   // redaction, G2 fake-backend exclude, G4 caps, G5 case-fold + NFC,
@@ -1353,7 +1419,8 @@ function registerIpc(): void {
     // An archived conversation is no longer shown: drop its browser connection
     // and view so it does not keep a live Chromium page in the background.
     await releaseBrowserSession(sessionId);
-    // Stop any automation loops (polling heartbeats) tied to the session.
+    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
+    goalWiring.manager.remove(sessionId);
     automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('archived', sessionId);
   });
@@ -1428,7 +1495,8 @@ function registerIpc(): void {
     // if it never opened one). releaseBrowserSession disposes the view via the
     // host, covering both agent-driven and hand-opened views.
     await releaseBrowserSession(sessionId);
-    // Stop any automation loops (polling heartbeats) tied to the session.
+    // Stop any autonomous loops tied to the session (goal + polling heartbeats).
+    goalWiring.manager.remove(sessionId);
     automationWiring.manager.removeAllForSession(sessionId);
     emitSessionsChanged('deleted', sessionId);
   });
@@ -1699,6 +1767,12 @@ async function streamEvents(
       if (event.type === 'error') {
         turnError = event.message ?? event.reason ?? 'turn error';
       }
+      // A non-throwing error finish (e.g. content-filter) arrives as
+      // complete{stopReason:'error'} with no separate `error` event — record it
+      // so goal continuation is skipped (and `ok` is not mis-reported true).
+      if (event.type === 'complete' && event.stopReason === 'error') {
+        turnError = turnError ?? 'turn ended in error';
+      }
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {
@@ -1711,6 +1785,14 @@ async function streamEvents(
     if (!finalAppendBroadcasted) {
       emitSessionsChanged('message-appended', sessionId);
       finalAppendBroadcasted = true;
+    }
+    // Goal auto-continuation: after a turn completes cleanly, evaluate the
+    // active goal and continue, hand off to polling, or stop. Skip on a
+    // user-abort (the Stop button must halt the loop) OR an errored turn —
+    // re-injecting into a failing connection would spin ~maxIterations failing
+    // turns. Failures never surface to the turn.
+    if (!turnAborted && !turnError) {
+      void handleGoalContinuation(goalWiring.continuationDeps, sessionId).catch(() => {});
     }
     return { turnId, ok: !turnAborted && !turnError, ...(turnError ? { error: turnError } : {}) };
   } catch (error) {
@@ -2070,6 +2152,7 @@ app.on('before-quit', (event) => {
 
 async function runBeforeQuitCleanup(): Promise<void> {
   automationWiring.scheduler.dispose();
+  goalWiring.manager.dispose();
   configWatcher?.stop();
   planReminders.stopTimers();
   dailyReview.stopScheduler();

@@ -15,6 +15,6 @@ export function projectToolActivityArgs(toolName: string, args: unknown): unknow
       summary.size = { cols: size.cols, rows: size.rows };
     }
   }
-  if (typeof input.yield_time_ms === 'number') summary.yield_time_ms = input.yield_time_ms;
+  if (typeof input.observe_for_ms === 'number') summary.observe_for_ms = input.observe_for_ms;
   return summary;
 }

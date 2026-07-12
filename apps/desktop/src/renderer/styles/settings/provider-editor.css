@@ -123,6 +123,13 @@
   line-height: var(--leading-snug);
 }
 
+/* The 重新登录 / 登录 CTA keeps its natural width and sits below the copy,
+ * left-aligned, instead of stretching across the grid cell. */
+.providerUnavailableNotice > button {
+  justify-self: start;
+  margin-top: var(--space-1);
+}
+
 /* Direct child only: this is the sheet's own title/badges header. The
  * descendant form (`.providerEditor header`) also matched the nested
  * `.modelTableHeader`, leaking the close-button padding-right onto the

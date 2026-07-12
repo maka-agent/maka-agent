@@ -92,6 +92,115 @@ describe('PermissionEngine.evaluate — allow path', () => {
 
 });
 
+describe('PermissionEngine.evaluate — invocation-local rules', () => {
+  test('explicit deny wins over allow and applies to permission-free tools in bypass mode', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const result = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Read',
+      args: { path: '/repo/file.ts' },
+      mode: 'bypass',
+      permissionRequired: false,
+      permissionRules: [
+        { effect: 'allow', kind: 'category', category: 'read' },
+        { effect: 'deny', kind: 'category', category: 'read' },
+      ],
+    });
+
+    assert.equal(result.kind, 'block');
+    if (result.kind !== 'block') return;
+    assert.equal(result.category, 'read');
+    assert.equal(result.decisionEvent?.decision, 'deny');
+    assert.equal(result.decisionEvent?.toolUseId, 'tu1');
+  });
+
+  test('explicit category allow overrides the explore policy block', () => {
+    const { engine } = makeEngine();
+    const result = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Write',
+      args: { path: '/repo/file.ts' },
+      mode: 'explore',
+      permissionRules: [{ effect: 'allow', kind: 'category', category: 'file_write' }],
+    });
+
+    assert.equal(result.kind, 'allow');
+  });
+
+  test('Bash rules use exact command equality without whitespace rewriting', () => {
+    const rules = [{ effect: 'allow', kind: 'bash_exact', command: 'npm  test' }] as const;
+    const { engine } = makeEngine();
+    const exact = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Bash',
+      args: { command: 'npm  test' },
+      mode: 'explore',
+      permissionRules: rules,
+    });
+    const normalized = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'Bash',
+      args: { command: 'npm test' },
+      mode: 'explore',
+      permissionRules: rules,
+    });
+
+    assert.equal(exact.kind, 'allow');
+    assert.equal(normalized.kind, 'block');
+  });
+
+  test('exact tool rules authorize WriteStdin without authorizing Bash', () => {
+    const rules = [{ effect: 'allow', kind: 'tool', toolName: 'WriteStdin' }] as const;
+    const { engine } = makeEngine();
+    const writeStdin = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'WriteStdin',
+      args: { ref: 'maka://runtime/background-tasks/pty-1', input: '\\r' },
+      mode: 'explore',
+      permissionRules: rules,
+    });
+    const bash = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu2',
+      toolName: 'Bash',
+      args: { command: 'echo no' },
+      mode: 'explore',
+      permissionRules: rules,
+    });
+
+    assert.equal(writeStdin.kind, 'allow');
+    assert.equal(bash.kind, 'block');
+  });
+
+  test('an unrelated rule preserves the permission-free tool fast path', () => {
+    const { engine } = makeEngine();
+    const result = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu1',
+      toolName: 'Read',
+      args: { path: '/repo/file.ts' },
+      mode: 'explore',
+      permissionRequired: false,
+      permissionRules: [{ effect: 'deny', kind: 'category', category: 'file_write' }],
+    });
+
+    assert.equal(result.kind, 'allow');
+  });
+});
+
 describe('PermissionEngine.evaluate — block path', () => {
   test('block in explore mode', () => {
     const { engine } = makeEngine();
@@ -183,7 +292,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
         ref: 'maka://runtime/background-tasks/pty-1',
         input: 'private input\r',
         size: { cols: 100, rows: 30 },
-        yield_time_ms: 500,
+        observe_for_ms: 500,
       },
       mode: 'ask',
     });
@@ -194,7 +303,7 @@ describe('PermissionEngine.evaluate — prompt path', () => {
       ref: 'maka://runtime/background-tasks/pty-1',
       inputBytes: 14,
       size: { cols: 100, rows: 30 },
-      yield_time_ms: 500,
+      observe_for_ms: 500,
     });
   });
 

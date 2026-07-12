@@ -5,7 +5,7 @@ export { SessionListPanel } from './session-list-panel.js';
 export type { SessionViewMode } from './session-list-panel.js';
 export type { ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from './module-panel-types.js';
 export { describeLoadToolResult, formatRedactedJson, formatToolIntent, loadToolDisplayName } from './tool-format.js';
-export { formatBytes, OverlayHost, ToolActivity } from './tool-activity.js';
+export { formatBytes, OverlayHost, ToolActivity, ToolErrorDetails } from './tool-activity.js';
 export { PermissionDialog } from './permission-dialog.js';
 export { ChatView } from './chat-view.js';
 export type { ChatHeaderAlert, TurnFooterActionMeta, TurnLineageBadge } from './chat-view.js';
