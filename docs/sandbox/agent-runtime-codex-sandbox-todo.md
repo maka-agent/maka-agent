@@ -4,8 +4,13 @@
 
 关联背景文档：
 
-- `docs/agent-runtime-codex-sandbox-alignment.md`
-- `docs/agent-runtime-sandbox-executor.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-alignment.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-status.md`
+- `docs/sandbox/agent-runtime-sandbox-executor.md`
+
+当前实施计划：
+
+- `docs/sandbox/agent-runtime-codex-sandbox-phase-7-8-plan.md`
 
 当前路线已经明确：
 
@@ -52,9 +57,13 @@ Phase 4: macOS Seatbelt policy generator
 Phase 5: argv-based shell runner
 Phase 6: Bash 接入 sandboxed execution
 Phase 7: 文件工具接入 profile enforcement
+Phase 7.5: 统一 WorkspaceExecutor factory / runtime tool assembly
+Phase 7.6: background Bash 接入 sandbox
+Phase 7.7: 文件工具接入 OS sandboxed worker/helper
+Phase 7.8: 补齐 headless / isolated / child agent 默认接线
 Phase 8: sandbox-aware PermissionEngine / policy
 Phase 9: runtime/model context 与 diagnostics
-Phase 10: Linux sandbox backend
+Phase 10: Linux sandbox backend / helper / distribution
 ```
 
 ## Phase 0: 清理旧方案假设
@@ -63,8 +72,8 @@ Phase 10: Linux sandbox backend
 
 范围：
 
-- `docs/agent-runtime-sandbox-executor.md`
-- `docs/agent-runtime-codex-sandbox-alignment.md`
+- `docs/sandbox/agent-runtime-sandbox-executor.md`
+- `docs/sandbox/agent-runtime-codex-sandbox-alignment.md`
 - GitHub issue 后续评论
 
 任务：
@@ -555,9 +564,6 @@ SandboxTransformResult
 - [x] CLI `ai-sdk` backend 按当前 session header 构造 permission-aware builtin tools。
 - [x] session cwd 在 runtime assembly 边界做 realpath/absolute path 规范化。
 - [x] 保留 `shellRuns` 存在时的 background Bash 路径。
-- [ ] headless / isolated executor 路径接入同一套 factory。
-- [ ] child agent tools 改成按 child session active profile 构造。
-- [ ] background Bash 接入 sandbox-aware argv spawn。
 
 验收标准：
 
@@ -586,6 +592,159 @@ SandboxTransformResult
 >
 > 实现结果：Phase 7.5 新增 `createPermissionAwareWorkspaceExecutor()` 和 `buildPermissionAwareBuiltinTools()`，并从 runtime barrel 和 package subpath 导出。新增 `workspace-executor-factory.test.ts` 覆盖 profile 编译、foreground Bash sandbox transform、read-only 写入拒绝、workspace-write protected metadata 拒绝、bypass no-sandbox、以及 `shellRuns` 存在时 background Bash 保持现状。
 
+## Phase 7.6: background Bash 接入 sandbox
+
+目标：让 desktop / CLI 默认使用的 background Bash 也经过 active `PermissionProfile` 和 `SandboxManager`，补齐 foreground Bash 与默认 Bash 之间的安全边界差异。
+
+建议文件：
+
+- 修改：`packages/runtime/src/shell-run-manager.ts`
+- 修改：`packages/runtime/src/shell-tools.ts`
+- 修改：desktop / CLI 的 `ShellRunProcessManager` assembly
+- 测试：`packages/runtime/src/__tests__/shell-run-manager.test.ts`
+- 测试：desktop / CLI runtime assembly contract tests
+
+任务：
+
+- [ ] 为 `ShellRunProcessManager` 注入必需的 session-aware async sandbox context provider。
+- [ ] provider 根据 `ShellRunBashInput.sessionId` 获取当前 session 的 permission mode、cwd 和 workspace roots。
+- [ ] 在 runtime assembly/provider 层编译 active profile，不在 `ShellRunProcessManager` 内编译权限。
+- [ ] provider 使用显式 result union；context/provider 失败时 fail closed。
+- [ ] 从 `ShellRunBashInput` 删除 `cwd`，由 provider 返回 canonical cwd 作为唯一权威值。
+- [ ] desktop / CLI 的 foreground、background 和 filesystem 路径复用同一个 process-level `SandboxManager`。
+- [ ] 将原始 command 包装成 `/bin/sh -lc <command>` 内层 argv。
+- [ ] 调用 `SandboxManager.transform()` 生成最终执行请求。
+- [ ] 注入只接受 argv 的 `ShellRunProcessSpawner`，background Bash 固定使用 `spawn(program, args, { shell: false })`。
+- [ ] context 缺失、workspace roots 无效、transform 失败时不创建 record、不 spawn、不回退 host shell。
+- [ ] sandbox backend 不可用或 transform 失败时返回结构化错误。
+- [ ] durable shell run record 继续保存用户原始 command，不保存 wrapper argv。
+- [ ] 保留 `yield-time_ms`、background task ref、`Read(ref)` 和 `StopBackgroundTask`。
+- [ ] 保留 stdout/stderr tail、timeout、abort、stop 和 process tree termination。
+- [ ] permission mode 发生变化时，先终止该 session 的 background shell runs，再更新 session header。
+- [ ] 不实现 unsandboxed retry。
+
+> 具体方案：直接扩展现有 `ShellRunProcessManager`，不再新增另一套 background process manager。manager 继续拥有 live process、输出 tail、durable record、yield、observe 和 termination 生命周期，只把启动子进程前的 command transform 改成可注入的 sandbox-aware 路径。
+>
+> `ShellRunProcessManager` 是 process-level 实例，而 permission profile 属于 session。sandbox context provider 因此必须接收 `ShellRunBashInput`，并允许异步读取 session header。provider 返回显式 result union；成功结果包含 canonical `cwd`、`profile`、`workspaceRoots`、共享 `SandboxManager`、platform/path context。manager 不理解 `PermissionMode`，也不调用 `compilePermissionProfile()`。
+>
+> provider 是构造 `ShellRunProcessManager` 的必需依赖，不保留 legacy host-shell fallback。`bypass` 也必须返回有效的 `danger-full-access` context，再由 `SandboxManager` 明确选择 `none`；不能通过缺少 provider/context 隐式绕过 sandbox。
+>
+> context/validation/transform 全部成功后才能生成 shell run id、spawn 和创建 durable record。使用可注入的 argv spawner以验证最终 wrapper argv，同时保留现有 live child handle、process group、yield、Stop、timeout 和 abort 生命周期。
+>
+> permission mode 切换会改变 session 安全边界。无论收紧还是放宽，`SessionManager.setPermissionMode()` 都先终止该 session 现有 background shell runs；termination 失败则不更新 mode，避免旧权限进程继续运行。
+
+验收标准：
+
+- desktop / CLI 默认 Bash 在 macOS restricted profile 下经过 `sandbox-exec`。
+- background Bash 和 foreground Bash 使用同一份 active profile 与 workspace roots。
+- background task 生命周期和返回结果不因 sandbox 接入而回退。
+- sandbox 必需但不可用时不会执行 host command。
+
+测试建议：
+
+- fake sandbox manager 验证收到 `/bin/sh -lc <command>`。
+- fake spawn/launcher 验证执行最终 argv 且 `shell: false`。
+- provider/context failure、empty roots、invalid argv 均在 spawn 前失败。
+- restricted profile transform 失败时不创建 shell run record。
+- quick command、yield 后台任务、Read、Stop、timeout、abort 和大输出 tail 回归测试。
+- permission mode 切换先 terminate background runs，再更新 header。
+
+## Phase 7.7: 文件工具接入 OS sandboxed worker/helper
+
+目标：在现有 Node 主进程 profile enforcement 之外，为 `Read / Write / Edit / Glob / Grep` 增加平台 sandbox 的底层兜底。
+
+建议范围：
+
+- 新增：平台无关的 filesystem operation request/response contract
+- 新增：sandboxed filesystem worker/helper 或等价 subprocess 边界
+- 修改：`ProfileEnforcedWorkspaceExecutor` 下层文件操作实现
+- 修改：runtime tool/executor assembly
+- 测试：filesystem worker contract tests
+- 测试：macOS-only filesystem sandbox smoke tests
+
+任务：
+
+- [ ] 定义结构化 filesystem operation contract，不把文件操作拼成 shell command。
+- [ ] 拆分 `WorkspaceCommandExecutor` 与复合 `WorkspaceFileOperations`，移除隐式 local filesystem fallback。
+- [ ] 让 one-shot worker 接收一次完整的 `read`、`write`、`edit`、`glob` 或 `grep` operation。
+- [ ] Edit 的 resolve/read/match/write 在同一个 worker invocation 中完成。
+- [ ] worker 通过同一份 active profile、workspace roots 和 `SandboxManager` 启动。
+- [ ] restricted profile 下派生 operation-scoped effective profile：read/search 收窄为 read-only，write/edit 保留 active write policy。
+- [ ] danger-full-access / external 保持原 profile 语义，不借 operation profile 隐式改变 bypass/external。
+- [ ] 第一版先实现 macOS Seatbelt 下的 worker execution。
+- [ ] worker 使用单文件 Node bundle，由 `@maka/runtime` 统一构建和拥有。
+- [ ] desktop 通过 Electron executable + `ELECTRON_RUN_AS_NODE=1` 启动；CLI 通过 Node executable 启动。
+- [ ] worker launch spec/provider 显式提供 argv、最小 env、runtime readable roots 和 executable roots。
+- [ ] worker 只接收最小环境 allowlist，不继承 host secrets、`NODE_OPTIONS`、proxy 或 `RIPGREP_CONFIG_PATH`。
+- [ ] 使用 stdin 单 JSON request、stdout 单 JSON response 的 versioned protocol，并双向 schema 校验。
+- [ ] operation error 通过结构化 response 表达；bootstrap/crash/protocol failure 使用非零 exit。
+- [ ] 请求上限 16 MiB、响应上限 8 MiB、stderr tail 上限 1 MiB，默认 hard timeout 120 秒。
+- [ ] `rg` 在 runtime 中解析 canonical executable；worker 使用 argv + `shell: false`，找不到时只让 Grep 返回 `grep_unavailable`。
+- [ ] 保留 `ProfileEnforcedWorkspaceExecutor` 作为业务层预检查，不用 OS sandbox 替代它。
+- [ ] 保留 realpath containment 和 symlink escape 防护。
+- [ ] 保留 file write lock 和 Edit matcher 行为。
+- [ ] 让 worker 错误区分 profile denial、sandbox denial、invalid request 和 filesystem error。
+- [ ] 明确 worker 的生命周期、并发、超时、abort 和输出大小限制。
+- [ ] Linux backend 完成后让同一 worker contract 自动复用 Linux sandbox。
+
+> 具体方案：文件工具不能通过 Bash wrapper 自动获得 OS sandbox，因为它们当前直接在 Node 主进程调用 filesystem API。Phase 7.7 增加一个受 sandbox 约束的 subprocess/helper 边界，让真实文件系统操作发生在 sandbox 内；主进程保留 profile matcher、参数校验、锁和结果编排。
+>
+> 这不是重写 Read / Write / Edit / Glob / Grep 的 tool schema，也不把所有文件操作改成 shell 命令。目标是把现有 executor 的真实 filesystem operation 下沉到结构化 worker，并让 macOS/Linux backend 只负责限制 worker 进程。
+>
+> worker 第一版采用 one-shot 模式：一次 tool call 启动一个 sandboxed process，处理一个复合 operation 后退出。不采用 session persistent worker 或共享 pool，避免 profile 生命周期、IPC 并发和跨 session 状态复杂度。
+>
+> 文件接口拆成独立的 `WorkspaceCommandExecutor` 与 `WorkspaceFileOperations`。builtin assembly 分别注入 command、background shell 和 file operation dependency；不保留“缺少 worker 时自动创建 LocalWorkspaceExecutor”的 host fallback。测试如需 host filesystem，必须显式创建 test/local implementation。
+>
+> `@maka/runtime` 将 worker 构建成 `dist/workers/filesystem-worker.js` 单文件。CLI 从 runtime package 解析；packaged Electron 将同一文件作为独立 resource 复制到 `process.resourcesPath/workers/`。worker/runtime/rg 的只读与 executable mapping roots 由 runtime-owned launch spec 注入 Seatbelt，模型不能控制这些路径。
+>
+> worker env 采用最小 allowlist，只保留受控的 `TMPDIR`、locale，以及 desktop 必需的 `ELECTRON_RUN_AS_NODE=1`。`rg` 使用 runtime 解析的绝对路径，不依赖 PATH。stdout 只输出协议 response，diagnostics 写 bounded stderr。
+
+验收标准：
+
+- Node 主进程 profile enforcement 与 OS sandbox 形成两层保护。
+- macOS 下文件工具无法借助实现漏洞写 workspace 外或 protected metadata。
+- 文件工具现有结果形状、锁、Edit matcher 和 symlink 防护不回退。
+
+测试建议：
+
+- worker contract 单元测试。
+- worker bundle/resolver 在 runtime、CLI development 和 packaged desktop resource contract 中可用。
+- protocol version、request id、invalid JSON、overflow、timeout、abort 和 process tree kill。
+- read-only 下 Write/Edit 被拒绝。
+- workspace-write 下普通 Write/Edit 成功。
+- workspace 外写入和 protected metadata 写入被 Seatbelt 拒绝。
+- symlink escape、timeout、abort 和并发写锁回归测试。
+
+## Phase 7.8: 补齐其他默认 runtime 接线
+
+目标：让所有本地 agent/runtime 入口使用同一套 permission-aware executor、sandbox context 和 filesystem worker，避免只有 desktop / CLI 主 session 生效。
+
+任务：
+
+- [ ] 将静态 `childTools` 改为按临时 child header 动态构造的 async factory。
+- [ ] child agent tools 使用 `definition.permissionMode` 编译 profile，不直接继承 parent profile。
+- [ ] child cwd/workspace roots 继承 parent 且只能收窄，不能扩大。
+- [ ] desktop child Read/Glob/Grep 使用 Phase 7.7 filesystem worker。
+- [ ] headless/isolated executor 正式表达为 `PermissionProfile.External`，不重复叠加本地 Seatbelt。
+- [ ] model-backed headless 缺少 explicit external isolation 时继续 fail closed。
+- [ ] 明确 parent/child agent 的 workspace roots 继承和收窄规则。
+- [ ] 审计所有 `buildBuiltinTools()`、`createLocalWorkspaceExecutor()` 和 `ShellRunProcessManager` 构造位置。
+- [ ] 对无法提供 active context 的本地 managed runtime fail closed。
+
+验收标准：
+
+- 所有本地 managed runtime 入口都无法绕过默认 permission-aware assembly。
+- child agent 不会因为复用 parent tool instance 获得错误的 profile 或 workspace roots。
+- external/remote runtime 的责任边界有明确表达，不与本地 sandbox 混淆。
+
+测试建议：
+
+- headless runtime contract test。
+- child agent active profile test。
+- child definition mode 比 parent 更窄时不会继承 parent 的更高权限。
+- external headless 不调用本地 Seatbelt，缺少 isolation assertion 时拒绝启动。
+- runtime entrypoint audit test 或 source contract test。
+
 ## Phase 8: sandbox-aware PermissionEngine / policy
 
 目标：让权限决策理解 active profile 和 sandbox availability，而不是只看 mode x category。
@@ -600,15 +759,25 @@ SandboxTransformResult
 任务：
 
 - [ ] 扩展 `PreToolUseInput`，加入 active profile summary 或 sandbox availability。
+- [ ] 定义动态 `ActiveSandboxCapabilities`，command/filesystem 状态分别表达 available、not_required、external、unavailable。
+- [ ] tool 静态声明 `sandboxRequirement`：none、command、filesystem、external。
+- [ ] backend/session assembly 构建时生成 capability snapshot；permission mode/cwd/backend 重建时重新 probe。
+- [ ] 定义平台无关的 sandbox capability/availability 结果，不只根据 `process.platform` 判断。
+- [ ] availability 可以表达 backend 未注册、executable 缺失、平台能力不足和 probe 失败。
+- [ ] runtime 把完整 capability 映射成最小 `PreToolUseSandboxContext`，由 core `preToolUse()` 执行纯 capability gate。
 - [ ] 保留现有 `PermissionMode` 输入。
 - [ ] 保留 `ToolCategory` 分类。
-- [ ] 调整 `execute.shell_unsafe`：不再无条件 allow。
+- [ ] capability gate 满足后继续使用现有 mode x category matrix，不重写矩阵。
+- [ ] 调整 `execute.shell_unsafe`：只有 command capability 满足时才进入现有 allow 决策。
 - [ ] sandbox 可 enforce 时，允许普通 workspace mutating shell 自动执行。
-- [ ] sandbox 不可 enforce 时，`shell_unsafe` prompt 或 block。
+- [ ] sandbox 必需但不可用时直接 block，不产生无法改变结果的普通 approval prompt。
 - [ ] `fs_destructive` 继续 prompt 或更保守。
 - [ ] `git_destructive` 继续 prompt 或更保守。
 - [ ] `privileged` 继续 prompt 或更保守。
 - [ ] `bypass` 仍保留危险全权限语义。
+- [ ] turn-start snapshot 只用于 policy；真实执行仍重新获取 context、transform、校验 launch spec 并 fail closed。
+- [ ] 定义共享 sandbox error metadata，并保留 command/background/filesystem 领域错误类型。
+- [ ] error serializer 默认不输出 policy、argv、env、文件内容或 edit strings。
 
 验收标准：
 
@@ -619,11 +788,14 @@ SandboxTransformResult
 测试建议：
 
 - `execute + shell_unsafe + sandbox available -> allow`。
-- `execute + shell_unsafe + sandbox unavailable -> prompt/block`。
+- `execute + shell_unsafe + sandbox unavailable -> block`。
+- backend 已注册但 capability probe 失败时不视为 sandbox available。
 - `execute + rm -> prompt`。
 - `explore + shell_unsafe -> block`。
 - `ask + shell_unsafe -> prompt`。
 - `bypass + shell_unsafe -> allow`。
+- `ask + file_write + filesystem unavailable -> block`，不先 prompt。
+- capability snapshot available 但执行时 launch 失败 -> tool fail closed，不回退 host。
 
 ## Phase 9: runtime/model context 与 diagnostics
 
@@ -660,43 +832,144 @@ SandboxTransformResult
 - capability snapshot test。
 - sandbox unavailable 状态展示测试。
 
-## Phase 10: Linux sandbox backend
+## Phase 10: Linux sandbox backend / helper / distribution
 
-目标：在 macOS 主线稳定后，接入 Linux 权限兜底。
+目标：在 macOS command execution、background Bash、文件工具 worker 和默认 runtime 接线稳定后，使用同一份 `PermissionProfile` 接入 Linux 底层权限兜底。
+
+平台边界：
+
+```text
+PermissionProfile / SandboxCommand / tools / runtime assembly
+  -> SandboxManager
+       ├─ darwin -> MacosSeatbeltBackend
+       └─ linux  -> LinuxSandboxBackend
+  -> SandboxExecRequest / launcher
+  -> common process lifecycle
+```
+
+> 分岔只发生在 platform backend 和必要的平台 launcher/helper。Linux 不新增另一套 PermissionProfile、Bash tool、file tool 或 WorkspaceExecutor；transform 完成后的执行、streaming、timeout、abort 和 background process lifecycle 继续复用通用 runtime 能力。
+
+### Phase 10.1: Linux capability detection 与 helper 方案
+
+任务：
+
+- [ ] 确认第一版技术栈：bubblewrap filesystem view + network namespace + `no_new_privs` + seccomp。
+- [ ] 确认 helper 实现语言、构建方式和发布策略。
+- [ ] 决定优先使用 system `bwrap`、bundled `bwrap`，或支持二者并做 capability probe。
+- [ ] 探测 Linux kernel、user namespace、bubblewrap 和 seccomp 可用性。
+- [ ] 定义 capability result 和稳定诊断原因。
+- [ ] 明确 helper 缺失、版本不满足、user namespace 禁用、seccomp 不可用时的 fail-closed 行为。
+- [ ] 明确不同 CPU architecture 的 binary 产物和校验策略。
+
+> 推荐边界：TypeScript `LinuxSandboxBackend` 把 profile 和 path context 转成 launcher request；native helper 负责 `no_new_privs`、seccomp、需要保留的 file descriptors、bubblewrap setup 和最终 exec。这样不需要让所有上层 tool 和 runner 理解 Linux syscall 细节。
+
+验收标准：
+
+- capability probe 不启动用户命令。
+- Linux 可用性不只根据 `process.platform === 'linux'` 判断。
+- 所有 capability failure 都能返回可诊断且 fail-closed 的结果。
+
+### Phase 10.2: LinuxSandboxBackend contract 与 SandboxManager 接入
 
 建议文件：
 
 - 新增：`packages/runtime/src/sandbox/linux-sandbox.ts`
-- 可能新增 helper package 或 bundled helper，取决于实现语言和发布策略
+- 修改：`packages/runtime/src/sandbox/sandbox-manager.ts`
+- 修改：`packages/runtime/src/sandbox/default-sandbox-manager.ts`
 - 测试：`packages/runtime/src/__tests__/linux-sandbox.test.ts`
-- Linux-only smoke tests
+- 测试：`packages/runtime/src/__tests__/sandbox-manager.test.ts`
 
 任务：
 
-- [ ] 确认 Linux backend 技术方案：bubblewrap + seccomp。
-- [ ] 确认 helper 分发方式。
-- [ ] 实现 filesystem view：workspace read/write，workspace 外限制。
-- [ ] 实现 protected metadata deny-write。
-- [ ] 实现 tmp write。
-- [ ] 实现 network restricted。
-- [ ] 实现 network enabled。
-- [ ] 接入 `SandboxManager.selectInitial()`。
-- [ ] 接入 `SandboxManager.transform()`。
-- [ ] Linux 不可用时 fail closed。
+- [ ] 实现 `LinuxSandboxBackend implements SandboxBackend`。
+- [ ] 消费现有 `PermissionProfile`、`SandboxCommand` 和 `SandboxPathContext`。
+- [ ] 在 default manager 中注册 macOS 和 Linux backend。
+- [ ] `selectInitial()` 在 Linux backend 已注册且 capability 可用时选择 `linux`。
+- [ ] backend 未注册时返回 `backend_not_available`。
+- [ ] backend 已注册但 capability 不可用时返回明确 failure reason。
+- [ ] `transform()` 输出通用 launcher argv；如确实需要额外 FD/cleanup metadata，再显式扩展 launcher request，不把平台字段扩散到 tools。
+- [ ] unrestricted / disabled / external profile 继续由 manager 选择 `none`，不进入 Linux backend。
 
 验收标准：
 
-- Linux 下 workspace-write 可以写 workspace 普通文件。
-- Linux 下 workspace-write 不能写 workspace 外文件。
-- Linux 下 protected metadata 默认不可写。
-- Linux 下 network restricted 可阻止直接联网。
+- 上层 Bash、文件工具和 runtime assembly 不出现 Linux 专用分支。
+- fake capability/backend contract tests 可以在非 Linux 平台执行。
+- sandbox 必需但 Linux backend 不可用时不会降级到 host execution。
 
-测试建议：
+### Phase 10.3: bubblewrap filesystem view
 
-- Linux-only smoke。
-- bubblewrap 不可用时错误清晰。
-- seccomp/network 限制 smoke。
-- 非 Linux 环境自动 skip。
+任务：
+
+- [ ] 构建默认只读的系统 filesystem view。
+- [ ] read-only profile 下 workspace 只读。
+- [ ] workspace-write profile 下 workspace roots 可写。
+- [ ] workspace 外路径不可写。
+- [ ] tmpdir 和 `/tmp` 按 profile 提供可写视图。
+- [ ] 保留执行 shell、系统 binary、动态链接器和基础运行库所需的只读 mounts。
+- [ ] 规范化 cwd、workspace roots、tmpdir 和 symlink target。
+- [ ] 对 mount target 创建、清理和并发行为给出明确策略。
+
+验收标准：
+
+- Linux read-only 下 workspace 可读不可写。
+- Linux workspace-write 下普通 workspace 文件可写。
+- workspace 外写入失败。
+- cwd、tmp 和常用系统命令可以正常工作。
+
+### Phase 10.4: protected metadata 与路径绕过防护
+
+任务：
+
+- [ ] 对已存在的 `.git`、`.agents`、`.codex` 建立 readonly/masked view。
+- [ ] 对不存在的 protected metadata 路径阻止首次创建。
+- [ ] 支持 workspace 内任意层级的 protected metadata 名称。
+- [ ] 防止通过 symlink、canonical path 差异或 nested mount 绕过。
+- [ ] 处理 protected path 下存在 writable descendant 的冲突规则。
+- [ ] 确保 cleanup 不删除用户原有路径或并发 sandbox 创建的 mount target。
+
+验收标准：
+
+- protected metadata 已存在时不可修改。
+- protected metadata 不存在时不可创建。
+- symlink 和嵌套目录不能绕过 deny-write。
+
+### Phase 10.5: network namespace、no_new_privs 与 seccomp
+
+任务：
+
+- [ ] `network.restricted` 下隔离网络 namespace。
+- [ ] `network.enabled` 下保留正常网络能力。
+- [ ] 在 helper 中设置 `PR_SET_NO_NEW_PRIVS`。
+- [ ] 安装并验证 seccomp filter。
+- [ ] 明确 seccomp 与 system/setuid bubblewrap 的启动顺序和兼容性。
+- [ ] 阻止可以破坏 sandbox 边界的高风险 syscall/操作。
+- [ ] 将 seccomp/helper setup failure 映射成结构化 sandbox error。
+
+验收标准：
+
+- network restricted 下普通直接联网失败。
+- network enabled 下网络不被 sandbox policy 主动阻止。
+- seccomp/filter 安装失败时不会继续执行用户命令。
+
+### Phase 10.6: 分发、集成与 Linux smoke tests
+
+任务：
+
+- [ ] 把 helper/bundled resource 纳入 desktop、CLI 和发布产物。
+- [ ] 支持目标 Linux architecture，并验证 executable permission。
+- [ ] 明确 system/bundled bwrap 的选择和版本兼容策略。
+- [ ] 增加 Linux-only command sandbox smoke tests。
+- [ ] 让 Phase 7.7 filesystem worker contract 复用 Linux backend。
+- [ ] 增加 Linux-only filesystem worker smoke tests。
+- [ ] 非 Linux 环境自动 skip 真实 smoke，但继续运行 contract tests。
+- [ ] 在 diagnostics 中暴露 Linux backend、helper 和 capability 状态。
+
+验收标准：
+
+- 安装后的 desktop / CLI 不依赖开发机目录即可找到 helper。
+- Linux 下 foreground Bash、background Bash 和 filesystem worker 使用同一 backend。
+- read-only、workspace-write、protected metadata 和 network policy 都通过真实 Linux smoke。
+- bubblewrap/helper 不可用时错误清晰且 fail closed。
 
 ## 里程碑
 
@@ -705,26 +978,30 @@ M1: PermissionProfile 模型存在，但 runtime 行为不变。
 M2: permissionMode 可以编译成 active PermissionProfile。
 M3: SandboxManager 可以选择和转换 sandbox request。
 M4: macOS Seatbelt 可以独立生成并验证策略。
-M5: Bash 在 macOS 下默认经过 sandbox。
-M6: 文件工具遵守同一 PermissionProfile。
-M7: execute 模式不再依赖 shell_unsafe regex 作为安全边界。
-M8: runtime/model context 可以展示当前 sandbox 状态。
-M9: Linux backend 接入。
+M5: foreground Bash 在 macOS 下可以经过 sandbox。
+M6: 文件工具遵守同一 PermissionProfile，并接入 desktop / CLI 默认 assembly。
+M7: background Bash 在 macOS 下默认经过 sandbox。
+M8: 文件工具真实 filesystem operation 在 macOS sandboxed worker 中执行。
+M9: headless / isolated / child agent 默认接线完成。
+M10: execute 模式不再依赖 shell_unsafe regex 作为安全边界。
+M11: runtime/model context 可以展示当前 sandbox 状态。
+M12: Linux command 与 filesystem worker backend 接入。
 ```
 
 ## 建议实施顺序
 
-优先保持每个阶段可测试、可回滚：
+前七个基础阶段已经完成或进入默认 assembly。后续优先保持每个阶段可测试、可回滚，并坚持先完成 macOS 主线，再接 Linux：
 
 ```text
-1. 先加模型，不改行为。
-2. 再加 compiler，不改行为。
-3. 再加 SandboxManager，不执行真实 sandbox。
-4. 再加 macOS Seatbelt policy generator，并用 smoke 验证。
-5. 再改 shell runner，保持旧 Bash 行为不回退。
-6. 再让 Bash 走 sandbox。
-7. 再让文件工具遵守同一 profile。
-8. 最后收紧 PermissionEngine 的 execute 策略。
+1. 完成 background Bash sandbox，消除 desktop / CLI 默认 Bash 的 host execution 缺口。
+2. 实现 macOS sandboxed filesystem worker，让文件工具获得 OS 级兜底。
+3. 补齐 headless / isolated / child agent 默认 runtime 接线。
+4. 让 PermissionEngine 理解 active profile 和真实 sandbox availability。
+5. 增加 runtime/model diagnostics，暴露 backend 与 capability failure。
+6. 确定 Linux helper、bubblewrap 和 seccomp 的构建/分发方案。
+7. 实现 Linux backend 的 filesystem view、protected metadata 和 network/seccomp。
+8. 让 foreground Bash、background Bash 和 filesystem worker 在 Linux 上复用同一 backend。
+9. 完成 Linux 发布产物和真实 smoke tests。
 ```
 
 关键原则：
@@ -733,4 +1010,8 @@ M9: Linux backend 接入。
 - 不静默从 sandbox 降级到 host shell。
 - 不在第一版做 unsandboxed retry。
 - 不引入 worktree/write-back 相关实现。
+- macOS 和 Linux 只在 platform backend / launcher/helper 层分岔。
+- 不为 Linux 复制 PermissionProfile、Bash tool、file tool 或 WorkspaceExecutor。
+- 文件工具保留业务层 profile enforcement，同时增加 OS sandboxed worker 作为兜底。
+- Linux availability 必须经过 capability probe，不能只检查 platform。
 - 每个阶段都必须有 focused tests。
