@@ -5,9 +5,9 @@
  *
  * This module is `@maka/core` so it is consumable from both main
  * and renderer. The types here MUST NOT include any token-shaped
- * field (no `accessToken`, no `refreshToken`, no `idToken`); those
- * live ONLY inside the main-process service. The renderer consumes
- * the state enum + profile slice + quota snapshot ONLY.
+ * field (no `accessToken`, no `refreshToken`, no `idToken`). Secret-bearing
+ * main-process and runtime services own those values; the renderer consumes
+ * the state enum, profile slice, and quota snapshot only.
  */
 
 /**

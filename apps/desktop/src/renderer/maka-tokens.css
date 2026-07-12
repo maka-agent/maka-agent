@@ -380,7 +380,7 @@
      so it holds under any root font-size — the previous 0.25rem was
      3.75px under the 15px root, silently mis-aligning Tailwind's spacing
      scale (p-2 = 7.5px) with hand-written px (padding: 8px). The
-     @theme inline bridge below exports this same 4px to Tailwind so
+     the `@theme inline` bridge in styles.css exports this same 4px to Tailwind so
      p-2/gap-2/m-4 and var(--space-*) share one ruler.
 
      Scale: 16-and-below keeps every even number (0/2/4/6/8/10/12) because
@@ -882,20 +882,6 @@
   --user-message-bubble: oklch(0.28 0 0);
   --chat-user-bg: var(--user-message-bubble);
 }
-
-/* =============================================================================
-   TAILWIND v4 THEME INTEGRATION
-   Make tokens addressable as Tailwind utilities:
-      bg-foreground-5       → background of subtle hover surface
-      text-muted-foreground → muted text (50% ink)
-      text-foreground-secondary → secondary text (80% ink)
-      bg-accent             → accent garnish fill
-      bg-action             → primary action fill
-      bg-control            → checked/on/progress fill
-      text-link             → link emphasis
-      border-border         → 1px subtle divider
-   See https://tailwindcss.com/docs/v4-beta for @theme inline semantics.
-============================================================================= */
 
 /* =============================================================================
    BASE STYLES

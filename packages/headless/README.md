@@ -21,7 +21,7 @@ maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-
 maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]
 maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir>
 maka eval ahe export <taskRunId...> --store <out>/runs --repo <repo> --out <dir>
-maka eval harbor run <spec.json> --task <id> --config <id> --out <dir>
+maka eval harbor run --instruction <text> --workdir <dir> --out <dir> --isolation harbor-local
 ```
 
 Try it with the bundled fake-backend demo (no API key needed):
