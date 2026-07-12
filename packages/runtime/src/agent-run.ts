@@ -130,6 +130,7 @@ export class AgentRun {
     event?: RuntimeEvent;
     write?: Promise<void>;
     persisted?: boolean;
+    stopCompleted?: boolean;
   } | undefined;
 
   constructor(private readonly input: AgentRunInput) {
@@ -160,6 +161,14 @@ export class AgentRun {
 
   isStopped(): boolean {
     return this.stopped;
+  }
+
+  hasPendingStop(): boolean {
+    return this.terminalClaim?.owner === 'stop' && this.terminalClaim.stopCompleted !== true;
+  }
+
+  completeStop(): void {
+    if (this.terminalClaim?.owner === 'stop') this.terminalClaim.stopCompleted = true;
   }
 
   recordRunTrace(event: RunTraceEvent): void {
@@ -540,13 +549,14 @@ export class AgentRun {
     if (this.finalized) return;
     this.finalized = true;
     const lastTs = this.lastTs || this.input.now();
-    if (this.active) {
-      await this.input.hooks.unregisterRun(this.active, this);
-      if (this.stopped) this.finalStatus = { status: 'aborted' };
-    }
-    if (!this.finalStatus && !this.stopped) {
+    if (this.stopped) this.finalStatus = { status: 'aborted' };
+    if (!this.finalStatus) {
       this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
       this.markRunFailed('missing_terminal_event', 'run finalized without a terminal SessionEvent', lastTs);
+    }
+    this.reserveFinalizationTerminal(this.finalStatus, lastTs);
+    if (this.active) {
+      await this.input.hooks.unregisterRun(this.active, this);
     }
     const nextStatus = this.active && this.active.activeRuns.size > 0
       ? { status: 'running' as const }
@@ -878,21 +888,6 @@ export class AgentRun {
     const fallbackFailureClass = 'missing_terminal_event';
     const fallbackFailureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
     try {
-      let createdTerminalEvent = false;
-      if (!this.terminalClaim?.event) {
-        createdTerminalEvent = true;
-        const claimedStatus = this.terminalClaim?.owner === 'stop' ? 'cancelled' : fallbackStatus;
-        const syntheticEvent = buildSyntheticTerminalRuntimeEvent({
-          id: this.input.newId(),
-          invocationId: this.runId,
-          run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
-          status: claimedStatus,
-          ts,
-          ...(claimedStatus === 'failed' ? { failureClass: fallbackFailureClass, message: fallbackFailureMessage } : {}),
-          ...(claimedStatus === 'cancelled' ? { abortSource: this.abortSource ?? 'user_stop' } : {}),
-        });
-        this.reserveTerminalEvent(syntheticEvent);
-      }
       const terminalClaim = this.terminalClaim;
       const terminalEvent = terminalClaim?.event;
       if (!terminalEvent) throw new Error('terminal RuntimeEvent claim is missing');
@@ -921,10 +916,6 @@ export class AgentRun {
       });
       if (!terminalClaim.write) terminalClaim.write = commit.then(() => undefined);
       const result = await commit;
-      if (createdTerminalEvent && result.status === 'failed') {
-        this.failureClass = result.failureClass ?? fallbackFailureClass;
-        this.failureMessage = fallbackFailureMessage;
-      }
       terminalClaim.persisted = true;
       this.terminalRunHeaderCommitted = result.headerCommitted;
       if (result.headerCommitError !== undefined) {
@@ -936,6 +927,33 @@ export class AgentRun {
       throw error;
     }
     await this.traceQueue.catch(() => {});
+  }
+
+  private reserveFinalizationTerminal(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+    ts: number,
+  ): void {
+    if (this.terminalClaim?.event) return;
+    const runStatus = this.runStatusForFinalStatus(finalStatus);
+    if (runStatus !== 'completed' && runStatus !== 'failed' && runStatus !== 'cancelled') return;
+    const status = this.terminalClaim?.owner === 'stop' || this.stopped || finalStatus?.status === 'aborted'
+      ? 'cancelled'
+      : 'failed';
+    const failureClass = 'missing_terminal_event';
+    const failureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
+    if (status === 'failed') {
+      this.failureClass = failureClass;
+      this.failureMessage = failureMessage;
+    }
+    this.reserveTerminalEvent(buildSyntheticTerminalRuntimeEvent({
+      id: this.input.newId(),
+      invocationId: this.runId,
+      run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
+      status,
+      ts,
+      ...(status === 'failed' ? { failureClass, message: failureMessage } : {}),
+      ...(status === 'cancelled' ? { abortSource: this.abortSource ?? 'user_stop' } : {}),
+    }));
   }
 
   private enqueueRunStore(

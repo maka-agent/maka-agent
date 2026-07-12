@@ -196,17 +196,13 @@ describe('SessionManager terminal ledger invariants', () => {
     expect(terminals.map((event) => event.id)).toEqual(['terminal-one']);
   });
 
-  test('synthetic finalization claims its terminal outcome before persistence', async () => {
-    const terminalAppendStarted = deferred<void>();
-    const releaseTerminalAppend = deferred<void>();
+  test('synthetic finalization claims its terminal outcome before its first await', async () => {
+    const headerUpdateStarted = deferred<void>();
+    const releaseHeaderUpdate = deferred<void>();
     const store = new TinySessionStore();
-    const runStore = new TinyAgentRunStore({
-      beforeTerminalRuntimeEventAppend: async () => {
-        terminalAppendStarted.resolve();
-        await releaseTerminalAppend.promise;
-      },
-    });
+    const runStore = new TinyAgentRunStore();
     const session = await store.create(makeInput());
+    const hooks = inertAgentRunHooks(store);
     const run = new AgentRun({
       sessionId: session.id,
       header: session,
@@ -216,7 +212,14 @@ describe('SessionManager terminal ledger invariants', () => {
       runtimeEventStore: runStore,
       newId: nextId(),
       now: nextNow(23_000),
-      hooks: inertAgentRunHooks(store),
+      hooks: {
+        ...hooks,
+        updateHeader: async (sessionId, patch) => {
+          headerUpdateStarted.resolve();
+          await releaseHeaderUpdate.promise;
+          return store.updateHeader(sessionId, patch);
+        },
+      },
     });
     await runStore.createRun(makeRunHeader({
       sessionId: session.id,
@@ -225,9 +228,9 @@ describe('SessionManager terminal ledger invariants', () => {
     }));
 
     const finalization = run.finalize();
-    await terminalAppendStarted.promise;
+    await headerUpdateStarted.promise;
     expect(run.stop('stop_button')).toBe(false);
-    releaseTerminalAppend.resolve();
+    releaseHeaderUpdate.resolve();
     await finalization;
 
     const header = await runStore.readRun(session.id, run.runId);
