@@ -38,6 +38,7 @@ import {
   createShellRunStore,
 } from '@maka/storage';
 import type { ToolResultContent } from '@maka/core/events';
+import type { ToolPermissionRule } from '@maka/core/permission';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import { listReadyModelChoices, resolveDefaultSessionTarget, resolveSessionTargetForSlug } from './connection-target.js';
 import { buildCliSystemPrompt, buildCliTurnTailPrompt } from './cli-system-prompt.js';
@@ -68,6 +69,7 @@ export interface CreateMakaCliRuntimeContextInput {
   requestedConnectionSlug?: string;
   requestedModel?: string;
   maxSteps?: number;
+  permissionRules?: readonly ToolPermissionRule[];
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   /**
    * Optional cron executor. When provided, the Automation tool advertises the
@@ -237,6 +239,7 @@ export async function createMakaCliRuntimeContext(
       newId: randomUUID,
       now: Date.now,
       ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
+      ...(input.permissionRules !== undefined ? { permissionRules: input.permissionRules } : {}),
     });
   });
 

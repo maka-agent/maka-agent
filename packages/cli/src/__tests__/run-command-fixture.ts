@@ -42,7 +42,13 @@ const summary = {
 } satisfies SessionSummary;
 
 const runtime: MakaRunRuntime = {
-  async createSession() {
+  async createSession(input) {
+    if (
+      process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
+      && input.permissionMode !== process.env.MAKA_RUN_EXPECT_PERMISSION_MODE
+    ) {
+      throw new Error(`unexpected permissionMode ${input.permissionMode}`);
+    }
     return summary;
   },
   async *sendMessage(_sessionId, input): AsyncIterable<SessionEvent> {
@@ -97,6 +103,12 @@ async function createContext(input: CreateMakaCliRuntimeContextInput): Promise<M
     && input.maxSteps !== Number(process.env.MAKA_RUN_EXPECT_MAX_STEPS)
   ) {
     throw new Error(`unexpected maxSteps ${String(input.maxSteps)}`);
+  }
+  if (process.env.MAKA_RUN_EXPECT_PERMISSION_RULES) {
+    const actual = JSON.stringify(input.permissionRules ?? []);
+    if (actual !== process.env.MAKA_RUN_EXPECT_PERMISSION_RULES) {
+      throw new Error(`unexpected permissionRules ${actual}`);
+    }
   }
   observer = input.runtimeInvocationObserver;
   return { runtime, target, close: async () => {} };

@@ -64,6 +64,9 @@ describe('Maka CLI runtime bootstrap', () => {
       });
       const observed: unknown[] = [];
       const observer = (result: unknown): void => { observed.push(result); };
+      const permissionRules = [
+        { effect: 'deny', kind: 'category', category: 'read' },
+      ] as const;
 
       const context = await createMakaCliRuntimeContext({
         workspaceRoot,
@@ -71,6 +74,7 @@ describe('Maka CLI runtime bootstrap', () => {
         requestedConnectionSlug: 'selected-local',
         requestedModel: 'requested-model',
         maxSteps: 3,
+        permissionRules,
         runtimeInvocationObserver: observer,
       });
       try {
@@ -95,6 +99,7 @@ describe('Maka CLI runtime bootstrap', () => {
         const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
 
         assert.equal(backendInput.maxSteps, 3);
+        assert.equal(backendInput.permissionRules, permissionRules);
         assert.equal(runtimeDeps.runtimeInvocationObserver, observer);
         assert.deepEqual(observed, []);
       } finally {

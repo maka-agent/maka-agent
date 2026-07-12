@@ -13,6 +13,7 @@ export {
   runMakaTextCli,
   type MakaRunDeps,
   type MakaRunOptions,
+  type NonInteractivePermissionMode,
   type ParseMakaRunArgsResult,
 } from './run-command.js';
 export {

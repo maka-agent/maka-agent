@@ -13,7 +13,7 @@ import type {
 } from '@maka/core/session';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { ToolCategory, ToolExecutionFacts } from '@maka/core/permission';
+import type { ToolCategory, ToolExecutionFacts, ToolPermissionRule } from '@maka/core/permission';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
@@ -38,8 +38,8 @@ export interface MakaTool<P = any, R = unknown> {
   /** Zod schema describing the tool's argument shape. */
   parameters: unknown;
   /**
-   * If `false`, the wrap layer skips PermissionEngine.evaluate() entirely.
-   * Defaults to `true` (always go through the engine).
+   * If `false`, the base mode policy is skipped unless invocation-local rules
+   * are present. Explicit deny rules still apply to every tool.
    */
   permissionRequired?: boolean;
   /** Optional UI display name. */
@@ -132,6 +132,7 @@ export interface ToolRuntimeInput {
   readChildAgentOutput?: (input: { runId?: string; turnId?: string; maxEvents?: number }) => Promise<unknown>;
   getRunTrace?: () => RunTraceLike | null;
   permissionTimeoutMs?: number;
+  permissionRules?: readonly ToolPermissionRule[];
   recordToolInvocation?: ToolTelemetryRecorder;
   recordToolArtifacts?: ToolArtifactRecorder;
 }
@@ -330,7 +331,7 @@ export class ToolRuntime {
       return this.errorReturn(reason);
     }
 
-    if (tool.permissionRequired !== false) {
+    if (tool.permissionRequired !== false || (this.input.permissionRules?.length ?? 0) > 0) {
       const verdict = this.input.permissionEngine.evaluate({
         sessionId: this.input.sessionId,
         turnId,
@@ -339,10 +340,24 @@ export class ToolRuntime {
         args,
         ...(tool.categoryHint !== undefined ? { categoryHint: tool.categoryHint } : {}),
         ...(tool.executionFacts !== undefined ? { executionFacts: tool.executionFacts } : {}),
+        permissionRequired: tool.permissionRequired !== false,
+        ...(this.input.permissionRules !== undefined ? { permissionRules: this.input.permissionRules } : {}),
         mode: this.input.header.permissionMode,
       });
 
       if (verdict.kind === 'block') {
+        if (verdict.decisionEvent) {
+          await this.input.appendMessage({
+            type: 'permission_decision',
+            id: verdict.decisionEvent.requestId,
+            turnId,
+            ts: verdict.decisionEvent.ts,
+            toolUseId,
+            toolName: tool.name,
+            decision: 'deny',
+          });
+          queue.push(verdict.decisionEvent);
+        }
         trace?.emit('permission', 'permission_failed', 'Permission blocked tool execution', {
           toolUseId,
           toolName: tool.name,
