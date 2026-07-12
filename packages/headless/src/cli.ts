@@ -163,7 +163,7 @@ async function taskRunCommand(args: string[]): Promise<number> {
     console.log(`taskRunId: ${run.taskRunId}\nstatus: ${run.projection.status}\nexport: ${exportDir}`);
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task run: ${(error as Error).message}`);
+    console.error(`maka eval task-run run: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -389,7 +389,7 @@ async function taskResumeCommand(args: string[]): Promise<number> {
     console.log(`resumed: ${taskRunId}\nstatus: ${run.projection.status}`);
     return run.resultRecord.error ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task resume: ${(error as Error).message}`);
+    console.error(`maka eval task-run resume: ${(error as Error).message}`);
     return 1;
   }
 }
@@ -433,7 +433,7 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
     await writeFile(join(outDir, 'comparison.md'), toComparisonTable(records), 'utf8');
     return records.some((record) => record.error && !prior.includes(record)) ? 1 : 0;
   } catch (error) {
-    console.error(`maka-headless task retry-failed: ${(error as Error).message}`);
+    console.error(`maka eval task-run retry-failed: ${(error as Error).message}`);
     return 1;
   }
 }

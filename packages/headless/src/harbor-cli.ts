@@ -674,7 +674,7 @@ function truthyEnv(raw: string | undefined): boolean {
 }
 
 function printHarborUsage(): void {
-  console.error('maka-headless harbor commands:\n');
+  console.error('maka eval harbor commands:\n');
   console.error(harborRunUsage());
 }
 
