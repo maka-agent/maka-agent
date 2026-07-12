@@ -606,22 +606,22 @@ SandboxTransformResult
 
 任务：
 
-- [ ] 为 `ShellRunProcessManager` 注入必需的 session-aware async sandbox context provider。
-- [ ] provider 根据 `ShellRunBashInput.sessionId` 获取当前 session 的 permission mode、cwd 和 workspace roots。
-- [ ] 在 runtime assembly/provider 层编译 active profile，不在 `ShellRunProcessManager` 内编译权限。
-- [ ] provider 使用显式 result union；context/provider 失败时 fail closed。
-- [ ] 从 `ShellRunBashInput` 删除 `cwd`，由 provider 返回 canonical cwd 作为唯一权威值。
-- [ ] desktop / CLI 的 foreground、background 和 filesystem 路径复用同一个 process-level `SandboxManager`。
-- [ ] 将原始 command 包装成 `/bin/sh -lc <command>` 内层 argv。
-- [ ] 调用 `SandboxManager.transform()` 生成最终执行请求。
-- [ ] 注入只接受 argv 的 `ShellRunProcessSpawner`，background Bash 固定使用 `spawn(program, args, { shell: false })`。
-- [ ] context 缺失、workspace roots 无效、transform 失败时不创建 record、不 spawn、不回退 host shell。
-- [ ] sandbox backend 不可用或 transform 失败时返回结构化错误。
-- [ ] durable shell run record 继续保存用户原始 command，不保存 wrapper argv。
-- [ ] 保留 `yield-time_ms`、background task ref、`Read(ref)` 和 `StopBackgroundTask`。
-- [ ] 保留 stdout/stderr tail、timeout、abort、stop 和 process tree termination。
-- [ ] permission mode 发生变化时，先终止该 session 的 background shell runs，再更新 session header。
-- [ ] 不实现 unsandboxed retry。
+- [x] 为 `ShellRunProcessManager` 注入必需的 session-aware async sandbox context provider。
+- [x] provider 根据 `ShellRunBashInput.sessionId` 获取当前 session 的 permission mode、cwd 和 workspace roots。
+- [x] 在 runtime assembly/provider 层编译 active profile，不在 `ShellRunProcessManager` 内编译权限。
+- [x] provider 使用显式 result union；context/provider 失败时 fail closed。
+- [x] 从 `ShellRunBashInput` 删除 `cwd`，由 provider 返回 canonical cwd 作为唯一权威值。
+- [x] desktop / CLI 的 foreground、background 和 filesystem 路径复用同一个 process-level `SandboxManager`。
+- [x] 将原始 command 包装成 `/bin/sh -lc <command>` 内层 argv。
+- [x] 调用 `SandboxManager.transform()` 生成最终执行请求。
+- [x] 注入只接受 argv 的 `ShellRunProcessSpawner`，background Bash 固定使用 `spawn(program, args, { shell: false })`。
+- [x] context 缺失、workspace roots 无效、transform 失败时不创建 record、不 spawn、不回退 host shell。
+- [x] sandbox backend 不可用或 transform 失败时返回结构化错误。
+- [x] durable shell run record 继续保存用户原始 command，不保存 wrapper argv。
+- [x] 保留 `yield-time_ms`、background task ref、`Read(ref)` 和 `StopBackgroundTask`。
+- [x] 保留 stdout/stderr tail、timeout、abort、stop 和 process tree termination。
+- [x] permission mode 发生变化时，先终止该 session 的 background shell runs，再更新 session header。
+- [x] 不实现 unsandboxed retry。
 
 > 具体方案：直接扩展现有 `ShellRunProcessManager`，不再新增另一套 background process manager。manager 继续拥有 live process、输出 tail、durable record、yield、observe 和 termination 生命周期，只把启动子进程前的 command transform 改成可注入的 sandbox-aware 路径。
 >
@@ -649,6 +649,10 @@ SandboxTransformResult
 - quick command、yield 后台任务、Read、Stop、timeout、abort 和大输出 tail 回归测试。
 - permission mode 切换先 terminate background runs，再更新 header。
 
+> 实现结果：Phase 7.6 已完成。`ShellRunProcessManager` 通过必需的异步 session context provider 获取 canonical cwd 和 active profile，把 Bash 包装成 `/bin/sh -lc <command>` 后交给共享 `SandboxManager`，再以 `shell: false` 执行最终 argv。provider、workspace roots、transform 或 argv 校验失败时均在分配 id、spawn 和写 durable record 前 fail closed。
+>
+> desktop 与 CLI 的 foreground、background、filesystem 路径复用同一个 process-level `SandboxManager`。permission mode 切换会先终止该 session 的 background runs；终止失败时不更新 header。未实现 unsandboxed retry，也不会回退 host shell。
+
 ## Phase 7.7: 文件工具接入 OS sandboxed worker/helper
 
 目标：在现有 Node 主进程 profile enforcement 之外，为 `Read / Write / Edit / Glob / Grep` 增加平台 sandbox 的底层兜底。
@@ -664,28 +668,28 @@ SandboxTransformResult
 
 任务：
 
-- [ ] 定义结构化 filesystem operation contract，不把文件操作拼成 shell command。
-- [ ] 拆分 `WorkspaceCommandExecutor` 与复合 `WorkspaceFileOperations`，移除隐式 local filesystem fallback。
-- [ ] 让 one-shot worker 接收一次完整的 `read`、`write`、`edit`、`glob` 或 `grep` operation。
-- [ ] Edit 的 resolve/read/match/write 在同一个 worker invocation 中完成。
-- [ ] worker 通过同一份 active profile、workspace roots 和 `SandboxManager` 启动。
-- [ ] restricted profile 下派生 operation-scoped effective profile：read/search 收窄为 read-only，write/edit 保留 active write policy。
-- [ ] danger-full-access / external 保持原 profile 语义，不借 operation profile 隐式改变 bypass/external。
-- [ ] 第一版先实现 macOS Seatbelt 下的 worker execution。
-- [ ] worker 使用单文件 Node bundle，由 `@maka/runtime` 统一构建和拥有。
-- [ ] desktop 通过 Electron executable + `ELECTRON_RUN_AS_NODE=1` 启动；CLI 通过 Node executable 启动。
-- [ ] worker launch spec/provider 显式提供 argv、最小 env、runtime readable roots 和 executable roots。
-- [ ] worker 只接收最小环境 allowlist，不继承 host secrets、`NODE_OPTIONS`、proxy 或 `RIPGREP_CONFIG_PATH`。
-- [ ] 使用 stdin 单 JSON request、stdout 单 JSON response 的 versioned protocol，并双向 schema 校验。
-- [ ] operation error 通过结构化 response 表达；bootstrap/crash/protocol failure 使用非零 exit。
-- [ ] 请求上限 16 MiB、响应上限 8 MiB、stderr tail 上限 1 MiB，默认 hard timeout 120 秒。
-- [ ] `rg` 在 runtime 中解析 canonical executable；worker 使用 argv + `shell: false`，找不到时只让 Grep 返回 `grep_unavailable`。
-- [ ] 保留 `ProfileEnforcedWorkspaceExecutor` 作为业务层预检查，不用 OS sandbox 替代它。
-- [ ] 保留 realpath containment 和 symlink escape 防护。
-- [ ] 保留 file write lock 和 Edit matcher 行为。
-- [ ] 让 worker 错误区分 profile denial、sandbox denial、invalid request 和 filesystem error。
-- [ ] 明确 worker 的生命周期、并发、超时、abort 和输出大小限制。
-- [ ] Linux backend 完成后让同一 worker contract 自动复用 Linux sandbox。
+- [x] 定义结构化 filesystem operation contract，不把文件操作拼成 shell command。
+- [x] 拆分 `WorkspaceCommandExecutor` 与复合 `WorkspaceFileOperations`，移除隐式 local filesystem fallback。
+- [x] 让 one-shot worker 接收一次完整的 `read`、`write`、`edit`、`glob` 或 `grep` operation。
+- [x] Edit 的 resolve/read/match/write 在同一个 worker invocation 中完成。
+- [x] worker 通过同一份 active profile、workspace roots 和 `SandboxManager` 启动。
+- [x] restricted profile 下派生 operation-scoped effective profile：read/search 收窄为 read-only，write/edit 保留 active write policy。
+- [x] danger-full-access / external 保持原 profile 语义，不借 operation profile 隐式改变 bypass/external。
+- [x] 第一版先实现 macOS Seatbelt 下的 worker execution。
+- [x] worker 使用单文件 Node bundle，由 `@maka/runtime` 统一构建和拥有。
+- [x] desktop 通过 Electron executable + `ELECTRON_RUN_AS_NODE=1` 启动；CLI 通过 Node executable 启动。
+- [x] worker launch spec/provider 显式提供 argv、最小 env、runtime readable roots 和 executable roots。
+- [x] worker 只接收最小环境 allowlist，不继承 host secrets、`NODE_OPTIONS`、proxy 或 `RIPGREP_CONFIG_PATH`。
+- [x] 使用 stdin 单 JSON request、stdout 单 JSON response 的 versioned protocol，并双向 schema 校验。
+- [x] operation error 通过结构化 response 表达；bootstrap/crash/protocol failure 使用非零 exit。
+- [x] 请求上限 16 MiB、响应上限 8 MiB、stderr tail 上限 1 MiB，默认 hard timeout 120 秒。
+- [x] `rg` 在 runtime 中解析 canonical executable；worker 使用 argv + `shell: false`，找不到时只让 Grep 返回 `grep_unavailable`。
+- [x] 保留 `ProfileEnforcedWorkspaceExecutor` 作为业务层预检查，不用 OS sandbox 替代它。
+- [x] 保留 realpath containment 和 symlink escape 防护。
+- [x] 保留 file write lock 和 Edit matcher 行为。
+- [x] 让 worker 错误区分 profile denial、sandbox denial、invalid request 和 filesystem error。
+- [x] 明确 worker 的生命周期、并发、超时、abort 和输出大小限制。
+- [x] Linux backend 完成后让同一 worker contract 自动复用 Linux sandbox。
 
 > 具体方案：文件工具不能通过 Bash wrapper 自动获得 OS sandbox，因为它们当前直接在 Node 主进程调用 filesystem API。Phase 7.7 增加一个受 sandbox 约束的 subprocess/helper 边界，让真实文件系统操作发生在 sandbox 内；主进程保留 profile matcher、参数校验、锁和结果编排。
 >
@@ -715,21 +719,25 @@ SandboxTransformResult
 - workspace 外写入和 protected metadata 写入被 Seatbelt 拒绝。
 - symlink escape、timeout、abort 和并发写锁回归测试。
 
+> 实现结果：Phase 7.7 已完成 macOS 版本。Read / Write / Edit / Glob / Grep 的真实文件系统操作已下沉到 one-shot filesystem worker；主进程保留 profile precheck 和 file write lock，worker 内保留 realpath containment、symlink escape 防护与 Edit matcher。默认 permission-aware assembly 不再提供隐式 host filesystem fallback。
+>
+> worker 使用 version 1 JSON 协议、单文件 bundle、最小 env 和受限输出；desktop 使用 Electron run-as-node，CLI 使用 Node。Seatbelt 只给 worker runtime、bundle 和 canonical rg 必需的只读/执行 roots。Linux 尚未实现 backend，但 worker protocol、client 与 launch contract 可直接复用。
+
 ## Phase 7.8: 补齐其他默认 runtime 接线
 
 目标：让所有本地 agent/runtime 入口使用同一套 permission-aware executor、sandbox context 和 filesystem worker，避免只有 desktop / CLI 主 session 生效。
 
 任务：
 
-- [ ] 将静态 `childTools` 改为按临时 child header 动态构造的 async factory。
-- [ ] child agent tools 使用 `definition.permissionMode` 编译 profile，不直接继承 parent profile。
-- [ ] child cwd/workspace roots 继承 parent 且只能收窄，不能扩大。
-- [ ] desktop child Read/Glob/Grep 使用 Phase 7.7 filesystem worker。
-- [ ] headless/isolated executor 正式表达为 `PermissionProfile.External`，不重复叠加本地 Seatbelt。
-- [ ] model-backed headless 缺少 explicit external isolation 时继续 fail closed。
-- [ ] 明确 parent/child agent 的 workspace roots 继承和收窄规则。
-- [ ] 审计所有 `buildBuiltinTools()`、`createLocalWorkspaceExecutor()` 和 `ShellRunProcessManager` 构造位置。
-- [ ] 对无法提供 active context 的本地 managed runtime fail closed。
+- [x] 将静态 `childTools` 改为按临时 child header 动态构造的 async factory。
+- [x] child agent tools 使用 `definition.permissionMode` 编译 profile，不直接继承 parent profile。
+- [x] child cwd/workspace roots 继承 parent 且只能收窄，不能扩大。
+- [x] desktop child Read/Glob/Grep 使用 Phase 7.7 filesystem worker。
+- [x] headless/isolated executor 正式表达为 `PermissionProfile.External`，不重复叠加本地 Seatbelt。
+- [x] model-backed headless 缺少 explicit external isolation 时继续 fail closed。
+- [x] 明确 parent/child agent 的 workspace roots 继承和收窄规则。
+- [x] 审计所有 `buildBuiltinTools()`、`createLocalWorkspaceExecutor()` 和 `ShellRunProcessManager` 构造位置。
+- [x] 对无法提供 active context 的本地 managed runtime fail closed。
 
 验收标准：
 
@@ -745,6 +753,10 @@ SandboxTransformResult
 - external headless 不调用本地 Seatbelt，缺少 isolation assertion 时拒绝启动。
 - runtime entrypoint audit test 或 source contract test。
 
+> 实现结果：Phase 7.8 已完成。runtime/session 使用 async child tool factory，按实际 child header 的 permission mode 和 canonical cwd 构造工具；child workspace roots 继承 parent workspace，不能因 parent 的更高权限获得 bypass。desktop child 文件工具复用同一 filesystem worker。
+>
+> headless/isolated 六个 shell/file tools 显式声明 `PermissionProfile.External` 与 external sandbox requirement，不叠加本地 Seatbelt；model-backed headless 缺少 explicit external profile 或 isolated executor 时拒绝启动。
+
 ## Phase 8: sandbox-aware PermissionEngine / policy
 
 目标：让权限决策理解 active profile 和 sandbox availability，而不是只看 mode x category。
@@ -758,26 +770,26 @@ SandboxTransformResult
 
 任务：
 
-- [ ] 扩展 `PreToolUseInput`，加入 active profile summary 或 sandbox availability。
-- [ ] 定义动态 `ActiveSandboxCapabilities`，command/filesystem 状态分别表达 available、not_required、external、unavailable。
-- [ ] tool 静态声明 `sandboxRequirement`：none、command、filesystem、external。
-- [ ] backend/session assembly 构建时生成 capability snapshot；permission mode/cwd/backend 重建时重新 probe。
-- [ ] 定义平台无关的 sandbox capability/availability 结果，不只根据 `process.platform` 判断。
-- [ ] availability 可以表达 backend 未注册、executable 缺失、平台能力不足和 probe 失败。
-- [ ] runtime 把完整 capability 映射成最小 `PreToolUseSandboxContext`，由 core `preToolUse()` 执行纯 capability gate。
-- [ ] 保留现有 `PermissionMode` 输入。
-- [ ] 保留 `ToolCategory` 分类。
-- [ ] capability gate 满足后继续使用现有 mode x category matrix，不重写矩阵。
-- [ ] 调整 `execute.shell_unsafe`：只有 command capability 满足时才进入现有 allow 决策。
-- [ ] sandbox 可 enforce 时，允许普通 workspace mutating shell 自动执行。
-- [ ] sandbox 必需但不可用时直接 block，不产生无法改变结果的普通 approval prompt。
-- [ ] `fs_destructive` 继续 prompt 或更保守。
-- [ ] `git_destructive` 继续 prompt 或更保守。
-- [ ] `privileged` 继续 prompt 或更保守。
-- [ ] `bypass` 仍保留危险全权限语义。
-- [ ] turn-start snapshot 只用于 policy；真实执行仍重新获取 context、transform、校验 launch spec 并 fail closed。
-- [ ] 定义共享 sandbox error metadata，并保留 command/background/filesystem 领域错误类型。
-- [ ] error serializer 默认不输出 policy、argv、env、文件内容或 edit strings。
+- [x] 扩展 `PreToolUseInput`，加入 active profile summary 或 sandbox availability。
+- [x] 定义动态 `ActiveSandboxCapabilities`，command/filesystem 状态分别表达 available、not_required、external、unavailable。
+- [x] tool 静态声明 `sandboxRequirement`：none、command、filesystem、external。
+- [x] backend/session assembly 构建时生成 capability snapshot；permission mode/cwd/backend 重建时重新 probe。
+- [x] 定义平台无关的 sandbox capability/availability 结果，不只根据 `process.platform` 判断。
+- [x] availability 可以表达 backend 未注册、executable 缺失、平台能力不足和 probe 失败。
+- [x] runtime 把完整 capability 映射成最小 `PreToolUseSandboxContext`，由 core `preToolUse()` 执行纯 capability gate。
+- [x] 保留现有 `PermissionMode` 输入。
+- [x] 保留 `ToolCategory` 分类。
+- [x] capability gate 满足后继续使用现有 mode x category matrix，不重写矩阵。
+- [x] 调整 `execute.shell_unsafe`：只有 command capability 满足时才进入现有 allow 决策。
+- [x] sandbox 可 enforce 时，允许普通 workspace mutating shell 自动执行。
+- [x] sandbox 必需但不可用时直接 block，不产生无法改变结果的普通 approval prompt。
+- [x] `fs_destructive` 继续 prompt 或更保守。
+- [x] `git_destructive` 继续 prompt 或更保守。
+- [x] `privileged` 继续 prompt 或更保守。
+- [x] `bypass` 仍保留危险全权限语义。
+- [x] turn-start snapshot 只用于 policy；真实执行仍重新获取 context、transform、校验 launch spec 并 fail closed。
+- [x] 定义共享 sandbox error metadata，并保留 command/background/filesystem 领域错误类型。
+- [x] error serializer 默认不输出 policy、argv、env、文件内容或 edit strings。
 
 验收标准：
 
@@ -796,6 +808,10 @@ SandboxTransformResult
 - `bypass + shell_unsafe -> allow`。
 - `ask + file_write + filesystem unavailable -> block`，不先 prompt。
 - capability snapshot available 但执行时 launch 失败 -> tool fail closed，不回退 host。
+
+> 实现结果：Phase 8 已完成。core 在原有 mode x category matrix 前增加纯 capability gate；runtime 为工具静态声明 command、filesystem、external 或 none requirement，并在 desktop/CLI session backend assembly 时分别探测 command wrapper 与 filesystem worker 能力。backend 已注册但 wrapper executable、worker bundle/runtime 或 transform probe 不可用时，状态为 unavailable。
+>
+> unavailable 会在普通 approval 之前直接 block，包括原先 `permissionRequired: false` 的 Read/Glob/Grep。headless 使用 explicit external capability。snapshot 仅用于 policy；command transform、filesystem launch spec、worker protocol 和 spawn 在真实执行时仍重新校验并 fail closed。未实现 unsandboxed retry，现有 destructive/git-destructive/privileged 审批语义未改写。
 
 ## Phase 9: runtime/model context 与 diagnostics
 

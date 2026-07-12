@@ -2,9 +2,9 @@
 
 本文档把 `agent-runtime-codex-sandbox-todo.md` 中已经确认的 Phase 7.6、7.7、7.8 和 Phase 8 设计拆成可执行、可测试、可独立审查的实现步骤。
 
-状态：设计已确认，尚未开始实现。
+状态：Phase 7.6-8 已完成实现、文档收口与最终验证。
 
-实现基线：`feat/runtime-permission-profile-sandbox` 分支已完成 Phase 1-7.5；本计划从 Phase 7.6 开始，不重做已提交阶段。
+实现基线：`feat/runtime-permission-profile-sandbox` 分支从已完成的 Phase 1-7.5 继续推进，本计划中的 Commit 1-13 均已落地。
 
 关联文档：
 
@@ -333,21 +333,40 @@ Commit：`docs(sandbox): record completed macos sandbox phases`
 - CLI build/typecheck/tests。
 - desktop build/typecheck/main tests。
 - headless build/typecheck/tests。
-- macOS foreground/background Bash smoke。
+- macOS Seatbelt command smoke + background Bash argv transform/lifecycle tests。
 - macOS Read/Write/Edit/Glob/Grep worker smoke。
 - workspace 外、protected metadata、symlink escape、network restricted。
 - permission mode 切换、timeout、abort、StopBackgroundTask。
 - worker packaged resource/launch smoke。
 
+## 实际提交记录
+
+| 计划提交 | 实际 commit | 状态 |
+| --- | --- | --- |
+| Commit 1 | `f84dc83d refactor(runtime): split command and file operation executors` | 已完成 |
+| Commit 2 | `dfca0acb feat(runtime): add shared sandbox context and error contracts` | 已完成 |
+| Commit 3 | `b364de55 feat(runtime): sandbox background shell runs` | 已完成 |
+| Commit 4 | `2a8792b0 refactor(runtime): unify desktop and cli sandbox assembly` | 已完成 |
+| Commit 5 | `f6a5d97d fix(runtime): terminate background tasks on permission mode changes` | 已完成 |
+| Commit 6 | `42639322 feat(runtime): add filesystem worker protocol and operations` | 已完成 |
+| Commit 7 | `ec2bae51 build(runtime): bundle filesystem worker` | 已完成 |
+| Commit 8 | `f82af1d5 feat(runtime): add sandboxed filesystem worker client` | 已完成 |
+| Commit 9 | `907a1d11 feat(runtime): allow sandbox worker runtime roots on macos` | 已完成 |
+| Commit 10 | `7f6b26ff feat(runtime): route file tools through sandboxed worker` | 已完成 |
+| Commit 11 | `837fcc02 feat(runtime): build child tools from active child profiles` | 已完成 |
+| Commit 12 | `a874d59f feat(core): add sandbox-aware permission capability gate` | 已完成 |
+| Commit 13 | `df005520 feat(runtime): probe active sandbox capabilities` | 已完成 |
+| Commit 14 | `docs(sandbox): record completed macos sandbox phases` | 已完成（本提交） |
+
 ## 完成定义
 
 以下条件全部满足后，Phase 7.6-8 才算完成：
 
-- desktop / CLI 默认 foreground 与 background Bash 均无 host fallback。
-- 本地文件工具真实 filesystem operation 均在 sandboxed worker 内执行。
-- child agent 不复用无 profile 的静态 local tools。
-- external headless 保持显式外部隔离，并在缺少隔离声明时 fail closed。
-- PermissionEngine 在 capability unavailable 时直接 block。
-- bypass 仍通过明确的 danger-full-access profile 选择 none。
-- 所有执行路径在 snapshot 过期、transform、launch、worker protocol 失败时都不降级。
-- 完整测试与 macOS smoke 通过，且发布资源包含 worker bundle。
+- [x] desktop / CLI 默认 foreground 与 background Bash 均无 host fallback。
+- [x] 本地文件工具真实 filesystem operation 均在 sandboxed worker 内执行。
+- [x] child agent 不复用无 profile 的静态 local tools。
+- [x] external headless 保持显式外部隔离，并在缺少隔离声明时 fail closed。
+- [x] PermissionEngine 在 capability unavailable 时直接 block。
+- [x] bypass 仍通过明确的 danger-full-access profile 选择 none。
+- [x] 所有执行路径在 snapshot 过期、transform、launch、worker protocol 失败时都不降级。
+- [x] 完整测试与 macOS smoke 通过，且发布资源包含 worker bundle。
