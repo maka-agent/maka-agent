@@ -44,6 +44,65 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('uses an explicit connection and forwards one-shot limits and invocation results', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'default-local',
+        name: 'Default local',
+        providerType: 'ollama',
+        defaultModel: 'default-model',
+      });
+      await connectionStore.create({
+        slug: 'selected-local',
+        name: 'Selected local',
+        providerType: 'ollama',
+        defaultModel: 'selected-model',
+      });
+      await connectionStore.update('selected-local', {
+        models: [{ id: 'requested-model' }],
+      });
+      const observed: unknown[] = [];
+      const observer = (result: unknown): void => { observed.push(result); };
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+        requestedConnectionSlug: 'selected-local',
+        requestedModel: 'requested-model',
+        maxSteps: 3,
+        runtimeInvocationObserver: observer,
+      });
+      try {
+        assert.equal(context.target.connection.slug, 'selected-local');
+        assert.equal(context.target.model, 'requested-model');
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'explore',
+          name: 'one-shot',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(session.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: session.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.equal(backendInput.maxSteps, 3);
+        assert.equal(runtimeDeps.runtimeInvocationObserver, observer);
+        assert.deepEqual(observed, []);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('registers Edit in the TUI runtime toolset and still requires permission', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
@@ -410,6 +469,7 @@ interface RuntimeWithPrivateDeps {
   deps: {
     backends: BackendRegistry;
     store: SessionStore;
+    runtimeInvocationObserver?: (result: unknown) => void | Promise<void>;
   };
 }
 

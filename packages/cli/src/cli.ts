@@ -13,6 +13,7 @@ import { runMakaPiTui } from './pi-tui-runner.js';
 
 export type MakaCliCommand =
   | { kind: 'tui' }
+  | { kind: 'run'; args: string[] }
   | { kind: 'eval'; args: string[] }
   | { kind: 'help'; text: string }
   | { kind: 'version'; text: string }
@@ -23,6 +24,7 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
   const [first] = argv;
   if (first === '--help' || first === '-h') return { kind: 'help', text: helpText() };
   if (first === '--version' || first === '-v') return { kind: 'version', text: version };
+  if (first === 'run' || first === '-p') return { kind: 'run', args: argv.slice(1) };
   if (first === 'eval') return { kind: 'eval', args: argv.slice(1) };
   return {
     kind: 'error',
@@ -72,6 +74,8 @@ function helpText(): string {
     'Commands:',
     '  maka              Start the TUI',
     '  maka-agent        Start the TUI',
+    '  maka run ...      Run one non-interactive model turn',
+    '  maka -p ...       Alias for maka run',
     '  maka eval ...     Run evaluation and autonomous task commands',
     '',
     'Options:',
@@ -84,6 +88,10 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
   const version = await readPackageVersion();
   const command = parseMakaCliArgs(argv, version);
   switch (command.kind) {
+    case 'run': {
+      const { runMakaTextCli } = await import('./run-command.js');
+      return runMakaTextCli(command.args);
+    }
     case 'eval': {
       const { runMakaEvalCli } = await import('@maka/headless/eval-router');
       return runMakaEvalCli(command.args);

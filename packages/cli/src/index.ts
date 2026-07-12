@@ -9,6 +9,13 @@ export {
   type MakaCliCommand,
 } from './cli.js';
 export {
+  parseMakaRunArgs,
+  runMakaTextCli,
+  type MakaRunDeps,
+  type MakaRunOptions,
+  type ParseMakaRunArgsResult,
+} from './run-command.js';
+export {
   createMakaCliRuntimeContext,
   type CreateMakaCliRuntimeContextInput,
   type MakaCliRuntimeContext,

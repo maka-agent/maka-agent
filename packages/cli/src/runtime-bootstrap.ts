@@ -23,6 +23,7 @@ import {
   loadHistoryCompactBlocksFromArtifacts,
   type AutomationDefinition,
   type GoalContinuationDeps,
+  type InvocationResult,
   type ShellRunUpdate,
 } from '@maka/runtime';
 import {
@@ -64,7 +65,10 @@ export interface MakaCliRuntimeContext {
 export interface CreateMakaCliRuntimeContextInput {
   workspaceRoot: string;
   cwd: string;
+  requestedConnectionSlug?: string;
   requestedModel?: string;
+  maxSteps?: number;
+  runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   /**
    * Optional cron executor. When provided, the Automation tool advertises the
    * cron kind and cron fires spawn a fresh session + run via this callback
@@ -95,11 +99,14 @@ export async function createMakaCliRuntimeContext(
   const connectionStore = createConnectionStore(input.workspaceRoot);
   const credentialStore = createFileCredentialStore(input.workspaceRoot);
   const settingsStore = createSettingsStore(input.workspaceRoot);
-  const target = await resolveDefaultSessionTarget({
+  const targetInput = {
     connectionStore,
     credentialStore,
     requestedModel: input.requestedModel,
-  });
+  };
+  const target = input.requestedConnectionSlug
+    ? await resolveSessionTargetForSlug(input.requestedConnectionSlug, targetInput)
+    : await resolveDefaultSessionTarget(targetInput);
   const modelChoices = await listReadyModelChoices({ connectionStore, credentialStore });
   const permissionEngine = new PermissionEngine({ newId: randomUUID, now: Date.now });
   const backends = new BackendRegistry();
@@ -229,6 +236,7 @@ export async function createMakaCliRuntimeContext(
       shellRunContextSummary: ctx.shellRunContextSummary,
       newId: randomUUID,
       now: Date.now,
+      ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
     });
   });
 
@@ -238,6 +246,7 @@ export async function createMakaCliRuntimeContext(
     runtimeEventStore,
     shellRuns,
     backends,
+    runtimeInvocationObserver: input.runtimeInvocationObserver,
     cleanupHistoryCompactArtifacts: async (cleanupInput) => {
       await cleanupLegacyHistoryCompactArtifacts({
         ...cleanupInput,

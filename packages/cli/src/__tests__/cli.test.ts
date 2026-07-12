@@ -28,6 +28,7 @@ function runCliProcess(
     child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
     child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
     child.on('close', (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end();
   });
 }
 
@@ -40,6 +41,17 @@ describe('Maka CLI args', () => {
     assert.deepEqual(parseMakaCliArgs(['eval', 'task-run', 'inspect', 'run-1'], '0.1.0'), {
       kind: 'eval',
       args: ['task-run', 'inspect', 'run-1'],
+    });
+  });
+
+  test('routes maka run and maka -p through the exact same command shape', () => {
+    assert.deepEqual(parseMakaCliArgs(['run', 'hello', '--max-steps', '3'], '0.1.0'), {
+      kind: 'run',
+      args: ['hello', '--max-steps', '3'],
+    });
+    assert.deepEqual(parseMakaCliArgs(['-p', 'hello', '--max-steps', '3'], '0.1.0'), {
+      kind: 'run',
+      args: ['hello', '--max-steps', '3'],
     });
   });
 
@@ -157,6 +169,24 @@ describe('Maka CLI args', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test('exposes identical run help through maka run and maka -p', async () => {
+    const run = await runCliProcess(cliPath, ['run', '--help']);
+    const alias = await runCliProcess(cliPath, ['-p', '--help']);
+
+    assert.equal(run.code, 0, run.stderr);
+    assert.equal(alias.code, 0, alias.stderr);
+    assert.equal(alias.stdout, run.stdout);
+    assert.match(run.stdout, /Usage: maka run/);
+  });
+
+  test('returns exit 2 for missing non-interactive input before configuration startup', async () => {
+    const result = await runCliProcess(cliPath, ['run']);
+
+    assert.equal(result.code, 2);
+    assert.match(result.stderr, /missing prompt input/);
+    assert.equal(result.stdout, '');
   });
 
   test('keeps all five legacy command families on the unified router exit contract', async () => {
