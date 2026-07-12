@@ -431,6 +431,7 @@ export class SessionManager {
       throw new Error('当前有工具调用正在等待确认，处理后再切换权限模式。');
     }
 
+    await this.deps.shellRuns?.terminateSession(sessionId);
     const next = await this.deps.store.updateHeader(sessionId, {
       permissionMode: mode,
       labels: leavingDeepResearch

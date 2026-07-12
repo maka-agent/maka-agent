@@ -30,6 +30,7 @@ import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend, MakaTool } from '../ai-sdk-backend.js';
 import type { InvocationResult } from '../invocation-context.js';
 import type { ActiveFullCompactBlock } from '../active-full-compact.js';
+import type { ShellRunProcessManager } from '../shell-run-manager.js';
 import {
   AGENT_WORKSPACE_WORKTREE,
   IMPLEMENTATION_AGENT_ID,
@@ -196,6 +197,54 @@ describe('SessionManager manual compaction', () => {
 });
 
 describe('SessionManager permission mode updates', () => {
+  test('terminates background runs before persisting the new mode', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    let terminated = 0;
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(900),
+      shellRuns: shellRunManagerStub(async (sessionId) => {
+        terminated += 1;
+        expect((await store.readHeader(sessionId)).permissionMode).toBe('ask');
+      }),
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    const summary = await manager.setPermissionMode(session.id, 'execute');
+
+    expect(terminated).toBe(1);
+    expect(summary.permissionMode).toBe('execute');
+  });
+
+  test('keeps the old mode when background termination fails', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(950),
+      shellRuns: shellRunManagerStub(async () => {
+        throw new Error('termination failed');
+      }),
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    await expectRejects(
+      manager.setPermissionMode(session.id, 'execute'),
+      /termination failed/,
+    );
+
+    expect((await store.readHeader(session.id)).permissionMode).toBe('ask');
+    expect((await store.readMessages(session.id)).length).toBe(0);
+    expect(store.disposeCount).toBe(0);
+  });
+
   test('updates header, rebuilds active backend, and writes an audit note', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -297,12 +346,20 @@ describe('SessionManager permission mode updates', () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
     backends.register('fake', (ctx) => new TestBackend(ctx));
-    const manager = new SessionManager({ store, backends, newId: nextId(), now: nextNow(3_000) });
+    let terminated = 0;
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(3_000),
+      shellRuns: shellRunManagerStub(async () => { terminated += 1; }),
+    });
     const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
 
     const summary = await manager.setPermissionMode(session.id, 'ask');
 
     expect(summary.permissionMode).toBe('ask');
+    expect(terminated).toBe(0);
     expect((await store.readMessages(session.id)).length).toBe(0);
   });
 
@@ -5624,6 +5681,16 @@ async function seedRunningTurn(store: MemorySessionStore, sessionId: string, tur
     { type: 'user', id: `${turnId}-user`, turnId, ts: 9, text: 'interrupted turn' },
     { type: 'turn_state', id: `${turnId}-state`, turnId, ts: 10, status: 'running', partialOutputRetained: false },
   ]);
+}
+
+function shellRunManagerStub(
+  terminateSession: (sessionId: string) => Promise<void>,
+): ShellRunProcessManager {
+  return {
+    terminateSession,
+    recoverOrphanedSession: async () => 0,
+    buildContextSummary: async () => undefined,
+  } as unknown as ShellRunProcessManager;
 }
 
 function nextId(): () => string {
