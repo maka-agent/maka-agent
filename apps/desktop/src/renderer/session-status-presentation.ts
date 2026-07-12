@@ -23,11 +23,13 @@
 
 import type { SessionBlockedReason, SessionStatus, SessionSummary } from '@maka/core';
 import {
+  describeBlockedReason,
   presentSessionStatus,
   type SessionStatusPresentation,
   type SessionStatusTone,
 } from '@maka/ui';
 export { presentSessionStatus } from '@maka/ui';
+export { describeBlockedReason } from '@maka/ui';
 export type { SessionStatusPresentation, SessionStatusTone } from '@maka/ui';
 
 /**
@@ -79,19 +81,6 @@ export function normalizeSessionSummaryForDisplay(session: SessionSummary): Sess
  * Returned text is suitable for `aria-label`, `title`, and inline
  * tooltip slots — short phrase, sentence-cased Chinese, no period.
  */
-const BLOCKED_REASON_LABEL: Record<SessionBlockedReason, string> = {
-  NO_REAL_CONNECTION: '等待配置可用模型连接',
-  auth: '需要重新登录',
-  permission_required: '等待权限确认',
-  tool_failed: '工具调用失败',
-  unknown: '运行中断，可重试',
-};
-
-export function describeBlockedReason(reason: SessionBlockedReason | undefined): string {
-  if (!reason) return BLOCKED_REASON_LABEL.unknown;
-  return BLOCKED_REASON_LABEL[reason] ?? BLOCKED_REASON_LABEL.unknown;
-}
-
 /**
  * Compose a single-line aria-label / tooltip for a blocked session,
  * combining the status label and the cause. Example:

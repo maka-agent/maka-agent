@@ -369,9 +369,9 @@ async function taskResumeCommand(args: string[]): Promise<number> {
         status: 'resolved',
         resolution: {
           decision: grants.length > 0 ? 'granted' : 'resume_requested',
-          actorId: 'maka-headless-cli',
+          actorId: 'maka-eval-cli',
           resolvedAt,
-          reason: 'resumed by maka-headless task resume',
+          reason: 'resumed by maka eval task-run resume',
         },
       });
     }

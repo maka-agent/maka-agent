@@ -13,7 +13,7 @@ export function isNoRealConnectionError(error: unknown): boolean {
 }
 
 export function isNoRealConnectionEvent(event: Extract<SessionEvent, { type: 'error' }>): boolean {
-  return event.code === NO_REAL_CONNECTION_CODE || event.message.includes(NO_REAL_CONNECTION_CODE);
+  return event.code === NO_REAL_CONNECTION_CODE || parseNoRealConnectionError(event.message).matched;
 }
 
 export function noRealConnectionReasonFromError(error: unknown): string | undefined {

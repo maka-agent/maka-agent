@@ -23,7 +23,7 @@ import { EmptyState } from './empty-state.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from './primitives/menu.js';
 import { Button as UiButton } from './ui.js';
-import { presentSessionStatus } from './session-status-presentation.js';
+import { describeBlockedReason, presentSessionStatus } from './session-status-presentation.js';
 
 type SessionRowActionId = 'flag' | 'archive' | 'rename' | 'delete';
 type SessionHistoryGroupVariant = 'status' | 'project';
@@ -415,11 +415,10 @@ function SessionStatusIcon(props: { session: SessionSummary }) {
   const { label, tone } = presentSessionStatus(status);
   // `blocked` may attach a reason; we surface the generalized text in
   // the tooltip without exposing the raw enum identifier (per @kenji
-  // i18n contract). The reason mapping lives in the renderer side; this
-  // file knows only the status itself, so the tooltip is just the
-  // status label.
+  // i18n contract). The shared presentation module owns the mapping so
+  // sidebar and renderer surfaces cannot drift.
   const blockedDetail = status === 'blocked' && session.blockedReason
-    ? BLOCKED_REASON_TOOLTIP[session.blockedReason as keyof typeof BLOCKED_REASON_TOOLTIP] ?? null
+    ? describeBlockedReason(session.blockedReason)
     : null;
   const title = blockedDetail ? `${label} · ${blockedDetail}` : label;
   return (
@@ -462,14 +461,6 @@ const STATUS_ICON_BY_STATUS = {
   done: CircleCheckBig,
   archived: Archive,
   aborted: Ban,
-} as const;
-
-const BLOCKED_REASON_TOOLTIP = {
-  NO_REAL_CONNECTION: '等待配置可用模型连接',
-  auth: '需要重新登录',
-  permission_required: '等待权限确认',
-  tool_failed: '工具调用失败',
-  unknown: '运行中断，可重试',
 } as const;
 
 const SessionRow = memo(function SessionRow(props: {

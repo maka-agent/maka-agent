@@ -1,4 +1,4 @@
-import type { SessionStatus } from '@maka/core';
+import type { SessionBlockedReason, SessionStatus } from '@maka/core';
 
 export type SessionStatusTone = 'accent' | 'warning' | 'destructive' | 'info' | 'success' | 'muted' | 'neutral';
 
@@ -21,4 +21,16 @@ const STATUS_PRESENTATION: Record<SessionStatus, SessionStatusPresentation> = {
 
 export function presentSessionStatus(status: SessionStatus): SessionStatusPresentation {
   return STATUS_PRESENTATION[status];
+}
+
+const BLOCKED_REASON_LABEL: Record<SessionBlockedReason, string> = {
+  NO_REAL_CONNECTION: '等待配置可用模型连接',
+  auth: '需要重新登录',
+  permission_required: '等待权限确认',
+  tool_failed: '工具调用失败',
+  unknown: '运行中断，可重试',
+};
+
+export function describeBlockedReason(reason: SessionBlockedReason | undefined): string {
+  return reason ? BLOCKED_REASON_LABEL[reason] : BLOCKED_REASON_LABEL.unknown;
 }
