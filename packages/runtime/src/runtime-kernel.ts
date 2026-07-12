@@ -395,30 +395,35 @@ export class RuntimeKernel implements RuntimeKernelLike {
       active,
       stoppedRuns: [...active.activeRuns.values()].filter((run) => {
         run.stop(input.source);
-        return run.hasPendingStop();
+        return run.claimStopAttempt();
       }),
     })).filter(({ stoppedRuns }) => stoppedRuns.length > 0);
     const stoppedRuns = stoppedSessions.flatMap(({ stoppedRuns: runs }) => runs);
     if (stoppedRuns.length === 0) return;
-    await Promise.all(stoppedSessions.map(({ active }) => active.backend.stop('user_stop')));
-    await this.updateStatus(sessionId, 'aborted');
-    for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
-      await this.appendTurnState(
-        sessionId,
-        run.turnId,
-        'aborted',
-        run.lineage,
-        { ts: this.deps.now(), abortSource },
-      ).catch(() => {});
+    try {
+      await Promise.all(stoppedSessions.map(({ active }) => active.backend.stop('user_stop')));
+      await this.updateStatus(sessionId, 'aborted');
+      for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
+        await this.appendTurnState(
+          sessionId,
+          run.turnId,
+          'aborted',
+          run.lineage,
+          { ts: this.deps.now(), abortSource },
+        ).catch(() => {});
+      }
+      await this.deps.store.appendMessage(sessionId, {
+        type: 'system_note',
+        id: this.deps.newId(),
+        ts: this.deps.now(),
+        kind: 'abort',
+        ...(abortSource ? { data: { source: abortSource } } : {}),
+      } satisfies SystemNoteMessage);
+      for (const run of stoppedRuns) run.completeStop();
+    } catch (error) {
+      for (const run of stoppedRuns) run.releaseStopAttempt();
+      throw error;
     }
-    await this.deps.store.appendMessage(sessionId, {
-      type: 'system_note',
-      id: this.deps.newId(),
-      ts: this.deps.now(),
-      kind: 'abort',
-      ...(abortSource ? { data: { source: abortSource } } : {}),
-    } satisfies SystemNoteMessage);
-    for (const run of stoppedRuns) run.completeStop();
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {

@@ -131,6 +131,7 @@ export class AgentRun {
     write?: Promise<void>;
     persisted?: boolean;
     stopCompleted?: boolean;
+    stopAttemptInFlight?: boolean;
   } | undefined;
 
   constructor(private readonly input: AgentRunInput) {
@@ -163,12 +164,25 @@ export class AgentRun {
     return this.stopped;
   }
 
-  hasPendingStop(): boolean {
-    return this.terminalClaim?.owner === 'stop' && this.terminalClaim.stopCompleted !== true;
+  claimStopAttempt(): boolean {
+    if (
+      this.terminalClaim?.owner !== 'stop' ||
+      this.terminalClaim.stopCompleted === true ||
+      this.terminalClaim.stopAttemptInFlight === true
+    ) return false;
+    this.terminalClaim.stopAttemptInFlight = true;
+    return true;
+  }
+
+  releaseStopAttempt(): void {
+    if (this.terminalClaim?.owner === 'stop') this.terminalClaim.stopAttemptInFlight = false;
   }
 
   completeStop(): void {
-    if (this.terminalClaim?.owner === 'stop') this.terminalClaim.stopCompleted = true;
+    if (this.terminalClaim?.owner === 'stop') {
+      this.terminalClaim.stopAttemptInFlight = false;
+      this.terminalClaim.stopCompleted = true;
+    }
   }
 
   recordRunTrace(event: RunTraceEvent): void {

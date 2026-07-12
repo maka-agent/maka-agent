@@ -3139,6 +3139,45 @@ describe('SessionManager permission mode updates', () => {
     expect(childRun?.status).toBe('cancelled');
   });
 
+  test('concurrent stopSession calls share one stop attempt', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const stopStarted = makeGate();
+    const releaseStop = makeGate();
+    let backend: ConcurrentStopBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new ConcurrentStopBackend(ctx, stopStarted, releaseStop);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_847),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const turn = manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' })[Symbol.asyncIterator]();
+    await turn.next();
+
+    const firstStop = manager.stopSession(session.id, { source: 'stop_button' });
+    await stopStarted.promise;
+    const secondStop = manager.stopSession(session.id, { source: 'stop_button' });
+    releaseStop.release();
+    await Promise.all([firstStop, secondStop]);
+    while (!(await turn.next()).done) {}
+
+    expect(backend?.stopCalls).toBe(1);
+    const messages = await store.readMessages(session.id);
+    expect(messages.filter((message) => message.type === 'system_note' && message.kind === 'abort')).toHaveLength(1);
+    expect(messages.filter((message) =>
+      message.type === 'turn_state' && message.turnId === 'turn-1' && message.status === 'aborted'
+    )).toHaveLength(1);
+  });
+
   test('spawnChildAgent fails closed instead of running a degraded catalog agent', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -5430,6 +5469,22 @@ class RetryStopBackend extends TestBackend {
     this.stopCalls += 1;
     if (this.stopCalls === 1) throw new Error('first stop failed');
     this.stopGate.release();
+  }
+}
+
+class ConcurrentStopBackend extends TestBackend {
+  constructor(
+    ctx: BackendFactoryContext,
+    private readonly stopStarted: Gate,
+    private readonly releaseStop: Gate,
+  ) {
+    super(ctx, releaseStop);
+  }
+
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
+    this.stopStarted.release();
+    await this.releaseStop.promise;
   }
 }
 
