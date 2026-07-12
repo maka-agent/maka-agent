@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { type ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
@@ -436,7 +436,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               truncated={item.outputTruncated === true}
             />
           )}
-          {showResult && !ownsPanel && displayResult && (
+          {showResult && !ownsPanel && displayResult && !errored && (
             quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
@@ -444,6 +444,15 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             )
           )}
         </div>
+      )}
+      {errored && showResult && displayResult && !ownsPanel && (
+        <ToolErrorDetails>
+          {quietJson ? (
+            <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
+          ) : (
+            <ToolResultPreview content={displayResult} />
+          )}
+        </ToolErrorDetails>
       )}
     </div>
   );
@@ -716,6 +725,34 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
         </AlertAction>
       )}
     </Alert>
+  );
+}
+
+/**
+ * Raw diagnostic details for an errored tool, collapsed by default so a verbose
+ * validation/runtime failure cannot dominate the conversation. The ToolErrorBanner
+ * already shows the first 240px of the error text + a copy action; this disclosure
+ * owns the full raw payload (quiet JSON body / structured ToolResultPreview) so it
+ * is reachable but not loud. Keyboard-accessible via CollapsibleTrigger (a real
+ * <button>); secret redaction + size caps stay enforced upstream (redactSecrets,
+ * the banner's 240px truncation, and the result preview's own caps).
+ */
+function ToolErrorDetails({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
+      <CollapsibleTrigger className="flex items-center gap-1 self-start rounded-[var(--radius-control)] text-[length:var(--font-size-ui)] text-[color:var(--muted-foreground)] outline-none transition-colors hover:text-[color:var(--foreground-secondary)] focus-visible:shadow-[0_0_0_var(--focus-ring-width)_oklch(from_var(--focus-ring)_l_c_h_/_0.14)]">
+        <ChevronRight
+          size={12}
+          aria-hidden="true"
+          className={cn('shrink-0 transition-transform duration-[var(--duration-quick)] [transition-timing-function:var(--ease-out-strong)]', open && 'rotate-90')}
+        />
+        <span>{open ? '隐藏原始诊断' : '显示原始诊断'}</span>
+      </CollapsibleTrigger>
+      <CollapsiblePanel className="mt-1">
+        {children}
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 
