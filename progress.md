@@ -129,3 +129,9 @@
 - Refreshed draft PR #699 title/body with the exact page-targeting architecture,
   `semantic-targeting-v5` evidence, and the remaining production packaging gap.
 - Remote CI passed: typecheck, test, and e2e.
+- Decided to split backend validity from model-driven UX:
+  - #699 remains deterministic backend targeting/execution/effect verification
+  - model-in-loop latency, coordinate quality, cursor phase sync, and motion
+    tuning move to follow-up branch `codex/cu-model-loop-ux`
+- Saved the visual phase/path work on the follow-up branch and reverted it from
+  #699 before continuing backend verification.

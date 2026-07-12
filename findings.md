@@ -189,3 +189,16 @@
   - this repository has no production Electron packaging, Developer ID
     signing, notarization, or post-package app verification workflow
   - the compatibility Mach-O is ad-hoc signed and byte/provenance pinned
+
+## PR Split Decision
+
+- Keep #699 reviewable as a backend-validity PR. Scripted actions are the
+  deterministic oracle for transport, targeting, dispatch evidence, and DOM
+  effect readback; they are not presented as model-autonomy evidence.
+- Move the real Maka model loop into a second PR. That PR must use Maka's
+  SessionManager + ai-sdk backend + configured model and report model latency,
+  emitted tool arguments, backend latency, display lag, and final state
+  separately.
+- Move cursor phase reconciliation and path-shape changes into the second PR.
+  Backend execution remains immediate; presentation follows backend completion.
+- Saved follow-up branch: `codex/cu-model-loop-ux`.
