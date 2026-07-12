@@ -1,8 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { ComponentProps, ReactNode } from 'react';
 import type { SessionSummary, StoredMessage } from '@maka/core';
-import { ChatView, Composer } from '../src/components.js';
-import type { TurnFooterActionMeta } from '../src/chat-view.js';
+import { ChatView, Composer, type TurnFooterActionMeta } from '../src/components.js';
 import type { ChatModelChoice } from '../src/chat-model-helpers.js';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
@@ -98,7 +97,6 @@ const baseChatProps: ChatViewProps = {
   activeModelLabel: 'Claude Sonnet 4.5',
   modelChoices,
   userLabel: '你',
-  mode: 'sessions',
   onNew: noop,
   onPromptSuggestion: noop,
 };

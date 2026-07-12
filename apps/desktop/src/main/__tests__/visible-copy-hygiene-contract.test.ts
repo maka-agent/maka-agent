@@ -35,6 +35,7 @@ import { RENDERER_SHELL_SOURCE_REPO_PATHS } from './renderer-shell-source-helper
 const FILES_TO_SCAN = [
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'components.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx'),
+  resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'composer.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'skills-panel.tsx'),
   resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'daily-review-panel.tsx'),
@@ -397,7 +398,7 @@ describe('turn footer copy feedback contract', () => {
   });
 
   it('gates the inline footer copy action instead of silently firing raw clipboard writes', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx');
     const src = await readFile(componentsPath, 'utf8');
     const footerBlock = src.match(/function TurnFooterActions[\s\S]*?const STATUS_FOOTER_ICON/)?.[0] ?? '';
 
@@ -529,14 +530,12 @@ describe('tool error copy feedback contract', () => {
 
 describe('chat markdown copy feedback contract', () => {
   it('gates assistant message copy without redacting the raw message markdown', async () => {
-    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-view.tsx');
+    const componentsPath = resolve(process.cwd(), '..', '..', 'packages', 'ui', 'src', 'chat-turn.tsx');
     const src = await readFile(componentsPath, 'utf8');
     // PR-UI-LIB-EXTRACT-6 (round 7/10) moved the markdown layer
     // out of components.tsx; PR-UI-LIB-EXTRACT-8 (round 9/10)
     // then moved `EmptyChatHero` itself into `chat-empty-hero.tsx`.
-    // The next-named-thing anchor after `MessageCopyButton` is now
-    // `ChatHeaderAlertBadge`.
-    const block = src.match(/function MessageCopyButton[\s\S]*?function ChatHeaderAlertBadge/)?.[0] ?? '';
+    const block = src.match(/function MessageCopyButton[\s\S]*?export const TurnView/)?.[0] ?? '';
 
     assert.match(block, /useClipboardCopyFeedback\(1400, \{ redact: false \}\)/, 'Message copy should preserve raw assistant markdown.');
     assert.match(block, /await copyFeedback\.copy\('message', props\.text\)/, 'Message copy should route through the guarded helper.');

@@ -482,9 +482,15 @@ const systemPromptService = createSystemPromptMainService({
   goalManager: goalWiring.manager,
 });
 // Window is created hidden for E2E and visual-smoke runs so it never steals
-// focus. Both deterministic and real-model E2E own their visible fixture
+// focus. Deterministic and real-model CUA E2E own their visible fixture
 // windows, while Maka's regular application window remains hidden.
-const startHidden = Boolean(visualSmokeFixture) || isIsolatedTest;
+// MAKA_E2E_SHOW_WINDOW opts back into a visible window where there is no
+// focus to steal (CI under xvfb): hidden windows only get ~1fps compositor
+// BeginFrames on Linux, which stalls content-visibility inflation and any
+// frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
+// over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
+const startHidden = (Boolean(visualSmokeFixture) || isIsolatedTest)
+  && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,

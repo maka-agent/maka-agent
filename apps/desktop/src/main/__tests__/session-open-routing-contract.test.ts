@@ -22,12 +22,12 @@ describe('session open routing contract', () => {
 
     assert.doesNotMatch(
       main,
-      /<ChatView[\s\S]*?onSelectSession=\{setActiveId\}/,
-      'Daily Review session buttons live inside ChatView module mode and must route back to the chat surface',
+      /<DailyReviewPage[\s\S]*?onSelectSession=\{setActiveId\}/,
+      'Daily Review session buttons must route back through the chat surface',
     );
     assert.match(
       main,
-      /<ChatView[\s\S]*?onSelectSession=\{openSessionInChat\}/,
+      /<DailyReviewPage[\s\S]*?onSelectSession=\{openSessionInChat\}/,
       'Daily Review session buttons must use the shell-level session open helper',
     );
   });

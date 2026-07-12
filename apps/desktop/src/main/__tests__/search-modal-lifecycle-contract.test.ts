@@ -42,6 +42,7 @@ import { renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
+const CHAT_TURN_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-turn.tsx');
 const SEARCH_MODAL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'search-modal.tsx');
 const COMMAND_PALETTE_CONTENT_PATH = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'command-palette-content-search.ts');
 
@@ -162,6 +163,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
   it('search result navigation consumes target.turnId instead of only switching sessions', async () => {
     const searchModalSource = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const components = await readFile(COMPONENTS_PATH, 'utf8');
+    const chatTurn = await readFile(CHAT_TURN_PATH, 'utf8');
     const main = await readRendererShellCombinedSource();
     const contentSearch = await readFile(COMMAND_PALETTE_CONTENT_PATH, 'utf8');
 
@@ -216,12 +218,12 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       'ChatView must move keyboard focus to the matched turn after search navigation',
     );
     assert.match(
-      components,
+      chatTurn,
       /data-search-highlight=\{props\.searchHighlighted\s*\?\s*'true'\s*:\s*undefined\}/,
       'ChatView must visually mark the matched search turn',
     );
     assert.match(
-      components,
+      chatTurn,
       /tabIndex=\{props\.searchHighlighted \? -1 : undefined\}/,
       'Highlighted search turns must be programmatically focusable while the search target is active',
     );

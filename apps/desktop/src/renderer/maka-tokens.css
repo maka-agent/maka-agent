@@ -1212,9 +1212,12 @@
     /* Long-conversation first render: skip layout/paint for off-screen
        turns (vercel react-best-practices rendering-content-visibility —
        ~10x initial-render win on long sessions, keeps native Cmd+F and
-       text selection, no virtualization library). `auto 250px` keeps a
-       placeholder estimate until first render, then the remembered
-       actual size prevents scrollbar jumps. */
+       text selection, no virtualization library). `auto 250px` is only a
+       placeholder until a turn is first rendered; the remembered actual
+       size then keeps scroll geometry exact. Never-rendered history would
+       otherwise inflate turn by turn while scrolling up ("endless scroll"),
+       so chat-view runs an idle-time bottom-up warm-up after session load —
+       see packages/ui/src/turn-size-warmup.ts. */
     content-visibility: auto;
     contain-intrinsic-size: auto 250px;
   }

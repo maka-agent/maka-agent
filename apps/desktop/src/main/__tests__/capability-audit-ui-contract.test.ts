@@ -78,23 +78,23 @@ describe('capability audit visible system contract', () => {
     assert.notEqual(report.skills[0].permissionMode, 'execute');
   });
 
-  it('wires ChatView through a single derived audit report for Skills and Automations', async () => {
-    const components = await readFile(join(repoRoot, 'packages', 'ui', 'src', 'chat-view.tsx'), 'utf8');
+  it('derives capability audit reports at the Skills and Automations page boundaries', async () => {
+    const components = await readFile(join(repoRoot, 'packages', 'ui', 'src', 'module-pages.tsx'), 'utf8');
 
     assert.match(
       components,
-      /const capabilityAuditReport = useMemo\([\s\S]*deriveCapabilityAuditReport\(\{[\s\S]*skills: props\.skills \?\? \[\],[\s\S]*planReminders: props\.planReminders \?\? \[\],[\s\S]*\}\)/,
-      'ChatView must derive the capability audit report from the same skills and plan-reminder snapshots',
+      /function SkillsPage[\s\S]*deriveCapabilityAuditReport\(\{[\s\S]*skills: props\.skills \?\? \[\],[\s\S]*planReminders: props\.planReminders \?\? \[\]/,
+      'SkillsPage must derive its report from the same skills and plan-reminder snapshots',
     );
     assert.match(
       components,
-      /<SkillsModuleMain[\s\S]*auditReport=\{capabilityAuditReport\}/,
-      'Skills module must receive the shared capability audit report',
+      /<SkillsModuleMain \{\.\.\.props\} auditReport=\{auditReport\}/,
+      'Skills module must receive the page report',
     );
     assert.match(
       components,
-      /<PlanReminderPanel[\s\S]*auditReport=\{capabilityAuditReport\}/,
-      'Automations module must receive the shared capability audit report',
+      /<PlanReminderPanel \{\.\.\.props\} reminders=\{props\.reminders \?\? \[\]\} auditReport=\{auditReport\}/,
+      'Automations module must receive the page report',
     );
   });
 

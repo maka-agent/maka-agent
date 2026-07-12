@@ -27,7 +27,7 @@ import { describe, it } from 'node:test';
 import { REPO_ROOT } from './css-test-helpers.js';
 
 const MIGRATED_FILES = [
-  'packages/ui/src/chat-view.tsx',
+  'packages/ui/src/chat-turn.tsx',
   'packages/ui/src/permission-dialog.tsx',
   'packages/ui/src/tool-activity.tsx',
 ];

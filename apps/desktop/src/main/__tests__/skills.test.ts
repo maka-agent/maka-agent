@@ -1146,19 +1146,18 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const chatViewSource = await readFile(join(repoRoot, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const modulePagesSource = await readFile(join(repoRoot, 'packages/ui/src/module-pages.tsx'), 'utf8');
     const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
     const modulePanelTypes = await readFile(join(repoRoot, 'packages/ui/src/module-panel-types.ts'), 'utf8');
     const workspaceResourcesIpc = await readFile(join(repoRoot, 'apps/desktop/src/main/workspace-resources-ipc-main.ts'), 'utf8');
     const emptyStateSource = await readFile(join(repoRoot, 'packages/ui/src/empty-state.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
-    const chatView = chatViewSource.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
     const skillsModuleMain = extractFunctionBlock(ui, 'SkillsModuleMain');
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function SkillsModuleMain/)?.[0] ?? '';
     const skillEntryContract = modulePanelTypes.match(/export interface SkillEntry[\s\S]*?\n}/)?.[0] ?? '';
     const emptyState = emptyStateSource;
 
-    assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
+    assert.match(modulePagesSource, /export function SkillsPage[\s\S]*<SkillsModuleMain/, 'SkillsPage must mount the skills main surface');
     assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
     assert.match(skillsModuleMain, /const skillActionMountedRef = useRef\(true\)/);
     assert.match(skillsModuleMain, /const pendingSkillActionRef = useRef<string \| null>\(null\)/);
