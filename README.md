@@ -29,7 +29,7 @@ Read [Maka Backend Architecture](./ARCHITECTURE.md) for the complete design.
 |---|---|---|
 | **Desktop** | Daily interaction, file and Artifact workflows, model and permission setup | Electron + React with streaming sessions, tool timelines, branching, search, and recovery |
 | **TUI / CLI** | Using Maka in the current project directory or running one non-interactive Turn | `maka`, `maka run`; shares workspace and model connections with Desktop |
-| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` / `maka-headless` with task logs, export, resume, and comparison |
+| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` with task logs, export, resume, and comparison |
 
 ## Current capabilities
 

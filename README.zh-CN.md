@@ -29,7 +29,7 @@ Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具
 |---|---|---|
 | **Desktop** | 日常交互、文件与 Artifact 工作流、模型和权限配置 | Electron + React，支持流式会话、工具时间线、分支、搜索和恢复 |
 | **TUI / CLI** | 在当前工程目录中使用 Maka，或执行单次非交互 Turn | `maka`、`maka run`，复用 Desktop 的 workspace 和模型连接 |
-| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval` / `maka-headless`，支持任务日志、导出、恢复和对比 |
+| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval`，支持任务日志、导出、恢复和对比 |
 
 ## 当前能力
 

@@ -10,7 +10,7 @@ runtime.
 After a headless task run has been recorded in a task-run store:
 
 ```sh
-maka-headless ahe export <taskRunId...> \
+maka eval ahe export <taskRunId...> \
   --store <out>/runs \
   --repo <maka-repo-root> \
   --out <evidence-dir> \
