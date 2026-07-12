@@ -3,7 +3,12 @@ import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { writeFile } from 'node:fs/promises';
 import { basename, delimiter, join } from 'node:path';
 import { promisify } from 'node:util';
-import { validateHarborCellOutput, type HarborCellOutput } from './cell-output.js';
+import {
+  validateHarborCellExecutionIdentity,
+  validateHarborCellOutput,
+  type HarborCellExecutionIdentity,
+  type HarborCellOutput,
+} from './cell-output.js';
 import {
   FixedPromptBudgetExhaustedError,
   type FixedPromptBudgetExhaustedError as FixedPromptBudgetExhaustedErrorType,
@@ -16,6 +21,7 @@ const execFileAsync = promisify(execFile);
 
 const CONTAINER_MAKA_REPO = '/opt/maka-agent';
 const TRIAL_CELL_OUTPUT = 'agent/maka-cell-output.json';
+const TRIAL_EXECUTION_IDENTITY = 'agent/maka-cell-execution-identity.json';
 const TRIAL_RUNTIME_EVENTS = 'agent/runtime-events.jsonl';
 const TRIAL_REWARD = 'verifier/reward.txt';
 const TRIAL_VERIFIER_STDOUT = 'verifier/test-stdout.txt';
@@ -196,11 +202,11 @@ export function createHarborTaskRunner(options: HarborTaskRunnerOptions): Harbor
 
     const trialException = await readTrialException(resultPath);
     if (trialException && isBudgetExhaustedTrialException(trialException)) {
-      const cell = await readOptionalCellOutput(cellOutputPath, input.task.id);
+      const artifactRefs = await readTimedOutTrialArtifacts(trialDir, input.task.id);
       throw new FixedPromptBudgetExhaustedError(
         `agent budget exhausted for task ${input.task.id}`,
         trialException,
-        cell ? cellArtifactRefs(cell, hostEventsPath, trialDir) : undefined,
+        artifactRefs ?? undefined,
       );
     }
     const reward = await readReward(rewardPath, resultPath, input.task.id);
@@ -263,8 +269,22 @@ function cellArtifactRefs(cell: HarborCellOutput, hostEventsPath: string, trialD
 async function readTimedOutCellArtifacts(jobDir: string, taskName: string, taskId: string) {
   try {
     const trialDir = await findTrialDir(jobDir, taskName);
-    const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
-    return cell ? cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir) : null;
+    return await readTimedOutTrialArtifacts(trialDir, taskId);
+  } catch {
+    return null;
+  }
+}
+
+async function readTimedOutTrialArtifacts(trialDir: string, taskId: string) {
+  const cell = await readOptionalCellOutput(join(trialDir, TRIAL_CELL_OUTPUT), taskId);
+  if (cell) return cellArtifactRefs(cell, join(trialDir, TRIAL_RUNTIME_EVENTS), trialDir);
+  const executionIdentity = await readOptionalExecutionIdentity(join(trialDir, TRIAL_EXECUTION_IDENTITY));
+  return executionIdentity ? { executionIdentity } : null;
+}
+
+async function readOptionalExecutionIdentity(path: string): Promise<HarborCellExecutionIdentity | null> {
+  try {
+    return validateHarborCellExecutionIdentity(JSON.parse(await readFile(path, 'utf8')));
   } catch {
     return null;
   }

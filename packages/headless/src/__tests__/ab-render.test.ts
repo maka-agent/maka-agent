@@ -29,7 +29,8 @@ describe('renderAbComparisonMarkdown', () => {
 
     assert.match(markdown, /Decision: not cleared \(non_inferiority_confidence_interval_crosses_margin\)/);
     assert.match(markdown, /Budget: 600s task budget/);
-    assert.match(markdown, /Evaluation pass rate: A=1\/4 = 0.25, B=4\/4 = 1/);
+    assert.match(markdown, /Outcome pass rate: A=1\/4 = 0.25, B=4\/4 = 1/);
+    assert.match(markdown, /Paired outcome delta: B-A=0.75/);
     assert.match(markdown, /Task-level delta: mean=0.75/);
     assert.doesNotMatch(markdown, /held-in|held-out|keep|discard|acceptance/i);
   });
@@ -47,6 +48,30 @@ describe('renderAbComparisonMarkdown', () => {
     });
 
     assert.match(renderAbComparisonMarkdown(result), /Budget outcomes: A timed_out=0, B timed_out=1/);
+  });
+
+  test('separates run completeness, outcome rate, exclusions, and attestation warnings', () => {
+    const unattestedTimeout = {
+      ...budgetExhausted('long-task'),
+      eligible: false,
+      evidenceErrorClass: 'missing_execution_identity' as const,
+    };
+    const result = summarizeAbComparison({
+      runId: 'ab-run',
+      roundId: 'ab-summary',
+      baselineArmId: 'baseline',
+      candidateArmId: 'candidate',
+      evaluationTaskIds: ['long-task'],
+      baselineRuns: [[unattestedTimeout]],
+      candidateRuns: [[unattestedTimeout]],
+    });
+
+    const markdown = renderAbComparisonMarkdown(result);
+    assert.match(markdown, /Run completeness: A observed=1\/1 missing=0, B observed=1\/1 missing=0/);
+    assert.match(markdown, /Outcome pass rate: A=0\/1 = 0, B=0\/1 = 0/);
+    assert.match(markdown, /Attempt pairs: observed=1\/1 evaluated=1 excluded=0 missing=0/);
+    assert.match(markdown, /Attestation warnings: A=1, B=1/);
+    assert.doesNotMatch(markdown, /## Missing Tasks/);
   });
 
   test('renders context budget policy and active prune subset diagnostics', () => {
@@ -103,7 +128,7 @@ describe('renderAbComparisonMarkdown', () => {
     const markdown = renderAbComparisonMarkdown(result);
 
     assert.match(markdown, /Context budget: A activated=0\/2 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B activated=1\/2 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_placeholder_reasons=\{"active_prune":2\} archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=3 retrieval_skipped_reasons=\{"max_bytes":2,"max_results":1\} retrieval_failures=1 retrieval_failure_reasons=\{"not_found":1\}/);
-    assert.match(markdown, /Active prune subset: A tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=0\/1 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=1\/1 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_placeholder_reasons=\{"active_prune":2\} archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=3 retrieval_skipped_reasons=\{"max_bytes":2,"max_results":1\} retrieval_failures=1 retrieval_failure_reasons=\{"not_found":1\}/);
+    assert.match(markdown, /Active prune subset: A tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 attestation_warnings=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=0\/1 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 attestation_warnings=0 input=1 cache_hit=0 cache_miss=1 cache_write=0 output=1 total=2 cost_usd=0\.01 mean_duration_ms=100 activated=1\/1 stale_pruned=2 active_pruned=3 active_tokens_saved=450 active_archive_failures=1 archive_placeholders=2 archive_placeholder_reasons=\{"active_prune":2\} archive_write_failures=0 retrieved=1 retrieved_tokens=120 retrieval_skipped=3 retrieval_skipped_reasons=\{"max_bytes":2,"max_results":1\} retrieval_failures=1 retrieval_failure_reasons=\{"not_found":1\}/);
     assert.match(markdown, /Context budget policy: A enabled=0\/2 snapshots=\[{"enabled":false}\], B enabled=2\/2 snapshots=/);
   });
 
@@ -131,7 +156,7 @@ describe('renderAbComparisonMarkdown', () => {
       }]],
     });
 
-    assert.match(renderAbComparisonMarkdown(result), /Active prune subset: A tasks=1 attempts=1 observed=0 missing=1 coverage=0 pass_rate=null passed=0\/0 completed=0 timed_out=0 infra_failed=0 plumbing_failed=0 input=0 cache_hit=0 cache_miss=0 cache_write=0 output=0 total=0 cost_usd=0 mean_duration_ms=null activated=0\/0 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 input=10 cache_hit=3 cache_miss=4 cache_write=2 output=5 total=16 cost_usd=0\.02 mean_duration_ms=250 activated=1\/1 stale_pruned=0 active_pruned=1 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}/);
+    assert.match(renderAbComparisonMarkdown(result), /Active prune subset: A tasks=1 attempts=1 observed=0 missing=1 coverage=0 pass_rate=null passed=0\/0 completed=0 timed_out=0 infra_failed=0 plumbing_failed=0 attestation_warnings=0 input=0 cache_hit=0 cache_miss=0 cache_write=0 output=0 total=0 cost_usd=0 mean_duration_ms=null activated=0\/0 stale_pruned=0 active_pruned=0 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}, B tasks=1 attempts=1 observed=1 missing=0 coverage=1 pass_rate=1 passed=1\/1 completed=1 timed_out=0 infra_failed=0 plumbing_failed=0 attestation_warnings=0 input=10 cache_hit=3 cache_miss=4 cache_write=2 output=5 total=16 cost_usd=0\.02 mean_duration_ms=250 activated=1\/1 stale_pruned=0 active_pruned=1 active_tokens_saved=0 active_archive_failures=0 archive_placeholders=0 archive_placeholder_reasons=\{\} archive_write_failures=0 retrieved=0 retrieved_tokens=0 retrieval_skipped=0 retrieval_skipped_reasons=\{\} retrieval_failures=0 retrieval_failure_reasons=\{\}/);
   });
 
   test('renders token cost usage', () => {

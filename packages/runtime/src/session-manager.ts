@@ -46,7 +46,11 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
+import {
+  DEEP_RESEARCH_SESSION_LABEL,
+  failureClassFromCompleteStopReason,
+  isDeepResearchSession,
+} from '@maka/core';
 import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
@@ -68,6 +72,7 @@ import type { RunTraceRecorder } from './run-trace.js';
 import type { ShellRunProcessManager } from './shell-run-manager.js';
 import type { ActiveFullCompactBlock } from './active-full-compact.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
+import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { AgentRunLineage } from './agent-run.js';
 import { classifyAgentRunRecovery, type AgentRunRecoveryDecision } from './agent-run-recovery.js';
 import type {
@@ -75,6 +80,7 @@ import type {
   InvocationSource,
 } from './invocation-context.js';
 import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import type { HistoryCompactCleanupRequest } from './runtime-kernel.js';
 import {
   buildStatusPatch,
   buildTurnStateMessage,
@@ -206,6 +212,8 @@ export interface BackendFactoryContext {
   systemPrompt?: string;
   tools?: readonly MakaTool[];
   recordRunTrace?: RunTraceRecorder;
+  loadHistoryCompactCheckpoint?: () => Promise<HistoryCompactCheckpoint | undefined>;
+  recordHistoryCompactCheckpoint?: (checkpoint: HistoryCompactCheckpoint, turnId: string) => Promise<void>;
   recordActiveFullCompactBlock?: (block: ActiveFullCompactBlock) => void;
   recordSemanticCompactBlock?: (block: SemanticCompactBlock) => void;
   shellRunContextSummary?: () => Promise<string | undefined>;
@@ -248,6 +256,7 @@ export interface SessionManagerDeps {
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   runtimeKernel?: RuntimeKernelLike;
   shellRuns?: ShellRunProcessManager;
+  cleanupHistoryCompactArtifacts?: (input: HistoryCompactCleanupRequest) => Promise<void>;
 }
 
 export class SessionManager {
@@ -527,6 +536,7 @@ export class SessionManager {
 
     const completedAt = this.deps.now();
     const run = await this.findRunByTurnId(sessionId, turnId);
+    const failureClass = run?.failureClass ?? summary.failureClass;
     const artifacts = this.deps.listArtifactsForTurn
       ? await this.deps.listArtifactsForTurn(sessionId, turnId)
       : [];
@@ -543,7 +553,7 @@ export class SessionManager {
       completedAt,
       durationMs: Math.max(0, completedAt - startedAt),
       eventCount: summary.eventCount,
-      ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+      ...(failureClass ? { failureClass } : {}),
     };
   }
 
@@ -1063,6 +1073,7 @@ function trimSummary(text: string): string {
 
 class ChildAgentSummaryAccumulator {
   eventCount = 0;
+  failureClass: string | undefined;
   private terminalStatus: SpawnChildAgentResult['status'] | undefined;
   private lastTextComplete = '';
   private textDeltaTail = '';
@@ -1086,7 +1097,8 @@ class ChildAgentSummaryAccumulator {
         this.terminalStatus = 'cancelled';
         break;
       case 'complete':
-        if (event.stopReason === 'error') this.terminalStatus = 'failed';
+        this.failureClass = failureClassFromCompleteStopReason(event.stopReason);
+        if (this.failureClass) this.terminalStatus = 'failed';
         else if (event.stopReason === 'user_stop') this.terminalStatus = 'cancelled';
         else this.terminalStatus = 'completed';
         break;

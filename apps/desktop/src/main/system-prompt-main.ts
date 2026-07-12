@@ -34,18 +34,22 @@ interface SystemPromptMainDeps {
   goalManager?: Pick<GoalManager, 'get'>;
 }
 
+interface SkillPromptBudgetContext {
+  contextWindow?: number;
+}
+
 export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildSystemPrompt(
     header: Pick<SessionHeader, 'labels'>,
     cwd?: string,
-    options?: { memoryFragment?: string | null; includePersonalization?: boolean },
+    options?: { memoryFragment?: string | null; includePersonalization?: boolean; skillBudget?: SkillPromptBudgetContext },
   ): Promise<string | undefined> {
     const settings = await deps.settingsStore.get();
     const includePersonalization = options?.includePersonalization !== false;
     const personalization = includePersonalization
       ? buildPersonalizationPromptFragment(settings.personalization)
       : { text: undefined };
-    const skills = await buildSkillsPromptFragment(deps.workspaceRoot);
+    const skills = await buildSkillsPromptFragment(deps.workspaceRoot, undefined, options?.skillBudget);
     const workspaceInstructions = settings.workspaceInstructions.enabled && cwd
       ? await buildWorkspaceInstructionsPromptFragment(cwd)
       : undefined;
@@ -69,12 +73,12 @@ export function createSystemPromptMainService(deps: SystemPromptMainDeps) {
   async function buildBackendSystemPrompt(
     header: Pick<SessionHeader, 'labels'>,
     cwd: string | undefined,
-    options: { memoryFragment?: string | null; childInstruction?: string | null },
+    options: { memoryFragment?: string | null; childInstruction?: string | null; skillBudget?: SkillPromptBudgetContext },
   ): Promise<string | undefined> {
     const childInstruction = options.childInstruction?.trim();
     const base = await buildSystemPrompt(header, cwd, childInstruction
-      ? { memoryFragment: null, includePersonalization: false }
-      : { memoryFragment: options.memoryFragment });
+      ? { memoryFragment: null, includePersonalization: false, skillBudget: options.skillBudget }
+      : { memoryFragment: options.memoryFragment, skillBudget: options.skillBudget });
     if (!childInstruction) return base;
     return [
       base,

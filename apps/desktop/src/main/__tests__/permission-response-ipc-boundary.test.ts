@@ -310,6 +310,7 @@ describe('permission response IPC boundary', () => {
       'app-shell-quick-chat-actions.ts',
       'app-shell.tsx',
       'app-shell-effects.ts',
+      'use-app-shell-session-list.ts',
     ]);
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\)(?:: Promise<SessionSummary\[]>)? \{[\s\S]*?\n  \}/);

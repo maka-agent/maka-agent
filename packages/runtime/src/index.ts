@@ -50,6 +50,10 @@ export type {
   HistoryCompactWriter,
   HistoryCompactWriteInput,
   HistoryCompactWriteResult,
+  HistoryCompactCheckpointLoader,
+  HistoryCompactCheckpointRecorder,
+  HistoryCompactSummarizer,
+  HistoryCompactSummaryInput,
   SynthesisCacheLoader,
   SynthesisCacheLoadInput,
   SynthesisCacheLoadResult,
@@ -75,7 +79,7 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export {
-  buildBackgroundBashTool,
+  buildManagedBashTool,
   buildForegroundBashTool,
   buildLocalForegroundBashTool,
   buildStopBackgroundTaskTool,
@@ -88,14 +92,12 @@ export type {
   ShellRunToolController,
 } from './shell-tools.js';
 export {
-  DEFAULT_BASH_YIELD_TIME_MS,
   DEFAULT_BASH_TIMEOUT_MS,
   DEFAULT_MAX_LIVE_SHELL_RUNS,
   DEFAULT_SHELL_RUN_FLUSH_BYTES,
   DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS,
-  MAX_BASH_YIELD_TIME_MS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
-  MIN_BASH_YIELD_TIME_MS,
   SHELL_RUN_CONTEXT_SUMMARY_LIMIT,
   SHELL_RUN_RESOURCE_PREFIX,
   ShellRunProcessManager,
@@ -308,7 +310,7 @@ export type {
   CompactionSourceKind,
   CompactionStage,
 } from './compaction-boundary.js';
-export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy } from './context-budget-policy.js';
+export { buildDefaultContextBudgetPolicy, buildManualCompactLookupPolicy, resolveSelectedModelContextWindow } from './context-budget-policy.js';
 export type {
   BuildDefaultContextBudgetPolicyOptions,
   BuildManualCompactLookupPolicyOptions,
@@ -321,6 +323,12 @@ export type {
   HistoryCompactArtifactStore,
   PersistHistoryCompactBlocksDeps,
 } from './history-compact-artifacts.js';
+export { cleanupLegacyHistoryCompactArtifacts } from './history-compact-cleanup.js';
+export type {
+  HistoryCompactCleanupDiagnostic,
+  HistoryCompactCleanupResult,
+  HistoryCompactCleanupSkip,
+} from './history-compact-cleanup.js';
 export { buildLlmHistorySummarizer } from './history-compact-summarizer.js';
 export type {
   BuildLlmHistorySummarizerOptions,
@@ -704,3 +712,43 @@ export {
 export type { GoalToolsDeps } from './goal-tools.js';
 export { handleGoalContinuation } from './goal-continuation.js';
 export type { GoalContinuationDeps, GoalContinuationOutcome } from './goal-continuation.js';
+
+export {
+  MAX_SKILL_BODY_CHARS,
+  MAX_SKILL_TOOL_BODY_CHARS,
+  MAX_SKILLS_PROMPT_CHARS,
+  MIN_SKILLS_PROMPT_TOKENS,
+  MAX_SKILLS_PROMPT_TOKENS,
+  SKILLS_PROMPT_CONTEXT_RATIO,
+  resolveSkillsPromptCharBudget,
+  scanWorkspaceSkills,
+  scanSkills,
+  resolveSkillDiscoveryPaths,
+  buildSkillsPromptFragment,
+  loadSkillInstructions,
+  buildSkillAgentTool,
+  gateSkillsByHostCapabilities,
+  parseSkillFrontMatter,
+  readSkillRuntimeState,
+  writeSkillRuntimeState,
+  readContainedRegularFile,
+  readContainedRegularTextFile,
+  writeContainedRegularTextFile,
+  isContainedPath,
+  isSafeSkillId,
+  isRecord,
+} from './skills.js';
+export type {
+  SkillRuntimeStatus,
+  RuntimeSkillDefinition,
+  ScannedSkill,
+  HostCapabilities,
+  SkillCatalogBudgetOptions,
+  SkillHostCompatibility,
+  GatedSkill,
+  LoadedSkillInstructions,
+  LoadSkillInstructionsResult,
+  SkillRuntimeStateReadResult,
+  SkillSource,
+  SkillDiscoveryEntry,
+} from './skills.js';

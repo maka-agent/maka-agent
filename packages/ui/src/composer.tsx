@@ -24,6 +24,13 @@ import {
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
 import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
+import {
+  createChatInputActionOwner,
+  fileTransferContainsFiles,
+  focusTextInputAtEnd,
+  isChatInputComposing,
+  type ChatInputActionOwner,
+} from './chat-input-behavior.js';
 import type { AttachmentRef, PermissionMode, ProviderType, SessionSummary } from '@maka/core';
 import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
@@ -223,7 +230,13 @@ export const Composer = forwardRef<
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   const composerMountedRef = useRef(true);
   const sendPendingRef = useRef(false);
-  const pendingImportActionRef = useRef<ComposerImportActionId | null>(null);
+  const compositionActiveRef = useRef(false);
+  const importActionOwnerRef = useRef<ChatInputActionOwner<ComposerImportActionId> | null>(null);
+  if (!importActionOwnerRef.current) {
+    importActionOwnerRef.current = createChatInputActionOwner((action) => {
+      if (composerMountedRef.current) setPendingImportAction(action);
+    });
+  }
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   // detect once per render (cheap) rather than memoizing — the locale
@@ -239,7 +252,7 @@ export const Composer = forwardRef<
     return () => {
       composerMountedRef.current = false;
       sendPendingRef.current = false;
-      pendingImportActionRef.current = null;
+      importActionOwnerRef.current?.reset();
     };
   }, []);
 
@@ -298,10 +311,8 @@ export const Composer = forwardRef<
         el.value = text;
         saveCurrentDraft(text);
         autoResize();
-        el.focus();
         // Move caret to end so the user can keep typing.
-        const length = el.value.length;
-        el.setSelectionRange(length, length);
+        focusTextInputAtEnd(el);
       },
       appendText(text: string) {
         const el = textareaRef.current;
@@ -310,9 +321,7 @@ export const Composer = forwardRef<
         el.value = appendPromptContextDraft(el.value, text);
         saveCurrentDraft(el.value);
         autoResize();
-        el.focus();
-        const length = el.value.length;
-        el.setSelectionRange(length, length);
+        focusTextInputAtEnd(el);
       },
       focus() {
         textareaRef.current?.focus();
@@ -322,7 +331,7 @@ export const Composer = forwardRef<
   );
 
   async function sendCurrent() {
-    if (props.disabled || sendPendingRef.current || pendingImportActionRef.current) return;
+    if (props.disabled || sendPendingRef.current || importActionOwnerRef.current?.pending) return;
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
@@ -364,22 +373,15 @@ export const Composer = forwardRef<
   }
 
   async function runImportAction(actionId: ComposerImportActionId, action: (() => void | Promise<void>) | undefined) {
-    if (!action || props.disabled || props.streaming || pendingImportActionRef.current) return;
-    pendingImportActionRef.current = actionId;
-    setPendingImportAction(actionId);
-    try {
+    if (!action || props.disabled || props.streaming) return;
+    await importActionOwnerRef.current?.run(actionId, async () => {
       await action();
-    } finally {
-      if (pendingImportActionRef.current === actionId) {
-        pendingImportActionRef.current = null;
-        if (composerMountedRef.current) setPendingImportAction(null);
-      }
-    }
+    });
   }
 
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Skip when an IME composition is active so CJK input isn't interrupted.
-    if (event.nativeEvent.isComposing || event.key === 'Process') return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     // Esc while a drag-active highlight is showing should clear it
     // immediately. The existing useEffect listens for blur/dragend/drop
     // but not keydown, so a user who hits Esc to cancel a stuck drag
@@ -462,15 +464,15 @@ export const Composer = forwardRef<
   }
 
   function canAcceptDroppedFiles(): boolean {
-    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !pendingImportActionRef.current);
+    return Boolean(props.onAttachFilePaths && !props.disabled && !props.streaming && !importActionOwnerRef.current?.pending);
   }
 
   function hasDraggedFiles(event: DragEvent<HTMLFormElement>): boolean {
-    return Array.from(event.dataTransfer.types).includes('Files');
+    return fileTransferContainsFiles(event.dataTransfer.types, event.dataTransfer.files.length);
   }
 
   function hasPastedFiles(event: ClipboardEvent<HTMLTextAreaElement>): boolean {
-    return Array.from(event.clipboardData.types).includes('Files') || event.clipboardData.files.length > 0;
+    return fileTransferContainsFiles(event.clipboardData.types, event.clipboardData.files.length);
   }
 
   function onComposerDragOver(event: DragEvent<HTMLFormElement>) {
@@ -509,8 +511,7 @@ export const Composer = forwardRef<
     // TypeScript types don't acknowledge that.) Use a narrow `in` check
     // + a typed cast so this compiles AND keeps working when the
     // browser does expose the flag.
-    const native = event.nativeEvent;
-    if ('isComposing' in native && (native as { isComposing?: boolean }).isComposing) return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
@@ -576,12 +577,14 @@ export const Composer = forwardRef<
           ref={textareaRef}
           unstyled
           name="text"
-          className="maka-composer-textarea min-h-11 resize-none"
+          className="maka-composer-textarea resize-none"
           placeholder={copy.placeholder}
           aria-label={copy.textareaAriaLabel}
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
           onPaste={onTextareaPaste}
+          onCompositionStart={() => { compositionActiveRef.current = true; }}
+          onCompositionEnd={() => { compositionActiveRef.current = false; }}
           onInput={onTextareaInput}
           rows={1}
           autoComplete="off"
@@ -626,7 +629,7 @@ export const Composer = forwardRef<
                   void props.onPermissionModeChange?.(mode);
                 }}
                 align="start"
-                disabled={props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
+                disabled={props.disabled || props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
                 disabledReason={props.permissionModeDisabledReason}
               />
             ) : null}
@@ -703,6 +706,7 @@ export const Composer = forwardRef<
               <UiButton
                 className="maka-button"
                 variant="default"
+                size="sm"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {

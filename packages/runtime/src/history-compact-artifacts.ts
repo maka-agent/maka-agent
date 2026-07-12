@@ -31,8 +31,9 @@ export interface HistoryCompactArtifactStore {
     now?: number;
   }): Promise<ArtifactRecord>;
   delete(artifactId: string): Promise<void>;
+  purge(artifactIds: readonly string[]): Promise<void>;
   list(sessionId: string, options?: { includeDeleted?: boolean }): Promise<ArtifactRecord[]>;
-  readText(artifactId: string, options?: { maxBytes?: number }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
+  readText(artifactId: string, options?: { maxBytes?: number; includeDeleted?: boolean }): Promise<{ ok: true; text: string } | { ok: false; reason: string }>;
 }
 
 export interface PersistHistoryCompactBlocksDeps {
@@ -135,7 +136,9 @@ export async function loadHistoryCompactBlocksFromArtifacts(
   const maxEstimatedTokens = input.maxEstimatedTokens ?? 2_048;
   // The block JSON carries per-event provenance and grows with the folded
   // event count; cap reads defensively by storage size, not by token budget.
-  const maxBytes = input.maxBytes ?? 1_048_576;
+  // V1 provenance fan-out produced multi-megabyte blocks in real sessions.
+  // This path is read-only compatibility; V2 checkpoints stay bounded in the run ledger.
+  const maxBytes = input.maxBytes ?? 16 * 1_048_576;
   const skippedReasonCounts: Record<string, number> = {};
   const blocks: HistoryCompactBlock[] = [];
   const records = await artifactStore.list(input.sessionId, { includeDeleted: true });

@@ -11,7 +11,7 @@ import {
   buildSkillAgentTool,
   buildSkillsPromptFragment,
   createStarterSkill,
-  installBundledSkill,
+  ensureBundledOfficeSkills,
   getSkillGovernanceDetails,
   installManagedSkill,
   loadSkillInstructions,
@@ -320,6 +320,7 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
 
       const text = await readFile(result.filePath, 'utf8');
       assert.match(text, /name: 示例技能/);
+
       assert.match(text, /allowed-tools:\n  - Read/);
       assert.match(text, /不会自动获得权限/);
 
@@ -335,6 +336,17 @@ ${'A'.repeat(MAX_SKILL_TOOL_BODY_CHARS + 1000)}`);
       assert.equal(skills[0].id, 'starter-skill');
       assert.equal(skills[0].sourceType, 'workspace');
       assert.equal(skills[0].validationStatus, 'missing_lock');
+
+      // Repeated creates mint DISTINGUISHABLE names (the id ordinal flows
+      // into the display name + front-matter) — three clicks used to
+      // produce three identical 「示例技能」 rows.
+      const second = await createStarterSkill(workspaceRoot);
+      assert.equal(second.ok, true);
+      if (second.ok) {
+        assert.equal(second.skill.id, 'starter-skill-2');
+        assert.equal(second.skill.name, '示例技能 2');
+        assert.match(await readFile(second.filePath, 'utf8'), /name: 示例技能 2/);
+      }
     });
   });
 
@@ -350,6 +362,131 @@ name: Existing
       if (!result.ok) return;
       assert.equal(result.skill.id, 'starter-skill-2');
       assert.match(await readFile(join(workspaceRoot, 'skills', 'starter-skill', 'SKILL.md'), 'utf8'), /# Existing/);
+    });
+  });
+
+  it('seeds bundled OfficeCLI skills without overwriting user edits', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const first = await ensureBundledOfficeSkills(workspaceRoot);
+      assert.deepEqual(first.created.sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
+      assert.deepEqual(first.updated, []);
+      assert.deepEqual(first.skipped, []);
+      assert.deepEqual(first.failed, []);
+
+      const skills = await listInstalledSkills(workspaceRoot);
+      assert.equal(skills.length, 3);
+      assert.deepEqual(skills.map((skill) => skill.id).sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
+      assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocument')));
+      assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocumentEdit')));
+      assert.ok(skills.every((skill) => !skill.declaredTools.includes('Bash')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocument')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocumentEdit')));
+      assert.ok(skills.every((skill) => !skill.requiredTools.includes('Read')));
+      assert.ok(skills.every((skill) => skill.sourceType === 'bundled'));
+      assert.ok(skills.every((skill) => skill.sourceName === 'maka-officecli'));
+      assert.ok(skills.every((skill) => skill.sourceVersion === '1'));
+      assert.ok(skills.every((skill) => skill.userModified === false));
+      assert.ok(skills.every((skill) => skill.validationStatus === 'ok'));
+      assert.ok(skills.every((skill) => skill.contentSha256?.startsWith('sha256:')));
+
+      const docxPath = join(workspaceRoot, 'skills', 'officecli-docx', 'SKILL.md');
+      const docxLockPath = join(workspaceRoot, 'skills', 'officecli-docx', 'skill.lock.json');
+      const before = await readFile(docxPath, 'utf8');
+      const lockBytesBeforeSecondEnsure = await readFile(docxLockPath, 'utf8');
+      const lock = JSON.parse(await readFile(docxLockPath, 'utf8')) as Record<string, unknown>;
+      assert.deepEqual(lock, {
+        schemaVersion: 1,
+        id: 'officecli-docx',
+        sourceType: 'bundled',
+        sourceName: 'maka-officecli',
+        sourceVersion: '1',
+        contentSha256: `sha256:${sha256Hex(before)}`,
+        installedAt: lock.installedAt,
+      });
+      assert.equal(typeof lock.installedAt, 'string');
+      assert.match(lock.installedAt as string, /^\d{4}-\d{2}-\d{2}T/);
+      assert.match(before, /Use `OfficeDocument` for read-only inspection/);
+      assert.match(before, /Use `OfficeDocumentEdit` only for supported writes/);
+      assert.doesNotMatch(before, /Check `officecli --version` first/);
+      assert.doesNotMatch(before, /officecli open/);
+      assert.doesNotMatch(before, /officecli close/);
+      assert.doesNotMatch(before, /view "\$FILE" html/);
+      if (process.platform !== 'win32') {
+        assert.equal((await lstat(docxPath)).mode & 0o077, 0);
+      }
+
+      const secondClean = await ensureBundledOfficeSkills(workspaceRoot);
+      assert.deepEqual(secondClean.created, []);
+      assert.deepEqual(secondClean.updated, []);
+      assert.deepEqual(secondClean.skipped.sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
+      assert.deepEqual(secondClean.failed, []);
+      assert.equal(await readFile(docxLockPath, 'utf8'), lockBytesBeforeSecondEnsure);
+
+      await writeFile(docxPath, `${before}\n\n# User edit\n`, 'utf8');
+      const second = await ensureBundledOfficeSkills(workspaceRoot);
+      assert.deepEqual(second.created, []);
+      assert.deepEqual(second.updated, []);
+      assert.deepEqual(second.skipped.sort(), ['officecli-docx', 'officecli-pptx', 'officecli-xlsx']);
+      assert.deepEqual(second.failed, []);
+      assert.match(await readFile(docxPath, 'utf8'), /# User edit/);
+
+      const modified = await listInstalledSkills(workspaceRoot);
+      const docx = modified.find((skill) => skill.id === 'officecli-docx');
+      assert.ok(docx);
+      assert.equal(docx.sourceType, 'bundled');
+      assert.equal(docx.sourceName, 'maka-officecli');
+      assert.equal(docx.userModified, true);
+      assert.equal(docx.validationStatus, 'modified');
+      assert.deepEqual(docx.validationCodes, ['modified']);
+    });
+  });
+
+  it('does not write bundled skill locks through symlinks', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const outside = await mkdtemp(join(tmpdir(), 'maka-skill-lock-target-'));
+      try {
+        const skillDir = join(workspaceRoot, 'skills', 'officecli-docx');
+        const externalLock = join(outside, 'external-lock.json');
+        await mkdir(skillDir, { recursive: true, mode: 0o700 });
+        await writeFile(externalLock, 'external sentinel', 'utf8');
+        await symlink(externalLock, join(skillDir, 'skill.lock.json'));
+
+        const result = await ensureBundledOfficeSkills(workspaceRoot);
+        assert.deepEqual(result.created.sort(), ['officecli-pptx', 'officecli-xlsx']);
+        assert.deepEqual(result.updated, []);
+        assert.deepEqual(result.skipped, []);
+        assert.deepEqual(result.failed, ['officecli-docx']);
+        assert.equal(await readFile(externalLock, 'utf8'), 'external sentinel');
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it('migrates unmodified legacy bundled OfficeCLI skills to tool-routed templates', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const skillDir = join(workspaceRoot, 'skills', 'officecli-docx');
+      const skillPath = join(skillDir, 'SKILL.md');
+      await mkdir(skillDir, { recursive: true, mode: 0o700 });
+      await writeFile(skillPath, legacyOfficeCliDocxSkillTemplate(), { encoding: 'utf8', mode: 0o600 });
+
+      const result = await ensureBundledOfficeSkills(workspaceRoot);
+      assert.deepEqual(result.created.sort(), ['officecli-pptx', 'officecli-xlsx']);
+      assert.deepEqual(result.updated, ['officecli-docx']);
+      assert.deepEqual(result.skipped, []);
+      assert.deepEqual(result.failed, []);
+
+      const migrated = await readFile(skillPath, 'utf8');
+      assert.match(migrated, /Use `OfficeDocument` for read-only inspection/);
+      assert.match(migrated, /Use `OfficeDocumentEdit` only for supported writes/);
+      assert.doesNotMatch(migrated, /allowed-tools:\n  - Bash/);
+      assert.doesNotMatch(migrated, /officecli open/);
+      assert.doesNotMatch(migrated, /officecli view "\$FILE" html/);
+
+      const lock = JSON.parse(await readFile(join(skillDir, 'skill.lock.json'), 'utf8')) as Record<string, unknown>;
+      assert.equal(lock.id, 'officecli-docx');
+      assert.equal(lock.sourceType, 'bundled');
+      assert.equal(lock.contentSha256, `sha256:${sha256Hex(migrated)}`);
     });
   });
 
@@ -912,7 +1049,12 @@ name: External
 # External`, 'utf8');
         await symlink(outside, join(workspaceRoot, 'skills'));
         assert.deepEqual(await createStarterSkill(workspaceRoot), { ok: false, reason: 'blocked_path' });
-        assert.deepEqual(await installBundledSkill(workspaceRoot, 'officecli-docx'), { ok: false, reason: 'blocked_path' });
+        assert.deepEqual(await ensureBundledOfficeSkills(workspaceRoot), {
+          created: [],
+          updated: [],
+          skipped: [],
+          failed: ['officecli-docx', 'officecli-xlsx', 'officecli-pptx'],
+        });
         assert.deepEqual(await listInstalledSkills(workspaceRoot), []);
       } finally {
         await rm(outside, { recursive: true, force: true });
@@ -1004,19 +1146,18 @@ name: Writer
     const repoRoot = process.cwd().endsWith('apps/desktop')
       ? join(process.cwd(), '..', '..')
       : process.cwd();
-    const chatViewSource = await readFile(join(repoRoot, 'packages/ui/src/chat-view.tsx'), 'utf8');
+    const modulePagesSource = await readFile(join(repoRoot, 'packages/ui/src/module-pages.tsx'), 'utf8');
     const ui = await readFile(join(repoRoot, 'packages/ui/src/skills-panel.tsx'), 'utf8');
     const modulePanelTypes = await readFile(join(repoRoot, 'packages/ui/src/module-panel-types.ts'), 'utf8');
     const workspaceResourcesIpc = await readFile(join(repoRoot, 'apps/desktop/src/main/workspace-resources-ipc-main.ts'), 'utf8');
     const emptyStateSource = await readFile(join(repoRoot, 'packages/ui/src/empty-state.tsx'), 'utf8');
     const renderer = await readRendererShellCombinedSource();
-    const chatView = chatViewSource.match(/export function ChatView\([\s\S]*?if \(props\.mode === 'automations'\)/)?.[0] ?? '';
     const skillsModuleMain = extractFunctionBlock(ui, 'SkillsModuleMain');
     const skillPanel = ui.match(/function SkillLibraryPanel[\s\S]*?function SkillsModuleMain/)?.[0] ?? '';
     const skillEntryContract = modulePanelTypes.match(/export interface SkillEntry[\s\S]*?\n}/)?.[0] ?? '';
     const emptyState = emptyStateSource;
 
-    assert.match(chatView, /if \(props\.mode === 'skills'\) \{[\s\S]*<SkillsModuleMain/, 'Skills mode must mount its own main surface component');
+    assert.match(modulePagesSource, /export function SkillsPage[\s\S]*<SkillsModuleMain/, 'SkillsPage must mount the skills main surface');
     assert.match(skillsModuleMain, /const \[pendingSkillAction, setPendingSkillAction\] = useState<string \| null>\(null\)/);
     assert.match(skillsModuleMain, /const skillActionMountedRef = useRef\(true\)/);
     assert.match(skillsModuleMain, /const pendingSkillActionRef = useRef<string \| null>\(null\)/);
@@ -1213,6 +1354,40 @@ body`).allowedTools,
     );
   });
 });
+
+function legacyOfficeCliDocxSkillTemplate(): string {
+  return [
+    '---',
+    'name: OfficeCLI DOCX',
+    'description: Use when a .docx, Word document, report, memo, proposal, letter, tracked changes, comments, header/footer, table of contents, or Word template is involved.',
+    'allowed-tools:',
+    '  - Bash',
+    '  - Read',
+    '---',
+    '',
+    '# OfficeCLI DOCX',
+    '',
+    "Use this skill for Word document work. It is adapted from an external OfficeCLI reference DOCX skill for Maka's permission model.",
+    '',
+    '## Boundary',
+    '',
+    '- Check `officecli --version` first. If missing, tell the user Office document automation is unavailable on this machine instead of parsing .docx as plain text.',
+    '- Prefer `officecli help docx` and `officecli help docx <element>` before guessing flags. Installed help is authoritative.',
+    '- Quote semantic paths: `"/body/p[1]"`, `"/footer[1]"`.',
+    '- Read-only inspection commands are safe: `view`, `get`, `query`, `validate`, `help`.',
+    '- Mutating commands such as `create`, `open`, `add`, `set`, `remove`, `batch`, and `close` require the normal shell permission flow.',
+    '',
+    '## Workflow',
+    '',
+    '1. Orient with `officecli view "$FILE" outline`, then `view text` or `get` the needed paths.',
+    '2. For edits, use resident mode: `officecli open "$FILE"`, make small incremental changes, verify each structural step with `get`, then `officecli close "$FILE"`.',
+    '3. For generated documents, build hierarchy first: Title, Heading 1, Heading 2, body; then tables/images/fields; then headers/footers.',
+    '4. Use explicit typography. Body 11-12pt; H1 at least 18pt; H2 around 14pt; spacing via paragraph properties, not blank paragraphs.',
+    '5. Add live page-number fields for documents longer than one page. Verify fields exist with `get "$FILE" "/footer[1]" --depth 3`.',
+    '6. Final QA: `officecli validate "$FILE"` and `officecli view "$FILE" html`. Fix placeholder tokens, clipped tables, empty-paragraph spacing, static page numbers, and missing TOC on heading-heavy documents before reporting done.',
+    '',
+  ].join('\n');
+}
 
 async function withWorkspace(fn: (workspaceRoot: string) => Promise<void>): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-skills-'));

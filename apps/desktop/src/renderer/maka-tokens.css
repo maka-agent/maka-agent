@@ -499,7 +499,7 @@
   --w-rail: 240px;
   --h-titlebar: 36px;
   --h-toolbar: 40px;
-  --h-composer-min: 56px;
+  --h-composer-min: 44px;
 
   /* titlebar control baseline (macOS traffic-light center) */
   --maka-titlebar-control-safe-left: 94px;
@@ -919,6 +919,7 @@
   --color-info: var(--info);
   --color-success: var(--success);
   --color-destructive: var(--destructive);
+  --color-destructive-text: var(--destructive-text);
 
   --color-foreground-2:  var(--foreground-2);
   --color-foreground-3:  var(--foreground-3);
@@ -1211,9 +1212,12 @@
     /* Long-conversation first render: skip layout/paint for off-screen
        turns (vercel react-best-practices rendering-content-visibility —
        ~10x initial-render win on long sessions, keeps native Cmd+F and
-       text selection, no virtualization library). `auto 250px` keeps a
-       placeholder estimate until first render, then the remembered
-       actual size prevents scrollbar jumps. */
+       text selection, no virtualization library). `auto 250px` is only a
+       placeholder until a turn is first rendered; the remembered actual
+       size then keeps scroll geometry exact. Never-rendered history would
+       otherwise inflate turn by turn while scrolling up ("endless scroll"),
+       so chat-view runs an idle-time bottom-up warm-up after session load —
+       see packages/ui/src/turn-size-warmup.ts. */
     content-visibility: auto;
     contain-intrinsic-size: auto 250px;
   }
@@ -1262,30 +1266,8 @@
     50%      { box-shadow: 0 0 0 5px oklch(from var(--status-running) l c h / 0.06); }
   }
 
-  /* Canonical "live" pulse for the @maka/ui LiveIndicator primitive (issue
-     #332, PR3). One governed opacity+scale breath so the chat live-output dot —
-     and, in a follow-up motion pass, the reasoning / composer / onboarding live
-     dots that adopt LiveIndicator — share a single keyframe instead of
-     per-feature duplicates. Values mirror the retired
-     `maka-tool-output-stream-pulse` exactly (rest opacity 0.55, scale 1→1.1).
-     Reduced-motion suppression rides on the primitive's `motion-reduce:`
-     utilities. */
-  @keyframes maka-pulse {
-    0%, 100% { opacity: 0.55; transform: scale(1); }
-    50%      { opacity: 1;    transform: scale(1.1); }
-  }
-
   /* ---- Composer --------------------------------------------------- */
 
-  .maka-composer {
-    /* PR-UI-LAYOUT-8: remove the visible 1px divider between chat
-     * surface and composer — on the warm canvas the divider read as
-     * a strong horizontal line slicing the panel. The composer's
-     * own border + rounded chrome below is sufficient visual
-     * separation; no extra line needed. */
-    padding: var(--space-4) var(--space-6);
-    background: var(--background);
-  }
   .maka-composer[data-drag-active="true"] .maka-composer-inner {
     border-color: oklch(from var(--focus-ring) l c h / 0.46);
     background: oklch(from var(--focus-ring) 0.98 calc(c * 0.20) h / 0.35);
@@ -1455,7 +1437,7 @@
 /* Governance-level keyframe for the `TextShimmer` primitive (streaming UI
    rework). A named `@keyframes` is a global rule, not an element property, so
    it can't be a Tailwind leaf-literal — it lives here (the shared motion home)
-   like `maka-pulse` / `maka-tool-pulse`, with the shimmer's other declarations
+   like `maka-tool-pulse`, with the shimmer's other declarations
    as literal utilities in the primitive. Sweeps a clipped light band left→right
    across the glyph shape by translating `background-position`; the two-layer
    primitive keeps an opaque base underneath so the text stays readable. Frozen

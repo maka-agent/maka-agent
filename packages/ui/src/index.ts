@@ -6,6 +6,7 @@ export * from './clipboard-feedback.js';
 export * from './components.js';
 export type { SessionHistoryStatusGroup } from './session-history-list.js';
 export * from './composer-helpers.js';
+export * from './chat-input-behavior.js';
 export * from './input-history.js';
 export * from './daily-review-helpers.js';
 export * from './locale-helpers.js';
@@ -33,15 +34,11 @@ export * from './bot-brand.js';
 export * from './bot-brand-logo.js';
 export * from './primitives/alert.js';
 export * from './primitives/card.js';
-// `markerVariants` / `streamVariants` / `toolVariants` / `LiveIndicator` are
-// deliberately NOT re-exported here: they are internal styling tables / a
-// single-consumer dot that the chat call sites apply via relative import, so
-// keeping them off the package
-// barrel preserves the governance goal — they stay renamable/removable without a
-// public-API break. (Contrast `buttonVariants`, which IS public because it has
-// external consumers.) `LiveIndicator` is exported to public only when the
-// reasoning / composer / onboarding live dots actually migrate onto it — not
-// speculatively before a second consumer exists.
+// `markerVariants` / `toolVariants` are deliberately NOT re-exported here:
+// they are internal styling tables that the chat call sites apply via relative
+// import, so keeping them off the package barrel preserves the governance goal
+// — they stay renamable/removable without a public-API break. (Contrast
+// `buttonVariants`, which IS public because it has external consumers.)
 //
 // `previewVariants` (#332 PR4) IS re-exported: its file-diff parts have a second,
 // cross-package consumer — `apps/desktop`'s `artifact-preview.tsx` — which is the

@@ -53,6 +53,7 @@ import {
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from './permission-response-guard.js';
+import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
@@ -159,8 +160,8 @@ import { buildExploreAgentTool } from './explore-agent-tool.js';
 import { buildOfficeDocumentEditTool, buildOfficeDocumentTool } from './office-document-tool.js';
 import {
   buildLlmHistorySummarizer,
+  cleanupLegacyHistoryCompactArtifacts,
   loadHistoryCompactBlocksFromArtifacts,
-  persistHistoryCompactBlocksToArtifacts,
 } from '@maka/runtime';
 import {
   loadSynthesisCacheBlocksFromArtifacts,
@@ -173,7 +174,7 @@ import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
 import { createSubscriptionModelFetch } from './subscription-model-fetch.js';
-import { buildDefaultContextBudgetPolicy } from '@maka/runtime';
+import { buildDefaultContextBudgetPolicy, resolveSelectedModelContextWindow } from '@maka/runtime';
 import { createSystemPromptMainService } from './system-prompt-main.js';
 import { createMainTaskLedgerWiring } from './task-ledger-wiring.js';
 import { createMainAutomationWiring, evaluateAutomationCanFire } from './automation-wiring.js';
@@ -467,7 +468,13 @@ const systemPromptService = createSystemPromptMainService({
 // Window is created hidden for E2E and visual-smoke runs so it never steals
 // focus. Derived from the same isE2e gate as userData/fake-backend so the
 // hidden-window switch stays in lockstep with the rest of the E2E isolation.
-const startHidden = Boolean(visualSmokeFixture) || isE2e;
+// MAKA_E2E_SHOW_WINDOW opts back into a visible window where there is no
+// focus to steal (CI under xvfb): hidden windows only get ~1fps compositor
+// BeginFrames on Linux, which stalls content-visibility inflation and any
+// frame-paced E2E protocol (measured in the scroll-geometry climb: 38 frames
+// over 31s). The E2E harness sets it, not the workflow — see fixtures.ts.
+const startHidden = (Boolean(visualSmokeFixture) || isE2e)
+  && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   visualSmokeFixture,
@@ -769,6 +776,7 @@ backends.register('ai-sdk', async (ctx) => {
     systemPrompt: ({ cwd }) => systemPromptService.buildBackendSystemPrompt(ctx.header, cwd, {
       memoryFragment: memoryPromptSnapshot,
       childInstruction: ctx.systemPrompt,
+      skillBudget: { contextWindow: resolveSelectedModelContextWindow(connection, model) },
     }),
     turnTailPrompt: ({ cwd, sessionId }) => systemPromptService.buildTurnTailPrompt(cwd, sessionId),
     shellRunContextSummary: ctx.shellRunContextSummary,
@@ -791,22 +799,13 @@ backends.register('ai-sdk', async (ctx) => {
     readAttachmentBytes: createAttachmentByteReader({ artifactStore, sessionId: ctx.sessionId }),
     supportsVision,
     loadHistoryCompact: (event) => loadHistoryCompactBlocksFromArtifacts(artifactStore, event),
-    writeHistoryCompact: (event) => persistHistoryCompactBlocksToArtifacts(artifactStore, event, {
-      summarize: buildLlmHistorySummarizer({
-        // Reuse the same connection/model the session already drives, so the
-        // summary stays consistent with the model that will consume it.
-        resolveModel: () =>
-          getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
-        maxOutputTokens: 4096,
-      }),
-      onArtifactCreated: (artifact) => {
-        safeSendToRenderer('artifacts:changed', {
-          reason: 'created',
-          artifactId: artifact.id,
-          sessionId: artifact.sessionId,
-          ts: Date.now(),
-        });
-      },
+    loadHistoryCompactCheckpoint: ctx.loadHistoryCompactCheckpoint,
+    summarizeHistoryCompact: buildLlmHistorySummarizer({
+      // Reuse the same connection/model the session already drives, so the
+      // summary stays consistent with the model that will consume it.
+      resolveModel: () =>
+        getAIModel({ connection, apiKey: apiKey ?? '', modelId: model, fetch: modelFetch }),
+      maxOutputTokens: 4096,
     }),
     loadSynthesisCache: (event) => loadSynthesisCacheBlocksFromArtifacts(artifactStore, event),
     writeSynthesisCache: (event) => persistSynthesisCacheBlocksToArtifacts(artifactStore, event, {
@@ -820,6 +819,7 @@ backends.register('ai-sdk', async (ctx) => {
       },
     }),
     recordRunTrace: ctx.recordRunTrace,
+    recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
     recordActiveFullCompactBlock: ctx.recordActiveFullCompactBlock,
     recordSemanticCompactBlock: ctx.recordSemanticCompactBlock,
     newId: randomUUID,
@@ -865,6 +865,13 @@ const runtime = new SessionManager({
     (await artifactStore.list(sessionId)).filter((artifact) =>
       artifact.turnId === turnId && artifact.status !== 'deleted'
     ),
+  cleanupHistoryCompactArtifacts: async (input) => {
+    await cleanupLegacyHistoryCompactArtifacts({
+      ...input,
+      artifactStore,
+      onDiagnostic: (diagnostic) => console.warn('[history-compact-cleanup]', diagnostic),
+    });
+  },
   newId: randomUUID,
   now: Date.now,
 });
@@ -1122,7 +1129,7 @@ function registerIpc(): void {
   );
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
-  registerNotificationsIpc({ settingsStore, mainWindowController });
+  registerNotificationsIpc({ settingsStore, mainWindowController, e2e: isE2e });
   ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',
@@ -1754,15 +1761,7 @@ async function streamEvents(
       if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
         turnAborted = true;
       }
-      if (event.type === 'error') {
-        turnError = event.message ?? event.reason ?? 'turn error';
-      }
-      // A non-throwing error finish (e.g. content-filter) arrives as
-      // complete{stopReason:'error'} with no separate `error` event — record it
-      // so goal continuation is skipped (and `ok` is not mis-reported true).
-      if (event.type === 'complete' && event.stopReason === 'error') {
-        turnError = turnError ?? 'turn ended in error';
-      }
+      turnError = turnError ?? turnFailureMessageFromSessionEvent(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {

@@ -77,6 +77,7 @@ import {
 } from '@maka/ui';
 import { ArtifactPreview } from './artifact-preview';
 import { nextArtifactListAction } from './artifact-list-keyboard';
+import { filterUserVisibleArtifacts } from './artifact-visibility';
 import { safeLocalStorageGet, safeLocalStorageSet } from './browser-storage';
 import { openPathFailureCopy } from './open-path';
 
@@ -168,7 +169,7 @@ export function ArtifactPane(props: { sessionId: string | undefined }) {
   }, [collapsed]);
 
   const activeRecords = useMemo(
-    () => (recordsSessionId === sessionId ? records.filter((record) => record.source !== 'user_upload') : []),
+    () => (recordsSessionId === sessionId ? filterUserVisibleArtifacts(records) : []),
     [records, recordsSessionId, sessionId],
   );
 

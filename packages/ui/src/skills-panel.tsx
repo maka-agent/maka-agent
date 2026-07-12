@@ -91,6 +91,14 @@ function SkillLibraryPanel(props: {
     return `${entry.id} ${entry.name} ${entry.description} ${entry.category}`.toLowerCase().includes(normalizedSkillQuery);
   });
   const installedSkills = filteredSkills;
+  // Collision-only slug reveal: the slug normally lives in the row tooltip,
+  // but when two visible skills share a display name (e.g. repeated starter
+  // templates from old builds) the rows become indistinguishable — surface
+  // the slug inline exactly for those rows.
+  const skillNameCounts = new Map<string, number>();
+  for (const skill of filteredSkills) {
+    skillNameCounts.set(skill.name, (skillNameCounts.get(skill.name) ?? 0) + 1);
+  }
   const allManagedSources = props.managedSkillSources ?? [];
   // 市场 tab: managed sources are the marketplace catalog. Search (shared
   // header field), category dropdown, and sort are all pure client-side —
@@ -138,6 +146,9 @@ function SkillLibraryPanel(props: {
 
   const templates = (
     <section className="maka-skill-examples" aria-label="技能示例">
+      {/* Visible divider: without it the inert example rows read as more
+          installed skills floating under the real list. */}
+      <SectionHeader title="技能示例" as="span" className="maka-skill-section-row" />
       <ul className="maka-skill-example-grid" aria-label="技能模板示例">
         {SKILL_EXAMPLE_CARDS.map((example) => (
           <li key={example.title} className="maka-skill-template-row">
@@ -428,7 +439,12 @@ function SkillLibraryPanel(props: {
                       <Blocks size={16} />
                     </span>
                     <span className="maka-skill-library-copy">
-                      <span className="maka-skill-library-name">{skill.name}</span>
+                      <span className="maka-skill-library-name">
+                        {skill.name}
+                        {(skillNameCounts.get(skill.name) ?? 0) > 1 && (
+                          <span className="maka-skill-library-slug">{skill.id}</span>
+                        )}
+                      </span>
                       {description && (
                         <span className="maka-skill-library-description">{description}</span>
                       )}

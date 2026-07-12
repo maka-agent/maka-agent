@@ -780,8 +780,9 @@ export function BotChatSettingsPage(props: {
             </>
           ) : support === 'runtime' && !selectedStatus?.running ? (
             <Button
+              // One primary per view: 测试并连接 is the form's completion
+              // action — the page previously had no primary at all.
               type="button"
-              variant="secondary"
               disabled={botActionBusy}
               onClick={testAndConnect}
             >

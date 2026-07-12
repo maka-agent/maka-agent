@@ -130,15 +130,24 @@
 .maka-prose h2 {
   letter-spacing: var(--tracking-normal);
 }
-/* Heading ladder re-pinned for the 13px body base (#546 Phase B): the old
-   em values were derived for 15px (22/19/16/14) and landed on fractional
-   pixels at 13 (19.07/16.47/13.87/12.13), with h3 only 0.87px above body
-   and h4 *below* body. Integer targets now: 19 / 16 / 14 / 13. h4 sits at
-   1em and reads as a heading via weight + secondary color (same convention
-   as GitHub's 1em h4). */
-.maka-prose h1 { font-size: 1.4615em; }
-.maka-prose h2 { font-size: 1.2308em; }
-.maka-prose h3 { font-size: 1.0769em; }
+/* Heading ladder pinned to a 0.15em step for the 13px body base (#739).
+   #546 Phase B derived the ladder from the old 15px scale and chased
+   integer px targets 19 / 16 / 14 / 13 — but at the 13px body base h3
+   (1.0769em, +8% over body) was too close to body copy, so long answers
+   relied on weight alone to distinguish H3 sections (#739).
+   Re-pinned to a uniform 0.15em step (1.45 / 1.30 / 1.15 / 1) so each
+   tier clears the one below by a fixed 0.15em step (≈2px at the 13px
+   body base; the relative gap widens per tier — +15% over body for h3,
+   +13% over h3 for h2, +12% over h2 for h1), CDP-verified as the minimum
+   distinguishable step — and hierarchy reads by size, not weight alone.
+   The em values are design ratios (not px/13 rounding), so a future
+   body-base change does not require re-pinning the ladder the way the
+   #546 / #616 integer-px chase did. h4 stays at 1em and reads as a heading
+   via weight + secondary color (GitHub's 1em h4 convention).
+   MARKDOWN-PROSE-HEADING-HIERARCHY-0 locks the step. */
+.maka-prose h1 { font-size: 1.45em; }
+.maka-prose h2 { font-size: 1.30em; }
+.maka-prose h3 { font-size: 1.15em; }
 .maka-prose h4 { font-size: 1em; color: var(--foreground-secondary); }
 .maka-prose ul,
 .maka-prose ol {

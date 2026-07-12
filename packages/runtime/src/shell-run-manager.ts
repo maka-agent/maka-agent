@@ -21,10 +21,8 @@ import {
 import { buildShellSpawnPlan, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
 
-export const DEFAULT_BASH_YIELD_TIME_MS = 10_000;
 export const DEFAULT_BASH_TIMEOUT_MS = 120_000;
-export const MIN_BASH_YIELD_TIME_MS = 250;
-export const MAX_BASH_YIELD_TIME_MS = 30_000;
+export const MAX_FOREGROUND_BASH_TIMEOUT_MS = 10 * 60 * 1_000;
 export const MAX_SHELL_RUN_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_MAX_LIVE_SHELL_RUNS = 64;
 export const DEFAULT_SHELL_RUN_FLUSH_INTERVAL_MS = 1_000;
@@ -58,7 +56,6 @@ export interface ShellRunBashInput {
   sourceToolCallId: string;
   cwd: string;
   command: string;
-  yieldTimeMs?: number;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput: (stream: 'stdout' | 'stderr', chunk: string) => void;
@@ -125,36 +122,32 @@ export class ShellRunProcessManager {
     this.killGraceMs = input.killGraceMs ?? SIGKILL_GRACE_MS;
   }
 
-  async runBash(input: ShellRunBashInput): Promise<TerminalToolResult | ShellRunToolResult> {
+  async runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult> {
     if (input.abortSignal?.aborted) {
       throw new Error('Command aborted before shell process started');
     }
-    const yieldTimeMs = clampInt(
-      input.yieldTimeMs ?? DEFAULT_BASH_YIELD_TIME_MS,
-      MIN_BASH_YIELD_TIME_MS,
-      MAX_BASH_YIELD_TIME_MS,
-    );
-    const timeoutMs = normalizeTimeoutMs(input.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS);
-    const live = await this.start(input, timeoutMs);
-    const initial = await Promise.race([
-      live.finished.then(() => 'finished' as const),
-      sleep(yieldTimeMs).then(() => 'yield' as const),
-      waitForAbort(input.abortSignal).then(() => 'abort' as const),
-    ]);
-    if (initial === 'finished') {
-      const finished = await live.finished;
-      return this.markObservedAndReturnTerminal(finished);
-    }
-    if (initial === 'abort') {
-      this.beginTermination(live, { kind: 'cancel' });
-      const cancelled = await live.finished;
-      return this.markObservedAndReturnTerminal(cancelled);
-    }
-
-    live.forwardLive = false;
+    const timeoutMs = normalizeBackgroundTimeoutMs(input.timeoutMs);
+    const live = await this.start(input, timeoutMs, false);
     await this.flushLive(live);
     const record = await this.input.store.readShellRun(input.sessionId, live.shellRunId);
+    if (isTerminalShellRunStatus(record.status)) {
+      return shellRunContent(await this.markObserved(record));
+    }
     return shellRunRefContent(record);
+  }
+
+  async runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult> {
+    if (input.abortSignal?.aborted) {
+      throw new Error('Command aborted before shell process started');
+    }
+    const timeoutMs = normalizeForegroundTimeoutMs(input.timeoutMs ?? DEFAULT_BASH_TIMEOUT_MS);
+    const live = await this.start(input, timeoutMs, true);
+    const outcome = await Promise.race([
+      live.finished.then(() => 'finished' as const),
+      waitForAbort(input.abortSignal).then(() => 'abort' as const),
+    ]);
+    if (outcome === 'abort') this.beginTermination(live, { kind: 'cancel' });
+    return this.markObservedAndReturnTerminal(await live.finished);
   }
 
   private async cancelShellRun(sessionId: string, shellRunId: string): Promise<ShellRunToolResult> {
@@ -236,9 +229,13 @@ export class ShellRunProcessManager {
     return this.live.size;
   }
 
-  private async start(input: ShellRunBashInput, timeoutMs: number | undefined): Promise<LiveShellRun> {
+  private async start(
+    input: ShellRunBashInput,
+    timeoutMs: number | undefined,
+    forwardLive: boolean,
+  ): Promise<LiveShellRun> {
     if (this.live.size >= this.maxLiveShellRuns) {
-      throw new Error(`Too many live background tasks (${this.maxLiveShellRuns}); read or stop an existing task first`);
+      throw new Error(`Too many live shell commands (${this.maxLiveShellRuns}); wait for or stop an existing command first`);
     }
 
     const shellRunId = this.input.newId();
@@ -280,7 +277,7 @@ export class ShellRunProcessManager {
       finished,
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       settled: false,
-      forwardLive: true,
+      forwardLive,
       liveEmitted: { stdout: 0, stderr: 0 },
       liveSuppressed: { stdout: false, stderr: false },
       emitOutput: input.emitOutput,
@@ -643,9 +640,19 @@ function failureMessageFor(status: ShellRunStatus, timeoutMs: number | undefined
   }
 }
 
-function normalizeTimeoutMs(value: number | undefined): number | undefined {
+function normalizeBackgroundTimeoutMs(value: number | undefined): number | undefined {
   if (value === undefined) return undefined;
-  return clampInt(value, 1, MAX_SHELL_RUN_TIMEOUT_MS);
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_SHELL_RUN_TIMEOUT_MS) {
+    throw new Error(`Background Bash timeout must be between 1 and ${MAX_SHELL_RUN_TIMEOUT_MS}ms`);
+  }
+  return value;
+}
+
+function normalizeForegroundTimeoutMs(value: number): number {
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
+    throw new Error(`Foreground Bash timeout must be between 1 and ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`);
+  }
+  return value;
 }
 
 export function shellRunResourceRef(shellRunId: string): string {
@@ -683,15 +690,6 @@ function parseShellRunResourceRef(ref: string): ShellRunResourceTarget | null {
     }
   }
   return null;
-}
-
-function clampInt(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.trunc(value)));
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function waitForAbort(signal: AbortSignal | undefined): Promise<void> {

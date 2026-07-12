@@ -153,8 +153,8 @@ describe('workspace instructions prompt fragment', () => {
     assert.doesNotMatch(main, /workspaceInstructions:[\s\S]*InstructionFile[^(]*\(process\.cwd\(\)/);
     assert.match(preload, /createFile\(file: string\)/);
     assert.match(settings, /file\.status === 'missing'/);
-    assert.match(settings, /createWorkspaceInstructionFile\(file\.file\)/);
-    assert.match(settings, /isMemoryActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
+    assert.match(settings, /props\.onCreate\(file\.file\)/);
+    assert.match(settings, /props\.isActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
   });
 });
 

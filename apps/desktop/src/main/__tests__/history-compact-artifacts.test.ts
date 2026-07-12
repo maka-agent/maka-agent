@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -8,6 +9,7 @@ import type { RuntimeEvent } from '@maka/core/runtime-event';
 import {
   applyRuntimeEventHistoryCompact,
   buildHistoryCompactBlockFromSummary,
+  cleanupLegacyHistoryCompactArtifacts,
   type HistoryCompactBlock,
   type HistoryCompactWriteInput,
 } from '@maka/runtime';
@@ -70,6 +72,49 @@ describe('desktop history compact artifact lifecycle', () => {
       assert.equal(loaded.blocks.length, 1);
       assert.equal(loaded.blocks[0]?.blockId, write.blocks[0]?.blockId);
       assert.equal(loaded.skipped, undefined);
+    });
+  });
+
+  test('physically purges verified V1 files and metadata after V2 supersedes them', async () => {
+    await withStore(async (store, workspaceRoot) => {
+      const foldedEvents = [
+        textEvent('old-1', 'turn-1', 'alpha fact'),
+        textEvent('old-2', 'turn-2', 'beta fact'),
+      ];
+      await persistHistoryCompactBlocksToArtifacts(store, {
+        sessionId: 'session-1',
+        turnId: 'turn-write',
+        source: {
+          draftBlock: historyCompactBlock(foldedEvents, 'legacy summary'),
+          foldedRuntimeEvents: foldedEvents,
+        },
+        limits: {
+          maxBlocks: 1,
+          maxBlockEstimatedTokens: 1_024,
+          maxEstimatedTokens: 2_048,
+          charsPerToken: 4,
+        },
+      });
+      const records = await store.list('session-1', { includeDeleted: true });
+      const checkpoint = historyCompactCheckpoint(foldedEvents);
+
+      const result = await cleanupLegacyHistoryCompactArtifacts({
+        sessionId: 'session-1',
+        checkpoint,
+        runtimeEvents: foldedEvents,
+        artifactStore: store,
+      });
+
+      assert.equal(result.purgedArtifactIds.length, 3);
+      assert.deepEqual(await store.list('session-1', { includeDeleted: true }), []);
+      for (const record of records) {
+        await assert.rejects(
+          () => readFile(join(workspaceRoot, 'artifacts', record.relativePath), 'utf8'),
+          { code: 'ENOENT' },
+        );
+      }
+      const metadata = await readFile(join(workspaceRoot, 'artifacts', 'metadata.jsonl'), 'utf8');
+      assert.equal(metadata, '');
     });
   });
 
@@ -423,10 +468,12 @@ describe('desktop history compact artifact lifecycle', () => {
   });
 });
 
-async function withStore(fn: (store: ArtifactStore) => Promise<void>): Promise<void> {
+async function withStore(
+  fn: (store: ArtifactStore, workspaceRoot: string) => Promise<void>,
+): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-history-compact-artifacts-'));
   try {
-    await fn(createArtifactStore(workspaceRoot));
+    await fn(createArtifactStore(workspaceRoot), workspaceRoot);
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true });
   }
@@ -471,6 +518,51 @@ function historyCompactBlock(
     }),
     ...overrides,
   };
+}
+
+function historyCompactCheckpoint(events: readonly RuntimeEvent[]) {
+  const digest = createHash('sha256');
+  for (const event of events) {
+    const serialized = stableStringify(event);
+    digest.update(String(Buffer.byteLength(serialized, 'utf8')));
+    digest.update(':');
+    digest.update(serialized);
+    digest.update(';');
+  }
+  const lastEvent = events.at(-1)!;
+  return {
+    kind: 'maka.history_compact_checkpoint' as const,
+    version: 2 as const,
+    checkpointId: 'hcheckpoint-desktop-fixture',
+    sessionId: 'session-1',
+    createdAt: 1_800_000_000_000,
+    highWaterName: 'test-history-compact',
+    highWaterSeq: 1,
+    coverage: {
+      eventCount: events.length,
+      turnCount: new Set(events.map((event) => event.turnId)).size,
+      through: {
+        runId: lastEvent.runId,
+        turnId: lastEvent.turnId,
+        runtimeEventId: lastEvent.id,
+      },
+      sourceDigest: `sha256:${digest.digest('hex')}`,
+    },
+    summary: 'V2 continuation summary',
+    limitations: ['fixture'],
+    estimatedTokens: 1,
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 }
 
 function sha256(text: string): string {

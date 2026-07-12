@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { Config } from '../contracts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
+import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import {
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
@@ -202,6 +203,7 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const retainedContextBudgetSummary = contextBudgetSummary({ activePrunedToolResults: 1 });
       await writeFile(resultsJsonlPath, `${JSON.stringify({
         schemaVersion: 1,
         type: 'task_plumbing_failed',
@@ -218,6 +220,11 @@ describe('fixed prompt controller', () => {
         errorClass: 'missing_execution_identity',
         error: 'Timed-out Harbor attempt did not produce execution identity attestation',
         expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
+        contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
+        contextBudgetSummary: retainedContextBudgetSummary,
+        taskToolSummary: { todoWriteCalls: 3 },
+        steps: 42,
+        durationMs: 180_000,
       })}\n`, 'utf8');
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
       const projectedWal = await readFixedPromptWal(resultsJsonlPath);
@@ -248,6 +255,10 @@ describe('fixed prompt controller', () => {
       if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
       assert.equal(event.eligible, false);
       assert.equal(event.evidenceErrorClass, 'missing_execution_identity');
+      assert.deepEqual(event.contextBudgetSummary, retainedContextBudgetSummary);
+      assert.equal(event.taskToolSummary?.todoWriteCalls, 3);
+      assert.equal(event.steps, 42);
+      assert.equal(event.durationMs, 180_000);
       assert.equal(await readFile(resultsJsonlPath, 'utf8'), originalWal);
     });
   });
@@ -499,7 +510,7 @@ describe('fixed prompt controller', () => {
     });
   });
 
-  test('keeps an unattested timeout as an ineligible budget exhaustion', async () => {
+  test('keeps an unattested timeout ineligible for A/B attribution', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
@@ -566,6 +577,7 @@ describe('fixed prompt controller', () => {
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
       const cell = harborOutput({
         taskId: 'task-a',
+        errorClass: 'network',
         executionIdentity: {
           llmConnectionSlug: 'deepseek',
           model: 'wrong-model',
@@ -603,8 +615,11 @@ describe('fixed prompt controller', () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const retainedContextBudgetSummary = contextBudgetSummary({ prunedToolResults: 2 });
       const cell = harborOutput({
         taskId: 'task-a',
+        contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
+        contextBudgetSummary: retainedContextBudgetSummary,
         executionIdentity: {
           llmConnectionSlug: 'fake',
           model: 'fake-model',
@@ -637,8 +652,53 @@ describe('fixed prompt controller', () => {
       assert.equal(event.evidenceErrorClass, undefined);
       assert.equal(event.tokenSummary?.total, 3);
       assert.equal(event.tokenSummary?.costUsd, 0.02);
+      assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
+      assert.equal(event.traceEventsPath, cell.traceEventsPath);
+      assert.deepEqual(
+        'contextBudgetSummary' in event ? event.contextBudgetSummary : undefined,
+        retainedContextBudgetSummary,
+      );
       assert.equal(result.totalTokens, 3);
       assert.equal(result.totalCostUsd, 0.02);
+    });
+  });
+
+  test('uses early execution identity to attribute a timeout before cell output', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const executionIdentity = {
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+        pricingProfile: 'test-profile',
+      };
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { executionIdentity });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      const event = result.events[0];
+      assert.equal(event?.type, 'task_budget_exhausted');
+      if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+      assert.equal(event.eligible, true);
+      assert.equal(event.evidenceErrorClass, undefined);
+      assert.deepEqual(
+        (event as { executionIdentity?: typeof executionIdentity }).executionIdentity,
+        executionIdentity,
+      );
     });
   });
 
@@ -724,6 +784,46 @@ describe('fixed prompt controller', () => {
       });
     });
   }
+
+  test('keeps a timeout with rate-limit evidence ineligible', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const cell = harborOutput({
+        taskId: 'task-a',
+        status: 'failed',
+        errorClass: 'rate_limit',
+        executionIdentity: {
+          llmConnectionSlug: 'fake',
+          model: 'fake-model',
+          systemPromptHash: hashSystemPrompt('fixed prompt\n'),
+          pricingProfile: 'test-profile',
+        },
+      }).cell;
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        requireExecutionIdentity: true,
+        expectedPricingProfile: 'test-profile',
+        harborRunner: async () => {
+          throw new FixedPromptBudgetExhaustedError('agent timed out', undefined, { cellOutput: cell });
+        },
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      const event = result.events[0];
+      assert.equal(event?.type, 'task_budget_exhausted');
+      if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
+      assert.equal(event.eligible, false);
+      assert.equal((event as { evidenceErrorClass?: string }).evidenceErrorClass, 'rate_limit');
+    });
+  });
 
   test('reruns budget-exhausted WAL events instead of reusing a timeout', async () => {
     await withDir(async (dir) => {
@@ -1376,6 +1476,123 @@ describe('fixed prompt controller', () => {
     });
   });
 
+  test('keeps Harbor step-cap failures eligible as failed benchmark outcomes', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 0,
+          status: 'failed',
+          errorClass: 'tool_step_cap_reached',
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.passed, false);
+      assert.equal(result.events[0]?.scored, false);
+      assert.equal(result.events[0]?.eligible, true);
+      assert.equal(result.events[0]?.errorClass, 'tool_step_cap_reached');
+    });
+  });
+
+  test('classifies provider rate limits as infrastructure failures', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 0,
+          status: 'failed',
+          errorClass: 'rate_limit',
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'rate_limit');
+    });
+  });
+
+  test('classifies network failures as infrastructure failures', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 0,
+          status: 'failed',
+          errorClass: 'network',
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_infra_failed');
+      assert.equal(result.events[0]?.eligible, false);
+      assert.equal(result.events[0]?.errorClass, 'network');
+    });
+  });
+
+  test('does not infer A/B eligibility from limit-like error text', async () => {
+    await withDir(async (dir) => {
+      const systemPromptPath = join(dir, 'system_prompt.md');
+      await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+
+      const result = await runFixedPromptController({
+        runId: 'run-1',
+        roundId: 'round-1',
+        config,
+        systemPromptPath,
+        resultsJsonlPath: join(dir, 'results.jsonl'),
+        resultsTsvPath: join(dir, 'results.tsv'),
+        tasks: [{ id: 'task-a', path: '/bench/task-a' }],
+        harborRunner: async () => harborOutput({
+          taskId: 'task-a',
+          reward: 0,
+          status: 'failed',
+          errorClass: 'request_limit_exceeded',
+        }),
+        now: () => 100,
+        newId: idFactory(),
+      });
+
+      assert.equal(result.events[0]?.type, 'task_completed');
+      assert.equal(result.events[0]?.eligible, false);
+    });
+  });
+
   test('keeps Harbor verifier setup failures out of prompt scoring', async () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
@@ -1478,6 +1695,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         harborRunner: async () => harborOutput({
           taskId: 'task-a',
+          errorClass: 'network',
           executionIdentity: {
             llmConnectionSlug: 'fake',
             model: 'wrong-model',

@@ -32,7 +32,7 @@ const layoutGeometry = [
   ['--w-sessionlist', '240px', '会话列表宽度'],
   ['--h-titlebar', '36px', '标题栏高度'],
   ['--h-toolbar', '40px', '工具栏高度'],
-  ['--h-composer-min', '56px', '输入框最小高度'],
+  ['--h-composer-min', '44px', '输入框最小高度'],
   ['--h-list-header', '52px', '列表头高度'],
 ] as const;
 

@@ -13,10 +13,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore();
     const manager = createManager(store);
 
-    const result = await manager.runBash(shellInput({
+    const result = await manager.runForegroundBash(shellInput({
       cwd,
       command: 'printf "hello"',
-      yieldTimeMs: 30_000,
     }));
 
     assert.equal(result.kind, 'terminal');
@@ -38,10 +37,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore();
     const manager = createManager(store);
 
-    const result = await manager.runBash(shellInput({
+    const result = await manager.runForegroundBash(shellInput({
       cwd,
       command: 'echo wired-marker',
-      yieldTimeMs: 30_000,
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     }));
 
@@ -59,10 +57,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore({ createDelayMs: 100 });
     const manager = createManager(store);
 
-    const result = await manager.runBash(shellInput({
+    const result = await manager.runForegroundBash(shellInput({
       cwd,
       command: 'printf "done"',
-      yieldTimeMs: 30_000,
     }));
 
     assert.equal(result.kind, 'terminal');
@@ -70,15 +67,43 @@ describe('ShellRunProcessManager', () => {
     assert.equal(manager.liveCount(), 0);
   });
 
-  test('yields long commands as running ShellRuns and observes them through resource reads', async () => {
+  test('foreground commands default to a two-minute timeout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore();
+    const manager = createManager(store);
+    const abort = new AbortController();
+
+    const running = manager.runForegroundBash(shellInput({
+      cwd,
+      command: 'sleep 5',
+      abortSignal: abort.signal,
+    }));
+    await sleep(20);
+
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).timeoutMs, 120_000);
+    abort.abort();
+    assert.equal((await running).status, 'cancelled');
+  });
+
+  test('foreground commands reject timeouts above ten minutes', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const manager = createManager(new MemoryShellRunStore());
+
+    await assert.rejects(
+      manager.runForegroundBash(shellInput({ cwd, command: 'true', timeoutMs: 600_001 })),
+      /Foreground Bash timeout/,
+    );
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('starts background commands as running ShellRuns without a yield window', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
     const manager = createManager(store);
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 0.5; printf "done"',
-      yieldTimeMs: 250,
     }));
 
     assert.equal(initial.kind, 'shell_run');
@@ -86,12 +111,12 @@ describe('ShellRunProcessManager', () => {
     assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
     assert.equal(initial.stdout, '');
     assert.equal(manager.liveCount(), 1);
+    assert.equal((await store.readShellRun('session-1', 'shell-run-1')).timeoutMs, undefined);
     if (!initial.ref) throw new Error('expected ShellRun resource ref');
 
     const detail = await manager.readResource('session-1', initial.ref);
     assert.equal(detail.kind, 'shell_run');
     assert.equal(detail.status, 'running');
-    assert.equal(detail.stdout, 'start');
 
     const summary = await manager.buildContextSummary('session-1');
     assert.match(summary ?? '', /ref=maka:\/\/runtime\/background-tasks\/shell-run-1/);
@@ -106,16 +131,55 @@ describe('ShellRunProcessManager', () => {
     assert.equal(await manager.buildContextSummary('session-1'), undefined);
   });
 
-  test('publishes the terminal state when a yielded ShellRun settles without a resource read', async () => {
+  test('publishes terminal state when a background command exits during startup', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const store = new MemoryShellRunStore({ createDelayMs: 100 });
+    const updates: ShellRunUpdate[] = [];
+    const manager = createManager(store, (update) => updates.push(update));
+
+    const initial = await manager.runBackgroundBash(shellInput({ cwd, command: 'printf "done"' }));
+    await sleep(20);
+
+    assert.equal(initial.kind, 'shell_run');
+    assert.equal(initial.status, 'completed');
+    assert.equal(initial.stdout, 'done');
+    assert.equal(initial.exitCode, 0);
+    assert.equal(updates.at(-1)?.result.status, 'completed');
+    assert.equal(updates.at(-1)?.result.stdout, 'done');
+  });
+
+  test('background commands honor an explicit timeout', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const manager = createManager(new MemoryShellRunStore());
+
+    const initial = await manager.runBackgroundBash(shellInput({ cwd, command: 'sleep 5', timeoutMs: 50 }));
+    await sleep(100);
+
+    assert.ok(initial.ref);
+    assert.equal((await manager.readResource('session-1', initial.ref)).status, 'timed_out');
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('background commands reject timeouts above twenty-four hours', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
+    const manager = createManager(new MemoryShellRunStore());
+
+    await assert.rejects(
+      manager.runBackgroundBash(shellInput({ cwd, command: 'true', timeoutMs: 86_400_001 })),
+      /Background Bash timeout/,
+    );
+    assert.equal(manager.liveCount(), 0);
+  });
+
+  test('publishes the terminal state when a background ShellRun settles without a resource read', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
     const updates: ShellRunUpdate[] = [];
     const manager = createManager(store, (update) => updates.push(update));
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 0.5; printf "done"',
-      yieldTimeMs: 250,
     }));
     assert.equal(initial.kind, 'shell_run');
     assert.equal(initial.status, 'running');
@@ -134,14 +198,13 @@ describe('ShellRunProcessManager', () => {
     const updates: ShellRunUpdate[] = [];
     const manager = createManager(store, (update) => updates.push(update));
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 0.1; printf "middle"; sleep 0.1',
-      yieldTimeMs: 50,
     }));
     assert.equal(initial.kind, 'shell_run');
 
-    await sleep(750);
+    await sleep(1_300);
     const latestRunning = updates.filter((update) => update.result.status === 'running').at(-1);
     const terminal = updates.find((update) => update.result.status === 'completed');
     assert.ok(latestRunning);
@@ -155,10 +218,9 @@ describe('ShellRunProcessManager', () => {
     const updates: ShellRunUpdate[] = [];
     const manager = createManager(store, (update) => updates.push(update));
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "warning\\n" >&2; sleep 0.5; printf "99%%\\n"',
-      yieldTimeMs: 250,
     }));
     assert.equal(initial.kind, 'shell_run');
 
@@ -177,10 +239,9 @@ describe('ShellRunProcessManager', () => {
     const updates: ShellRunUpdate[] = [];
     const manager = createManager(store, (update) => updates.push(update));
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "99%%\\n"; sleep 0.5; printf "warning\\n" >&2',
-      yieldTimeMs: 250,
     }));
     assert.equal(initial.kind, 'shell_run');
 
@@ -189,19 +250,19 @@ describe('ShellRunProcessManager', () => {
     assert.equal(terminal?.result.latestOutputStream, 'stderr');
   });
 
-  test('publishes retained output after a ShellRun yields', async () => {
+  test('publishes retained output after a ShellRun starts in the background', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
     const updates: ShellRunUpdate[] = [];
     const manager = createManager(store, (update) => updates.push(update));
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 5',
-      yieldTimeMs: 250,
     }));
     assert.equal(initial.kind, 'shell_run');
-    const running = updates.find((update) => update.result.status === 'running');
+    await sleep(50);
+    const running = updates.filter((update) => update.result.status === 'running').at(-1);
     assert.equal(running?.result.stdout, 'start');
 
     await manager.terminateAll();
@@ -212,10 +273,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore();
     const manager = createManager(store);
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 5',
-      yieldTimeMs: 250,
     }));
     assert.equal(initial.kind, 'shell_run');
     if (!initial.ref) throw new Error('expected ShellRun resource ref');
@@ -233,10 +293,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore({ updateDelayMs: 300 });
     const manager = createManager(store);
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 0.2; printf "done"',
-      yieldTimeMs: 50,
     }));
     assert.equal(initial.kind, 'shell_run');
     assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
@@ -255,10 +314,9 @@ describe('ShellRunProcessManager', () => {
     const store = new MemoryShellRunStore({ updateDelayMs: 300 });
     const manager = createManager(store);
 
-    const initial = await manager.runBash(shellInput({
+    const initial = await manager.runBackgroundBash(shellInput({
       cwd,
       command: 'sleep 0.2',
-      yieldTimeMs: 50,
     }));
     assert.equal(initial.kind, 'shell_run');
     assert.equal(initial.ref, 'maka://runtime/background-tasks/shell-run-1');
@@ -290,16 +348,15 @@ describe('ShellRunProcessManager', () => {
     );
   });
 
-  test('aborting before the initial yield cancels instead of backgrounding', async () => {
+  test('aborting a foreground command cancels it without backgrounding', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-shell-run-'));
     const store = new MemoryShellRunStore();
     const manager = createManager(store);
     const abort = new AbortController();
 
-    const result = await manager.runBash(shellInput({
+    const result = await manager.runForegroundBash(shellInput({
       cwd,
       command: 'printf "start"; sleep 5',
-      yieldTimeMs: 30_000,
       abortSignal: abort.signal,
       emitOutput: () => abort.abort(),
     }));
@@ -444,7 +501,7 @@ function createManager(
 function shellInput(input: {
   cwd: string;
   command: string;
-  yieldTimeMs?: number;
+  timeoutMs?: number;
   abortSignal?: AbortSignal;
   emitOutput?: (stream: 'stdout' | 'stderr', chunk: string) => void;
   shell?: ShellPlan;
@@ -456,7 +513,7 @@ function shellInput(input: {
     sourceToolCallId: 'tool-1',
     cwd: input.cwd,
     command: input.command,
-    ...(input.yieldTimeMs !== undefined ? { yieldTimeMs: input.yieldTimeMs } : {}),
+    ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
     ...(input.abortSignal !== undefined ? { abortSignal: input.abortSignal } : {}),
     ...(input.shell !== undefined ? { shell: input.shell } : {}),
     emitOutput: input.emitOutput ?? (() => {}),

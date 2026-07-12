@@ -447,7 +447,19 @@ export interface CompleteEvent extends BaseEvent {
     | 'error'
     | 'plan_handoff'
     | 'permission_handoff'
+    | 'step_limit'
     | 'max_tokens';
+}
+
+export type CompleteStopReason = CompleteEvent['stopReason'];
+
+/** Stable failure taxonomy for complete events that did not finish the turn. */
+export function failureClassFromCompleteStopReason(
+  reason: CompleteStopReason,
+): 'runtime_error' | 'tool_step_cap_reached' | undefined {
+  if (reason === 'error') return 'runtime_error';
+  if (reason === 'step_limit') return 'tool_step_cap_reached';
+  return undefined;
 }
 
 export interface AbortEvent extends BaseEvent {

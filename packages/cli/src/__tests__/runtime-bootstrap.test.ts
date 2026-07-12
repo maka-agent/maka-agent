@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import { createConnectionStore, createFileCredentialStore, createShellRunStore } from '@maka/storage';
+import {
+  createConnectionStore,
+  createFileCredentialStore,
+  createSessionStore,
+  createShellRunStore,
+} from '@maka/storage';
 import { BackendRegistry, type AiSdkBackendInput, type SessionStore, type ShellRunUpdate } from '@maka/runtime';
 import {
   createMakaCliRuntimeContext,
@@ -44,6 +49,113 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
+  test('uses an explicit connection and forwards one-shot limits and invocation results', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'default-local',
+        name: 'Default local',
+        providerType: 'ollama',
+        defaultModel: 'default-model',
+      });
+      await connectionStore.create({
+        slug: 'selected-local',
+        name: 'Selected local',
+        providerType: 'ollama',
+        defaultModel: 'selected-model',
+      });
+      await connectionStore.update('selected-local', {
+        models: [{ id: 'requested-model' }],
+      });
+      const observed: unknown[] = [];
+      const observer = (result: unknown): void => { observed.push(result); };
+      const permissionRules = [
+        { effect: 'deny', kind: 'category', category: 'read' },
+      ] as const;
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+        requestedConnectionSlug: 'selected-local',
+        requestedModel: 'requested-model',
+        maxSteps: 3,
+        permissionRules,
+        runtimeInvocationObserver: observer,
+      });
+      try {
+        assert.equal(context.target.connection.slug, 'selected-local');
+        assert.equal(context.target.model, 'requested-model');
+        const session = await context.runtime.createSession({
+          cwd: context.cwd,
+          backend: 'ai-sdk',
+          llmConnectionSlug: context.target.connection.slug,
+          model: context.target.model,
+          permissionMode: 'explore',
+          name: 'one-shot',
+        });
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(session.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: session.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.equal(backendInput.maxSteps, 3);
+        assert.equal(backendInput.permissionRules, permissionRules);
+        assert.equal(runtimeDeps.runtimeInvocationObserver, observer);
+        assert.deepEqual(observed, []);
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
+  test('uses a canonical cwd for one resumed backend without rewriting its stored header', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local',
+        providerType: 'ollama',
+        defaultModel: 'model-1',
+      });
+      const sessionStore = createSessionStore(workspaceRoot);
+      const stored = await sessionStore.create({
+        cwd: '/stored-link',
+        backend: 'ai-sdk',
+        llmConnectionSlug: 'local',
+        model: 'model-1',
+        permissionMode: 'explore',
+      });
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/canonical-repo',
+        requestedConnectionSlug: 'local',
+        requestedModel: 'model-1',
+        sessionCwdOverride: { sessionId: stored.id, cwd: '/canonical-repo' },
+      });
+      try {
+        const runtimeDeps = (context.runtime as unknown as RuntimeWithPrivateDeps).deps;
+        const header = await runtimeDeps.store.readHeader(stored.id);
+        const backend = await runtimeDeps.backends.build('ai-sdk', {
+          sessionId: stored.id,
+          workspaceRoot,
+          header,
+          store: runtimeDeps.store,
+        });
+        const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
+
+        assert.equal(backendInput.header.cwd, '/canonical-repo');
+        assert.equal((await sessionStore.readHeader(stored.id)).cwd, '/stored-link');
+      } finally {
+        await context.close();
+      }
+    });
+  });
+
   test('registers Edit in the TUI runtime toolset and still requires permission', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
@@ -65,6 +177,29 @@ describe('Maka CLI runtime bootstrap', () => {
         'Edit must be registered (regression: it was once filtered out of the TUI runtime)',
       );
       assert.equal(edit?.permissionRequired, true);
+    });
+  });
+
+  test('registers the Skill tool so the CLI can load workspace skills', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const connectionStore = createConnectionStore(workspaceRoot);
+      await connectionStore.create({
+        slug: 'local',
+        name: 'Local Ollama',
+        providerType: 'ollama',
+        defaultModel: 'llama3.2',
+      });
+
+      const context = await createMakaCliRuntimeContext({
+        workspaceRoot,
+        cwd: '/repo',
+      });
+      try {
+        const skill = context.tools.find((tool) => tool.name === 'Skill');
+        assert.ok(skill, 'Skill tool must be registered on the CLI host');
+      } finally {
+        await context.close();
+      }
     });
   });
 
@@ -92,7 +227,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(read);
         const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => {}, 5000)"`;
         const result = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1',
             runId: 'run-1',
@@ -109,6 +244,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.equal(result.stdout, '');
         assert.ok(result.ref);
         if (!result.ref) throw new Error('expected background task resource ref');
+        await new Promise((resolve) => setTimeout(resolve, 50));
 
         const detail = await read.impl(
           { path: result.ref },
@@ -136,7 +272,7 @@ describe('Maka CLI runtime bootstrap', () => {
     });
   });
 
-  test('publishes yielded ShellRun completion without a model resource read', async () => {
+  test('publishes background ShellRun completion without a model resource read', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const connectionStore = createConnectionStore(workspaceRoot);
       await connectionStore.create({
@@ -150,7 +286,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "process.stdout.write('start'); setTimeout(() => process.stdout.write('done'), 500)"`;
         const result = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',
@@ -193,7 +329,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 5000)"`;
         const started = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: parent.id, runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',
@@ -224,7 +360,7 @@ describe('Maka CLI runtime bootstrap', () => {
         assert.ok(bash);
         const command = `${JSON.stringify(process.execPath)} -e "setTimeout(() => {}, 500)"`;
         const started = await bash.impl(
-          { command, yield_time_ms: 250 },
+          { command, run_in_background: true },
           {
             sessionId: 'session-1', runId: 'run-1', turnId: 'turn-1',
             cwd: workspaceRoot, toolCallId: 'tool-1',
@@ -410,6 +546,7 @@ interface RuntimeWithPrivateDeps {
   deps: {
     backends: BackendRegistry;
     store: SessionStore;
+    runtimeInvocationObserver?: (result: unknown) => void | Promise<void>;
   };
 }
 

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AppSettings } from '@maka/core';
 import { isExternalUrl } from './external-link-guard.js';
 import { errorMessage } from './chat-readiness.js';
-import { readSavedBounds, writeSavedBounds, type SavedBounds } from './window-state.js';
+import { readSavedBounds, writeSavedBounds, SAFE_MIN_HEIGHT, SAFE_MIN_WIDTH, type SavedBounds } from './window-state.js';
 import { BrowserViewController } from './browser/controller.js';
 import { BrowserViewManager } from './browser/view-manager.js';
 import type { VisualSmokeFixture } from './visual-smoke-fixture.js';
@@ -215,6 +215,12 @@ export function createMainWindowController(deps: MainWindowControllerDeps): Main
       // (see `app-region-hygiene-contract.test.ts`) cover the
       // renderer side of the same gate.
       resizable: true,
+      // #824: enforce the sanitizeBounds restore floor at runtime resize too,
+      // so the both-present dvh layout fix can't be defeated by dragging the
+      // window shorter than the 320px restore minimum. Shares SAFE_MIN_HEIGHT
+      // with sanitizeBounds so the resize floor and the restore floor can't
+      // drift apart (locked by app-region-hygiene-contract.test.ts).
+      minHeight: SAFE_MIN_HEIGHT,
       backgroundColor: initialBg,
       // PR-SHOW-AFTER-FIRST-COMMIT: create hidden on every run so the OS never
       // flashes the index.html `.maka-preload` skeleton before React paints.
@@ -476,8 +482,8 @@ function visualSmokeWindowBounds(
   if (
     Number.isFinite(width) &&
     Number.isFinite(height) &&
-    width >= 480 &&
-    height >= 320
+    width >= SAFE_MIN_WIDTH &&
+    height >= SAFE_MIN_HEIGHT
   ) {
     return { width: Math.floor(width), height: Math.floor(height) };
   }

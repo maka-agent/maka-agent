@@ -55,6 +55,47 @@ export function isToolCategory(value: unknown): value is ToolCategory {
   return typeof value === 'string' && (TOOL_CATEGORIES as readonly string[]).includes(value);
 }
 
+export type ToolPermissionRule =
+  | {
+      effect: 'allow' | 'deny';
+      kind: 'category';
+      category: ToolCategory;
+    }
+  | {
+      effect: 'allow' | 'deny';
+      kind: 'bash_exact';
+      command: string;
+    };
+
+export interface ToolPermissionRuleMatchInput {
+  toolName: string;
+  args: unknown;
+  category: ToolCategory;
+  rules: readonly ToolPermissionRule[];
+}
+
+/** Explicit deny rules always win over explicit allow rules, regardless of argv order. */
+export function matchToolPermissionRules(
+  input: ToolPermissionRuleMatchInput,
+): 'allow' | 'deny' | undefined {
+  if (input.rules.some((rule) => rule.effect === 'deny' && toolPermissionRuleMatches(rule, input))) {
+    return 'deny';
+  }
+  if (input.rules.some((rule) => rule.effect === 'allow' && toolPermissionRuleMatches(rule, input))) {
+    return 'allow';
+  }
+  return undefined;
+}
+
+function toolPermissionRuleMatches(
+  rule: ToolPermissionRule,
+  input: Omit<ToolPermissionRuleMatchInput, 'rules'>,
+): boolean {
+  if (rule.kind === 'category') return rule.category === input.category;
+  const command = (input.args as { command?: unknown } | null)?.command;
+  return input.toolName === 'Bash' && typeof command === 'string' && command === rule.command;
+}
+
 // ============================================================================
 // Tool execution environment facts
 // ============================================================================
@@ -440,15 +481,22 @@ export interface PreToolUseResult {
   blockReason?: string;
 }
 
-export function preToolUse(input: PreToolUseInput): PreToolUseResult {
-  // (1) Classify
+export function classifyToolUse(input: {
+  toolName: string;
+  args: unknown;
+  categoryHint?: ToolCategory;
+}): ToolCategory {
   let category: ToolCategory = input.categoryHint ?? BUILTIN_TOOL_CATEGORY[input.toolName] ?? 'custom_tool';
   if (category === 'shell_unsafe') {
-    const cmd = (input.args as { command?: unknown })?.command;
-    if (typeof cmd === 'string') {
-      category = categorizeBash(cmd);
-    }
+    const cmd = (input.args as { command?: unknown } | null)?.command;
+    if (typeof cmd === 'string') category = categorizeBash(cmd);
   }
+  return category;
+}
+
+export function preToolUse(input: PreToolUseInput): PreToolUseResult {
+  // (1) Classify
+  const category = classifyToolUse(input);
 
   // (2) Policy lookup + turn-remembered check
   const decision = PERMISSION_POLICY[input.mode][category];

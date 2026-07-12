@@ -150,6 +150,41 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(outcome.aborted, false);
   });
 
+  test('shows a fixed system notice when the configured step limit is reached', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({ type: 'complete', stopReason: 'step_limit' }));
+
+    assert.deepEqual(state.entries, [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    }]);
+  });
+
+  test('restores the step-limit system notice from stored history', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [
+      { type: 'system_note', id: 'notice-1', turnId: 'turn-1', ts: 1, kind: 'step_limit' },
+    ]);
+
+    assert.deepEqual(state.entries, [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    }]);
+  });
+
+  test('step_limit prevents automatic goal continuation', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'step_limit' })]);
+
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+
+    assert.deepEqual(outcome, { aborted: false, errored: true });
+  });
+
   test('reports a thrown sendPrompt as errored', async () => {
     const state = createMakaPiTranscriptState();
     const driver = {
@@ -366,6 +401,24 @@ describe('Maka Pi TUI transcript', () => {
         text: 'Context compacted to keep this session within the model window.',
       },
     ]);
+  });
+
+  test('rebuilds fail-open notes without claiming history was trimmed', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [{
+      type: 'system_note',
+      id: 'note-failed-open',
+      turnId: 'turn-1',
+      ts: 1,
+      kind: 'context_compaction_failed_open',
+    }] satisfies StoredMessage[]);
+
+    assert.deepEqual(state.entries.filter((entry) => entry.kind === 'notice'), [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Context summary failed; the session continued without a new summary.',
+    }]);
   });
 
   test('renders every transcript line within the terminal width', () => {
@@ -681,7 +734,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.doesNotMatch(compact, /step one/);
   });
 
-  test('keeps a yielded background Bash card running until the process settles', () => {
+  test('keeps a background Bash card running until the process settles', () => {
     const state = createMakaPiTranscriptState();
     applyMakaSessionEventToTranscript(state, event({
       type: 'tool_start', toolUseId: 'bash-bg', toolName: 'Bash',
@@ -768,7 +821,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(rendered, /still running/);
   });
 
-  test('shows polled background output instead of the stale pre-yield live delta', () => {
+  test('shows polled background output instead of a stale live delta', () => {
     const state = createMakaPiTranscriptState();
     const ref = 'maka://runtime/background-tasks/bg-1';
     applyMakaSessionEventToTranscript(state, event({
@@ -1091,7 +1144,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /boom-stderr/);
   });
 
-  test('does not repeat the command when a Bash yield already shows it', () => {
+  test('does not repeat the command when a background Bash result already shows it', () => {
     const state = createMakaPiTranscriptState();
     // A Bash background yield carries the command on both the input and the
     // shell_run result; the expanded card must print `$ cmd` once, not twice.
@@ -1114,7 +1167,7 @@ describe('Maka Pi TUI transcript', () => {
     assert.match(expanded, /cwd: \/repo/); // cwd is not in the input summary, so shown once here
   });
 
-  test('renders the full command for a multiline background Bash yield', () => {
+  test('renders the full command for a multiline background Bash result', () => {
     const state = createMakaPiTranscriptState();
     // The Bash input summary shows only the first line, so a multiline command
     // must be rendered in full by the result or the rest is lost.

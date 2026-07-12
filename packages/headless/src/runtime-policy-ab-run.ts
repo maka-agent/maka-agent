@@ -102,7 +102,6 @@ export async function runRuntimePolicyAbComparisonUnlocked(
 ): Promise<RuntimePolicyAbComparisonSummary> {
   assertProfileIdentity(input.executionProfile, input.config);
   const maxConcurrency = pairConcurrency(input.executionProfile.maxConcurrentAttempts);
-  const sharedConfigFingerprint = runtimePolicySharedConfigFingerprint(input.config);
   const sharedAgentEnv = sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {});
   return runAbComparison({
     runId: input.runId,
@@ -118,12 +117,7 @@ export async function runRuntimePolicyAbComparisonUnlocked(
       const runtimeArm = input.arms.find((candidate) => candidate.id === arm.id);
       if (!runtimeArm) throw new Error(`runtime policy A/B arm ${arm.id} is not configured`);
       const contextEnv = sanitizeContextEnv(runtimeArm.contextEnv);
-      const resumeFingerprint = runtimePolicyResumeFingerprint({
-        sharedConfigFingerprint,
-        sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(sharedAgentEnv),
-        armContextEnvFingerprint: contextEnvFingerprint(contextEnv),
-        callerResumeFingerprint: input.resumeFingerprint,
-      });
+      const resumeFingerprint = runtimePolicyArmResumeFingerprint(input, runtimeArm);
       const agentEnv = { ...sharedAgentEnv, ...contextEnv };
       const result = await runFixedPromptController({
         runId: input.runId,
@@ -225,6 +219,18 @@ function runtimePolicyResumeFingerprint(input: {
     armContextEnvFingerprint: input.armContextEnvFingerprint,
     callerResumeFingerprint: input.callerResumeFingerprint,
   })).digest('hex')}`;
+}
+
+export function runtimePolicyArmResumeFingerprint(
+  input: Pick<RunRuntimePolicyAbComparisonInput, 'config' | 'sharedAgentEnv' | 'resumeFingerprint'>,
+  arm: RuntimePolicyAbArmInput,
+): string {
+  return runtimePolicyResumeFingerprint({
+    sharedConfigFingerprint: runtimePolicySharedConfigFingerprint(input.config),
+    sharedAgentEnvFingerprint: sharedAgentEnvFingerprint(sanitizeSharedAgentEnv(input.sharedAgentEnv ?? {})),
+    armContextEnvFingerprint: contextEnvFingerprint(sanitizeContextEnv(arm.contextEnv)),
+    callerResumeFingerprint: input.resumeFingerprint,
+  });
 }
 
 function canonicalJson(value: unknown): string {

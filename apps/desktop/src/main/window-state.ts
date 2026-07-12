@@ -29,6 +29,14 @@ export interface DefaultBounds {
 }
 
 /**
+ * The minimum sensible window size, enforced both at restore (sanitizeBounds)
+ * and at runtime resize (BrowserWindow minHeight). Centralized so the restore
+ * floor and the resize floor can't drift apart (#824).
+ */
+export const SAFE_MIN_WIDTH = 480;
+export const SAFE_MIN_HEIGHT = 320;
+
+/**
  * Pure sanitization for restored bounds. Returns either valid bounds or the
  * provided defaults — no half-applied state.
  *
@@ -43,8 +51,8 @@ export function sanitizeBounds(
 ): SavedBounds {
   if (!candidate || typeof candidate !== 'object') return defaults;
   const c = candidate as Record<string, unknown>;
-  const width = typeof c.width === 'number' && c.width >= 480 ? Math.floor(c.width) : null;
-  const height = typeof c.height === 'number' && c.height >= 320 ? Math.floor(c.height) : null;
+  const width = typeof c.width === 'number' && c.width >= SAFE_MIN_WIDTH ? Math.floor(c.width) : null;
+  const height = typeof c.height === 'number' && c.height >= SAFE_MIN_HEIGHT ? Math.floor(c.height) : null;
   if (width === null || height === null) return defaults;
 
   const out: SavedBounds = { width, height };

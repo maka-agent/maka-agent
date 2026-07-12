@@ -1,9 +1,14 @@
 import type { Config } from './contracts.js';
 import type {
+  AbArmSummary,
   AbArmSpec,
+  AbAttemptPairSummary,
   AbComparisonSummary,
   AbDecision,
   AbRunManifest,
+  AbTaskArmSummary,
+  AbTaskComparison,
+  AbTaskLevelSummary,
 } from './ab-types.js';
 import type {
   FixedPromptTask,
@@ -43,65 +48,11 @@ export interface RunPromptAbComparisonInput {
 
 export type PromptAbDecision = AbDecision;
 
-export interface PromptAbArmSummary {
-  attempts: number;
-  observed: number;
-  valid: number;
-  passed: number;
-  passRate: number | null;
-  completed: number;
-  budgetExhausted: number;
-  infraFailed: number;
-  plumbingFailed: number;
-  missing: number;
-  coverageRate: number;
-  totalCostUsd: number;
-  meanDurationMs: number | null;
-}
-
-export interface PromptAbTaskArmSummary {
-  observed: number;
-  valid: number;
-  passed: number;
-  passRate: number | null;
-  completed: number;
-  budgetExhausted: number;
-  infraFailed: number;
-  plumbingFailed: number;
-  missing: number;
-}
-
-export interface PromptAbTaskComparison {
-  taskId: string;
-  baseline: PromptAbTaskArmSummary;
-  candidate: PromptAbTaskArmSummary;
-  passRateDelta: number | null;
-  outcome: 'candidate_win' | 'baseline_win' | 'tie' | 'missing';
-}
-
-export interface PromptAbTaskLevelSummary {
-  comparableTasks: number;
-  wins: number;
-  losses: number;
-  ties: number;
-  signTestNonTieTasks: number;
-  signTestPValue: number | null;
-  missingTaskIds: string[];
-  meanPassRateDelta: number | null;
-  medianPassRateDelta: number | null;
-  tasks: PromptAbTaskComparison[];
-}
-
-export interface PromptAbAttemptPairSummary {
-  pairs: number;
-  observedPairs: number;
-  wins: number;
-  losses: number;
-  ties: number;
-  missingPairIds: string[];
-  budgetDiscordantPairIds: string[];
-  infraOrPlumbingDiscordantPairIds: string[];
-}
+export type PromptAbArmSummary = AbArmSummary;
+export type PromptAbTaskArmSummary = AbTaskArmSummary;
+export type PromptAbTaskComparison = AbTaskComparison;
+export type PromptAbTaskLevelSummary = AbTaskLevelSummary;
+export type PromptAbAttemptPairSummary = AbAttemptPairSummary;
 
 export interface PromptAbComparisonSummary extends AbComparisonSummary {
   baselinePromptId: string;

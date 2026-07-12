@@ -27,13 +27,17 @@ export function renderAbComparisonMarkdown(summary: AbComparisonSummary): string
     `- Budget: ${summary.budgetMs !== undefined ? `${Math.round(summary.budgetMs / 1000)}s task budget` : 'not recorded'}`,
     `- Non-inferiority margin: ${rate(summary.nonInferiorityMargin)}`,
     `- Non-inferiority lower bound: ${rate(summary.nonInferiority.lowerBound)} (${rate(summary.nonInferiority.confidenceLevel)} one-sided confidence, ${summary.nonInferiority.method})`,
-    `- Evaluation pass rate: A=${summary.baseline.passed}/${summary.baseline.valid} = ${rate(summary.baseline.passRate)}, B=${summary.candidate.passed}/${summary.candidate.valid} = ${rate(summary.candidate.passRate)}`,
-    `- Evaluation pass-rate delta: B-A=${rate(summary.passRateDelta)}`,
-    `- Task-level delta: mean=${rate(summary.taskLevel.meanPassRateDelta)}, median=${rate(summary.taskLevel.medianPassRateDelta)}, wins=${summary.taskLevel.wins}, losses=${summary.taskLevel.losses}, ties=${summary.taskLevel.ties}, sign_test_p=${rate(summary.taskLevel.signTestPValue)}, missing=${summary.taskLevel.missingTaskIds.length}`,
-    `- Attempt-pair auxiliary: wins=${summary.pairedAttempts.wins}, losses=${summary.pairedAttempts.losses}, ties=${summary.pairedAttempts.ties}, missing=${summary.pairedAttempts.missingPairIds.length}`,
+    `- Run completeness: A observed=${summary.baseline.observed}/${summary.baseline.attempts} missing=${summary.baseline.missing}, B observed=${summary.candidate.observed}/${summary.candidate.attempts} missing=${summary.candidate.missing}`,
+    `- Outcome coverage: A evaluated=${summary.baseline.valid}/${summary.baseline.attempts} = ${rate(summary.baseline.coverageRate)}, B evaluated=${summary.candidate.valid}/${summary.candidate.attempts} = ${rate(summary.candidate.coverageRate)}`,
+    `- Outcome pass rate: A=${summary.baseline.passed}/${summary.baseline.valid} = ${rate(summary.baseline.passRate)}, B=${summary.candidate.passed}/${summary.candidate.valid} = ${rate(summary.candidate.passRate)}`,
+    `- Paired outcome delta: B-A=${rate(summary.passRateDelta)}`,
+    `- Task-level delta: mean=${rate(summary.taskLevel.meanPassRateDelta)}, median=${rate(summary.taskLevel.medianPassRateDelta)}, wins=${summary.taskLevel.wins}, losses=${summary.taskLevel.losses}, ties=${summary.taskLevel.ties}, sign_test_p=${rate(summary.taskLevel.signTestPValue)}, missing=${summary.taskLevel.missingTaskIds.length}, excluded=${summary.taskLevel.excludedTaskIds.length}`,
+    `- Attempt pairs: observed=${summary.pairedAttempts.observedPairs}/${summary.pairedAttempts.pairs} evaluated=${summary.pairedAttempts.evaluatedPairs} excluded=${summary.pairedAttempts.excludedPairIds.length} missing=${summary.pairedAttempts.missingPairIds.length}; wins=${summary.pairedAttempts.wins}, losses=${summary.pairedAttempts.losses}, ties=${summary.pairedAttempts.ties}`,
     `- Token/cost: A ${renderTokenCost(summary.baseline.tokenCostSummary)}, B ${renderTokenCost(summary.candidate.tokenCostSummary)}`,
     `- Budget outcomes: A timed_out=${summary.baseline.budgetExhausted}, B timed_out=${summary.candidate.budgetExhausted}`,
-    `- Infra outcomes: A infra_failed=${summary.baseline.infraFailed}, B infra_failed=${summary.candidate.infraFailed}; A plumbing_failed=${summary.baseline.plumbingFailed}, B plumbing_failed=${summary.candidate.plumbingFailed}`,
+    `- Infra exclusions: A=${summary.baseline.infraFailed}, B=${summary.candidate.infraFailed}`,
+    `- Attestation warnings: A=${summary.baseline.attestationWarnings}, B=${summary.candidate.attestationWarnings}`,
+    `- Plumbing failures: A=${summary.baseline.plumbingFailed}, B=${summary.candidate.plumbingFailed}`,
     ...(contextBudgetPolicyLine ? [contextBudgetPolicyLine] : []),
     ...(continuationLine ? [continuationLine] : []),
     ...(taskToolLine ? [taskToolLine] : []),
@@ -47,6 +51,9 @@ export function renderAbComparisonMarkdown(summary: AbComparisonSummary): string
   ];
   if (summary.taskLevel.missingTaskIds.length > 0) {
     lines.push('## Missing Tasks', '', ...summary.taskLevel.missingTaskIds.map((taskId) => `- ${taskId}`), '');
+  }
+  if (summary.taskLevel.excludedTaskIds.length > 0) {
+    lines.push('## Excluded Tasks', '', ...summary.taskLevel.excludedTaskIds.map((taskId) => `- ${taskId}`), '');
   }
   const losses = summary.taskLevel.tasks.filter((task) => task.outcome === 'baseline_win');
   if (losses.length > 0) {
@@ -222,6 +229,7 @@ function renderActivePruneSubsetMetrics(summary: NonNullable<AbComparisonSummary
     `timed_out=${summary.budgetExhausted}`,
     `infra_failed=${summary.infraFailed}`,
     `plumbing_failed=${summary.plumbingFailed}`,
+    `attestation_warnings=${summary.attestationWarnings}`,
     renderTokenCost(summary.tokenCostSummary),
     renderContextBudgetMetrics(contextBudget),
   ].join(' ');
@@ -263,6 +271,7 @@ function activePruneSubsetOrZero(
     budgetExhausted: 0,
     infraFailed: 0,
     plumbingFailed: 0,
+    attestationWarnings: 0,
     missing: 0,
     coverageRate: 1,
     totalCostUsd: 0,

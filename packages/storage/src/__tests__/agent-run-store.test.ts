@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { describe, it } from 'node:test';
@@ -90,6 +90,243 @@ describe('AgentRunStore', () => {
     });
   });
 
+  it('writes a bounded projection for accepted history compact checkpoints', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-accepted' }));
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+
+      await store.appendEvent('session-1', 'run-accepted', checkpointEvent('run-accepted', 3));
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(
+        projected?.data?.checkpoint
+          && (projected.data.checkpoint as { checkpointId?: string }).checkpointId,
+        'hcheckpoint-run-accepted',
+      );
+    });
+  });
+
+  it('initializes an empty checkpoint projection for a new session', async () => {
+    await withStore(async (store) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+
+      await store.createRun(makeHeader());
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        null,
+      );
+    });
+  });
+
+  it('preserves a missing checkpoint projection when prior runs require recovery', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader({ runId: 'run-before-crash' }));
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.createRun(makeHeader({ runId: 'run-after-restart' }));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
+  it('does not let a stale repair overwrite a further checkpoint projection', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+        ): Promise<void>;
+      };
+      const checkpointEvent = (runId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: `checkpoint-${runId}`,
+        runId,
+        turnId: `turn-${runId}`,
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: `hcheckpoint-${runId}`,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      const stale = checkpointEvent('run-stale-repair', 1);
+      const further = checkpointEvent('run-further-write', 2);
+      await store.createRun(makeHeader({ runId: stale.runId }));
+      await store.createRun(makeHeader({ runId: further.runId }));
+      await store.appendEvent('session-1', stale.runId, stale);
+      await rm(join(
+        root,
+        'sessions',
+        'session-1',
+        'projections',
+        'history_compact_checkpoint_recorded.json',
+      ));
+
+      await store.appendEvent('session-1', further.runId, further);
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        stale,
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, further.id);
+    });
+  });
+
+  it('replaces the same parseable but semantically invalid projection during repair', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+        repairEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+          event: AgentRunEvent | null,
+          options?: { replaceEventId?: string },
+        ): Promise<void>;
+      };
+      await store.createRun(makeHeader());
+      const invalidProjection = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'invalid-projection-event',
+        data: { checkpoint: { coverage: { eventCount: 999 } } },
+      });
+      const canonicalEvent = makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        id: 'canonical-projection-event',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId: 'hcheckpoint-canonical',
+            sessionId: 'session-1',
+            coverage: { eventCount: 1 },
+          },
+        },
+      });
+      await writeFile(
+        join(
+          root,
+          'sessions',
+          'session-1',
+          'projections',
+          'history_compact_checkpoint_recorded.json',
+        ),
+        JSON.stringify({ version: 1, event: invalidProjection }) + '\n',
+      );
+
+      await projectionStore.repairEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+        canonicalEvent,
+        { replaceEventId: invalidProjection.id },
+      );
+
+      const projected = await projectionStore.readEventProjection(
+        'session-1',
+        'history_compact_checkpoint_recorded',
+      );
+      assert.equal(projected?.id, canonicalEvent.id);
+    });
+  });
+
+  it('does not retain a checkpoint projection when the canonical ledger append fails', async () => {
+    await withStore(async (store, root) => {
+      const projectionStore = store as typeof store & {
+        readEventProjection(
+          sessionId: string,
+          type: AgentRunEvent['type'],
+        ): Promise<AgentRunEvent | null | undefined>;
+      };
+      await store.createRun(makeHeader());
+      const checkpointEvent = (checkpointId: string, eventCount: number): AgentRunEvent => makeEvent({
+        type: 'history_compact_checkpoint_recorded',
+        data: {
+          checkpoint: {
+            kind: 'maka.history_compact_checkpoint',
+            version: 2,
+            checkpointId,
+            sessionId: 'session-1',
+            coverage: { eventCount },
+          },
+        },
+      });
+      await store.appendEvent('session-1', 'run-1', checkpointEvent('hcheckpoint-previous', 1));
+      const eventsPath = join(root, 'sessions', 'session-1', 'runs', 'run-1', 'events.jsonl');
+      await rm(eventsPath);
+      await mkdir(eventsPath);
+
+      await assert.rejects(() => store.appendEvent(
+        'session-1',
+        'run-1',
+        checkpointEvent('hcheckpoint-orphan', 2),
+      ));
+
+      assert.equal(
+        await projectionStore.readEventProjection('session-1', 'history_compact_checkpoint_recorded'),
+        undefined,
+      );
+    });
+  });
+
   it('recovers corrupt event lines without hiding later events', async () => {
     await withStore(async (store, root) => {
       await store.createRun(makeHeader());
@@ -155,6 +392,347 @@ describe('AgentRunStore', () => {
       await runStore.createRun(makeHeader());
 
       assert.deepEqual(await runtimeEventStore.readRuntimeEvents('session-1', 'run-1'), []);
+    });
+  });
+
+  it('coalesces text stream chunks into one recoverable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['hel', 'lo', '!'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          ts: index + 1,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.partial, true);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello!' });
+    });
+  });
+
+  it('does not merge partial streams across branch lineage', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-branch-a',
+        ts: 1,
+        branch: 'agent-a',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'alpha' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-branch-b',
+        ts: 2,
+        branch: 'agent-b',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'beta' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => ({
+        branch: event.branch,
+        text: event.content?.kind === 'text' ? event.content.text : undefined,
+      })), [
+        { branch: 'agent-a', text: 'alpha' },
+        { branch: 'agent-b', text: 'beta' },
+      ]);
+    });
+  });
+
+  it('recovers the accumulated partial snapshot after reopening the store', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['still ', 'working'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const reopened = createRuntimeEventStore(root);
+      const events = await reopened.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'still working' });
+    });
+  });
+
+  it('keeps a 10K-chunk text stream bounded to one durable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 10_000; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-partial-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'x' },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const partialFiles = await readdir(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-partials',
+      ));
+
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.content?.kind === 'text' && events[0].content.text.length, 10_000);
+      assert.equal(partialFiles.filter((name) => name.endsWith('.partial')).length, 1);
+      assert.equal(partialFiles.length, 1);
+      const immutableLedger = await readFile(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-events.jsonl',
+      ), 'utf8').catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
+        throw error;
+      });
+      assert.equal(immutableLedger, '');
+    });
+  });
+
+  it('coalesces thinking chunks into one recoverable partial snapshot', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (const [index, text] of ['reason', 'ing ', 'continues'].entries()) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-thinking-${index}`,
+          partial: true,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'thinking', text },
+          refs: { providerEventId: 'message-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.equal(events.length, 1);
+      assert.deepEqual(events[0]?.content, { kind: 'thinking', text: 'reasoning continues' });
+    });
+  });
+
+  it('coalesces tool stream heartbeats until the durable tool result arrives', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 100; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-tool-progress-${index}`,
+          partial: true,
+          role: 'tool',
+          author: 'tool',
+          content: undefined,
+          refs: { toolCallId: 'tool-call-1' },
+        }));
+      }
+
+      assert.equal((await runtimeEventStore.readRuntimeEvents('session-1', 'run-1')).length, 1);
+
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-tool-result',
+        ts: 2,
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'tool-call-1',
+          name: 'Bash',
+          result: 'done',
+        },
+        refs: { toolCallId: 'tool-call-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      assert.deepEqual(events.map((event) => event.id), ['runtime-tool-result']);
+    });
+  });
+
+  it('keeps partial events with lifecycle actions as immutable facts', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      for (let index = 0; index < 2; index += 1) {
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: `runtime-lifecycle-${index}`,
+          partial: true,
+          role: 'system',
+          author: 'system',
+          content: undefined,
+          actions: { stateDelta: { progress: index } },
+          refs: { toolCallId: 'tool-call-1' },
+        }));
+      }
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), [
+        'runtime-lifecycle-0',
+        'runtime-lifecycle-1',
+      ]);
+    });
+  });
+
+  it('replaces a text partial snapshot with the durable final event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-partial',
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'hello' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-final',
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'hello world' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(events[0]?.content, { kind: 'text', text: 'hello world' });
+    });
+  });
+
+  it('produces equivalent durable replay for differently chunked final output', async () => {
+    const replayFor = async (chunks: readonly string[]) => {
+      let replay: RuntimeEvent[] = [];
+      await withStores(async (runStore, runtimeEventStore) => {
+        await runStore.createRun(makeHeader());
+        for (const [index, text] of chunks.entries()) {
+          await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+            id: `runtime-partial-${index}`,
+            ts: index + 1,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text },
+            refs: { providerEventId: 'message-1' },
+          }));
+        }
+        await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+          id: 'runtime-final',
+          ts: 10,
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'same final output' },
+          refs: { providerEventId: 'message-1' },
+        }));
+        replay = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      });
+      return replay;
+    };
+
+    const finelyChunked = await replayFor(['same ', 'final ', 'output']);
+    const coarselyChunked = await replayFor(['same final output']);
+
+    assert.deepEqual(finelyChunked, coarselyChunked);
+    assert.deepEqual(finelyChunked.map((event) => event.id), ['runtime-final']);
+  });
+
+  it('ignores a stale partial snapshot when its final event is already durable', async () => {
+    await withStores(async (runStore, runtimeEventStore, root) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-final',
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'complete' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-stale-partial',
+        ts: 1,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'stale' },
+        refs: { providerEventId: 'message-1' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+      const partialFiles = await readdir(join(
+        root,
+        'sessions',
+        'session-1',
+        'runs',
+        'run-1',
+        'runtime-partials',
+      )).catch((error) => {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+        throw error;
+      });
+
+      assert.deepEqual(events.map((event) => event.id), ['runtime-final']);
+      assert.deepEqual(partialFiles, []);
+    });
+  });
+
+  it('restores a retained partial snapshot before a later terminal event', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader());
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-user',
+        ts: 1,
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-partial',
+        ts: 2,
+        partial: true,
+        role: 'model',
+        author: 'agent',
+        content: { kind: 'text', text: 'retained output' },
+        refs: { providerEventId: 'message-1' },
+      }));
+      await runtimeEventStore.appendRuntimeEvent('session-1', 'run-1', makeRuntimeEvent({
+        id: 'runtime-terminal',
+        ts: 1,
+        role: 'system',
+        author: 'system',
+        status: 'failed',
+        content: { kind: 'error', message: 'provider failed' },
+      }));
+
+      const events = await runtimeEventStore.readRuntimeEvents('session-1', 'run-1');
+
+      assert.deepEqual(events.map((event) => event.id), [
+        'runtime-user',
+        'runtime-partial',
+        'runtime-terminal',
+      ]);
     });
   });
 

@@ -33,8 +33,10 @@ export type {
   StorageRef,
   AttachmentRef,
   AttachmentIngestItem,
+  CompleteStopReason,
 } from './events.js';
 export {
+  failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,
@@ -114,6 +116,7 @@ export {
   SESSION_STATUSES,
   SESSION_BLOCKED_REASONS,
   TURN_STATUSES,
+  STEP_LIMIT_NOTICE_TEXT,
   deriveTurnRecords,
   isSessionStatus,
   isSessionBlockedReason,
@@ -192,6 +195,8 @@ export type {
   PreToolUseResult,
   PermissionRequest,
   PermissionResponse,
+  ToolPermissionRule,
+  ToolPermissionRuleMatchInput,
 } from './permission.js';
 export {
   PERMISSION_MODES,
@@ -203,8 +208,10 @@ export {
   FS_DESTRUCTIVE_PATTERNS,
   DESTRUCTIVE_GIT_PATTERNS,
   categorizeBash,
+  classifyToolUse,
   isPermissionMode,
   isToolCategory,
+  matchToolPermissionRules,
   preToolUse,
 } from './permission.js';
 

@@ -96,20 +96,19 @@
    我们没有账户"). About / version still reachable via Settings → 关于. */
 .maka-sidebar-settings-button {
   display: inline-grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  /* Same glyph column as .maka-nav-row so the gear shares the nav rows'
+     icon axis and 16px chrome size (icon-system contract). */
+  grid-template-columns: var(--icon-size) minmax(0, 1fr);
   align-items: center;
 }
 
-.maka-sidebar-settings-button .maka-nav-icon {
-  width: 18px;
-  height: 18px;
-  color: currentColor;
-}
-
+/* Color intentionally not declared: nav glyphs are tinted by the
+   navRowVariants utilities (80%-ink base, foreground when active) and the
+   settings gear inherits its button's text color — an unlayered color
+   here would silently beat those utilities. */
 .maka-nav-icon {
   width: var(--icon-size);
   height: var(--icon-size);
-  color: var(--muted-foreground);
   justify-self: center;
 }
 
@@ -280,13 +279,13 @@
  * a sidebar of 60 sessions.
  *
  * After Phase 3:
- *   - 30px min-height, single line: status indicator + name + time.
+ *   - 32px min-height, single line: status indicator + name + time.
  *   - Flat list (no border, no radius, no shadow); the surrounding
  *     `.maka-list-stackContent` provides the row stack, so rows just need
  *     to read as a list, not a stack of cards.
  *   - Snippet drops out of the default DOM (lives only in a native
  *     `title=` tooltip on hover) — see SessionRow render path.
- *   - Row actions still slide in on hover (current behavior preserved).
+ *   - A single overflow trigger replaces the time/unread slot on hover or focus.
  *   - Active row uses a neutral flat fill instead of the old accent rail.
  */
 .maka-list-row {
@@ -341,113 +340,57 @@
   text-align: left;
 }
 
-.maka-list-row-actions {
-  /* PR-SIDEBAR-IA-0 Phase 3 (xuan `2d4526b5` + kenji `e949119d`):
-   * actions overlay via absolute positioning instead of occupying
-   * a reserved flex column. In a 280px narrow sidebar a 126px
-   * reserved area left only ~74px for the title — kenji's math
-   * showed long Chinese names like "Artifact Pane 验收" would
-   * truncate too early. Absolute overlay gives the title the
-   * row's full content width in every state, so a narrow row never
-   * loses more title characters than the icons actually cover.
-   *
-   * Bug fix: the gradient below is what's supposed to visually hide
-   * the tail of the title/meta text this cluster paints over. It used
-   * to fade into `var(--state-hover-bg)` / `var(--state-selected-bg)`
-   * directly — those are a 4%/6.5%-alpha tint of `--foreground`, i.e.
-   * partially SEE-THROUGH. A translucent layer can't occlude the
-   * full-opacity text underneath it, so the icons rendered visibly on
-   * top of fully-legible title text (session-row title/actions overlap
-   * bug). Reserving layout space instead (shrinking the title column on
-   * hover) was tried and reverted — on the app's actual narrow sidebar
-   * width it truncated titles far more aggressively than the original
-   * bug's readable-but-smudged tail, which read as a worse regression.
-   * The fix that keeps maximum title length AND fully hides the
-   * covered portion: flatten the translucent tint into an opaque
-   * color via `color-mix()` against the real surface it sits on
-   * (`--background`) — same visual tint, zero transparency, so
-   * whatever text is under the buttons is actually gone, not just
-   * dimmed.
-   *
-   * Layout shift invariant still holds: actions don't participate
-   * in row flex layout in either state, so showing/hiding them
-   * never resizes the title column.
-   *
-   * A short leading fade (16px) softens the cut-off where the title
-   * text disappears under the action cluster. This works because the
-   * opaque stop is genuinely opaque (color-mix flattened) — the
-   * previous version's fade used a 4%-alpha tint as the "opaque" end
-   * and couldn't actually hide anything. With a real solid color,
-   * the fade zone shows the title tail dissolving smoothly instead of
-   * a hard vertical edge, and anything past the 16px mark is fully
-   * occluded. */
+.maka-list-row-menu-trigger {
   position: absolute;
   top: 0;
-  right: 0;
-  bottom: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-0-5);
-  padding: 0 var(--space-2);
-  /* Opaque re-derivation of --state-hover-bg's tint (4% of --foreground
-   * over --background) — NOT `color-mix(..., var(--state-hover-bg) ..., ...)`,
-   * which would just mix an already-4%-alpha color at some percentage of
-   * itself and stay translucent. Recreating the tint from the opaque
-   * --foreground/--background pair is what actually removes the alpha. */
-  background: linear-gradient(
-    to right,
-    transparent 0,
-    color-mix(in oklch, var(--foreground) 4%, var(--background)) 16px,
-    color-mix(in oklch, var(--foreground) 4%, var(--background)) 100%
-  );
+  right: var(--space-1);
+  width: var(--h-control-lg);
+  height: var(--h-control-lg);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground-secondary);
   opacity: 0;
-  transform: translateX(8px);
+  transform: translateX(var(--space-1));
   transition:
     opacity var(--duration-base) var(--ease-out-strong),
-    transform var(--duration-base) var(--ease-out-strong);
+    transform var(--duration-base) var(--ease-out-strong),
+    background-color var(--duration-base) var(--ease-out-strong),
+    color var(--duration-base) var(--ease-out-strong);
   pointer-events: none;
 }
 
-.maka-list-row:hover .maka-list-row-actions,
-.maka-list-row:focus-within .maka-list-row-actions {
+.maka-list-row-menu-trigger:hover,
+.maka-list-row-menu-trigger:focus-visible,
+.maka-list-row-menu-trigger[data-popup-open] {
+  background: var(--state-hover-bg);
+  color: var(--foreground);
+}
+
+.maka-list-row-menu-trigger:focus-visible {
+  outline: var(--focus-ring-width) solid var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
+}
+
+.maka-list-row:hover .maka-list-row-menu-trigger,
+.maka-list-row:focus-within .maka-list-row-menu-trigger,
+.maka-list-row-menu-trigger[data-visible="true"] {
   opacity: 1;
   transform: translateX(0);
   pointer-events: auto;
 }
 
-/* PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`):
- * when row actions appear, hide the meta (time) and unread dot so
- * they don't show through the absolute-positioned actions overlay.
- * The gradient bg below was supposed to mask them visually but
- * couldn't match every row state (transparent default vs hover bg
- * vs accent-tinted selected bg), so the time text leaked through
- * the actions cluster on selected rows ("9m ago" overlapping with
- * 📌 ✏️ 📦 🗑️). `visibility: hidden` preserves layout (the auto
- * grid column still reserves the time slot), so the actions slide
- * in without shifting anything around them. */
 .maka-list-row:hover .maka-list-row-meta,
 .maka-list-row:hover .maka-list-row-unread,
 .maka-list-row:focus-within .maka-list-row-meta,
-.maka-list-row:focus-within .maka-list-row-unread {
+.maka-list-row:focus-within .maka-list-row-unread,
+.maka-list-row[data-menu-open="true"] .maka-list-row-meta,
+.maka-list-row[data-menu-open="true"] .maka-list-row-unread {
   visibility: hidden;
 }
-
-.maka-list-row[data-active="true"] .maka-list-row-actions {
-  /* Opaque re-derivation of --state-selected-bg's tint (6.5% of
-   * --foreground over --background) — see the hover variant above for
-   * why this can't just be color-mix(..., var(--state-selected-bg), ...),
-   * and why there's no leading fade. */
-  background: linear-gradient(
-    to right,
-    transparent 0,
-    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 16px,
-    color-mix(in oklch, var(--foreground) 6.5%, var(--background)) 100%
-  );
-}
-
-/* Row action buttons: visual via rowActionVariants cva.
-   .maka-list-row-action class kept as a stable hook for the
-   action overlay positioning + reveal animation on the parent. */
 
 .maka-list-row-rename-input {
   width: 100%;
@@ -529,8 +472,8 @@
  * prefers-reduced-motion. */
 .maka-list-row-streaming-dot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: 50%;
   background: var(--status-running);
   box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
@@ -581,7 +524,6 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  min-height: 24px;
 }
 
 /* PR-SIDEBAR-IA-0 Phase 3: `.maka-list-row-preview` is no longer
@@ -600,8 +542,8 @@
  * removed. */
 
 .maka-list-row-unread {
-  width: 8px;
-  height: 8px;
+  width: var(--space-2);
+  height: var(--space-2);
   border-radius: var(--radius-pill);
   background: var(--status-running);
   box-shadow: 0 0 0 3px oklch(from var(--status-running) l c h / 0.15);
@@ -636,9 +578,23 @@
   justify-content: center;
   flex-shrink: 0;
   margin-right: var(--space-1);
+  /* #743: 14px layout slot for the dense-meta status icon
+     (docs/design-system.md §1.9: dense-meta icons are call-site 12–14px). Kept
+     as a documented exception — the wrapper reserves the row's status footprint
+     so the title does not shift when the SVG is overridden to 12px below. */
   width: 14px;
   height: 14px;
   color: var(--foreground-secondary);
+}
+.maka-list-row-status-icon svg {
+  /* #743: restore <Icon size={12}> — buttonVariants' [&_svg]:size-[var(--icon-size,1rem)]
+     would force 16px (chrome tier, a cascade leak from borrowing UiButton), so
+     scope a local 12px dense-meta override. Per docs/design-system.md §1.9 only
+     the chrome tier is tokenized; dense-meta stays call-site 12–14px and is NOT
+     bound to a spacing token, so this stays a bare 12px (a spacing-scale change
+     cannot drift the icon size). The 14px wrapper centers it. */
+  width: 12px;
+  height: 12px;
 }
 .maka-list-row-status-icon[data-tone="accent"] {
   color: var(--nav-active);

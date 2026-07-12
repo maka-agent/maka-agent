@@ -1,6 +1,7 @@
 import { describe, test } from 'node:test';
 import { expect } from '../test-helpers.js';
 import {
+  failureClassFromCompleteStopReason,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,
   type SessionEvent,
@@ -32,5 +33,17 @@ describe('ToolOutputDelta event contract', () => {
     if (event.type !== 'tool_output_delta') throw new Error('unreachable');
     expect(event.seq).toBe(1);
     expect(event.stream).toBe('stdout');
+  });
+});
+
+describe('failureClassFromCompleteStopReason', () => {
+  test('defines the shared failure vocabulary for incomplete turns', () => {
+    expect(failureClassFromCompleteStopReason('error')).toBe('runtime_error');
+    expect(failureClassFromCompleteStopReason('step_limit')).toBe('tool_step_cap_reached');
+    expect(failureClassFromCompleteStopReason('end_turn')).toBe(undefined);
+    expect(failureClassFromCompleteStopReason('max_tokens')).toBe(undefined);
+    expect(failureClassFromCompleteStopReason('plan_handoff')).toBe(undefined);
+    expect(failureClassFromCompleteStopReason('permission_handoff')).toBe(undefined);
+    expect(failureClassFromCompleteStopReason('user_stop')).toBe(undefined);
   });
 });

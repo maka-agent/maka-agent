@@ -32,7 +32,12 @@ import {
   ItemTitle,
   Textarea,
   appendPromptContextDraft,
+  createChatInputActionOwner,
   detectUiLocale,
+  fileTransferContainsFiles,
+  focusTextInputAtEnd,
+  isChatInputComposing,
+  type ChatInputActionOwner,
   type UiLocale,
 } from '@maka/ui';
 import { ProviderLogo, providerDisplay } from './settings/provider-display';
@@ -544,14 +549,20 @@ function ReadyEmptyHero(props: {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const readyHeroMountedRef = useRef(true);
   const submitPendingRef = useRef(false);
-  const pendingImportActionRef = useRef<string | null>(null);
+  const compositionActiveRef = useRef(false);
+  const importActionOwnerRef = useRef<ChatInputActionOwner<string> | null>(null);
+  if (!importActionOwnerRef.current) {
+    importActionOwnerRef.current = createChatInputActionOwner((action) => {
+      if (readyHeroMountedRef.current) setPendingImportAction(action);
+    });
+  }
 
   useEffect(() => {
     readyHeroMountedRef.current = true;
     return () => {
       readyHeroMountedRef.current = false;
       submitPendingRef.current = false;
-      pendingImportActionRef.current = null;
+      importActionOwnerRef.current?.reset();
     };
   }, []);
 
@@ -591,7 +602,7 @@ function ReadyEmptyHero(props: {
       // draft. The same guard at packages/ui/src/components.tsx:5640
       // already covers the main chat input; the onboarding-hero clone
       // had drifted.
-      if (event.nativeEvent.isComposing || event.key === 'Process') return;
+      if (isChatInputComposing(event, compositionActiveRef.current)) return;
       // Enter (without modifier) → submit. Shift+Enter inserts newline.
       if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
         event.preventDefault();
@@ -615,8 +626,7 @@ function ReadyEmptyHero(props: {
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
+      focusTextInputAtEnd(input);
     });
   }, [quickChatBusy]);
 
@@ -631,8 +641,7 @@ function ReadyEmptyHero(props: {
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
-      input.focus();
-      input.setSelectionRange(nextDraft.length, nextDraft.length);
+      focusTextInputAtEnd(input);
     });
   }, []);
 
@@ -640,18 +649,12 @@ function ReadyEmptyHero(props: {
     actionKey: string,
     action: () => Promise<string | undefined>,
   ) => {
-    if (pendingImportActionRef.current !== null || quickChatBusy) return;
-    pendingImportActionRef.current = actionKey;
-    setPendingImportAction(actionKey);
-    try {
+    if (quickChatBusy) return;
+    const prompt = await importActionOwnerRef.current?.run(actionKey, async () => {
       const prompt = await action();
-      if (prompt && readyHeroMountedRef.current) appendImportedPrompt(prompt);
-    } finally {
-      if (pendingImportActionRef.current === actionKey) {
-        pendingImportActionRef.current = null;
-        if (readyHeroMountedRef.current) setPendingImportAction(null);
-      }
-    }
+      return prompt;
+    });
+    if (prompt && readyHeroMountedRef.current) appendImportedPrompt(prompt);
   }, [appendImportedPrompt, quickChatBusy]);
 
   const importActionBusy = pendingImportAction !== null;
@@ -661,11 +664,11 @@ function ReadyEmptyHero(props: {
   ), [importActionBusy, props.onImportDroppedTextFiles, quickChatBusy]);
 
   const hasDraggedFiles = useCallback((event: DragEvent<HTMLElement>) => (
-    Array.from(event.dataTransfer.types).includes('Files')
+    fileTransferContainsFiles(event.dataTransfer.types, event.dataTransfer.files.length)
   ), []);
 
   const hasPastedFiles = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => (
-    Array.from(event.clipboardData.types).includes('Files') || event.clipboardData.files.length > 0
+    fileTransferContainsFiles(event.clipboardData.types, event.clipboardData.files.length)
   ), []);
 
   const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
@@ -704,6 +707,7 @@ function ReadyEmptyHero(props: {
   }, [dragActive]);
 
   const handlePaste = useCallback((event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedTextFiles()) return;
     const files = Array.from(event.clipboardData.files);
@@ -742,6 +746,8 @@ function ReadyEmptyHero(props: {
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={handleKey}
             onPaste={handlePaste}
+            onCompositionStart={() => { compositionActiveRef.current = true; }}
+            onCompositionEnd={() => { compositionActiveRef.current = false; }}
             disabled={quickChatBusy}
             aria-label={copy.quickChatAria}
           />

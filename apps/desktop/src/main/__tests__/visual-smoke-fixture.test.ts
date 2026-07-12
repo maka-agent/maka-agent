@@ -659,7 +659,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action overlay shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
+  it('sidebar-row-actions-visible shares the 60-session seed and sets focusActiveRow so the action trigger shows (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4)', async () => {
     // PR-SIDEBAR-IA-0 Phase 3 P0 fixup v4 (WAWQAQ msg `5dd1c348`,
     // kenji `b3d156e9`): the sidebar-row-actions-visible scenario
     // reuses the 60-session seed so the sidebar is identical to
@@ -667,7 +667,7 @@ describe('visual smoke fixture mode', () => {
     // `VisualSmokeState.focusActiveRow=true`, which the renderer
     // reads to focus the active row's button after mount. That
     // triggers `:focus-within` and reveals the
-    // `.maka-list-row-actions` overlay — the screenshot then proves
+    // `.maka-list-row-menu-trigger` — the screenshot then proves
     // the time meta / unread dot are correctly hidden underneath.
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-row-actions-'));
     try {
@@ -1205,6 +1205,47 @@ describe('visual smoke fixture mode', () => {
         readFile(join(workspaceRoot, 'artifacts', 'visual-smoke-artifact', 'artifact-missing-missing.md'), 'utf8'),
         /ENOENT/,
       );
+    } finally {
+      await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('browser-empty chrome fixture (#819)', () => {
+  it('seeds a live browser session id so BrowserPanel mounts over the turn chat in empty state', () => {
+    const fixture = resolveVisualSmokeFixture('browser-empty', false);
+    assert.ok(fixture, 'browser-empty should resolve');
+    const state = getVisualSmokeState(fixture);
+    assert.equal(state?.scenario, 'browser-empty');
+    // Active session is the standard turn session so the chat surface
+    // behind the browser panel renders meaningful context.
+    assert.equal(state?.activeSessionId, 'visual-smoke-turn');
+    // liveBrowserSessionIds is the contract the renderer reads to mount
+    // BrowserPanel (app-shell gates on activeId && liveBrowserSessionIds
+    // .includes(activeId)). Seeding the active session makes the panel
+    // mount; with no real WebContentsView in visual-smoke mode,
+    // browser.getState returns null → BrowserPanel renders EMPTY_STATE →
+    // the empty-state chrome (#818 defect surface) is what screenshots.
+    assert.deepEqual(state?.liveBrowserSessionIds, ['visual-smoke-turn']);
+  });
+
+  it('reuses the always-seeded turn session so no browser-specific on-disk seed is needed', async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-browser-empty-'));
+    try {
+      const fixture = resolveVisualSmokeFixture('browser-empty', false);
+      assert.ok(fixture);
+      await seedVisualSmokeFixture({
+        workspaceRoot,
+        fixture,
+        credentialStore: fakeCredentialStore(),
+        now: 1_700_000_000_000,
+      });
+      // The turn session is part of the standard seed (always written),
+      // so the active browser session has a real on-disk chat behind the
+      // panel without a browser-specific seed branch.
+      const file = await readFile(join(workspaceRoot, 'sessions', 'visual-smoke-turn', 'session.jsonl'), 'utf8');
+      const header = JSON.parse(file.split('\n')[0]!) as { id: string };
+      assert.equal(header.id, 'visual-smoke-turn');
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }

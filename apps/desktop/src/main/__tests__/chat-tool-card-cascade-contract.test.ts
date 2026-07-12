@@ -167,9 +167,9 @@ describe('chat tool-card migration contract (#332 PR3b)', () => {
       );
     }
     // The dot must never fall back to Tailwind's built-in `animate-pulse` (a
-    // different opacity-only keyframe) nor reuse the LiveIndicator breath — the
-    // tool dot's ring pulse is a distinct keyframe.
-    for (const banned of ['animate-pulse', 'maka-pulse_']) {
+    // different opacity-only keyframe); it uses the distinct `maka-tool-pulse`
+    // ring keyframe.
+    for (const banned of ['animate-pulse']) {
       assert.ok(
         !block.includes(banned),
         `tool dot must use the governed maka-tool-pulse ring, not "${banned}"`,

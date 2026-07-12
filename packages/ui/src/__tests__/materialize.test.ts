@@ -47,4 +47,30 @@ describe('materializeChat attachments', () => {
     assert.equal(items[0].role, 'system');
     assert.equal(items[0].text, 'Context compacted to keep this session within the model window.');
   });
+
+  test('surfaces history compaction fail-open notices inline', () => {
+    const messages: StoredMessage[] = [
+      { type: 'system_note', id: 'note-1', turnId: 't1', ts: 1, kind: 'context_compaction_failed_open' },
+    ];
+    const items = materializeChat(messages);
+    assert.equal(items.length, 1);
+    assert.equal(items[0].role, 'system');
+    assert.equal(
+      items[0].text,
+      'Context summary failed; the session continued without a new summary.',
+    );
+  });
+
+  test('surfaces a step-limit system notice inline', () => {
+    const items = materializeChat([
+      { type: 'system_note', id: 'note-1', turnId: 't1', ts: 1, kind: 'step_limit' },
+    ]);
+
+    assert.equal(items.length, 1);
+    assert.equal(items[0].role, 'system');
+    assert.equal(
+      items[0].text,
+      'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    );
+  });
 });

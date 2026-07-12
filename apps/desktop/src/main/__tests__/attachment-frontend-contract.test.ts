@@ -72,16 +72,6 @@ describe('attachment frontend contract', () => {
     assert.match(appShell, /onAttachFilePaths=\{attachFilePaths\}/);
   });
 
-  it('generated-files pane excludes user-uploaded attachments', async () => {
-    const artifactPane = await readRepo('apps/desktop/src/renderer/artifact-pane.tsx');
-
-    assert.match(
-      artifactPane,
-      /record\.source !== 'user_upload'/,
-      'ArtifactPane is labeled generated files and must not list user-uploaded attachment snapshots',
-    );
-  });
-
   it('passes selected model vision capability to the runtime attachment renderer', async () => {
     const main = await readRepo('apps/desktop/src/main/main.ts');
 
@@ -135,7 +125,6 @@ describe('attachment frontend contract', () => {
     const markup = renderToStaticMarkup(createElement(ChatView, {
       messages,
       activeSession,
-      mode: 'sessions',
       onNew: () => {},
     } satisfies Parameters<typeof ChatView>[0]));
 
@@ -152,8 +141,8 @@ describe('attachment frontend contract', () => {
 // These assertions pin the converged form so the surfaces cannot drift back.
 describe('attachment visual token governance (#546)', () => {
   it('image thumbnail placeholder uses maka surface-alpha + radius tokens, not shadcn aliases', async () => {
-    const chatView = await readRepo('packages/ui/src/chat-view.tsx');
-    const m = chatView.match(/maka-user-attachment-thumb-pending[^"]*/);
+    const chatTurn = await readRepo('packages/ui/src/chat-turn.tsx');
+    const m = chatTurn.match(/maka-user-attachment-thumb-pending[^"]*/);
     assert.ok(m, 'pending thumbnail className not found — component renamed?');
     const cls = m[0];
     // No raw shadcn surface aliases — the card next to it uses --foreground-alpha-*.

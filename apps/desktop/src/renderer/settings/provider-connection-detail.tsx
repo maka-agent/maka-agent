@@ -13,18 +13,47 @@ import {
   type LlmConnection,
   type ModelCatalogEntry,
   type ModelInfo,
+  type ProviderType,
 } from '@maka/core';
 import { formatRelativeTimestamp } from '@maka/core';
 import { Button, Chip, FieldDescription, FieldRoot, Input, Label, useToast } from '@maka/ui';
 import { PasswordInput } from './password-input';
 import { buildCatalogModelChoices } from '../model-catalog-choices';
 import { providerDisplay } from './provider-display';
+import { useOAuthLoginFlow, type OAuthLoginFlowBridge } from './use-oauth-login-flow';
 import {
   categoryLabel,
   providerPanelActionErrorMessage,
   type ConnectionsBridge,
   type CredentialPresenceStatus,
 } from './provider-panel-shared';
+
+// Maps an OAuth model-connection provider type to the browser-loopback login
+// service that can re-run its authorization from inside the detail sheet. Only
+// the loopback / polling services (Codex, Antigravity) are one-button-drivable
+// here; Claude's paste-code flow and plain API-key providers return null so the
+// notice falls back to prose instead of rendering a dead button.
+interface OAuthLoginService {
+  bridge: OAuthLoginFlowBridge;
+  display: { name: string; shortName: string };
+}
+
+function oauthLoginServiceFor(providerType: ProviderType): OAuthLoginService | null {
+  switch (providerType) {
+    case 'codex-subscription':
+      return {
+        bridge: window.maka.codexSubscription as unknown as OAuthLoginFlowBridge,
+        display: { name: 'OpenAI Codex', shortName: 'Codex' },
+      };
+    case 'gemini-cli':
+      return {
+        bridge: window.maka.antigravitySubscription as unknown as OAuthLoginFlowBridge,
+        display: { name: 'Google Antigravity', shortName: 'Antigravity' },
+      };
+    default:
+      return null;
+  }
+}
 
 function formatFetchedAtSuffix(modelsFetchedAt: number | undefined): string {
   if (modelsFetchedAt === undefined) return '';
@@ -90,6 +119,7 @@ export function ConnectionDetail(props: {
   const toast = useToast();
   const needsApiKey = defaults.authKind === 'api_key';
   const needsOAuth = defaults.authKind === 'oauth_token';
+  const oauthLoginService = needsOAuth ? oauthLoginServiceFor(connection.providerType) : null;
   const hasFixedOAuthBaseUrl = needsOAuth && Boolean(defaults.baseUrl);
   const requiresCredential = defaults.authKind !== 'none';
   const credentialProbePending = requiresCredential && (hasSecret === 'loading' || hasSecret === 'error');
@@ -367,6 +397,23 @@ export function ConnectionDetail(props: {
     }
   }
 
+  // After a successful in-sheet OAuth re-login, re-probe the credential
+  // presence (an expired token still read hasSecret===true, so we must
+  // refresh it) and reload the connection so its status leaves 需要重新登录.
+  async function refreshAfterRelogin() {
+    const lifecycle = connectionDetailLifecycleRef.current;
+    try {
+      const nextHasSecret = await props.bridge.hasSecret(connection.slug);
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      setHasSecret(nextHasSecret);
+    } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      setHasSecret('error');
+      toast.error('读取模型凭据状态失败', providerPanelActionErrorMessage(error));
+    }
+    await props.onChanged();
+  }
+
   return (
     <div className="providerEditor">
       <header>
@@ -412,26 +459,34 @@ export function ConnectionDetail(props: {
         </FieldRoot>
       )}
       {needsOAuth && (
-        <div className="providerUnavailableNotice" data-auth-kind="oauth">
-          <strong>
-            {hasSecret === true
-              ? 'OAuth 已登录'
-              : hasSecret === 'loading'
-                ? 'OAuth 状态读取中'
-                : hasSecret === 'error'
-                  ? 'OAuth 状态未知'
-                  : '等待 OAuth 登录'}
-          </strong>
-          <span>
-            {hasSecret === true
-              ? '该模型连接使用主进程保存的 OAuth access token，不在这里显示或编辑令牌。'
-              : hasSecret === 'loading'
-                ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
-                : hasSecret === 'error'
-                  ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
-                  : '请到上方 OAuth 分类完成登录；登录成功后会自动出现在模型连接里。'}
-          </span>
-        </div>
+        oauthLoginService ? (
+          <OAuthReloginNotice
+            service={oauthLoginService}
+            hasSecret={hasSecret}
+            onRelogin={refreshAfterRelogin}
+          />
+        ) : (
+          <div className="providerUnavailableNotice" data-auth-kind="oauth">
+            <strong>
+              {hasSecret === true
+                ? 'OAuth 已登录'
+                : hasSecret === 'loading'
+                  ? 'OAuth 状态读取中'
+                  : hasSecret === 'error'
+                    ? 'OAuth 状态未知'
+                    : '等待 OAuth 登录'}
+            </strong>
+            <span>
+              {hasSecret === true
+                ? '该模型连接使用主进程保存的 OAuth access token；若请求提示需要重新登录，请到 OAuth 分类的登录卡片重新授权。'
+                : hasSecret === 'loading'
+                  ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
+                  : hasSecret === 'error'
+                    ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
+                    : '请到 OAuth 分类的登录卡片完成登录；登录成功后会自动出现在模型连接里。'}
+            </span>
+          </div>
+        )
       )}
       {credentialProbePending && (
         <p className="providerError" role="alert">
@@ -473,6 +528,58 @@ export function ConnectionDetail(props: {
           {deleting ? '删除中…' : '删除'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+// The OAuth notice for a re-loginable connection. The 重新登录 button drives
+// the SAME shared browser-loopback flow the OAuth catalog cards use, so an
+// expired connection can be re-authorized right where the problem surfaces.
+// The button shows in every credential state except 'loading' — an EXPIRED
+// token still reads hasSecret===true, so it must not hide behind
+// hasSecret===false.
+function OAuthReloginNotice(props: {
+  service: OAuthLoginService;
+  hasSecret: CredentialPresenceStatus;
+  onRelogin(): Promise<void>;
+}) {
+  const flow = useOAuthLoginFlow({
+    bridge: props.service.bridge,
+    display: props.service.display,
+    onLoginSuccess: props.onRelogin,
+  });
+  const { hasSecret } = props;
+  const loggedIn = hasSecret === true;
+  const loading = hasSecret === 'loading';
+  const errored = hasSecret === 'error';
+  const title = loggedIn
+    ? 'OAuth 已登录'
+    : loading
+      ? 'OAuth 状态读取中'
+      : errored
+        ? 'OAuth 状态未知'
+        : '等待 OAuth 登录';
+  const detail = loggedIn
+    ? '若请求提示需要重新登录，点这里重新走一遍授权。'
+    : loading
+      ? '正在读取本机 OAuth 登录状态，读取完成前不会把未知状态显示成未登录。'
+      : errored
+        ? '暂时无法读取本机 OAuth 登录状态；请刷新页面或重新打开设置。'
+        : '点下方按钮打开浏览器完成登录，授权成功后会自动刷新这里的状态。';
+  return (
+    <div className="providerUnavailableNotice" data-auth-kind="oauth">
+      <strong>{title}</strong>
+      <span>{detail}</span>
+      {!loading && (
+        <Button
+          type="button"
+          size="sm"
+          disabled={flow.actionBusy}
+          onClick={() => void flow.startLogin()}
+        >
+          {flow.pendingAction === 'login' ? '登录中…' : loggedIn ? '重新登录' : '登录'}
+        </Button>
+      )}
     </div>
   );
 }
