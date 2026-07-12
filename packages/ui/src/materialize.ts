@@ -1,5 +1,10 @@
-import { deriveTurnRecords, toolResultActivityStatus } from '@maka/core';
-import type { AttachmentRef, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
+import {
+  deriveTurnRecords,
+  mergeShellRunStateWithDiagnostics,
+  projectToolActivityArgs,
+  toolResultActivityStatus,
+} from '@maka/core';
+import type { AttachmentRef, ShellRunUpdate, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 
 export { isCancelledToolResultContent, toolResultActivityStatus } from '@maka/core';
@@ -128,7 +133,7 @@ export function materializeTools(messages: StoredMessage[]): ToolActivityItem[] 
         intent: call.intent,
         ...(call.stepId !== undefined ? { stepId: call.stepId } : {}),
         status: result ? materializeToolResultStatus(result) : 'interrupted',
-        args: call.args,
+        args: projectToolActivityArgs(call.toolName, call.args),
         result: result?.content,
         durationMs: result?.durationMs,
       };
@@ -169,6 +174,25 @@ function mergeLiveOverPersisted(persisted: ToolActivityItem, live: ToolActivityI
     || live.status === 'running'
     || live.status === 'waiting_permission';
   const merged: ToolActivityItem = { ...persisted, ...live };
+  if (live.toolName === 'Tool') {
+    merged.toolName = persisted.toolName;
+    merged.activityKind = persisted.activityKind;
+    merged.displayName = persisted.displayName;
+    merged.intent = persisted.intent;
+    merged.args = persisted.args;
+  }
+  if (
+    merged.toolName === 'Bash'
+    && persisted.result?.kind === 'shell_run'
+    && live.result?.kind === 'shell_run'
+  ) {
+    const shellRun = mergeShellRunStateWithDiagnostics(
+      persisted.result,
+      live.result,
+      'ui.live-over-persisted',
+    ).result;
+    merged.result = shellRun;
+  }
   if (persisted.status === 'interrupted' && liveIsInFlight) {
     merged.status = 'interrupted';
   }
@@ -330,8 +354,40 @@ export function overlayLiveTurn(
     }
   }
   const next = { ...current, tools, timeline: mergeAdjacentTimeline(timeline) };
-  if (targetIndex < 0) return [...turns, next];
-  return turns.map((turn, index) => index === targetIndex ? next : turn);
+  const overlaid = targetIndex < 0
+    ? [...turns, next]
+    : turns.map((turn, index) => index === targetIndex ? next : turn);
+  return foldShellRunTurns(overlaid);
+}
+
+export function overlayShellRunUpdates(
+  turns: readonly TurnViewModel[],
+  updates: readonly ShellRunUpdate[],
+): readonly TurnViewModel[] {
+  if (updates.length === 0) return turns;
+  const byToolUseId = new Map<string, Extract<ToolResultContent, { kind: 'shell_run' }>>();
+  for (const update of updates) {
+    const current = byToolUseId.get(update.sourceToolCallId);
+    const merged = mergeShellRunStateWithDiagnostics(
+      current,
+      update.result,
+      'ui.overlay-shell-run-updates',
+    );
+    if (merged.changed) byToolUseId.set(update.sourceToolCallId, merged.result);
+  }
+  const projected = turns.flatMap((turn) => turn.tools).map((tool) => {
+    const update = byToolUseId.get(tool.toolUseId);
+    if (!update || tool.toolName !== 'Bash') return tool;
+    const current = tool.result?.kind === 'shell_run' ? tool.result : undefined;
+    if (tool.result && !current) return tool;
+    const merged = mergeShellRunStateWithDiagnostics(
+      current,
+      update,
+      'ui.overlay-shell-run-update',
+    );
+    return merged.changed ? { ...tool, result: merged.result } : tool;
+  });
+  return projectTurnTools(turns, projected);
 }
 
 /**
@@ -453,7 +509,7 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
   // Second pass: persisted tools land in the turn matching their tool_call's
   // turnId. Live tools are applied separately by overlayLiveTurn so streaming
   // deltas never force settled history to rematerialize.
-  const persistedTools = materializeTools(messages);
+  const persistedTools = foldShellRunToolActivities(materializeTools(messages));
   // toolItemByUseId feeds the timeline pass: the fully merged (persisted+live)
   // item keyed by toolUseId, so replaying tool_call rows in storage order
   // yields the same ToolActivityItem the tools list holds.
@@ -475,6 +531,83 @@ export function materializeTurns(messages: StoredMessage[]): TurnViewModel[] {
   }
 
   return order.map((turnId) => byId.get(turnId)!);
+}
+
+export function foldShellRunToolActivities(items: readonly ToolActivityItem[]): ToolActivityItem[] {
+  const folded: ToolActivityItem[] = [];
+  for (const item of items) {
+    const result = item.result?.kind === 'shell_run' ? item.result : undefined;
+    if (!result || item.toolName === 'Bash') {
+      folded.push(item);
+      continue;
+    }
+    const parentIndex = findShellRunParentIndex(folded, result.ref);
+    if (parentIndex >= 0) {
+      const parent = folded[parentIndex]!;
+      const current = parent.result?.kind === 'shell_run' ? parent.result : undefined;
+      const merged = mergeShellRunStateWithDiagnostics(
+        current,
+        result,
+        'ui.fold-shell-run-child',
+      );
+      if (merged.changed) {
+        folded[parentIndex] = {
+          ...parent,
+          result: merged.result,
+        };
+      }
+      if (item.toolName === 'Read' || item.toolName === 'StopBackgroundTask') continue;
+    }
+    folded.push(item);
+  }
+  return folded;
+}
+
+function foldShellRunTurns(turns: readonly TurnViewModel[]): readonly TurnViewModel[] {
+  return projectTurnTools(
+    turns,
+    foldShellRunToolActivities(turns.flatMap((turn) => turn.tools)),
+  );
+}
+
+function projectTurnTools(
+  turns: readonly TurnViewModel[],
+  tools: readonly ToolActivityItem[],
+): readonly TurnViewModel[] {
+  const projected = new Map(tools.map((tool) => [tool.toolUseId, tool]));
+  return turns.map((turn) => {
+    const nextTools = turn.tools.flatMap((tool) => {
+      const projectedTool = projected.get(tool.toolUseId);
+      return projectedTool ? [projectedTool] : [];
+    });
+    let timelineChanged = false;
+    const timeline = turn.timeline.flatMap<TurnTimelineItem>((item): TurnTimelineItem[] => {
+      if (item.kind !== 'tools') return [item];
+      const items = item.items.flatMap((tool) => {
+        const projectedTool = projected.get(tool.toolUseId);
+        return projectedTool ? [projectedTool] : [];
+      });
+      if (items.length !== item.items.length || items.some((tool, index) => tool !== item.items[index])) {
+        timelineChanged = true;
+      }
+      return items.length > 0 ? [{ kind: 'tools' as const, items }] : [];
+    });
+    const toolsChanged = nextTools.length !== turn.tools.length
+      || nextTools.some((tool, index) => tool !== turn.tools[index]);
+    return toolsChanged || timelineChanged ? { ...turn, tools: nextTools, timeline } : turn;
+  });
+}
+
+function findShellRunParentIndex(items: readonly ToolActivityItem[], ref: string): number {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const candidate = items[index];
+    if (
+      candidate?.toolName === 'Bash'
+      && candidate.result?.kind === 'shell_run'
+      && candidate.result.ref === ref
+    ) return index;
+  }
+  return -1;
 }
 
 /**

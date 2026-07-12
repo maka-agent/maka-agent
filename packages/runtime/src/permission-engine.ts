@@ -32,6 +32,7 @@ import {
   type ToolExecutionFacts,
 } from '@maka/core/permission';
 import type { PermissionRequestEvent } from '@maka/core/events';
+import { projectToolActivityArgs } from '@maka/core';
 
 // ============================================================================
 // Per-turn state
@@ -167,7 +168,7 @@ export class PermissionEngine {
       toolName: pre.partialRequest.toolName,
       category: pre.partialRequest.category,
       reason: pre.partialRequest.reason,
-      args: pre.partialRequest.args,
+      args: projectToolActivityArgs(pre.partialRequest.toolName, pre.partialRequest.args),
       ...(input.hint !== undefined ? { hint: input.hint } : {}),
     };
 

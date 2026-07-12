@@ -5,6 +5,7 @@ import {
   type MarkdownTheme,
 } from '@earendil-works/pi-tui';
 import type { ToolResultContent } from '@maka/core/events';
+import { ptyHumanTerminalText, type ShellOutput } from '@maka/core';
 import { ansi } from './tui-ansi.js';
 
 export function renderIndented(text: string, width: number, indent: number): string[] {
@@ -34,9 +35,9 @@ export function formatToolResultContent(content: ToolResultContent): string {
       return [
         `$ ${content.cmd}`,
         `cwd: ${content.cwd}`,
-        `exit: ${content.exitCode}`,
-        content.stdout ? `stdout:\n${content.stdout}` : '',
-        content.stderr ? `stderr:\n${content.stderr}` : '',
+        `status: ${content.status}`,
+        content.exitCode !== undefined ? `exit: ${content.exitCode}` : '',
+        formatShellOutput(content.output),
       ].filter(Boolean).join('\n\n');
     case 'shell_run':
       return [
@@ -45,8 +46,7 @@ export function formatToolResultContent(content: ToolResultContent): string {
         `ref: ${content.ref}`,
         `status: ${content.status}`,
         content.exitCode !== undefined ? `exit: ${content.exitCode}` : '',
-        content.stdout ? `stdout:\n${content.stdout}` : '',
-        content.stderr ? `stderr:\n${content.stderr}` : '',
+        content.output ? formatShellOutput(content.output) : '',
       ].filter(Boolean).join('\n\n');
     case 'file_diff':
       return content.diff;
@@ -74,6 +74,17 @@ export function formatToolResultContent(content: ToolResultContent): string {
     case 'archived_tool_result':
       return `Archived tool result: ${content.status}`;
   }
+}
+
+function formatShellOutput(output: ShellOutput): string {
+  if (output.mode === 'pty') {
+    const terminal = ptyHumanTerminalText(output);
+    return terminal ? `terminal:\n${terminal}` : '';
+  }
+  return [
+    output.stdout ? `stdout:\n${output.stdout}` : '',
+    output.stderr ? `stderr:\n${output.stderr}` : '',
+  ].filter(Boolean).join('\n\n');
 }
 
 export function formatUnknown(value: unknown): string {

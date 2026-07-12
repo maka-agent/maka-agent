@@ -460,6 +460,9 @@ const shellRuns = new ShellRunProcessManager({
   store: shellRunStore,
   newId: randomUUID,
   now: Date.now,
+  onShellRunUpdate: (update) => {
+    safeSendToRenderer('shell-runs:update', update);
+  },
 });
 // Unified tool availability (issue #37). Deferred capability groups (Rive,
 // Office, browser, agent orchestration) are withheld from the
@@ -490,7 +493,12 @@ const webSearchTool = buildWebSearchAgentTool({
   getPrivacyContext: getWorkspacePrivacyContext,
 });
 const builtinTools: MakaTool[] = [
-  ...buildBuiltinTools({ shellRuns }).filter((tool: MakaTool) => tool.name !== 'Edit'),
+  ...buildBuiltinTools({
+    shellRuns,
+    runtimeResources: shellRuns,
+    backgroundTasks: shellRuns,
+    ptyControls: shellRuns,
+  }).filter((tool: MakaTool) => tool.name !== 'Edit'),
   // External reference lazy-skill pattern: the prompt lists available skills,
   // and this read-only tool loads the full SKILL.md only when the task matches.
   buildSkillAgentTool(workspaceRoot),
@@ -1149,6 +1157,7 @@ function registerIpc(): void {
     },
   );
   registerPlanReminderIpc({ planReminders, getWorkspacePrivacyContext });
+  ipcMain.handle('shell-runs:list', (_event, sessionId: string) => shellRuns.listSessionUpdates(sessionId));
   ipcMain.handle('sessions:list', (_event, filter?: SessionListFilter) => runtime.listSessions(filter));
   ipcMain.handle('sessions:create', async (_event, input?: Partial<CreateSessionInput>) => {
     const cwd = input?.cwd ?? (await currentProjectRoot());

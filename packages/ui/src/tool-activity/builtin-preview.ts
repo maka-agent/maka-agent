@@ -149,6 +149,18 @@ export function formatToolInvocationLine(
   const query = stringField(args, 'query');
   const name = item.toolName;
 
+  if (name === 'WriteStdin') {
+    const parts: string[] = ['后台终端交互'];
+    const inputBytes = numberField(args, 'inputBytes')
+      ?? (typeof args.input === 'string' ? new TextEncoder().encode(args.input).byteLength : undefined);
+    if (inputBytes !== undefined) parts.push(`${inputBytes} 字节`);
+    const size = asRecord(args.size);
+    const cols = size ? numberField(size, 'cols') : undefined;
+    const rows = size ? numberField(size, 'rows') : undefined;
+    if (cols !== undefined && rows !== undefined) parts.push(`${cols}x${rows}`);
+    return parts.join(' · ');
+  }
+
   if (name === 'Grep' || (pattern && (name === 'Glob' || path))) {
     if (pattern) {
       const scope = path ? ` in ${path}` : '';

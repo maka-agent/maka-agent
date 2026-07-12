@@ -138,10 +138,14 @@ function makeTerminalTool(name: string, impl: string[], exitCode: number): MakaT
         cmd: 'cmd',
         status: exitCode === 0 ? 'completed' : 'failed',
         exitCode,
-        stdout: '',
-        stderr: exitCode === 0 ? '' : 'boom\n',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: {
+          mode: 'pipes',
+          stdout: '',
+          stderr: exitCode === 0 ? '' : 'boom\n',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       };
     },
   };
@@ -158,6 +162,7 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
       return {
         kind: 'shell_run',
         ref: 'maka://runtime/background-tasks/shell-run-1',
+        mode: 'pipes',
         status,
         cwd: '/tmp/maka',
         cmd: 'cmd',
@@ -165,7 +170,7 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
         updatedAt: 2,
         completedAt: 2,
         ...(status === 'orphaned'
-          ? { orphanedReason: 'missing live shell process handle' }
+          ? { failureMessage: 'missing live shell process handle' }
           : {
               exitCode: status === 'timed_out' ? 124 : status === 'cancelled' ? 130 : 1,
               failureMessage: status === 'timed_out'
@@ -174,11 +179,15 @@ function makeShellRunTool(name: string, impl: string[], status: ObservedShellRun
                   ? 'Command cancelled'
                   : 'Command failed',
             }),
-        stdout: '',
-        stderr: status === 'failed' ? 'boom\n' : '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
-        observedAt: 2,
+        revision: 2,
+        output: {
+          mode: 'pipes',
+          stdout: '',
+          stderr: status === 'failed' ? 'boom\n' : '',
+          stdoutTruncated: false,
+          stderrTruncated: false,
+          redacted: false,
+        },
       } satisfies ShellRunToolResult;
     },
   };

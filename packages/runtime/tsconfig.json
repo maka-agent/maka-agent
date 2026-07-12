@@ -7,5 +7,8 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": [],
-  "references": [{ "path": "../core" }]
+  "references": [
+    { "path": "../core" },
+    { "path": "../storage" }
+  ]
 }

@@ -602,6 +602,21 @@ describe('preToolUse — turnRemembered', () => {
       'custom_tool:Custom:{"a":1,"b":2}',
     );
   });
+
+  test('WriteStdin scope memory follows the PTY ref rather than control contents', () => {
+    const first = permissionScopeKey(
+      'WriteStdin',
+      { ref: 'maka://runtime/background-tasks/a', input: 'one' },
+      'shell_unsafe',
+    );
+    const second = permissionScopeKey(
+      'WriteStdin',
+      { ref: 'maka://runtime/background-tasks/a', input: 'two', size: { cols: 100, rows: 30 } },
+      'shell_unsafe',
+    );
+    expect(first).toBe(second);
+    expect(first).toBe('shell_unsafe:WriteStdin:maka://runtime/background-tasks/a');
+  });
 });
 
 describe('preToolUse — browser permission contract', () => {

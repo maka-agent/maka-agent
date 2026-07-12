@@ -11,12 +11,17 @@ import { computeEditedSource } from './edit-replace.js';
 import {
   buildBackgroundBashTool,
   buildStopBackgroundTaskTool,
+  buildWriteStdinTool,
   shapeTerminalResult,
   withShellGuidance,
 } from './shell-tools.js';
-import type { ShellRunToolController } from './shell-tools.js';
+import type { ShellRunLauncher } from './shell-tools.js';
 import { defaultShellPlan, type ShellPlan } from './shell-detect.js';
-import { isShellRunResourceRef } from './shell-run-manager.js';
+import type {
+  BackgroundTaskStopper,
+  PtyControlWriter,
+  RuntimeResourceReader,
+} from './shell-run-contract.js';
 import {
   createLocalWorkspaceExecutor,
   type WorkspaceExecResult,
@@ -36,7 +41,10 @@ import { withFileWriteLock } from './file-write-lock.js';
 const GREP_TIMEOUT_MS = 120_000;
 
 export interface BuildBuiltinToolsOptions {
-  shellRuns?: ShellRunToolController;
+  shellRuns?: ShellRunLauncher;
+  runtimeResources?: RuntimeResourceReader;
+  backgroundTasks?: BackgroundTaskStopper;
+  ptyControls?: PtyControlWriter;
   executor?: WorkspaceExecutor;
   /** Shell that runs Bash commands. Defaults to the process-wide detected shell. */
   shell?: ShellPlan;
@@ -45,34 +53,55 @@ export interface BuildBuiltinToolsOptions {
 export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaTool[] {
   const executor = options.executor ?? createLocalWorkspaceExecutor();
   const executionFacts = executor.facts;
-  const readDescription = options.shellRuns
-    ? 'Read a file from disk by path relative to session cwd, or read a runtime background task ref.'
+  const readDescription = options.runtimeResources
+    ? 'Read a file from disk using path relative to session cwd, or read a whole runtime resource using ref.'
     : 'Read a file from disk by path relative to session cwd.';
+  const fileReadParameters = z.object({
+    path: z.string().describe('A file path relative to the session cwd'),
+    offset: z.number().int().nonnegative().optional(),
+    limit: z.number().int().positive().optional(),
+  }).strict();
+  const readParameters = options.runtimeResources
+    ? z.union([
+        fileReadParameters,
+        z.object({
+          ref: z.string().describe('A runtime resource ref returned by another tool'),
+        }).strict(),
+      ])
+    : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const bashTools = options.shellRuns
-    ? [
-      buildBackgroundBashTool(options.shellRuns, { executionFacts, shell }),
-      buildStopBackgroundTaskTool(options.shellRuns),
-    ]
+    ? [buildBackgroundBashTool(options.shellRuns, { executionFacts, shell })]
     : [buildExecutorBashTool(executor, shell)];
+  const backgroundTools = [
+    ...(options.backgroundTasks ? [buildStopBackgroundTaskTool(options.backgroundTasks)] : []),
+    ...(options.ptyControls ? [buildWriteStdinTool(options.ptyControls)] : []),
+  ];
   return [
     ...bashTools,
+    ...backgroundTools,
     {
       name: 'Read',
       activityKind: 'read',
       description: readDescription,
-      parameters: z.object({
-        path: z.string(),
-        offset: z.number().int().nonnegative().optional(),
-        limit: z.number().int().positive().optional(),
-      }),
+      parameters: readParameters,
       permissionRequired: false,
       executionFacts,
-      impl: async ({ path, offset, limit }, { cwd, sessionId }) => {
-        if (path.startsWith('maka://runtime/')) {
-          if (!isShellRunResourceRef(path)) throw new Error(`Unsupported runtime resource ref: ${path}`);
-          if (!options.shellRuns) throw new Error('Runtime background task resources are not available in this toolset');
-          return await options.shellRuns.readResource(sessionId, path);
+      impl: async (input, { cwd, sessionId, abortSignal }) => {
+        if ('ref' in input) {
+          const { ref } = input;
+          if (classifyRuntimeResourceRef(ref) !== 'runtime') {
+            throw new Error(`Unsupported runtime resource ref: ${ref}`);
+          }
+          if (!options.runtimeResources) throw new Error('Runtime resources are not available in this toolset');
+          return await options.runtimeResources.readRuntimeResource(sessionId, ref, abortSignal);
+        }
+
+        const { path, offset, limit } = input;
+        const runtimeRef = classifyRuntimeResourceRef(path);
+        if (runtimeRef === 'unsupported') throw new Error(`Unsupported runtime resource ref: ${path}`);
+        if (runtimeRef === 'runtime') {
+          throw new Error('Runtime resources must be read with the ref parameter, not path');
         }
         const { path: resolvedPath } = await executor.resolveExistingPath({ cwd, path, label: 'Read' });
         return await executor.readFile({
@@ -241,4 +270,25 @@ function assertRelativeGlobPattern(pattern: string): void {
   if (isAbsolute(pattern) || pattern.split(/[\\/]+/).includes('..')) {
     throw new Error('Glob pattern must stay inside session cwd');
   }
+}
+
+export function classifyRuntimeResourceRef(path: string): 'runtime' | 'file' | 'unsupported' {
+  let url: URL;
+  try {
+    url = new URL(path);
+  } catch {
+    return path.trimStart().toLowerCase().startsWith('maka:') ? 'unsupported' : 'file';
+  }
+  if (url.protocol !== 'maka:') return 'file';
+  if (
+    url.hostname !== 'runtime'
+    || url.username
+    || url.password
+    || url.port
+    || !url.pathname
+    || url.pathname === '/'
+  ) {
+    return 'unsupported';
+  }
+  return 'runtime';
 }

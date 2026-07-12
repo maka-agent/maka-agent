@@ -171,6 +171,33 @@ describe('PermissionEngine.evaluate — prompt path', () => {
     expect(r.event.requestId).toMatch(/^id-/);
   });
 
+  test('projects WriteStdin permission args without exposing its audited input', () => {
+    const { engine } = makeEngine();
+    engine.beginTurn('t1');
+    const r = engine.evaluate({
+      sessionId: 's1',
+      turnId: 't1',
+      toolUseId: 'tu-stdin',
+      toolName: 'WriteStdin',
+      args: {
+        ref: 'maka://runtime/background-tasks/pty-1',
+        input: 'private input\r',
+        size: { cols: 100, rows: 30 },
+        yield_time_ms: 500,
+      },
+      mode: 'ask',
+    });
+
+    assert.equal(r.kind, 'prompt');
+    if (r.kind !== 'prompt') return;
+    assert.deepEqual(r.event.args, {
+      ref: 'maka://runtime/background-tasks/pty-1',
+      inputBytes: 14,
+      size: { cols: 100, rows: 30 },
+      yield_time_ms: 500,
+    });
+  });
+
   test('parked Promise resolves on recordResponse', async () => {
     const { engine } = makeEngine();
     engine.beginTurn('t1');

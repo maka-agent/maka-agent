@@ -22,6 +22,10 @@ export type {
   ToolProgressEvent,
   ToolResultEvent,
   ToolResultContent,
+  ShellRunSnapshotResult,
+  ShellRunCompactResult,
+  ShellRunStateResult,
+  ShellRunUpdate,
   PermissionRequestEvent,
   PermissionDecisionAckEvent,
   PlanSubmittedEvent,
@@ -141,14 +145,41 @@ export { AGENT_RUN_STATUSES } from './agent-run.js';
 
 // shell-run.ts
 export type {
+  PipeShellOutput,
+  PtyShellOutput,
+  ShellMode,
+  ShellOutput,
+  ShellRunOperation,
+  ShellRunPatch,
   ShellRunRecord,
   ShellRunStatus,
   ShellRunStore,
   ShellRunTerminalStatus,
 } from './shell-run.js';
+export type {
+  ShellRunMergeDiagnostic,
+  ShellRunMergeDiagnosticReporter,
+  ShellRunStateMerge,
+  ShellRunToolResult,
+} from './shell-run-result.js';
+export {
+  mergeShellRunState,
+  mergeShellRunStateWithDiagnostics,
+  shellRunStateProjection,
+} from './shell-run-result.js';
+export {
+  ptyCompactTerminalLine,
+  ptyHumanTerminalText,
+  ptyTuiTerminalView,
+  ptyTuiTerminalRows,
+} from './pty-output-view.js';
+export type { PtyTuiTerminalView } from './pty-output-view.js';
+export { projectToolActivityArgs } from './tool-activity-args.js';
 export {
   SHELL_RUN_STATUSES,
   SHELL_RUN_TERMINAL_STATUSES,
+  isShellOutput,
+  isShellRunId,
   isShellRunStatus,
   isTerminalShellRunStatus,
 } from './shell-run.js';

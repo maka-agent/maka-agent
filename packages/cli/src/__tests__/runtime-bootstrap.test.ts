@@ -102,16 +102,21 @@ describe('Maka CLI runtime bootstrap', () => {
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
           },
-        ) as { kind: string; ref?: string; status?: string; stdout?: string };
+        ) as {
+          kind: string;
+          ref?: string;
+          status?: string;
+          output?: { mode: string; stdout?: string };
+        };
 
         assert.equal(result.kind, 'shell_run');
         assert.equal(result.status, 'running');
-        assert.equal(result.stdout, '');
+        assert.equal(result.output, undefined);
         assert.ok(result.ref);
         if (!result.ref) throw new Error('expected background task resource ref');
 
         const detail = await read.impl(
-          { path: result.ref },
+          { ref: result.ref },
           {
             sessionId: 'session-1',
             runId: 'run-1',
@@ -121,10 +126,15 @@ describe('Maka CLI runtime bootstrap', () => {
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
           },
-        ) as { kind?: string; status?: string; stdout?: string };
+        ) as {
+          kind?: string;
+          status?: string;
+          output?: { mode: string; stdout?: string };
+        };
         assert.equal(detail.kind, 'shell_run');
         assert.equal(detail.status, 'running');
-        assert.equal(detail.stdout, 'start');
+        assert.equal(detail.output?.mode, 'pipes');
+        assert.equal(detail.output?.stdout, 'start');
 
         await context.close();
         const record = await createShellRunStore(workspaceRoot).readShellRun('session-1', backgroundTaskId(result.ref));
@@ -163,7 +173,10 @@ describe('Maka CLI runtime bootstrap', () => {
         await new Promise((resolve) => setTimeout(resolve, 650));
         const terminal = updates.find((update) => update.result.status === 'completed');
         assert.equal(terminal?.sourceToolCallId, 'tool-1');
-        assert.equal(terminal?.result.stdout, 'startdone');
+        assert.equal(
+          terminal?.result.output?.mode === 'pipes' ? terminal.result.output.stdout : '',
+          'startdone',
+        );
       } finally {
         unsubscribe();
         await context.close();

@@ -43,14 +43,20 @@ test('runs the elapsed ticker only while a background Bash card is running', () 
   assert.equal(tool?.kind === 'tool' ? tool.durationMs : undefined, 5_500);
   assert.equal(renders, 1);
 
-  applyDetachedShellRunToTranscript(state, 'bash-bg', shellRun({ updatedAt: 6_500 }));
+  applyDetachedShellRunToTranscript(state, 'bash-bg', shellRun({ updatedAt: 6_500, revision: 2 }));
   ticker.sync();
   assert.equal(tick, undefined);
   assert.equal(cancelled, 1);
 
   applyMakaSessionEventToTranscript(state, event({
     type: 'tool_result', toolUseId: 'bash-bg', isError: false,
-    content: shellRun({ status: 'completed', completedAt: 6_500, updatedAt: 6_500, exitCode: 0 }),
+    content: shellRun({
+      status: 'completed',
+      completedAt: 6_500,
+      updatedAt: 6_500,
+      exitCode: 0,
+      revision: 3,
+    }),
   }));
   ticker.sync();
   assert.equal(tick, undefined);
@@ -62,13 +68,17 @@ function event(input: { type: SessionEvent['type'] } & Record<string, unknown>):
 }
 
 function shellRun(
-  overrides: Partial<Extract<ToolResultContent, { kind: 'shell_run' }>>,
-): Extract<ToolResultContent, { kind: 'shell_run' }> {
+  overrides: Partial<Extract<ToolResultContent, { kind: 'shell_run'; mode: 'pipes' }>>,
+): Extract<ToolResultContent, { kind: 'shell_run'; mode: 'pipes' }> {
   return {
     kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+    mode: 'pipes',
     status: 'running', cwd: '/repo', cmd: 'sleep 30',
-    startedAt: 1_000, updatedAt: 1_000,
-    stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+    startedAt: 1_000, updatedAt: 1_000, revision: overrides.revision ?? 1,
+    output: {
+      mode: 'pipes', stdout: '', stderr: '',
+      stdoutTruncated: false, stderrTruncated: false, redacted: false,
+    },
     ...overrides,
   };
 }

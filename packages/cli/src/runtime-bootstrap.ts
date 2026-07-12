@@ -113,7 +113,12 @@ export async function createMakaCliRuntimeContext(
       }
     },
   });
-  const tools = buildBuiltinTools({ shellRuns });
+  const tools = buildBuiltinTools({
+    shellRuns,
+    runtimeResources: shellRuns,
+    backgroundTasks: shellRuns,
+    ptyControls: shellRuns,
+  });
   const automationManager = new AutomationManager({
     generateId: () => randomUUID(),
     now: () => Date.now(),

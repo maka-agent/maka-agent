@@ -42,10 +42,13 @@ describe('Bash tool shell is threaded through to execution, not just the descrip
     const tool = buildLocalForegroundBashTool({
       shell: { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: '/bin/echo' },
     });
-    const result = await tool.impl({ command: 'echo wired-marker' }, fakeToolContext()) as { stdout: string };
+    const result = await tool.impl(
+      { command: 'echo wired-marker' },
+      fakeToolContext(),
+    ) as { output: { stdout: string } };
     assert.ok(
-      result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
-      `expected declared shell to execute, got: ${result.stdout}`,
+      result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n'),
+      `expected declared shell to execute, got: ${result.output.stdout}`,
     );
   });
 
@@ -54,10 +57,22 @@ describe('Bash tool shell is threaded through to execution, not just the descrip
     const controller = {
       runBash: (input: unknown) => {
         captured.push(input);
-        return Promise.resolve({ kind: 'terminal', cwd: '.', cmd: '', status: 'completed', exitCode: 0, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } as never);
+        return Promise.resolve({
+          kind: 'terminal',
+          cwd: '.',
+          cmd: '',
+          status: 'completed',
+          exitCode: 0,
+          output: {
+            mode: 'pipes',
+            stdout: '',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            redacted: false,
+          },
+        } as never);
       },
-      readResource: () => Promise.reject(new Error('not used')),
-      stopResource: () => Promise.reject(new Error('not used')),
     };
     const tool = buildBackgroundBashTool(controller, { shell: pwshPlan });
     await tool.impl({ command: 'echo hi' }, fakeToolContext());
@@ -79,7 +94,5 @@ function fakeToolContext() {
 function fakeShellRuns() {
   return {
     runBash: () => Promise.reject(new Error('not used')),
-    readResource: () => Promise.reject(new Error('not used')),
-    stopResource: () => Promise.reject(new Error('not used')),
   };
 }

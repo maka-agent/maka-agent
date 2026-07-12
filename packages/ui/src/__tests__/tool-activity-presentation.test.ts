@@ -166,10 +166,7 @@ describe('tool activity presentation', () => {
           cmd: 'npm run -w @maka/ui test',
           status: 'failed',
           exitCode: 1,
-          stdout: 'packages/ui ok\n',
-          stderr: 'Error: boom\n',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: pipeOutput('packages/ui ok\n', 'Error: boom\n'),
         },
       } satisfies ToolActivityItem],
     }));
@@ -188,6 +185,29 @@ describe('tool activity presentation', () => {
     assert.match(markup, /font-size-base/);
     // No always-on copy control on the output well (error banner may still copy).
     assert.doesNotMatch(markup, /复制研读提示/);
+  });
+
+  it('contains a malformed persisted terminal result instead of crashing the renderer', () => {
+    const malformed = {
+      kind: 'terminal',
+      cwd: '/tmp/maka',
+      cmd: 'npm test',
+      status: 'failed',
+      exitCode: 1,
+    } as unknown as NonNullable<ToolActivityItem['result']>;
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-malformed-terminal',
+        toolName: 'Bash',
+        status: 'errored',
+        args: { command: 'npm test' },
+        result: malformed,
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /npm test/);
+    assert.match(markup, /终端输出不可用/);
+    assert.match(markup, /失败 · 退出码 1|失败.*退出码 1/);
   });
 
   it('keeps live tool output in the same quiet panel language when open', () => {
@@ -427,15 +447,14 @@ describe('tool activity presentation', () => {
         result: {
           kind: 'shell_run',
           ref: 'maka://runtime/background-tasks/bg-1',
+          mode: 'pipes',
           status: 'running',
           cwd: '/repo',
           cmd: 'npm test',
           startedAt: 1,
           updatedAt: 2,
-          stdout: 'starting\n',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          revision: 2,
+          output: pipeOutput('starting\n'),
         },
       } satisfies ToolActivityItem],
     }));
@@ -449,6 +468,103 @@ describe('tool activity presentation', () => {
     assert.equal(panels.length, 1);
     const commands = markup.match(/npm test/g) ?? [];
     assert.equal(commands.length, 1);
+  });
+
+  it('renders PTY output in one unwrapped surface without the generic line cap', () => {
+    const scrollback = Array.from({ length: 500 }, (_, index) => `scroll-${index + 1}`).join('\n');
+    const screen = Array.from({ length: 24 }, (_, index) => `screen-${index + 1}`).join('\n');
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-pty-run',
+        toolName: 'Bash',
+        activityKind: 'command',
+        status: 'waiting_permission',
+        args: { command: 'interactive', pty: true },
+        result: {
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/pty-1',
+          mode: 'pty',
+          status: 'running',
+          cwd: '/repo',
+          cmd: 'interactive',
+          startedAt: 1,
+          updatedAt: 2,
+          revision: 2,
+          output: {
+            mode: 'pty',
+            screen,
+            scrollback,
+            lastAlternateScreen: 'STALE-ALTERNATE-FRAME',
+            cols: 80,
+            rows: 24,
+            cursor: { x: 0, y: 23, visible: true },
+            alternateScreen: false,
+            truncated: false,
+            redacted: false,
+          },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.equal((markup.match(/data-stream="pty"/g) ?? []).length, 1);
+    assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 1);
+    assert.match(markup, /scroll-1/);
+    assert.match(markup, /scroll-250/);
+    assert.match(markup, /screen-24/);
+    assert.doesNotMatch(markup, /STALE-ALTERNATE-FRAME|已隐藏 \d+ 行/);
+    assert.match(markup, /white-space:pre/);
+  });
+
+  it('renders a failed WriteStdin as operation metadata without its ShellRun panel', () => {
+    const markup = renderToStaticMarkup(createElement(ToolActivity, {
+      items: [{
+        toolUseId: 'tool-pty-control',
+        toolName: 'WriteStdin',
+        activityKind: 'command',
+        status: 'errored',
+        args: {
+          ref: 'maka://runtime/background-tasks/pty-1',
+          inputBytes: 7,
+          size: { cols: 100, rows: 30 },
+        },
+        result: {
+          kind: 'shell_run',
+          ref: 'maka://runtime/background-tasks/pty-1',
+          mode: 'pty',
+          status: 'failed',
+          cwd: '/PRIVATE-CWD',
+          cmd: 'PRIVATE-COMMAND',
+          startedAt: 1,
+          updatedAt: 2,
+          completedAt: 2,
+          failureMessage: 'PRIVATE-FAILURE',
+          revision: 2,
+          output: {
+            mode: 'pty',
+            screen: 'PRIVATE-TERMINAL-FRAME',
+            scrollback: '',
+            cols: 100,
+            rows: 30,
+            cursor: { x: 0, y: 0, visible: true },
+            alternateScreen: false,
+            truncated: false,
+            redacted: false,
+          },
+          operation: {
+            kind: 'pty_control',
+            failed: true,
+            input: { bytes: 7, applied: false },
+            resize: { cols: 100, rows: 30, applied: true },
+          },
+        },
+      } satisfies ToolActivityItem],
+    }));
+
+    assert.match(markup, /未发送 7 字节/);
+    assert.match(markup, /已调整为 100x30/);
+    assert.match(markup, /后台终端交互失败/);
+    assert.doesNotMatch(markup, /PRIVATE-CWD|PRIVATE-COMMAND|PRIVATE-FAILURE|PRIVATE-TERMINAL-FRAME/);
+    assert.equal((markup.match(/data-slot="tool-output"/g) ?? []).length, 0);
   });
 
   it('keeps pre-yield live output when shell_run lands with empty streams', () => {
@@ -466,15 +582,13 @@ describe('tool activity presentation', () => {
         result: {
           kind: 'shell_run',
           ref: 'maka://runtime/background-tasks/bg-empty',
+          mode: 'pipes',
           status: 'running',
           cwd: '/repo',
           cmd: 'npm test',
           startedAt: 1,
           updatedAt: 2,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          revision: 1,
         },
       } satisfies ToolActivityItem],
     }));
@@ -502,15 +616,13 @@ describe('tool activity presentation', () => {
         result: {
           kind: 'shell_run',
           ref: 'maka://runtime/background-tasks/bg-meta',
+          mode: 'pipes',
           status: 'running',
           cwd: '/repo',
           cmd: 'npm test',
           startedAt: 1,
           updatedAt: 2,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          revision: 1,
         },
       } satisfies ToolActivityItem],
     }));
@@ -559,10 +671,7 @@ describe('tool activity presentation', () => {
           cmd: 'sleep 99',
           status: 'cancelled',
           exitCode: 130,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: pipeOutput(),
         },
       } satisfies ToolActivityItem],
     }));
@@ -585,10 +694,7 @@ describe('tool activity presentation', () => {
           cmd: 'sleep 99',
           status: 'cancelled',
           exitCode: 130,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: pipeOutput(),
         },
       } satisfies ToolActivityItem],
     }));
@@ -607,10 +713,7 @@ describe('tool activity presentation', () => {
           cmd: 'run',
           status: 'completed',
           exitCode: 0,
-          stdout: 'tail only',
-          stderr: '',
-          stdoutTruncated: true,
-          stderrTruncated: false,
+          output: { ...pipeOutput('tail only'), stdoutTruncated: true },
         },
       } satisfies ToolActivityItem],
     }));
@@ -618,3 +721,14 @@ describe('tool activity presentation', () => {
     assert.match(truncated, /输出已截断/);
   });
 });
+
+function pipeOutput(stdout = '', stderr = '') {
+  return {
+    mode: 'pipes' as const,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    redacted: false,
+  };
+}

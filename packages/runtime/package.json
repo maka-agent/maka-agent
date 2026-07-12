@@ -57,10 +57,16 @@
     "@ai-sdk/openai": "^3.0.64",
     "@ai-sdk/openai-compatible": "^2.0.47",
     "@maka/core": "0.1.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/headless": "^6.0.0",
     "ai": "^6.0.185",
+    "node-pty": "^1.2.0-beta.14",
     "qrcode": "^1.5.4",
     "socks": "^2.8.9",
     "undici": "^6.25.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@maka/storage": "0.1.0"
   }
 }

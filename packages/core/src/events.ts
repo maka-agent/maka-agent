@@ -10,7 +10,14 @@
  */
 
 import type { PermissionMode, PermissionRequest, PermissionResponse, ToolCategory } from './permission.js';
-import type { ShellRunStatus, ShellRunTerminalStatus } from './shell-run.js';
+import type {
+  PipeShellOutput,
+  PtyShellOutput,
+  ShellOutput,
+  ShellRunOperation,
+  ShellRunStatus,
+  ShellRunTerminalStatus,
+} from './shell-run.js';
 import type {
   CacheMissInputSource,
   ContextBudgetDiagnostic,
@@ -163,6 +170,43 @@ export interface ToolResultEvent extends BaseEvent {
   durationMs?: number;
 }
 
+type ShellRunResultMetadata = {
+  kind: 'shell_run';
+  ref: string;
+  status: ShellRunStatus;
+  cwd: string;
+  cmd: string;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  exitCode?: number;
+  failureMessage?: string;
+  revision: number;
+  timeoutMs?: number;
+};
+
+export type ShellRunCompactResult = ShellRunResultMetadata & (
+  | { mode: 'pipes'; output?: never }
+  | { mode: 'pty'; output?: never }
+);
+
+export type ShellRunSnapshotResult = ShellRunResultMetadata & (
+  | { mode: 'pipes'; output: PipeShellOutput }
+  | { mode: 'pty'; output: PtyShellOutput }
+);
+
+export type ShellRunStateResult = ShellRunCompactResult | ShellRunSnapshotResult;
+
+type ShellRunStopOperation = Extract<ShellRunOperation, { kind: 'stop' }>;
+type ShellRunPtyControlOperation = Extract<ShellRunOperation, { kind: 'pty_control' }>;
+type ShellRunToolResultContent =
+  | (ShellRunCompactResult & { operation?: never })
+  | (ShellRunSnapshotResult & (
+      | { operation?: never }
+      | { operation: ShellRunStopOperation }
+      | { mode: 'pty'; output: PtyShellOutput; operation: ShellRunPtyControlOperation }
+    ));
+
 export type ToolResultContent =
   | { kind: 'text'; text: string }
   | { kind: 'json'; value: unknown }
@@ -186,33 +230,11 @@ export type ToolResultContent =
       cwd: string;
       cmd: string;
       status: TerminalToolResultStatus;
-      exitCode: number;
-      stdout: string;
-      stderr: string;
-      stdoutTruncated: boolean;
-      stderrTruncated: boolean;
-    }
-  | {
-      kind: 'shell_run';
-      ref: string;
-      status: ShellRunStatus;
-      cwd: string;
-      cmd: string;
-      startedAt: number;
-      updatedAt: number;
-      completedAt?: number;
       exitCode?: number;
       failureMessage?: string;
-      stdout: string;
-      stderr: string;
-      latestOutputStream?: 'stdout' | 'stderr';
-      stdoutTruncated: boolean;
-      stderrTruncated: boolean;
-      timeoutMs?: number;
-      observedAt?: number;
-      orphanedReason?: string;
-      cancelled?: boolean;
+      output: ShellOutput;
     }
+  | ShellRunToolResultContent
   | { kind: 'image'; mimeType: string; ref: StorageRef }
   | { kind: 'summary'; original: string; summarized: string; reason: 'too_large' }
   /**
@@ -351,6 +373,14 @@ export type ToolResultContent =
         suggestedAction?: string;
       };
     };
+
+/** Durable ShellRun state updates use a separate observer channel from model turns. */
+export interface ShellRunUpdate {
+  sessionId: string;
+  sourceTurnId: string;
+  sourceToolCallId: string;
+  result: ShellRunSnapshotResult;
+}
 
 export interface PermissionRequestEvent extends BaseEvent {
   type: 'permission_request';

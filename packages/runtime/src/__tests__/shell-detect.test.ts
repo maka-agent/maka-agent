@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { buildShellSpawnPlan, detectShell } from '../shell-detect.js';
+import { buildPtyShellSpawnPlan, buildShellSpawnPlan, detectShell } from '../shell-detect.js';
 
 const winEnv = (over: Record<string, string> = {}) => ({
   Path: 'C:\\Windows\\System32;C:\\Users\\u\\bin',
@@ -96,5 +96,34 @@ describe('buildShellSpawnPlan', () => {
         useShellOption: true,
       });
     }
+  });
+});
+
+describe('buildPtyShellSpawnPlan', () => {
+  test('uses explicit argv for POSIX, cmd, and PowerShell PTYs', () => {
+    assert.deepEqual(
+      buildPtyShellSpawnPlan({ kind: 'posix', displayName: '/bin/sh' }, 'printf ready'),
+      { file: '/bin/sh', args: ['-c', 'printf ready'] },
+    );
+    assert.deepEqual(
+      buildPtyShellSpawnPlan(
+        { kind: 'cmd', displayName: 'cmd.exe' },
+        'echo ready',
+        { ComSpec: 'C:\\Windows\\System32\\cmd.exe' },
+      ),
+      {
+        file: 'C:\\Windows\\System32\\cmd.exe',
+        args: ['/d', '/s', '/c', 'echo ready'],
+      },
+    );
+
+    const powershell = buildPtyShellSpawnPlan(
+      { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' },
+      'Write-Output ready',
+    );
+    assert.equal(powershell.file, 'C:\\pf\\pwsh.exe');
+    assert.deepEqual(powershell.args.slice(0, 3), ['-NoLogo', '-NoProfile', '-Command']);
+    assert.doesNotMatch(powershell.args.join(' '), /-NonInteractive/);
+    assert.match(powershell.args[3] ?? '', /^Write-Output ready\n/);
   });
 });

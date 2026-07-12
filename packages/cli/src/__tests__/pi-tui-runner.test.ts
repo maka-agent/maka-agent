@@ -290,12 +290,14 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('running'));
     assert.ok(listener);
     listener({
-      sessionId: 'session-1', sourceToolCallId: 'tool-bg',
+      sessionId: 'session-1', sourceTurnId: 'turn-1', sourceToolCallId: 'tool-bg',
       result: {
         kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes',
         status: 'completed', cwd: '/repo', cmd: 'build',
         startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
-        stdout: 'done\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        revision: 5_000,
+        output: pipeOutput('done\n'),
       },
     });
     await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('done 4s'));
@@ -1581,9 +1583,10 @@ describe('Maka Pi TUI runner', () => {
             type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
             toolUseId: 'tool-bg', isError: false,
             content: {
-              kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+              kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
               startedAt: 1_000, updatedAt: 2_000,
-              stdout: 'starting\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+              revision: 2_000,
+              output: pipeOutput('starting\n'),
             },
           },
         ] satisfies StoredMessage[]],
@@ -1598,9 +1601,10 @@ describe('Maka Pi TUI runner', () => {
         return {
           ownerSessionId: sessionId,
           result: {
-            kind: 'shell_run', ref, status: 'completed', cwd: '/repo', cmd: 'build',
+            kind: 'shell_run', ref, mode: 'pipes', status: 'completed', cwd: '/repo', cmd: 'build',
             startedAt: 1_000, updatedAt: 5_000, completedAt: 5_000, exitCode: 0,
-            stdout: 'starting\ndone\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+            revision: 5_000,
+            output: pipeOutput('starting\ndone\n'),
           },
         };
       },
@@ -2014,9 +2018,10 @@ describe('Maka Pi TUI runner', () => {
         type: 'tool_result', id: 'result-bg', turnId: 'turn-1', ts: 2,
         toolUseId: 'tool-bg', isError: false,
         content: {
-          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
           startedAt: 1_000, updatedAt: 2_000,
-          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          revision: 2_000,
+          output: pipeOutput('still running\n'),
         },
       },
     ] satisfies StoredMessage[];
@@ -2031,9 +2036,10 @@ describe('Maka Pi TUI runner', () => {
       readShellRun: async () => ({
         ownerSessionId: 'session-1',
         result: {
-          kind: 'shell_run', ref, status: 'running', cwd: '/repo', cmd: 'build',
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/repo', cmd: 'build',
           startedAt: 1_000, updatedAt: 3_000,
-          stdout: 'still running\n', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+          revision: 3_000,
+          output: pipeOutput('still running\n'),
         },
       }),
     });
@@ -2917,10 +2923,7 @@ class ToolOutputDriver implements MakaSessionDriver {
         exitCode: 0,
         // `expanded-tail` is the FIRST line, so the compact tail (last ~5 lines)
         // hides it; expanding reveals the full output including this head line.
-        stdout: `expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`,
-        stderr: '',
-        stdoutTruncated: false,
-        stderrTruncated: false,
+        output: pipeOutput(`expanded-tail\n${Array.from({ length: 30 }, (_, i) => `row-${i}`).join('\n')}`),
       },
     };
     yield {
@@ -2964,13 +2967,26 @@ class BackgroundShellRunDriver extends ToolOutputDriver {
       toolUseId: 'tool-bg', isError: false,
       content: {
         kind: 'shell_run', ref: 'maka://runtime/background-tasks/bg-1',
+        mode: 'pipes',
         status: 'running', cwd: '/repo', cmd: 'build',
         startedAt: 1_000, updatedAt: 2_000,
-        stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        revision: 2_000,
+        output: pipeOutput(),
       },
     };
     yield { type: 'complete', id: 'event-complete', turnId: 'turn-1', ts: 3, stopReason: 'end_turn' };
   }
+}
+
+function pipeOutput(stdout = '', stderr = '') {
+  return {
+    mode: 'pipes' as const,
+    stdout,
+    stderr,
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    redacted: false,
+  };
 }
 
 class SlashCommandDriver implements MakaSessionDriver {

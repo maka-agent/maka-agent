@@ -22,6 +22,7 @@ import {
   recordSessionEventStreamEvent,
 } from './session-event-health';
 import { settledSessionTransientIds } from './settled-session-transients.js';
+import { mergeShellRunUpdates, type ShellRunUpdatesBySession } from './shell-run-update-state.js';
 
 type RefBox<T> = { current: T };
 type SessionEventHealthUpdater = (
@@ -401,6 +402,49 @@ export function useActiveSessionEvents(options: {
       markSessionEventStreamClosed(activeId);
     };
   }, [activeId]);
+}
+
+export function useShellRunUpdates(options: {
+  activeId: string | undefined;
+  setShellRunUpdatesBySession: (
+    updater: (current: ShellRunUpdatesBySession) => ShellRunUpdatesBySession,
+  ) => void;
+}) {
+  const applyUpdates = useEffectEvent((
+    sessionId: string,
+    updates: Awaited<ReturnType<typeof window.maka.shellRuns.list>>,
+  ) => {
+    options.setShellRunUpdatesBySession((current) => {
+      const active = current[sessionId];
+      const retained = active ? { [sessionId]: active } : {};
+      return mergeShellRunUpdates(
+        retained,
+        updates.filter((update) => update.sessionId === sessionId),
+      );
+    });
+  });
+
+  useEffect(() => {
+    const sessionId = options.activeId;
+    options.setShellRunUpdatesBySession((current) => {
+      if (!sessionId) return {};
+      const active = current[sessionId];
+      return active ? { [sessionId]: active } : {};
+    });
+    if (!sessionId) return;
+
+    let disposed = false;
+    const unsubscribe = window.maka.shellRuns.subscribeUpdates((update) => {
+      if (!disposed && update.sessionId === sessionId) applyUpdates(sessionId, [update]);
+    });
+    void window.maka.shellRuns.list(sessionId).then((updates) => {
+      if (!disposed) applyUpdates(sessionId, updates);
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [options.activeId]);
 }
 
 export function useSessionEventHealthPolling(options: {

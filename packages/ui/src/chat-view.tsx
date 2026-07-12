@@ -28,9 +28,9 @@ import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
-import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, StoredMessage } from '@maka/core';
+import type { AttachmentRef, PlanReminder, ProviderType, SessionSummary, ShellRunUpdate, StoredMessage } from '@maka/core';
 import { deriveCapabilityAuditReport, isDeepResearchSession } from '@maka/core';
-import { materializeChat, materializeTurns, overlayLiveTurn, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
+import { materializeChat, materializeTurns, overlayLiveTurn, overlayShellRunUpdates, type TurnTimelineItem, type TurnViewModel } from './materialize.js';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 import { Button as UiButton } from './ui.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
@@ -130,6 +130,7 @@ export function ChatView(props: {
   messages: StoredMessage[];
   messageLoading?: boolean;
   liveTurn?: LiveTurnProjection;
+  shellRunUpdates?: readonly ShellRunUpdate[];
   /** Called once the streaming bubble has displayed the final text and can hand off to history. */
   onStreamingSettled?(messageId?: string): void;
   /**
@@ -308,9 +309,13 @@ export function ChatView(props: {
     () => materializeTurns(visibleMessages),
     [visibleMessages],
   );
-  const turns = useMemo(
+  const liveTurns = useMemo(
     () => overlayLiveTurn(settledTurns, props.liveTurn),
     [settledTurns, props.liveTurn],
+  );
+  const turns = useMemo(
+    () => overlayShellRunUpdates(liveTurns, props.shellRunUpdates ?? []),
+    [liveTurns, props.shellRunUpdates],
   );
   // #642 single render path: the in-flight answer is injected into the tail
   // turn's TurnView (the SAME node as the eventual committed turn) instead of a

@@ -383,13 +383,20 @@ export class SessionManager {
   }
 
   async archive(sessionId: string): Promise<void> {
-    await this.deps.shellRuns?.terminateSession(sessionId);
-    await this.deps.store.archive(sessionId);
+    const shellRunClose = await this.deps.shellRuns?.terminateSession(sessionId);
+    try {
+      await this.deps.store.archive(sessionId);
+    } catch (error) {
+      if (shellRunClose) this.deps.shellRuns?.rollbackSessionClose(shellRunClose);
+      throw error;
+    }
+    if (shellRunClose) await this.deps.shellRuns?.commitSessionClose(shellRunClose);
     await this.runtimeKernel.disposeBackend(sessionId);
   }
 
   async unarchive(sessionId: string): Promise<void> {
     await this.deps.store.unarchive(sessionId);
+    this.deps.shellRuns?.resumeSession(sessionId);
   }
 
   async setSessionStatus(
@@ -454,9 +461,15 @@ export class SessionManager {
   }
 
   async remove(sessionId: string): Promise<void> {
-    await this.deps.shellRuns?.terminateSession(sessionId);
-    await this.runtimeKernel.disposeBackend(sessionId);
-    await this.deps.store.remove(sessionId);
+    const shellRunClose = await this.deps.shellRuns?.terminateSession(sessionId);
+    try {
+      await this.runtimeKernel.disposeBackend(sessionId);
+      await this.deps.store.remove(sessionId);
+    } catch (error) {
+      if (shellRunClose) this.deps.shellRuns?.rollbackSessionClose(shellRunClose);
+      throw error;
+    }
+    if (shellRunClose) await this.deps.shellRuns?.commitSessionClose(shellRunClose);
   }
 
   // --------------------------------------------------------------------------

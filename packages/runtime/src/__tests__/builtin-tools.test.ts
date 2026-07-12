@@ -1,10 +1,17 @@
 import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
-import type { ShellRunToolController } from '../shell-tools.js';
+import type { ShellRunLauncher } from '../shell-tools.js';
+import type {
+  BackgroundTaskStopper,
+  PtyControlWriter,
+  RuntimeResourceReader,
+} from '../shell-run-contract.js';
 import {
   LOCAL_WORKSPACE_EXECUTOR_FACTS,
   type WorkspaceExecInput,
@@ -29,13 +36,22 @@ describe('builtin tool activity kinds', () => {
   test('categorizes background task controls as command activity', () => {
     const shellRuns = {
       runBash: () => Promise.reject(new Error('not used')),
-      readResource: () => Promise.reject(new Error('not used')),
-      stopResource: () => Promise.reject(new Error('not used')),
-    } satisfies ShellRunToolController;
-    const kinds = Object.fromEntries(buildBuiltinTools({ shellRuns }).map((tool) => [tool.name, tool.activityKind]));
+    } satisfies ShellRunLauncher;
+    const backgroundTasks = {
+      stopBackgroundTask: () => Promise.reject(new Error('not used')),
+    } satisfies BackgroundTaskStopper;
+    const ptyControls = {
+      writeStdin: () => Promise.reject(new Error('not used')),
+    } satisfies PtyControlWriter;
+    const kinds = Object.fromEntries(buildBuiltinTools({
+      shellRuns,
+      backgroundTasks,
+      ptyControls,
+    }).map((tool) => [tool.name, tool.activityKind]));
 
     expect(kinds.Bash).toBe('command');
     expect(kinds.StopBackgroundTask).toBe('command');
+    expect(kinds.WriteStdin).toBe('command');
   });
 });
 
@@ -72,8 +88,8 @@ describe('builtin Bash description declares the executing shell', () => {
       cwd: process.cwd(),
       abortSignal: new AbortController().signal,
       emitOutput: () => {},
-    }) as { stdout: string };
-    expect(result.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n')).toBe(true);
+    }) as { output: { mode: string; stdout: string } };
+    expect(result.output.stdout.startsWith('-NoLogo -NoProfile -NonInteractive -Command echo wired-marker\n')).toBe(true);
   });
 
   test('executor Bash tells the model commands run under PowerShell 7', () => {
@@ -97,33 +113,25 @@ describe('builtin Bash streaming output', () => {
         return {
           kind: 'shell_run',
           ref: 'maka://runtime/background-tasks/shell-run-1',
+          mode: 'pty',
           status: 'running',
           cwd: '/workspace',
           cmd: 'sleep 60',
           startedAt: 1,
           updatedAt: 1,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          revision: 1,
         };
       },
-      async readResource() {
-        throw new Error('not used');
-      },
-      async stopResource() {
-        throw new Error('not used');
-      },
-    } satisfies ShellRunToolController;
+    } satisfies ShellRunLauncher;
     const tools = buildBuiltinTools({ shellRuns });
     const names = tools.map((tool) => tool.name);
 
     expect(names.filter((name) => name === 'Bash')).toHaveLength(1);
-    expect(names.includes('StopBackgroundTask')).toBe(true);
+    expect(names.includes('StopBackgroundTask')).toBe(false);
     const bash = tools.find((tool) => tool.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
     const result = await bash.impl(
-      { command: 'sleep 60', timeout_ms: 2_000, yield_time_ms: 1_234 },
+      { command: 'sleep 60', timeout_ms: 2_000, yield_time_ms: 1_234, pty: true },
       {
         sessionId: 'session-1',
         runId: 'run-1',
@@ -140,48 +148,64 @@ describe('builtin Bash streaming output', () => {
     expect((calls[0] as { yieldTimeMs?: number }).yieldTimeMs).toBe(1_234);
     expect((calls[0] as { timeoutMs?: number }).timeoutMs).toBe(2_000);
     expect((calls[0] as { sourceRunId?: string }).sourceRunId).toBe('run-1');
+    expect((calls[0] as { pty?: boolean }).pty).toBe(true);
   });
 
   test('Read treats runtime background task refs as whole resources', async () => {
     const calls: unknown[] = [];
-    const shellRuns = {
-      async runBash() {
-        throw new Error('not used');
-      },
-      async readResource(sessionId: string, ref: string) {
+    const runtimeResources = {
+      async readRuntimeResource(sessionId: string, ref: string, abortSignal: AbortSignal) {
         calls.push({ sessionId, ref });
         return {
-          kind: 'shell_run', ref, status: 'running', cwd: '/workspace',
+          kind: 'shell_run', ref, mode: 'pipes', status: 'running', cwd: '/workspace',
           cmd: 'sleep 60', startedAt: 1, updatedAt: 2,
-          stdout: 'background task detail', stderr: '',
-          stdoutTruncated: false, stderrTruncated: false,
+          revision: 2,
+          output: {
+            mode: 'pipes', stdout: 'background task detail', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
         };
       },
-      async stopResource() {
-        throw new Error('not used');
-      },
-    } satisfies ShellRunToolController;
-    const read = buildBuiltinTools({ shellRuns }).find((tool) => tool.name === 'Read');
+    } satisfies RuntimeResourceReader;
+    const read = buildBuiltinTools({ runtimeResources }).find((tool) => tool.name === 'Read');
     if (!read) throw new Error('Read tool missing');
-
+    const parameters = read.parameters as z.ZodTypeAny;
+    expect(parameters.safeParse({ path: 'README.md', offset: 2, limit: 10 }).success).toBe(true);
+    expect(parameters.safeParse({ ref: 'maka://runtime/background-tasks/shell-run-1' }).success).toBe(true);
+    expect(parameters.safeParse({
+      ref: 'maka://runtime/background-tasks/shell-run-1',
+      offset: 2,
+    }).success).toBe(false);
+    expect(parameters.safeParse({
+      path: 'README.md',
+      ref: 'maka://runtime/background-tasks/shell-run-1',
+    }).success).toBe(false);
+    const context = {
+      sessionId: 'session-1',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      cwd: '/workspace',
+      toolCallId: 'tool-1',
+      abortSignal: new AbortController().signal,
+      emitOutput: () => {},
+    };
+    await assert.rejects(
+      async () => read.impl({ path: 'maka://runtime/background-tasks/shell-run-1' }, context),
+      /must be read with the ref parameter/,
+    );
     const result = await read.impl(
-      { path: 'maka://runtime/background-tasks/shell-run-1', offset: 2, limit: 4 },
-      {
-        sessionId: 'session-1',
-        runId: 'run-1',
-        turnId: 'turn-1',
-        cwd: '/workspace',
-        toolCallId: 'tool-1',
-        abortSignal: new AbortController().signal,
-        emitOutput: () => {},
-      },
+      { ref: 'maka://runtime/background-tasks/shell-run-1' },
+      context,
     );
 
     expect(result).toEqual({
       kind: 'shell_run', ref: 'maka://runtime/background-tasks/shell-run-1',
-      status: 'running', cwd: '/workspace', cmd: 'sleep 60',
-      startedAt: 1, updatedAt: 2, stdout: 'background task detail', stderr: '',
-      stdoutTruncated: false, stderrTruncated: false,
+      mode: 'pipes', status: 'running', cwd: '/workspace', cmd: 'sleep 60',
+      startedAt: 1, updatedAt: 2, revision: 2,
+      output: {
+        mode: 'pipes', stdout: 'background task detail', stderr: '',
+        stdoutTruncated: false, stderrTruncated: false, redacted: false,
+      },
     });
     expect(calls).toEqual([{
       sessionId: 'session-1',
@@ -191,18 +215,13 @@ describe('builtin Bash streaming output', () => {
 
   test('StopBackgroundTask stops a runtime ref in the current session', async () => {
     const calls: unknown[] = [];
-    const shellRuns = {
-      async runBash() {
-        throw new Error('not used');
-      },
-      async readResource() {
-        throw new Error('not used');
-      },
-      async stopResource(sessionId: string, ref: string) {
+    const backgroundTasks = {
+      async stopBackgroundTask(sessionId: string, ref: string, abortSignal: AbortSignal) {
         calls.push({ sessionId, ref });
         return {
           kind: 'shell_run',
           ref,
+          mode: 'pipes',
           status: 'cancelled',
           cwd: '/workspace',
           cmd: 'sleep 60',
@@ -211,15 +230,16 @@ describe('builtin Bash streaming output', () => {
           completedAt: 2,
           exitCode: 130,
           failureMessage: 'Command cancelled',
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
-          cancelled: true,
+          revision: 3,
+          output: {
+            mode: 'pipes', stdout: '', stderr: '',
+            stdoutTruncated: false, stderrTruncated: false, redacted: false,
+          },
+          operation: { kind: 'stop', applied: true },
         };
       },
-    } satisfies ShellRunToolController;
-    const stop = buildBuiltinTools({ shellRuns }).find((tool) => tool.name === 'StopBackgroundTask');
+    } satisfies BackgroundTaskStopper;
+    const stop = buildBuiltinTools({ backgroundTasks }).find((tool) => tool.name === 'StopBackgroundTask');
     if (!stop) throw new Error('StopBackgroundTask tool missing');
 
     const result = await stop.impl(
@@ -235,11 +255,33 @@ describe('builtin Bash streaming output', () => {
       },
     );
 
-    expect(result).toMatchObject({ kind: 'shell_run', status: 'cancelled', cancelled: true });
+    expect(result).toMatchObject({
+      kind: 'shell_run',
+      status: 'cancelled',
+      operation: { kind: 'stop', applied: true },
+    });
     expect(calls).toEqual([{
       sessionId: 'session-1',
       ref: 'maka://runtime/background-tasks/shell-run-1',
     }]);
+  });
+
+  test('WriteStdin exposes the bounded PTY control schema', () => {
+    const ptyControls = {
+      writeStdin: () => Promise.reject(new Error('not used')),
+    } satisfies PtyControlWriter;
+    const write = buildBuiltinTools({ ptyControls }).find((tool) => tool.name === 'WriteStdin');
+    if (!write) throw new Error('WriteStdin tool missing');
+    const parameters = write.parameters as z.ZodTypeAny;
+
+    expect(parameters.safeParse({ ref: 'ref', input: 'hello\r', yield_time_ms: 0 }).success).toBe(true);
+    expect(parameters.safeParse({ ref: 'ref', size: { cols: 240, rows: 100 } }).success).toBe(true);
+    expect(parameters.safeParse({ ref: 'ref' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: '' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: '\uD800' }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: 'x'.repeat(64 * 1024 + 1) }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', size: { cols: 1, rows: 24 } }).success).toBe(false);
+    expect(parameters.safeParse({ ref: 'ref', input: 'x', yield_time_ms: 30_001 }).success).toBe(false);
   });
 
   test('delegates Bash execution to an injected workspace executor', async () => {
@@ -283,8 +325,14 @@ describe('builtin Bash streaming output', () => {
       cwd,
       cmd: 'npm test',
       exitCode: 0,
-      stdout: 'delegated-out',
-      stderr: 'delegated-err',
+      output: {
+        mode: 'pipes',
+        stdout: 'delegated-out',
+        stderr: 'delegated-err',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
+      },
     });
   });
 
@@ -351,8 +399,14 @@ describe('builtin Bash streaming output', () => {
       cwd,
       cmd: 'printf "out"; printf "err" >&2',
       exitCode: 0,
-      stdout: 'out',
-      stderr: 'err',
+      output: {
+        mode: 'pipes',
+        stdout: 'out',
+        stderr: 'err',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
+      },
     });
   });
 
@@ -399,13 +453,13 @@ describe('builtin Bash streaming output', () => {
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
       },
-    ) as { exitCode: number; stdout: string; stdoutTruncated: boolean };
+    ) as { exitCode: number; output: { stdout: string; stdoutTruncated: boolean } };
 
     expect(result.exitCode).toBe(0); // no reject — the old code threw away everything past the cap
-    expect(result.stdout.includes('line5000')).toBe(true); // tail preserved
-    expect(result.stdout.includes('truncated')).toBe(true); // truncation marker present
-    expect(result.stdout.includes('line1\n')).toBe(false); // head dropped, not the whole output
-    expect(result.stdoutTruncated).toBe(true);
+    expect(result.output.stdout.includes('line5000')).toBe(true); // tail preserved
+    expect(result.output.stdout.includes('truncated')).toBe(true); // truncation marker present
+    expect(result.output.stdout.includes('line1\n')).toBe(false); // head dropped, not the whole output
+    expect(result.output.stdoutTruncated).toBe(true);
   });
 
   test('foreground Bash marks retained-tail truncation even when model shaping does not truncate again', async () => {
@@ -423,10 +477,10 @@ describe('builtin Bash streaming output', () => {
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
       },
-    ) as { stdout: string; stdoutTruncated: boolean };
+    ) as { output: { stdout: string; stdoutTruncated: boolean } };
 
-    expect(result.stdoutTruncated).toBe(true);
-    expect(result.stdout).toContain('omitted for safety');
+    expect(result.output.stdoutTruncated).toBe(true);
+    expect(result.output.stdout).toContain('omitted for safety');
   });
 
   test('a failing command surfaces stdout/stderr on the rejection error', async () => {

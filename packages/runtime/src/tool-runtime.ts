@@ -27,6 +27,7 @@ import {
 } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
 import { truncateToolOutput } from './tool-output.js';
+import { projectToolActivityArgs } from '@maka/core';
 import { stableHash } from './request-shape.js';
 import type { RunTraceLike } from './run-trace.js';
 
@@ -271,7 +272,7 @@ export class ToolRuntime {
       toolUseId,
       toolName: tool.name,
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
-      args,
+      args: projectToolActivityArgs(tool.name, args),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -832,10 +833,14 @@ function coerceTerminalFailure(
       cmd: redactSecrets(command),
       status: error.code === 124 ? 'timed_out' : error.code === 130 ? 'cancelled' : 'failed',
       exitCode: error.code,
-      stdout,
-      stderr,
-      stdoutTruncated: error.stdoutTruncated === true,
-      stderrTruncated: error.stderrTruncated === true,
+      output: {
+        mode: 'pipes',
+        stdout,
+        stderr,
+        stdoutTruncated: error.stdoutTruncated === true,
+        stderrTruncated: error.stderrTruncated === true,
+        redacted: stdout !== String(error.stdout ?? '') || stderr !== String(error.stderr ?? ''),
+      },
     },
     // The in-turn result the model acts on is just this message (the structured
     // content above goes to session history). Without the actual output the
@@ -878,6 +883,11 @@ function deriveToolResultStatus(content: ToolResultContent): ToolInvocationRecor
     if (content.status === 'cancelled') return 'aborted';
     return 'error';
   }
+  if (
+    content.kind === 'shell_run'
+    && content.operation?.kind === 'pty_control'
+    && content.operation.failed
+  ) return 'error';
   // All other structured results are successful tool executions. That includes
   // ShellRun observations: their embedded process status stays model-visible,
   // but reading or returning the observation itself succeeded.

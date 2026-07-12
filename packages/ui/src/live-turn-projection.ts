@@ -1,6 +1,6 @@
 import type { SessionEvent, StoredMessage } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
-import { toolResultActivityStatus } from '@maka/core';
+import { projectToolActivityArgs, toolResultActivityStatus } from '@maka/core';
 import type { ToolActivityItem } from './materialize.js';
 import { applyThinkingComplete, applyThinkingDelta } from './thinking-stream.js';
 import { applyToolOutputChunk } from './tool-output-stream.js';
@@ -176,7 +176,7 @@ export function applyLiveTurnEvent(
       ...(event.intent !== undefined ? { intent: event.intent } : {}),
       ...(event.stepId !== undefined ? { stepId: event.stepId } : {}),
       status: 'pending',
-      args: event.args,
+      args: projectToolActivityArgs(event.toolName, event.args),
     };
     const existingTool = existingToolStep?.tools.find((candidate) => candidate.toolUseId === event.toolUseId);
     const tool: ToolActivityItem = existingTool
@@ -238,7 +238,9 @@ export function applyLiveTurnEvent(
           toolUseId: event.toolUseId,
           toolName: event.type === 'permission_request' ? event.toolName : 'Tool',
           status: 'pending',
-          args: event.type === 'permission_request' ? event.args : undefined,
+          args: event.type === 'permission_request'
+            ? projectToolActivityArgs(event.toolName, event.args)
+            : undefined,
         };
     const tool: ToolActivityItem = {
       ...base,
@@ -337,10 +339,15 @@ function durableStreamEvidence(
     const content = message.content;
     if (!content || typeof content !== 'object') return true;
     if (content.kind === 'terminal' || content.kind === 'shell_run') {
-      return (content.stdout?.length ?? 0) > 0
-        || (content.stderr?.length ?? 0) > 0
-        || content.stdoutTruncated === true
-        || content.stderrTruncated === true;
+      const output = content.output;
+      if (!output) return false;
+      return output.mode === 'pty'
+        ? true
+        : output.stdout.length > 0
+          || output.stderr.length > 0
+          || output.stdoutTruncated
+          || output.stderrTruncated
+          || output.redacted;
     }
     return true;
   }

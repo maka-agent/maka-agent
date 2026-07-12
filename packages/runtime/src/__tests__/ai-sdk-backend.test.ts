@@ -2786,10 +2786,14 @@ describe('AiSdkBackend error surfaces', () => {
       cmd: 'printf out; printf err >&2; exit 2',
       status: 'failed',
       exitCode: 2,
-      stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
-      stderr: 'stderr before failure',
-      stdoutTruncated: false,
-      stderrTruncated: false,
+      output: {
+        mode: 'pipes',
+        stdout: 'stdout before failure\nAuthorization: Bearer [redacted]',
+        stderr: 'stderr before failure',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: true,
+      },
     });
   });
 
@@ -5073,10 +5077,14 @@ describe('AiSdkBackend tool permission category hints', () => {
           cmd: 'sleep 300',
           status: 'completed',
           exitCode: 0,
-          stdout: '',
-          stderr: '',
-          stdoutTruncated: false,
-          stderrTruncated: false,
+          output: {
+            mode: 'pipes',
+            stdout: '',
+            stderr: '',
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            redacted: false,
+          },
         });
       }),
     };

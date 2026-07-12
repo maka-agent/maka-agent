@@ -19,6 +19,7 @@ import type {
   SessionEvent,
   SessionListFilter,
   SessionSummary,
+  ShellRunUpdate,
   StoredMessage,
   ThinkingLevel,
   UpdateConnectionInput,
@@ -155,6 +156,10 @@ declare global {
         setModel(sessionId: string, input: { llmConnectionSlug: string; model: string }): Promise<SessionSummary>;
         setThinkingLevel(sessionId: string, level: ThinkingLevel | undefined | null): Promise<SessionSummary>;
         remove(sessionId: string): Promise<void>;
+      };
+      shellRuns: {
+        list(sessionId: string): Promise<ShellRunUpdate[]>;
+        subscribeUpdates(handler: (update: ShellRunUpdate) => void): () => void;
       };
       connections: {
         list(): Promise<LlmConnection[]>;

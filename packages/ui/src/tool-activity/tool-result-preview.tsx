@@ -1,4 +1,11 @@
-import { normalizeSearchUrl, type ToolResultContent } from '@maka/core';
+import { useEffect, useRef } from 'react';
+import {
+  isShellOutput,
+  normalizeSearchUrl,
+  ptyHumanTerminalText,
+  type ShellOutput,
+  type ToolResultContent,
+} from '@maka/core';
 import { previewVariants } from '../primitives/chat.js';
 import { redactSecrets } from '../redact.js';
 import { cn } from '../ui.js';
@@ -24,7 +31,7 @@ export const TOOL_OUTPUT_NOTE_CLASS =
   'm-0 text-[length:var(--font-size-base)] leading-normal text-[color:var(--muted-foreground)]';
 
 /** Routes persisted tool results to bounded, kind-specific preview cards. */
-export function ToolResultPreview(props: { content: ToolResultContent }) {
+export function ToolResultPreview(props: { content: ToolResultContent; toolName?: string }) {
   const { content } = props;
 
   if (content.kind === 'file_diff') {
@@ -55,16 +62,15 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
         cwd={content.cwd}
         cmd={content.cmd}
         exitCode={content.exitCode}
-        stdout={content.stdout}
-        stderr={content.stderr}
         status={content.status}
-        stdoutTruncated={content.stdoutTruncated}
-        stderrTruncated={content.stderrTruncated}
+        failureMessage={content.failureMessage}
+        output={isShellOutput(content.output) ? content.output : undefined}
       />
     );
   }
 
   if (content.kind === 'shell_run') {
+    if (props.toolName === 'WriteStdin') return <PtyControlPreview result={content} />;
     return <ShellRunPreview result={content} />;
   }
 
@@ -113,6 +119,31 @@ export function ToolResultPreview(props: { content: ToolResultContent }) {
     <pre className={TOOL_OUTPUT_BODY_CLASS} data-kind={content.kind}>
       [{content.kind}]
     </pre>
+  );
+}
+
+function PtyControlPreview(props: {
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>;
+}) {
+  const operation = props.result.operation;
+  if (operation?.kind !== 'pty_control') {
+    return <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>后台终端交互失败</p>;
+  }
+  const parts: string[] = [];
+  if (operation.input) {
+    parts.push(operation.input.applied
+      ? `已发送 ${operation.input.bytes} 字节`
+      : `未发送 ${operation.input.bytes} 字节`);
+  }
+  if (operation.resize) {
+    const size = `${operation.resize.cols}x${operation.resize.rows}`;
+    parts.push(operation.resize.applied ? `已调整为 ${size}` : `未调整为 ${size}`);
+  }
+  if (operation.failed) parts.push('后台终端交互失败');
+  return (
+    <p className={cn(TOOL_OUTPUT_NOTE_CLASS, operation.failed && 'text-[color:var(--destructive)]')}>
+      {parts.join(' · ') || '后台终端交互已完成'}
+    </p>
   );
 }
 
@@ -176,27 +207,17 @@ function diffLineKind(line: string): 'add' | 'del' | 'hunk' | 'meta' | 'ctx' {
 function TerminalPreview(props: {
   cwd: string;
   cmd: string;
-  exitCode: number;
-  stdout: string;
-  stderr: string;
+  exitCode?: number;
   status?: string;
-  stdoutTruncated?: boolean;
-  stderrTruncated?: boolean;
+  failureMessage?: string;
+  output?: ShellOutput;
 }) {
   const cancelled = isCancelledStatus(props.status);
   const timedOut = props.status === 'timed_out';
-  const succeeded = props.exitCode === 0 && !cancelled && !timedOut;
-  const hasOutput = props.stdout.length > 0 || props.stderr.length > 0;
-  // Redact + cap stdout/stderr independently. `npm test` against a misconfigured
-  // provider can dump megabytes of stderr; we keep the first TOOL_LINE_CAP
-  // lines and append a hidden-count marker.
-  const stdout = capLines(redactSecrets(props.stdout));
-  const stderr = capLines(redactSecrets(props.stderr));
+  const succeeded = props.status === 'completed';
   // The cmd line is also user-runtime text — don't echo a `--api-key=...`
   // arg into the chat without masking it.
   const safeCmd = redactSecrets(props.cmd);
-  const hiddenLines = stdout.capped + stderr.capped;
-  const runtimeTruncated = props.stdoutTruncated === true || props.stderrTruncated === true;
   const attention = !succeeded || cancelled || timedOut;
 
   return (
@@ -208,44 +229,29 @@ function TerminalPreview(props: {
       {safeCmd.length > 0 && (
         <code className={TOOL_OUTPUT_COMMAND_CLASS}>{safeCmd}</code>
       )}
-      {!hasOutput && (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>
+      {props.output ? (
+        <ShellOutputBody output={props.output} failed={!succeeded} />
+      ) : (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出不可用</p>
       )}
-      {props.stdout.length > 0 && (
-        <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
-          {stdout.body}
-          {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
-        </pre>
-      )}
-      {props.stderr.length > 0 && (
-        <pre
-          className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')}
-          data-stream="stderr"
-        >
-          {stderr.body}
-          {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
-        </pre>
+      {props.failureMessage && (
+        <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
+          {redactSecrets(props.failureMessage)}
+        </p>
       )}
       {cancelled && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          已取消 · 退出码 {props.exitCode}
+          {props.exitCode !== undefined ? `已取消 · 退出码 ${props.exitCode}` : '已取消'}
         </p>
       )}
       {timedOut && !cancelled && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          已超时 · 退出码 {props.exitCode}
+          {props.exitCode !== undefined ? `已超时 · 退出码 ${props.exitCode}` : '已超时'}
         </p>
       )}
       {!succeeded && !cancelled && !timedOut && (
         <p className={cn(TOOL_OUTPUT_NOTE_CLASS, 'text-[color:var(--destructive)]')}>
-          失败 · 退出码 {props.exitCode}
-        </p>
-      )}
-      {(runtimeTruncated || hiddenLines > 0) && (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>
-          {hiddenLines > 0
-            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
-            : '输出已截断'}
+          {props.exitCode !== undefined ? `失败 · 退出码 ${props.exitCode}` : '失败'}
         </p>
       )}
     </div>
@@ -262,11 +268,7 @@ function ShellRunPreview(props: {
   const { result } = props;
   const safeCmd = redactSecrets(result.cmd);
   const safeRef = redactSecrets(result.ref);
-  const stdout = capLines(redactSecrets(result.stdout ?? ''));
-  const stderr = capLines(redactSecrets(result.stderr ?? ''));
-  const hasOutput = (result.stdout?.length ?? 0) > 0 || (result.stderr?.length ?? 0) > 0;
-  const runtimeTruncated = result.stdoutTruncated === true || result.stderrTruncated === true;
-  const hiddenLines = stdout.capped + stderr.capped;
+  const output = isShellOutput(result.output) ? result.output : undefined;
   const statusLabel = shellRunStatusLabel(result.status);
   const attention = result.status === 'failed' || result.status === 'orphaned' || (result.exitCode !== undefined && result.exitCode !== 0);
 
@@ -289,32 +291,87 @@ function ShellRunPreview(props: {
           {redactSecrets(result.failureMessage)}
         </p>
       )}
-      {!hasOutput && (
-        <p className={TOOL_OUTPUT_NOTE_CLASS}>（尚无输出）</p>
+      {output ? (
+        <ShellOutputBody
+          output={output}
+          failed={result.status === 'failed' || result.status === 'orphaned'}
+        />
+      ) : (
+        <p className={TOOL_OUTPUT_NOTE_CLASS}>
+          {result.mode === 'pty' && (result.status === 'failed' || result.status === 'orphaned')
+            ? '（无可用终端画面）'
+            : '（尚无输出）'}
+        </p>
       )}
-      {(result.stdout?.length ?? 0) > 0 && (
+    </div>
+  );
+}
+
+function ShellOutputBody(props: { output: ShellOutput; failed: boolean }) {
+  if (props.output.mode === 'pty') {
+    const text = redactSecrets(ptyHumanTerminalText(props.output));
+    return (
+      <>
+        {text ? <PtyTerminalSurface text={text} /> : (
+          <p className={TOOL_OUTPUT_NOTE_CLASS}>
+            {props.failed ? '（无可用终端画面）' : '（尚无输出）'}
+          </p>
+        )}
+        {props.output.truncated && <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出已截断</p>}
+        {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>终端输出已脱敏</p>}
+      </>
+    );
+  }
+  const stdout = capLines(redactSecrets(props.output.stdout));
+  const stderr = capLines(redactSecrets(props.output.stderr));
+  const hiddenLines = stdout.capped + stderr.capped;
+  const runtimeTruncated = props.output.stdoutTruncated || props.output.stderrTruncated;
+  const hasOutput = props.output.stdout.length > 0 || props.output.stderr.length > 0;
+  return (
+    <>
+      {!hasOutput && <p className={TOOL_OUTPUT_NOTE_CLASS}>（无输出）</p>}
+      {props.output.stdout.length > 0 && (
         <pre className={TOOL_OUTPUT_BODY_CLASS} data-stream="stdout">
           {stdout.body}
           {stdout.capped > 0 && `\n\n… stdout 已隐藏 ${stdout.capped} 行`}
         </pre>
       )}
-      {(result.stderr?.length ?? 0) > 0 && (
-        <pre
-          className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')}
-          data-stream="stderr"
-        >
+      {props.output.stderr.length > 0 && (
+        <pre className={cn(TOOL_OUTPUT_BODY_CLASS, 'text-[color:var(--destructive)]')} data-stream="stderr">
           {stderr.body}
           {stderr.capped > 0 && `\n\n… stderr 已隐藏 ${stderr.capped} 行`}
         </pre>
       )}
       {(runtimeTruncated || hiddenLines > 0) && (
         <p className={TOOL_OUTPUT_NOTE_CLASS}>
-          {hiddenLines > 0
-            ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行`
-            : '输出已截断'}
+          {hiddenLines > 0 ? `输出已截断 · 每路仅展示前 ${TOOL_LINE_CAP} 行` : '输出已截断'}
         </p>
       )}
-    </div>
+      {props.output.redacted && <p className={TOOL_OUTPUT_NOTE_CLASS}>输出已脱敏</p>}
+    </>
+  );
+}
+
+function PtyTerminalSurface(props: { text: string }) {
+  const ref = useRef<HTMLPreElement>(null);
+  const followTail = useRef(true);
+  useEffect(() => {
+    const element = ref.current;
+    if (element && followTail.current) element.scrollTop = element.scrollHeight;
+  }, [props.text]);
+  return (
+    <pre
+      ref={ref}
+      className={cn(TOOL_OUTPUT_BODY_CLASS, 'overflow-auto [white-space:pre] [word-break:normal]')}
+      data-stream="pty"
+      style={{ whiteSpace: 'pre', wordBreak: 'normal' }}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        followTail.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 2;
+      }}
+    >
+      {props.text}
+    </pre>
   );
 }
 

@@ -21,6 +21,7 @@ import type {
   SessionEvent,
   SessionListFilter,
   SessionSummary,
+  ShellRunUpdate,
   StoredMessage,
   ThinkingLevel,
   UpdateConnectionInput,
@@ -220,6 +221,16 @@ contextBridge.exposeInMainWorld('maka', {
     },
     remove(sessionId: string): Promise<void> {
       return ipcRenderer.invoke('sessions:remove', sessionId);
+    },
+  },
+  shellRuns: {
+    list(sessionId: string): Promise<ShellRunUpdate[]> {
+      return ipcRenderer.invoke('shell-runs:list', sessionId);
+    },
+    subscribeUpdates(handler: (update: ShellRunUpdate) => void): () => void {
+      const listener = (_event: Electron.IpcRendererEvent, update: ShellRunUpdate) => handler(update);
+      ipcRenderer.on('shell-runs:update', listener);
+      return () => ipcRenderer.off('shell-runs:update', listener);
     },
   },
   connections: {

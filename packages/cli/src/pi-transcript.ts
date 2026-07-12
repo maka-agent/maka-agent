@@ -8,6 +8,7 @@ import type {
 import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
+import { mergeShellRunStateWithDiagnostics } from '@maka/core';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
 import type { MakaSessionDriver } from './session-driver.js';
 import { BoundedChunkBuffer } from './bounded-chunk-buffer.js';
@@ -291,12 +292,20 @@ export function applyMakaSessionEventToTranscript(
         : undefined;
       if (tool && parent && shellRun) {
         applyShellRunResult(parent, shellRun);
-        state.entries.splice(state.entries.indexOf(tool), 1);
+        if (tool.toolName === 'Read' || tool.toolName === 'StopBackgroundTask') {
+          state.entries.splice(state.entries.indexOf(tool), 1);
+        } else {
+          applyOwnShellRunResult(tool, shellRun, event.durationMs);
+        }
         break;
       }
       if (tool) {
         if (shellRun) {
-          applyShellRunResult(tool, shellRun);
+          if (tool.toolName === 'Bash') {
+            applyShellRunResult(tool, shellRun);
+          } else {
+            applyOwnShellRunResult(tool, shellRun, event.durationMs);
+          }
         } else {
           tool.status = event.isError ? 'error' : 'done';
           tool.result = event.content;
@@ -459,7 +468,7 @@ function toolActivityToTranscriptEntry(item: ToolActivityItem): MakaPiToolEntry 
     ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
     status: transcriptToolStatus(item.status),
   };
-  if (item.result?.kind === 'shell_run') applyShellRunResult(entry, item.result);
+  if (item.result?.kind === 'shell_run') applyOwnShellRunResult(entry, item.result);
   return entry;
 }
 
@@ -476,7 +485,7 @@ function foldStoredShellRunChildren(entries: MakaPiTranscriptEntry[]): MakaPiTra
           && candidate.result.ref === shellRun.ref);
       if (parent) {
         applyShellRunResult(parent, shellRun);
-        continue;
+        if (entry.toolName === 'Read' || entry.toolName === 'StopBackgroundTask') continue;
       }
     }
     folded.push(entry);
@@ -519,24 +528,36 @@ function applyShellRunResult(
   entry: MakaPiToolEntry,
   result: Extract<ToolResultContent, { kind: 'shell_run' }>,
 ): boolean {
-  if (entry.result?.kind === 'shell_run' && shellRunUpdateIsStale(entry.result, result)) return false;
-  entry.status = shellRunTranscriptStatus(result.status);
-  entry.result = result;
-  entry.output = formatToolResultContent(result);
-  entry.durationMs = Math.max(0, (result.completedAt ?? result.updatedAt) - result.startedAt);
+  const current = entry.result?.kind === 'shell_run' ? entry.result : undefined;
+  const merged = mergeShellRunStateWithDiagnostics(current, result, 'cli.transcript');
+  if (!merged.changed) return false;
+  entry.status = shellRunTranscriptStatus(merged.result.status);
+  entry.result = merged.result;
+  entry.output = formatToolResultContent(merged.result);
+  entry.durationMs = Math.max(
+    0,
+    (merged.result.completedAt ?? merged.result.updatedAt) - merged.result.startedAt,
+  );
   entry.resultVersion += 1;
   return true;
 }
 
-function shellRunUpdateIsStale(
-  current: Extract<ToolResultContent, { kind: 'shell_run' }>,
-  next: Extract<ToolResultContent, { kind: 'shell_run' }>,
-): boolean {
-  if (current.updatedAt !== next.updatedAt) return current.updatedAt > next.updatedAt;
-  if (current.status !== 'running' || next.status !== 'running') {
-    return current.status !== 'running' && next.status === 'running';
+function applyOwnShellRunResult(
+  entry: MakaPiToolEntry,
+  result: Extract<ToolResultContent, { kind: 'shell_run' }>,
+  operationDurationMs = entry.durationMs,
+): void {
+  entry.status = entry.toolName === 'WriteStdin'
+    ? result.operation?.kind === 'pty_control' && result.operation.failed ? 'error' : 'done'
+    : shellRunTranscriptStatus(result.status);
+  entry.result = result;
+  entry.output = formatToolResultContent(result);
+  if (entry.toolName === 'WriteStdin') {
+    entry.durationMs = operationDurationMs;
+  } else {
+    entry.durationMs = Math.max(0, (result.completedAt ?? result.updatedAt) - result.startedAt);
   }
-  return current.stdout.length + current.stderr.length > next.stdout.length + next.stderr.length;
+  entry.resultVersion += 1;
 }
 
 function systemNoteToTranscriptEntry(message: SystemNoteMessage): MakaPiTranscriptEntry | undefined {

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import type { ShellRunRecord } from '@maka/core';
+import type { ShellRunPatch, ShellRunRecord } from '@maka/core';
 import { createShellRunStore } from '../shell-run-store.js';
 
 describe('ShellRunStore', () => {
@@ -15,15 +15,15 @@ describe('ShellRunStore', () => {
       const updated = await store.updateShellRun('session-1', 'shell-1', {
         status: 'completed',
         exitCode: 0,
-        stdoutTail: 'done',
-        latestOutputStream: 'stdout',
+        output: pipeOutput({ stdout: 'done', latestStream: 'stdout' }),
         completedAt: 10,
         updatedAt: 10,
       });
 
       assert.equal(updated.status, 'completed');
-      assert.equal(updated.stdoutTail, 'done');
-      assert.equal(updated.latestOutputStream, 'stdout');
+      assert.equal(updated.output.mode === 'pipes' ? updated.output.stdout : '', 'done');
+      assert.equal(updated.output.mode === 'pipes' ? updated.output.latestStream : undefined, 'stdout');
+      assert.equal(updated.revision, 2);
       assert.deepEqual((await store.listSessionShellRuns('session-1')).map((run) => run.shellRunId), ['shell-1', 'shell-2']);
       assert.equal((await store.readShellRun('session-1', 'shell-1')).completedAt, 10);
       assert.equal(
@@ -44,6 +44,81 @@ describe('ShellRunStore', () => {
 
       const raw = await readFile(join(root, 'sessions', 'session-1', 'shell-runs', 'shell-1', 'shell-run.json'), 'utf8');
       assert.equal(JSON.parse(raw).command, 'first');
+    });
+  });
+
+  it('increments revision only when durable state changes', async () => {
+    await withStore(async (store) => {
+      await store.createShellRun(record({ shellRunId: 'shell-1' }));
+
+      const unchanged = await store.updateShellRun('session-1', 'shell-1', {
+        exitCode: undefined,
+        failureMessage: undefined,
+      });
+      const changed = await store.updateShellRun('session-1', 'shell-1', {
+        output: pipeOutput({ stdout: 'next' }),
+        updatedAt: 2,
+      });
+
+      assert.equal(unchanged.revision, 1);
+      assert.equal(changed.revision, 2);
+    });
+  });
+
+  it('records only the first terminal observation under concurrent updates', async () => {
+    await withStore(async (store) => {
+      await store.createShellRun(record({
+        shellRunId: 'shell-1',
+        status: 'completed',
+        completedAt: 2,
+        exitCode: 0,
+      }));
+
+      const [first, second] = await Promise.all([
+        store.updateShellRun('session-1', 'shell-1', { observedAt: 10 }),
+        store.updateShellRun('session-1', 'shell-1', { observedAt: 20 }),
+      ]);
+
+      assert.equal(first.observedAt, 10);
+      assert.equal(second.observedAt, 10);
+      assert.equal(second.revision, 2);
+      assert.equal((await store.readShellRun('session-1', 'shell-1')).revision, 2);
+    });
+  });
+
+  it('keeps launch identity and output mode immutable', async () => {
+    await withStore(async (store) => {
+      await store.createShellRun(record({ shellRunId: 'shell-1' }));
+
+      await assert.rejects(
+        () => store.updateShellRun('session-1', 'shell-1', {
+          command: 'replacement',
+        } as unknown as ShellRunPatch),
+        /ShellRun field is immutable: command/,
+      );
+      await assert.rejects(
+        () => store.updateShellRun('session-1', 'shell-1', {
+          output: {
+            mode: 'pty',
+            screen: '',
+            scrollback: '',
+            cols: 80,
+            rows: 24,
+            cursor: { x: 0, y: 0, visible: true },
+            alternateScreen: false,
+            truncated: false,
+            redacted: false,
+          },
+        }),
+        /ShellRun output mode is immutable: pipes/,
+      );
+      await assert.rejects(
+        () => store.createShellRun({
+          ...record({ shellRunId: 'shell-with-operation' }),
+          operation: { kind: 'stop', applied: true },
+        } as unknown as ShellRunRecord),
+        /malformed fields/,
+      );
     });
   });
 
@@ -121,6 +196,8 @@ function record(input: {
   status?: ShellRunRecord['status'];
   startedAt?: number;
   updatedAt?: number;
+  completedAt?: number;
+  exitCode?: number;
 }): ShellRunRecord {
   return {
     shellRunId: input.shellRunId,
@@ -133,9 +210,23 @@ function record(input: {
     status: input.status ?? 'running',
     startedAt: input.startedAt ?? 1,
     updatedAt: input.updatedAt ?? 1,
-    stdoutTail: '',
-    stderrTail: '',
+    ...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
+    ...(input.exitCode !== undefined ? { exitCode: input.exitCode } : {}),
+    revision: 1,
+    output: pipeOutput(),
+  };
+}
+
+function pipeOutput(
+  input: { stdout?: string; stderr?: string; latestStream?: 'stdout' | 'stderr' } = {},
+): Extract<ShellRunRecord['output'], { mode: 'pipes' }> {
+  return {
+    mode: 'pipes',
+    stdout: input.stdout ?? '',
+    stderr: input.stderr ?? '',
+    ...(input.latestStream ? { latestStream: input.latestStream } : {}),
     stdoutTruncated: false,
     stderrTruncated: false,
+    redacted: false,
   };
 }

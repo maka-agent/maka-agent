@@ -184,6 +184,7 @@ export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
   patch: 'file_write',
   // shell — default unsafe; categorizeBash() may downgrade or upgrade
   Bash: 'shell_unsafe',
+  WriteStdin: 'shell_unsafe',
 };
 
 // ============================================================================
@@ -503,6 +504,8 @@ export function permissionScopeKey(toolName: string, args: unknown, category: To
       return `${category}:${toolName}:${stringArg(args, 'path')}:${stringArg(args, 'glob')}:${stringArg(args, 'pattern')}`;
     case 'Bash':
       return `${category}:${toolName}:${normalizeScopeText(stringArg(args, 'command'))}`;
+    case 'WriteStdin':
+      return `${category}:${toolName}:${stringArg(args, 'ref')}`;
     case 'WebSearch':
       return `${category}:${toolName}:${stringArg(args, 'query')}`;
     default:

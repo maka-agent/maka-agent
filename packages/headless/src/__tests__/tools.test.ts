@@ -55,10 +55,14 @@ describe('isolated headless tools', () => {
       cmd: 'npm test',
       status: 'failed',
       exitCode: 7,
-      stdout: 'out\n',
-      stderr: 'err\n',
-      stdoutTruncated: false,
-      stderrTruncated: false,
+      output: {
+        mode: 'pipes',
+        stdout: 'out\n',
+        stderr: 'err\n',
+        stdoutTruncated: false,
+        stderrTruncated: false,
+        redacted: false,
+      },
     });
   });
 
@@ -121,16 +125,16 @@ describe('isolated headless tools', () => {
         abortSignal: new AbortController().signal,
         emitOutput: (stream, chunk) => emitted.push({ stream, chunk }),
       },
-    ) as { stdout: string };
+    ) as { output: { stdout: string } };
 
     // emitOutput surfaces whatever the executor RETURNS to history (there is no
     // live per-chunk channel across the executor boundary — see the Harbor tests
     // for the real bounded path). The model-facing result is bounded further.
     assert.equal(emitted.find((event) => event.stream === 'stdout')?.chunk, big);
-    assert.ok(result.stdout.includes('line5000'));
-    assert.ok(result.stdout.includes('truncated'));
-    assert.ok(!result.stdout.includes('line1\n'));
-    assert.ok(result.stdout.length < big.length);
+    assert.ok(result.output.stdout.includes('line5000'));
+    assert.ok(result.output.stdout.includes('truncated'));
+    assert.ok(!result.output.stdout.includes('line1\n'));
+    assert.ok(result.output.stdout.length < big.length);
   });
 
   test('Bash preserves retained-tail truncation flags from the isolated executor', async () => {
@@ -143,10 +147,10 @@ describe('isolated headless tools', () => {
     const result = await bash.impl(
       { command: 'noisy' },
       toolCtx('/workspace'),
-    ) as { stdoutTruncated: boolean; stderrTruncated: boolean };
+    ) as { output: { stdoutTruncated: boolean; stderrTruncated: boolean } };
 
-    assert.equal(result.stdoutTruncated, true);
-    assert.equal(result.stderrTruncated, false);
+    assert.equal(result.output.stdoutTruncated, true);
+    assert.equal(result.output.stderrTruncated, false);
   });
 
   test('Bash delegates cleanup commands to the isolated executor', async () => {
@@ -169,7 +173,7 @@ describe('isolated headless tools', () => {
         abortSignal: new AbortController().signal,
         emitOutput: (stream, chunk) => emitted.push({ stream, chunk }),
       },
-    ) as { exitCode: number; stdout: string; stderr: string };
+    ) as { exitCode: number; output: { stdout: string; stderr: string } };
 
     assert.deepEqual(calls, [{
       command: 'rm -f *.gcda *.gcno *.gcov',
@@ -178,8 +182,8 @@ describe('isolated headless tools', () => {
       boundedTail: true,
     }]);
     assert.equal(result.exitCode, 0);
-    assert.equal(result.stdout, 'cleaned\n');
-    assert.equal(result.stderr, '');
+    assert.equal(result.output.stdout, 'cleaned\n');
+    assert.equal(result.output.stderr, '');
     assert.deepEqual(emitted, [{ stream: 'stdout', chunk: 'cleaned\n' }]);
   });
 
