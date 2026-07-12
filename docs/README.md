@@ -11,7 +11,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 
 ## Start here
 
-- [Backend architecture](../ARCHITECTURE.en.md) ([中文](../ARCHITECTURE.md))
+- [Backend architecture](../ARCHITECTURE.md) ([中文](../ARCHITECTURE.zh-CN.md))
 - [Desktop architecture](../apps/desktop/README.md)
 - [Renderer architecture](../apps/desktop/src/renderer/README.md)
 - [Headless usage and isolation](../packages/headless/README.md)
