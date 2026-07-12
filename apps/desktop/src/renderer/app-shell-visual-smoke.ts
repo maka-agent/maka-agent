@@ -15,6 +15,7 @@ export function createAppShellVisualSmokeActions(options: {
   openSettingsSection: (section: SettingsSection) => void;
   refreshSessions: () => Promise<unknown>;
   setActiveId: (sessionId: string | undefined) => void;
+  setLiveBrowserSessionIds: Dispatch<SetStateAction<string[]>>;
   setLiveTurnBySession: StateUpdater<Record<string, LiveTurnProjection>>;
   setNavSelection: Dispatch<SetStateAction<NavSelection>>;
   setPermissionBySession: StateUpdater<PermissionQueues>;
@@ -27,6 +28,7 @@ export function createAppShellVisualSmokeActions(options: {
     openSettingsSection,
     refreshSessions,
     setActiveId,
+    setLiveBrowserSessionIds,
     setLiveTurnBySession,
     setNavSelection,
     setPermissionBySession,
@@ -102,6 +104,13 @@ export function createAppShellVisualSmokeActions(options: {
     await refreshSessions();
     if (state.activeSessionId) {
       setActiveId(state.activeSessionId);
+    }
+    // #819: seed live browser session ids so BrowserPanel mounts for the
+    // active session (app-shell gates on `activeId &&
+    // liveBrowserSessionIds.includes(activeId)`). Only the `browser-empty`
+    // scenario sets this; real users never receive a visual smoke state.
+    if (state.liveBrowserSessionIds) {
+      setLiveBrowserSessionIds(state.liveBrowserSessionIds);
     }
     if (state.sidebarCollapsed !== undefined) {
       setSessionListCollapsed(state.sidebarCollapsed);

@@ -113,7 +113,6 @@ const baseChatProps: ChatViewProps = {
   activeModelLabel: 'Claude Sonnet 4.5',
   modelChoices,
   userLabel: '你',
-  mode: 'sessions',
   onNew: noop,
   onPromptSuggestion: noop,
 };

@@ -33,6 +33,8 @@ export interface RunNotificationGate {
    * — consistent with incognito pausing local memory / search.
    */
   readonly incognito: boolean;
+  /** Automated desktop runs must never emit native OS notifications. */
+  readonly e2e: boolean;
 }
 
 /**
@@ -41,7 +43,7 @@ export interface RunNotificationGate {
  * the predicate is a plain conjunction.
  */
 export function shouldRaiseRunNotification(gate: RunNotificationGate): boolean {
-  return gate.enabled && gate.supported && !gate.windowFocused && !gate.incognito;
+  return gate.enabled && gate.supported && !gate.windowFocused && !gate.incognito && !gate.e2e;
 }
 
 export interface RunNotificationCopy {

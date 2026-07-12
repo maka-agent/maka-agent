@@ -5,7 +5,8 @@
  * count, fail when new ones creep in OR when stale allowlist entries
  * point at content that no longer exists.
  *
- * tabs.tsx has 2 `transition-[<list>]` patterns and 1 `duration-200`.
+ * tabs.tsx has 2 `transition-[<list>]` patterns. The indicator duration and
+ * easing both use the renderer's canonical motion tokens.
  * The counts here are derived from `grep -o ... | wc -l`.
  */
 
@@ -29,18 +30,6 @@ const TABS_ALLOWED: ReadonlyArray<{ pattern: string; count: number; reason: stri
     count: 1,
     reason:
       'tabs trigger paint transition. No layout properties. Safe; allowlisted for completeness.',
-  },
-  {
-    pattern: 'duration-200',
-    count: 1,
-    reason:
-      'tabs indicator settle duration. Matches --duration-base (200ms) by value but uses the bare Tailwind utility; could tokenize.',
-  },
-  {
-    pattern: 'ease-in-out',
-    count: 1,
-    reason:
-      "tabs indicator easing. Generic Tailwind easing, not the project's canonical --ease-out-strong. Mismatch is small for this micro-motion but flagged for future review.",
   },
 ];
 
@@ -74,5 +63,15 @@ describe('PR-FE-BUG-HUNT-13 tabs.tsx design contract', () => {
       [],
       `Found unexpected transition-[<bracketed>] patterns in tabs.tsx: ${JSON.stringify(unexpected)}. Add to TABS_ALLOWED with a justification, or refactor.`,
     );
+  });
+
+  it('uses canonical motion tokens for the indicator transition', async () => {
+    const src = await readFile(TABS_FILE, 'utf8');
+    const indicator = src.match(/<TabsPrimitive\.Indicator[\s\S]*?data-slot="tab-indicator"[\s\S]*?\/>/)?.[0] ?? '';
+    assert.ok(indicator, 'TabsPrimitive.Indicator block must remain discoverable');
+    assert.match(indicator, /transition-\[width,translate\]/);
+    assert.match(indicator, /duration-\[var\(--duration-base\)\]/);
+    assert.match(indicator, /ease-\[var\(--ease-in-out-strong\)\]/);
+    assert.doesNotMatch(indicator, /\bduration-200\b/);
   });
 });

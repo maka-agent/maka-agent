@@ -113,7 +113,24 @@ export type VisualSmokeScenario =
   // becomes visible (via `:focus-within`). Verifies that the
   // time meta + unread dot do NOT leak through the action icons
   // — the bug WAWQAQ flagged.
-  | 'sidebar-row-actions-visible';
+  | 'sidebar-row-actions-visible'
+  // Scroll-geometry contract: a 24-turn session whose turns are each ~1300px
+  // tall, opened as the active session on boot. Off-screen turns mount as
+  // 250px content-visibility placeholders, so this seed exercises the
+  // warm-up + pinned-bottom geometry invariants (E2E scroll-geometry spec)
+  // and gives screenshots a long-transcript surface.
+  | 'long-transcript'
+  // #819: BrowserPanel renderer-chrome fixture. Seeds `liveBrowserSessionIds`
+  // with the active turn session so `BrowserPanel` mounts (app-shell gates
+  // on `activeId && liveBrowserSessionIds.includes(activeId)`). In
+  // visual-smoke mode there is no native `WebContentsView`, so
+  // `browser.getState` resolves null and `BrowserPanel` renders `EMPTY_STATE`
+  // — the empty-state chrome (toolbar with all nav buttons disabled + the
+  // `<Empty>` strip) that the #818 narrow-layout defect regressed against.
+  // Loaded / loading / nav chrome states are locked by the
+  // `browser-panel-chrome` source contract (their wiring IS the behavior);
+  // their screenshots add no layout value over this empty-state baseline.
+  | 'browser-empty';
 
 export interface VisualSmokeLiveTool {
   toolUseId: string;
@@ -152,6 +169,15 @@ export interface VisualSmokeState {
    */
   now?: number;
   activeSessionId?: string;
+  /**
+   * #819: session ids with a live embedded-browser view, mirrorring the
+   * renderer's `liveBrowserSessionIds` state (app-shell gates `BrowserPanel`
+   * mounting on `activeId && liveBrowserSessionIds.includes(activeId)`).
+   * Seeded only by the `browser-empty` scenario so the renderer chrome can
+   * be screenshot-captured. Real users never receive a visual smoke state, so
+   * this never drives production `browser:live` wiring.
+   */
+  liveBrowserSessionIds?: string[];
   openSettingsSection?: SettingsSection;
   liveTurnBySession?: Record<string, VisualSmokeLiveTurnProjection>;
   permissionBySession?: Record<string, PermissionRequestEvent>;

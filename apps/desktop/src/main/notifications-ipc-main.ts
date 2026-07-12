@@ -12,6 +12,7 @@ type MainWindowController = ReturnType<typeof createMainWindowController>;
 interface NotificationsIpcDeps {
   settingsStore: { get(): Promise<AppSettings> };
   mainWindowController: MainWindowController;
+  e2e: boolean;
 }
 
 /**
@@ -39,6 +40,7 @@ export function registerNotificationsIpc(deps: NotificationsIpcDeps): void {
       supported,
       windowFocused: deps.mainWindowController.isFocused(),
       incognito: settings.privacy.incognitoActive,
+      e2e: deps.e2e,
     };
     if (!shouldRaiseRunNotification(gate)) return;
 

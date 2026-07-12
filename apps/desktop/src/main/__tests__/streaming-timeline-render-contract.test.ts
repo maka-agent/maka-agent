@@ -5,10 +5,14 @@ import { resolve } from 'node:path';
 
 it('renders live thinking and text from timeline items instead of a trailing live content path', async () => {
   const source = await readFile(
-    resolve(import.meta.dirname, '../../../../../packages/ui/src/chat-view.tsx'),
+    resolve(import.meta.dirname, '../../../../../packages/ui/src/chat-turn.tsx'),
     'utf8',
   );
 
+  const chatView = await readFile(
+    resolve(import.meta.dirname, '../../../../../packages/ui/src/chat-view.tsx'),
+    'utf8',
+  );
   assert.match(
     source,
     /item\.kind === 'thinking'[\s\S]*?<DeepThinking[\s\S]*?live=\{item\.live === true\}/,
@@ -21,7 +25,11 @@ it('renders live thinking and text from timeline items instead of a trailing liv
     source,
     /turn\.timeline\.map[\s\S]*?props\.liveStreaming[\s\S]*?<LiveStreamingEntries/,
   );
-  assert.doesNotMatch(source, /materializeTurns\(visibleMessages, props\.liveTurn\)/);
+  assert.match(
+    chatView,
+    /const settledTurns = useMemo\([\s\S]*?materializeTurns\(visibleMessages\)[\s\S]*?\[visibleMessages\][\s\S]*?const liveTurns = useMemo\([\s\S]*?overlayLiveTurn\(settledTurns, props\.liveTurn\)[\s\S]*?const turns = useMemo\([\s\S]*?overlayShellRunUpdates\(liveTurns, props\.shellRunUpdates \?\? \[\]\)/,
+  );
+  assert.doesNotMatch(chatView, /materializeTurns\(visibleMessages, props\.liveTurn\)/);
 
   const shell = await readFile(
     resolve(import.meta.dirname, '../../../../../apps/desktop/src/renderer/app-shell.tsx'),

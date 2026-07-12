@@ -42,7 +42,6 @@ function renderLiveTurn(liveTurn: LiveTurnProjection): string {
     },
     messages: [{ type: 'user', id: 'user-1', turnId: liveTurn.turnId, ts: 1, text: 'go' }],
     liveTurn,
-    mode: 'sessions',
     onNew() {},
   } satisfies Parameters<typeof ChatView>[0]));
 }
@@ -94,7 +93,6 @@ describe('single live-turn handoff', () => {
           tools: [],
         }],
       },
-      mode: 'sessions',
       onNew() {},
     } satisfies Parameters<typeof ChatView>[0]));
 
@@ -123,7 +121,6 @@ describe('single live-turn handoff', () => {
           tools: [{ toolUseId: 'tool-1', toolName: 'Bash', stepId: 'assistant-1', status: 'running', args: {} }],
         }],
       },
-      mode: 'sessions',
       onNew() {},
     } satisfies Parameters<typeof ChatView>[0]));
 

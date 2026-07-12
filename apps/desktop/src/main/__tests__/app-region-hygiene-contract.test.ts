@@ -76,6 +76,26 @@ describe('app-region hygiene contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup v5)', ()
     );
   });
 
+  it('BrowserWindow enforces a runtime min height aligned with the sanitizeBounds restore floor (#824)', async () => {
+    // Without a BrowserWindow minHeight, the both-present dvh layout fix
+    // (#824) can be defeated by dragging the window below the 320px
+    // restore floor that sanitizeBounds enforces. Pin minHeight to the
+    // shared SAFE_MIN_HEIGHT constant so the runtime resize floor matches
+    // the restore floor and the two can't drift apart.
+    const mainSrc = await readMainProcessCombinedSource();
+    assert.match(
+      mainSrc,
+      /new BrowserWindow\([\s\S]*?minHeight:\s*SAFE_MIN_HEIGHT\b/,
+      'main BrowserWindow must set `minHeight: SAFE_MIN_HEIGHT` so the runtime resize floor matches the sanitizeBounds restore floor (#824)',
+    );
+    const windowStateSrc = await readFile(join(process.cwd(), 'src', 'main', 'window-state.ts'), 'utf8');
+    assert.match(
+      windowStateSrc,
+      /export const SAFE_MIN_HEIGHT\s*=\s*320\b/,
+      'window-state.ts must export `SAFE_MIN_HEIGHT = 320` as the single source of truth for the minimum window height (shared by sanitizeBounds + BrowserWindow minHeight)',
+    );
+  });
+
   for (const host of FORBIDDEN_DRAG_HOSTS) {
     it(`'${host}' selector does NOT carry -webkit-app-region: drag (would steal OS resize hit area)`, async () => {
       const stylesSources = [

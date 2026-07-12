@@ -52,4 +52,89 @@ describe('createPinnedBottomFollower', () => {
     notifyContentCommit();
     assert.equal(viewport.scrollTop, 100);
   });
+
+  // Render-skipped turns (content-visibility: auto) inflate from their
+  // placeholder to their real height without any DOM mutation, so the
+  // follower needs a size channel alongside the mutation channel.
+  it('follows child size growth that produces no mutation', () => {
+    const childA = {} as Element;
+    const childB = {} as Element;
+    const viewport = { scrollTop: 100, scrollHeight: 200 };
+    const content = { children: [childA, childB] } as unknown as Element;
+    let notifySizeChange!: () => void;
+    const sizeObserved: Element[] = [];
+    createPinnedBottomFollower({
+      viewport,
+      content,
+      isPinned: () => true,
+      createObserver: () => ({ observe: () => {}, disconnect: () => {} }),
+      createSizeObserver: (callback) => {
+        notifySizeChange = callback;
+        return {
+          observe: (element) => { sizeObserved.push(element); },
+          disconnect: () => {},
+        };
+      },
+    });
+
+    assert.deepEqual(sizeObserved, [childA, childB]);
+    viewport.scrollHeight = 1400;
+    notifySizeChange();
+    assert.equal(viewport.scrollTop, 1400);
+  });
+
+  it('starts observing children appended after a mutation, exactly once each', () => {
+    const childA = {} as Element;
+    const childB = {} as Element;
+    const children: Element[] = [childA];
+    const viewport = { scrollTop: 0, scrollHeight: 100 };
+    const content = { children } as unknown as Element;
+    let notifyContentCommit!: () => void;
+    const sizeObserved: Element[] = [];
+    createPinnedBottomFollower({
+      viewport,
+      content,
+      isPinned: () => true,
+      createObserver: (callback) => {
+        notifyContentCommit = callback;
+        return { observe: () => {}, disconnect: () => {} };
+      },
+      createSizeObserver: () => ({
+        observe: (element) => { sizeObserved.push(element); },
+        disconnect: () => {},
+      }),
+    });
+
+    children.push(childB);
+    notifyContentCommit();
+    notifyContentCommit();
+    assert.deepEqual(sizeObserved, [childA, childB]);
+  });
+
+  it('does not move the viewport on size growth after the user unpins, and stop disconnects both observers', () => {
+    const viewport = { scrollTop: 50, scrollHeight: 100 };
+    const content = { children: [{} as Element] } as unknown as Element;
+    let pinned = true;
+    let notifySizeChange!: () => void;
+    let mutationDisconnected = false;
+    let sizeDisconnected = false;
+    const stop = createPinnedBottomFollower({
+      viewport,
+      content,
+      isPinned: () => pinned,
+      createObserver: () => ({ observe: () => {}, disconnect: () => { mutationDisconnected = true; } }),
+      createSizeObserver: (callback) => {
+        notifySizeChange = callback;
+        return { observe: () => {}, disconnect: () => { sizeDisconnected = true; } };
+      },
+    });
+
+    pinned = false;
+    viewport.scrollHeight = 900;
+    notifySizeChange();
+    assert.equal(viewport.scrollTop, 50);
+    stop();
+    assert.equal(mutationDisconnected, true);
+    assert.equal(sizeDisconnected, true);
+  });
 });
