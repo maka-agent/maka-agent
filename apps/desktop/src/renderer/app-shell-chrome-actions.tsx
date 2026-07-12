@@ -22,7 +22,7 @@ export function AppShellTopbarActions(props: {
           onClick={props.onOpenSearchModal}
           aria-label="搜索对话"
         >
-          <Search size={16} aria-hidden="true" />
+          <Search aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>搜索对话</TooltipContent>
       </Tooltip>
@@ -36,9 +36,9 @@ export function AppShellTopbarActions(props: {
           aria-expanded={!props.sidebarCollapsed}
         >
           {props.sidebarCollapsed ? (
-            <PanelLeftOpen size={16} aria-hidden="true" />
+            <PanelLeftOpen aria-hidden="true" />
           ) : (
-            <PanelLeftClose size={16} aria-hidden="true" />
+            <PanelLeftClose aria-hidden="true" />
           )}
         </TooltipTrigger>
         <TooltipContent>{props.sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}</TooltipContent>
@@ -52,7 +52,7 @@ export function AppShellTopbarActions(props: {
             onClick={props.onCreateSession}
             aria-label="新任务"
           >
-            <SquarePen size={16} aria-hidden="true" />
+            <SquarePen aria-hidden="true" />
           </TooltipTrigger>
           <TooltipContent>新任务</TooltipContent>
         </Tooltip>
@@ -77,7 +77,7 @@ export function AppShellWorkspaceTopActions(props: {
           onClick={props.onOpenFeedback}
           aria-label="问题反馈"
         >
-          <MessageCircleQuestion size={15} aria-hidden="true" />
+          <MessageCircleQuestion aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>问题反馈 · 打开关于与环境信息</TooltipContent>
       </Tooltip>
@@ -89,7 +89,7 @@ export function AppShellWorkspaceTopActions(props: {
           onClick={props.onOpenPalette}
           aria-label="打开命令面板"
         >
-          <Grid3X3 size={15} aria-hidden="true" />
+          <Grid3X3 aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>打开命令面板</TooltipContent>
       </Tooltip>
@@ -101,7 +101,7 @@ export function AppShellWorkspaceTopActions(props: {
           onClick={props.onOpenHelp}
           aria-label="打开帮助"
         >
-          <HelpCircle size={15} aria-hidden="true" />
+          <HelpCircle aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>打开帮助</TooltipContent>
       </Tooltip>
@@ -113,7 +113,7 @@ export function AppShellWorkspaceTopActions(props: {
           onClick={props.onOpenHealth}
           aria-label="打开健康中心"
         >
-          <CircleGauge size={15} aria-hidden="true" />
+          <CircleGauge aria-hidden="true" />
         </TooltipTrigger>
         <TooltipContent>打开健康中心</TooltipContent>
       </Tooltip>

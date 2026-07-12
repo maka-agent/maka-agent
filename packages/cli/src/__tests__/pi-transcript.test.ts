@@ -150,6 +150,41 @@ describe('Maka Pi TUI transcript', () => {
     assert.equal(outcome.aborted, false);
   });
 
+  test('shows a fixed system notice when the configured step limit is reached', () => {
+    const state = createMakaPiTranscriptState();
+
+    applyMakaSessionEventToTranscript(state, event({ type: 'complete', stopReason: 'step_limit' }));
+
+    assert.deepEqual(state.entries, [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    }]);
+  });
+
+  test('restores the step-limit system notice from stored history', () => {
+    const state = createMakaPiTranscriptState();
+
+    replaceTranscriptWithStoredMessages(state, [
+      { type: 'system_note', id: 'notice-1', turnId: 'turn-1', ts: 1, kind: 'step_limit' },
+    ]);
+
+    assert.deepEqual(state.entries, [{
+      kind: 'notice',
+      level: 'info',
+      text: 'Reached the configured step limit. The task may be incomplete. Send “continue” to resume.',
+    }]);
+  });
+
+  test('step_limit prevents automatic goal continuation', async () => {
+    const state = createMakaPiTranscriptState();
+    const driver = new RecordingDriver([event({ type: 'complete', stopReason: 'step_limit' })]);
+
+    const outcome = await submitPromptToTranscript({ state, driver, prompt: 'hi' });
+
+    assert.deepEqual(outcome, { aborted: false, errored: true });
+  });
+
   test('reports a thrown sendPrompt as errored', async () => {
     const state = createMakaPiTranscriptState();
     const driver = {

@@ -419,8 +419,9 @@ function failureFromTerminalEvent(event: RuntimeEvent): InvocationFailure | unde
   if (status === 'failed') {
     const message = content?.kind === 'error' ? content.message : undefined;
     const classFromContent = content?.kind === 'error' ? (content.reason ?? content.code) : undefined;
+    const classFromState = event.actions?.stateDelta?.failureClass;
     return {
-      class: classFromContent ?? 'runtime_error',
+      class: classFromContent ?? (typeof classFromState === 'string' ? classFromState : 'runtime_error'),
       ...(message ? { message } : {}),
       terminalStatus: status,
     };

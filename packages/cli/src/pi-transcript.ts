@@ -5,7 +5,8 @@ import type {
   ToolOutputStream,
   ToolResultContent,
 } from '@maka/core/events';
-import type { StoredMessage, SystemNoteMessage } from '@maka/core/session';
+import { failureClassFromCompleteStopReason } from '@maka/core/events';
+import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
 import { materializeSession, type ChatItem, type ToolActivityItem } from '@maka/runtime';
@@ -222,7 +223,10 @@ export async function submitPromptToTranscript(input: {
       // complete{stopReason:'error'} with no separate `error` event — treat it as
       // errored too, so goal continuation never re-injects into a failed turn
       // (self-sufficient, not reliant on the session-status backstop).
-      if (event.type === 'complete' && event.stopReason === 'error') {
+      if (
+        event.type === 'complete'
+        && failureClassFromCompleteStopReason(event.stopReason) !== undefined
+      ) {
         errored = true;
       }
       input.onChange?.();
@@ -439,6 +443,9 @@ export function applyMakaSessionEventToTranscript(
           text: 'Stopped: max tokens',
         });
       }
+      if (event.stopReason === 'step_limit') {
+        state.entries.push({ kind: 'notice', level: 'info', text: STEP_LIMIT_NOTICE_TEXT });
+      }
       break;
   }
 }
@@ -628,6 +635,8 @@ function systemNoteText(message: SystemNoteMessage): string | undefined {
       return 'Context compacted to keep this session within the model window.';
     case 'context_compaction_failed_open':
       return 'Context summary failed; the session continued without a new summary.';
+    case 'step_limit':
+      return STEP_LIMIT_NOTICE_TEXT;
     case 'error':
       return 'Session recorded an error.';
     case 'abort':

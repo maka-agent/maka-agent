@@ -1,0 +1,208 @@
+[English](./README.md)
+
+# Maka
+
+[![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
+
+**一个为真实工作而生的本地优先 Agent 工作台。**
+
+Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具、生成产物，并把模型消息、工具调用和长程任务进度保存为可恢复的运行事实。你可以从桌面应用、终端 TUI、非交互 CLI 或 Headless runner 使用同一套 Runtime。
+
+![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
+
+> [!IMPORTANT]
+> Maka 仍在活跃开发中，当前主要面向从源码运行和参与开发的用户。数据格式、CLI 和实验能力仍可能变化。
+
+## 为什么是 Maka
+
+- **本地优先，而不是云端托管优先**：会话、设置和运行记录默认保存在本机；模型连接由你配置，可以使用云 API、本地模型或兼容网关。
+- **Log is the Runtime**：模型消息、Tool Call、Tool Result 和终止事实进入 Runtime Event Log，Session、UI、模型上下文和恢复逻辑从日志生成投影。
+- **上下文不是历史本身**：Tool Result prune 和 LLM Compaction 只改变下一次推理看到什么，不把已记录的证据当作上下文垃圾删除。
+- **任务可以长于一个 Turn**：Headless 使用 TaskRun、Task Event Log、预算和 continuation 机制推进可中断、可检查的长程任务。
+- **反馈不等于事实 authority**：Self-check 可以产生证据和一次受限修复机会，但不能把“我检查过了”变成系统事实。
+
+完整设计见 [Maka Backend Architecture](./ARCHITECTURE.md)。
+
+## 运行形态
+
+| 入口 | 适合什么 | 当前能力 |
+|---|---|---|
+| **Desktop** | 日常交互、文件与 Artifact 工作流、模型和权限配置 | Electron + React，支持流式会话、工具时间线、分支、搜索和恢复 |
+| **TUI / CLI** | 在当前工程目录中使用 Maka，或执行单次非交互 Turn | `maka`、`maka run`，复用 Desktop 的 workspace 和模型连接 |
+| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval` / `maka-headless`，支持任务日志、导出、恢复和对比 |
+
+## 当前能力
+
+### Agent Runtime
+
+- 多模型连接、流式输出、thinking、usage 和 provider error normalization；
+- `Read`、`Write`、`Edit`、`Bash`、`Glob`、`Grep` 等本地工具；
+- Tool schema validation、动态 availability、permission policy、watchdog、abort 和错误分类；
+- Runtime Event Log、AgentRun ledger、启动恢复、Turn Evidence、active tool prune 与 history compaction。
+
+### Desktop Workspace
+
+- 会话创建、归档、搜索、重命名、重试、重新生成和从 Turn 分支；
+- Artifact 列表与预览、workspace instructions、模型与权限设置；
+- 本地记忆、联网搜索、开放 HTTP/SSE gateway、机器人入口和 Office 工作流；
+- 不同集成需要单独配置，并非所有实验入口默认可用。
+
+### Durable Tasks and Evolution
+
+- Append-only Task Event Log 与 TaskRun projection；
+- 预算、权限暂停、continuation、结果导出和失败任务重试；
+- 有计划、source-guarded、次数受限的 Heavy-task Self-check；
+- AHE target protocol 与 evidence export；完整自动自迭代仍属于外部/实验流程。
+
+## 快速开始
+
+### 环境要求
+
+- Node.js 22（当前 CI 基线）；
+- npm（仓库 lockfile 和 scripts 以 npm 为准，`packageManager` 当前为 npm 11）；
+- Git；
+- `ripgrep`，供 Runtime 的 `Grep` 工具使用。
+
+### 启动 Desktop
+
+```sh
+git clone https://github.com/Maka-Agent/maka-agent.git
+cd maka-agent
+npm ci
+npm run dev
+```
+
+`npm run dev` 启动带 HMR 的 Desktop 开发环境。需要先完整构建再启动 Electron 时使用：
+
+```sh
+npm run dev:full
+```
+
+如果安装时设置过 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，启动前需要补装 Electron 平台二进制：
+
+```sh
+node node_modules/electron/install.js
+```
+
+### 第一次运行
+
+Maka 不内置共享模型账号。第一次打开时：
+
+1. 进入 `设置 → 模型`；
+2. 添加一个 API、本地模型或已经接通的账号连接；
+3. 测试连接并选择默认模型；
+4. 返回工作台开始任务。
+
+应用会根据真实连接状态区分“已配置”“可发送”和“实验入口”，不会把没有接入 Runtime 的账号展示成可用模型。
+
+## 使用终端入口
+
+先构建 workspace：
+
+```sh
+npm run build
+```
+
+然后可以启动 TUI 或执行单次 Turn：
+
+```sh
+npm --workspace maka-agent exec -- maka
+npm --workspace maka-agent exec -- maka run "总结当前仓库并指出最重要的风险"
+npm --workspace maka-agent exec -- maka --help
+```
+
+CLI 读取 Desktop 写入的同一份模型连接和 workspace 配置。Headless 的完整命令与 trust posture 见 [`packages/headless/README.md`](./packages/headless/README.md)。
+
+## 架构
+
+Maka 后端可以用一条主线概括：
+
+```text
+Desktop / TUI / Headless
+          ↓
+SessionManager → AgentRun → Model + Tool Runtime
+          ↓
+Runtime Event Log → Context / Session / UI projections
+          ↓
+Task Event Log → TaskRun → Self-check / AHE evidence
+```
+
+从 [ARCHITECTURE.md](./ARCHITECTURE.md) 开始阅读。它提供总体架构图、代码边界、按问题组织的阅读路径，以及六篇中英双语深度文章。
+
+## 仓库结构
+
+```text
+apps/desktop/       Electron main / preload / React renderer
+
+packages/core/      Session、Event、Permission、Connection 等纯 contracts
+packages/storage/   File-backed stores 与 run ledgers
+packages/runtime/   AgentRun、模型适配、工具、上下文和恢复
+packages/headless/  TaskRun、Autonomous Loop、Self-check、eval 与 AHE
+packages/cli/       TUI 和非交互 CLI
+packages/ui/        共享对话、Markdown、Artifact 与 UI primitives
+
+docs/               架构、产品、安全、隐私和测试契约
+scripts/            Build hygiene、视觉检查、smoke 和 release helpers
+```
+
+## 本地数据与安全边界
+
+Maka 默认把 workspace 数据放在 Electron `userData` 下：
+
+```text
+<Electron userData>/workspaces/default/
+  llm-connections.json
+  credentials.json
+  settings.json
+  sessions/
+```
+
+需要明确的当前边界：
+
+- 会话和连接元数据保存在本地文件系统；
+- API key、bot token、proxy password 等运行凭据当前保存在本地 plaintext `credentials.json`，依赖 OS 账号边界，并在 POSIX 上强制目录 `0700`、文件 `0600`；
+- 已接通的 subscription OAuth token 使用 Electron `safeStorage`；不可用时 fail closed；
+- Renderer 不接收明文凭据；文件写入、Shell 和危险工具调用需要经过 permission engine；
+- Headless real-model eval 默认 fail closed，要求调用方显式提供外部隔离边界。
+
+安全问题请阅读 [SECURITY.md](./SECURITY.md)。更细的隐私与 threat model 位于 `docs/`。
+
+## 开发与验证
+
+常用仓库级命令：
+
+```sh
+npm run build
+npm run typecheck
+npm test
+npm run check:release
+```
+
+针对单个 workspace：
+
+```sh
+npm --workspace @maka/runtime test
+npm --workspace @maka/headless test
+npm --workspace @maka/desktop test
+```
+
+Desktop 的真实窗口与视觉验证：
+
+```sh
+npm --workspace @maka/desktop run e2e
+npm --workspace @maka/desktop run screenshots
+npm --workspace @maka/desktop run screenshots:diff:stable
+npm --workspace @maka/desktop run smoke:real-window
+```
+
+提交代码前至少运行与改动范围相称的 typecheck、build 和 focused tests，并执行 `git diff --check`。
+
+## 文档入口
+
+- [后端架构总览](./ARCHITECTURE.md)
+- [Headless 使用与隔离边界](./packages/headless/README.md)
+- [设计系统](./docs/design-system.md)
+- [产品测试计划](./docs/full-product-test-plan.md)
+- [Workspace 隐私上下文](./docs/workspace-privacy-context.md)
+- [能力成熟度审计](./docs/maka-capability-audit-v1.md)
+- [安全政策](./SECURITY.md)

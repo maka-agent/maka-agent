@@ -1,0 +1,4 @@
+interface:
+  display_name: "Maka Architecture Docs"
+  short_description: "Write clear, rigorous bilingual Maka architecture documents"
+  default_prompt: "Use $maka-architecture-docs to draft or review a bilingual Maka backend architecture document."

@@ -2381,6 +2381,47 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('aborting during post-stream persistence wins over step-limit completion', async () => {
+    const loop = countingToolLoopModel();
+    const gate = makeGate();
+    let usagePersistenceStarted = false;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        if (message.type !== 'token_usage') return;
+        usagePersistenceStarted = true;
+        await gate.promise;
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 1,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const events: SessionEvent[] = [];
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => usagePersistenceStarted);
+    await backend.stop('user_stop');
+    gate.release();
+    await sendPromise;
+
+    assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
+    assert.equal(
+      events.some((event) => event.type === 'complete' && event.stopReason === 'step_limit'),
+      false,
+    );
+  });
+
   test('provider error mid-step still persists the streamed partial text (partialOutputRetained)', async () => {
     // Codex P1: the non-abort error exit (provider failure / watchdog timeout)
     // must flush the in-flight step's partial accumulators just like the abort
@@ -3547,6 +3588,76 @@ describe('AiSdkBackend usage telemetry', () => {
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
 
     assert.equal(loop.callCount(), 3);
+  });
+
+  test('reports an explicit step limit without making an auxiliary model call', async () => {
+    const appended: StoredMessage[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV3({
+      doGenerate: {
+        content: [{ type: 'text', text: 'Completed the edits; verification is still pending. Send continue to resume.' }],
+        finishReason: { unified: 'stop', raw: 'stop' },
+        usage: {
+          inputTokens: { total: 5, noCache: 5, cacheRead: 0, cacheWrite: 0 },
+          outputTokens: { total: 4, text: 4, reasoning: 0 },
+        },
+        warnings: [],
+      },
+      doStream: async () => {
+        streamCalls += 1;
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              { type: 'text-start', id: `text-${streamCalls}` },
+              { type: 'text-delta', id: `text-${streamCalls}`, delta: 'Still working.' },
+              { type: 'text-end', id: `text-${streamCalls}` },
+              {
+                type: 'tool-call',
+                toolCallId: `tool-${streamCalls}`,
+                toolName: 'Read',
+                input: JSON.stringify({ path: `notes-${streamCalls}.md` }),
+              },
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                usage: { inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 1, text: 1, reasoning: 0 } },
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => { appended.push(message); },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 2,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events: SessionEvent[] = [];
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'finish the task', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(streamCalls, 2);
+    assert.equal(model.doGenerateCalls.length, 0);
+    assert.equal(
+      appended.filter((message): message is AssistantMessage => message.type === 'assistant').at(-1)?.text,
+      'Still working.',
+    );
+    assert.equal(events.at(-1)?.type, 'complete');
+    assert.equal((events.at(-1) as Extract<SessionEvent, { type: 'complete' }>).stopReason as string, 'step_limit');
   });
 
   test('records aggregate totalUsage across AI SDK tool-loop steps', async () => {
@@ -6768,13 +6879,7 @@ describe('AiSdkBackend thinking persistence', () => {
     assert.match(prompt, /sig-omitted/);
   });
 
-  test('grace notice never reuses a taken step id when the stream ends without a trailing finish-step', async () => {
-    // ChatGPT P2: on the catch-all path (no trailing finish-step) the last
-    // step's id is already taken — by the thinking-only AssistantMessage the
-    // catch-all flush just wrote, and by the tool step's tool_start.stepId. The
-    // grace notice must mint its own id or the ledger gets a duplicate message
-    // id / replay adopts the grace text as the tool step's closer.
-    //
+  test('does not synthesize assistant text when a capped stream ends without a trailing finish-step', async () => {
     // streamText always synthesizes trailing step boundaries, so drive the
     // backend through a patched startStream: step 1 runs a real tool via the
     // wrapped execute (genuine tool_start.stepId), step 2 is thinking-only and
@@ -6821,20 +6926,12 @@ describe('AiSdkBackend thinking persistence', () => {
     }
 
     const assistants = appended.filter((m): m is AssistantMessage => m.type === 'assistant');
-    // Catch-all flush persisted the thinking-only step; grace added its own row.
-    assert.equal(assistants.length, 2);
+    // Catch-all flush persists the thinking-only step, but the harness owns the
+    // visible step-limit notice instead of fabricating another assistant row.
+    assert.equal(assistants.length, 1);
     const thinkingOnly = assistants.find((m) => m.thinking?.signature === 'sig-last');
-    const grace = assistants.find((m) => m.text.includes('步工具调用上限'));
     assert.ok(thinkingOnly, 'thinking-only last step must persist');
-    assert.ok(grace, 'grace notice must persist');
-    // The grace id collides with nothing: not the last step's assistant row...
-    assert.notEqual(grace.id, thinkingOnly.id);
-    // ...and not any tool step's stepId.
-    const toolStepIds = events
-      .filter((event): event is Extract<SessionEvent, { type: 'tool_start' }> => event.type === 'tool_start')
-      .map((event) => event.stepId);
-    assert.equal(toolStepIds.length, 1);
-    assert.equal(toolStepIds.includes(grace.id), false);
+    assert.equal(thinkingOnly.text, '');
     // No duplicate message ids anywhere in the ledger.
     const ids = appended.map((m) => (m as { id: string }).id);
     assert.equal(new Set(ids).size, ids.length, `duplicate ledger ids: ${ids.join(', ')}`);

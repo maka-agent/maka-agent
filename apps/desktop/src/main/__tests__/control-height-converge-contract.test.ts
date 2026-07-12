@@ -108,6 +108,7 @@ const CONTROL_HEIGHT: ControlHeightCheck[] = [
   // composer controls
   { selector: '.maka-composer-send-button', props: ['width', 'height'], token: '--h-control-lg' },
   { selector: '.maka-composer-workspace-picker', props: ['min-height'], token: '--h-control-sm' },
+  { selector: '.maka-composer-branch-picker', props: ['min-height'], token: '--h-control-sm' },
 ];
 
 /** Values that are always allowed (not a control-height beat). `100%`

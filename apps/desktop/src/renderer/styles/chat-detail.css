@@ -632,15 +632,38 @@
   background: oklch(from var(--destructive) l c h / 0.10);
 }
 
-/* Narrow window: ArtifactPane becomes a bottom sheet below the composer
-   instead of continuing to shrink the chat column. This keeps the send path
-   visible and usable while preserving artifact access on small windows. */
+/* Narrow window: ArtifactPane and BrowserPanel become bottom sheets
+   below the composer instead of continuing to squeeze the chat column,
+   preserving artifact and embedded-browser access on small windows.
+
+   BrowserPanel previously had no narrow rule. Its grid auto row sized to the
+   panel's max-content (toolbar height): the strip's `flex: 1 1 auto`
+   contributes 0 height without a definite container height, so the rAF loop
+   mirrored a ~zero-height rect to main and the native WebContentsView was
+   sized to nothing — the embedded browser disappeared beside a ~470px gap.
+   `min-height` below forces the auto row (and thus the strip) to a usable,
+   bounded size; `width: 100%` turns the 520px right rail into a bottom sheet.
+   BrowserPanel is always the second grid child (chat / browser / artifact),
+   so it already occupies the explicit `auto` row; ArtifactPane as the third
+   child uses an implicit `auto` row (grid-auto-rows defaults to auto), so no
+   extra explicit row is needed. With both auxiliary panels open on a very
+   short window the chat row can collapse (two 220px minima); a shared-height
+   policy is tracked in #824, and recovery may require closing the browser
+   and/or collapsing ArtifactPane. */
 @media (max-width: 990px) {
   .maka-detail-with-artifacts {
     display: grid;
     grid-template-rows: minmax(0, 1fr) auto;
   }
 
+  .maka-browser-panel {
+    width: 100%;
+    min-height: 220px;
+    max-height: min(42dvh, 360px);
+    border-left: 0;
+    border-top: var(--border-width-hairline) solid var(--border);
+    box-shadow: 0 -8px 24px oklch(from var(--foreground) l c h / 0.08);
+  }
   .maka-artifact-pane {
     width: 100%;
     min-height: 220px;

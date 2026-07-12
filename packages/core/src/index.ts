@@ -33,8 +33,10 @@ export type {
   StorageRef,
   AttachmentRef,
   AttachmentIngestItem,
+  CompleteStopReason,
 } from './events.js';
 export {
+  failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,
@@ -114,6 +116,7 @@ export {
   SESSION_STATUSES,
   SESSION_BLOCKED_REASONS,
   TURN_STATUSES,
+  STEP_LIMIT_NOTICE_TEXT,
   deriveTurnRecords,
   isSessionStatus,
   isSessionBlockedReason,

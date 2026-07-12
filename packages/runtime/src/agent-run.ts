@@ -11,7 +11,7 @@ import type {
   UserMessage,
 } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
-import type { SessionEvent } from '@maka/core/events';
+import { failureClassFromCompleteStopReason, type SessionEvent } from '@maka/core/events';
 import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
@@ -29,6 +29,7 @@ import {
   normalizeStopSessionSource,
 } from './session-projection-helpers.js';
 import {
+  buildSyntheticTerminalRuntimeEvent,
   commitOrCreateTerminalRunFact,
   effectiveRunHeaderFromTerminalFact,
 } from './terminal-run-commit.js';
@@ -123,9 +124,14 @@ export class AgentRun {
   private finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined;
   private turnFailed = false;
   private finalized = false;
-  private terminalRuntimeEventRecorded = false;
-  private terminalRuntimeEventForRunCommit: RuntimeEvent | undefined;
   private terminalRunHeaderCommitted = false;
+  private terminalClaim: {
+    owner: 'event' | 'stop';
+    event?: RuntimeEvent;
+    write?: Promise<void>;
+    persisted?: boolean;
+    stopCompleted?: boolean;
+  } | undefined;
 
   constructor(private readonly input: AgentRunInput) {
     if (input.runStore && !input.runtimeEventStore) {
@@ -145,13 +151,24 @@ export class AgentRun {
     };
   }
 
-  stop(source: StopSessionInput['source'] | undefined): void {
+  stop(source: StopSessionInput['source'] | undefined): boolean {
+    if (this.terminalClaim) return false;
+    this.terminalClaim = { owner: 'stop' };
     this.stopped = true;
     this.abortSource = normalizeStopSessionSource(source);
+    return true;
   }
 
   isStopped(): boolean {
     return this.stopped;
+  }
+
+  hasPendingStop(): boolean {
+    return this.terminalClaim?.owner === 'stop' && this.terminalClaim.stopCompleted !== true;
+  }
+
+  completeStop(): void {
+    if (this.terminalClaim?.owner === 'stop') this.terminalClaim.stopCompleted = true;
   }
 
   recordRunTrace(event: RunTraceEvent): void {
@@ -417,10 +434,10 @@ export class AgentRun {
       this.finalStatus = this.stopped
         ? { status: 'aborted' }
         : (transition ?? { status: 'active' });
-      // A complete(error) without a preceding error event leaves failureClass
-      // unset — record it now so finalize does not fall back to 'unknown'.
+      // A terminal complete event can carry a failure without a preceding
+      // error event. Record it now so finalize preserves the precise class.
       if (turnStatus?.status === 'failed' && turnStatus.errorClass && !this.failureClass && !this.stopped) {
-        this.markRunFailed(turnStatus.errorClass, 'turn ended with stopReason=error', ev.ts);
+        this.markRunFailed(turnStatus.errorClass, `turn ended with stopReason=${ev.type === 'complete' ? ev.stopReason : 'unknown'}`, ev.ts);
       }
     }
     if (transition && !this.stopped) {
@@ -467,27 +484,37 @@ export class AgentRun {
   ): Promise<void> {
     if (events.length === 0) return;
     for (const event of events) {
-      const eventForStore = this.runtimeEventForStore(event);
-      const terminal = isTerminalRuntimeEvent(eventForStore);
-      if (terminal && this.terminalRuntimeEventRecorded) continue;
+      const terminal = isTerminalRuntimeEvent(event);
+      const eventForStore = terminal ? this.reserveTerminalEvent(event) : event;
+      if (!eventForStore) continue;
       if (!this.input.runtimeEventStore || !this.runtimeEventStoreAvailable) {
         if (terminal && options.requireTerminalWrite) {
           throw new Error('terminal RuntimeEvent store is unavailable');
         }
         continue;
       }
-      await this.enqueueRuntimeEventStore('append runtime event', async () => {
+      const write = this.enqueueRuntimeEventStore('append runtime event', async () => {
         await this.input.runtimeEventStore?.appendRuntimeEvent(this.sessionId, this.runId, eventForStore);
       }, { rethrow: terminal || options.requireTerminalWrite });
+      if (terminal && this.terminalClaim) this.terminalClaim.write = write;
+      await write;
       if (terminal) {
-        this.terminalRuntimeEventRecorded = true;
-        this.terminalRuntimeEventForRunCommit = eventForStore;
+        if (this.terminalClaim) this.terminalClaim.persisted = true;
       }
     }
   }
 
-  private runtimeEventForStore(event: RuntimeEvent): RuntimeEvent {
-    if (!this.stopped || !isTerminalRuntimeEvent(event)) return event;
+  private reserveTerminalEvent(event: RuntimeEvent): RuntimeEvent | undefined {
+    if (this.terminalClaim?.event) return undefined;
+    this.terminalClaim ??= { owner: 'event' };
+    const eventForStore = this.terminalClaim.owner === 'stop'
+      ? this.abortedRuntimeEvent(event)
+      : event;
+    this.terminalClaim.event = eventForStore;
+    return eventForStore;
+  }
+
+  private abortedRuntimeEvent(event: RuntimeEvent): RuntimeEvent {
     const { content: _content, ...rest } = event;
     void _content;
     return {
@@ -522,13 +549,14 @@ export class AgentRun {
     if (this.finalized) return;
     this.finalized = true;
     const lastTs = this.lastTs || this.input.now();
-    if (this.active) {
-      await this.input.hooks.unregisterRun(this.active, this);
-      if (this.stopped) this.finalStatus = { status: 'aborted' };
-    }
-    if (!this.finalStatus && !this.stopped) {
+    if (this.stopped) this.finalStatus = { status: 'aborted' };
+    if (!this.finalStatus) {
       this.finalStatus = { status: 'blocked', blockedReason: 'unknown' };
       this.markRunFailed('missing_terminal_event', 'run finalized without a terminal SessionEvent', lastTs);
+    }
+    this.reserveFinalizationTerminal(this.finalStatus, lastTs);
+    if (this.active) {
+      await this.input.hooks.unregisterRun(this.active, this);
     }
     const nextStatus = this.active && this.active.activeRuns.size > 0
       ? { status: 'running' as const }
@@ -843,7 +871,7 @@ export class AgentRun {
     finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
   ): AgentRunHeader['status'] {
     if (this.stopped || finalStatus?.status === 'aborted') return 'cancelled';
-    if (finalStatus?.status === 'blocked') return 'failed';
+    if (this.failureClass || finalStatus?.status === 'blocked') return 'failed';
     if (finalStatus?.status === 'waiting_for_user') return 'waiting_permission';
     return 'completed';
   }
@@ -860,7 +888,11 @@ export class AgentRun {
     const fallbackFailureClass = 'missing_terminal_event';
     const fallbackFailureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
     try {
-      const result = await commitOrCreateTerminalRunFact({
+      const terminalClaim = this.terminalClaim;
+      const terminalEvent = terminalClaim?.event;
+      if (!terminalEvent) throw new Error('terminal RuntimeEvent claim is missing');
+      await terminalClaim.write;
+      const commit = commitOrCreateTerminalRunFact({
         runStore,
         runtimeEventStore,
         newId: this.input.newId,
@@ -868,12 +900,8 @@ export class AgentRun {
         runId: this.runId,
         turnId: this.turnId,
         ts,
-        ...(this.terminalRuntimeEventForRunCommit
-          ? {
-              terminalEvent: this.terminalRuntimeEventForRunCommit,
-              terminalEventAlreadyPersisted: true,
-            }
-          : {}),
+        terminalEvent,
+        terminalEventAlreadyPersisted: terminalClaim.persisted === true,
         ...(this.failureClass ?? finalStatus?.blockedReason
           ? { failureClass: this.failureClass ?? finalStatus?.blockedReason }
           : {}),
@@ -886,12 +914,9 @@ export class AgentRun {
         ...(fallbackStatus === 'failed' ? { fallbackFailureClass, fallbackFailureMessage } : {}),
         allowHeaderCommitFailure: true,
       });
-      if (result.createdTerminalEvent && result.status === 'failed') {
-        this.failureClass = result.failureClass ?? fallbackFailureClass;
-        this.failureMessage = fallbackFailureMessage;
-      }
-      this.terminalRuntimeEventRecorded = true;
-      this.terminalRuntimeEventForRunCommit = result.terminalEvent;
+      if (!terminalClaim.write) terminalClaim.write = commit.then(() => undefined);
+      const result = await commit;
+      terminalClaim.persisted = true;
       this.terminalRunHeaderCommitted = result.headerCommitted;
       if (result.headerCommitError !== undefined) {
         await this.enqueueTraceWriteFailure(result.headerCommitError, 'commit terminal run header');
@@ -902,6 +927,33 @@ export class AgentRun {
       throw error;
     }
     await this.traceQueue.catch(() => {});
+  }
+
+  private reserveFinalizationTerminal(
+    finalStatus: { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined,
+    ts: number,
+  ): void {
+    if (this.terminalClaim?.event) return;
+    const runStatus = this.runStatusForFinalStatus(finalStatus);
+    if (runStatus !== 'completed' && runStatus !== 'failed' && runStatus !== 'cancelled') return;
+    const status = this.terminalClaim?.owner === 'stop' || this.stopped || finalStatus?.status === 'aborted'
+      ? 'cancelled'
+      : 'failed';
+    const failureClass = 'missing_terminal_event';
+    const failureMessage = this.failureMessage ?? 'run finalized without a terminal RuntimeEvent';
+    if (status === 'failed') {
+      this.failureClass = failureClass;
+      this.failureMessage = failureMessage;
+    }
+    this.reserveTerminalEvent(buildSyntheticTerminalRuntimeEvent({
+      id: this.input.newId(),
+      invocationId: this.runId,
+      run: { sessionId: this.sessionId, runId: this.runId, turnId: this.turnId },
+      status,
+      ts,
+      ...(status === 'failed' ? { failureClass, message: failureMessage } : {}),
+      ...(status === 'cancelled' ? { abortSource: this.abortSource ?? 'user_stop' } : {}),
+    }));
   }
 
   private enqueueRunStore(
@@ -1040,7 +1092,8 @@ function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status'
       return { status: 'failed', errorClass: event.reason ?? event.code ?? 'unknown' };
     case 'complete':
       if (event.stopReason === 'user_stop') return { status: 'aborted' };
-      if (event.stopReason === 'error') return { status: 'failed', errorClass: 'runtime_error' };
+      const errorClass = failureClassFromCompleteStopReason(event.stopReason);
+      if (errorClass) return { status: 'failed', errorClass };
       if (event.stopReason === 'permission_handoff') return { status: 'running' };
       return { status: 'completed' };
     default:

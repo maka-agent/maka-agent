@@ -152,6 +152,12 @@ export interface FixedPromptTaskBudgetExhaustedEvent {
   runtimeEventsUnavailableReason?: string;
   tokenSummary?: HarborCellTokenSummary;
   executionIdentity?: HarborCellExecutionIdentity;
+  contextBudgetPolicy?: HarborCellContextBudgetPolicySnapshot;
+  contextBudgetSummary?: HarborCellContextBudgetSummary;
+  continuationSummary?: HarborCellContinuationSummary;
+  taskToolSummary?: HarborCellTaskToolSummary;
+  steps?: number;
+  durationMs?: number;
 }
 
 export interface FixedPromptTaskPlumbingFailedEvent {
@@ -610,6 +616,19 @@ function taskEventFromOutput(input: {
   id: string;
   ts: number;
 }): FixedPromptTaskCompletedEvent | FixedPromptTaskPlumbingFailedEvent | FixedPromptTaskInfraFailedEvent {
+  const identityMismatch = classifyExplicitIdentityMismatch(
+    input.output.cell.executionIdentity,
+    input.expectedPromptHash,
+    input.expectedConfig,
+    input.expectedPricingProfile,
+  );
+  if (identityMismatch) {
+    return taskPlumbingFailedEvent({
+      ...input,
+      errorClass: identityMismatch.errorClass,
+      error: identityMismatch.error,
+    });
+  }
   if (isProviderInfraFailure(input.output.cell.errorClass)) {
     return taskInfraFailedEvent({
       ...input,
@@ -805,6 +824,19 @@ function classifyExecutionIdentityFailure(
   return undefined;
 }
 
+function classifyExplicitIdentityMismatch(
+  identity: HarborCellExecutionIdentity | undefined,
+  expectedPromptHash: string,
+  expectedConfig: Config,
+  expectedPricingProfile: string | undefined,
+): { errorClass: 'execution_identity_mismatch'; error: string } | undefined {
+  if (!identity) return undefined;
+  const failure = classifyExecutionIdentityFailure(identity, expectedPromptHash, expectedConfig, false, expectedPricingProfile);
+  return failure?.errorClass === 'execution_identity_mismatch'
+    ? { errorClass: failure.errorClass, error: failure.error }
+    : undefined;
+}
+
 function taskInfraFailedEvent(input: {
   error: unknown;
   errorClass?: FixedPromptTaskInfraFailedEvent['errorClass'];
@@ -853,7 +885,13 @@ function taskBudgetExhaustedEvent(input: {
   } | undefined;
   if (artifactRefs.cellOutput) {
     const output = { harbor: { reward: 0 }, cell: artifactRefs.cellOutput };
-    evidenceFailure = isProviderInfraFailure(output.cell.errorClass)
+    const identityMismatch = classifyExplicitIdentityMismatch(
+      output.cell.executionIdentity,
+      input.expectedPromptHash,
+      input.expectedConfig,
+      input.expectedPricingProfile,
+    );
+    evidenceFailure = identityMismatch ?? (isProviderInfraFailure(output.cell.errorClass)
       ? {
           errorClass: output.cell.errorClass,
           error: `Harbor cell failed with ${output.cell.errorClass}`,
@@ -869,7 +907,7 @@ function taskBudgetExhaustedEvent(input: {
             input.expectedConfig,
             input.requireExecutionIdentity ?? false,
             input.expectedPricingProfile,
-          );
+          ));
   } else {
     evidenceFailure = classifyExecutionIdentityFailure(
       artifactRefs.executionIdentity,
@@ -884,6 +922,9 @@ function taskBudgetExhaustedEvent(input: {
   }
   const tokenSummary = artifactRefs.cellOutput?.tokenSummary ?? artifactRefs.tokenSummary;
   const executionIdentity = artifactRefs.cellOutput?.executionIdentity ?? artifactRefs.executionIdentity;
+  const cellOutput = artifactRefs.cellOutput;
+  const runtimeEventsPath = artifactRefs.runtimeEventsPath ?? cellOutput?.runtimeEventsPath;
+  const traceEventsPath = artifactRefs.traceEventsPath ?? cellOutput?.traceEventsPath;
   return {
     schemaVersion: FIXED_PROMPT_WAL_SCHEMA_VERSION,
     type: 'task_budget_exhausted',
@@ -905,12 +946,17 @@ function taskBudgetExhaustedEvent(input: {
     } : {}),
     expectedPromptHash: input.expectedPromptHash,
     ...(executionIdentity ? { executionIdentity } : {}),
-    ...(artifactRefs.runtimeEventsPath ? { runtimeEventsPath: artifactRefs.runtimeEventsPath } : {}),
-    ...(artifactRefs.traceEventsPath ? { traceEventsPath: artifactRefs.traceEventsPath } : {}),
+    ...(runtimeEventsPath ? { runtimeEventsPath } : {}),
+    ...(traceEventsPath ? { traceEventsPath } : {}),
     ...(artifactRefs.runtimeEventsUnavailableReason
       ? { runtimeEventsUnavailableReason: artifactRefs.runtimeEventsUnavailableReason }
       : {}),
     ...(tokenSummary ? { tokenSummary } : {}),
+    ...(cellOutput?.contextBudgetPolicy ? { contextBudgetPolicy: cellOutput.contextBudgetPolicy } : {}),
+    ...(cellOutput?.contextBudgetSummary ? { contextBudgetSummary: cellOutput.contextBudgetSummary } : {}),
+    ...(cellOutput?.continuationSummary ? { continuationSummary: cellOutput.continuationSummary } : {}),
+    ...(cellOutput?.taskToolSummary ? { taskToolSummary: cellOutput.taskToolSummary } : {}),
+    ...(cellOutput ? { steps: cellOutput.steps, durationMs: cellOutput.durationMs } : {}),
   };
 }
 
@@ -944,6 +990,12 @@ function projectLegacyTimeoutOutcome(event: FixedPromptWalEvent): FixedPromptWal
     ...(event.tokenSummary ? { tokenSummary: event.tokenSummary } : {}),
     ...(event.runtimeEventsPath ? { runtimeEventsPath: event.runtimeEventsPath } : {}),
     ...(event.traceEventsPath ? { traceEventsPath: event.traceEventsPath } : {}),
+    ...(event.contextBudgetPolicy ? { contextBudgetPolicy: event.contextBudgetPolicy } : {}),
+    ...(event.contextBudgetSummary ? { contextBudgetSummary: event.contextBudgetSummary } : {}),
+    ...(event.continuationSummary ? { continuationSummary: event.continuationSummary } : {}),
+    ...(event.taskToolSummary ? { taskToolSummary: event.taskToolSummary } : {}),
+    ...(event.steps !== undefined ? { steps: event.steps } : {}),
+    ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
   };
 }
 
@@ -1003,6 +1055,16 @@ function roundTaskEvents(
     byTask.set(event.taskId, event);
   }
   return byTask;
+}
+
+export function selectFixedPromptRoundTaskEvents(
+  events: readonly FixedPromptWalEvent[],
+  runId: string,
+  roundId: string,
+  expectedPromptHash: string,
+  resumeFingerprint: string,
+): Map<string, FixedPromptTaskWalEvent> {
+  return roundTaskEvents(events, runId, roundId, expectedPromptHash, resumeFingerprint);
 }
 
 function eventMatchesResumeIdentity(

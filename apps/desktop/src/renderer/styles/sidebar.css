@@ -96,20 +96,19 @@
    我们没有账户"). About / version still reachable via Settings → 关于. */
 .maka-sidebar-settings-button {
   display: inline-grid;
-  grid-template-columns: 24px minmax(0, 1fr);
+  /* Same glyph column as .maka-nav-row so the gear shares the nav rows'
+     icon axis and 16px chrome size (icon-system contract). */
+  grid-template-columns: var(--icon-size) minmax(0, 1fr);
   align-items: center;
 }
 
-.maka-sidebar-settings-button .maka-nav-icon {
-  width: 18px;
-  height: 18px;
-  color: currentColor;
-}
-
+/* Color intentionally not declared: nav glyphs are tinted by the
+   navRowVariants utilities (80%-ink base, foreground when active) and the
+   settings gear inherits its button's text color — an unlayered color
+   here would silently beat those utilities. */
 .maka-nav-icon {
   width: var(--icon-size);
   height: var(--icon-size);
-  color: var(--muted-foreground);
   justify-self: center;
 }
 

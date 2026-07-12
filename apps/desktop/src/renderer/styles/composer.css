@@ -384,7 +384,7 @@
   -webkit-app-region: no-drag;
   appearance: none;
   min-width: 0;
-  min-height: 24px;
+  min-height: var(--h-control-sm);
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);

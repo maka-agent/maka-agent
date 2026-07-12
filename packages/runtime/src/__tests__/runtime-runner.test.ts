@@ -487,6 +487,24 @@ describe('RuntimeRunner', () => {
     expect(result.failure?.terminalStatus).toBe('failed');
   });
 
+  test('a failed terminal event preserves its state-delta failure class', async () => {
+    const providers = makeProviders();
+    const flow = new ScriptFlow((ctx) => [{
+      ...flowTerminalEvent(ctx, 'failed'),
+      actions: {
+        endInvocation: true,
+        stateDelta: { stopReason: 'step_limit', failureClass: 'tool_step_cap_reached' },
+      },
+    }]);
+    const runner = new RuntimeRunner({ flow, providers });
+
+    const result = await runner.run(makeRequest());
+
+    expect(result.status).toBe('failed');
+    expect(result.failure?.class).toBe('tool_step_cap_reached');
+    expect(result.failure?.terminalStatus).toBe('failed');
+  });
+
   test('omitting the gate means preflight always passes', async () => {
     const providers = makeProviders();
     const flow = new ScriptFlow((ctx) => [

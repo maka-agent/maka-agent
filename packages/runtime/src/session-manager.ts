@@ -46,7 +46,11 @@ import type {
 } from '@maka/core/runtime-inputs';
 import type { PermissionResponse } from '@maka/core/permission';
 import type { PermissionMode } from '@maka/core/permission';
-import { DEEP_RESEARCH_SESSION_LABEL, isDeepResearchSession } from '@maka/core';
+import {
+  DEEP_RESEARCH_SESSION_LABEL,
+  failureClassFromCompleteStopReason,
+  isDeepResearchSession,
+} from '@maka/core';
 import type { AgentRunEvent, AgentRunHeader, AgentRunStore, ArtifactRecord, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import {
   type RuntimeEventTerminalFact,
@@ -532,6 +536,7 @@ export class SessionManager {
 
     const completedAt = this.deps.now();
     const run = await this.findRunByTurnId(sessionId, turnId);
+    const failureClass = run?.failureClass ?? summary.failureClass;
     const artifacts = this.deps.listArtifactsForTurn
       ? await this.deps.listArtifactsForTurn(sessionId, turnId)
       : [];
@@ -548,7 +553,7 @@ export class SessionManager {
       completedAt,
       durationMs: Math.max(0, completedAt - startedAt),
       eventCount: summary.eventCount,
-      ...(run?.failureClass ? { failureClass: run.failureClass } : {}),
+      ...(failureClass ? { failureClass } : {}),
     };
   }
 
@@ -1068,6 +1073,7 @@ function trimSummary(text: string): string {
 
 class ChildAgentSummaryAccumulator {
   eventCount = 0;
+  failureClass: string | undefined;
   private terminalStatus: SpawnChildAgentResult['status'] | undefined;
   private lastTextComplete = '';
   private textDeltaTail = '';
@@ -1091,7 +1097,8 @@ class ChildAgentSummaryAccumulator {
         this.terminalStatus = 'cancelled';
         break;
       case 'complete':
-        if (event.stopReason === 'error') this.terminalStatus = 'failed';
+        this.failureClass = failureClassFromCompleteStopReason(event.stopReason);
+        if (this.failureClass) this.terminalStatus = 'failed';
         else if (event.stopReason === 'user_stop') this.terminalStatus = 'cancelled';
         else this.terminalStatus = 'completed';
         break;

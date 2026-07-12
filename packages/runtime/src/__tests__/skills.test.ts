@@ -5,7 +5,9 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  MAX_SKILLS_PROMPT_TOKENS,
   MAX_SKILLS_PROMPT_CHARS,
+  MIN_SKILLS_PROMPT_TOKENS,
   MAX_SKILL_TOOL_BODY_CHARS,
   buildSkillAgentTool,
   buildSkillsPromptFragment,
@@ -13,6 +15,7 @@ import {
   loadSkillInstructions,
   parseSkillFrontMatter,
   readSkillRuntimeState,
+  resolveSkillsPromptCharBudget,
   resolveSkillDiscoveryPaths,
   scanSkills,
   scanWorkspaceSkills,
@@ -23,6 +26,13 @@ import {
 import type { MakaToolContext } from '../tool-runtime.js';
 
 describe('runtime skills', () => {
+  it('scales the prompt catalog budget from model context with bounded fallback', () => {
+    assert.equal(resolveSkillsPromptCharBudget(), MAX_SKILLS_PROMPT_CHARS);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: Number.NaN }), MAX_SKILLS_PROMPT_CHARS);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 128_000 }), MIN_SKILLS_PROMPT_TOKENS * 4);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 300_000 }), 6_000 * 4);
+    assert.equal(resolveSkillsPromptCharBudget({ contextWindow: 1_000_000 }), MAX_SKILLS_PROMPT_TOKENS * 4);
+  });
   it('scanWorkspaceSkills lists SKILL.md metadata with declared tools as declaration only', async () => {
     await withWorkspace(async (workspaceRoot) => {
       const body = `---
@@ -580,6 +590,49 @@ Body.`, 'utf8');
       allowedTools: ['Read'],
       requiredTools: ['OfficeDocument'],
       requiredCapabilities: [],
+    });
+  });
+
+  it('buildSkillsPromptFragment does not impose an arbitrary count limit', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      for (let index = 1; index <= 15; index += 1) {
+        const id = `small-${String(index).padStart(2, '0')}`;
+        await writeSkill(workspaceRoot, id, `---\nname: Small ${index}\ndescription: Short.\n---\n# Small ${index}`);
+      }
+      const prompt = await buildSkillsPromptFragment(workspaceRoot);
+      assert.ok(prompt);
+      for (let index = 1; index <= 15; index += 1) {
+        const id = `small-${String(index).padStart(2, '0')}`;
+        assert.match(prompt, new RegExp(`id="${id}"`));
+      }
+      assert.doesNotMatch(prompt, /omitted from this prompt/);
+    });
+  });
+
+  it('buildSkillsPromptFragment truncates by char budget and lists omitted skills', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const longDescription = 'x'.repeat(1200);
+      for (let index = 1; index <= 20; index += 1) {
+        const id = `big-${String(index).padStart(2, '0')}`;
+        await writeSkill(workspaceRoot, id, `---\nname: Big ${index}\ndescription: ${longDescription}\n---\n# Big ${index}`);
+      }
+      const prompt = await buildSkillsPromptFragment(workspaceRoot, undefined, { contextWindow: 128_000 });
+      assert.ok(prompt);
+      const promptCharBudget = resolveSkillsPromptCharBudget({ contextWindow: 128_000 });
+      assert.ok(
+        prompt.length <= promptCharBudget + 512,
+        'prompt should stay close to the character budget',
+      );
+      assert.match(prompt, /omitted from this prompt due to the prompt budget/);
+
+      const omittedMatch = prompt.match(/prompt budget: ([^.]+)\./);
+      assert.ok(omittedMatch);
+      const omittedIds = omittedMatch![1].split(', ').map((id) => id.trim());
+      assert.ok(omittedIds.length > 0);
+      for (const id of omittedIds) {
+        const loaded = await loadSkillInstructions(workspaceRoot, id);
+        assert.equal(loaded.ok, true, `omitted skill ${id} should still be loadable via the Skill tool`);
+      }
     });
   });
 });

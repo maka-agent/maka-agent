@@ -281,7 +281,7 @@ function defaultHistoryBudgetTokens(
   env: Record<string, string | undefined>,
   modelId: string | undefined,
 ): number | undefined {
-  const contextWindow = selectedModelContextWindow(connection, modelId);
+  const contextWindow = resolveSelectedModelContextWindow(connection, modelId);
   if (contextWindow !== undefined) {
     const reserveTokens = parsePositiveInt(env.MAKA_CONTEXT_HISTORY_COMPACT_RESERVE_TOKENS, 16_384);
     return Math.max(1, contextWindow - reserveTokens);
@@ -290,7 +290,7 @@ function defaultHistoryBudgetTokens(
   return 32_000;
 }
 
-function selectedModelContextWindow(connection: LlmConnection, modelId: string | undefined): number | undefined {
+export function resolveSelectedModelContextWindow(connection: LlmConnection, modelId: string | undefined): number | undefined {
   const selectedModelId = modelId ?? connection.defaultModel;
   const model = selectedModelId
     ? connection.models?.find((candidate) => candidate.id === selectedModelId)
