@@ -42,6 +42,15 @@ export type {
 export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-path.js';
 
 export { createComputerUseOverlayHook, declaredPxToScreenPoint } from './computer-use-overlay-hook.js';
+export {
+  createMiniMaxComputerHarness,
+  minimaxComputerFrameTransform,
+  minimaxModelPointToSource,
+} from './minimax-computer-harness.js';
+export type {
+  MiniMaxComputerFrameTransform,
+  MiniMaxComputerHarnessOptions,
+} from './minimax-computer-harness.js';
 export type {
   CursorActionKind,
   CursorCompleteInput,

@@ -99,7 +99,7 @@ const OPENAI_OAUTH_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
 };
 
 const MINIMAX_MODELS_DEV_METADATA: Record<string, ModelMetadata> = {
-  'MiniMax-M3': { displayName: 'MiniMax-M3', lifecycle: 'active', docsUrl: 'https://platform.minimax.io/docs/guides/text-generation', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: false } },
+  'MiniMax-M3': { displayName: 'MiniMax-M3', lifecycle: 'active', docsUrl: 'https://platform.minimax.io/docs/guides/text-generation', contextWindow: 1_000_000, maxOutputTokens: 128_000, capabilities: { ...REASONING_FUNCTION_CALLING, vision: true } },
 };
 
 // Provider/access-path-specific static facts. Keep limits unset unless the

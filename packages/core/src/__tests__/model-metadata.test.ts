@@ -11,6 +11,8 @@ describe('model-metadata vision capability', () => {
     assert.equal(lookupModelMetadata('openai', 'gpt-5.5').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('google', 'gemini-2.5-pro').capabilities?.vision, true);
     assert.equal(lookupModelMetadata('zai-coding-plan', 'glm-5v-turbo').capabilities?.vision, true);
+    assert.equal(lookupModelMetadata('MiniMax', 'MiniMax-M3').capabilities?.vision, true);
+    assert.equal(lookupModelMetadata('MiniMax-cn', 'MiniMax-M3').capabilities?.vision, true);
   });
 
   it('reports vision false for text-only models', () => {
@@ -36,5 +38,6 @@ describe('resolveModelVisionSupport', () => {
   it('falls back to metadata when the model list is empty or missing', () => {
     assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, [], 'glm-5v-turbo'), true);
     assert.equal(resolveModelVisionSupport('zai-coding-plan' as ProviderType, undefined, 'glm-5.2'), false);
+    assert.equal(resolveModelVisionSupport('MiniMax', [{ id: 'MiniMax-M3' }], 'MiniMax-M3'), true);
   });
 });
