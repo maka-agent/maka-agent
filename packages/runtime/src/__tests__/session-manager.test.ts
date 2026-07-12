@@ -3084,6 +3084,8 @@ describe('SessionManager permission mode updates', () => {
     await child.next();
 
     await manager.stopSession(session.id, { source: 'stop_button' });
+    expect(backendInstances[0]?.stopCalls).toBe(0);
+    expect(backendInstances[1]?.stopCalls).toBe(1);
     childGate.release();
     await child.next();
     await child.next();
@@ -5353,6 +5355,7 @@ class TestBackend implements AgentBackend {
   readonly kind = 'fake' as const;
   readonly sessionId: string;
   readonly sendInputs: BackendSendInput[] = [];
+  stopCalls = 0;
 
   constructor(private readonly ctx: BackendFactoryContext, private readonly gate?: Gate) {
     this.sessionId = ctx.sessionId;
@@ -5365,7 +5368,9 @@ class TestBackend implements AgentBackend {
     yield { type: 'complete', id: `${input.turnId}-complete`, turnId: input.turnId, ts: 2, stopReason: 'end_turn' };
   }
 
-  async stop(): Promise<void> {}
+  async stop(): Promise<void> {
+    this.stopCalls += 1;
+  }
   async respondToPermission(_decision: PermissionDecision): Promise<void> {}
 
   async dispose(): Promise<void> {
