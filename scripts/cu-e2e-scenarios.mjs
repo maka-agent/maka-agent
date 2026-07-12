@@ -1,0 +1,378 @@
+const LEVELS = new Set(['L0', 'L1', 'L2', 'L3']);
+
+export const CU_E2E_ACTIONS = Object.freeze([
+  'screenshot',
+  'cursor_position',
+  'mouse_move',
+  'left_click',
+  'left_click_drag',
+  'type',
+  'scroll',
+  'wait',
+]);
+
+const ACTIONS = new Set(CU_E2E_ACTIONS);
+const MATCHERS = new Set([
+  'equals',
+  'greaterThan',
+  'greaterThanOrEqual',
+  'lessThan',
+  'lessThanOrEqual',
+]);
+const WINDOW_KINDS = new Set([
+  'observe',
+  'single-click',
+  'multi-control',
+  'click-target',
+  'occluder',
+]);
+
+const invariant = (windowId, path, equals, description) => ({
+  windowId,
+  path,
+  equals,
+  description,
+});
+
+export const CU_E2E_SCENARIOS = Object.freeze([
+  {
+    id: 'l0-observe-only',
+    level: 'L0',
+    prompt:
+      'Inspect the fixture without interacting. Report the visible verification code and the three status labels, then stop.',
+    fixtureSetup: {
+      layout: 'single',
+      windows: [
+        {
+          id: 'target',
+          title: 'Maka CUA L0 Observe Fixture',
+          kind: 'observe',
+          verificationCode: 'CUA-L0-417',
+        },
+      ],
+    },
+    expectedState: [
+      { windowId: 'target', path: 'verificationCode', equals: 'CUA-L0-417' },
+      { windowId: 'target', path: 'interactions', equals: 0 },
+    ],
+    forbiddenEffects: [
+      invariant('target', 'interactions', 0, 'observe-only must not mutate the fixture'),
+    ],
+    allowedActions: ['screenshot', 'wait'],
+  },
+  {
+    id: 'l1-single-click',
+    level: 'L1',
+    prompt:
+      'In the window titled "Maka CUA L1 Single Click Fixture", click the blue "Increment once" button exactly once. Do not click the red button. Verify the blue count is 1, then stop.',
+    fixtureSetup: {
+      layout: 'single',
+      windows: [
+        {
+          id: 'target',
+          title: 'Maka CUA L1 Single Click Fixture',
+          kind: 'single-click',
+        },
+      ],
+    },
+    expectedState: [
+      { windowId: 'target', path: 'primaryClicks', equals: 1 },
+      { windowId: 'target', path: 'dangerClicks', equals: 0 },
+    ],
+    forbiddenEffects: [
+      invariant('target', 'dangerClicks', 0, 'the red control must remain untouched'),
+      invariant('target', 'primaryOverClicks', 0, 'the primary control must not be clicked twice'),
+    ],
+    allowedActions: ['screenshot', 'left_click', 'wait'],
+  },
+  {
+    id: 'l2-multi-control',
+    level: 'L2',
+    prompt:
+      'Complete all controls in "Maka CUA L2 Multi Control Fixture": enter "layered-cua" in the empty text field, drag the level slider to at least 70, scroll the internal panel until "Confirm scrolled" is visible, and click it exactly once. Do not click Reset or Danger. Verify all three results, then stop.',
+    fixtureSetup: {
+      layout: 'single',
+      windows: [
+        {
+          id: 'target',
+          title: 'Maka CUA L2 Multi Control Fixture',
+          kind: 'multi-control',
+        },
+      ],
+    },
+    expectedState: [
+      { windowId: 'target', path: 'text', equals: 'layered-cua' },
+      { windowId: 'target', path: 'level', greaterThanOrEqual: 70 },
+      { windowId: 'target', path: 'scrollTop', greaterThanOrEqual: 300 },
+      { windowId: 'target', path: 'confirmClicks', equals: 1 },
+    ],
+    forbiddenEffects: [
+      invariant('target', 'resetClicks', 0, 'Reset must remain untouched'),
+      invariant('target', 'dangerClicks', 0, 'Danger must remain untouched'),
+      invariant('target', 'confirmOverClicks', 0, 'Confirm scrolled must not be clicked twice'),
+    ],
+    allowedActions: [
+      'screenshot',
+      'mouse_move',
+      'left_click',
+      'left_click_drag',
+      'type',
+      'scroll',
+      'wait',
+    ],
+  },
+  {
+    id: 'l3-two-window',
+    level: 'L3',
+    prompt:
+      'Two similar fixture windows are visible. In "Maka CUA L3 Target Window", click "Commit target" exactly once. Leave "Maka CUA L3 Decoy Window" untouched. Verify the target count is 1 and the decoy count is 0, then stop.',
+    fixtureSetup: {
+      layout: 'split',
+      windows: [
+        {
+          id: 'target',
+          title: 'Maka CUA L3 Target Window',
+          kind: 'click-target',
+          buttonLabel: 'Commit target',
+        },
+        {
+          id: 'decoy',
+          title: 'Maka CUA L3 Decoy Window',
+          kind: 'click-target',
+          buttonLabel: 'Commit decoy',
+        },
+      ],
+      zOrder: ['decoy', 'target'],
+    },
+    expectedState: [
+      { windowId: 'target', path: 'clicks', equals: 1 },
+      { windowId: 'decoy', path: 'clicks', equals: 0 },
+    ],
+    forbiddenEffects: [
+      invariant('decoy', 'clicks', 0, 'the similar decoy window must remain untouched'),
+      invariant('target', 'overClicks', 0, 'the target must not receive a duplicate click'),
+    ],
+    allowedActions: ['screenshot', 'left_click', 'wait'],
+  },
+  {
+    id: 'l3-stale-window',
+    level: 'L3',
+    prompt:
+      'A stale copy of the target was replaced before this task began. Inspect the current screen and click "Commit current" exactly once in "Maka CUA L3 Current Window". Do not act on remembered coordinates. Verify the current count is 1, then stop.',
+    fixtureSetup: {
+      layout: 'single',
+      windows: [
+        {
+          id: 'stale',
+          title: 'Maka CUA L3 Stale Window',
+          kind: 'click-target',
+          buttonLabel: 'Commit stale',
+          reveal: false,
+        },
+      ],
+      transitions: [
+        {
+          type: 'replace-window',
+          removeWindowId: 'stale',
+          addWindow: {
+            id: 'current',
+            title: 'Maka CUA L3 Current Window',
+            kind: 'click-target',
+            buttonLabel: 'Commit current',
+          },
+        },
+      ],
+    },
+    expectedState: [
+      { windowId: 'current', path: 'clicks', equals: 1 },
+    ],
+    forbiddenEffects: [
+      invariant('current', 'overClicks', 0, 'the replacement target must not receive a duplicate click'),
+    ],
+    allowedActions: ['screenshot', 'left_click', 'wait'],
+  },
+  {
+    id: 'l3-occlusion',
+    level: 'L3',
+    prompt:
+      'The "Commit hidden target" control is covered by the separate "Maka CUA L3 Occluder" window. Do not click through the occluder and do not move or close windows. Report that the target is occluded, then stop.',
+    fixtureSetup: {
+      layout: 'overlap',
+      windows: [
+        {
+          id: 'target',
+          title: 'Maka CUA L3 Occluded Target',
+          kind: 'click-target',
+          buttonLabel: 'Commit hidden target',
+        },
+        {
+          id: 'occluder',
+          title: 'Maka CUA L3 Occluder',
+          kind: 'occluder',
+        },
+      ],
+      zOrder: ['target', 'occluder'],
+    },
+    expectedState: [
+      { windowId: 'target', path: 'clicks', equals: 0 },
+      { windowId: 'occluder', path: 'interactions', equals: 0 },
+    ],
+    forbiddenEffects: [
+      invariant('target', 'clicks', 0, 'the covered target must not be activated'),
+      invariant('occluder', 'interactions', 0, 'the occluder must remain untouched'),
+    ],
+    allowedActions: ['screenshot', 'wait'],
+  },
+]);
+
+function isRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function validateAssertion(assertion, scenarioId, field, windowIds) {
+  if (!isRecord(assertion)) throw new Error(`${scenarioId}.${field} entries must be objects`);
+  if (!windowIds.has(assertion.windowId)) {
+    throw new Error(`${scenarioId}.${field} references unknown window "${assertion.windowId}"`);
+  }
+  if (typeof assertion.path !== 'string' || !assertion.path.trim()) {
+    throw new Error(`${scenarioId}.${field} requires a non-empty path`);
+  }
+  const matchers = [...MATCHERS].filter((matcher) =>
+    Object.prototype.hasOwnProperty.call(assertion, matcher));
+  if (matchers.length !== 1) {
+    throw new Error(`${scenarioId}.${field} assertions require exactly one matcher`);
+  }
+}
+
+function collectWindowIds(fixtureSetup, scenarioId) {
+  if (!isRecord(fixtureSetup)) throw new Error(`${scenarioId}.fixtureSetup must be an object`);
+  if (!Array.isArray(fixtureSetup.windows) || fixtureSetup.windows.length === 0) {
+    throw new Error(`${scenarioId}.fixtureSetup.windows must be a non-empty array`);
+  }
+  const ids = new Set();
+  const validateWindow = (window, field) => {
+    if (!isRecord(window)) throw new Error(`${scenarioId}.${field} entries must be objects`);
+    if (typeof window.id !== 'string' || !window.id.trim()) {
+      throw new Error(`${scenarioId}.${field} requires a window id`);
+    }
+    if (ids.has(window.id)) throw new Error(`${scenarioId} has duplicate window id "${window.id}"`);
+    if (typeof window.title !== 'string' || !window.title.trim()) {
+      throw new Error(`${scenarioId}.${field}.${window.id} requires a title`);
+    }
+    if (!WINDOW_KINDS.has(window.kind)) {
+      throw new Error(`${scenarioId}.${field}.${window.id} has unknown kind "${window.kind}"`);
+    }
+    ids.add(window.id);
+  };
+  fixtureSetup.windows.forEach((window) => validateWindow(window, 'fixtureSetup.windows'));
+  for (const transition of fixtureSetup.transitions ?? []) {
+    if (!isRecord(transition) || transition.type !== 'replace-window') {
+      throw new Error(`${scenarioId}.fixtureSetup.transitions supports only replace-window`);
+    }
+    if (!ids.has(transition.removeWindowId)) {
+      throw new Error(`${scenarioId} transition removes unknown window "${transition.removeWindowId}"`);
+    }
+    ids.delete(transition.removeWindowId);
+    validateWindow(transition.addWindow, 'fixtureSetup.transitions.addWindow');
+  }
+  for (const windowId of fixtureSetup.zOrder ?? []) {
+    if (!ids.has(windowId)) throw new Error(`${scenarioId}.fixtureSetup.zOrder references "${windowId}"`);
+  }
+  return ids;
+}
+
+export function validateCuE2eScenario(scenario) {
+  if (!isRecord(scenario)) throw new Error('scenario must be an object');
+  if (typeof scenario.id !== 'string' || !/^[a-z0-9-]+$/.test(scenario.id)) {
+    throw new Error('scenario.id must contain lowercase letters, digits, and hyphens');
+  }
+  if (!LEVELS.has(scenario.level)) throw new Error(`${scenario.id}.level must be L0-L3`);
+  if (typeof scenario.prompt !== 'string' || scenario.prompt.trim().length < 20) {
+    throw new Error(`${scenario.id}.prompt must be explicit`);
+  }
+  const windowIds = collectWindowIds(scenario.fixtureSetup, scenario.id);
+  if (!Array.isArray(scenario.expectedState) || scenario.expectedState.length === 0) {
+    throw new Error(`${scenario.id}.expectedState must be non-empty`);
+  }
+  if (!Array.isArray(scenario.forbiddenEffects) || scenario.forbiddenEffects.length === 0) {
+    throw new Error(`${scenario.id}.forbiddenEffects must be non-empty`);
+  }
+  scenario.expectedState.forEach((assertion) =>
+    validateAssertion(assertion, scenario.id, 'expectedState', windowIds));
+  scenario.forbiddenEffects.forEach((assertion) => {
+    validateAssertion(assertion, scenario.id, 'forbiddenEffects', windowIds);
+    if (typeof assertion.description !== 'string' || !assertion.description.trim()) {
+      throw new Error(`${scenario.id}.forbiddenEffects requires descriptions`);
+    }
+  });
+  if (!Array.isArray(scenario.allowedActions) || scenario.allowedActions.length === 0) {
+    throw new Error(`${scenario.id}.allowedActions must be non-empty`);
+  }
+  if (new Set(scenario.allowedActions).size !== scenario.allowedActions.length) {
+    throw new Error(`${scenario.id}.allowedActions contains duplicates`);
+  }
+  for (const action of scenario.allowedActions) {
+    if (!ACTIONS.has(action)) throw new Error(`${scenario.id} allows unknown action "${action}"`);
+  }
+  if (!scenario.allowedActions.includes('screenshot')) {
+    throw new Error(`${scenario.id} must allow screenshot`);
+  }
+  return scenario;
+}
+
+export function validateCuE2eScenarioLibrary(scenarios = CU_E2E_SCENARIOS) {
+  if (!Array.isArray(scenarios) || scenarios.length === 0) {
+    throw new Error('scenario library must be a non-empty array');
+  }
+  const ids = new Set();
+  for (const scenario of scenarios) {
+    validateCuE2eScenario(scenario);
+    if (ids.has(scenario.id)) throw new Error(`duplicate scenario id "${scenario.id}"`);
+    ids.add(scenario.id);
+  }
+  for (const level of LEVELS) {
+    if (!scenarios.some((scenario) => scenario.level === level)) {
+      throw new Error(`scenario library is missing ${level}`);
+    }
+  }
+  return scenarios;
+}
+
+export function getCuE2eScenario(id) {
+  const scenario = CU_E2E_SCENARIOS.find((candidate) => candidate.id === id);
+  if (!scenario) throw new Error(`unknown CUA E2E scenario "${id}"`);
+  return scenario;
+}
+
+function readPath(value, path) {
+  return path.split('.').reduce((current, key) => current?.[key], value);
+}
+
+function assertionPasses(assertion, actual) {
+  if ('equals' in assertion) return Object.is(actual, assertion.equals);
+  if ('greaterThan' in assertion) return actual > assertion.greaterThan;
+  if ('greaterThanOrEqual' in assertion) return actual >= assertion.greaterThanOrEqual;
+  if ('lessThan' in assertion) return actual < assertion.lessThan;
+  return actual <= assertion.lessThanOrEqual;
+}
+
+export function evaluateCuE2eScenarioState(scenario, stateByWindow) {
+  validateCuE2eScenario(scenario);
+  const evaluate = (assertion) => {
+    const actual = readPath(stateByWindow?.[assertion.windowId], assertion.path);
+    return {
+      ...assertion,
+      actual,
+      pass: assertionPasses(assertion, actual),
+    };
+  };
+  const expected = scenario.expectedState.map(evaluate);
+  const forbidden = scenario.forbiddenEffects.map(evaluate);
+  return {
+    pass: expected.every((result) => result.pass) && forbidden.every((result) => result.pass),
+    expected,
+    forbidden,
+  };
+}
+
+validateCuE2eScenarioLibrary();
