@@ -2838,10 +2838,18 @@ describe('SessionManager permission mode updates', () => {
       testTool('Grep'),
       testTool('ExploreAgent'),
     ];
+    const childFactoryModes: Array<{ parent: PermissionMode; child: PermissionMode; cwd: string }> = [];
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools,
+      childToolFactory: async (input) => {
+        childFactoryModes.push({
+          parent: input.parentHeader.permissionMode,
+          child: input.header.permissionMode,
+          cwd: input.header.cwd,
+        });
+        return childTools;
+      },
       newId: nextId(),
       now: nextNow(6_840),
       runtimeSource: 'test',
@@ -2864,6 +2872,7 @@ describe('SessionManager permission mode updates', () => {
     }));
 
     expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['ask', 'explore']);
+    expect(childFactoryModes).toEqual([{ parent: 'ask', child: 'explore', cwd: session.cwd }]);
     expect(contexts[1]?.systemPrompt).toBe(LOCAL_READ_AGENT_DEFINITION.systemPrompt);
     expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep']);
     expect(backendInstances).toHaveLength(2);
@@ -2895,18 +2904,18 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [
+      childToolFactory: staticChildToolFactory([
         testTool('Read'),
         testTool('Glob'),
         testTool('Grep'),
         testTool('WebSearch'),
         testTool('Bash'),
-      ],
+      ]),
       newId: nextId(),
       now: nextNow(6_841),
       runtimeSource: 'test',
     });
-    const session = await manager.createSession(makeInput({ permissionMode: 'execute' }));
+    const session = await manager.createSession(makeInput({ permissionMode: 'bypass' }));
 
     await drain(manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent context' }));
     const [parentRun] = await runStore.listSessionRuns(session.id);
@@ -2923,7 +2932,7 @@ describe('SessionManager permission mode updates', () => {
       prompt: 'search the web',
     }));
 
-    expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['execute', 'execute']);
+    expect(contexts.map((ctx) => ctx.header.permissionMode)).toEqual(['bypass', 'execute']);
     expect(contexts[1]?.systemPrompt).toBe(WEB_RESEARCH_AGENT_DEFINITION.systemPrompt);
     expect(contexts[1]?.tools?.map((tool) => tool.name)).toEqual(['WebSearch']);
 
@@ -2941,7 +2950,7 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       listArtifactsForTurn: async (_sessionId, turnId) => turnId === 'child-turn'
         ? [{
             id: 'artifact-1',
@@ -2986,7 +2995,7 @@ describe('SessionManager permission mode updates', () => {
       runStore,
       runtimeEventStore: runStore,
       backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       newId: nextId(),
       now: nextNow(6_843),
       runtimeSource: 'test',
@@ -3027,7 +3036,7 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       newId: nextId(),
       now: nextNow(6_844),
       runtimeSource: 'test',
@@ -3066,7 +3075,7 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       newId: nextId(),
       now: nextNow(6_845),
       runtimeSource: 'test',
@@ -3110,7 +3119,7 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [testTool('Read')],
+      childToolFactory: staticChildToolFactory([testTool('Read')]),
       newId: nextId(),
       now: nextNow(6_847),
       runtimeSource: 'test',
@@ -3162,7 +3171,7 @@ describe('SessionManager permission mode updates', () => {
     const manager = new SessionManager({
       store,
       runStore, runtimeEventStore: runStore, backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       listArtifactsForTurn: async (_sessionId, turnId) => turnId === 'child-turn'
         ? [{
             id: 'artifact-1',
@@ -3252,7 +3261,7 @@ describe('SessionManager permission mode updates', () => {
       runStore,
       runtimeEventStore: runStore,
       backends,
-      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      childToolFactory: staticChildToolFactory([testTool('Read'), testTool('Glob'), testTool('Grep')]),
       newId: nextId(),
       now: nextNow(6_900),
       runtimeSource: 'test',
@@ -5691,6 +5700,10 @@ function shellRunManagerStub(
     recoverOrphanedSession: async () => 0,
     buildContextSummary: async () => undefined,
   } as unknown as ShellRunProcessManager;
+}
+
+function staticChildToolFactory(tools: readonly MakaTool[]) {
+  return async () => tools;
 }
 
 function nextId(): () => string {

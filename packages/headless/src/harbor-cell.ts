@@ -46,6 +46,7 @@ import { configWithHeavyTaskPolicy, resolveHeavyTaskMode } from './heavy-task-po
 import { configWithEconomyTaskPolicy, resolveEconomyTaskMode } from './economy-task-policy.js';
 import type { HeadlessBackendContext, IsolatedToolExecutor, RealBackendIsolation } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES, validateRealBackendIsolation } from './isolation.js';
+import { externalPermissionProfileForIsolation } from './external-sandbox-context.js';
 import { PiCliJsonTransport } from './pi-cli-json-transport.js';
 import { backendNeedsIsolation } from './runner.js';
 import { buildIsolatedHeadlessToolAvailability, buildIsolatedHeadlessTools, type BuildIsolatedHeadlessToolsOptions } from './tools.js';
@@ -292,7 +293,11 @@ export async function runHarborCell(input: RunHarborCellInput): Promise<RunHarbo
     task,
     workspaceDir: input.cwd,
     ...(backendNeedsIsolation(input.config.backend)
-      ? { realBackendIsolation: input.realBackendIsolation, toolExecutor: input.realBackendIsolation?.toolExecutor }
+      ? {
+          realBackendIsolation: input.realBackendIsolation,
+          toolExecutor: input.realBackendIsolation?.toolExecutor,
+          permissionProfile: externalPermissionProfileForIsolation(input.realBackendIsolation),
+        }
       : {}),
   });
 

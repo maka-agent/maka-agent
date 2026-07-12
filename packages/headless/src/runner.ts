@@ -15,6 +15,7 @@ import type { Config, ResultRecord, Task } from './contracts.js';
 import { registerFakeBackend } from './backends.js';
 import type { HeadlessBackendContext, RealBackendIsolation } from './isolation.js';
 import { validateRealBackendIsolation } from './isolation.js';
+import { externalPermissionProfileForIsolation } from './external-sandbox-context.js';
 import { freezeSubmittedWorkspace, prepareScoringWorkspace, prepareWorkspace, restoreProtectedPaths } from './sandbox.js';
 import { defaultFinalScorer } from './scorer.js';
 import { buildIsolatedHeadlessTools } from './tools.js';
@@ -106,18 +107,27 @@ export async function runExperiment(
       task,
       workspaceDir: agentWorkspaceDir,
       ...(backendNeedsIsolation(config.backend)
-        ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
+        ? {
+            realBackendIsolation: deps.realBackendIsolation,
+            toolExecutor: deps.realBackendIsolation?.toolExecutor,
+            permissionProfile: externalPermissionProfileForIsolation(deps.realBackendIsolation),
+          }
         : {}),
     });
 
     let invocation: InvocationResult | undefined;
+    const isolatedChildTools = deps.realBackendIsolation?.toolExecutor
+      ? buildChildAgentTools(buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor))
+      : undefined;
     const manager = new SessionManager({
       store: createSessionStore(deps.storageRoot),
       runStore: createAgentRunStore(deps.storageRoot),
       runtimeEventStore: createRuntimeEventStore(deps.storageRoot),
       backends,
-      ...(deps.realBackendIsolation?.toolExecutor
-        ? { childTools: buildChildAgentTools(buildIsolatedHeadlessTools(deps.realBackendIsolation.toolExecutor)) }
+      ...(isolatedChildTools
+        ? {
+            childToolFactory: async () => isolatedChildTools,
+          }
         : {}),
       newId,
       now,

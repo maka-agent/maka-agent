@@ -19,6 +19,7 @@ import type {
 } from '@maka/runtime/workspace-executor';
 import { posix as pathPosix } from 'node:path';
 import type { IsolatedToolExecutor } from './isolation.js';
+import { EXTERNAL_HEADLESS_EXECUTION_FACTS } from './external-sandbox-context.js';
 
 export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
   isolation: 'none',
@@ -28,13 +29,7 @@ export const ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
   secrets: 'host_env',
 };
 
-export const EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS: WorkspaceExecutorFacts = {
-  isolation: 'remote',
-  writesAffectHost: false,
-  writeBack: 'diff_review',
-  network: 'sandbox',
-  secrets: 'brokered',
-};
+export const EXTERNAL_ISOLATED_WORKSPACE_EXECUTOR_FACTS = EXTERNAL_HEADLESS_EXECUTION_FACTS;
 
 export type IsolatedWorkspaceExecutorAdapter =
   & WorkspaceExecutorFactsProvider

@@ -73,7 +73,7 @@ import type {
   InvocationResult,
   InvocationSource,
 } from './invocation-context.js';
-import { RuntimeKernel, type RuntimeKernelLike } from './runtime-kernel.js';
+import { RuntimeKernel, type ChildToolFactory, type RuntimeKernelLike } from './runtime-kernel.js';
 import {
   buildStatusPatch,
   buildTurnStateMessage,
@@ -241,7 +241,7 @@ export interface SessionManagerDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
-  childTools?: readonly MakaTool[];
+  childToolFactory?: ChildToolFactory;
   listArtifactsForTurn?: (sessionId: string, turnId: string) => Promise<ArtifactRecord[]>;
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
@@ -549,9 +549,13 @@ export class SessionManager {
 
   async listChildAgents(sessionId: string): Promise<AgentListResult> {
     const header = await this.deps.store.readHeader(sessionId);
+    const childTools = await this.deps.childToolFactory?.({
+      parentHeader: header,
+      header,
+    }) ?? [];
     const definitions = listBuiltinAgentDefinitions({
       parentPermissionMode: header.permissionMode,
-      tools: this.deps.childTools ?? [],
+      tools: childTools,
     });
     if (!this.deps.runStore) return { definitions, runs: [] };
     const runs = await this.deps.runStore.listSessionRuns(sessionId);

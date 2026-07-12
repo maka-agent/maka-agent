@@ -339,6 +339,8 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(result.passed, true);
       assert.equal(contexts.length, 1);
       assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
+      assert.equal(contexts[0]?.permissionProfile?.type, 'external');
+      assert.equal(contexts[0]?.permissionProfile?.network.kind, 'enabled');
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
     });

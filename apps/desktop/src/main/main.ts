@@ -71,12 +71,10 @@ import {
   FakeBackend,
   PermissionEngine,
   SessionManager,
-  buildBuiltinTools,
   buildPermissionAwareBuiltinTools,
-  createLocalWorkspaceExecutor,
   createDefaultSandboxManager,
   createSessionSandboxContextProvider,
-  buildChildAgentTools,
+  createPermissionAwareChildToolFactory,
   buildSubagentProjectionTools,
   buildSubagentSpawnTool,
   buildSubagentToolGroup,
@@ -492,13 +490,12 @@ async function buildSessionBuiltinTools(header: SessionHeader): Promise<MakaTool
     ...sharedRuntimeTools,
   ];
 }
-// Child agents stay file-only for local reads; parent runtime refs such as
-// maka://runtime/background-tasks/<id> are not part of their tool surface.
-const childAgentTools = buildChildAgentTools([
-  ...buildBuiltinTools({ executor: createLocalWorkspaceExecutor() })
-    .filter((tool: MakaTool) => tool.name !== 'Edit'),
-  webSearchTool,
-]);
+const buildDesktopChildTools = createPermissionAwareChildToolFactory({
+  canonicalizeCwd: normalizedExistingPath,
+  sandboxManager,
+  filesystemWorkerClient,
+  extraTools: [webSearchTool],
+});
 let lookupPricing = buildPricingLookup();
 // PR-BOT-LASTERROR-FROM-SEND-0: per-platform last-observed readiness so
 // we only persist `lastError` on transitions, not on every status emit
@@ -787,7 +784,7 @@ const runtime = new SessionManager({
   runtimeEventStore,
   shellRuns,
   backends,
-  childTools: childAgentTools,
+  childToolFactory: buildDesktopChildTools,
   listArtifactsForTurn: async (sessionId, turnId) =>
     (await artifactStore.list(sessionId)).filter((artifact) =>
       artifact.turnId === turnId && artifact.status !== 'deleted'

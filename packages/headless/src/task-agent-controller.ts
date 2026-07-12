@@ -57,6 +57,7 @@ import {
   toolExecutorIdentity,
   validateRealBackendIsolation,
 } from './isolation.js';
+import { externalPermissionProfileForIsolation } from './external-sandbox-context.js';
 import {
   commandResourceScope,
   hashNormalizedArgs,
@@ -281,7 +282,11 @@ export async function runTaskOnce(
       ...(heavyTaskSelfCheck ? { heavyTaskSelfCheck } : {}),
       ...(heavyTaskEvidence ? { heavyTaskEvidence } : {}),
       ...(backendNeedsIsolation(config.backend)
-        ? { realBackendIsolation: deps.realBackendIsolation, toolExecutor: deps.realBackendIsolation?.toolExecutor }
+        ? {
+            realBackendIsolation: deps.realBackendIsolation,
+            toolExecutor: deps.realBackendIsolation?.toolExecutor,
+            permissionProfile: externalPermissionProfileForIsolation(deps.realBackendIsolation),
+          }
         : {}),
     });
 

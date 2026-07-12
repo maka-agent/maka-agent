@@ -26,6 +26,7 @@ import {
   assertAgentDefinitionRunnable,
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinition,
+  type AgentDefinition,
 } from './agent-catalog.js';
 
 export interface RuntimeKernelLike {
@@ -46,12 +47,22 @@ export interface RuntimeKernelDeps {
   backends: BackendRegistry;
   newId: () => string;
   now: () => number;
-  childTools?: readonly MakaTool[];
+  childToolFactory?: ChildToolFactory;
   runtimeSource?: InvocationSource;
   runtimeInvocationObserver?: (result: InvocationResult) => void | Promise<void>;
   repairRunRuntimeLedger?: (sessionId: string, runId: string) => Promise<boolean>;
   shellRuns?: ShellRunProcessManager;
 }
+
+export interface ChildToolFactoryInput {
+  parentHeader: SessionHeader;
+  header: SessionHeader;
+  definition?: AgentDefinition;
+}
+
+export type ChildToolFactory = (
+  input: ChildToolFactoryInput,
+) => Promise<readonly MakaTool[]>;
 
 interface ActiveSession extends AgentRunActiveSession {
   sessionId: string;
@@ -203,18 +214,22 @@ export class RuntimeKernel implements RuntimeKernelLike {
   ): AsyncIterable<SessionEvent> {
     const parentHeader = await this.deps.store.readHeader(sessionId);
     const definition = requireBuiltinAgentDefinition(input.spec.id);
-    const availableChildTools = this.deps.childTools ?? [];
+    const childHeader: SessionHeader = {
+      ...parentHeader,
+      permissionMode: definition.permissionMode,
+      connectionLocked: true,
+    };
+    const availableChildTools = await this.deps.childToolFactory?.({
+      parentHeader,
+      header: childHeader,
+      definition,
+    }) ?? [];
     assertAgentDefinitionRunnable({
       parentPermissionMode: parentHeader.permissionMode,
       definition,
       tools: availableChildTools,
     });
     const childTools = buildToolsForAgentDefinition(availableChildTools, definition);
-    const childHeader: SessionHeader = {
-      ...parentHeader,
-      permissionMode: definition.permissionMode,
-      connectionLocked: true,
-    };
     const userInput: UserMessageInput = {
       turnId: input.turnId,
       text: input.prompt,

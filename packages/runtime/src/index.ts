@@ -628,10 +628,14 @@ export type {
   RuntimeReadModelSessionView,
 } from './runtime-read-model.js';
 export { RuntimeKernel } from './runtime-kernel.js';
+export { createPermissionAwareChildToolFactory } from './permission-aware-child-tool-factory.js';
 export type {
+  ChildToolFactory,
+  ChildToolFactoryInput,
   RuntimeKernelDeps,
   RuntimeKernelLike,
 } from './runtime-kernel.js';
+export type { CreatePermissionAwareChildToolFactoryInput } from './permission-aware-child-tool-factory.js';
 export { AgentRun } from './agent-run.js';
 export type {
   AgentRunActiveSession,

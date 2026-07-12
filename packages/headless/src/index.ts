@@ -342,6 +342,10 @@ export {
   ISOLATED_HEADLESS_TOOL_NAMES,
 } from './isolation.js';
 export {
+  EXTERNAL_HEADLESS_EXECUTION_FACTS,
+  externalPermissionProfileForIsolation,
+} from './external-sandbox-context.js';
+export {
   buildIsolatedBashTool,
   buildIsolatedEditTool,
   buildIsolatedGlobTool,

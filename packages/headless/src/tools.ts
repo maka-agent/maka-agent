@@ -12,6 +12,7 @@ import type { HeavyTaskEvidenceRecorder } from './heavy-task-evidence.js';
 import { buildHeavyTaskProgressTools, type HeavyTaskProgressRecorder } from './heavy-task-progress.js';
 import { buildHeavyTaskSelfCheckTools, type HeavyTaskSelfCheckRecorder } from './heavy-task-self-check.js';
 import type { IsolatedToolExecutor } from './isolation.js';
+import { EXTERNAL_HEADLESS_EXECUTION_FACTS } from './external-sandbox-context.js';
 import {
   buildTaskLedgerExperimentTools,
   type TaskLedgerExperimentStore,
@@ -88,6 +89,7 @@ export function buildIsolatedBashTool(
       + 'Use it for inspection, builds, and task-local generation; prefer Read/Grep/Write/Edit for exact file operations and preserve required deliverables.',
     defaultTimeoutMs: cleanupCommandTimeoutMs,
     emitReturnedOutput: true,
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     execute: async ({ command, cwd, timeoutMs }) => {
       // boundedTail: Bash is the one caller that wants a recoverable tail of a
       // huge, never-killed output. Read/Glob/Grep deliberately omit it so they
@@ -117,6 +119,7 @@ export function buildIsolatedReadTool(
 ): MakaTool {
   return {
     name: 'Read',
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     description: 'Read a file from the isolated headless task workspace.',
     parameters: z.object({
       path: z.string(),
@@ -148,6 +151,7 @@ export function buildIsolatedWriteTool(
 ): MakaTool {
   return {
     name: 'Write',
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     description: 'Write content to a file in the isolated headless task workspace.',
     parameters: z.object({ path: z.string(), content: z.string() }),
     permissionRequired: true,
@@ -179,6 +183,7 @@ export function buildIsolatedEditTool(
 ): MakaTool {
   return {
     name: 'Edit',
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     description:
       'Replace old_string with new_string in a file in the isolated headless task workspace. '
       + 'Prefers an exact, unique match; if exact fails it tolerates limited whitespace/indentation/escape '
@@ -213,6 +218,7 @@ export function buildIsolatedGlobTool(
 ): MakaTool {
   return {
     name: 'Glob',
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     description: 'Find files in the isolated headless task workspace matching a glob pattern.',
     parameters: z.object({
       pattern: z.string(),
@@ -247,6 +253,7 @@ export function buildIsolatedGrepTool(
 ): MakaTool {
   return {
     name: 'Grep',
+    executionFacts: EXTERNAL_HEADLESS_EXECUTION_FACTS,
     description: 'Search file contents with a regex in the isolated headless task workspace.',
     parameters: z.object({
       pattern: z.string(),

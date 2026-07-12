@@ -158,6 +158,8 @@ export interface HeadlessBackendContext {
    * explicitly asserted an isolation boundary.
    */
   realBackendIsolation?: RealBackendIsolation;
+  /** Explicit profile: the external executor, not local Seatbelt, owns isolation. */
+  permissionProfile?: import('@maka/core/permission-profile').PermissionProfileExternal;
   /** Convenience alias for realBackendIsolation.toolExecutor. */
   toolExecutor?: IsolatedToolExecutor;
   /** Heavy-task selection resolved for this task run. */
