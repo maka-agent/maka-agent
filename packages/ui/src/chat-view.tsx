@@ -24,6 +24,7 @@ import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from '
 import type { ChatModelChoice } from './chat-model-helpers.js';
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { createPinnedBottomFollower } from './pinned-bottom.js';
+import { createTurnSizeWarmup } from './turn-size-warmup.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { DialogContent, DialogRoot } from './ui.js';
@@ -350,6 +351,21 @@ export function ChatView(props: {
       isPinned: () => pinnedToBottomRef.current,
     });
   }, [props.activeSession?.id]);
+
+  // Warm up `content-visibility: auto` turns once per session load so every
+  // turn's real height replaces the 250px `contain-intrinsic-size` estimate.
+  // Without this, scrolling up through never-rendered history keeps inflating
+  // the document and the top recedes ("endless scroll"). Keyed on hasTurns so
+  // the walk starts when history arrives, without re-walking per message.
+  const hasTurns = turns.length > 0;
+  useEffect(() => {
+    if (!hasTurns) return;
+    const root = scrollRef.current;
+    if (!root) return;
+    return createTurnSizeWarmup({
+      turns: () => root.querySelectorAll<HTMLElement>('.maka-turn'),
+    });
+  }, [props.activeSession?.id, hasTurns]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
