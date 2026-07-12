@@ -168,6 +168,11 @@ function normalizeSkillSource(source: SkillSource): { entries: SkillDiscoveryEnt
 
 export const MAX_SKILL_BODY_CHARS = 4000;
 export const MAX_SKILL_TOOL_BODY_CHARS = 24_000;
+/**
+ * Fixed, provider-independent budget for the always-on skill catalog.
+ * See `docs/skill-catalog-policy.md` for ordering, eligibility, and omitted
+ * skill lazy-loading semantics.
+ */
 export const MAX_SKILLS_PROMPT_CHARS = 18000;
 
 // ── Public API ────────────────────────────────────────────────────────────
