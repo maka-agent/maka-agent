@@ -225,6 +225,6 @@ release notes.
 ## 6. Acknowledgement
 
 The structure and several phrases of this document are adapted
-from the [external reference SECURITY.md][external reference-sec]. Thanks to the
+from the [hermes-agent SECURITY.md][hermes-agent-sec]. Thanks to the
 Nous Research team for setting the bar on honest agent security
 framing.
