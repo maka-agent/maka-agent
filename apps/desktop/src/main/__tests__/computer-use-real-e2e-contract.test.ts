@@ -52,3 +52,16 @@ test('all providers share the Maka Computer function harness', () => {
   assert.doesNotMatch(source, /createKimiComputerHarness/);
   assert.doesNotMatch(source, /createMiniMaxComputerHarness/);
 });
+
+test('Maka Computer wires display snapshots without restoring the old owned-target guard', () => {
+  assert.match(source, /resolveCuaDisplaySnapshots/);
+  assert.match(source, /resolveDisplays:\s*async\s*\(\{\s*screenshotWidthPx,\s*screenshotHeightPx\s*\}\)/);
+  assert.doesNotMatch(source, /inspectWindowAt/);
+  assert.doesNotMatch(source, /isOwnedComputerUseFixtureTarget\s*\(/);
+});
+
+test('Maka Computer preserves native screenshot dimensions and an explicit JPEG MIME type', () => {
+  assert.match(source, /toJPEG\(82\)/);
+  assert.match(source, /mimeType:\s*'image\/jpeg'/);
+  assert.match(source, /coordinates unchanged/);
+});

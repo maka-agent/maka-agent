@@ -43,6 +43,7 @@ test('every scenario carries prompt, fixture, expected state, forbidden effects,
     assert.ok(scenario.allowedActions.every((action) => knownActions.has(action)), scenario.id);
     assert.equal(typeof scenario.realRunEnabled, 'boolean', scenario.id);
     assert.ok(Array.isArray(scenario.requiresExecutionCapabilities), scenario.id);
+    assert.ok(Array.isArray(scenario.contractChecks), scenario.id);
   }
 });
 
@@ -75,6 +76,32 @@ test('L3 isolates two-window, stale, and occlusion hazards', () => {
     'replace-window',
   );
   assert.equal(getCuE2eScenario('l3-occlusion').fixtureSetup.layout, 'overlap');
+});
+
+test('L1-L4 declare exact Window/frame, stale, zoom, display, and ownership gates', () => {
+  const checks = new Set(
+    CU_E2E_SCENARIOS
+      .filter(({ level }) => ['L1', 'L2', 'L3', 'L4'].includes(level))
+      .flatMap(({ contractChecks }) => contractChecks),
+  );
+  assert.deepEqual([...checks].sort(), [
+    'ax-diff-secondary-oracle',
+    'duplicate-action-rejection',
+    'explicit-occurrence-selection',
+    'focus-cursor-safety',
+    'fresh-post-action-observation',
+    'identity-preserving-stale-resolution',
+    'immediately-preceding-local-screenshot',
+    'keyboard-ownership',
+    'mixed-scale-mapping',
+    'negative-origin-mapping',
+    'observation-window-frame-binding',
+    'occlusion-rejection',
+    'semantic-action-coverage',
+    'two-window-isolation',
+    'unrelated-dynamic-content-tolerated',
+    'zoom-crop-coordinate-space',
+  ]);
 });
 
 test('state evaluation reports expected and forbidden-effect failures separately', () => {
@@ -116,6 +143,11 @@ test('validation rejects ambiguous or unsafe scenario declarations', () => {
   assert.throws(
     () => validateCuE2eScenario(ambiguousMatcher),
     /exactly one matcher/,
+  );
+
+  assert.throws(
+    () => validateCuE2eScenario({ ...base, contractChecks: ['not-a-contract'] }),
+    /unknown check/,
   );
 });
 

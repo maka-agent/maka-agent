@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "source": "Codex Computer Use Reproduction Lab",
+  "evidenceClass": "real-runtime-reference",
+  "semanticMatrix": {
+    "scenarioCount": 12,
+    "allPassed": true,
+    "behaviors": [
+      "full-state",
+      "visible-ax-diff",
+      "button-click",
+      "set-value",
+      "type-text",
+      "select-text",
+      "checkbox",
+      "secondary-action",
+      "scroll",
+      "modal",
+      "unique-stale-refetch",
+      "ambiguous-occurrence"
+    ]
+  },
+  "realExtensions": [
+    "coordinate-click",
+    "drag",
+    "press-key"
+  ],
+  "invariants": {
+    "axDiffIsNotSoleBusinessOracle": true,
+    "staleRefetchRequiresUniqueIdentity": true,
+    "staleWrongTargetCount": 0,
+    "ambiguousSelectionRequiresOccurrence": true,
+    "coordinateUsesImmediatelyPrecedingScreenshot": true,
+    "screenshotScope": "window-or-app-local",
+    "screenshotFormat": "image/jpeg",
+    "unrelatedDynamicContentIsUserIntervention": false
+  }
+}

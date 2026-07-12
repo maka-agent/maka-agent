@@ -11,6 +11,7 @@ export interface CuE2eScenario {
   expectedState: Array<Record<string, unknown>>;
   forbiddenEffects: Array<Record<string, unknown>>;
   allowedActions: string[];
+  contractChecks: string[];
   realRunEnabled: boolean;
   requiresExecutionCapabilities: string[];
   runner?: string;

@@ -16,6 +16,24 @@ export const CU_E2E_ACTIONS = Object.freeze([
 ]);
 
 const ACTIONS = new Set(CU_E2E_ACTIONS);
+const CONTRACT_CHECKS = new Set([
+  'observation-window-frame-binding',
+  'fresh-post-action-observation',
+  'duplicate-action-rejection',
+  'keyboard-ownership',
+  'ax-diff-secondary-oracle',
+  'unrelated-dynamic-content-tolerated',
+  'identity-preserving-stale-resolution',
+  'explicit-occurrence-selection',
+  'immediately-preceding-local-screenshot',
+  'semantic-action-coverage',
+  'zoom-crop-coordinate-space',
+  'two-window-isolation',
+  'occlusion-rejection',
+  'negative-origin-mapping',
+  'mixed-scale-mapping',
+  'focus-cursor-safety',
+]);
 const MATCHERS = new Set([
   'equals',
   'greaterThan',
@@ -66,6 +84,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
     ],
     allowedActions: ['list_apps', 'observe', 'wait'],
     maxActionCounts: { list_apps: 1, observe: 2, wait: 1 },
+    contractChecks: [],
     realRunEnabled: true,
     requiresExecutionCapabilities: [],
   },
@@ -93,6 +112,13 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('target', 'primaryOverClicks', 0, 'the primary control must not be clicked twice'),
     ],
     allowedActions: ['observe', 'click_element', 'screenshot', 'left_click', 'wait'],
+    contractChecks: [
+      'observation-window-frame-binding',
+      'fresh-post-action-observation',
+      'duplicate-action-rejection',
+      'ax-diff-secondary-oracle',
+      'immediately-preceding-local-screenshot',
+    ],
     realRunEnabled: false,
     requiresExecutionCapabilities: ['window-frame-binding'],
   },
@@ -134,6 +160,15 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       'scroll',
       'wait',
     ],
+    contractChecks: [
+      'observation-window-frame-binding',
+      'fresh-post-action-observation',
+      'keyboard-ownership',
+      'ax-diff-secondary-oracle',
+      'immediately-preceding-local-screenshot',
+      'semantic-action-coverage',
+      'zoom-crop-coordinate-space',
+    ],
     realRunEnabled: false,
     requiresExecutionCapabilities: [
       'window-frame-binding',
@@ -174,6 +209,13 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('target', 'overClicks', 0, 'the target must not receive a duplicate click'),
     ],
     allowedActions: ['observe', 'click_element', 'screenshot', 'left_click', 'wait'],
+    contractChecks: [
+      'observation-window-frame-binding',
+      'two-window-isolation',
+      'duplicate-action-rejection',
+      'explicit-occurrence-selection',
+      'immediately-preceding-local-screenshot',
+    ],
     realRunEnabled: false,
     requiresExecutionCapabilities: ['window-frame-binding'],
   },
@@ -213,6 +255,10 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('current', 'overClicks', 0, 'the replacement target must not receive a duplicate click'),
     ],
     allowedActions: ['observe', 'click_element', 'screenshot', 'left_click', 'wait'],
+    contractChecks: [
+      'identity-preserving-stale-resolution',
+      'unrelated-dynamic-content-tolerated',
+    ],
     realRunEnabled: false,
     requiresExecutionCapabilities: ['window-frame-binding', 'stale-frame-rejection'],
   },
@@ -247,6 +293,11 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('occluder', 'interactions', 0, 'the occluder must remain untouched'),
     ],
     allowedActions: ['observe', 'screenshot', 'wait'],
+    contractChecks: [
+      'observation-window-frame-binding',
+      'occlusion-rejection',
+      'immediately-preceding-local-screenshot',
+    ],
     realRunEnabled: true,
     requiresExecutionCapabilities: [],
   },
@@ -270,6 +321,11 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('sentinel', 'agentViolations', 0, 'agent actions must not change focus or the real cursor'),
     ],
     allowedActions: ['observe', 'screenshot', 'wait'],
+    contractChecks: [
+      'focus-cursor-safety',
+      'negative-origin-mapping',
+      'mixed-scale-mapping',
+    ],
     realRunEnabled: true,
     requiresExecutionCapabilities: ['focus-cursor-sentinel'],
     runner: 'safety-sentinel',
@@ -294,6 +350,7 @@ export const CU_E2E_SCENARIOS = Object.freeze([
       invariant('matrix', 'executedUiActions', 0, 'provider aggregation must not execute UI actions'),
     ],
     allowedActions: ['observe'],
+    contractChecks: [],
     realRunEnabled: true,
     requiresExecutionCapabilities: [],
     runner: 'provider-matrix',
@@ -411,6 +468,15 @@ export function validateCuE2eScenario(scenario) {
       typeof capability !== 'string' || !capability.trim())
   ) {
     throw new Error(`${scenario.id}.requiresExecutionCapabilities must be string[]`);
+  }
+  if (
+    !Array.isArray(scenario.contractChecks)
+    || scenario.contractChecks.some((check) => !CONTRACT_CHECKS.has(check))
+  ) {
+    throw new Error(`${scenario.id}.contractChecks contains an unknown check`);
+  }
+  if (new Set(scenario.contractChecks).size !== scenario.contractChecks.length) {
+    throw new Error(`${scenario.id}.contractChecks contains duplicates`);
   }
   return scenario;
 }
