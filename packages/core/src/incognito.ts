@@ -1,40 +1,11 @@
 /**
- * Workspace privacy context — shared cross-lane contract.
+ * Shared workspace privacy contract.
  *
- * Anchors:
- *   - Lane assignment: xuan msg `0f1a3a2b`.
- *   - My acceptance + scope: msg `6b2c176e`.
- *   - Predecessor lanes that consume this contract:
- *       - PR-SEARCH-1 (`notes/pr-search-1-report.md` G3 gate, deferred).
- *       - PR-MEMORY-1 (`MemoryWriteRequestContext.incognitoActive`, forward-looking).
- *       - PR-VOICE-0 (capture refuses when incognitoActive — currently
- *         a TODO consumed via this contract).
+ * The main process owns the effective state. Renderers may request or
+ * display it, but consumers must receive a main-resolved context rather
+ * than trust renderer input. Invalid boundary data fails closed.
  *
- * Scope: this module is **contract-only**. It declares the typed shape
- * any future Maka surface MUST consume when checking incognito state.
- * It does NOT add settings UI, storage, IPC, renderer toggles, or
- * runtime enforcement. Downstream lanes (PR-SEARCH-2.5, future MEMORY
- * read gate, VOICE-1) consume this type without re-inventing the flag.
- *
- * Authority rules (per xuan `0f1a3a2b` + `ece30c92`):
- *   - `incognitoActive` source-of-truth is **main process / session /
- *     workspace owner** only. The renderer can REQUEST or DISPLAY the
- *     current context but CANNOT submit a context as proof of state in
- *     either direction. A renderer payload claiming `false` is just as
- *     unauthoritative as a renderer payload claiming `true` — incognito
- *     is a privacy contract, never a renderer self-attestation.
- *   - Default state is `incognitoActive: false`, produced ONLY by
- *     `defaultWorkspacePrivacyContext()`. The validator never invents
- *     a default for malformed input — a missing or non-boolean
- *     `incognitoActive` is a typed reject, not a silent false.
- *   - Future extensions to the shape (e.g. per-session incognito,
- *     time-bounded incognito) are explicit contract changes.
- *
- * Source hygiene: plain ASCII source; no literal control bytes; no
- * regex character classes with non-printables.
- *
- * @see docs/workspace-privacy-context.md for the consumer playbook and
- *      the per-lane consume patterns.
+ * @see docs/workspace-privacy-context.md
  */
 
 // ---------------------------------------------------------------------------
@@ -44,9 +15,8 @@
 /**
  * Workspace-wide privacy context.
  *
- * v1 has exactly one field. Adding fields (per-session incognito,
- * retention windows, screen-recording opt-out) requires extending this
- * interface AND updating every consumer lane.
+ * The contract has exactly one field. Adding fields requires updating
+ * this interface, the main-process authority path, and every consumer.
  */
 export interface WorkspacePrivacyContext {
   /**
@@ -54,17 +24,9 @@ export interface WorkspacePrivacyContext {
    * the main process; renderers may read but cannot durably claim
    * incognito on their own. Defaults to `false` on a fresh workspace.
    *
-   * Consumer obligations when this is `true`:
-   *   - SEARCH (thread / future memory / future activity): exclude
-   *     results from the search index; return empty result set if a
-   *     query is issued.
-   *   - MEMORY: reject writes (`incognito_active` reason); reject reads
-   *     in any future read path (read gate is a future contract).
-   *   - VOICE: refuse mic capture; reject existing capture-in-progress
-   *     if mode toggles mid-stream (future runtime concern).
-   *   - TELEMETRY: emit no per-action records.
-   *   - LOGS: redact session ids and user content from any diagnostic
-   *     emission.
+   * Current durable-data consumers block thread search and local-memory
+   * reads and writes while this is true. New consumers must define their
+   * own fail-closed result at the main-process boundary.
    */
   incognitoActive: boolean;
 }
