@@ -1,69 +1,69 @@
-[English](./README.en.md)
+[中文](./README.zh-CN.md)
 
 # Maka
 
 [![CI](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Maka-Agent/maka-agent/actions/workflows/ci.yml)
 
-**一个为真实工作而生的本地优先 Agent 工作台。**
+**A local-first Agent workspace built for real work.**
 
-Maka 不只回答问题。它可以在受控权限下阅读项目、执行工具、生成产物，并把模型消息、工具调用和长程任务进度保存为可恢复的运行事实。你可以从桌面应用、终端 TUI、非交互 CLI 或 Headless runner 使用同一套 Runtime。
+Maka does more than answer questions. With controlled permissions, it can inspect projects, execute tools, produce artifacts, and preserve model messages, tool calls, and durable-task progress as recoverable execution facts. The same Runtime is available through the desktop app, terminal TUI, non-interactive CLI, and Headless runner.
 
 ![Maka desktop artifact workflow](./apps/desktop/tests/screenshots-baseline/artifact-pane/dark-1280-motion.png)
 
 > [!IMPORTANT]
-> Maka 仍在活跃开发中，当前主要面向从源码运行和参与开发的用户。数据格式、CLI 和实验能力仍可能变化。
+> Maka is under active development and currently targets users running from source or contributing to the project. Data formats, CLI commands, and experimental capabilities may still change.
 
-## 为什么是 Maka
+## Why Maka
 
-- **本地优先，而不是云端托管优先**：会话、设置和运行记录默认保存在本机；模型连接由你配置，可以使用云 API、本地模型或兼容网关。
-- **Log is the Runtime**：模型消息、Tool Call、Tool Result 和终止事实进入 Runtime Event Log，Session、UI、模型上下文和恢复逻辑从日志生成投影。
-- **上下文不是历史本身**：Tool Result prune 和 LLM Compaction 只改变下一次推理看到什么，不把已记录的证据当作上下文垃圾删除。
-- **任务可以长于一个 Turn**：Headless 使用 TaskRun、Task Event Log、预算和 continuation 机制推进可中断、可检查的长程任务。
-- **反馈不等于事实 authority**：Self-check 可以产生证据和一次受限修复机会，但不能把“我检查过了”变成系统事实。
+- **Local-first instead of hosted-first**: sessions, settings, and run records stay on your machine by default. You choose the model connection: cloud API, local model, or compatible gateway.
+- **Log is the Runtime**: model messages, Tool Calls, Tool Results, and termination facts enter Runtime Event Log. Sessions, UI, model context, and recovery are projections over that log.
+- **Context is not history**: Tool Result pruning and LLM Compaction change what the next inference sees without treating recorded evidence as disposable context.
+- **A task may outlive a Turn**: Headless uses TaskRun, Task Event Log, budgets, and continuation to advance interruptible and inspectable durable work.
+- **Feedback is not fact authority**: Self-check may produce evidence and one bounded repair opportunity, but “I checked it” does not become a system fact.
 
-完整设计见 [Maka Backend Architecture](./ARCHITECTURE.md)。
+Read [Maka Backend Architecture](./ARCHITECTURE.en.md) for the complete design.
 
-## 运行形态
+## Surfaces
 
-| 入口 | 适合什么 | 当前能力 |
+| Entry point | Best for | Current capability |
 |---|---|---|
-| **Desktop** | 日常交互、文件与 Artifact 工作流、模型和权限配置 | Electron + React，支持流式会话、工具时间线、分支、搜索和恢复 |
-| **TUI / CLI** | 在当前工程目录中使用 Maka，或执行单次非交互 Turn | `maka`、`maka run`，复用 Desktop 的 workspace 和模型连接 |
-| **Headless** | 长程任务、可恢复 TaskRun、实验和评估 | `maka eval` / `maka-headless`，支持任务日志、导出、恢复和对比 |
+| **Desktop** | Daily interaction, file and Artifact workflows, model and permission setup | Electron + React with streaming sessions, tool timelines, branching, search, and recovery |
+| **TUI / CLI** | Using Maka in the current project directory or running one non-interactive Turn | `maka`, `maka run`; shares workspace and model connections with Desktop |
+| **Headless** | Durable tasks, recoverable TaskRuns, experiments, and evaluation | `maka eval` / `maka-headless` with task logs, export, resume, and comparison |
 
-## 当前能力
+## Current capabilities
 
 ### Agent Runtime
 
-- 多模型连接、流式输出、thinking、usage 和 provider error normalization；
-- `Read`、`Write`、`Edit`、`Bash`、`Glob`、`Grep` 等本地工具；
-- Tool schema validation、动态 availability、permission policy、watchdog、abort 和错误分类；
-- Runtime Event Log、AgentRun ledger、启动恢复、Turn Evidence、active tool prune 与 history compaction。
+- Multiple model connections, streaming output, thinking, usage accounting, and provider-error normalization;
+- Local tools including `Read`, `Write`, `Edit`, `Bash`, `Glob`, and `Grep`;
+- Tool schema validation, dynamic availability, permission policy, watchdogs, abort, and error classification;
+- Runtime Event Log, AgentRun ledger, startup recovery, Turn Evidence, active Tool Result pruning, and history compaction.
 
-### Desktop Workspace
+### Desktop workspace
 
-- 会话创建、归档、搜索、重命名、重试、重新生成和从 Turn 分支；
-- Artifact 列表与预览、workspace instructions、模型与权限设置；
-- 本地记忆、联网搜索、开放 HTTP/SSE gateway、机器人入口和 Office 工作流；
-- 不同集成需要单独配置，并非所有实验入口默认可用。
+- Create, archive, search, rename, retry, regenerate, and branch sessions from a Turn;
+- Artifact lists and previews, workspace instructions, model settings, and permission settings;
+- Local memory, web search, an open HTTP/SSE gateway, bot entry points, and Office workflows;
+- Integrations are configured independently, and not every experimental entry is available by default.
 
-### Durable Tasks and Evolution
+### Durable tasks and evolution
 
-- Append-only Task Event Log 与 TaskRun projection；
-- 预算、权限暂停、continuation、结果导出和失败任务重试；
-- 有计划、source-guarded、次数受限的 Heavy-task Self-check；
-- AHE target protocol 与 evidence export；完整自动自迭代仍属于外部/实验流程。
+- Append-only Task Event Log and TaskRun projection;
+- Budgets, permission pauses, continuation, result export, and failed-task retry;
+- Plan-first, source-guarded, and attempt-bounded Heavy-task Self-check;
+- AHE target protocol and evidence export; complete automatic self-iteration remains an external or experimental workflow.
 
-## 快速开始
+## Quick start
 
-### 环境要求
+### Requirements
 
-- Node.js 22（当前 CI 基线）；
-- npm（仓库 lockfile 和 scripts 以 npm 为准，`packageManager` 当前为 npm 11）；
-- Git；
-- `ripgrep`，供 Runtime 的 `Grep` 工具使用。
+- Node.js 22 (the current CI baseline);
+- npm (the lockfile and scripts use npm; the current `packageManager` is npm 11);
+- Git;
+- `ripgrep`, used by Runtime's `Grep` tool.
 
-### 启动 Desktop
+### Start Desktop
 
 ```sh
 git clone https://github.com/Maka-Agent/maka-agent.git
@@ -72,50 +72,50 @@ npm ci
 npm run dev
 ```
 
-`npm run dev` 启动带 HMR 的 Desktop 开发环境。需要先完整构建再启动 Electron 时使用：
+`npm run dev` starts the Desktop development environment with HMR. To build every workspace before starting Electron, use:
 
 ```sh
 npm run dev:full
 ```
 
-如果安装时设置过 `ELECTRON_SKIP_BINARY_DOWNLOAD=1`，启动前需要补装 Electron 平台二进制：
+If dependencies were installed with `ELECTRON_SKIP_BINARY_DOWNLOAD=1`, install the Electron platform binary before starting:
 
 ```sh
 node node_modules/electron/install.js
 ```
 
-### 第一次运行
+### First run
 
-Maka 不内置共享模型账号。第一次打开时：
+Maka does not bundle a shared model account. On first launch:
 
-1. 进入 `设置 → 模型`；
-2. 添加一个 API、本地模型或已经接通的账号连接；
-3. 测试连接并选择默认模型；
-4. 返回工作台开始任务。
+1. Open `Settings → Models`;
+2. Add an API, local-model, or supported account connection;
+3. Test it and choose a default model;
+4. Return to the workspace and start a task.
 
-应用会根据真实连接状态区分“已配置”“可发送”和“实验入口”，不会把没有接入 Runtime 的账号展示成可用模型。
+The app distinguishes configured, send-ready, and experimental connection states. An account flow that is not wired into Runtime is not presented as a usable model.
 
-## 使用终端入口
+## Terminal entry points
 
-先构建 workspace：
+Build the workspaces first:
 
 ```sh
 npm run build
 ```
 
-然后可以启动 TUI 或执行单次 Turn：
+Then start the TUI or run one Turn:
 
 ```sh
 npm --workspace maka-agent exec -- maka
-npm --workspace maka-agent exec -- maka run "总结当前仓库并指出最重要的风险"
+npm --workspace maka-agent exec -- maka run "Summarize this repository and identify its most important risk"
 npm --workspace maka-agent exec -- maka --help
 ```
 
-CLI 读取 Desktop 写入的同一份模型连接和 workspace 配置。Headless 的完整命令与 trust posture 见 [`packages/headless/README.md`](./packages/headless/README.md)。
+The CLI reads the same model connections and workspace configuration written by Desktop. See [`packages/headless/README.md`](./packages/headless/README.md) for Headless commands and its trust posture.
 
-## 架构
+## Architecture
 
-Maka 后端可以用一条主线概括：
+The backend spine is:
 
 ```text
 Desktop / TUI / Headless
@@ -127,27 +127,27 @@ Runtime Event Log → Context / Session / UI projections
 Task Event Log → TaskRun → Self-check / AHE evidence
 ```
 
-从 [ARCHITECTURE.md](./ARCHITECTURE.md) 开始阅读。它提供总体架构图、代码边界、按问题组织的阅读路径，以及六篇中英双语深度文章。
+Start with [ARCHITECTURE.en.md](./ARCHITECTURE.en.md). It provides the system map, code boundaries, problem-oriented reading paths, and six bilingual deep dives.
 
-## 仓库结构
+## Repository layout
 
 ```text
 apps/desktop/       Electron main / preload / React renderer
 
-packages/core/      Session、Event、Permission、Connection 等纯 contracts
-packages/storage/   File-backed stores 与 run ledgers
-packages/runtime/   AgentRun、模型适配、工具、上下文和恢复
-packages/headless/  TaskRun、Autonomous Loop、Self-check、eval 与 AHE
-packages/cli/       TUI 和非交互 CLI
-packages/ui/        共享对话、Markdown、Artifact 与 UI primitives
+packages/core/      Pure contracts for Sessions, Events, Permissions, and Connections
+packages/storage/   File-backed stores and run ledgers
+packages/runtime/   AgentRun, model adapters, tools, context, and recovery
+packages/headless/  TaskRun, Autonomous Loop, Self-check, eval, and AHE
+packages/cli/       TUI and non-interactive CLI
+packages/ui/        Shared conversation, Markdown, Artifact, and UI primitives
 
-docs/               架构、产品、安全、隐私和测试契约
-scripts/            Build hygiene、视觉检查、smoke 和 release helpers
+docs/               Architecture, product, security, privacy, and test contracts
+scripts/            Build hygiene, visual checks, smoke tests, and release helpers
 ```
 
-## 本地数据与安全边界
+## Local data and security boundary
 
-Maka 默认把 workspace 数据放在 Electron `userData` 下：
+Maka stores workspace data under Electron `userData` by default:
 
 ```text
 <Electron userData>/workspaces/default/
@@ -157,19 +157,19 @@ Maka 默认把 workspace 数据放在 Electron `userData` 下：
   sessions/
 ```
 
-需要明确的当前边界：
+Current boundaries that matter:
 
-- 会话和连接元数据保存在本地文件系统；
-- API key、bot token、proxy password 等运行凭据当前保存在本地 plaintext `credentials.json`，依赖 OS 账号边界，并在 POSIX 上强制目录 `0700`、文件 `0600`；
-- 已接通的 subscription OAuth token 使用 Electron `safeStorage`；不可用时 fail closed；
-- Renderer 不接收明文凭据；文件写入、Shell 和危险工具调用需要经过 permission engine；
-- Headless real-model eval 默认 fail closed，要求调用方显式提供外部隔离边界。
+- Sessions and connection metadata live in the local filesystem;
+- Runtime credentials such as API keys, bot tokens, and proxy passwords currently live in local plaintext `credentials.json`, behind the OS account boundary, with POSIX directory mode `0700` and file mode `0600` enforced;
+- Supported subscription OAuth tokens use Electron `safeStorage` and fail closed when it is unavailable;
+- Renderer does not receive plaintext credentials. File writes, Shell, and dangerous tool calls pass through the permission engine;
+- Headless real-model evaluation fails closed by default and requires an explicit external isolation boundary.
 
-安全问题请阅读 [SECURITY.md](./SECURITY.md)。更细的隐私与 threat model 位于 `docs/`。
+Read [SECURITY.md](./SECURITY.md) for security reporting and policy. Detailed privacy and threat-model documents live under `docs/`.
 
-## 开发与验证
+## Development and verification
 
-常用仓库级命令：
+Common repository-level commands:
 
 ```sh
 npm run build
@@ -178,7 +178,7 @@ npm test
 npm run check:release
 ```
 
-针对单个 workspace：
+Run one workspace in isolation:
 
 ```sh
 npm --workspace @maka/runtime test
@@ -186,7 +186,7 @@ npm --workspace @maka/headless test
 npm --workspace @maka/desktop test
 ```
 
-Desktop 的真实窗口与视觉验证：
+Desktop real-window and visual verification:
 
 ```sh
 npm --workspace @maka/desktop run e2e
@@ -195,14 +195,14 @@ npm --workspace @maka/desktop run screenshots:diff:stable
 npm --workspace @maka/desktop run smoke:real-window
 ```
 
-提交代码前至少运行与改动范围相称的 typecheck、build 和 focused tests，并执行 `git diff --check`。
+Before submitting code, run typecheck, build, and focused tests proportionate to the change, followed by `git diff --check`.
 
-## 文档入口
+## Documentation
 
-- [后端架构总览](./ARCHITECTURE.md)
-- [Headless 使用与隔离边界](./packages/headless/README.md)
-- [设计系统](./docs/design-system.md)
-- [产品测试计划](./docs/full-product-test-plan.md)
-- [Workspace 隐私上下文](./docs/workspace-privacy-context.md)
-- [能力成熟度审计](./docs/maka-capability-audit-v1.md)
-- [安全政策](./SECURITY.md)
+- [Backend architecture](./ARCHITECTURE.en.md)
+- [Headless usage and isolation](./packages/headless/README.md)
+- [Design system](./docs/design-system.md)
+- [Full product test plan](./docs/full-product-test-plan.md)
+- [Workspace privacy context](./docs/workspace-privacy-context.md)
+- [Capability maturity audit](./docs/maka-capability-audit-v1.md)
+- [Security policy](./SECURITY.md)
