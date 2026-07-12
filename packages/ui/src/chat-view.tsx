@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, type ReactNode } from 'react';
 import {
   AlertTriangle,
   ArrowDown,
@@ -9,8 +9,6 @@ import {
 } from './icons.js';
 import { DeepResearchEmptyHero, EmptyChatHero } from './chat-empty-hero.js';
 import type { ChatModelChoice } from './chat-model-helpers.js';
-import { createPinnedBottomFollower } from './pinned-bottom.js';
-import { createTurnSizeWarmup } from './turn-size-warmup.js';
 import { OverlayScrollArea } from './overlay-scroll-area.js';
 import { PromptAnchorRail } from './prompt-anchor-rail.js';
 import type { ProviderType, SessionSummary, StoredMessage } from '@maka/core';
@@ -28,6 +26,7 @@ import {
   type TurnFooterActionMeta,
   type TurnLineageBadge,
 } from './chat-turn.js';
+import { useChatScroll } from './use-chat-scroll.js';
 
 /**
  * Lifecycle status badge in the chat header (PR109b §9.8). Visual
@@ -59,8 +58,6 @@ function SessionStatusBadge(props: {
 
 
 
-
-const SCROLL_BOTTOM_THRESHOLD = 64; // px
 
 export interface ChatHeaderAlert {
   /** Visual tone — drives badge color in the chat header. */
@@ -310,128 +307,19 @@ export function ChatView(props: {
     (targetTurnId: string) => onLineageBadgeClickRef.current?.(targetTurnId),
     [],
   );
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [pinnedToBottom, setPinnedToBottom] = useState(true);
-  const pinnedToBottomRef = useRef(true);
-  const [highlightedTurnId, setHighlightedTurnId] = useState<string | null>(null);
-
-  // Reset to "pinned at bottom" whenever the active session changes. Without
-  // this, switching from a long history to a fresh chat would keep the
-  // previous scrollTop and the user wouldn't see their last message.
-  useEffect(() => {
-    pinnedToBottomRef.current = true;
-    setPinnedToBottom(true);
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [props.activeSession?.id]);
-
-  // Follow the content's actual layout clock. The smoother reveals raw text
-  // on later RAF frames, so a state-driven scroll effect runs too early and
-  // leaves the viewport behind until the next upstream event.
-  useEffect(() => {
-    const viewport = scrollRef.current;
-    const content = viewport?.querySelector(':scope > [data-overlayscrollbars-content]');
-    if (!viewport || !content) return;
-    return createPinnedBottomFollower({
-      viewport,
-      content,
-      isPinned: () => pinnedToBottomRef.current,
-    });
-  }, [props.activeSession?.id]);
-
-  // Warm up `content-visibility: auto` turns once per transcript DOM so every
-  // turn's real height replaces the 250px `contain-intrinsic-size` estimate.
-  // Without this, scrolling up through never-rendered history keeps inflating
-  // the document and the top recedes ("endless scroll"). Keyed on hasTurns so
-  // the walk starts when history arrives, without re-walking per message.
-  // Section switches need no dependency here: since #831 ChatView mounts only
-  // for sessions, so leaving chat unmounts the component with its scroll DOM
-  // and returning re-runs every effect against the rebuilt `.maka-turn` nodes
-  // (which have no remembered sizes — the E2E mode-switch test locks this).
-  // Gated so sizes are remembered from the FINAL layout, not a transient one
-  // (a stale remembered size gets re-corrected on every viewport arrival —
-  // exactly the drift this walk exists to remove):
-  // - document.fonts.ready: fallback glyph metrics shift prose heights;
-  // - no `.maka-markdown-pending` left in the tree: until the lazy
-  //   markdown-body chunk commits, every bubble is the plain-text Suspense
-  //   fallback (~7.5px taller per turn). Awaiting the import is NOT enough —
-  //   the Suspense retry is a low-priority render that can commit after an
-  //   idle callback — so the DOM is the authority, polled until it settles.
-  //   No warm-anyway deadline: warming a layout the markdown commit is about
-  //   to replace would re-create the drift, and if the chunk never loads the
-  //   un-warmed placeholder geometry is the least of the session's problems.
-  const hasTurns = turns.length > 0;
-  useEffect(() => {
-    if (!hasTurns) return;
-    const root = scrollRef.current;
-    if (!root) return;
-    let disposed = false;
-    let cancelWarmup: (() => void) | undefined;
-    let pollTimer: number | undefined;
-    const warmOnceSettled = () => {
-      if (disposed) return;
-      if (root.querySelector('.maka-markdown-pending')) {
-        pollTimer = window.setTimeout(warmOnceSettled, 100);
-        return;
-      }
-      cancelWarmup = createTurnSizeWarmup({
-        turns: () => root.querySelectorAll<HTMLElement>('.maka-turn'),
-      });
-    };
-    const fontsReady: Promise<unknown> =
-      typeof document !== 'undefined' && document.fonts ? document.fonts.ready : Promise.resolve();
-    void fontsReady.then(warmOnceSettled);
-    return () => {
-      disposed = true;
-      window.clearTimeout(pollTimer);
-      cancelWarmup?.();
-    };
-  }, [props.activeSession?.id, hasTurns]);
-
-  useEffect(() => {
-    const target = props.scrollTargetTurn;
-    if (!target?.turnId) return;
-    const frame = window.requestAnimationFrame(() => {
-      const root = scrollRef.current;
-      if (!root) return;
-      const el = root.querySelector(`[data-turn-id="${CSS.escape(target.turnId)}"]`);
-      if (!el || !('scrollIntoView' in el)) return;
-      const targetEl = el as HTMLElement;
-      targetEl.setAttribute('tabindex', '-1');
-      targetEl.scrollIntoView({
-        behavior: props.scrollBehavior ?? 'smooth',
-        block: 'center',
-      });
-      targetEl.focus({ preventScroll: true });
-      pinnedToBottomRef.current = false;
-      setPinnedToBottom(false);
-      setHighlightedTurnId(target.turnId);
-    });
-    const clear = window.setTimeout(() => {
-      setHighlightedTurnId((current) => (current === target.turnId ? null : current));
-    }, 2200);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.clearTimeout(clear);
-    };
-  }, [props.scrollTargetTurn?.turnId, props.scrollTargetTurn?.nonce, props.scrollBehavior, props.activeSession?.id, props.messages]);
-
-  function onScroll() {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const pinned = distanceFromBottom <= SCROLL_BOTTOM_THRESHOLD;
-    pinnedToBottomRef.current = pinned;
-    setPinnedToBottom(pinned);
-  }
-
-  function scrollToBottom() {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: props.scrollBehavior ?? 'smooth' });
-    pinnedToBottomRef.current = true;
-    setPinnedToBottom(true);
-  }
+  const {
+    highlightedTurnId,
+    onScroll,
+    pinnedToBottom,
+    scrollToBottom,
+    viewportRef: scrollRef,
+  } = useChatScroll({
+    sessionId: props.activeSession?.id,
+    hasTurns: turns.length > 0,
+    messages: props.messages,
+    target: props.scrollTargetTurn,
+    behavior: props.scrollBehavior,
+  });
 
   if (!props.activeSession) {
     return (

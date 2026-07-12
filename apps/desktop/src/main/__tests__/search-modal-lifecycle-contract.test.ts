@@ -43,6 +43,7 @@ import { renderSessionListPanel } from './session-list-render-helpers.js';
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 const COMPONENTS_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-view.tsx');
 const CHAT_TURN_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'chat-turn.tsx');
+const CHAT_SCROLL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'use-chat-scroll.ts');
 const SEARCH_MODAL_PATH = resolve(REPO_ROOT, 'packages', 'ui', 'src', 'search-modal.tsx');
 const COMMAND_PALETTE_CONTENT_PATH = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'command-palette-content-search.ts');
 
@@ -164,6 +165,7 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     const searchModalSource = await readFile(SEARCH_MODAL_PATH, 'utf8');
     const components = await readFile(COMPONENTS_PATH, 'utf8');
     const chatTurn = await readFile(CHAT_TURN_PATH, 'utf8');
+    const chatScroll = await readFile(CHAT_SCROLL_PATH, 'utf8');
     const main = await readRendererShellCombinedSource();
     const contentSearch = await readFile(COMMAND_PALETTE_CONTENT_PATH, 'utf8');
 
@@ -203,18 +205,18 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
       'ChatView must expose a typed scroll target prop',
     );
     assert.match(
-      components,
-      /scrollIntoView\(\{\s*behavior:\s*props\.scrollBehavior\s*\?\?\s*'smooth',\s*block:\s*'center'/,
+      chatScroll,
+      /scrollIntoView\(\{\s*behavior:\s*input\.behavior\s*\?\?\s*'smooth',\s*block:\s*'center'/,
       'ChatView must scroll the matched turn into view',
     );
     assert.match(
-      components,
-      /function scrollToBottom\(\) \{[\s\S]*scrollTo\(\{\s*top:\s*el\.scrollHeight,\s*behavior:\s*props\.scrollBehavior\s*\?\?\s*'smooth'\s*\}\);/,
+      chatScroll,
+      /function scrollToBottom\(\) \{[\s\S]*scrollTo\(\{\s*top:\s*viewport\.scrollHeight,\s*behavior:\s*input\.behavior\s*\?\?\s*'smooth'\s*\}\);/,
       'ChatView jump-to-latest must honor the same reduced-motion/visual-smoke scroll policy as search navigation',
     );
     assert.match(
-      components,
-      /targetEl\.setAttribute\('tabindex', '-1'\);[\s\S]*targetEl\.focus\(\{ preventScroll: true \}\);/,
+      chatScroll,
+      /targetElement\.setAttribute\('tabindex', '-1'\);[\s\S]*targetElement\.focus\(\{ preventScroll: true \}\);/,
       'ChatView must move keyboard focus to the matched turn after search navigation',
     );
     assert.match(
