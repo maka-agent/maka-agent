@@ -1104,7 +1104,9 @@ const TurnView = memo(function TurnView(props: {
       ? item.live === true
       : item.kind === 'text'
         ? item.live === true
-        : item.items.some((tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission'),
+        : item.kind === 'tools'
+          ? item.items.some((tool) => tool.status === 'pending' || tool.status === 'running' || tool.status === 'waiting_permission')
+          : false,
   );
   return (
     <section
