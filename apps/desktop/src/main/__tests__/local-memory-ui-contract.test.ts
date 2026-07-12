@@ -97,13 +97,13 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /只展示生效记忆会进入 prompt/);
     assert.match(pageBlock, /已归档条目不会注入/);
     assert.match(pageBlock, /疑似密钥会遮蔽/);
-    assert.match(pageBlock, /<pre>\{localMemoryPromptPreview\}<\/pre>/);
+    assert.match(pageBlock, /<pre>\{props\.preview\}<\/pre>/);
     assert.match(pageBlock, /async function copyLocalMemoryPromptPreview/);
     assert.match(pageBlock, /runMemoryAction\('memory:prompt-preview:copy'/);
     assert.match(pageBlock, /navigator\.clipboard\.writeText\(localMemoryPromptPreview\)/);
     assert.match(pageBlock, /已复制模型上下文预览/);
-    assert.match(pageBlock, /isMemoryActionPending\('memory:prompt-preview:copy'\) \? '复制中…' : '复制上下文'/);
-    assert.match(pageBlock, /disabled=\{!localMemoryPromptPreview \|\| isMemoryActionPending\('memory:prompt-preview:copy'\)\}/);
+    assert.match(pageBlock, /props\.copyPending \? '复制中…' : '复制上下文'/);
+    assert.match(pageBlock, /disabled=\{!props\.preview \|\| props\.copyPending\}/);
     assert.match(css, /\.settingsMemoryPromptPreview/);
     assert.match(css, /\.settingsMemoryPromptPreviewBudget/);
   });
@@ -186,8 +186,8 @@ describe('local MEMORY.md Settings UI contract', () => {
 
     assert.match(memoryPage, /aria-label=\{`打开项目指令文件 \$\{file\.file\}`\}/);
     assert.match(memoryPage, /aria-label=\{`创建项目指令文件 \$\{file\.file\}`\}/);
-    assert.match(memoryPage, /openWorkspaceInstructionFile\(file\.file\)/);
-    assert.match(memoryPage, /createWorkspaceInstructionFile\(file\.file\)/);
+    assert.match(memoryPage, /props\.onOpen\(file\.file\)/);
+    assert.match(memoryPage, /props\.onCreate\(file\.file\)/);
   });
 
   it('gates local memory file actions with visible per-action pending feedback', async () => {
@@ -214,9 +214,9 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(memoryPage, /<div className="settingsActionRow" role="group" aria-label="MEMORY\.md 文件操作">/);
     assert.doesNotMatch(memoryPage, /<div className="settingsActionRow">\s*<button type="button" className="maka-button" disabled=\{memoryControlsDisabled \|\| !effective\.enabled \|\| !memoryDraftDirty\}/);
 
-    assert.match(memoryPage, /disabled=\{memoryControlsDisabled \|\| isMemoryActionPending\(`instruction:\$\{file\.file\}:open`\)\}/);
-    assert.match(memoryPage, /isMemoryActionPending\(`instruction:\$\{file\.file\}:open`\) \? '打开中…' : '打开'/);
-    assert.match(memoryPage, /isMemoryActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
+    assert.match(memoryPage, /disabled=\{props\.disabled \|\| props\.isActionPending\(`instruction:\$\{file\.file\}:open`\)\}/);
+    assert.match(memoryPage, /props\.isActionPending\(`instruction:\$\{file\.file\}:open`\) \? '打开中…' : '打开'/);
+    assert.match(memoryPage, /props\.isActionPending\(`instruction:\$\{file\.file\}:create`\) \? '创建中…' : '创建'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:open`\) \? '打开中…' : '打开'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:restore`\) \? '恢复中…' : '恢复'/);
     assert.match(memoryPage, /isMemoryActionPending\(`backup:\$\{backup\.kind\}:copy`\) \? '复制中…' : '复制引用'/);
@@ -275,7 +275,7 @@ describe('local MEMORY.md Settings UI contract', () => {
     const copyBackupBlock = memoryPage.match(/async function copyBackupReference[\s\S]*?async function copyLatestBackupReference/)?.[0] ?? '';
     const copyEntryBlock = memoryPage.match(/async function copyMemoryEntryReference[\s\S]*?function focusMemoryEntryInDraft/)?.[0] ?? '';
     const updateStatusBlock = memoryPage.match(/async function updateMemoryEntryStatus[\s\S]*?\n  }\n\n  const effective =/)?.[0] ?? '';
-    const promptPreviewCopyBlock = memoryPage.match(/async function copyLocalMemoryPromptPreview\(\)[\s\S]*?return \(/)?.[0] ?? '';
+    const promptPreviewCopyBlock = memoryPage.match(/async function copyLocalMemoryPromptPreview\(\)[\s\S]*?return \{/)?.[0] ?? '';
     const writeActionBlock = memoryPage.match(/async function runMemoryWriteAction<T>[\s\S]*?async function runMemoryAction/)?.[0] ?? '';
     const actionBlock = memoryPage.match(/async function runMemoryAction<T>[\s\S]*?async function reload/)?.[0] ?? '';
 
