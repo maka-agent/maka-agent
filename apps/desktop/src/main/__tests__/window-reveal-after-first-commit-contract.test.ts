@@ -229,6 +229,15 @@ describe('window reveal gate (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
 });
 
 describe('window reveal wiring (PR-SHOW-AFTER-FIRST-COMMIT)', () => {
+  it('only reveals E2E windows for Linux CI under xvfb', async () => {
+    const src = await readRepoFile('apps/desktop/e2e/fixtures.ts');
+    assert.match(
+      src,
+      /if \(process\.env\.CI && process\.platform === 'linux'\) env\.MAKA_E2E_SHOW_WINDOW = '1';/,
+      'visible E2E windows are only needed for Linux compositor pacing under xvfb',
+    );
+  });
+
   it('main-window creates the window hidden and wires the reveal fallback timer', async () => {
     const src = await readRepoFile('apps/desktop/src/main/main-window.ts');
     // Every run now creates hidden — no `!app.isPackaged && startHidden` gate.

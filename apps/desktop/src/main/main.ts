@@ -1130,7 +1130,7 @@ function registerIpc(): void {
   );
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
-  registerNotificationsIpc({ settingsStore, mainWindowController });
+  registerNotificationsIpc({ settingsStore, mainWindowController, e2e: isE2e });
   ipcMain.handle('workspaceInstructions:getState', async () => getWorkspaceInstructionsState(await currentProjectRoot()));
   ipcMain.handle(
     'workspaceInstructions:openFile',
