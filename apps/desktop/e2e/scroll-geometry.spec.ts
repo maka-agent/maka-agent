@@ -25,6 +25,25 @@ const probeScroller = `(() => {
   };
 })()`;
 
+// The fixture's 24 turns are 60 filler lines each (>1000px real, 250px as a
+// placeholder), so the whole transcript is ~15k px un-warmed vs ~32k warmed.
+// A settle check must first see final-scale height — two early reads agreeing
+// on the PLACEHOLDER height would otherwise declare "settled" before the
+// warm-up even starts (fonts / lazy-markdown gates delay it on slow machines).
+const WARMED_HEIGHT_FLOOR = 24 * 800;
+
+async function settleGeometry(page: import('@playwright/test').Page, options: { pinned: boolean }): Promise<void> {
+  let previousHeight = -1;
+  await expect.poll(async () => {
+    const current = await page.evaluate(probeScroller) as { scrollHeight: number; distanceFromBottom: number };
+    const settled = current.scrollHeight > WARMED_HEIGHT_FLOOR
+      && current.scrollHeight === previousHeight
+      && (!options.pinned || current.distanceFromBottom === 0);
+    previousHeight = current.scrollHeight;
+    return settled;
+  }, { timeout: 15_000, intervals: [500] }).toBe(true);
+}
+
 test('long session opens pinned to bottom and stays pinned while geometry settles', async ({ longTranscriptWindow: page }) => {
   await expect(page.locator('.maka-turn')).toHaveCount(24);
 
@@ -34,31 +53,13 @@ test('long session opens pinned to bottom and stays pinned while geometry settle
   // distance stays 0 while scrollHeight rises to its final value.
   await expect.poll(async () => (await page.evaluate(probeScroller)).distanceFromBottom).toBe(0);
 
-  // Geometry settled = two consecutive reads agree on scrollHeight while
-  // still pinned. A fixed sleep would race the warm-up on slow machines.
-  let previousHeight = -1;
-  await expect.poll(async () => {
-    const current = await page.evaluate(probeScroller) as { scrollHeight: number; distanceFromBottom: number };
-    const settled = current.scrollHeight === previousHeight && current.distanceFromBottom === 0;
-    previousHeight = current.scrollHeight;
-    return settled;
-  }, { timeout: 15_000, intervals: [500] }).toBe(true);
+  // Geometry settled = final-scale height and two consecutive reads agreeing
+  // on it while still pinned. A fixed sleep would race the warm-up.
+  await settleGeometry(page, { pinned: true });
 });
 
-test('scrolling a settled long session to the top never inflates the document', async ({ longTranscriptWindow: page }) => {
-  await expect(page.locator('.maka-turn')).toHaveCount(24);
-
-  // Wait for the warm-up to settle so this test isolates invariant (b);
-  // the pinned test above owns the during-warm-up behavior.
-  let previousHeight = -1;
-  await expect.poll(async () => {
-    const current = await page.evaluate(probeScroller) as { scrollHeight: number };
-    const settled = current.scrollHeight === previousHeight;
-    previousHeight = current.scrollHeight;
-    return settled;
-  }, { timeout: 15_000, intervals: [500] }).toBe(true);
-
-  const run = await page.evaluate(async () => {
+async function climbToTop(page: import('@playwright/test').Page) {
+  return await page.evaluate(async () => {
     const scroller = document.querySelector('.maka-chatViewport') as HTMLElement;
     const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     scroller.scrollTop = scroller.scrollHeight;
@@ -80,11 +81,23 @@ test('scrolling a settled long session to the top never inflates the document', 
       honestSteps: Math.ceil(scroller.scrollHeight / scroller.clientHeight),
     };
   });
+}
 
+function expectHonestClimb(run: Awaited<ReturnType<typeof climbToTop>>): void {
   expect(run.atTop).toBe(true);
   // One height for the whole climb: no placeholder inflated mid-scroll.
   expect(run.distinctHeights).toHaveLength(1);
   // And the climb took the honest number of steps — the "endless scroll"
   // symptom was precisely needing ~2x more.
   expect(run.steps).toBeLessThanOrEqual(run.honestSteps + 2);
+}
+
+test('scrolling a settled long session to the top never inflates the document', async ({ longTranscriptWindow: page }) => {
+  await expect(page.locator('.maka-turn')).toHaveCount(24);
+
+  // Wait for the warm-up to settle so this test isolates invariant (b);
+  // the pinned test above owns the during-warm-up behavior.
+  await settleGeometry(page, { pinned: false });
+
+  expectHonestClimb(await climbToTop(page));
 });
