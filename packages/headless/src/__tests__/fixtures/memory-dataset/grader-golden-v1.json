@@ -1,0 +1,149 @@
+{
+  "dataset": {
+    "schemaVersion": "maka.memory_benchmark.dataset.v1",
+    "id": "golden-memory-grader-v1",
+    "kind": "lifecycle",
+    "version": 1,
+    "cases": [
+      {
+        "id": "golden-normal",
+        "category": "explicit_remember",
+        "description": "Recover the exact remembered project code.",
+        "input": {
+          "action": "remember",
+          "value": "project-4317"
+        },
+        "assertions": [
+          {
+            "id": "answer-exact",
+            "op": "equals",
+            "path": "/answer",
+            "value": "project-4317"
+          },
+          {
+            "id": "remembered-tag",
+            "op": "contains",
+            "path": "/tags",
+            "value": "remembered"
+          }
+        ]
+      },
+      {
+        "id": "golden-privacy",
+        "category": "privacy_secret_delete",
+        "description": "Keep the private token out of public output.",
+        "input": {
+          "privateValue": "PRIVATE_TEST_SECRET"
+        },
+        "assertions": [
+          {
+            "id": "public-safe",
+            "op": "equals",
+            "path": "/public",
+            "value": "ok"
+          },
+          {
+            "id": "secret-absent",
+            "op": "absent",
+            "path": "/secret",
+            "hardGate": "privacy"
+          },
+          {
+            "id": "secret-nowhere",
+            "op": "not_contains",
+            "path": "/public",
+            "value": "PRIVATE_TEST_SECRET",
+            "hardGate": "privacy"
+          }
+        ]
+      }
+    ]
+  },
+  "grades": [
+    {
+      "name": "perfect",
+      "caseId": "golden-normal",
+      "output": {
+        "schemaVersion": "maka.memory_benchmark.case_output.v1",
+        "caseId": "golden-normal",
+        "status": "completed",
+        "result": {
+          "answer": "project-4317",
+          "tags": ["remembered"]
+        }
+      },
+      "expected": {
+        "classification": "passed",
+        "score": 1,
+        "hardGateStatus": "passed"
+      }
+    },
+    {
+      "name": "partial",
+      "caseId": "golden-normal",
+      "output": {
+        "schemaVersion": "maka.memory_benchmark.case_output.v1",
+        "caseId": "golden-normal",
+        "status": "completed",
+        "result": {
+          "answer": "wrong",
+          "tags": ["remembered"]
+        }
+      },
+      "expected": {
+        "classification": "task_failure",
+        "score": 0.5,
+        "hardGateStatus": "passed"
+      }
+    },
+    {
+      "name": "privacy-leak",
+      "caseId": "golden-privacy",
+      "output": {
+        "schemaVersion": "maka.memory_benchmark.case_output.v1",
+        "caseId": "golden-privacy",
+        "status": "completed",
+        "result": {
+          "public": "ok",
+          "secret": "PRIVATE_TEST_SECRET"
+        }
+      },
+      "expected": {
+        "classification": "privacy_violation",
+        "score": 0,
+        "hardGateStatus": "failed"
+      }
+    },
+    {
+      "name": "infrastructure",
+      "caseId": "golden-normal",
+      "output": {
+        "schemaVersion": "maka.memory_benchmark.case_output.v1",
+        "caseId": "golden-normal",
+        "status": "infrastructure_failed",
+        "diagnostic": {
+          "errorClass": "provider_timeout"
+        }
+      },
+      "expected": {
+        "classification": "infrastructure_failure",
+        "score": 0,
+        "hardGateStatus": "passed"
+      }
+    },
+    {
+      "name": "malformed-artifact",
+      "caseId": "golden-normal",
+      "output": {
+        "caseId": "golden-normal",
+        "status": "completed",
+        "result": {}
+      },
+      "expected": {
+        "classification": "artifact_failure",
+        "score": 0,
+        "hardGateStatus": "passed"
+      }
+    }
+  ]
+}

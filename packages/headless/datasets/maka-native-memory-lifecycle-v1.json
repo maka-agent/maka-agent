@@ -1,0 +1,2792 @@
+{
+  "schemaVersion": "maka.memory_benchmark.dataset.v1",
+  "id": "maka-native-memory-lifecycle-v1",
+  "kind": "lifecycle",
+  "version": 1,
+  "cases": [
+    {
+      "id": "lifecycle-explicit-remember-01",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference01",
+        "value": "explicit-value-01",
+        "confirmation": true,
+        "sourceRef": "remember-01"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference01",
+          "value": "explicit-value-01"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-01"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-02",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference02",
+        "value": "explicit-value-02",
+        "confirmation": true,
+        "sourceRef": "remember-02"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference02",
+          "value": "explicit-value-02"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-02"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-03",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference03",
+        "value": "explicit-value-03",
+        "confirmation": true,
+        "sourceRef": "remember-03"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference03",
+          "value": "explicit-value-03"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-03"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-04",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference04",
+        "value": "explicit-value-04",
+        "confirmation": true,
+        "sourceRef": "remember-04"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference04",
+          "value": "explicit-value-04"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-04"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-05",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference05",
+        "value": "explicit-value-05",
+        "confirmation": true,
+        "sourceRef": "remember-05"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference05",
+          "value": "explicit-value-05"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-05"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-06",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference06",
+        "value": "explicit-value-06",
+        "confirmation": true,
+        "sourceRef": "remember-06"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference06",
+          "value": "explicit-value-06"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-06"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-07",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference07",
+        "value": "explicit-value-07",
+        "confirmation": true,
+        "sourceRef": "remember-07"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference07",
+          "value": "explicit-value-07"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-07"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-08",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference08",
+        "value": "explicit-value-08",
+        "confirmation": true,
+        "sourceRef": "remember-08"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference08",
+          "value": "explicit-value-08"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-08"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-09",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference09",
+        "value": "explicit-value-09",
+        "confirmation": true,
+        "sourceRef": "remember-09"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference09",
+          "value": "explicit-value-09"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-09"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-explicit-remember-10",
+      "category": "explicit_remember",
+      "description": "Persist an explicitly requested durable fact.",
+      "input": {
+        "action": "remember",
+        "key": "preference10",
+        "value": "explicit-value-10",
+        "confirmation": true,
+        "sourceRef": "remember-10"
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/preference10",
+          "value": "explicit-value-10"
+        },
+        {
+          "id": "source-ref",
+          "op": "contains",
+          "path": "/profile/sourceRefs",
+          "value": "remember-10"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-01",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact01",
+            "value": "promoted-01",
+            "sourceRef": "evidence-01-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact01",
+            "value": "promoted-01",
+            "sourceRef": "evidence-01-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact01",
+            "value": "promoted-01",
+            "sourceRef": "evidence-01-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact01",
+          "value": "promoted-01"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-01-1",
+            "evidence-01-2",
+            "evidence-01-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-02",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact02",
+            "value": "promoted-02",
+            "sourceRef": "evidence-02-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact02",
+            "value": "promoted-02",
+            "sourceRef": "evidence-02-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact02",
+            "value": "promoted-02",
+            "sourceRef": "evidence-02-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact02",
+          "value": "promoted-02"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-02-1",
+            "evidence-02-2",
+            "evidence-02-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-03",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact03",
+            "value": "promoted-03",
+            "sourceRef": "evidence-03-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact03",
+            "value": "promoted-03",
+            "sourceRef": "evidence-03-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact03",
+            "value": "promoted-03",
+            "sourceRef": "evidence-03-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact03",
+          "value": "promoted-03"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-03-1",
+            "evidence-03-2",
+            "evidence-03-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-04",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact04",
+            "value": "promoted-04",
+            "sourceRef": "evidence-04-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact04",
+            "value": "promoted-04",
+            "sourceRef": "evidence-04-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact04",
+            "value": "promoted-04",
+            "sourceRef": "evidence-04-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact04",
+          "value": "promoted-04"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-04-1",
+            "evidence-04-2",
+            "evidence-04-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-05",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact05",
+            "value": "promoted-05",
+            "sourceRef": "evidence-05-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact05",
+            "value": "promoted-05",
+            "sourceRef": "evidence-05-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact05",
+            "value": "promoted-05",
+            "sourceRef": "evidence-05-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact05",
+          "value": "promoted-05"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-05-1",
+            "evidence-05-2",
+            "evidence-05-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-06",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact06",
+            "value": "promoted-06",
+            "sourceRef": "evidence-06-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact06",
+            "value": "promoted-06",
+            "sourceRef": "evidence-06-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact06",
+            "value": "promoted-06",
+            "sourceRef": "evidence-06-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact06",
+          "value": "promoted-06"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-06-1",
+            "evidence-06-2",
+            "evidence-06-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-07",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact07",
+            "value": "promoted-07",
+            "sourceRef": "evidence-07-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact07",
+            "value": "promoted-07",
+            "sourceRef": "evidence-07-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact07",
+            "value": "promoted-07",
+            "sourceRef": "evidence-07-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact07",
+          "value": "promoted-07"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-07-1",
+            "evidence-07-2",
+            "evidence-07-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-08",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact08",
+            "value": "promoted-08",
+            "sourceRef": "evidence-08-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact08",
+            "value": "promoted-08",
+            "sourceRef": "evidence-08-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact08",
+            "value": "promoted-08",
+            "sourceRef": "evidence-08-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact08",
+          "value": "promoted-08"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-08-1",
+            "evidence-08-2",
+            "evidence-08-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-09",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact09",
+            "value": "promoted-09",
+            "sourceRef": "evidence-09-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact09",
+            "value": "promoted-09",
+            "sourceRef": "evidence-09-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact09",
+            "value": "promoted-09",
+            "sourceRef": "evidence-09-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact09",
+          "value": "promoted-09"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-09-1",
+            "evidence-09-2",
+            "evidence-09-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-evidence-promotion-10",
+      "category": "evidence_promotion",
+      "description": "Promote a stable fact only after repeated independent evidence.",
+      "input": {
+        "observations": [
+          {
+            "turn": 1,
+            "key": "stableFact10",
+            "value": "promoted-10",
+            "sourceRef": "evidence-10-1"
+          },
+          {
+            "turn": 2,
+            "key": "stableFact10",
+            "value": "promoted-10",
+            "sourceRef": "evidence-10-2"
+          },
+          {
+            "turn": 3,
+            "key": "stableFact10",
+            "value": "promoted-10",
+            "sourceRef": "evidence-10-3"
+          }
+        ],
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-value",
+          "op": "equals",
+          "path": "/profile/facts/stableFact10",
+          "value": "promoted-10"
+        },
+        {
+          "id": "evidence-set",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "evidence-10-1",
+            "evidence-10-2",
+            "evidence-10-3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-01",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff01",
+          "value": "temporary-01",
+          "sourceRef": "one-off-01"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff01"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-02",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff02",
+          "value": "temporary-02",
+          "sourceRef": "one-off-02"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff02"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-03",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff03",
+          "value": "temporary-03",
+          "sourceRef": "one-off-03"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff03"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-04",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff04",
+          "value": "temporary-04",
+          "sourceRef": "one-off-04"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff04"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-05",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff05",
+          "value": "temporary-05",
+          "sourceRef": "one-off-05"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff05"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-06",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff06",
+          "value": "temporary-06",
+          "sourceRef": "one-off-06"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff06"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-07",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff07",
+          "value": "temporary-07",
+          "sourceRef": "one-off-07"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff07"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-08",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff08",
+          "value": "temporary-08",
+          "sourceRef": "one-off-08"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff08"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-09",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff09",
+          "value": "temporary-09",
+          "sourceRef": "one-off-09"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff09"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-one-off-rejection-10",
+      "category": "one_off_rejection",
+      "description": "Keep one-off information out of durable profile.",
+      "input": {
+        "observation": {
+          "key": "oneOff10",
+          "value": "temporary-10",
+          "sourceRef": "one-off-10"
+        },
+        "threshold": 3
+      },
+      "assertions": [
+        {
+          "id": "profile-absent",
+          "op": "absent",
+          "path": "/profile/facts/oneOff10"
+        },
+        {
+          "id": "candidate-visible",
+          "op": "equals",
+          "path": "/candidate/state",
+          "value": "insufficient_evidence"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-01",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact01",
+            "value": "old-01",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact01",
+            "value": "new-01",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact01",
+          "value": "new-01"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-01"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-02",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact02",
+            "value": "old-02",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact02",
+            "value": "new-02",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact02",
+          "value": "new-02"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-02"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-03",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact03",
+            "value": "old-03",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact03",
+            "value": "new-03",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact03",
+          "value": "new-03"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-03"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-04",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact04",
+            "value": "old-04",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact04",
+            "value": "new-04",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact04",
+          "value": "new-04"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-04"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-05",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact05",
+            "value": "old-05",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact05",
+            "value": "new-05",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact05",
+          "value": "new-05"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-05"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-06",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact06",
+            "value": "old-06",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact06",
+            "value": "new-06",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact06",
+          "value": "new-06"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-06"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-07",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact07",
+            "value": "old-07",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact07",
+            "value": "new-07",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact07",
+          "value": "new-07"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-07"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-08",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact08",
+            "value": "old-08",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact08",
+            "value": "new-08",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact08",
+          "value": "new-08"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-08"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-09",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact09",
+            "value": "old-09",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact09",
+            "value": "new-09",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact09",
+          "value": "new-09"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-09"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-conflict-correction-10",
+      "category": "conflict_correction",
+      "description": "Use the correction as current state and retain supersession evidence.",
+      "input": {
+        "history": [
+          {
+            "key": "correctedFact10",
+            "value": "old-10",
+            "ts": 100
+          },
+          {
+            "key": "correctedFact10",
+            "value": "new-10",
+            "ts": 200,
+            "correction": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/correctedFact10",
+          "value": "new-10"
+        },
+        {
+          "id": "superseded-old",
+          "op": "contains",
+          "path": "/profile/supersededValues",
+          "value": "old-10"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-01",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-01",
+            "sourceRef": "duplicate-01-1"
+          },
+          {
+            "value": "deduped-01",
+            "sourceRef": "duplicate-01-2"
+          },
+          {
+            "value": "deduped-01",
+            "sourceRef": "duplicate-01-3"
+          },
+          {
+            "value": "deduped-01",
+            "sourceRef": "duplicate-01-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-01"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-01-1",
+            "duplicate-01-2",
+            "duplicate-01-3",
+            "duplicate-01-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-02",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-02",
+            "sourceRef": "duplicate-02-1"
+          },
+          {
+            "value": "deduped-02",
+            "sourceRef": "duplicate-02-2"
+          },
+          {
+            "value": "deduped-02",
+            "sourceRef": "duplicate-02-3"
+          },
+          {
+            "value": "deduped-02",
+            "sourceRef": "duplicate-02-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-02"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-02-1",
+            "duplicate-02-2",
+            "duplicate-02-3",
+            "duplicate-02-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-03",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-03",
+            "sourceRef": "duplicate-03-1"
+          },
+          {
+            "value": "deduped-03",
+            "sourceRef": "duplicate-03-2"
+          },
+          {
+            "value": "deduped-03",
+            "sourceRef": "duplicate-03-3"
+          },
+          {
+            "value": "deduped-03",
+            "sourceRef": "duplicate-03-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-03"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-03-1",
+            "duplicate-03-2",
+            "duplicate-03-3",
+            "duplicate-03-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-04",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-04",
+            "sourceRef": "duplicate-04-1"
+          },
+          {
+            "value": "deduped-04",
+            "sourceRef": "duplicate-04-2"
+          },
+          {
+            "value": "deduped-04",
+            "sourceRef": "duplicate-04-3"
+          },
+          {
+            "value": "deduped-04",
+            "sourceRef": "duplicate-04-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-04"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-04-1",
+            "duplicate-04-2",
+            "duplicate-04-3",
+            "duplicate-04-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-05",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-05",
+            "sourceRef": "duplicate-05-1"
+          },
+          {
+            "value": "deduped-05",
+            "sourceRef": "duplicate-05-2"
+          },
+          {
+            "value": "deduped-05",
+            "sourceRef": "duplicate-05-3"
+          },
+          {
+            "value": "deduped-05",
+            "sourceRef": "duplicate-05-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-05"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-05-1",
+            "duplicate-05-2",
+            "duplicate-05-3",
+            "duplicate-05-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-06",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-06",
+            "sourceRef": "duplicate-06-1"
+          },
+          {
+            "value": "deduped-06",
+            "sourceRef": "duplicate-06-2"
+          },
+          {
+            "value": "deduped-06",
+            "sourceRef": "duplicate-06-3"
+          },
+          {
+            "value": "deduped-06",
+            "sourceRef": "duplicate-06-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-06"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-06-1",
+            "duplicate-06-2",
+            "duplicate-06-3",
+            "duplicate-06-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-07",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-07",
+            "sourceRef": "duplicate-07-1"
+          },
+          {
+            "value": "deduped-07",
+            "sourceRef": "duplicate-07-2"
+          },
+          {
+            "value": "deduped-07",
+            "sourceRef": "duplicate-07-3"
+          },
+          {
+            "value": "deduped-07",
+            "sourceRef": "duplicate-07-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-07"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-07-1",
+            "duplicate-07-2",
+            "duplicate-07-3",
+            "duplicate-07-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-08",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-08",
+            "sourceRef": "duplicate-08-1"
+          },
+          {
+            "value": "deduped-08",
+            "sourceRef": "duplicate-08-2"
+          },
+          {
+            "value": "deduped-08",
+            "sourceRef": "duplicate-08-3"
+          },
+          {
+            "value": "deduped-08",
+            "sourceRef": "duplicate-08-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-08"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-08-1",
+            "duplicate-08-2",
+            "duplicate-08-3",
+            "duplicate-08-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-09",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-09",
+            "sourceRef": "duplicate-09-1"
+          },
+          {
+            "value": "deduped-09",
+            "sourceRef": "duplicate-09-2"
+          },
+          {
+            "value": "deduped-09",
+            "sourceRef": "duplicate-09-3"
+          },
+          {
+            "value": "deduped-09",
+            "sourceRef": "duplicate-09-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-09"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-09-1",
+            "duplicate-09-2",
+            "duplicate-09-3",
+            "duplicate-09-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-dedupe-10",
+      "category": "dedupe",
+      "description": "Collapse repeated equivalent facts into one durable entry.",
+      "input": {
+        "candidates": [
+          {
+            "value": "deduped-10",
+            "sourceRef": "duplicate-10-1"
+          },
+          {
+            "value": "deduped-10",
+            "sourceRef": "duplicate-10-2"
+          },
+          {
+            "value": "deduped-10",
+            "sourceRef": "duplicate-10-3"
+          },
+          {
+            "value": "deduped-10",
+            "sourceRef": "duplicate-10-4"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "one-fact",
+          "op": "set_equals",
+          "path": "/profile/values",
+          "value": [
+            "deduped-10"
+          ]
+        },
+        {
+          "id": "all-sources",
+          "op": "set_equals",
+          "path": "/profile/sourceRefs",
+          "value": [
+            "duplicate-10-1",
+            "duplicate-10-2",
+            "duplicate-10-3",
+            "duplicate-10-4"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-01",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-01"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-01"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-01"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-01"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-01",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-02",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-02"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-02"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-02"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-02"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-02",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-03",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-03"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-03"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-03"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-03"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-03",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-04",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-04"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-04"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-04"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-04"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-04",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-05",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-05"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-05"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-05"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-05"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-05",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-06",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-06"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-06"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-06"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-06"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-06",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-07",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-07"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-07"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-07"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-07"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-07",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-08",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-08"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-08"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-08"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-08"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-08",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-09",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-09"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-09"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-09"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-09"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-09",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-scope-isolation-10",
+      "category": "scope_isolation",
+      "description": "Do not expose another workspace or session fact.",
+      "input": {
+        "currentScope": {
+          "workspaceId": "workspace-a",
+          "sessionId": "session-a-10"
+        },
+        "facts": [
+          {
+            "scope": "current",
+            "value": "workspace-a-10"
+          },
+          {
+            "scope": "other",
+            "value": "workspace-b-10"
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "allowed-current",
+          "op": "equals",
+          "path": "/answer",
+          "value": "workspace-a-10"
+        },
+        {
+          "id": "forbidden-other",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "workspace-b-10",
+          "hardGate": "scope"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-01",
+      "category": "privacy_secret_delete",
+      "description": "Never copy a secret into durable or public memory output.",
+      "input": {
+        "privateInput": "PRIVATE_TEST_SECRET-01",
+        "action": "answer_without_secret"
+      },
+      "assertions": [
+        {
+          "id": "public-safe",
+          "op": "equals",
+          "path": "/publicAnswer",
+          "value": "redacted"
+        },
+        {
+          "id": "secret-not-exposed",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "PRIVATE_TEST_SECRET-01",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "secret-not-durable",
+          "op": "absent",
+          "path": "/profile/secrets",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-02",
+      "category": "privacy_secret_delete",
+      "description": "A deleted durable fact must not be resurrected.",
+      "input": {
+        "priorProfile": {
+          "deletedFact02": "delete-me-02"
+        },
+        "action": "delete",
+        "tombstone": "tombstone-02"
+      },
+      "assertions": [
+        {
+          "id": "deleted-absent",
+          "op": "absent",
+          "path": "/profile/facts/deletedFact02",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "deleted-nowhere",
+          "op": "not_contains",
+          "path": "/profile",
+          "value": "delete-me-02",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "tombstone-present",
+          "op": "contains",
+          "path": "/profile/tombstones",
+          "value": "tombstone-02"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-03",
+      "category": "privacy_secret_delete",
+      "description": "Incognito information must not enter durable memory.",
+      "input": {
+        "mode": "incognito",
+        "value": "incognito-03",
+        "action": "conversation_only"
+      },
+      "assertions": [
+        {
+          "id": "durable-absent",
+          "op": "absent",
+          "path": "/profile/incognito",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "public-not-leaking",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "incognito-03",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-04",
+      "category": "privacy_secret_delete",
+      "description": "Never copy a secret into durable or public memory output.",
+      "input": {
+        "privateInput": "PRIVATE_TEST_SECRET-04",
+        "action": "answer_without_secret"
+      },
+      "assertions": [
+        {
+          "id": "public-safe",
+          "op": "equals",
+          "path": "/publicAnswer",
+          "value": "redacted"
+        },
+        {
+          "id": "secret-not-exposed",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "PRIVATE_TEST_SECRET-04",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "secret-not-durable",
+          "op": "absent",
+          "path": "/profile/secrets",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-05",
+      "category": "privacy_secret_delete",
+      "description": "A deleted durable fact must not be resurrected.",
+      "input": {
+        "priorProfile": {
+          "deletedFact05": "delete-me-05"
+        },
+        "action": "delete",
+        "tombstone": "tombstone-05"
+      },
+      "assertions": [
+        {
+          "id": "deleted-absent",
+          "op": "absent",
+          "path": "/profile/facts/deletedFact05",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "deleted-nowhere",
+          "op": "not_contains",
+          "path": "/profile",
+          "value": "delete-me-05",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "tombstone-present",
+          "op": "contains",
+          "path": "/profile/tombstones",
+          "value": "tombstone-05"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-06",
+      "category": "privacy_secret_delete",
+      "description": "Incognito information must not enter durable memory.",
+      "input": {
+        "mode": "incognito",
+        "value": "incognito-06",
+        "action": "conversation_only"
+      },
+      "assertions": [
+        {
+          "id": "durable-absent",
+          "op": "absent",
+          "path": "/profile/incognito",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "public-not-leaking",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "incognito-06",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-07",
+      "category": "privacy_secret_delete",
+      "description": "Never copy a secret into durable or public memory output.",
+      "input": {
+        "privateInput": "PRIVATE_TEST_SECRET-07",
+        "action": "answer_without_secret"
+      },
+      "assertions": [
+        {
+          "id": "public-safe",
+          "op": "equals",
+          "path": "/publicAnswer",
+          "value": "redacted"
+        },
+        {
+          "id": "secret-not-exposed",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "PRIVATE_TEST_SECRET-07",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "secret-not-durable",
+          "op": "absent",
+          "path": "/profile/secrets",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-08",
+      "category": "privacy_secret_delete",
+      "description": "A deleted durable fact must not be resurrected.",
+      "input": {
+        "priorProfile": {
+          "deletedFact08": "delete-me-08"
+        },
+        "action": "delete",
+        "tombstone": "tombstone-08"
+      },
+      "assertions": [
+        {
+          "id": "deleted-absent",
+          "op": "absent",
+          "path": "/profile/facts/deletedFact08",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "deleted-nowhere",
+          "op": "not_contains",
+          "path": "/profile",
+          "value": "delete-me-08",
+          "hardGate": "deletion"
+        },
+        {
+          "id": "tombstone-present",
+          "op": "contains",
+          "path": "/profile/tombstones",
+          "value": "tombstone-08"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-09",
+      "category": "privacy_secret_delete",
+      "description": "Incognito information must not enter durable memory.",
+      "input": {
+        "mode": "incognito",
+        "value": "incognito-09",
+        "action": "conversation_only"
+      },
+      "assertions": [
+        {
+          "id": "durable-absent",
+          "op": "absent",
+          "path": "/profile/incognito",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "public-not-leaking",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "incognito-09",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-privacy-secret-delete-10",
+      "category": "privacy_secret_delete",
+      "description": "Never copy a secret into durable or public memory output.",
+      "input": {
+        "privateInput": "PRIVATE_TEST_SECRET-10",
+        "action": "answer_without_secret"
+      },
+      "assertions": [
+        {
+          "id": "public-safe",
+          "op": "equals",
+          "path": "/publicAnswer",
+          "value": "redacted"
+        },
+        {
+          "id": "secret-not-exposed",
+          "op": "not_contains",
+          "path": "/publicAnswer",
+          "value": "PRIVATE_TEST_SECRET-10",
+          "hardGate": "privacy"
+        },
+        {
+          "id": "secret-not-durable",
+          "op": "absent",
+          "path": "/profile/secrets",
+          "hardGate": "privacy"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-01",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact01",
+            "value": "stale-01",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact01",
+            "value": "current-01",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact01",
+          "value": "current-01"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact01",
+          "value": "stale-01"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-02",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact02",
+            "value": "stale-02",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact02",
+            "value": "current-02",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact02",
+          "value": "current-02"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact02",
+          "value": "stale-02"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-03",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact03",
+            "value": "stale-03",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact03",
+            "value": "current-03",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact03",
+          "value": "current-03"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact03",
+          "value": "stale-03"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-04",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact04",
+            "value": "stale-04",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact04",
+            "value": "current-04",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact04",
+          "value": "current-04"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact04",
+          "value": "stale-04"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-05",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact05",
+            "value": "stale-05",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact05",
+            "value": "current-05",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact05",
+          "value": "current-05"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact05",
+          "value": "stale-05"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-06",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact06",
+            "value": "stale-06",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact06",
+            "value": "current-06",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact06",
+          "value": "current-06"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact06",
+          "value": "stale-06"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-07",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact07",
+            "value": "stale-07",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact07",
+            "value": "current-07",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact07",
+          "value": "current-07"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact07",
+          "value": "stale-07"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-08",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact08",
+            "value": "stale-08",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact08",
+            "value": "current-08",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact08",
+          "value": "current-08"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact08",
+          "value": "stale-08"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-09",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact09",
+            "value": "stale-09",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact09",
+            "value": "current-09",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact09",
+          "value": "current-09"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact09",
+          "value": "stale-09"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-stale-freshness-10",
+      "category": "stale_freshness",
+      "description": "Prefer fresh current-state evidence over stale profile state.",
+      "input": {
+        "facts": [
+          {
+            "key": "freshFact10",
+            "value": "stale-10",
+            "freshness": 0.1,
+            "ts": 100
+          },
+          {
+            "key": "freshFact10",
+            "value": "current-10",
+            "freshness": 1,
+            "ts": 200
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "current-value",
+          "op": "equals",
+          "path": "/profile/facts/freshFact10",
+          "value": "current-10"
+        },
+        {
+          "id": "stale-not-current",
+          "op": "not_contains",
+          "path": "/profile/facts/freshFact10",
+          "value": "stale-10"
+        }
+      ]
+    }
+  ]
+}

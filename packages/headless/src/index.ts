@@ -32,6 +32,33 @@ export type {
   MemoryBenchmarkScore,
   MemoryBenchmarkWriteOptions,
 } from './memory-benchmark-manifest.js';
+export {
+  BUNDLED_MEMORY_BENCHMARK_CATEGORY_COUNTS,
+  BUNDLED_MEMORY_BENCHMARK_HASHES,
+  MEMORY_BENCHMARK_CASE_OUTPUT_SCHEMA_VERSION,
+  MEMORY_BENCHMARK_DATASET_IDS,
+  MEMORY_BENCHMARK_DATASET_SCHEMA_VERSION,
+  gradeMemoryBenchmarkCase,
+  gradeMemoryBenchmarkDataset,
+  hashMemoryBenchmarkDataset,
+  loadBundledMemoryBenchmarkDataset,
+  loadMemoryBenchmarkDataset,
+  parseMemoryBenchmarkDataset,
+} from './memory-benchmark-dataset.js';
+export type {
+  BundledMemoryBenchmarkDatasetId,
+  MemoryBenchmarkAssertion,
+  MemoryBenchmarkAssertionOp,
+  MemoryBenchmarkCase,
+  MemoryBenchmarkCaseGrade,
+  MemoryBenchmarkCaseOutput,
+  MemoryBenchmarkDataset,
+  MemoryBenchmarkDatasetGrade,
+  MemoryBenchmarkDatasetKind,
+  MemoryBenchmarkGradeClassification,
+  MemoryBenchmarkHardGate,
+  MemoryBenchmarkHardGateStatus,
+} from './memory-benchmark-dataset.js';
 export type {
   PromptOptimizationRunInput,
   PromptOptimizationRunResult,

@@ -148,6 +148,35 @@ model that rewrote its own test to pass has that edit reverted. Declare `[]`
 only when the verification reads nothing the agent can forge — as the bundled
 `examples/demo` does, checking a fixture file the agent has no reason to touch.
 
+## Memory benchmark datasets
+
+`@maka/headless` includes two frozen, host-owned deterministic datasets:
+
+- `maka-context-continuity-v1`: 60 cases covering distant facts, exact values,
+  large tool results, tool adjacency, compact/resume/fork, and overflow recovery.
+- `maka-native-memory-lifecycle-v1`: 80 cases covering remember, evidence
+  promotion, one-off rejection, conflict, dedupe, scope, privacy/deletion, and
+  freshness.
+
+Use `loadBundledMemoryBenchmarkDataset` to load and verify the pinned dataset
+hash, then `gradeMemoryBenchmarkDataset` to classify normalized case outputs.
+The grader distinguishes task, infrastructure, privacy/scope/deletion hard-gate,
+and artifact failures. It recomputes scores from assertions; model self-checks
+and bare pass flags are not inputs to this API.
+
+Hard-gate `not_contains` assertions scan the complete normalized result, so a
+forbidden value cannot pass by moving to another field. Grades report hard-gate
+state as `passed`, `failed`, or `not_evaluated`; execution and artifact failures
+on protected cases are not mislabeled as proven privacy violations.
+
+The checked-in JSON is generated from compact deterministic family definitions.
+Run `npm --workspace @maka/headless run check:memory-datasets` to verify that the
+frozen artifacts still match their source. Maintainers may use the generator's
+`--write` mode only while introducing a new dataset id/version.
+
+Bundled `v1` files are immutable. Any content change requires a new dataset id
+and version rather than updating the pinned hash in place.
+
 Tasks may also use typed benchmark verifiers. Terminal-Bench is the first
 carrier, but it is an adapter hook rather than a runtime architecture:
 

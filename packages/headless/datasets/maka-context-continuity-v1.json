@@ -1,0 +1,2358 @@
+{
+  "schemaVersion": "maka.memory_benchmark.dataset.v1",
+  "id": "maka-context-continuity-v1",
+  "kind": "continuity",
+  "version": 1,
+  "cases": [
+    {
+      "id": "continuity-distant-01",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1001."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 1-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 1-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 1-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 1-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 1-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 1-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 1-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 1-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1001"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-02",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1002."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 2-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 2-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 2-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 2-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 2-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 2-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 2-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 2-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1002"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-03",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1003."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 3-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 3-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 3-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 3-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 3-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 3-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 3-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 3-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1003"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-04",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1004."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 4-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 4-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 4-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 4-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 4-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 4-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 4-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 4-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1004"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-05",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1005."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 5-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 5-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 5-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 5-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 5-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 5-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 5-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 5-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1005"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-06",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1006."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 6-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 6-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 6-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 6-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 6-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 6-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 6-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 6-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1006"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-07",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1007."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 7-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 7-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 7-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 7-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 7-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 7-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 7-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 7-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1007"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-08",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1008."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 8-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 8-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 8-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 8-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 8-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 8-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 8-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 8-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1008"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-09",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1009."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 9-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 9-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 9-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 9-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 9-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 9-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 9-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 9-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1009"
+        }
+      ]
+    },
+    {
+      "id": "continuity-distant-10",
+      "category": "distant_fact",
+      "description": "Recover a fact after multiple unrelated turns.",
+      "input": {
+        "events": [
+          {
+            "turn": 1,
+            "role": "user",
+            "content": "Remember the release fact project-fact-1010."
+          },
+          {
+            "turn": 2,
+            "role": "user",
+            "content": "unrelated discussion 10-1"
+          },
+          {
+            "turn": 3,
+            "role": "assistant",
+            "content": "unrelated discussion 10-2"
+          },
+          {
+            "turn": 4,
+            "role": "user",
+            "content": "unrelated discussion 10-3"
+          },
+          {
+            "turn": 5,
+            "role": "assistant",
+            "content": "unrelated discussion 10-4"
+          },
+          {
+            "turn": 6,
+            "role": "user",
+            "content": "unrelated discussion 10-5"
+          },
+          {
+            "turn": 7,
+            "role": "assistant",
+            "content": "unrelated discussion 10-6"
+          },
+          {
+            "turn": 8,
+            "role": "user",
+            "content": "unrelated discussion 10-7"
+          },
+          {
+            "turn": 9,
+            "role": "assistant",
+            "content": "unrelated discussion 10-8"
+          },
+          {
+            "turn": 10,
+            "role": "user",
+            "content": "Return the original release fact exactly."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "project-fact-1010"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-01",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "/srv/maka/releases/2026-07-12/build.json",
+        "distractors": [
+          "/srv/maka/releases/2026-07-12/build.json-old",
+          "/SRV/MAKA/RELEASES/2026-07-12/BUILD.JSON",
+          "prefix-/srv/maka/releases/2026-07-12/build.json"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "/srv/maka/releases/2026-07-12/build.json"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-02",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "0x7ffea431",
+        "distractors": [
+          "0x7ffea431-old",
+          "0X7FFEA431",
+          "prefix-0x7ffea431"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "0x7ffea431"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-03",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "2026-07-12T14:31:09Z",
+        "distractors": [
+          "2026-07-12T14:31:09Z-old",
+          "2026-07-12T14:31:09Z",
+          "prefix-2026-07-12T14:31:09Z"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "2026-07-12T14:31:09Z"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-04",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "sha256:4b7c2f8a90d1",
+        "distractors": [
+          "sha256:4b7c2f8a90d1-old",
+          "SHA256:4B7C2F8A90D1",
+          "prefix-sha256:4b7c2f8a90d1"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "sha256:4b7c2f8a90d1"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-05",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "INV-004317",
+        "distractors": [
+          "INV-004317-old",
+          "INV-004317",
+          "prefix-INV-004317"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "INV-004317"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-06",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "3.141592653589793",
+        "distractors": [
+          "3.141592653589793-old",
+          "3.141592653589793",
+          "prefix-3.141592653589793"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "3.141592653589793"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-07",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "feature/memory-v2",
+        "distractors": [
+          "feature/memory-v2-old",
+          "FEATURE/MEMORY-V2",
+          "prefix-feature/memory-v2"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "feature/memory-v2"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-08",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "postgresql://db.internal:5432/maka",
+        "distractors": [
+          "postgresql://db.internal:5432/maka-old",
+          "POSTGRESQL://DB.INTERNAL:5432/MAKA",
+          "prefix-postgresql://db.internal:5432/maka"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "postgresql://db.internal:5432/maka"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-09",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "ERR_CONTEXT_042",
+        "distractors": [
+          "ERR_CONTEXT_042-old",
+          "ERR_CONTEXT_042",
+          "prefix-ERR_CONTEXT_042"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "ERR_CONTEXT_042"
+        }
+      ]
+    },
+    {
+      "id": "continuity-exact-10",
+      "category": "exact_value",
+      "description": "Recover paths, ids, dates, hashes, and code-like values without normalization.",
+      "input": {
+        "value": "user+memory@example.test",
+        "distractors": [
+          "user+memory@example.test-old",
+          "USER+MEMORY@EXAMPLE.TEST",
+          "prefix-user+memory@example.test"
+        ],
+        "query": "Return value byte-for-byte."
+      },
+      "assertions": [
+        {
+          "id": "answer-byte-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "user+memory@example.test"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-01",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-01",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/01.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-01",
+            "output": "log-01-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-1-memory-result\nlog-01-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-01-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-1-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-02",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-02",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/02.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-02",
+            "output": "log-02-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-2-memory-result\nlog-02-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-02-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-2-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-03",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-03",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/03.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-03",
+            "output": "log-03-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-3-memory-result\nlog-03-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-03-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-3-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-04",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-04",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/04.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-04",
+            "output": "log-04-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-4-memory-result\nlog-04-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-04-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-4-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-05",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-05",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/05.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-05",
+            "output": "log-05-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-5-memory-result\nlog-05-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-05-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-5-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-06",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-06",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/06.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-06",
+            "output": "log-06-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-6-memory-result\nlog-06-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-06-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-6-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-07",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-07",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/07.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-07",
+            "output": "log-07-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-7-memory-result\nlog-07-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-07-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-7-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-08",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-08",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/08.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-08",
+            "output": "log-08-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-8-memory-result\nlog-08-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-08-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-8-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-09",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-09",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/09.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-09",
+            "output": "log-09-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-9-memory-result\nlog-09-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-09-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-9-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-large-tool-10",
+      "category": "large_tool_result",
+      "description": "Recover the bounded fact from a large tool result without echoing the payload.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "read-10",
+            "toolName": "Read",
+            "input": {
+              "path": "logs/10.txt"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "read-10",
+            "output": "log-10-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-119: xxxxxxxxxxxxxxxxxxxxxxxx\nNEEDLE-10-memory-result\nlog-10-000: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-001: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-002: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-003: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-004: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-005: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-006: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-007: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-008: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-009: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-010: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-011: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-012: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-013: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-014: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-015: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-016: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-017: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-018: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-019: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-020: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-021: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-022: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-023: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-024: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-025: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-026: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-027: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-028: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-029: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-030: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-031: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-032: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-033: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-034: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-035: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-036: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-037: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-038: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-039: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-040: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-041: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-042: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-043: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-044: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-045: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-046: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-047: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-048: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-049: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-050: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-051: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-052: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-053: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-054: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-055: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-056: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-057: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-058: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-059: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-060: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-061: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-062: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-063: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-064: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-065: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-066: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-067: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-068: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-069: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-070: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-071: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-072: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-073: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-074: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-075: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-076: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-077: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-078: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-079: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-080: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-081: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-082: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-083: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-084: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-085: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-086: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-087: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-088: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-089: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-090: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-091: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-092: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-093: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-094: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-095: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-096: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-097: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-098: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-099: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-100: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-101: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-102: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-103: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-104: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-105: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-106: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-107: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-108: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-109: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-110: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-111: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-112: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-113: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-114: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-115: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-116: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-117: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-118: xxxxxxxxxxxxxxxxxxxxxxxx\nlog-10-119: xxxxxxxxxxxxxxxxxxxxxxxx"
+          },
+          {
+            "type": "user",
+            "content": "Return only the NEEDLE value."
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "NEEDLE-10-memory-result"
+        },
+        {
+          "id": "bounded-output",
+          "op": "not_contains",
+          "path": "/answer",
+          "value": "log-"
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-01",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-01-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-01"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-01-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-01"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-01-a",
+            "output": "left-01"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-01-b",
+            "output": "right-01"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-01|right-01"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-01-a",
+            "call-01-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-02",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-02-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-02"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-02-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-02"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-02-a",
+            "output": "left-02"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-02-b",
+            "output": "right-02"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-02|right-02"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-02-a",
+            "call-02-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-03",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-03-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-03"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-03-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-03"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-03-a",
+            "output": "left-03"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-03-b",
+            "output": "right-03"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-03|right-03"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-03-a",
+            "call-03-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-04",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-04-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-04"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-04-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-04"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-04-a",
+            "output": "left-04"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-04-b",
+            "output": "right-04"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-04|right-04"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-04-a",
+            "call-04-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-05",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-05-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-05"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-05-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-05"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-05-a",
+            "output": "left-05"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-05-b",
+            "output": "right-05"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-05|right-05"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-05-a",
+            "call-05-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-06",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-06-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-06"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-06-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-06"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-06-a",
+            "output": "left-06"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-06-b",
+            "output": "right-06"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-06|right-06"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-06-a",
+            "call-06-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-07",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-07-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-07"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-07-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-07"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-07-a",
+            "output": "left-07"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-07-b",
+            "output": "right-07"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-07|right-07"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-07-a",
+            "call-07-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-08",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-08-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-08"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-08-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-08"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-08-a",
+            "output": "left-08"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-08-b",
+            "output": "right-08"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-08|right-08"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-08-a",
+            "call-08-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-09",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-09-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-09"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-09-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-09"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-09-a",
+            "output": "left-09"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-09-b",
+            "output": "right-09"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-09|right-09"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-09-a",
+            "call-09-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-tool-adjacency-10",
+      "category": "tool_adjacency",
+      "description": "Preserve two tool call/result pairs and recover their joined value.",
+      "input": {
+        "events": [
+          {
+            "type": "function_call",
+            "toolCallId": "call-10-a",
+            "toolName": "Read",
+            "input": {
+              "path": "part-a-10"
+            }
+          },
+          {
+            "type": "function_call",
+            "toolCallId": "call-10-b",
+            "toolName": "Read",
+            "input": {
+              "path": "part-b-10"
+            }
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-10-a",
+            "output": "left-10"
+          },
+          {
+            "type": "function_response",
+            "toolCallId": "call-10-b",
+            "output": "right-10"
+          }
+        ],
+        "query": "Join left and right and report the consumed tool pair ids."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "left-10|right-10"
+        },
+        {
+          "id": "pair-set",
+          "op": "set_equals",
+          "path": "/toolPairIds",
+          "value": [
+            "call-10-a",
+            "call-10-b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-01",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "compact",
+          "sourceSession": "session-01",
+          "targetSession": "session-01"
+        },
+        "preBoundaryFact": "continuity-state-01",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-01"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-01"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-02",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "resume",
+          "sourceSession": "session-02",
+          "targetSession": "session-02"
+        },
+        "preBoundaryFact": "continuity-state-02",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-02"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-02"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-03",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "fork",
+          "sourceSession": "session-03",
+          "targetSession": "fork-03"
+        },
+        "preBoundaryFact": "continuity-state-03",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-03"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-03"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-04",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "compact",
+          "sourceSession": "session-04",
+          "targetSession": "session-04"
+        },
+        "preBoundaryFact": "continuity-state-04",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-04"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-04"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-05",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "resume",
+          "sourceSession": "session-05",
+          "targetSession": "session-05"
+        },
+        "preBoundaryFact": "continuity-state-05",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-05"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-05"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-06",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "fork",
+          "sourceSession": "session-06",
+          "targetSession": "fork-06"
+        },
+        "preBoundaryFact": "continuity-state-06",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-06"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-06"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-07",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "compact",
+          "sourceSession": "session-07",
+          "targetSession": "session-07"
+        },
+        "preBoundaryFact": "continuity-state-07",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-07"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-07"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-08",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "resume",
+          "sourceSession": "session-08",
+          "targetSession": "session-08"
+        },
+        "preBoundaryFact": "continuity-state-08",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-08"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-08"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-09",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "fork",
+          "sourceSession": "session-09",
+          "targetSession": "fork-09"
+        },
+        "preBoundaryFact": "continuity-state-09",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-09"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-09"
+        }
+      ]
+    },
+    {
+      "id": "continuity-compact-resume-fork-10",
+      "category": "compact_resume_fork",
+      "description": "Recover state across compact, resume, or fork boundaries.",
+      "input": {
+        "boundary": {
+          "mode": "compact",
+          "sourceSession": "session-10",
+          "targetSession": "session-10"
+        },
+        "preBoundaryFact": "continuity-state-10",
+        "postBoundaryQuery": "Return the pre-boundary state and its source session."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "continuity-state-10"
+        },
+        {
+          "id": "source-exact",
+          "op": "equals",
+          "path": "/continuitySource",
+          "value": "session-10"
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-01",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-01",
+        "fault": "context_overflow",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-01"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-02",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-02",
+        "fault": "provider_shape_reject",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-02"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-03",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-03",
+        "fault": "archive_read_timeout",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-03"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-04",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-04",
+        "fault": "torn_compact",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-04"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-05",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-05",
+        "fault": "fallback_replay",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-05"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-06",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-06",
+        "fault": "context_overflow",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-06"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-07",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-07",
+        "fault": "provider_shape_reject",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-07"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-08",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-08",
+        "fault": "archive_read_timeout",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-08"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-09",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-09",
+        "fault": "torn_compact",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-09"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    },
+    {
+      "id": "continuity-overflow-recovery-10",
+      "category": "overflow_recovery",
+      "description": "Recover the current fact after an overflow or replay fault.",
+      "input": {
+        "fact": "recovery-fact-10",
+        "fault": "fallback_replay",
+        "fallbackPolicy": "bounded-provider-safe-replay",
+        "query": "Return the fact after recovery."
+      },
+      "assertions": [
+        {
+          "id": "answer-exact",
+          "op": "equals",
+          "path": "/answer",
+          "value": "recovery-fact-10"
+        },
+        {
+          "id": "recovered",
+          "op": "equals",
+          "path": "/recovered",
+          "value": true
+        }
+      ]
+    }
+  ]
+}
