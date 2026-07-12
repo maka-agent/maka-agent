@@ -88,19 +88,28 @@ function StoryFrame(props: {
   width?: number;
   height?: number;
   focusActiveRow?: boolean;
+  openActiveRowMenu?: boolean;
 }) {
-  const { children, width = 240, height = 680, focusActiveRow = false } = props;
+  const { children, width = 240, height = 680, focusActiveRow = false, openActiveRowMenu = false } = props;
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!focusActiveRow) return;
-    const timeout = window.setTimeout(() => {
-      ref.current
-        ?.querySelector<HTMLButtonElement>('.maka-list-row[data-active="true"] .maka-list-row-main')
-        ?.focus({ preventScroll: true });
+    if (!focusActiveRow && !openActiveRowMenu) return;
+    let menuTimeout: number | undefined;
+    const focusTimeout = window.setTimeout(() => {
+      const activeRow = ref.current?.querySelector<HTMLElement>('.maka-list-row[data-active="true"]');
+      activeRow?.querySelector<HTMLButtonElement>('.maka-list-row-main')?.focus({ preventScroll: true });
+      if (openActiveRowMenu) {
+        menuTimeout = window.setTimeout(() => {
+          activeRow?.querySelector<HTMLButtonElement>('[aria-label="对话操作"]')?.click();
+        }, 0);
+      }
     }, 0);
-    return () => window.clearTimeout(timeout);
-  }, [focusActiveRow]);
+    return () => {
+      window.clearTimeout(focusTimeout);
+      if (menuTimeout !== undefined) window.clearTimeout(menuTimeout);
+    };
+  }, [focusActiveRow, openActiveRowMenu]);
 
   return (
     <div
@@ -270,7 +279,7 @@ const longTitleSessions = [
   }),
   makeSession({
     id: 'long-title-stale',
-    name: 'Artifact Pane 验收路径和 sidebar row action overlay 的长标题组合测试',
+    name: 'Artifact Pane 验收路径和 sidebar row overflow menu 的长标题组合测试',
     status: 'blocked',
     blockedReason: 'permission_required',
     lastMessageAt: NOW - 31 * 60 * 1000,
@@ -319,6 +328,19 @@ export const StatusGroups: Story = {
 export const RowActions: Story = {
   render: () => (
     <StoryFrame focusActiveRow>
+      <SessionListPanel {...panelProps({
+        sessions: coreSessions,
+        activeId: 'session-active',
+        streamingSessionIds: new Set(['session-running']),
+        staleSessionIds: new Set(['session-stale']),
+      })} />
+    </StoryFrame>
+  ),
+};
+
+export const RowMenuOpen: Story = {
+  render: () => (
+    <StoryFrame openActiveRowMenu>
       <SessionListPanel {...panelProps({
         sessions: coreSessions,
         activeId: 'session-active',

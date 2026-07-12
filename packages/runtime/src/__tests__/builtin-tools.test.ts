@@ -29,7 +29,8 @@ describe('builtin tool activity kinds', () => {
 
   test('categorizes background task controls as command activity', () => {
     const shellRuns = {
-      runBash: () => Promise.reject(new Error('not used')),
+      runForegroundBash: () => Promise.reject(new Error('not used')),
+      runBackgroundBash: () => Promise.reject(new Error('not used')),
       readResource: () => Promise.reject(new Error('not used')),
       stopResource: () => Promise.reject(new Error('not used')),
     } satisfies ShellRunToolController;
@@ -90,10 +91,65 @@ describe('builtin Bash description declares the executing shell', () => {
 });
 
 describe('builtin Bash streaming output', () => {
-  test('background-capable Bash returns runtime refs and forwards yield_time_ms', async () => {
+  test('Bash schema exposes only explicit background execution', () => {
+    const bash = buildBuiltinTools({ shellRuns: {
+      runForegroundBash: () => Promise.reject(new Error('not used')),
+      runBackgroundBash: () => Promise.reject(new Error('not used')),
+      readResource: () => Promise.reject(new Error('not used')),
+      stopResource: () => Promise.reject(new Error('not used')),
+    } }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+    const parameters = bash.parameters as { safeParse(input: unknown): { success: boolean } };
+
+    expect(parameters.safeParse({ command: 'sleep 60', run_in_background: true }).success).toBe(true);
+    expect(parameters.safeParse({ command: 'sleep 60', yield_time_ms: 250 }).success).toBe(false);
+    expect(parameters.safeParse({ command: 'sleep 60', timeout_ms: 600_001 }).success).toBe(false);
+    expect(parameters.safeParse({ command: 'sleep 60', timeout_ms: 600_001, run_in_background: true }).success).toBe(true);
+  });
+
+  test('background-capable Bash stays foreground unless explicitly requested', async () => {
+    const calls: string[] = [];
+    const shellRuns = {
+      async runForegroundBash() {
+        calls.push('foreground');
+        return {
+          kind: 'terminal', cwd: '/workspace', cmd: 'sleep 60', status: 'completed', exitCode: 0,
+          stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false,
+        } as const;
+      },
+      async runBackgroundBash() {
+        calls.push('background');
+        throw new Error('unexpected background execution');
+      },
+      async readResource() {
+        throw new Error('not used');
+      },
+      async stopResource() {
+        throw new Error('not used');
+      },
+    };
+    const bash = buildBuiltinTools({ shellRuns }).find((tool) => tool.name === 'Bash');
+    if (!bash) throw new Error('Bash tool missing');
+
+    const result = await bash.impl(
+      { command: 'sleep 60' },
+      {
+        sessionId: 'session-1', turnId: 'turn-1', toolCallId: 'tool-1', cwd: '/workspace',
+        abortSignal: new AbortController().signal, emitOutput: () => {},
+      },
+    );
+
+    expect((result as { kind: string }).kind).toBe('terminal');
+    expect(calls).toEqual(['foreground']);
+  });
+
+  test('explicit background Bash returns runtime refs and forwards its optional timeout', async () => {
     const calls: unknown[] = [];
     const shellRuns = {
-      async runBash(input: unknown) {
+      async runForegroundBash() {
+        throw new Error('not used');
+      },
+      async runBackgroundBash(input: unknown) {
         calls.push(input);
         return {
           kind: 'shell_run',
@@ -124,7 +180,7 @@ describe('builtin Bash streaming output', () => {
     const bash = tools.find((tool) => tool.name === 'Bash');
     if (!bash) throw new Error('Bash tool missing');
     const result = await bash.impl(
-      { command: 'sleep 60', timeout_ms: 2_000, yield_time_ms: 1_234 },
+      { command: 'sleep 60', timeout_ms: 2_000, run_in_background: true },
       {
         sessionId: 'session-1',
         runId: 'run-1',
@@ -138,7 +194,6 @@ describe('builtin Bash streaming output', () => {
 
     expect((result as { kind: string }).kind).toBe('shell_run');
     expect((result as { ref?: string }).ref).toBe('maka://runtime/background-tasks/shell-run-1');
-    expect((calls[0] as { yieldTimeMs?: number }).yieldTimeMs).toBe(1_234);
     expect((calls[0] as { timeoutMs?: number }).timeoutMs).toBe(2_000);
     expect((calls[0] as { sourceRunId?: string }).sourceRunId).toBe('run-1');
   });
@@ -146,7 +201,10 @@ describe('builtin Bash streaming output', () => {
   test('Read treats runtime background task refs as whole resources', async () => {
     const calls: unknown[] = [];
     const shellRuns = {
-      async runBash() {
+      async runForegroundBash() {
+        throw new Error('not used');
+      },
+      async runBackgroundBash() {
         throw new Error('not used');
       },
       async readResource(sessionId: string, ref: string) {
@@ -193,7 +251,10 @@ describe('builtin Bash streaming output', () => {
   test('StopBackgroundTask stops a runtime ref in the current session', async () => {
     const calls: unknown[] = [];
     const shellRuns = {
-      async runBash() {
+      async runForegroundBash() {
+        throw new Error('not used');
+      },
+      async runBackgroundBash() {
         throw new Error('not used');
       },
       async readResource() {

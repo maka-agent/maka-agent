@@ -17,6 +17,10 @@
     "./ahe-evidence-export": {
       "types": "./dist/ahe-evidence-export.d.ts",
       "default": "./dist/ahe-evidence-export.js"
+    },
+    "./eval-router": {
+      "types": "./dist/eval-router.d.ts",
+      "default": "./dist/eval-router.js"
     }
   },
   "imports": {
@@ -43,7 +47,7 @@
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/chmod-bin.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run clean && npm run build && node ../../scripts/run-headless-tests.mjs"
   },

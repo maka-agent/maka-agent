@@ -7,7 +7,9 @@ import { runShellWithBoundedTail, type BoundedShellResult } from './shell-exec.j
 import { bashToolShellGuidance, defaultShellPlan, type ShellPlan } from './shell-detect.js';
 import { truncateToolOutput } from './tool-output.js';
 import {
+  DEFAULT_BASH_TIMEOUT_MS,
   MAX_SHELL_RUN_TIMEOUT_MS,
+  MAX_FOREGROUND_BASH_TIMEOUT_MS,
   type ShellRunBashInput,
 } from './shell-run-manager.js';
 
@@ -46,7 +48,8 @@ type TerminalToolResult = Extract<ToolResultContent, { kind: 'terminal' }>;
 type ShellRunToolResult = Extract<ToolResultContent, { kind: 'shell_run' }>;
 
 export interface ShellRunToolController {
-  runBash(input: ShellRunBashInput): Promise<TerminalToolResult | ShellRunToolResult>;
+  runForegroundBash(input: ShellRunBashInput): Promise<TerminalToolResult>;
+  runBackgroundBash(input: ShellRunBashInput): Promise<ShellRunToolResult>;
   readResource(
     sessionId: string,
     ref: string,
@@ -102,7 +105,7 @@ export function buildLocalForegroundBashTool(
   });
 }
 
-export function buildBackgroundBashTool(
+export function buildManagedBashTool(
   shellRuns: ShellRunToolController,
   options: { executionFacts?: ToolExecutionFacts; shell?: ShellPlan } = {},
 ): MakaTool {
@@ -112,15 +115,29 @@ export function buildBackgroundBashTool(
     activityKind: 'command',
     description:
       withShellGuidance('Run a shell command in the session cwd.', shell)
-      + ' Commands that outlive yield_time_ms continue as runtime background tasks; use the returned ref with Read to inspect them. Subject to permission policy.',
+      + ` Foreground is the default (timeout ${DEFAULT_BASH_TIMEOUT_MS}ms, maximum ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms).`
+      + ` Set run_in_background=true only when the command should continue as a tracked runtime background task; background commands have no default timeout (maximum explicit timeout ${MAX_SHELL_RUN_TIMEOUT_MS}ms). Use the returned ref with Read to inspect it. Subject to permission policy.`,
     parameters: z.object({
       command: z.string().describe('The shell command to execute'),
       timeout_ms: z.number().int().positive().max(MAX_SHELL_RUN_TIMEOUT_MS).optional(),
-      yield_time_ms: z.number().int().positive().optional(),
+      run_in_background: z.boolean().optional(),
+    }).strict().superRefine(({ timeout_ms, run_in_background }, ctx) => {
+      if (!run_in_background && timeout_ms !== undefined && timeout_ms > MAX_FOREGROUND_BASH_TIMEOUT_MS) {
+        ctx.addIssue({
+          code: 'too_big',
+          maximum: MAX_FOREGROUND_BASH_TIMEOUT_MS,
+          origin: 'number',
+          inclusive: true,
+          path: ['timeout_ms'],
+          message: `Foreground Bash timeout may not exceed ${MAX_FOREGROUND_BASH_TIMEOUT_MS}ms`,
+        });
+      }
     }),
     permissionRequired: true,
     ...(options.executionFacts ? { executionFacts: options.executionFacts } : {}),
-    impl: async ({ command, timeout_ms, yield_time_ms }, ctx) => shellRuns.runBash({
+    impl: async ({ command, timeout_ms, run_in_background }, ctx) => shellRuns[
+      run_in_background ? 'runBackgroundBash' : 'runForegroundBash'
+    ]({
       sessionId: ctx.sessionId,
       ...(ctx.runId ? { sourceRunId: ctx.runId } : {}),
       sourceTurnId: ctx.turnId,
@@ -128,7 +145,6 @@ export function buildBackgroundBashTool(
       cwd: ctx.cwd,
       command,
       shell,
-      ...(yield_time_ms !== undefined ? { yieldTimeMs: yield_time_ms } : {}),
       ...(timeout_ms !== undefined ? { timeoutMs: timeout_ms } : {}),
       abortSignal: ctx.abortSignal,
       emitOutput: ctx.emitOutput,

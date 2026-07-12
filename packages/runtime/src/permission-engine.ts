@@ -23,6 +23,8 @@
  */
 
 import {
+  classifyToolUse,
+  matchToolPermissionRules,
   preToolUse,
   type PermissionMode,
   type PermissionRequest,
@@ -30,8 +32,9 @@ import {
   type PreToolUseResult,
   type ToolCategory,
   type ToolExecutionFacts,
+  type ToolPermissionRule,
 } from '@maka/core/permission';
-import type { PermissionRequestEvent } from '@maka/core/events';
+import type { PermissionDecisionAckEvent, PermissionRequestEvent } from '@maka/core/events';
 
 // ============================================================================
 // Per-turn state
@@ -60,7 +63,13 @@ interface ParkedRequest {
 
 export type EvaluateResult =
   | { kind: 'allow'; category: ToolCategory }
-  | { kind: 'block'; category: ToolCategory; reason: string }
+  | {
+      kind: 'block';
+      category: ToolCategory;
+      reason: string;
+      /** Present for an invocation-local explicit deny so observers record a failed invocation. */
+      decisionEvent?: PermissionDecisionAckEvent;
+    }
   | {
       kind: 'prompt';
       category: ToolCategory;
@@ -85,6 +94,10 @@ export interface EvaluateInput {
   hint?: string;
   /** Optional trusted facts about the executor that would run this tool. */
   executionFacts?: ToolExecutionFacts;
+  /** Whether the tool participates in the base mode policy when no explicit rule matches. */
+  permissionRequired?: boolean;
+  /** Invocation-local rules. Explicit deny wins over allow, then base mode applies. */
+  permissionRules?: readonly ToolPermissionRule[];
 }
 
 // ============================================================================
@@ -129,6 +142,39 @@ export class PermissionEngine {
    */
   evaluate(input: EvaluateInput): EvaluateResult {
     const state = this.requireTurn(input.turnId);
+
+    const category = classifyToolUse({
+      toolName: input.toolName,
+      args: input.args,
+      ...(input.categoryHint !== undefined ? { categoryHint: input.categoryHint } : {}),
+    });
+    const ruleDecision = matchToolPermissionRules({
+      toolName: input.toolName,
+      args: input.args,
+      category,
+      rules: input.permissionRules ?? [],
+    });
+    if (ruleDecision === 'allow') return { kind: 'allow', category };
+    if (ruleDecision === 'deny') {
+      const requestId = this.deps.newId();
+      return {
+        kind: 'block',
+        category,
+        reason: `Tool ${input.toolName} was denied by an invocation permission rule`,
+        decisionEvent: {
+          type: 'permission_decision_ack',
+          id: this.deps.newId(),
+          turnId: input.turnId,
+          ts: this.deps.now(),
+          requestId,
+          toolUseId: input.toolUseId,
+          decision: 'deny',
+        },
+      };
+    }
+    if (ruleDecision === undefined && input.permissionRequired === false) {
+      return { kind: 'allow', category };
+    }
 
     const pre: PreToolUseResult = preToolUse({
       toolName: input.toolName,

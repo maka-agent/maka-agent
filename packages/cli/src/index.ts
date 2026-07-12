@@ -9,6 +9,20 @@ export {
   type MakaCliCommand,
 } from './cli.js';
 export {
+  parseMakaRunArgs,
+  runMakaTextCli,
+  type MakaRunDeps,
+  type MakaRunOptions,
+  type NonInteractivePermissionMode,
+  type ParseMakaRunArgsResult,
+} from './run-command.js';
+export {
+  selectMakaRunSession,
+  type MakaRunSessionSelection,
+  type MakaRunSessionSelectionDeps,
+  type MakaRunSessionSelectionInput,
+} from './run-session-selection.js';
+export {
   createMakaCliRuntimeContext,
   type CreateMakaCliRuntimeContextInput,
   type MakaCliRuntimeContext,

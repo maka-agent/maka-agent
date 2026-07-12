@@ -2,10 +2,14 @@ import { redactSecrets, type PersonalizationSettings } from '@maka/core';
 import {
   buildPersonalizationPromptFragment,
   buildSessionEnvironmentPromptFragment,
+  buildSkillsPromptFragment,
   buildWorkspaceInstructionsPromptFragment,
   resolveProjectGitInfo,
+  resolveSkillDiscoveryPaths,
   type AutomationManager,
   type GoalManager,
+  type HostCapabilities,
+  type SkillSource,
 } from '@maka/runtime';
 
 /**
@@ -29,14 +33,38 @@ export interface BuildCliSystemPromptInput {
     workspaceInstructions: { enabled: boolean };
   };
   cwd: string;
+  /**
+   * Workspace root holding the shared `skills/` directory (distinct from the
+   * session `cwd` so the project directory is never scanned for skills). The
+   * skill catalog fragment is built from `{workspaceRoot}/skills/`.
+   */
+  workspaceRoot: string;
+  /**
+   * Host capability surface for the skill-compatibility gate. When omitted,
+   * the catalog is built without gating (legacy behavior). The CLI host
+   * passes its registered tool names so skills whose `requiredTools` are not
+   * available (e.g. bundled Office skills without the Office tools) are hidden.
+   */
+  host?: HostCapabilities;
+  /** Selected model context window used to bound the always-on skill catalog. */
+  modelContextWindow?: number;
+  /**
+   * Home directory for user-level skill discovery (`~/.maka/skills/`,
+   * `~/.agents/skills/`). Defaults to `os.homedir()`. Tests pass a temp dir
+   * to avoid picking up real installed skills.
+   */
+  homeDir?: string;
 }
 
 export async function buildCliSystemPrompt(input: BuildCliSystemPromptInput): Promise<string | undefined> {
   const personalization = buildPersonalizationPromptFragment(input.settings.personalization);
+  // personalization -> skills -> workspaceInstructions, matching the desktop app.
+  const skillSource = resolveSkillDiscoveryPaths(input.cwd, input.workspaceRoot, input.homeDir);
+  const skills = await buildSkillsPromptFragment(skillSource, input.host, { contextWindow: input.modelContextWindow });
   const workspaceInstructions = input.settings.workspaceInstructions.enabled
     ? await buildWorkspaceInstructionsPromptFragment(input.cwd)
     : undefined;
-  const fragments = [personalization.text, workspaceInstructions].filter((v): v is string => Boolean(v));
+  const fragments = [personalization.text, skills, workspaceInstructions].filter((v): v is string => Boolean(v));
   return fragments.length > 0 ? fragments.join('\n\n') : undefined;
 }
 

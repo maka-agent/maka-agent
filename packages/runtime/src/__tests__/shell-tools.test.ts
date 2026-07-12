@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { buildBackgroundBashTool, buildLocalForegroundBashTool } from '../shell-tools.js';
+import { buildLocalForegroundBashTool, buildManagedBashTool } from '../shell-tools.js';
 import type { ShellPlan } from '../shell-detect.js';
 
 const pwshPlan: ShellPlan = { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', exe: 'C:\\pf\\pwsh.exe' };
@@ -8,7 +8,7 @@ const pwshPlan: ShellPlan = { kind: 'pwsh', displayName: 'PowerShell 7 (pwsh)', 
 describe('Bash tool description declares the executing shell', () => {
   test('foreground and background variants declare command activity', () => {
     assert.equal(buildLocalForegroundBashTool().activityKind, 'command');
-    assert.equal(buildBackgroundBashTool(fakeShellRuns()).activityKind, 'command');
+    assert.equal(buildManagedBashTool(fakeShellRuns()).activityKind, 'command');
   });
 
   test('foreground tool tells the model commands run under PowerShell 7', () => {
@@ -26,10 +26,10 @@ describe('Bash tool description declares the executing shell', () => {
   });
 
   test('background tool tells the model commands run under PowerShell 7', () => {
-    const tool = buildBackgroundBashTool(fakeShellRuns(), { shell: pwshPlan });
+    const tool = buildManagedBashTool(fakeShellRuns(), { shell: pwshPlan });
     assert.match(tool.description, /PowerShell 7 \(pwsh\)/);
     assert.match(tool.description, /git ls-files/);
-    assert.match(tool.description, /outlive yield_time_ms/);
+    assert.match(tool.description, /run_in_background=true/);
   });
 });
 
@@ -52,15 +52,16 @@ describe('Bash tool shell is threaded through to execution, not just the descrip
   test('background tool forwards its shell to the shell-run controller', async () => {
     const captured: unknown[] = [];
     const controller = {
-      runBash: (input: unknown) => {
+      runForegroundBash: () => Promise.reject(new Error('not used')),
+      runBackgroundBash: (input: unknown) => {
         captured.push(input);
         return Promise.resolve({ kind: 'terminal', cwd: '.', cmd: '', status: 'completed', exitCode: 0, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } as never);
       },
       readResource: () => Promise.reject(new Error('not used')),
       stopResource: () => Promise.reject(new Error('not used')),
     };
-    const tool = buildBackgroundBashTool(controller, { shell: pwshPlan });
-    await tool.impl({ command: 'echo hi' }, fakeToolContext());
+    const tool = buildManagedBashTool(controller, { shell: pwshPlan });
+    await tool.impl({ command: 'echo hi', run_in_background: true }, fakeToolContext());
     assert.deepEqual((captured[0] as { shell?: unknown }).shell, pwshPlan);
   });
 });
@@ -78,7 +79,8 @@ function fakeToolContext() {
 
 function fakeShellRuns() {
   return {
-    runBash: () => Promise.reject(new Error('not used')),
+    runForegroundBash: () => Promise.reject(new Error('not used')),
+    runBackgroundBash: () => Promise.reject(new Error('not used')),
     readResource: () => Promise.reject(new Error('not used')),
     stopResource: () => Promise.reject(new Error('not used')),
   };

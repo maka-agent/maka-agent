@@ -62,6 +62,7 @@ export interface AbArmSummary {
   budgetExhausted: number;
   infraFailed: number;
   plumbingFailed: number;
+  attestationWarnings: number;
   missing: number;
   coverageRate: number;
   totalCostUsd: number;
@@ -85,6 +86,7 @@ export interface AbActivePruneSubsetSummary {
   budgetExhausted: number;
   infraFailed: number;
   plumbingFailed: number;
+  attestationWarnings: number;
   missing: number;
   coverageRate: number;
   totalCostUsd: number;
@@ -162,6 +164,7 @@ export interface AbTaskArmSummary {
   budgetExhausted: number;
   infraFailed: number;
   plumbingFailed: number;
+  attestationWarnings: number;
   missing: number;
 }
 
@@ -170,7 +173,7 @@ export interface AbTaskComparison {
   baseline: AbTaskArmSummary;
   candidate: AbTaskArmSummary;
   passRateDelta: number | null;
-  outcome: 'candidate_win' | 'baseline_win' | 'tie' | 'missing';
+  outcome: 'candidate_win' | 'baseline_win' | 'tie' | 'missing' | 'excluded';
 }
 
 export interface AbTaskLevelSummary {
@@ -181,6 +184,7 @@ export interface AbTaskLevelSummary {
   signTestNonTieTasks: number;
   signTestPValue: number | null;
   missingTaskIds: string[];
+  excludedTaskIds: string[];
   meanPassRateDelta: number | null;
   medianPassRateDelta: number | null;
   tasks: AbTaskComparison[];
@@ -189,10 +193,12 @@ export interface AbTaskLevelSummary {
 export interface AbAttemptPairSummary {
   pairs: number;
   observedPairs: number;
+  evaluatedPairs: number;
   wins: number;
   losses: number;
   ties: number;
   missingPairIds: string[];
+  excludedPairIds: string[];
   budgetDiscordantPairIds: string[];
   infraOrPlumbingDiscordantPairIds: string[];
 }

@@ -693,6 +693,15 @@ function projectTerminalTurnState(
     ...(status === 'failed' ? { errorClass: failureClass ?? 'unknown' } : {}),
     partialOutputRetained,
   });
+  if (failureClass === 'tool_step_cap_reached') {
+    messages.push({
+      type: 'system_note',
+      id: `${event.id}:step-limit-notice`,
+      turnId: event.turnId,
+      ts: event.ts,
+      kind: 'step_limit',
+    });
+  }
   if (status === 'failed' && !failureClass) {
     diagnostic(state, event, 'incomplete_event', 'failed terminal event did not carry an exact AgentRunHeader.failureClass');
   }

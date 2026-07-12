@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react';
 import { type ToolResultContent } from '@maka/core';
 import {
   AlertOctagon,
@@ -396,7 +396,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
       showInvocation
       || !!resultHeadline
       || showLiveStream
-      || showResult
+      || (showResult && !errored)
       || (!!item.args && !permissionDenied && !invocationLine && !showResult && !showLiveStream)
     );
 
@@ -436,7 +436,7 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
               truncated={item.outputTruncated === true}
             />
           )}
-          {showResult && !ownsPanel && displayResult && (
+          {showResult && !ownsPanel && displayResult && !errored && (
             quietJson ? (
               <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
             ) : (
@@ -444,6 +444,15 @@ function ToolCardBody({ item }: { item: ToolActivityItem }) {
             )
           )}
         </div>
+      )}
+      {errored && showResult && displayResult && !ownsPanel && (
+        <ToolErrorDetails>
+          {quietJson ? (
+            <pre className={TOOL_OUTPUT_BODY_CLASS}>{quietJson.body}</pre>
+          ) : (
+            <ToolResultPreview content={displayResult} />
+          )}
+        </ToolErrorDetails>
       )}
     </div>
   );
@@ -662,6 +671,20 @@ function ToolOutputStream(props: {
   );
 }
 
+/** One concise default summary of a tool failure: cap both characters and
+ *  logical lines so a multi-line validation error cannot grow the banner to
+ *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
+ *  still rendered ~161 lines). The full redacted text stays in the disclosure
+ *  for copy. */
+function summarizeErrorText(text: string): string {
+  const MAX_CHARS = 240;
+  const MAX_LINES = 4;
+  const lines = text.split('\n');
+  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
+  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
+  return `${trimmed}…`;
+}
+
 // Preserve the retired `.maka-tool-error*` leaf utilities onto Alert (#332 PR3c) —
 // Alert owns the shell; these are the few declarations it doesn't set, kept arbitrary
 // so they map 1:1 to the old CSS (`[align-self:start]`, not Tailwind's `flex-start`).
@@ -693,7 +716,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
         <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
-          {errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}
+          {summarizeErrorText(errorText)}
         </AlertDescription>
       )}
       {errorText && (
@@ -716,6 +739,49 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
         </AlertAction>
       )}
     </Alert>
+  );
+}
+
+/**
+ * Raw diagnostic details for an errored tool, collapsed by default so a verbose
+ * validation/runtime failure cannot dominate the conversation. The ToolErrorBanner
+ * already shows the first 240px of the error text + a copy action; this disclosure
+ * owns the full raw payload (quiet JSON body / structured ToolResultPreview) so it
+ * is reachable but not loud. Keyboard-accessible via CollapsibleTrigger (a real
+ * <button>); secret redaction + size caps stay enforced upstream (redactSecrets,
+ * the banner's 240px truncation, and the result preview's own caps).
+ */
+export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
+  children: ReactNode;
+  /** Controlled open state. When omitted the disclosure manages its own state
+   *  (collapsed by default). Passed by tests to render the expanded state in
+   *  static markup; production callers leave it uncontrolled. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  // Always update internalOpen so an onOpenChange-only caller still sees the
+  // panel toggle (the old `onOpenChange ?? setInternalOpen` left internalOpen
+  // stuck closed when only the callback was passed).
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
+      <CollapsibleTrigger className="flex w-fit items-center gap-1 self-start rounded-[var(--radius-control)] text-[length:var(--font-size-ui)] text-[color:var(--muted-foreground)] outline-none transition-colors hover:text-[color:var(--foreground-secondary)] focus-visible:shadow-[0_0_0_var(--focus-ring-width)_oklch(from_var(--focus-ring)_l_c_h_/_0.14)]">
+        <ChevronRight
+          size={12}
+          aria-hidden="true"
+          className={cn('shrink-0 transition-transform duration-[var(--duration-quick)] [transition-timing-function:var(--ease-out-strong)]', open && 'rotate-90')}
+        />
+        <span>{open ? '隐藏原始诊断' : '显示原始诊断'}</span>
+      </CollapsibleTrigger>
+      <CollapsiblePanel className="mt-1">
+        {children}
+      </CollapsiblePanel>
+    </Collapsible>
   );
 }
 

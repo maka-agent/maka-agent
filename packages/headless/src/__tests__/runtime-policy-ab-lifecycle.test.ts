@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -52,7 +52,7 @@ test('same-run pilot checkpoint gates full execution and resumes completed state
       evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
       fullReps: 2,
       arms: [
-        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune/off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
         { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
       ] as const,
       executionProfile,
@@ -70,6 +70,115 @@ test('same-run pilot checkpoint gates full execution and resumes completed state
 
     const resumed = await runRuntimePolicyAbLifecycle(input);
     assert.equal(resumed.status, 'full_completed');
+    assert.equal(calls.length, 6);
+  });
+});
+
+test('rebuilds a legacy terminal lifecycle summary from WAL before returning it', async () => {
+  await withDir(async (dir) => {
+    const promptPath = join(dir, 'prompt.md');
+    const statePath = join(dir, 'runtime-policy-ab-state.json');
+    await writeFile(promptPath, 'shared prompt\n', 'utf8');
+    const calls: string[] = [];
+    const input = {
+      runId: 'run-1',
+      runRoot: dir,
+      manifestFingerprint: 'sha256:manifest',
+      config,
+      systemPromptPath: promptPath,
+      resultsJsonlPath: join(dir, 'results.jsonl'),
+      pilotTasks: [{ id: 'pilot', path: '/tasks/pilot' }],
+      evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
+      fullReps: 2,
+      arms: [
+        { id: 'prune/off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+      ] as const,
+      executionProfile,
+      harborRunner: async (runInput: HarborTaskRunInput) => {
+        calls.push(runInput.roundId);
+        return output(runInput, runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on');
+      },
+    };
+    await runRuntimePolicyAbLifecycle(input);
+    const wal = await readFile(input.resultsJsonlPath, 'utf8');
+    const walEvents = wal.split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as Record<string, any>);
+    const firstFullBaseline = walEvents
+      .find((event) => event.roundId === 'full-ab-prune-off-r0-full');
+    assert.ok(firstFullBaseline);
+    const staleRetry = {
+      ...firstFullBaseline,
+      id: 'stale-infra-before-successful-retry',
+      type: 'task_infra_failed',
+      status: 'infra_failed',
+      passed: false,
+      scored: false,
+      eligible: false,
+      errorClass: 'network',
+      error: 'transient failure before retry',
+    };
+    const legacy = JSON.parse(await readFile(statePath, 'utf8')) as Record<string, any>;
+    legacy.schemaVersion = 'maka.runtime_policy_ab.lifecycle.v1';
+    legacy.status = 'invalid';
+    legacy.reason = 'asymmetric_budget_exhaustion';
+    for (const summary of [legacy.pilot, legacy.full]) {
+      delete summary.baseline.attestationWarnings;
+      delete summary.candidate.attestationWarnings;
+      delete summary.taskLevel.excludedTaskIds;
+      delete summary.pairedAttempts.evaluatedPairs;
+      delete summary.pairedAttempts.excludedPairIds;
+    }
+    await writeFile(statePath, `${JSON.stringify(legacy)}\n`, 'utf8');
+
+    const ambiguousLegacyTimeout = {
+      ...walEvents[0],
+      type: 'task_plumbing_failed',
+      status: 'plumbing_failed',
+      passed: false,
+      scored: false,
+      eligible: false,
+      errorClass: 'missing_execution_identity',
+      error: 'Harbor cell did not attest the connection, model, prompt, and pricing profile that executed',
+    };
+    await writeFile(
+      input.resultsJsonlPath,
+      `${[ambiguousLegacyTimeout, ...walEvents.slice(1)].map((event) => JSON.stringify(event)).join('\n')}\n`,
+      'utf8',
+    );
+    await assert.rejects(
+      runRuntimePolicyAbLifecycle(input),
+      /legacy missing-identity event .* has no authoritative outcome/,
+    );
+
+    const staleAmbiguousRetry = {
+      ...firstFullBaseline,
+      id: 'stale-ambiguous-before-successful-retry',
+      type: 'task_plumbing_failed',
+      status: 'plumbing_failed',
+      passed: false,
+      scored: false,
+      eligible: false,
+      errorClass: 'missing_execution_identity',
+      error: 'ambiguous legacy result superseded by a successful retry',
+    };
+    const unrelatedAmbiguousEvent = {
+      ...staleAmbiguousRetry,
+      id: 'unrelated-run-ambiguous-event',
+      runId: 'another-run',
+    };
+    await writeFile(
+      input.resultsJsonlPath,
+      `${JSON.stringify(unrelatedAmbiguousEvent)}\n${JSON.stringify(staleAmbiguousRetry)}\n${JSON.stringify(staleRetry)}\n${wal}`,
+      'utf8',
+    );
+
+    const resumed = await runRuntimePolicyAbLifecycle(input);
+    assert.equal(resumed.schemaVersion, 'maka.runtime_policy_ab.lifecycle.v2');
+    assert.equal(resumed.status, 'full_completed');
+    assert.equal(resumed.reason, undefined);
+    assert.deepEqual(resumed.full?.pairedAttempts.excludedPairIds, []);
     assert.equal(calls.length, 6);
   });
 });
@@ -150,7 +259,7 @@ test('pilot candidate pass against an attested baseline timeout can launch full 
   });
 });
 
-test('pilot does not launch full execution after an unattested baseline timeout', async () => {
+test('pilot records an unattested baseline timeout warning and launches full execution', async () => {
   await withDir(async (dir) => {
     const promptPath = join(dir, 'prompt.md');
     await writeFile(promptPath, 'shared prompt\n', 'utf8');
@@ -178,9 +287,48 @@ test('pilot does not launch full execution after an unattested baseline timeout'
       },
     });
 
-    assert.equal(state.status, 'pilot_not_cleared');
-    assert.equal(state.reason, 'pilot_plumbing_failure');
-    assert.equal(calls.length, 2);
+    assert.equal(state.status, 'full_completed');
+    assert.equal(state.pilot?.baseline.attestationWarnings, 1);
+    assert.equal(state.pilot?.baseline.budgetExhausted, 1);
+    assert.equal(calls.length, 6);
+  });
+});
+
+test('pilot preserves candidate activation from an unattested timeout', async () => {
+  await withDir(async (dir) => {
+    const promptPath = join(dir, 'prompt.md');
+    await writeFile(promptPath, 'shared prompt\n', 'utf8');
+    const calls: string[] = [];
+    const state = await runRuntimePolicyAbLifecycle({
+      runId: 'run-1',
+      runRoot: dir,
+      manifestFingerprint: 'sha256:manifest',
+      config,
+      systemPromptPath: promptPath,
+      resultsJsonlPath: join(dir, 'results.jsonl'),
+      pilotTasks: [{ id: 'pilot', path: '/tasks/pilot' }],
+      evaluationTasks: [{ id: 'full', path: '/tasks/full' }],
+      fullReps: 2,
+      arms: [
+        { id: 'prune-off', contextEnv: { MAKA_CONTEXT_BUDGET: 'off' } },
+        { id: 'prune-on', contextEnv: { MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE: 'on' } },
+      ],
+      executionProfile,
+      harborRunner: async (runInput) => {
+        calls.push(runInput.roundId);
+        const candidate = runInput.agentEnv?.MAKA_CONTEXT_STALE_TOOL_RESULT_PRUNE === 'on';
+        if (runInput.roundId.startsWith('pilot-') && candidate) {
+          const { executionIdentity: _, ...cellOutput } = output(runInput, true).cell;
+          throw new FixedPromptBudgetExhaustedError('pilot budget exhausted', undefined, { cellOutput });
+        }
+        return output(runInput, candidate);
+      },
+    });
+
+    assert.equal(state.status, 'full_completed');
+    assert.equal(state.pilot?.candidate.attestationWarnings, 1);
+    assert.equal(state.pilot?.candidate.contextBudget?.activatedAttempts, 1);
+    assert.equal(calls.length, 6);
   });
 });
 

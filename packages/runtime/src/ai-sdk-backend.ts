@@ -6,11 +6,11 @@
  * machinery: PermissionEngine (policy + park/resume), materializer,
  * AsyncEventQueue, SessionStore JSONL persistence.
  *
- * The agent loop (multi-step tool calling) is owned by ai-sdk's
- * `streamText` with `stopWhen: stepCountIs(N)`. Permission gating happens
- * inside each tool's `execute()` callback — that's the seam where we
- * consult PermissionEngine and either run, deny synthetically, or park
- * awaiting user.
+ * The agent loop (multi-step tool calling) is owned by ai-sdk's `streamText`.
+ * An explicit `maxSteps` uses `stopWhen: stepCountIs(N)`; otherwise the loop
+ * has no step cap. Permission gating happens inside each tool's `execute()`
+ * callback — that's the seam where we consult PermissionEngine and either run,
+ * deny synthetically, or park awaiting user.
  *
  * Design:
  *   send()
@@ -65,6 +65,7 @@ import type {
 import type { AgentSpec } from '@maka/core/runtime-inputs';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
+import type { ToolPermissionRule } from '@maka/core/permission';
 import type {
   LlmCallRecord,
   PricingConfig,
@@ -441,7 +442,7 @@ export interface AiSdkBackendInput {
   newId?: () => string;
   /** Clock; default `Date.now()`. */
   now?: () => number;
-  /** Cap on tool-call steps per turn; default 50. */
+  /** Optional cap on tool-call steps per turn; omitted means no step cap. */
   maxSteps?: number;
   /** Timeout before first SDK stream event; default 30s. */
   streamConnectTimeoutMs?: number;
@@ -449,6 +450,8 @@ export interface AiSdkBackendInput {
   streamIdleTimeoutMs?: number;
   /** Timeout for a renderer/user permission decision. Default 300s. */
   permissionTimeoutMs?: number;
+  /** Invocation-local allow/deny rules evaluated before the session mode. */
+  permissionRules?: readonly ToolPermissionRule[];
   /** Optional system prompt (skills + workspace AGENTS.md merged upstream). */
   systemPrompt?: string | ((context: SystemPromptContext) => string | undefined | Promise<string | undefined>);
   /** Optional provider-visible current-turn tail kept out of the durable system prefix. */
@@ -545,7 +548,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly input: AiSdkBackendInput;
   private readonly newId: () => string;
   private readonly now: () => number;
-  private readonly maxSteps: number;
+  private readonly maxSteps: number | undefined;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
   private readonly toolAvailabilityRuntime: ToolAvailabilityRuntime;
@@ -607,7 +610,7 @@ export class AiSdkBackend implements AgentBackend {
     this.sessionId = input.sessionId;
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
-    this.maxSteps = input.maxSteps ?? 50;
+    this.maxSteps = input.maxSteps;
     this.toolAvailabilityRuntime = new ToolAvailabilityRuntime(
       input.tools,
       input.toolAvailability,
@@ -635,6 +638,7 @@ export class AiSdkBackend implements AgentBackend {
       getPermissionPauseTarget: () => this.currentWatchdog,
       getCurrentRunId: () => this.currentRunId ?? undefined,
       getCurrentStepId: () => this.currentStepMessageId ?? undefined,
+      permissionRules: input.permissionRules,
       spawnChildAgent: input.spawnChildAgent,
       listChildAgents: input.listChildAgents,
       readChildAgentOutput: input.readChildAgentOutput,
@@ -795,7 +799,6 @@ export class AiSdkBackend implements AgentBackend {
     let stepSignature: string | undefined;
     // Whether any step flushed non-empty text this turn — drives the step-cap
     // grace notice below (a turn whose every step was tool-only gets the notice).
-    let turnHadAnyText = false;
     // Assistant text produced in the current pass (main loop or a guidance
     // continuation pass). The continuation appends it as the model`s answer so
     // far before re-running with the steer; reset at the start of each pass.
@@ -850,7 +853,7 @@ export class AiSdkBackend implements AgentBackend {
         messageId: stepId,
         text: stepText,
       } satisfies TextCompleteEvent);
-      if (stepText.length > 0) { turnHadAnyText = true; passAssistantText += stepText; }
+      if (stepText.length > 0) passAssistantText += stepText;
       stepText = '';
       stepThinking = '';
       stepSignature = undefined;
@@ -1216,55 +1219,14 @@ export class AiSdkBackend implements AgentBackend {
           publishTurnDiagnostics(computeTurnDiagnostics(finalActiveTools));
         }
 
-        // PR-AGENT-ITERATION-GRACE-0 (external bot research #A1): when the
-        // ai-sdk loop exits with `finishReason === 'tool-calls'` it
-        // means we tripped `stopWhen: stepCountIs(maxSteps)` mid-loop
-        // — the model wanted to keep calling tools but we capped it.
-        // The user previously saw no closing assistant text in that
-        // path; just the last tool result. Inject a deterministic
-        // "step cap reached" notice so the UI has SOMETHING and the
-        // user can choose to send "继续" for a fresh turn.
-        const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
-        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
-        if (finishReasonForGrace === 'tool-calls' && runtimeSteps < this.maxSteps) {
-          runtimeSteps = this.maxSteps;
-        }
-        // Step-cap grace notice: when the loop tripped `stepCountIs(maxSteps)`
-        // mid-tool-loop and no step ever produced closing text, append a final
-        // assistant message (its own step id) so the UI has a closing line and
-        // the user can send "继续" for a fresh turn.
-        if (
-          !this.aborted
-          && !turnHadAnyText
-          && finishReasonForGrace === 'tool-calls'
-        ) {
-          // Always a fresh id. When the stream closed without a trailing
-          // finish-step, `currentStepMessageId` is already taken: the catch-all
-          // flush just used it for a thinking-only last step's AssistantMessage
-          // (reuse would duplicate a ledger id), and a pure-tool last step's
-          // tool_starts carry it as stepId (replay would adopt the grace text
-          // as that step's closer). A rotated-but-unused id is discardable.
-          const graceId = this.newId();
-          const graceText =
-            `⚠️ 已达到本轮 ${this.maxSteps} 步工具调用上限。\n\n`
-            + '上一步工具调用已落盘；如果还需要继续，请发一条新消息让对话进入下一回合（可以直接输入「继续」）。';
-          await this.input.appendMessage({
-            type: 'assistant',
-            id: graceId,
-            turnId,
-            ts: this.now(),
-            text: graceText,
-            modelId: this.input.modelId,
-          });
-          queue.push({
-            type: 'text_complete',
-            id: this.newId(),
-            turnId,
-            ts: this.now(),
-            messageId: graceId,
-            text: graceText,
-          } satisfies TextCompleteEvent);
-          turnHadAnyText = true;
+        // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
+        // model wanted another tool step but the configured budget stopped it.
+        const finishReason = await result.finishReason.catch(() => 'stop');
+        const stepLimit = this.maxSteps;
+        const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
+        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
+        if (stepLimitReached && runtimeSteps < stepLimit) {
+          runtimeSteps = stepLimit;
         }
         // Mid-turn guidance continuation (steer): if the user injected guidance
         // that no step has consumed yet (injectedGuidance.length >
@@ -1280,8 +1242,12 @@ export class AiSdkBackend implements AgentBackend {
         // (length > index again). Capped by maxSteps and a hard guard; the
         // monotonic `deliveredToModelIndex` guarantees we never re-trigger on
         // the same steer.
-        let continuationFinishReason: unknown = finishReasonForGrace;
+        let continuationFinishReason: unknown = finishReason;
         let continuationGuard = 0;
+        // An omitted maxSteps means the primary tool loop is unbounded. Keep a
+        // separate finite cap for late-guidance follow-up passes so repeated
+        // steers cannot create an unbounded continuation loop.
+        const continuationStepLimit = this.maxSteps ?? 50;
         // Accumulates the conversation across passes: prior history + prompt,
         // then each pass's answer. A later steer builds on the full running
         // transcript (incl. earlier steers + their responses) so context stays
@@ -1296,8 +1262,8 @@ export class AiSdkBackend implements AgentBackend {
         while (
           !this.aborted
           && this.injectedGuidance.length > this.deliveredToModelIndex
-          && runtimeSteps < this.maxSteps
-          && continuationGuard < this.maxSteps
+          && runtimeSteps < continuationStepLimit
+          && continuationGuard < continuationStepLimit
           && continuationFinishReason !== 'tool-calls'
         ) {
           continuationGuard += 1;
@@ -1498,8 +1464,12 @@ export class AiSdkBackend implements AgentBackend {
           // best-effort; ai-sdk usage promise may reject on abort
         }
 
-        const finishReason = await result.finishReason.catch(() => 'stop');
-        const stopReason = this.mapFinishReason(finishReason);
+        // Nothing may await between this check and terminal emission: Stop must
+        // win even when it arrives during post-stream usage persistence.
+        if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+        const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
+          ? 'step_limit'
+          : this.mapFinishReason(finishReason);
         trace.modelStreamCompleted(stopReason);
         queue.push({
           type: 'complete',
@@ -3228,5 +3198,3 @@ function mergeCountsInto(target: Record<string, number>, source: Record<string, 
     target[key] = (target[key] ?? 0) + value;
   }
 }
-
-

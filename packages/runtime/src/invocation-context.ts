@@ -175,6 +175,8 @@ export interface InvocationResult {
   sessionId: string;
   turnId: string;
   status: InvocationResultStatus;
+  /** Last non-partial model text from a successfully completed invocation. */
+  finalOutput?: string;
   /** Every RuntimeEvent collected, in emission order (user event first). */
   events: RuntimeEvent[];
   /** Present when status === 'failed'. */

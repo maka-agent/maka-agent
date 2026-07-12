@@ -42,7 +42,7 @@ export interface ModelAdapterInput {
   modelId: string;
   modelFactory: ModelFactory;
   providerOptions?: Record<string, unknown>;
-  maxSteps: number;
+  maxSteps?: number;
   newId: () => string;
   now: () => number;
 }
@@ -152,9 +152,10 @@ export class ModelAdapter {
     const ai = await import('ai').catch((err) => {
       throw new Error(`Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`);
     });
-    const { streamText, stepCountIs } = ai as unknown as {
+    const { streamText, stepCountIs, isLoopFinished } = ai as unknown as {
       streamText: (opts: Record<string, unknown>) => StreamTextResult;
       stepCountIs: (n: number) => unknown;
+      isLoopFinished: () => unknown;
     };
 
     return streamText({
@@ -166,7 +167,11 @@ export class ModelAdapter {
       experimental_repairToolCall: input.repairToolCall,
       system: input.system,
       providerOptions: this.input.providerOptions,
-      stopWhen: stepCountIs(this.input.maxSteps),
+      // streamText defaults to one step when stopWhen is omitted. Its exported
+      // non-stopping condition is required for an unbounded tool loop.
+      stopWhen: this.input.maxSteps === undefined
+        ? isLoopFinished()
+        : stepCountIs(this.input.maxSteps),
       abortSignal: input.abortSignal,
     });
   }

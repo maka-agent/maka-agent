@@ -83,6 +83,7 @@ class CellReportingBackend implements AgentBackend {
       costUsd: 0.0042,
       systemPromptHash: 'sha256:cell-prompt',
     };
+    yield { type: 'text_complete', id: 'cell-text', messageId: 'cell-message', turnId: input.turnId, ts, text: 'cell complete' };
     yield { type: 'complete', id: 'cell-complete', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
 
@@ -145,6 +146,7 @@ class StepCapThenCompleteBackend implements AgentBackend {
         rawFinishReason: 'tool-calls',
         runtimeSteps: 50,
       };
+      yield { type: 'text_complete', id: 'text-step-cap', messageId: 'step-cap-message', turnId: input.turnId, ts, text: 'continue' };
       yield { type: 'complete', id: 'complete-step-cap', turnId: input.turnId, ts, stopReason: 'end_turn' };
       return;
     }
@@ -160,6 +162,7 @@ class StepCapThenCompleteBackend implements AgentBackend {
       costUsd: 0.02,
       rawFinishReason: 'stop',
     };
+    yield { type: 'text_complete', id: 'text-done', messageId: 'done-message', turnId: input.turnId, ts, text: 'done' };
     yield { type: 'complete', id: 'complete-done', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
 
@@ -232,6 +235,7 @@ class NoisyStepCapThenCompleteBackend extends StepCapThenCompleteBackend {
       rawFinishReason: 'tool-calls',
       runtimeSteps: 50,
     };
+    yield { type: 'text_complete', id: 'text-step-cap-noisy', messageId: 'step-cap-noisy-message', turnId: input.turnId, ts, text: 'continue' };
     yield { type: 'complete', id: 'complete-step-cap-noisy', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
 }
@@ -264,6 +268,7 @@ class StepCapTwiceThenCompleteBackend extends StepCapThenCompleteBackend {
         rawFinishReason: 'tool-calls',
         runtimeSteps: 50,
       };
+      yield { type: 'text_complete', id: `text-step-cap-${this.prompts.length}`, messageId: `step-cap-message-${this.prompts.length}`, turnId: input.turnId, ts, text: 'continue' };
       yield { type: 'complete', id: `complete-step-cap-${this.prompts.length}`, turnId: input.turnId, ts, stopReason: 'end_turn' };
       return;
     }
@@ -279,6 +284,7 @@ class StepCapTwiceThenCompleteBackend extends StepCapThenCompleteBackend {
       costUsd: 0.02,
       rawFinishReason: 'stop',
     };
+    yield { type: 'text_complete', id: 'text-done', messageId: 'done-message', turnId: input.turnId, ts, text: 'done' };
     yield { type: 'complete', id: 'complete-done', turnId: input.turnId, ts, stopReason: 'end_turn' };
   }
 }
@@ -1911,6 +1917,7 @@ writeFileSync('pi-env.json', JSON.stringify({
   google: process.env.GOOGLE_API_KEY,
   xiaomi: process.env.XIAOMI_TOKEN_PLAN_CN_API_KEY,
 }));
+console.log(JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'pi ok' } }));
 console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', usage: { input: 5, output: 2, totalTokens: 7 } }] }));
 `,
         'utf8',
@@ -2033,6 +2040,7 @@ const prompt = await new Promise((resolve) => {
 });
 writeFileSync('pi-long-argv.json', JSON.stringify(argv));
 writeFileSync('pi-long-prompt-length.txt', String(prompt.length));
+console.log(JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'pi ok' } }));
 console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', usage: { input: 5, output: 2, totalTokens: 7 } }] }));
 `,
         'utf8',

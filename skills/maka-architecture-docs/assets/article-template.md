@@ -1,0 +1,60 @@
+---
+doc_id: architecture.<subject>
+language: <zh-CN|en>
+source_language: <zh-CN|en>
+status: <current|planned|exploratory|deprecated|historical>
+translation_status: <synced|needs-update|source-only>
+last_verified: YYYY-MM-DD
+owners:
+  - maka-backend
+---
+
+# <Reader-oriented title>
+
+> In one paragraph: what question this article answers, the conclusion, and why it matters.
+
+## Why this matters
+
+Describe the engineering or reader problem. Define the scope and relevant exclusions.
+
+## Mental model
+
+Give the simplest correct intuition. Define central terms before relying on them.
+
+## A concrete scenario
+
+Introduce one representative example that can continue through the article.
+
+## How it works
+
+Explain the mechanism, sequence, data, and component responsibilities. Add only diagrams that answer a specific question.
+
+## State and invariants
+
+Describe lifecycle, durable and ephemeral state, valid transitions, ownership, ordering, and conditions that must remain true.
+
+## Boundaries
+
+State what this mechanism owns, what it delegates, and what it explicitly does not guarantee.
+
+## Failure and recovery
+
+Cover timeouts, interruption, cancellation, retry, partial success, recovery, and irrecoverable failure as applicable.
+
+## Decisions and trade-offs
+
+Explain the chosen design, credible alternatives, benefits, costs, and revisit conditions.
+
+## Code and operational map
+
+Point to stable modules, types, interfaces, schemas, tests, logs, traces, and metrics appropriate to the promised reading depth.
+
+## Known limitations and future direction
+
+Keep Current, Planned, and Exploratory claims visibly separate.
+
+## Further reading
+
+Link related architecture documents, ADRs, API specifications, and code-owned references.
+
+<!-- Remove any section that does not help answer this article's core question. -->

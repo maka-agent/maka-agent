@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { Config } from '../contracts.js';
 import { tokenSummary } from './helpers/cell-output-fixtures.js';
+import { contextBudgetSummary } from './helpers/ab-summary-fixtures.js';
 import {
   FixedPromptBudgetExhaustedError,
   hashSystemPrompt,
@@ -202,6 +203,7 @@ describe('fixed prompt controller', () => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       const resultsJsonlPath = join(dir, 'results.jsonl');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const retainedContextBudgetSummary = contextBudgetSummary({ activePrunedToolResults: 1 });
       await writeFile(resultsJsonlPath, `${JSON.stringify({
         schemaVersion: 1,
         type: 'task_plumbing_failed',
@@ -218,6 +220,11 @@ describe('fixed prompt controller', () => {
         errorClass: 'missing_execution_identity',
         error: 'Timed-out Harbor attempt did not produce execution identity attestation',
         expectedPromptHash: hashSystemPrompt('fixed prompt\n'),
+        contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
+        contextBudgetSummary: retainedContextBudgetSummary,
+        taskToolSummary: { todoWriteCalls: 3 },
+        steps: 42,
+        durationMs: 180_000,
       })}\n`, 'utf8');
       const originalWal = await readFile(resultsJsonlPath, 'utf8');
       const projectedWal = await readFixedPromptWal(resultsJsonlPath);
@@ -248,6 +255,10 @@ describe('fixed prompt controller', () => {
       if (event?.type !== 'task_budget_exhausted') assert.fail('expected budget exhaustion event');
       assert.equal(event.eligible, false);
       assert.equal(event.evidenceErrorClass, 'missing_execution_identity');
+      assert.deepEqual(event.contextBudgetSummary, retainedContextBudgetSummary);
+      assert.equal(event.taskToolSummary?.todoWriteCalls, 3);
+      assert.equal(event.steps, 42);
+      assert.equal(event.durationMs, 180_000);
       assert.equal(await readFile(resultsJsonlPath, 'utf8'), originalWal);
     });
   });
@@ -566,6 +577,7 @@ describe('fixed prompt controller', () => {
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
       const cell = harborOutput({
         taskId: 'task-a',
+        errorClass: 'network',
         executionIdentity: {
           llmConnectionSlug: 'deepseek',
           model: 'wrong-model',
@@ -603,8 +615,11 @@ describe('fixed prompt controller', () => {
     await withDir(async (dir) => {
       const systemPromptPath = join(dir, 'system_prompt.md');
       await writeFile(systemPromptPath, 'fixed prompt\n', 'utf8');
+      const retainedContextBudgetSummary = contextBudgetSummary({ prunedToolResults: 2 });
       const cell = harborOutput({
         taskId: 'task-a',
+        contextBudgetPolicy: { enabled: true, minRecentTurns: 2 },
+        contextBudgetSummary: retainedContextBudgetSummary,
         executionIdentity: {
           llmConnectionSlug: 'fake',
           model: 'fake-model',
@@ -637,6 +652,12 @@ describe('fixed prompt controller', () => {
       assert.equal(event.evidenceErrorClass, undefined);
       assert.equal(event.tokenSummary?.total, 3);
       assert.equal(event.tokenSummary?.costUsd, 0.02);
+      assert.equal(event.runtimeEventsPath, cell.runtimeEventsPath);
+      assert.equal(event.traceEventsPath, cell.traceEventsPath);
+      assert.deepEqual(
+        'contextBudgetSummary' in event ? event.contextBudgetSummary : undefined,
+        retainedContextBudgetSummary,
+      );
       assert.equal(result.totalTokens, 3);
       assert.equal(result.totalCostUsd, 0.02);
     });
@@ -1674,6 +1695,7 @@ describe('fixed prompt controller', () => {
         tasks: [{ id: 'task-a', path: '/bench/task-a' }],
         harborRunner: async () => harborOutput({
           taskId: 'task-a',
+          errorClass: 'network',
           executionIdentity: {
             llmConnectionSlug: 'fake',
             model: 'wrong-model',

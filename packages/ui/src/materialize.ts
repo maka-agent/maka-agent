@@ -1,4 +1,4 @@
-import { deriveTurnRecords, toolResultActivityStatus } from '@maka/core';
+import { deriveTurnRecords, STEP_LIMIT_NOTICE_TEXT, toolResultActivityStatus } from '@maka/core';
 import type { AttachmentRef, StoredMessage, ToolActivityKind, ToolResultContent, TurnRecord, TurnStatus } from '@maka/core';
 import type { LiveTurnProjection } from './live-turn-projection.js';
 
@@ -82,11 +82,13 @@ export interface ToolActivityItem {
 const VISIBLE_SYSTEM_NOTES = new Set<string>([
   'context_compacted',
   'context_compaction_failed_open',
+  'step_limit',
 ]);
 
 const SYSTEM_NOTE_LABELS: Record<string, string> = {
   context_compacted: 'Context compacted to keep this session within the model window.',
   context_compaction_failed_open: 'Context summary failed; the session continued without a new summary.',
+  step_limit: STEP_LIMIT_NOTICE_TEXT,
   mode_change: 'Permission mode changed',
   turn_aborted: 'Turn aborted',
 };

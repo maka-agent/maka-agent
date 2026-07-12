@@ -109,8 +109,7 @@ async function runComparisonTaskArm(
   arm: AbArmSpec,
   pair: { rep: number; task: FixedPromptTask },
 ): Promise<FixedPromptTaskWalEvent> {
-  const prefix = input.roundIdPrefix ? `${roundIdArmSuffix(input.roundIdPrefix)}-` : '';
-  const roundId = `${prefix}ab-${roundIdArmSuffix(arm.id)}-r${pair.rep}-${roundIdTaskSuffix(pair.task.id)}`;
+  const roundId = buildAbRoundId(input.roundIdPrefix, arm.id, pair.rep, pair.task.id);
   const event = await input.runArm({
     runId: input.runId,
     roundId,
@@ -120,6 +119,11 @@ async function runComparisonTaskArm(
   });
   if (event.taskId !== pair.task.id) throw new Error(`A/B arm ${roundId} produced event for ${event.taskId}, expected ${pair.task.id}`);
   return event;
+}
+
+export function buildAbRoundId(prefix: string | undefined, armId: string, rep: number, taskId: string): string {
+  const normalizedPrefix = prefix ? `${roundIdArmSuffix(prefix)}-` : '';
+  return `${normalizedPrefix}ab-${roundIdArmSuffix(armId)}-r${rep}-${roundIdTaskSuffix(taskId)}`;
 }
 
 function roundIdArmSuffix(armId: string): string {
