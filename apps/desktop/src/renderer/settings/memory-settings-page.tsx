@@ -3,7 +3,8 @@ import { Button, Chip, Input, RelativeTime, SettingsSwitch as Switch, Textarea }
 import { SettingsRows } from './settings-rows';
 import { MemoryEntryList } from './memory-entry-list';
 import { MemoryPromptPreviewSection, WorkspaceInstructionsSection } from './memory-settings-sections';
-import { useMemorySettingsController } from './use-memory-settings-controller';
+import { useMemoryDocumentController } from './use-memory-settings-controller';
+import { useWorkspaceInstructionsController } from './use-workspace-instructions-controller';
 import {
   displayMemoryPath,
   localMemoryBackupKindLabel,
@@ -18,7 +19,6 @@ export function MemorySettingsPage(props: {
   onReloadSettings(): Promise<void>;
 }) {
   const {
-    workspaceInstructionState,
     draft,
     setDraft,
     newMemoryTitle,
@@ -36,7 +36,6 @@ export function MemorySettingsPage(props: {
     reloadDraftFromDisk,
     setEnabled,
     setAgentReadEnabled,
-    setWorkspaceInstructionsEnabled,
     save,
     reset,
     restoreLatestBackup,
@@ -45,8 +44,6 @@ export function MemorySettingsPage(props: {
     openLatestBackup,
     openBackupCandidate,
     openFolder,
-    openWorkspaceInstructionFile,
-    createWorkspaceInstructionFile,
     copyPath,
     copyBackupReference,
     copyLatestBackupReference,
@@ -67,10 +64,18 @@ export function MemorySettingsPage(props: {
     promptPreviewWillInject,
     localMemoryPromptPreviewBudgetLabel,
     memoryDraftHasSensitiveFields,
-    memoryControlsDisabled,
+    memoryControlsDisabled: memoryDocumentControlsDisabled,
     isMemoryActionPending,
     copyLocalMemoryPromptPreview,
-  } = useMemorySettingsController(props);
+  } = useMemoryDocumentController({
+    settings: props.settings,
+    onReloadSettings: props.onReloadSettings,
+  });
+  const workspaceInstructions = useWorkspaceInstructionsController({
+    onUpdate: props.onUpdate,
+    onReloadSettings: props.onReloadSettings,
+  });
+  const memoryControlsDisabled = memoryDocumentControlsDisabled || workspaceInstructions.busy;
 
   return (
     <div className="settingsStructuredPage">
@@ -113,17 +118,17 @@ export function MemorySettingsPage(props: {
             ariaLabel="启用项目指令文件"
             checked={props.settings.workspaceInstructions.enabled}
             disabled={memoryControlsDisabled}
-            onChange={(enabled) => void setWorkspaceInstructionsEnabled(enabled)}
+            onChange={(enabled) => void workspaceInstructions.setEnabled(enabled)}
           />
         </div>
       </SettingsRows>
 
       <WorkspaceInstructionsSection
-        state={workspaceInstructionState}
+        state={workspaceInstructions.state}
         disabled={memoryControlsDisabled}
-        isActionPending={isMemoryActionPending}
-        onOpen={openWorkspaceInstructionFile}
-        onCreate={createWorkspaceInstructionFile}
+        isActionPending={workspaceInstructions.isActionPending}
+        onOpen={workspaceInstructions.openFile}
+        onCreate={workspaceInstructions.createFile}
       />
 
       <div className="settingsConnectionMeta settingsMemoryMeta">
