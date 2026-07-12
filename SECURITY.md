@@ -75,9 +75,12 @@ because they are useful UX safety nets — they catch accidental
 output and slow down adversarial output enough for a human to
 notice — but we do not ship them as guarantees.
 
-Maka does NOT today support a separate isolation posture (no
-container backend for Bash, no separate process for tool
-execution). When that lands it will be documented here.
+Maka does not run tools in a separate process or container by default. On
+macOS, restricted managed permission profiles wrap commands with the Seatbelt
+backend and fail closed if it is unavailable; other platforms currently reject
+profiles that require a Maka-managed sandbox. Externally isolated runtimes may
+instead supply their own boundary. See
+[`packages/runtime/src/sandbox/README.md`](./packages/runtime/src/sandbox/README.md).
 
 ### 2.3 Boundaries we DO treat as load-bearing
 
