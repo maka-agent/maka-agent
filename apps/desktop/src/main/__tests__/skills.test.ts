@@ -379,6 +379,9 @@ name: Existing
       assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocument')));
       assert.ok(skills.every((skill) => skill.declaredTools.includes('OfficeDocumentEdit')));
       assert.ok(skills.every((skill) => !skill.declaredTools.includes('Bash')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocument')));
+      assert.ok(skills.every((skill) => skill.requiredTools.includes('OfficeDocumentEdit')));
+      assert.ok(skills.every((skill) => !skill.requiredTools.includes('Read')));
       assert.ok(skills.every((skill) => skill.sourceType === 'bundled'));
       assert.ok(skills.every((skill) => skill.sourceName === 'maka-officecli'));
       assert.ok(skills.every((skill) => skill.sourceVersion === '1'));

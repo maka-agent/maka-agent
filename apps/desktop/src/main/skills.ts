@@ -168,10 +168,22 @@ const BUNDLED_OFFICE_SKILL_HASH_BY_ID = new Map(
 const BUNDLED_OFFICE_SKILL_SOURCE_NAME = 'maka-officecli';
 const BUNDLED_OFFICE_SKILL_SOURCE_VERSION = '1';
 
-const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string> = {
-  'officecli-docx': '63f1690d1e9dea0a4e574bc3644222279fcfee336371d842c9669fbc91e89821',
-  'officecli-xlsx': 'dca3471c36da0628b6764711bde714958fcced13008cd8dfd4d548a5f02eda82',
-  'officecli-pptx': '21a933a459c921c3d7b14c7fc1cad59c7f72b7752903cd7d4e9083a1c835d302',
+const LEGACY_BUNDLED_OFFICE_SKILL_SHA256: Record<string, string[]> = {
+  // v1 (legacy `officecli open/close` template) — migrated by the first tool-routed release.
+  'officecli-docx': [
+    '63f1690d1e9dea0a4e574bc3644222279fcfee336371d842c9669fbc91e89821',
+    // v2 (tool-routed template without required-tools) — migrated to v3 so the
+    // host-compatibility gate can see the Office tool requirement.
+    'c0bcc16adcaa10329b4f3bbc7679f9e1c7bf99368af7fcbec8e870f5c0c5c039',
+  ],
+  'officecli-xlsx': [
+    'dca3471c36da0628b6764711bde714958fcced13008cd8dfd4d548a5f02eda82',
+    'cc13a4c0f17bb73d1fee6a0797cd4befa34ef1d8abcb7d6ea57bce26f5abd218',
+  ],
+  'officecli-pptx': [
+    '21a933a459c921c3d7b14c7fc1cad59c7f72b7752903cd7d4e9083a1c835d302',
+    'b9845739f855250fe55fb44efc4019856d566c7f8b299741df5c5c0fd70d6e5c',
+  ],
 };
 
 /**
@@ -272,13 +284,13 @@ export async function ensureBundledOfficeSkills(root: string): Promise<{ created
 }
 
 async function migrateLegacyBundledOfficeSkill(id: string, skillFile: string, currentBody: string): Promise<'updated' | 'skipped' | 'failed'> {
-  const legacyHash = LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id];
-  if (!legacyHash) return 'skipped';
+  const legacyHashes = LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? [];
+  if (legacyHashes.length === 0) return 'skipped';
   try {
     const existingStat = await lstat(skillFile);
     if (!existingStat.isFile() || existingStat.isSymbolicLink()) return 'skipped';
     const existing = await readFile(skillFile, 'utf8');
-    if (sha256(existing) !== legacyHash) {
+    if (!legacyHashes.includes(sha256(existing))) {
       if (sha256(existing) === sha256(currentBody)) {
         if (!await writeBundledSkillLock(dirname(skillFile), id, currentBody)) return 'failed';
       }
@@ -1018,14 +1030,20 @@ async function managedStatusForLock(
 }
 
 function isTrustedBundledSkillLockSource(lock: Record<string, unknown>, id: string): boolean {
-  const expectedHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id);
-  return lock.sourceType === 'bundled' &&
-    BUNDLED_OFFICE_SKILL_IDS.has(id) &&
-    lock.sourceName === BUNDLED_OFFICE_SKILL_SOURCE_NAME &&
-    lock.sourceVersion === BUNDLED_OFFICE_SKILL_SOURCE_VERSION &&
-    typeof lock.contentSha256 === 'string' &&
-    expectedHash !== undefined &&
-    lock.contentSha256.toLowerCase() === expectedHash.toLowerCase();
+  if (lock.sourceType !== 'bundled' || !BUNDLED_OFFICE_SKILL_IDS.has(id)) return false;
+  if (lock.sourceName !== BUNDLED_OFFICE_SKILL_SOURCE_NAME || lock.sourceVersion !== BUNDLED_OFFICE_SKILL_SOURCE_VERSION) return false;
+  if (typeof lock.contentSha256 !== 'string') return false;
+  // A bundled lock is trusted if its content hash matches the current bundled
+  // template or any legacy bundled template that desktop still migrates from.
+  // This keeps user-modified legacy skills at validationStatus 'modified'
+  // instead of 'metadata_error' across a template bump.
+  const lockHash = lock.contentSha256.replace(/^sha256:/i, '').toLowerCase();
+  const newHash = BUNDLED_OFFICE_SKILL_HASH_BY_ID.get(id)?.replace(/^sha256:/i, '').toLowerCase();
+  const trusted = new Set<string>([
+    ...(newHash ? [newHash] : []),
+    ...(LEGACY_BUNDLED_OFFICE_SKILL_SHA256[id] ?? []),
+  ]);
+  return trusted.has(lockHash);
 }
 
 function metadataError(validationCodes: SkillValidationCode[], message: string): Pick<
@@ -1076,6 +1094,9 @@ allowed-tools:
   - OfficeDocument
   - OfficeDocumentEdit
   - Read
+required-tools:
+  - OfficeDocument
+  - OfficeDocumentEdit
 ---
 
 # OfficeCLI DOCX
@@ -1110,6 +1131,9 @@ allowed-tools:
   - OfficeDocument
   - OfficeDocumentEdit
   - Read
+required-tools:
+  - OfficeDocument
+  - OfficeDocumentEdit
 ---
 
 # OfficeCLI XLSX
@@ -1146,6 +1170,9 @@ allowed-tools:
   - OfficeDocument
   - OfficeDocumentEdit
   - Read
+required-tools:
+  - OfficeDocument
+  - OfficeDocumentEdit
 ---
 
 # OfficeCLI PPTX
