@@ -671,6 +671,20 @@ function ToolOutputStream(props: {
   );
 }
 
+/** One concise default summary of a tool failure: cap both characters and
+ *  logical lines so a multi-line validation error cannot grow the banner to
+ *  the ~2631px the issue tracked (a 240-char slice kept newlines, so 180 lines
+ *  still rendered ~161 lines). The full redacted text stays in the disclosure
+ *  for copy. */
+function summarizeErrorText(text: string): string {
+  const MAX_CHARS = 240;
+  const MAX_LINES = 4;
+  const lines = text.split('\n');
+  if (text.length <= MAX_CHARS && lines.length <= MAX_LINES) return text;
+  const trimmed = lines.slice(0, MAX_LINES).join('\n').slice(0, MAX_CHARS);
+  return `${trimmed}…`;
+}
+
 // Preserve the retired `.maka-tool-error*` leaf utilities onto Alert (#332 PR3c) —
 // Alert owns the shell; these are the few declarations it doesn't set, kept arbitrary
 // so they map 1:1 to the old CSS (`[align-self:start]`, not Tailwind's `flex-start`).
@@ -702,7 +716,7 @@ function ToolErrorBanner(props: { result: ToolActivityItem['result'] }) {
       <AlertTitle>工具调用失败</AlertTitle>
       {errorText && (
         <AlertDescription className="[font-family:var(--font-mono)] text-xs leading-normal whitespace-pre-wrap [word-break:break-word]">
-          {errorText.length > 240 ? `${errorText.slice(0, 240)}…` : errorText}
+          {summarizeErrorText(errorText)}
         </AlertDescription>
       )}
       {errorText && (
@@ -747,7 +761,13 @@ export function ToolErrorDetails({ children, open: openProp, onOpenChange }: {
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const open = openProp ?? internalOpen;
-  const setOpen = onOpenChange ?? setInternalOpen;
+  // Always update internalOpen so an onOpenChange-only caller still sees the
+  // panel toggle (the old `onOpenChange ?? setInternalOpen` left internalOpen
+  // stuck closed when only the callback was passed).
+  const setOpen = (next: boolean) => {
+    setInternalOpen(next);
+    onOpenChange?.(next);
+  };
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="mt-1">
       <CollapsibleTrigger className="flex items-center gap-1 self-start rounded-[var(--radius-control)] text-[length:var(--font-size-ui)] text-[color:var(--muted-foreground)] outline-none transition-colors hover:text-[color:var(--foreground-secondary)] focus-visible:shadow-[0_0_0_var(--focus-ring-width)_oklch(from_var(--focus-ring)_l_c_h_/_0.14)]">

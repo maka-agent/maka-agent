@@ -96,4 +96,15 @@ describe('PR-TOOL-ERROR-COLLAPSE-0 contract (issue #741)', () => {
     const markup = renderToStaticMarkup(createElement(ToolErrorDetails, { open: false, children: TAIL_MARKER }));
     assert.doesNotMatch(markup, new RegExp(TAIL_MARKER), 'a collapsed disclosure must not render the raw payload');
   });
+
+  it('caps the banner summary at 4 logical lines so a multi-line error cannot grow it to ~2.6kpx', () => {
+    // #741 P2: a 240-char slice kept newlines, so a 180-line error still
+    // rendered ~161 lines (~2656px). The summary now caps both chars and lines.
+    const multiLine = Array.from({ length: 180 }, (_, i) => `line ${i}`).join('\n');
+    const markup = renderErrored(multiLine);
+    const m = markup.match(/data-slot="alert-description"[^>]*>([\s\S]*?)<\/div>/);
+    const summary = m?.[1] ?? '';
+    assert.ok(summary.split('\n').length <= 4, `banner summary must cap at 4 lines, got ${summary.split('\n').length}`);
+    assert.ok(summary.endsWith('…'), 'a truncated multi-line summary must end with an ellipsis');
+  });
 });
