@@ -1,7 +1,8 @@
 /**
  * PR-COMPOSER-CONSTANT-FOOTPRINT-0 (issue #740):
  * lock the Composer's constant vertical footprint so the empty composer can't
- * drift back to the ~200px that ate a quarter of an 820px window.
+ * drift back to the ~200px that ate a quarter of an 820px window — AND lock that
+ * no state selector ever introduces an idle/active geometry switch.
  *
  * The cut is static — no `[data-compact]` state machine, no idle/active mode.
  * The Composer is the highest-frequency surface and sits at the bottom of the
@@ -12,9 +13,8 @@
  * COMPOSER_MAX_HEIGHT in @maka/ui), so content-driven "expand" is the textarea's
  * own growth — no enter/leave transition, no reduced-motion special-casing.
  *
- * Seven invariants pin the vertical budget (each measured against the 820px
- * window: composer outer 200px, inner 128px, textarea 56px, workspace/branch
- * row 36px):
+ * Six invariants pin the vertical budget (each measured against the 820px
+ * window: composer outer 200px, inner 128px, textarea 56px):
  *
  *   1. --h-composer-min (textarea min-height) is 44px (single-line natural),
  *      not 56px.
@@ -25,12 +25,16 @@
  *   4. .composerActions margin-top is var(--space-1) (4px), not 8px.
  *   5. .maka-composer-textarea min-height is var(--h-composer-min) — the
  *      textarea follows the token, not a bare value that could drift.
- *   6. .maka-composer-workspace-row margin-top stays var(--space-2) (8px) —
- *      the workspace/branch row is a constant, mounted control; it is NOT
- *      tightened (stability: the row's footprint never changes).
+ *   6. No state selector on .composer/.maka-composer (:hover, :focus-within,
+ *      [data-compact], [data-streaming], [data-drag-active], …) declares any
+ *      vertical-geometry property (padding* / gap* / margin* / min-height /
+ *      min-block-size, including longhands). This is the core #740 lock: an
+ *      idle/active mode switch is impossible if no state selector can change
+ *      the footprint. (State selectors may still change border/box-shadow/
+ *      background/color — those don't affect height.)
  *
- * Combined this drops an empty composer from ~200px to ~164px (≥18%). The
- * contract pins each lever exactly-once (a later rest block, a selector-list
+ * Combined invariants 1–5 drop an empty composer from ~200px to ~164px (≥18%).
+ * The contract pins each lever exactly-once (a later rest block, a selector-list
  * companion, OR a same-block duplicate would all win the cascade) so a
  * regression to the old footprint is caught before it ships.
  */
@@ -61,9 +65,8 @@ function declarationsIn(body: string, prop: string): string[] {
 }
 
 /** Rest blocks whose selector list CONTAINS `subjectSelector` as a whole
- *  selector (split on top-level commas, so `.other, .composer` is scanned for
- *  `.composer`). State pseudo / attribute variants are excluded — only the
- *  plain subject counts as the rest definition. */
+ *  selector (split on top-level commas). State pseudo / attribute variants are
+ *  excluded — only the plain subject counts as the rest definition. */
 function restBlocks(css: string, subjectSelector: string): string[] {
   const blocks: string[] = [];
   for (const [prelude, body] of styleRules(css)) {
@@ -76,13 +79,36 @@ function restBlocks(css: string, subjectSelector: string): string[] {
   return blocks;
 }
 
-/** Assert `prop` is declared exactly once across all rest blocks of `selector`
- *  with `expected` value (a later rest block, a selector-list companion, or a
- *  same-block duplicate each fail). */
 function assertExactlyOnce(css: string, selector: string, prop: string, expected: string, label: string): void {
   const decls = restBlocks(css, selector).flatMap((b) => declarationsIn(b, prop));
   assert.equal(decls.length, 1, `${label}: ${prop} must be declared exactly once (a later rest block, a selector-list companion, OR a same-block duplicate would all win the cascade); got ${decls.length}: ${JSON.stringify(decls)}`);
   assert.equal(decls[0], expected, `${label}: ${prop} must be ${expected}; got ${decls[0]}`);
+}
+
+/** State-selector blocks: any selector in the list that references
+ *  `.composer` or `.maka-composer` AND carries a state pseudo / attribute
+ *  (`:hover`, `[data-compact]`, …). These are the only places an idle/active
+ *  geometry switch could sneak in. */
+function stateComposerBlocks(css: string): string[] {
+  const blocks: string[] = [];
+  for (const [prelude, body] of styleRules(css)) {
+    if (!prelude || prelude.startsWith('@')) continue;
+    const selectors = prelude.split(',').map((s) => s.trim());
+    if (selectors.some((sel) => /(^|\s)(?:\.maka-composer-inner|\.composer|\.maka-composer)(?![\w-])/.test(sel) && /[:[]/.test(sel))) {
+      blocks.push(body);
+    }
+  }
+  return blocks;
+}
+
+/** Any vertical-geometry property declaration: padding* (shorthand + all
+ *  longhands), gap* (shorthand + row/column), margin* (shorthand + longhands),
+ *  min-height, min-block-size. Catches `padding-block` / `row-gap` etc. that a
+ *  shorthand-only scan would miss. */
+const GEO_PROP_RE = /(?:^|[;\n])\s*(?:padding(?:-block|-inline|-top|-right|-bottom|-left)?|gap|row-gap|column-gap|margin(?:-block|-inline|-top|-right|-bottom|-left)?|min-height|min-block-size)\s*:/gi;
+
+function geoDeclarationsIn(body: string): string[] {
+  return [...body.matchAll(GEO_PROP_RE)].map((m) => m[0].trim().replace(/\s+/g, ' '));
 }
 
 describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
@@ -112,12 +138,13 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     assertExactlyOnce(css, '.composer .maka-composer-textarea', 'min-height', 'var(--h-composer-min)', '.maka-composer-textarea min-height');
   });
 
-  it('.maka-composer-workspace-row margin stays var(--space-2) auto 0 — NOT tightened (stability)', async () => {
+  it('no state selector on .composer/.maka-composer changes vertical geometry (no idle/active mode switch)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    assertExactlyOnce(css, '.maka-composer-workspace-row', 'margin', 'var(--space-2) auto 0', '.maka-composer-workspace-row margin (constant, not tightened)');
+    const geoDecls = stateComposerBlocks(css).flatMap((b) => geoDeclarationsIn(b));
+    assert.equal(geoDecls.length, 0, `state selectors on .composer/.maka-composer must not change vertical geometry (no idle/active mode switch per #740); found: ${JSON.stringify(geoDecls)}`);
   });
 
-  it('assertExactlyOnce flags a same-block duplicate AND a selector-list companion (negative cases)', () => {
+  it('assertExactlyOnce flags a same-block duplicate AND a selector-list companion; state-geometry guard flags a [data-compact] padding override (negative cases)', () => {
     const sameBlock = '.composer { padding: var(--space-2) var(--space-6) var(--space-2); padding: var(--space-3) var(--space-6) var(--space-4); }';
     assert.throws(
       () => assertExactlyOnce(sameBlock, '.composer', 'padding', 'var(--space-2) var(--space-6) var(--space-2)', '.composer padding'),
@@ -129,6 +156,13 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
       () => assertExactlyOnce(selectorList, '.composer', 'padding', 'var(--space-2) var(--space-6) var(--space-2)', '.composer padding'),
       /var\(--space-3\)/,
       'a selector-list companion setting padding must be caught (the override won the cascade)',
+    );
+    const stateCompact = '.composer[data-compact="true"] { padding-block: var(--space-1); }';
+    const stateCompactBody = styleRules(stateCompact)[0]?.[1] ?? '';
+    assert.equal(
+      geoDeclarationsIn(stateCompactBody).length,
+      1,
+      'a .composer[data-compact] padding-block override must be flagged by the state-geometry guard (longhand, not just shorthand)',
     );
   });
 });

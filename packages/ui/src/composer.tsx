@@ -576,7 +576,7 @@ export const Composer = forwardRef<
           ref={textareaRef}
           unstyled
           name="text"
-          className="maka-composer-textarea min-h-11 resize-none"
+          className="maka-composer-textarea resize-none"
           placeholder={copy.placeholder}
           aria-label={copy.textareaAriaLabel}
           disabled={props.disabled}
