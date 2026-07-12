@@ -130,12 +130,12 @@ async function taskRunCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['task', 'config', 'out', 'task-run-id', 'max-attempts'], ['autonomous', 'include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]`);
     return 1;
   }
   const specPath = parsed.positional[0];
   if (!specPath || !parsed.flags.task || !parsed.flags.config) {
-    console.error('usage: maka-headless task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+    console.error('usage: maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
     return 1;
   }
 
@@ -173,12 +173,12 @@ async function taskInspectCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store'], ['json']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task inspect <taskRunId> --store <out>/runs [--json]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.store) {
-    console.error('usage: maka-headless task inspect <taskRunId> --store <out>/runs [--json]');
+    console.error('usage: maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
     return 1;
   }
   const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
@@ -195,12 +195,12 @@ async function taskExportCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['store', 'out'], ['include-events']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.store || !parsed.flags.out) {
-    console.error('usage: maka-headless task export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+    console.error('usage: maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
     return 1;
   }
   const projection = await createTaskRunStore(resolve(parsed.flags.store)).project(taskRunId);
@@ -331,12 +331,12 @@ async function taskResumeCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'grant-file']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]`);
     return 1;
   }
   const taskRunId = parsed.positional[0];
   if (!taskRunId || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka-headless task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
+    console.error('usage: maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
     return 1;
   }
   try {
@@ -399,12 +399,12 @@ async function taskRetryFailedCommand(args: string[]): Promise<number> {
   try {
     parsed = parseArgs(args, ['spec', 'out', 'only-taxonomy']);
   } catch (error) {
-    console.error(`${(error as Error).message}\nusage: maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`);
+    console.error(`${(error as Error).message}\nusage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]`);
     return 1;
   }
   const priorPath = parsed.positional[0];
   if (!priorPath || !parsed.flags.spec || !parsed.flags.out) {
-    console.error('usage: maka-headless task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
+    console.error('usage: maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
     return 1;
   }
 
@@ -492,12 +492,12 @@ function printUnifiedUsage(): void {
 }
 
 function printTaskUsage(): void {
-  console.error('maka-headless task commands:\n');
-  console.error('  task run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
-  console.error('  task inspect <taskRunId> --store <out>/runs [--json]');
-  console.error('  task resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
-  console.error('  task retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
-  console.error('  task export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
+  console.error('maka eval task-run commands:\n');
+  console.error('  maka eval task-run run <spec.json> --task <id> --config <id> [--out <dir>] [--task-run-id <id>] [--autonomous] [--max-attempts N]');
+  console.error('  maka eval task-run inspect <taskRunId> --store <out>/runs [--json]');
+  console.error('  maka eval task-run resume <taskRunId> --spec <spec.json> --out <dir> [--grant-file <json>]');
+  console.error('  maka eval task-run retry-failed <results.jsonl|out-dir> --spec <spec.json> --out <dir> [--only-taxonomy name[,name]]');
+  console.error('  maka eval task-run export <taskRunId> --store <out>/runs --out <dir> [--include-events]');
 }
 
 /** Canonical router shared by `maka eval` and the legacy compatibility bin. */

@@ -75,11 +75,11 @@ because they are useful UX safety nets — they catch accidental
 output and slow down adversarial output enough for a human to
 notice — but we do not ship them as guarantees.
 
-Maka does not run tools in a separate process or container by default. On
-macOS, restricted managed permission profiles wrap commands with the Seatbelt
-backend and fail closed if it is unavailable; other platforms currently reject
-profiles that require a Maka-managed sandbox. Externally isolated runtimes may
-instead supply their own boundary. See
+Maka does not run tools in a separate process or container by default. The
+runtime exposes a macOS Seatbelt command transformer for restricted profiles,
+but current product compositions do not yet route command execution through
+it, so it is not a product boundary today. Externally isolated runtimes may
+supply their own boundary. See
 [`packages/runtime/src/sandbox/README.md`](./packages/runtime/src/sandbox/README.md).
 
 ### 2.3 Boundaries we DO treat as load-bearing
