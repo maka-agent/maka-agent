@@ -166,13 +166,23 @@ describe('permission mode transition guard copy', () => {
     assert.match(composerReasonBlock, /当前有工具调用正在等待确认，处理后再切换权限模式。/);
   });
 
-  it('composer permission picker disables itself when pending or disabledReason is present', async () => {
+  it('composer permission picker disables itself when the composer is disabled, pending, or a disabledReason is present', async () => {
+    // The picker must respect the composer's own `disabled` state (the
+    // permission-wait freeze, driven by `Boolean(activePermission)` in
+    // app-shell.tsx), not only the separately-computed `permissionModeDisabledReason`
+    // (which keys off `status === 'waiting_for_user'`). The two are NOT fully
+    // coupled: a pending permission can set `props.disabled` before the session
+    // status flips to `waiting_for_user`, leaving a window where the composer is
+    // frozen (permission-hint pulsing, attach button + textarea disabled) but
+    // the mode picker stays clickable. CDP-verified on the `permission-destructive`
+    // fixture: before this guard the Select trigger read `disabled=false`,
+    // `pointer-events:auto`; after, `disabled=true`, `pointer-events:none`.
     const ui = await readFile(join(REPO_ROOT, 'packages/ui/src/composer.tsx'), 'utf8');
     const dropdownBlock = ui.match(/props\.onPermissionModeChange \? \([\s\S]*?\) : null/)?.[0] ?? '';
 
     assert.ok(dropdownBlock, 'composer.tsx must render a PermissionModeSelect picker');
     assert.match(dropdownBlock, /<PermissionModeSelect/);
-    assert.match(dropdownBlock, /disabled=\{props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\)\}/);
+    assert.match(dropdownBlock, /disabled=\{props\.disabled \|\| props\.permissionModePending === true \|\| Boolean\(props\.permissionModeDisabledReason\)\}/);
     assert.match(dropdownBlock, /disabledReason=\{props\.permissionModeDisabledReason\}/);
   });
 
