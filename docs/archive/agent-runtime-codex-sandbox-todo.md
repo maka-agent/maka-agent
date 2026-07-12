@@ -1,5 +1,7 @@
 # Agent Runtime Codex-Style Sandbox Todo
 
+> Archived on 2026-07-13. Phases 1–4 landed in PR #631; the remaining enforcement work moved to issue #843.
+
 这份文档是 Maka 参考 Codex 实现权限管理和 sandbox 权限兜底的分阶段工程任务清单。
 
 关联背景文档：

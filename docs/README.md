@@ -37,8 +37,7 @@ This page is the authority map for Maka documentation. Code and contract tests r
 ### Security and privacy
 
 - [Workspace privacy context](./workspace-privacy-context.md)
-- [Sandbox direction and implementation status](./sandbox/agent-runtime-codex-sandbox-todo.md)
-- [Sandbox design background](./sandbox/agent-runtime-codex-sandbox-alignment.md)
+- [Runtime sandbox boundary](../packages/runtime/src/sandbox/README.md)
 
 ## Active proposals and design material
 

@@ -1,5 +1,7 @@
 # Agent Runtime Codex-Style Permission and Sandbox Alignment Draft
 
+> Archived on 2026-07-13. Stable current boundaries live in `packages/runtime/src/sandbox/README.md`; unfinished enforcement work is tracked in issue #843.
+
 这份文档用于整理 Maka 从旧的 worktree/write-back sandbox 方案，切换到
 Codex-style 权限管理和平台 sandbox 权限兜底方案时，需要理解的核心概念、
 模块对应关系和后续工作。
