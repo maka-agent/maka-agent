@@ -58,8 +58,7 @@ export type VisualSmokeScenario =
   // scenarios below share the same on-disk seed; they only differ in
   // which session is the active one so auto-capture produces three
   // deterministic screenshots covering both positive and negative
-  // banner cases without requiring manual clicks. Smoke Path 15 reads
-  // these fixtures.
+  // banner cases without requiring manual clicks.
   | 'turn-control-history'
   | 'turn-control-branch-visible'
   | 'turn-control-branch-orphan'

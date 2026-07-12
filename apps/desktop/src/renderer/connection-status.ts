@@ -101,8 +101,7 @@ const STATUS_PRESENTATION: Record<ConnectionUiStatus, StatusPresentation> = {
     tone: 'info',
   },
   verified: {
-    // PR-UI-AUDIT-1 (@kenji msg 7a16aa0b): credential validation
-    // label only. Provider-auth contract (Path 17 S11 D1) draws a
+    // Credential-validation label only. The provider-auth contract draws a
     // hard line between `validated` and `operational` — agent
     // send / stream / interrupt readiness is a separate runtime
     // probe, not implied by credential test passing.

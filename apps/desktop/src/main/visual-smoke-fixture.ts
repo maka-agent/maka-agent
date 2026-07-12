@@ -75,7 +75,7 @@ const VISUAL_SMOKE_SCENARIOS = new Set<VisualSmokeScenario>([
   // PR109f (g): turn-control-history — seeds a primary session whose
   // turn list covers the four TurnStatus values plus retry + regenerate
   // lineage, alongside two branch sessions (visible-parent vs missing-
-  // parent) so smoke Path 15 can verify the banner contract end-to-end.
+  // parent) so deterministic screenshots cover the banner contract end-to-end.
   // Three variants share the same on-disk seed and only differ in
   // active session selection, so auto-capture produces three
   // deterministic screenshots:
@@ -446,8 +446,7 @@ export function getVisualSmokeState(fixture: VisualSmokeFixture | null): VisualS
     case 'turn-control-branch-orphan':
       // Active = orphan branch session (parentSessionId points to a
       // session that is intentionally NOT seeded on disk). Chat header
-      // must render NO branch banner and NO dead-link button. Path 15
-      // asserts the absence of `.maka-session-branch-banner` here.
+      // must render NO branch banner and NO dead-link button.
       return { ...state, activeSessionId: TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID };
     case 'sidebar-long-sessions':
       // PR-SIDEBAR-IA-0 Phase 1: active = the FIRST session in the seed
@@ -736,7 +735,7 @@ const HEALTHY_SESSION_ID = 'visual-smoke-healthy';
 // `BRANCH_ORPHAN` session's `parentSessionId` intentionally references
 // a session id that is NEVER written to disk so the renderer's
 // `deriveBranchBanner()` resolves the parent as missing and renders no
-// banner (Path 15 negative case).
+// banner in the negative screenshot case.
 const TURN_CONTROL_PRIMARY_SESSION_ID = 'visual-smoke-turn-control-primary';
 const TURN_CONTROL_BRANCH_VISIBLE_SESSION_ID = 'visual-smoke-turn-control-branch-visible';
 const TURN_CONTROL_BRANCH_ORPHAN_SESSION_ID = 'visual-smoke-turn-control-branch-orphan';
@@ -1535,7 +1534,7 @@ function workstationStatusSessions(now: number): Array<{ header: SessionHeader; 
  *    active.
  *  - `branch-orphan` — parentSessionId points to a session id that is
  *    NOT seeded; renderer's `deriveBranchBanner()` returns undefined
- *    and no banner is rendered (Path 15 negative case).
+ *    and no banner is rendered (negative screenshot case).
  *
  * The three are interchangeable for screenshot purposes — only the
  * active session selection in `applyScenarioOverrides` decides which
@@ -1574,7 +1573,7 @@ function turnControlSessions(now: number): Array<{ header: SessionHeader; messag
     status: 'active',
   });
   // Intentionally references a session id never written to disk so the
-  // renderer must render no banner (negative case for Path 15).
+  // renderer must render no banner (negative screenshot case).
   branchOrphanHeader.parentSessionId = TURN_CONTROL_ORPHAN_PARENT_ID;
   branchOrphanHeader.branchOfTurnId = 'turn-deleted-origin';
 

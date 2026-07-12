@@ -1022,7 +1022,7 @@ describe('visual smoke fixture mode', () => {
     }
   });
 
-  describe('turn-control-history seed (PR109f g, smoke Path 15)', () => {
+  describe('turn-control-history seed', () => {
     it('seeds primary + visible-parent branch + orphan branch sharing one on-disk state', async () => {
       const workspaceRoot = await mkdtemp(join(tmpdir(), 'maka-visual-smoke-turn-control-'));
       try {
