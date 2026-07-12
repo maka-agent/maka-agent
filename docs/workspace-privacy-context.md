@@ -24,15 +24,7 @@ The current authority path is:
 
 `incognitoActive: false` only means that incognito mode did not block the operation. It is not general permission to read, write, search, capture, or transmit data. Every consumer must still apply its own settings, permission, and retention rules.
 
-When `incognitoActive` is true, current consumers enforce these boundaries:
-
-- Thread search returns a disabled result instead of searching stored threads.
-- Local memory rejects durable reads and writes.
-- Plan reminders reject creation and triggering; automation blocks trigger execution.
-- Agent and live-query web search reject user search queries; credential tests remain explicit user actions.
-- Run-completion notifications are suppressed; permission self-tests remain explicit user actions.
-
-New privacy-sensitive consumers must take the main-owned context at their existing boundary and define a fail-closed incognito result. Do not add another incognito flag, copy the state into a parallel store, or let a renderer self-attest.
+When `incognitoActive` is true, each privacy-sensitive consumer defines a fail-closed result at its existing main-process boundary. The composition in `apps/desktop/src/main/main.ts` and focused consumer tests own the current inventory. Do not duplicate that inventory here, add another incognito flag, copy the state into a parallel store, or let a renderer self-attest.
 
 ## Contract changes
 

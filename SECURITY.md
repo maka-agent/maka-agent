@@ -152,8 +152,8 @@ privacy commitments:
   `argsSummary` is scrubbed at the `recordToolInvocation` hook.
 - **Incognito context.** When the workspace privacy context
   reports `incognitoActive: true`, the WebSearch tool fails
-  closed before any network call. Other surfaces that consume
-  the same context are listed in `packages/core/src/incognito.ts`.
+  closed before any network call. Main composition and focused
+  consumer tests own the full enforcement inventory.
 - **Token boundary.** Cleartext API keys / OAuth tokens / bot
   tokens NEVER cross the main→renderer IPC boundary.
   `apps/desktop/src/main/__tests__/web-search-boundary.test.ts` and
