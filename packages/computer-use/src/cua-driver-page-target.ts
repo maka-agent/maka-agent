@@ -17,6 +17,8 @@ export interface CuaFocusedPageElement {
 
 export interface CuaResolvedPageTextTarget {
   port: number;
+  pageTargetId: string;
+  pageUrl: string;
   targetUrlContains: string;
 }
 
@@ -114,8 +116,18 @@ export async function resolveCuaPageTextTarget(
 
   return {
     port: target.port,
+    pageTargetId: pageTargetId(target.webSocketDebuggerUrl),
+    pageUrl: target.url,
     targetUrlContains: uniqueUrlHint(target, targets),
   };
+}
+
+function pageTargetId(webSocketDebuggerUrl: string): string {
+  const marker = '/devtools/page/';
+  const index = webSocketDebuggerUrl.lastIndexOf(marker);
+  return index >= 0
+    ? webSocketDebuggerUrl.slice(index + marker.length)
+    : webSocketDebuggerUrl;
 }
 
 function uniqueUrlHint(

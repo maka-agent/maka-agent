@@ -41,6 +41,8 @@ export type {
 } from './cua-driver-snapshot.js';
 
 export { cuaDriverBinaryPath, resolveCuaDriverBinaryPath } from './cua-driver-path.js';
+export { resolveCuaDisplaySnapshots } from './display-snapshot.js';
+export type { CuaHostDisplay } from './display-snapshot.js';
 
 export { createComputerUseOverlayHook, declaredPxToScreenPoint } from './computer-use-overlay-hook.js';
 export {

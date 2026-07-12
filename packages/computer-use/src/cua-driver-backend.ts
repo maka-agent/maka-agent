@@ -33,10 +33,14 @@ import type {
   CuAppSummary,
   CuDispatchBackend,
   CuObservation,
+  CuObservedElement,
   CuRunContext,
   CuRunResult,
   CuScreenshot,
   CuSemanticAction,
+  CuaBoundAction,
+  CuaDisplaySnapshot,
+  CuaPageIdentity,
 } from '@maka/runtime';
 import { normalizeCuaDriverOutcome } from './cua-driver-result.js';
 import {
@@ -95,6 +99,13 @@ export interface CuaDriverBackendOptions {
     windowTitle?: string;
     signal: AbortSignal;
   }) => Promise<CuaResolvedPageTextTarget | undefined>;
+  resolveDisplays?: (input: {
+    screenshotWidthPx: number;
+    screenshotHeightPx: number;
+    logicalWidth: number;
+    logicalHeight: number;
+    signal: AbortSignal;
+  }) => Promise<CuaDisplaySnapshot[]>;
   /** Privacy-safe diagnostic stream: geometry, roles, dispatch path, and outcome only. */
   onTrace?: (event: CuaDriverTraceEvent) => void;
 }
@@ -483,6 +494,10 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     appId: string;
     window: CuaResolvedWindow;
     elements: Map<string, NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>>;
+    page?: CuaPageIdentity;
+    screenshotWidthPx?: number;
+    screenshotHeightPx?: number;
+    displays?: CuaDisplaySnapshot[];
   }
   const observations = new Map<string, StoredObservation>();
   let operationQueue = Promise.resolve();
@@ -602,6 +617,78 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     return (result?.structuredContent?.windows ?? []) as CuaWindowRecord[];
   }
 
+  function sameBounds(
+    left: CuaResolvedWindow['bounds'] | undefined,
+    right: CuaResolvedWindow['bounds'] | undefined,
+  ): boolean {
+    return !!left
+      && !!right
+      && left.x === right.x
+      && left.y === right.y
+      && left.width === right.width
+      && left.height === right.height;
+  }
+
+  function sameDisplay(
+    left: CuaDisplaySnapshot,
+    right: CuaDisplaySnapshot,
+  ): boolean {
+    return left.displayId === right.displayId
+      && left.scaleFactor === right.scaleFactor
+      && sameBounds(left.logicalBounds, right.logicalBounds)
+      && sameBounds(left.sourceBoundsPx, right.sourceBoundsPx);
+  }
+
+  function pageIdentity(target: CuaResolvedPageTextTarget): CuaPageIdentity {
+    return {
+      cdpPort: target.port,
+      pageTargetId: target.pageTargetId,
+      pageUrl: target.pageUrl,
+      targetUrlContains: target.targetUrlContains,
+    };
+  }
+
+  function samePage(
+    left: CuaPageIdentity | undefined,
+    right: CuaResolvedPageTextTarget | undefined,
+  ): boolean {
+    return !left
+      ? right === undefined
+      : !!right
+        && left.cdpPort === right.port
+        && left.pageTargetId === right.pageTargetId
+        && left.pageUrl === right.pageUrl;
+  }
+
+  async function resolveWindowDisplays(
+    screenshotWidthPx: number,
+    screenshotHeightPx: number,
+    window: CuaResolvedWindow,
+  ): Promise<CuaDisplaySnapshot[]> {
+    return [{
+      displayId: `window:${window.pid}:${window.windowId}`,
+      logicalBounds: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
+      sourceBoundsPx: { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx },
+      scaleFactor: 1,
+    }];
+  }
+
+  async function resolveObservedPage(
+    window: CuaResolvedWindow,
+    signal: AbortSignal,
+  ): Promise<CuaPageIdentity | undefined> {
+    const processKind = await (opts.classifyProcess ?? classifyMacProcess)(window.pid);
+    if (processKind !== 'electron') return undefined;
+    const target = await (
+      opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
+    )({
+      pid: window.pid,
+      ...(window.title ? { windowTitle: window.title } : {}),
+      signal,
+    });
+    return target ? pageIdentity(target) : undefined;
+  }
+
   function appIdForWindow(window: CuaWindowRecord): string | undefined {
     return typeof window.app_name === 'string' && window.app_name.trim()
       ? window.app_name.trim()
@@ -675,6 +762,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       ...(winner.title ? { title: winner.title } : {}),
       bounds: winner.bounds,
       screenPoint: winner.screenPoint,
+      zIndex: winner.zIndex,
     };
   }
 
@@ -716,11 +804,21 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     }
     const observationId = randomUUID();
     const appId = window.appName ?? `pid:${window.pid}`;
+    const screenshotWidthPx = Number(structured.screenshot_width) || undefined;
+    const screenshotHeightPx = Number(structured.screenshot_height) || undefined;
+    const displays = screenshotWidthPx && screenshotHeightPx
+      ? await resolveWindowDisplays(screenshotWidthPx, screenshotHeightPx, window)
+      : undefined;
+    const page = await resolveObservedPage(window, signal);
     observations.set(observationId, {
       context: { sessionId: context.sessionId, turnId: context.turnId },
       appId,
       window,
       elements,
+      ...(page ? { page } : {}),
+      ...(screenshotWidthPx ? { screenshotWidthPx } : {}),
+      ...(screenshotHeightPx ? { screenshotHeightPx } : {}),
+      ...(displays ? { displays } : {}),
     });
     const image = includeScreenshot
       ? state?.content?.find((content) => content.type === 'image' && typeof content.data === 'string')
@@ -739,6 +837,14 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       pid: window.pid,
       windowId: window.windowId,
       ...(window.title ? { windowTitle: window.title } : {}),
+      capturedAt: Date.now(),
+      windowBounds: window.bounds,
+      sourceBoundsPx: screenshotWidthPx && screenshotHeightPx
+        ? { x: 0, y: 0, width: screenshotWidthPx, height: screenshotHeightPx }
+        : undefined,
+      zIndex: window.zIndex,
+      ...(page ? { page } : {}),
+      ...(displays ? { displays } : {}),
       elements: [...elements].map(([elementId, element]) => ({
         elementId,
         role: element.role,
@@ -750,8 +856,314 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           width: element.frame.w,
           height: element.frame.h,
         },
+        identity: {
+          ...(element.element_token ? { token: element.element_token } : {}),
+          role: element.role,
+          ...(element.label ? { label: element.label } : {}),
+          ...(element.value !== undefined ? { value: element.value } : {}),
+        },
       })),
       ...(screenshot ? { screenshot } : {}),
+    };
+  }
+
+  function elementMatchesIdentity(
+    element: NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>,
+    identity: CuObservedElement['identity'] | undefined,
+  ): boolean {
+    if (!identity) return false;
+    if (element.role !== identity.role) return false;
+    if (identity.label !== undefined) return element.label === identity.label;
+    if (identity.token !== undefined && element.element_token === identity.token) return true;
+    return identity.value !== undefined && element.value === identity.value;
+  }
+
+  async function validateStoredWindow(
+    observation: StoredObservation,
+    bound: CuaBoundAction | undefined,
+    signal: AbortSignal,
+  ): Promise<CuaResolvedWindow | CuRunResult> {
+    if (
+      bound?.target
+      && (
+        bound.target.pid !== observation.window.pid
+        || bound.target.windowId !== observation.window.windowId
+      )
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'bound target does not match the stored observation',
+        },
+      };
+    }
+    const windows = await listWindowRecords(signal);
+    const current = windows.find((window) =>
+      window.pid === observation.window.pid
+      && window.window_id === observation.window.windowId);
+    if (!current) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_missing',
+          message: 'observed target window no longer exists',
+        },
+      };
+    }
+    const resolved = resolveObservedWindow(
+      windows,
+      `pid:${observation.window.pid}`,
+      observation.window.windowId,
+    );
+    if (
+      !sameBounds(resolved.bounds, observation.window.bounds)
+      || resolved.appName !== observation.window.appName
+      || resolved.title !== observation.window.title
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'observed target identity or geometry changed',
+        },
+      };
+    }
+    if (observation.page) {
+      const page = await (
+        opts.resolvePageTextTarget ?? ((input) => resolveCuaPageTextTarget(input))
+      )({
+        pid: resolved.pid,
+        ...(resolved.title ? { windowTitle: resolved.title } : {}),
+        signal,
+      });
+      if (!samePage(observation.page, page)) {
+        return {
+          outcome: {
+            ok: false,
+            error: 'page_target_changed',
+            message: 'observed Electron page identity changed',
+          },
+        };
+      }
+    }
+    if (bound?.display && observation.displays) {
+      const display = observation.displays.find(
+        (candidate) => candidate.displayId === bound.display?.displayId,
+      );
+      if (!display || !sameDisplay(display, bound.display)) {
+        return {
+          outcome: {
+            ok: false,
+            error: 'target_changed',
+            message: 'observed coordinate transform changed',
+          },
+        };
+      }
+    }
+    return resolved;
+  }
+
+  function boundWindowPoint(
+    bound: CuaBoundAction,
+    target: CuaResolvedWindow,
+    start = false,
+  ): { windowPoint: { x: number; y: number }; screenPoint: { x: number; y: number } } | undefined {
+    if (bound.coordinateSpace !== 'window-screenshot-local') return undefined;
+    const source = start ? bound.sourceStartCoordinate : bound.sourceCoordinate;
+    const windowPoint = start ? bound.windowStartCoordinate : bound.windowCoordinate;
+    const sourceBounds = bound.target?.sourceBoundsPx;
+    if (!source || !windowPoint || !sourceBounds) return undefined;
+    if (
+      source.x < 0
+      || source.y < 0
+      || source.x >= sourceBounds.width
+      || source.y >= sourceBounds.height
+    ) return undefined;
+    return {
+      windowPoint,
+      screenPoint: {
+        x: target.bounds.x + source.x / sourceBounds.width * target.bounds.width,
+        y: target.bounds.y + source.y / sourceBounds.height * target.bounds.height,
+      },
+    };
+  }
+
+  async function validateBoundCoordinate(
+    bound: CuaBoundAction | undefined,
+    signal: AbortSignal,
+    start = false,
+  ): Promise<CuaResolvedWindow | CuRunResult | undefined> {
+    if (!bound?.target) return undefined;
+    const stored: StoredObservation = {
+      context: { sessionId: '', turnId: '' },
+      appId: bound.target.appName ?? `pid:${bound.target.pid}`,
+      window: {
+        pid: bound.target.pid,
+        windowId: bound.target.windowId,
+        ...(bound.target.appName ? { appName: bound.target.appName } : {}),
+        ...(bound.target.title ? { title: bound.target.title } : {}),
+        bounds: bound.target.bounds ?? { x: 0, y: 0, width: 0, height: 0 },
+        screenPoint: { x: 0, y: 0 },
+        zIndex: bound.target.zIndex ?? 0,
+      },
+      elements: new Map(),
+      ...(bound.target.page ? { page: bound.target.page } : {}),
+      ...(bound.display ? { displays: [bound.display] } : {}),
+    };
+    const validated = await validateStoredWindow(stored, bound, signal);
+    if ('outcome' in validated) return validated;
+    const currentState = await actionClient.callTool('get_window_state', {
+      pid: validated.pid,
+      window_id: validated.windowId,
+      include_screenshot: false,
+      max_elements: 0,
+      max_depth: 0,
+    }, signal);
+    const currentOutcome = normalizeCuaDriverOutcome(currentState);
+    if (!currentOutcome.ok) return { outcome: currentOutcome };
+    const currentStructured = currentState?.structuredContent ?? {};
+    const currentWidth = Number(currentStructured.screenshot_width);
+    const currentHeight = Number(currentStructured.screenshot_height);
+    if (
+      !bound.target.sourceBoundsPx
+      || currentWidth !== bound.target.sourceBoundsPx.width
+      || currentHeight !== bound.target.sourceBoundsPx.height
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_changed',
+          message: 'window screenshot scale or layout changed after observation',
+        },
+      };
+    }
+    const point = boundWindowPoint(bound, validated, start);
+    if (!point) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'invalid_coordinate',
+          message: 'bound coordinate is outside its window screenshot space',
+        },
+      };
+    }
+    const windows = await listWindowRecords(signal);
+    const winner = windows
+      .flatMap((window) => {
+        if (
+          window.layer !== 0
+          || window.is_on_screen === false
+          || typeof window.pid !== 'number'
+          || typeof window.window_id !== 'number'
+          || !window.bounds
+          || typeof window.bounds !== 'object'
+        ) return [];
+        const bounds = window.bounds as Record<string, unknown>;
+        if (
+          typeof bounds.x !== 'number'
+          || typeof bounds.y !== 'number'
+          || typeof bounds.width !== 'number'
+          || typeof bounds.height !== 'number'
+        ) return [];
+        const inside = point.screenPoint.x >= bounds.x
+          && point.screenPoint.x < bounds.x + bounds.width
+          && point.screenPoint.y >= bounds.y
+          && point.screenPoint.y < bounds.y + bounds.height;
+        return inside ? [{
+          pid: window.pid,
+          windowId: window.window_id,
+          zIndex: Number(window.z_index) || 0,
+        }] : [];
+      })
+      .sort((left, right) => right.zIndex - left.zIndex)[0];
+    if (
+      !winner
+      || winner.pid !== validated.pid
+      || winner.windowId !== validated.windowId
+    ) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'target_occluded',
+          message: 'another window now owns the bound coordinate',
+        },
+      };
+    }
+    return {
+      ...validated,
+      screenPoint: point.screenPoint,
+    };
+  }
+
+  async function coordinateTarget(
+    bound: CuaBoundAction | undefined,
+    fallback: { x: number; y: number },
+    signal: AbortSignal,
+    start = false,
+  ): Promise<CuaResolvedWindow | CuRunResult | undefined> {
+    if (bound) return validateBoundCoordinate(bound, signal, start);
+    return resolveWindowAt(fallback.x, fallback.y, signal);
+  }
+
+  async function refetchSemanticElement(
+    observation: StoredObservation,
+    action: Exclude<CuSemanticAction, { type: 'press_key' }>,
+    signal: AbortSignal,
+  ): Promise<
+    | NonNullable<ReturnType<typeof normalizeCuaSnapshotElement>>
+    | CuRunResult
+  > {
+    const state = await actionClient.callTool('get_window_state', {
+      pid: observation.window.pid,
+      window_id: observation.window.windowId,
+      include_screenshot: false,
+      max_elements: 500,
+      max_depth: 25,
+    }, signal);
+    const outcome = normalizeCuaDriverOutcome(state);
+    if (!outcome.ok) return { outcome };
+    const fresh = ((state?.structuredContent?.elements ?? []) as CuaSnapshotElement[])
+      .flatMap((candidate) => {
+        const element = normalizeCuaSnapshotElement(candidate);
+        return element ? [element] : [];
+      });
+    const original = observation.elements.get(action.elementId);
+    const identity = action.elementIdentity ?? (
+      original
+        ? {
+            ...(original.element_token ? { token: original.element_token } : {}),
+            role: original.role,
+            ...(original.label ? { label: original.label } : {}),
+            ...(original.value !== undefined ? { value: original.value } : {}),
+          }
+        : undefined
+    );
+    if (!identity) {
+      return {
+        outcome: {
+          ok: false,
+          error: 'stale_frame',
+          message: 'semantic element identity is unavailable',
+        },
+      };
+    }
+    const sameIndex = fresh.find(
+      (candidate) =>
+        String(candidate.element_index) === action.elementId
+        && elementMatchesIdentity(candidate, identity),
+    );
+    if (sameIndex) return sameIndex;
+    const matches = fresh.filter((candidate) => elementMatchesIdentity(candidate, identity));
+    if (matches.length === 1) return matches[0]!;
+    return {
+      outcome: {
+        ok: false,
+        error: 'stale_frame',
+        message: matches.length === 0
+          ? 'semantic element is missing from the fresh observation'
+          : 'semantic element identity is ambiguous in the fresh observation',
+      },
     };
   }
 
@@ -952,6 +1364,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
     window: CuaResolvedWindow,
     signal: AbortSignal,
     toolCallId: string,
+    boundPage?: CuaPageIdentity,
   ): Promise<{
     handled: boolean;
     outcome?: CuRunResult['outcome'];
@@ -968,6 +1381,16 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       signal,
     });
     if (!pageTarget) {
+      if (boundPage) {
+        return {
+          handled: true,
+          outcome: {
+            ok: false,
+            error: 'page_target_changed',
+            message: 'bound Electron page target is no longer uniquely available',
+          },
+        };
+      }
       trace({
         type: 'fallback',
         toolCallId,
@@ -977,6 +1400,16 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
         reason: 'page_target_unavailable',
       });
       return { handled: false };
+    }
+    if (boundPage && !samePage(boundPage, pageTarget)) {
+      return {
+        handled: true,
+        outcome: {
+          ok: false,
+          error: 'page_target_changed',
+          message: 'bound Electron page identity changed before dispatch',
+        },
+      };
     }
 
     trace({
@@ -1101,41 +1534,71 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
       return withOperationQueue(signal, () => observeWindow(input, signal, context));
     },
 
+    async captureObservation(input, signal, context) {
+      return withOperationQueue(signal, () => observeWindow(input, signal, context));
+    },
+
     async runSemantic(action: CuSemanticAction, signal, context) {
       return withOperationQueue(signal, async () => {
         const observation = observations.get(action.observationId);
         observations.delete(action.observationId);
         if (!observation) {
-          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_frame: observation is missing or already consumed' } };
+          return { outcome: { ok: false, error: 'stale_frame', message: 'observation is missing or already consumed' } };
         }
         if (
           observation.context.sessionId !== context.sessionId
           || observation.context.turnId !== context.turnId
         ) {
-          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_frame: observation belongs to another session or turn' } };
+          return { outcome: { ok: false, error: 'stale_frame', message: 'observation belongs to another session or turn' } };
         }
-        const element = observation.elements.get(action.elementId);
-        if (!element) {
-          return { outcome: { ok: false, error: 'unsupported_action', message: 'stale_element: element is not part of the observation' } };
+        const validated = await validateStoredWindow(observation, context.boundAction, signal);
+        if ('outcome' in validated) return validated;
+        if (action.type === 'press_key') {
+          const result = await actionClient.callTool('press_key', {
+            pid: validated.pid,
+            window_id: validated.windowId,
+            key: action.key,
+          }, signal);
+          const outcome = normalizeCuaDriverOutcome(result);
+          if (!outcome.ok) return { outcome };
+          const fresh = await observeResolvedWindow(validated, true, signal, context);
+          return {
+            outcome,
+            observation: fresh,
+            ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
+          };
         }
+        const refetched = await refetchSemanticElement(observation, action, signal);
+        if ('outcome' in refetched) return refetched;
         const args = {
-          pid: observation.window.pid,
-          window_id: observation.window.windowId,
-          element_index: element.element_index,
-          ...(element.element_token ? { element_token: element.element_token } : {}),
+          pid: validated.pid,
+          window_id: validated.windowId,
+          element_index: refetched.element_index,
+          ...(refetched.element_token ? { element_token: refetched.element_token } : {}),
         };
         const result = action.type === 'click_element'
           ? await actionClient.callTool('click', args, signal)
           : action.type === 'set_value'
             ? await actionClient.callTool('set_value', { ...args, value: action.value }, signal)
-            : undefined;
+            : action.type === 'select_text'
+              ? await actionClient.callTool('select_text', {
+                  ...args,
+                  text: action.text,
+                  selection_type: 'text',
+                }, signal)
+              : action.type === 'secondary_action'
+                ? await actionClient.callTool('perform_secondary_action', {
+                    ...args,
+                    action: action.action,
+                  }, signal)
+                : undefined;
         if (!result) {
           return { outcome: { ok: false, error: 'unsupported_action', message: `semantic action '${action.type}' is not supported by cua-driver` } };
         }
         const outcome = normalizeCuaDriverOutcome(result);
         if (!outcome.ok) return { outcome };
         const fresh = await observeResolvedWindow(
-          observation.window,
+          validated,
           true,
           signal,
           context,
@@ -1219,7 +1682,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           // SLEventPostToPid — NO cursor warp (unlike windowless scope:'desktop',
           // which CGWarpMouseCursorPositions the REAL cursor). Fail closed when no
           // app window owns the pixel (empty desktop), where the only path warps.
-          const win = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          const win = await coordinateTarget(
+            context.boundAction,
+            action.coordinate,
+            signal,
+          );
+          if (win && 'outcome' in win) return win;
           if (!win) {
             return {
               outcome: {
@@ -1250,6 +1718,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
               win,
               signal,
               context.toolCallId,
+              context.boundAction?.target?.page,
             );
             if (semantic.handled && semantic.outcome) {
               if (
@@ -1383,7 +1852,12 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           // (no cursor warp — the warp only exists in the empty-desktop click path).
           // Resolve the window under the point and scroll it window-locally; fail
           // closed on empty desktop (nothing scrollable there anyway).
-          const win = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          const win = await coordinateTarget(
+            context.boundAction,
+            action.coordinate,
+            signal,
+          );
+          if (win && 'outcome' in win) return win;
           if (!win) {
             return {
               outcome: {
@@ -1439,8 +1913,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           // desktop (no target window ⇒ no required pid to post to) or cross-window.
           // delivery_mode is left DEFAULT (Background) — never 'foreground', which
           // would briefly reorder window z-order/frontmost (a focus disturbance).
-          const from = await resolveWindowAt(action.startCoordinate.x, action.startCoordinate.y, signal);
-          const to = await resolveWindowAt(action.coordinate.x, action.coordinate.y, signal);
+          const from = await coordinateTarget(
+            context.boundAction,
+            action.startCoordinate,
+            signal,
+            true,
+          );
+          if (from && 'outcome' in from) return from;
+          const to = await coordinateTarget(
+            context.boundAction,
+            action.coordinate,
+            signal,
+          );
+          if (to && 'outcome' in to) return to;
           if (!from || !to) {
             return {
               outcome: {
@@ -1472,6 +1957,7 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
             from,
             signal,
             context.toolCallId,
+            context.boundAction?.target?.page,
           );
           if (semantic.handled && semantic.outcome) {
             return { outcome: semantic.outcome, resolvedScreenPoint: to.screenPoint };
@@ -1530,8 +2016,19 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
           const y1 = Math.min(action.region.y1, action.region.y2);
           const x2 = Math.max(action.region.x1, action.region.x2);
           const y2 = Math.max(action.region.y1, action.region.y2);
-          const topLeft = await resolveWindowAt(x1, y1, signal);
-          const bottomRight = await resolveWindowAt(x2, y2, signal);
+          const topLeft = await coordinateTarget(
+            context.boundAction,
+            { x: x1, y: y1 },
+            signal,
+            true,
+          );
+          if (topLeft && 'outcome' in topLeft) return topLeft;
+          const bottomRight = await coordinateTarget(
+            context.boundAction,
+            { x: x2, y: y2 },
+            signal,
+          );
+          if (bottomRight && 'outcome' in bottomRight) return bottomRight;
           if (!topLeft || !bottomRight) {
             return {
               outcome: {
@@ -1605,15 +2102,21 @@ export function createCuaDriverBackend(opts: CuaDriverBackendOptions): CuDispatc
                 },
               };
             }
-            const structured = r?.structuredContent ?? {};
+            const fresh = await observeResolvedWindow(
+              topLeft,
+              true,
+              signal,
+              context,
+            );
             return {
-              outcome: { ok: true as const, tier: 'coordinate-background' as const },
-              screenshot: {
-                base64: image.data,
-                mimeType: image.mimeType === 'image/png' ? 'image/png' as const : 'image/jpeg' as const,
-                widthPx: typeof structured.width === 'number' ? structured.width : 0,
-                heightPx: typeof structured.height === 'number' ? structured.height : 0,
+              outcome: {
+                ok: true as const,
+                tier: 'coordinate-background' as const,
+                verified: false,
+                evidence: { path: 'screenshot-detail', effect: 'unverifiable' },
               },
+              observation: fresh,
+              ...(fresh.screenshot ? { screenshot: fresh.screenshot } : {}),
             };
           }
         }

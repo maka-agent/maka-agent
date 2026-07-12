@@ -25,6 +25,7 @@ export interface CuaResolvedWindow {
   title?: string;
   bounds: CuaWindowBounds;
   screenPoint: CuPoint;
+  zIndex: number;
 }
 
 export interface CuaSnapshotElement {
@@ -108,6 +109,7 @@ export function resolveWindowAtDeclaredPoint(input: {
     ...(winner.title !== undefined ? { title: winner.title } : {}),
     bounds: winner.bounds,
     screenPoint: winner.screenPoint,
+    zIndex: winner.zIndex,
   };
 }
 

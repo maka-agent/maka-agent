@@ -18,9 +18,19 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, it } from 'node:test';
 
 import type { CuAction } from '@maka/core';
-import type { CuRunContext, CuRunResult } from '@maka/runtime';
+import type {
+  CuaBoundAction,
+  CuaPageIdentity,
+  CuObservation,
+  CuRunContext,
+  CuRunResult,
+  CuSemanticAction,
+} from '@maka/runtime';
 import type { CuaResolvedPageTextTarget } from '../cua-driver-page-target.js';
-import { createCuaDriverBackend } from '../cua-driver-backend.js';
+import {
+  createCuaDriverBackend,
+  type CuaDriverBackendOptions,
+} from '../cua-driver-backend.js';
 
 const HOST_BUNDLE_ID = 'com.maka.test';
 const DEFAULT_RUN_CONTEXT: CuRunContext = {
@@ -28,6 +38,75 @@ const DEFAULT_RUN_CONTEXT: CuRunContext = {
   turnId: 'test-turn',
   toolCallId: 'test-tool',
 };
+
+function testPageTarget(): CuaResolvedPageTextTarget {
+  return {
+    port: 9333,
+    pageTargetId: 'window-a',
+    pageUrl: 'data:text/html,window-a',
+    targetUrlContains: 'data:text/html,window-a',
+  };
+}
+
+function boundElementAction(
+  observation: CuObservation,
+  elementId: string,
+): CuaBoundAction {
+  return {
+    frameId: observation.observationId,
+    epoch: 0,
+    actionFingerprint: `click:${elementId}`,
+    fingerprint: `bound:${observation.observationId}:${elementId}`,
+    target: {
+      pid: observation.pid,
+      windowId: observation.windowId,
+      appName: observation.appId,
+      ...(observation.windowTitle ? { title: observation.windowTitle } : {}),
+      ...(observation.windowBounds ? { bounds: observation.windowBounds } : {}),
+      ...(observation.sourceBoundsPx ? { sourceBoundsPx: observation.sourceBoundsPx } : {}),
+      ...(observation.zIndex !== undefined ? { zIndex: observation.zIndex } : {}),
+      ...(observation.page ? { page: observation.page } : {}),
+    },
+    display: observation.displays?.[0],
+    elementId,
+  };
+}
+
+function boundCoordinateAction(input: {
+  pid?: number;
+  windowId?: number;
+  bounds?: { x: number; y: number; width: number; height: number };
+  sourceBoundsPx?: { x: number; y: number; width: number; height: number };
+  coordinate?: { x: number; y: number };
+  zIndex?: number;
+  page?: CuaPageIdentity;
+} = {}): CuaBoundAction {
+  const pid = input.pid ?? 4242;
+  const windowId = input.windowId ?? 77;
+  const bounds = input.bounds ?? { x: 100, y: 100, width: 600, height: 400 };
+  const sourceBoundsPx = input.sourceBoundsPx
+    ?? { x: 0, y: 0, width: 1200, height: 800 };
+  const coordinate = input.coordinate ?? { x: 400, y: 200 };
+  return {
+    frameId: 'frame-coordinate',
+    epoch: 0,
+    actionFingerprint: 'left_click',
+    fingerprint: 'bound-coordinate',
+    target: {
+      pid,
+      windowId,
+      appName: pid === 4242 ? 'Fixture' : `pid:${pid}`,
+      title: pid === 4242 ? 'Fixture Window' : undefined,
+      bounds,
+      sourceBoundsPx,
+      zIndex: input.zIndex ?? 5,
+      ...(input.page ? { page: input.page } : {}),
+    },
+    sourceCoordinate: coordinate,
+    windowCoordinate: coordinate,
+    coordinateSpace: 'window-screenshot-local',
+  };
+}
 
 // A CommonJS mock cua-driver. No backticks / ${} inside → embedded via
 // String.raw so \n survives as a literal escape in the written file.
@@ -49,6 +128,8 @@ let PAGE_FIELD_VALUE = process.env.CUA_MOCK_PAGE_FIELD_VALUE || '';
 let PAGE_INSERTED = false;
 const FIELD_VALUES = new Map();
 const SNAPSHOT_DELAY_MS = Number(process.env.CUA_MOCK_SNAPSHOT_DELAY_MS || 0);
+const REFETCH_MODE = process.env.CUA_MOCK_REFETCH_MODE || '';
+let WINDOW_STATE_CALLS = 0;
 // 1x1 transparent PNG (tiny, well under the frame cap).
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 // A "big" frame (~1.9MB decoded) to exercise the compression threshold path.
@@ -108,24 +189,34 @@ function handle(msg) {
         });
         return;
       case 'get_window_state':
+        WINDOW_STATE_CALLS += 1;
         const snapshotWindowId = Number(params.arguments?.window_id);
         const snapshotFrame = snapshotWindowId === 88
           ? { x: 100, y: 650, w: 800, h: 200 }
           : { x: 250, y: 150, w: 200, h: 120 };
+        const baseElement = {
+          element_index: 7,
+          element_token: 'snapshot:7',
+          role: AX_ROLE,
+          value: FIELD_VALUES.get(snapshotWindowId) || '',
+          frame: snapshotFrame,
+        };
+        const refetchedElements = WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'replacement'
+          ? [{ ...baseElement, element_index: 9, element_token: 'snapshot:9' }]
+          : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'missing'
+            ? []
+            : WINDOW_STATE_CALLS === 2 && REFETCH_MODE === 'ambiguous'
+              ? [
+                  { ...baseElement, element_index: 9, element_token: 'snapshot:9' },
+                  { ...baseElement, element_index: 10, element_token: 'snapshot:10' },
+                ]
+              : [baseElement];
         setTimeout(() => reply(id, {
             content: [{ type: 'image', data: PNG, mimeType: 'image/png' }],
             structuredContent: {
               screenshot_width: 1200,
               screenshot_height: 800,
-              elements: EMPTY_AX ? [] : [
-                {
-                  element_index: 7,
-                  element_token: 'snapshot:7',
-                  role: AX_ROLE,
-                  value: FIELD_VALUES.get(snapshotWindowId) || '',
-                  frame: snapshotFrame,
-                },
-              ],
+              elements: EMPTY_AX ? [] : refetchedElements,
             },
           }), SNAPSHOT_DELAY_MS);
         return;
@@ -190,6 +281,14 @@ function handle(msg) {
           String(params.arguments?.value ?? ''),
         );
         reply(id, { content: [{ type: 'text', text: 'value set' }], structuredContent: {} });
+        return;
+      case 'select_text':
+      case 'perform_secondary_action':
+      case 'press_key':
+        reply(id, {
+          content: [{ type: 'text', text: name + ' ok' }],
+          structuredContent: { path: 'ax', verified: true, effect: 'confirmed' },
+        });
         return;
       case 'page':
         const pageAction = params.arguments?.action;
@@ -319,6 +418,8 @@ function makeBackend(opts: {
   pageFieldValue?: string;
   pageReadbackValue?: string;
   semanticPointerResult?: Record<string, unknown>;
+  refetchMode?: 'replacement' | 'missing' | 'ambiguous';
+  resolveDisplays?: CuaDriverBackendOptions['resolveDisplays'];
   snapshotDelayMs?: number;
   compressFrame?: (b: string, m: string) => { base64: string; mimeType: 'image/png' | 'image/jpeg' };
 } = {}): { backend: TestBackend; logPath: string } {
@@ -340,6 +441,7 @@ function makeBackend(opts: {
   process.env.CUA_MOCK_PAGE_FIELD_VALUE = opts.pageFieldValue ?? '';
   process.env.CUA_MOCK_PAGE_READBACK_VALUE = opts.pageReadbackValue ?? '';
   process.env.CUA_MOCK_SNAPSHOT_DELAY_MS = String(opts.snapshotDelayMs ?? 0);
+  process.env.CUA_MOCK_REFETCH_MODE = opts.refetchMode ?? '';
   const rawBackend = createCuaDriverBackend({
     binaryPath: mockPath,
     hostBundleId: HOST_BUNDLE_ID,
@@ -348,6 +450,7 @@ function makeBackend(opts: {
     ...(opts.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: opts.handshakeTimeoutMs } : {}),
     classifyProcess: async () => opts.processKind ?? 'native',
     resolvePageTextTarget: async () => opts.pageTarget,
+    ...(opts.resolveDisplays ? { resolveDisplays: opts.resolveDisplays } : {}),
   });
   const backend: TestBackend = {
     preflight: (signal) => rawBackend.preflight(signal),
@@ -497,6 +600,11 @@ describe('cua-driver backend', () => {
       role: 'AXButton',
       value: '',
       frame: { x: 250, y: 150, width: 200, height: 120 },
+      identity: {
+        token: 'snapshot:7',
+        role: 'AXButton',
+        value: '',
+      },
     }]);
     assert.equal(observation?.screenshot?.mimeType, 'image/png');
   });
@@ -533,7 +641,139 @@ describe('cua-driver backend', () => {
       elementId: '7',
     }, signal, context);
     assert.equal(replay?.outcome.ok, false);
-    assert.match(replay?.outcome.ok === false ? replay.outcome.message : '', /stale_frame/);
+    assert.equal(replay?.outcome.ok, false);
+    if (replay && !replay.outcome.ok) {
+      assert.equal(replay.outcome.error, 'stale_frame');
+    }
+  });
+
+  it('refetches a stale element index by unique semantic identity', async () => {
+    const { backend, logPath } = makeBackend({
+      axRole: 'AXButton',
+      refetchMode: 'replacement',
+    });
+    const signal = new AbortController().signal;
+    const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, signal, context);
+    const result = await backend.runSemantic!({
+      type: 'click_element',
+      observationId: observation.observationId,
+      elementId: '7',
+      elementIdentity: observation.elements[0]!.identity,
+    }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+    assert.equal(result.outcome.ok, true);
+    const click = toolCall(await readRecords(logPath), 'click');
+    assert.equal(click?.element_index, 9);
+    assert.equal(click?.element_token, 'snapshot:9');
+  });
+
+  for (const refetchMode of ['missing', 'ambiguous'] as const) {
+    it(`rejects a ${refetchMode} refetched element without dispatch`, async () => {
+      const { backend, logPath } = makeBackend({
+        axRole: 'AXButton',
+        refetchMode,
+      });
+      const signal = new AbortController().signal;
+      const context = { sessionId: 's1', turnId: 't1', toolCallId: 'semantic' };
+      const observation = await backend.observeApp!({
+        app: 'Fixture Window',
+        includeScreenshot: true,
+      }, signal, context);
+      const result = await backend.runSemantic!({
+        type: 'click_element',
+        observationId: observation.observationId,
+        elementId: '7',
+        elementIdentity: observation.elements[0]!.identity,
+      }, signal, { ...context, boundAction: boundElementAction(observation, '7') });
+
+      assert.equal(result.outcome.ok, false);
+      if (!result.outcome.ok) assert.equal(result.outcome.error, 'stale_frame');
+      assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+    });
+  }
+
+  it('declares app observations in capture-local window screenshot space', async () => {
+    let desktopResolverCalls = 0;
+    const { backend } = makeBackend({
+      resolveDisplays: async () => {
+        desktopResolverCalls += 1;
+        return [];
+      },
+    });
+    const observation = await backend.observeApp!({
+      app: 'Fixture Window',
+      includeScreenshot: true,
+    }, new AbortController().signal, DEFAULT_RUN_CONTEXT);
+
+    assert.equal(desktopResolverCalls, 0);
+    assert.deepEqual(observation.sourceBoundsPx, {
+      x: 0,
+      y: 0,
+      width: 1200,
+      height: 800,
+    });
+    assert.deepEqual(observation.displays, [{
+      displayId: 'window:4242:77',
+      logicalBounds: { x: 0, y: 0, width: 1200, height: 800 },
+      sourceBoundsPx: { x: 0, y: 0, width: 1200, height: 800 },
+      scaleFactor: 1,
+    }]);
+  });
+
+  it('runs select_text, secondary action, and press_key with full fresh observations', async () => {
+    for (const action of [
+      { type: 'select_text', text: 'target' },
+      { type: 'secondary_action', action: 'Increment' },
+      { type: 'press_key', key: 'Tab' },
+    ] as const) {
+      const { backend, logPath } = makeBackend({ axRole: 'AXTextField' });
+      const context = {
+        sessionId: `s-${action.type}`,
+        turnId: 't1',
+        toolCallId: action.type,
+      };
+      const observation = await backend.observeApp!({
+        app: 'Fixture Window',
+        includeScreenshot: true,
+      }, new AbortController().signal, context);
+      const semanticAction: CuSemanticAction = action.type === 'press_key'
+        ? {
+            type: 'press_key',
+            observationId: observation.observationId,
+            key: action.key,
+          }
+        : action.type === 'select_text'
+          ? {
+              type: 'select_text',
+              observationId: observation.observationId,
+              elementId: '7',
+              text: action.text,
+              elementIdentity: observation.elements[0]!.identity,
+            }
+          : {
+              type: 'secondary_action',
+              observationId: observation.observationId,
+              elementId: '7',
+              action: action.action,
+              elementIdentity: observation.elements[0]!.identity,
+            };
+      const result = await backend.runSemantic!(semanticAction, new AbortController().signal, {
+        ...context,
+        boundAction: boundElementAction(observation, '7'),
+      });
+
+      assert.equal(result.outcome.ok, true);
+      assert.ok(result.observation?.observationId);
+      assert.ok(result.screenshot);
+      const tool = action.type === 'secondary_action'
+        ? 'perform_secondary_action'
+        : action.type;
+      assert.equal(toolCalls(await readRecords(logPath), tool).length, 1);
+    }
   });
 
   it('window_id disambiguates multiple visible windows from the same app', async () => {
@@ -611,6 +851,75 @@ describe('cua-driver backend', () => {
     assert.equal(click!.y, 200);
     assert.equal(click!.scope, undefined, 'must NOT use scope:desktop (that warps the real cursor)');
     assert.equal(click!.delivery_mode, undefined, 'must NOT force foreground on click (default Background = no warp / no z-order change)');
+  });
+
+  it('rejects a moved bound window before pointer dispatch', async () => {
+    const { backend, logPath } = makeBackend();
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } } as CuAction,
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction({
+          bounds: { x: 101, y: 100, width: 600, height: 400 },
+        }),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_changed');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('rejects a bound coordinate occluded by a higher z-order window', async () => {
+    const { backend, logPath } = makeBackend();
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 100, y: 100 } } as CuAction,
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction({
+          pid: 5001,
+          windowId: 91,
+          bounds: { x: 900, y: 100, width: 400, height: 300 },
+          sourceBoundsPx: { x: 0, y: 0, width: 1200, height: 800 },
+          coordinate: { x: 300, y: 267 },
+          zIndex: 2,
+        }),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'target_occluded');
+    assert.equal(toolCalls(await readRecords(logPath), 'click').length, 0);
+  });
+
+  it('rejects a changed Electron page target without pixel fallback', async () => {
+    const currentPage = testPageTarget();
+    const boundPage = {
+      cdpPort: currentPage.port,
+      pageTargetId: 'old-page',
+      pageUrl: 'data:text/html,old-page',
+      targetUrlContains: 'data:text/html,old-page',
+    };
+    const { backend, logPath } = makeBackend({
+      processKind: 'electron',
+      pageTarget: currentPage,
+    });
+    const result = await backend.run(
+      { type: 'left_click', coordinate: { x: 400, y: 200 } } as CuAction,
+      new AbortController().signal,
+      {
+        ...DEFAULT_RUN_CONTEXT,
+        boundAction: boundCoordinateAction({ page: boundPage }),
+      },
+    );
+
+    assert.equal(result.outcome.ok, false);
+    if (!result.outcome.ok) assert.equal(result.outcome.error, 'page_target_changed');
+    const records = await readRecords(logPath);
+    assert.equal(toolCalls(records, 'page').length, 0);
+    assert.equal(toolCalls(records, 'click').length, 0);
   });
 
   it('click prefers a fresh AX element token for an actionable control', async () => {
@@ -849,13 +1158,16 @@ describe('cua-driver backend', () => {
       sig,
     );
 
-    assert.deepEqual(res.outcome, { ok: true, tier: 'coordinate-background' });
-    assert.deepEqual(res.screenshot, {
-      base64: 'SlBFRw==',
-      mimeType: 'image/jpeg',
-      widthPx: 320,
-      heightPx: 180,
+    assert.deepEqual(res.outcome, {
+      ok: true,
+      tier: 'coordinate-background',
+      verified: false,
+      evidence: { path: 'screenshot-detail', effect: 'unverifiable' },
     });
+    assert.equal(res.screenshot?.mimeType, 'image/png');
+    assert.equal(res.screenshot?.widthPx, 1200);
+    assert.equal(res.screenshot?.heightPx, 800);
+    assert.ok(res.observation?.observationId);
     const zoom = toolCall(await readRecords(logPath), 'zoom');
     assert.ok(zoom);
     assert.equal(zoom!.pid, 4242);
@@ -1143,10 +1455,7 @@ describe('cua-driver backend', () => {
   });
 
   it('Electron text uses a uniquely resolved cua-driver page target and DOM readback', async () => {
-    const pageTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const pageTarget = testPageTarget();
     const { backend, logPath } = makeBackend({
       processKind: 'electron',
       pageTarget,
@@ -1200,10 +1509,7 @@ describe('cua-driver backend', () => {
   });
 
   it('Electron semantic pointer actions use page and skip pixel dispatch', async () => {
-    const pageTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const pageTarget = testPageTarget();
     const click = makeBackend({
       processKind: 'electron',
       pageTarget,
@@ -1267,10 +1573,7 @@ describe('cua-driver backend', () => {
   });
 
   it('Electron semantic non-text inputs never establish usable text ownership', async () => {
-    const pageTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const pageTarget = testPageTarget();
     const { backend, logPath } = makeBackend({
       processKind: 'electron',
       pageTarget,
@@ -1296,10 +1599,7 @@ describe('cua-driver backend', () => {
   });
 
   it('semantic pointer unsupported falls back to pixel; semantic failure does not double-dispatch', async () => {
-    const pageTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const pageTarget = testPageTarget();
     const unsupported = makeBackend({
       processKind: 'electron',
       pageTarget,
@@ -1339,10 +1639,7 @@ describe('cua-driver backend', () => {
   });
 
   it('Electron page text refuses non-empty fields and mismatched readback', async () => {
-    const nonEmptyTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const nonEmptyTarget = testPageTarget();
     const nonEmpty = makeBackend({
       processKind: 'electron',
       pageTarget: nonEmptyTarget,
@@ -1367,10 +1664,7 @@ describe('cua-driver backend', () => {
       'execute_javascript',
     ]);
 
-    const mismatchTarget: CuaResolvedPageTextTarget = {
-      port: 9333,
-      targetUrlContains: 'data:text/html,window-a',
-    };
+    const mismatchTarget = testPageTarget();
     const mismatch = makeBackend({
       processKind: 'electron',
       pageTarget: mismatchTarget,

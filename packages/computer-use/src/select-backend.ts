@@ -37,8 +37,8 @@ export interface SelectedComputerUseBackend {
 
 const NONE: SelectedComputerUseBackend = {
   backend: undefined,
-  tools: [],
-  createTools: () => [],
+  tools: Object.assign([], { clearSession(_sessionId: string) {} }),
+  createTools: () => Object.assign([], { clearSession(_sessionId: string) {} }),
   backendId: 'none',
 };
 
