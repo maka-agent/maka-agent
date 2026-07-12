@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import { computeEditedSource } from './edit-replace.js';
 import {
-  buildBackgroundBashTool,
+  buildManagedBashTool,
   buildStopBackgroundTaskTool,
   shapeTerminalResult,
   withShellGuidance,
@@ -51,7 +51,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   const shell = options.shell ?? defaultShellPlan();
   const bashTools = options.shellRuns
     ? [
-      buildBackgroundBashTool(options.shellRuns, { executionFacts, shell }),
+      buildManagedBashTool(options.shellRuns, { executionFacts, shell }),
       buildStopBackgroundTaskTool(options.shellRuns),
     ]
     : [buildExecutorBashTool(executor, shell)];
