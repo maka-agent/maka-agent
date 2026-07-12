@@ -75,9 +75,22 @@ interface ActiveSession extends AgentRunActiveSession {
   turnToRunId: Map<string, string>;
 }
 
+interface StopTarget {
+  active: ActiveSession;
+  runs: Set<AgentRun>;
+  delivered: boolean;
+}
+
+interface StopOperation {
+  abortSource: string | undefined;
+  targets: Map<ActiveSession, StopTarget>;
+}
+
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
+  private readonly stopOperations = new Map<string, StopOperation>();
+  private readonly stopAttempts = new Map<string, Promise<void>>();
   private readonly historyCompactCheckpoints = new Map<string, HistoryCompactCheckpoint | undefined>();
   private readonly historyCompactCheckpointLoads = new Map<string, Promise<HistoryCompactCheckpoint | undefined>>();
   private readonly historyCompactCheckpointWrites = new Map<string, Promise<void>>();
@@ -387,43 +400,67 @@ export class RuntimeKernel implements RuntimeKernelLike {
     };
   }
 
-  async stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
+  stopSession(sessionId: string, input: StopSessionInput = {}): Promise<void> {
+    const existing = this.stopAttempts.get(sessionId);
+    if (existing) return existing;
+    const attempt = this.stopSessionAttempt(sessionId, input).finally(() => {
+      if (this.stopAttempts.get(sessionId) === attempt) this.stopAttempts.delete(sessionId);
+    });
+    this.stopAttempts.set(sessionId, attempt);
+    return attempt;
+  }
+
+  private async stopSessionAttempt(sessionId: string, input: StopSessionInput): Promise<void> {
     const activeSessions = this.activeSessionsFor(sessionId);
-    if (activeSessions.length === 0) return;
-    const abortSource = normalizeStopSessionSource(input.source);
-    const stoppedSessions = activeSessions.map((active) => ({
-      active,
-      stoppedRuns: [...active.activeRuns.values()].filter((run) => {
-        run.stop(input.source);
-        return run.claimStopAttempt();
-      }),
-    })).filter(({ stoppedRuns }) => stoppedRuns.length > 0);
-    const stoppedRuns = stoppedSessions.flatMap(({ stoppedRuns: runs }) => runs);
-    if (stoppedRuns.length === 0) return;
-    try {
-      await Promise.all(stoppedSessions.map(({ active }) => active.backend.stop('user_stop')));
-      await this.updateStatus(sessionId, 'aborted');
-      for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
-        await this.appendTurnState(
-          sessionId,
-          run.turnId,
-          'aborted',
-          run.lineage,
-          { ts: this.deps.now(), abortSource },
-        ).catch(() => {});
-      }
-      await this.deps.store.appendMessage(sessionId, {
-        type: 'system_note',
-        id: this.deps.newId(),
-        ts: this.deps.now(),
-        kind: 'abort',
-        ...(abortSource ? { data: { source: abortSource } } : {}),
-      } satisfies SystemNoteMessage);
-      for (const run of stoppedRuns) run.completeStop();
-    } catch (error) {
-      for (const run of stoppedRuns) run.releaseStopAttempt();
-      throw error;
+    let operation = this.stopOperations.get(sessionId);
+    if (!operation) {
+      operation = {
+        abortSource: normalizeStopSessionSource(input.source),
+        targets: new Map(),
+      };
     }
+    for (const active of activeSessions) {
+      const stoppedRuns = [...active.activeRuns.values()].filter((run) => {
+        run.stop(input.source);
+        return run.hasPendingStop();
+      });
+      if (stoppedRuns.length === 0) continue;
+      const target = operation.targets.get(active) ?? { active, runs: new Set(), delivered: false };
+      for (const run of stoppedRuns) target.runs.add(run);
+      operation.targets.set(active, target);
+    }
+    if (operation.targets.size === 0) return;
+    this.stopOperations.set(sessionId, operation);
+
+    const undelivered = [...operation.targets.values()].filter((target) => !target.delivered);
+    const results = await Promise.allSettled(undelivered.map((target) => target.active.backend.stop('user_stop')));
+    let stopError: unknown;
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') undelivered[index]!.delivered = true;
+      else stopError ??= result.reason;
+    });
+    if (stopError !== undefined) throw stopError;
+
+    const stoppedRuns = [...new Set([...operation.targets.values()].flatMap((target) => [...target.runs]))];
+    await this.updateStatus(sessionId, 'aborted');
+    for (const run of stoppedRuns.filter((activeRun) => !activeRun.lineage.parentRunId)) {
+      await this.appendTurnState(
+        sessionId,
+        run.turnId,
+        'aborted',
+        run.lineage,
+        { ts: this.deps.now(), abortSource: operation.abortSource },
+      ).catch(() => {});
+    }
+    await this.deps.store.appendMessage(sessionId, {
+      type: 'system_note',
+      id: this.deps.newId(),
+      ts: this.deps.now(),
+      kind: 'abort',
+      ...(operation.abortSource ? { data: { source: operation.abortSource } } : {}),
+    } satisfies SystemNoteMessage);
+    for (const run of stoppedRuns) run.completeStop();
+    this.stopOperations.delete(sessionId);
   }
 
   async respondToPermission(sessionId: string, response: PermissionResponse): Promise<void> {

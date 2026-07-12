@@ -3165,7 +3165,13 @@ describe('SessionManager permission mode updates', () => {
 
     const firstStop = manager.stopSession(session.id, { source: 'stop_button' });
     await stopStarted.promise;
-    const secondStop = manager.stopSession(session.id, { source: 'stop_button' });
+    let secondStopSettled = false;
+    const secondStop = manager.stopSession(session.id, { source: 'stop_button' }).finally(() => {
+      secondStopSettled = true;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(secondStopSettled).toBe(false);
     releaseStop.release();
     await Promise.all([firstStop, secondStop]);
     while (!(await turn.next()).done) {}
@@ -3176,6 +3182,55 @@ describe('SessionManager permission mode updates', () => {
     expect(messages.filter((message) =>
       message.type === 'turn_state' && message.turnId === 'turn-1' && message.status === 'aborted'
     )).toHaveLength(1);
+  });
+
+  test('stopSession retries only backends that failed in a multi-session stop', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const childGate = makeGate();
+    let parentBackend: CountingStopBackend | undefined;
+    let childBackend: RetryStopBackend | undefined;
+    backends.register('fake', (ctx) => {
+      if (ctx.header.permissionMode === 'explore') {
+        childBackend = new RetryStopBackend(ctx, childGate);
+        return childBackend;
+      }
+      parentBackend = new CountingStopBackend(ctx, parentGate);
+      return parentBackend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_848),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+    const parent = manager.sendMessage(session.id, { turnId: 'parent-turn', text: 'parent' })[Symbol.asyncIterator]();
+    await parent.next();
+    const [parentRun] = await runStore.listSessionRuns(session.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const child = manager.startChildTurn(session.id, {
+      turnId: 'child-turn',
+      parentRunId: parentRun.runId,
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'child',
+    })[Symbol.asyncIterator]();
+    await child.next();
+
+    await expectRejects(manager.stopSession(session.id, { source: 'stop_button' }), /first stop failed/);
+    await manager.stopSession(session.id, { source: 'stop_button' });
+
+    expect(parentBackend?.stopCalls).toBe(1);
+    expect(childBackend?.stopCalls).toBe(2);
+    parentGate.release();
+    while (!(await parent.next()).done) {}
+    while (!(await child.next()).done) {}
   });
 
   test('spawnChildAgent fails closed instead of running a degraded catalog agent', async () => {
@@ -5485,6 +5540,12 @@ class ConcurrentStopBackend extends TestBackend {
     this.stopCalls += 1;
     this.stopStarted.release();
     await this.releaseStop.promise;
+  }
+}
+
+class CountingStopBackend extends TestBackend {
+  override async stop(): Promise<void> {
+    this.stopCalls += 1;
   }
 }
 
