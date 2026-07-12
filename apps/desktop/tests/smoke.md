@@ -141,11 +141,12 @@ To promote the current stable subset after intentional visual changes:
 npm --workspace @maka/desktop run screenshots:baseline:stable
 ```
 
-After Step 2 rollout, when the full 144 PNG baseline has been reviewed
-and promoted, use the same scripts without the `:stable` suffix:
+After the full baseline has been reviewed and promoted, use the same scripts
+without the `:stable` suffix. The scenario inventory and output cardinality are
+owned by `ALL_SCENARIOS` and `VARIANTS` in the capture script:
 
 ```bash
-npm --workspace @maka/desktop run screenshots:diff      # all 18 scenarios
+npm --workspace @maka/desktop run screenshots:diff      # all scenarios
 npm --workspace @maka/desktop run screenshots:baseline  # full promotion
 ```
 
