@@ -152,9 +152,6 @@ export function buildManagedBashTool(
   };
 }
 
-/** @deprecated Use buildManagedBashTool. */
-export const buildBackgroundBashTool = buildManagedBashTool;
-
 export function withShellGuidance(lead: string, shell: ShellPlan): string {
   const guidance = bashToolShellGuidance(shell);
   return guidance ? `${lead} ${guidance}` : lead;

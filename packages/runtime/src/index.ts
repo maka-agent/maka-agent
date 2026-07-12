@@ -79,7 +79,6 @@ export type {
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
 export {
-  buildBackgroundBashTool,
   buildManagedBashTool,
   buildForegroundBashTool,
   buildLocalForegroundBashTool,
