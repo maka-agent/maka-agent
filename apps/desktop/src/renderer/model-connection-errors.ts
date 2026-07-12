@@ -50,7 +50,7 @@ export function modelSetupToastCopy(reason: string | undefined, fallback: string
   if (reason === 'connection_missing') {
     return {
       title: '连接已删除',
-      description: '该会话依赖的模型连接已删除，请到 设置 · 模型 重新选择或重建连接。',
+      description: describeChatConfigurationReason(reason),
     };
   }
   return {
