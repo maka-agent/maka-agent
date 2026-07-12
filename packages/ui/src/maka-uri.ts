@@ -115,8 +115,7 @@ export type MakaUriDest =
  *     `COMPOSE_TEXT_MAX_LENGTH` decoded characters.
  *
  * The parser is intentionally narrow. Adding a destination is a code
- * change here AND in the renderer dispatcher AND in the test fixtures
- * AND in smoke.md Path 17 — by design.
+ * change here, in the renderer dispatcher, and in the test fixtures.
  */
 export function parseMakaUri(href: string): MakaUriDest | null {
   if (typeof href !== 'string') return null;

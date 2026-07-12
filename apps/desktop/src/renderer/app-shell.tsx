@@ -1220,7 +1220,7 @@ export function AppShell({
    * No other cases exist today by design — the parser only emits
    * these two discriminants. If a new variant is added in `MakaUriDest`,
    * TypeScript's exhaustiveness check below trips and a new branch
-   * must be wired here (and in smoke.md Path 17).
+   * must be wired here with corresponding fixture and journey coverage.
    */
   function dispatchMakaUri(dest: MakaUriDest) {
     switch (dest.kind) {

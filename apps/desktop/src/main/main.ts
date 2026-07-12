@@ -1511,7 +1511,7 @@ function registerIpc(): void {
   // PR110b: Onboarding snapshot + milestone IPCs. Renderer polls via
   // these on app load and whenever `sessions:changed` /
   // `connections:changed` / settings change events fire. No push from
-  // main; see smoke.md Path 16.
+  // main.
   ipcMain.handle('onboarding:getSnapshot', async () => onboardingService.getSnapshot());
   ipcMain.handle('onboarding:setMilestone', async (_event, id: unknown, status: unknown) => {
     // Service throws INVALID_MILESTONE_ID / INVALID_MILESTONE_STATUS

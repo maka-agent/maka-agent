@@ -15,6 +15,10 @@ The root `DESIGN.md` owns shared product design intent. `docs/frontend-css-gover
 
 - `maka-capability-audit-v1-2026-05.md` — a point-in-time capability and release-gate audit whose frontend authority references are no longer current.
 
+## Validation snapshots
+
+- `desktop-smoke-plan-legacy.md` — completed PR acceptance paths and deferred UI designs removed from the current executable smoke runbook.
+
 ## Former repository notes
 
 Tracked `notes/` files were retired as an undocumented parallel authority. Point-in-time audits, migration plans, reference reverse-engineering, and design research remain here only for provenance. Current repository rules live in `ARCHITECTURE.md`, `DESIGN.md`, active cross-cutting contracts, local READMEs, source, and tests; workspace-specific agent instructions are supplied outside the tracked documentation set.

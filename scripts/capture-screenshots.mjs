@@ -92,14 +92,14 @@ const ALL_SCENARIOS = [
   // share one on-disk seed and only differ in active session, so
   // capture produces three deterministic screenshots covering primary
   // (lineage / aborted / failed), visible-parent branch (banner), and
-  // orphan branch (no banner). See smoke.md Path 15.
+  // orphan branch (no banner).
   'turn-control-history',
   'turn-control-branch-visible',
   'turn-control-branch-orphan',
   // PR-UI-RENDER-3a-smoke: registry-driven artifact preview fixtures.
   // Each writes a SINGLE artifact to ARTIFACT_SESSION_ID so the
   // ArtifactPane default selection deterministically shows the one we
-  // want to baseline. See smoke.md Path 17 PR-RENDER-3a-smoke gate.
+  // want to baseline.
   'artifact-preview-image',
   'artifact-preview-unsupported',
   'artifact-preview-oversize',
