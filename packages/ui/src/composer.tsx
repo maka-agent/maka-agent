@@ -230,6 +230,7 @@ export const Composer = forwardRef<
   const activeDraftKeyRef = useRef<string | undefined>(props.draftKey);
   const composerMountedRef = useRef(true);
   const sendPendingRef = useRef(false);
+  const compositionActiveRef = useRef(false);
   const importActionOwnerRef = useRef<ChatInputActionOwner<ComposerImportActionId> | null>(null);
   if (!importActionOwnerRef.current) {
     importActionOwnerRef.current = createChatInputActionOwner((action) => {
@@ -380,7 +381,7 @@ export const Composer = forwardRef<
 
   function onTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     // Skip when an IME composition is active so CJK input isn't interrupted.
-    if (isChatInputComposing(event)) return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     // Esc while a drag-active highlight is showing should clear it
     // immediately. The existing useEffect listens for blur/dragend/drop
     // but not keydown, so a user who hits Esc to cancel a stuck drag
@@ -510,7 +511,7 @@ export const Composer = forwardRef<
     // TypeScript types don't acknowledge that.) Use a narrow `in` check
     // + a typed cast so this compiles AND keeps working when the
     // browser does expose the flag.
-    if (isChatInputComposing(event)) return;
+    if (isChatInputComposing(event, compositionActiveRef.current)) return;
     if (!hasPastedFiles(event)) return;
     if (!canAcceptDroppedFiles()) return;
     const files = Array.from(event.clipboardData.files);
@@ -582,6 +583,8 @@ export const Composer = forwardRef<
           disabled={props.disabled}
           onKeyDown={onTextareaKeyDown}
           onPaste={onTextareaPaste}
+          onCompositionStart={() => { compositionActiveRef.current = true; }}
+          onCompositionEnd={() => { compositionActiveRef.current = false; }}
           onInput={onTextareaInput}
           rows={1}
           autoComplete="off"

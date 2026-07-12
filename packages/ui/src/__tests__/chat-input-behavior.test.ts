@@ -11,6 +11,7 @@ describe('shared chat input behavior', () => {
   it('recognizes IME composition from either the native flag or Process key', () => {
     assert.equal(isChatInputComposing({ key: 'Enter', nativeEvent: { isComposing: true } }), true);
     assert.equal(isChatInputComposing({ key: 'Process', nativeEvent: {} }), true);
+    assert.equal(isChatInputComposing({ nativeEvent: {} }, true), true);
     assert.equal(isChatInputComposing({ key: 'Enter', nativeEvent: {} }), false);
   });
 

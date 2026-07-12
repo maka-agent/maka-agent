@@ -3,8 +3,11 @@ export interface ChatInputCompositionEvent {
   nativeEvent: object;
 }
 
-export function isChatInputComposing(event: ChatInputCompositionEvent): boolean {
-  return event.key === 'Process'
+export function isChatInputComposing(
+  event: ChatInputCompositionEvent,
+  trackedComposition = false,
+): boolean {
+  return trackedComposition || event.key === 'Process'
     || ('isComposing' in event.nativeEvent && event.nativeEvent.isComposing === true);
 }
 
