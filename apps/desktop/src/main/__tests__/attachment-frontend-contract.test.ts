@@ -141,8 +141,8 @@ describe('attachment frontend contract', () => {
 // These assertions pin the converged form so the surfaces cannot drift back.
 describe('attachment visual token governance (#546)', () => {
   it('image thumbnail placeholder uses maka surface-alpha + radius tokens, not shadcn aliases', async () => {
-    const chatView = await readRepo('packages/ui/src/chat-view.tsx');
-    const m = chatView.match(/maka-user-attachment-thumb-pending[^"]*/);
+    const chatTurn = await readRepo('packages/ui/src/chat-turn.tsx');
+    const m = chatTurn.match(/maka-user-attachment-thumb-pending[^"]*/);
     assert.ok(m, 'pending thumbnail className not found — component renamed?');
     const cls = m[0];
     // No raw shadcn surface aliases — the card next to it uses --foreground-alpha-*.
