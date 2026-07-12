@@ -28,7 +28,7 @@ When `incognitoActive` is true, current consumers enforce these boundaries:
 
 - Thread search returns a disabled result instead of searching stored threads.
 - Local memory rejects durable reads and writes.
-- Plan reminders and automation reject creation or execution that would persist or act on workspace state.
+- Plan reminders reject creation and triggering; automation blocks trigger execution.
 - Web search rejects outbound queries.
 - System notifications are suppressed.
 
