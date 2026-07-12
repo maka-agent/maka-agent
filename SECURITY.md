@@ -47,13 +47,13 @@ and they are NOT equally load-bearing.
 - **Renderer process.** Electron's sandboxed renderer. Receives
   data only through the preload IPC bridge in
   `apps/desktop/src/preload/preload.ts`.
-- **Permission engine.** `@maka/core/permission` — categorizes
-  tools (`read / web_read / file_write / fs_destructive /
-  shell_safe / shell_unsafe / git_destructive / network_send /
-  privileged / custom_tool / subagent`) and routes each one
-  through a 3-mode policy matrix (`explore / ask / execute`).
-- **Permission mode.** Per-session user setting; `ask` is the
-  default and prompts on every non-read tool.
+- **Permission engine.** `@maka/core/permission` evaluates each tool
+  category against the selected mode. `PERMISSION_MODES`,
+  `TOOL_CATEGORIES`, and `PERMISSION_POLICY` are the exact authority;
+  this policy does not duplicate their inventory.
+- **Permission mode.** Per-session user setting. `ask` is the default;
+  its exact allow, prompt, and block decisions come from
+  `PERMISSION_POLICY`.
 - **Input surface.** Any channel through which content enters the
   agent's context: chat input, file reads, web fetches (Tavily),
   bot platform messages (Telegram / Feishu), MCP server responses
@@ -130,9 +130,9 @@ are welcome as ordinary issues, not security advisories.
 3. **`normalizeSearchUrl()` URL allowlist.** Filters non-http(s)
    URLs out of agent tool results before they reach a renderer
    `<a href>`.
-4. **`PermissionMode.ask`** as default. Every non-read tool
-   prompts. `execute` mode autopilots — the user is opting into
-   "yolo".
+4. **`PermissionMode.ask`** as default. Mode names are UX controls,
+   not security boundaries; even permissive modes remain subject to
+   the current policy table and OS isolation boundary.
 5. **Modal-lifecycle contract test.** Catches the React
    `useEffect`-before-`if (!open) return null` pattern that can
    violate React hook ordering. Static analysis only.
