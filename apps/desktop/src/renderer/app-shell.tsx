@@ -7,7 +7,6 @@ import type {
   PlanReminder,
   SessionSummary,
   SettingsSection,
-  StoredMessage,
   ThemePalette,
   ThemePreference,
   ThinkingLevel,
@@ -104,7 +103,6 @@ import { createAppShellDailyReviewActions } from './app-shell-daily-review-actio
 import { createAppShellSessionRowActions } from './app-shell-session-row-actions';
 import { createAppShellSessionSettingsActions } from './app-shell-session-settings-actions';
 import { createAppShellStopAction } from './app-shell-stop-action';
-import { useAppShellSessionUiState } from './app-shell-session-ui-state';
 import {
   useActiveSessionEvents,
   useAppShellBootstrapSubscriptions,
@@ -115,8 +113,8 @@ import {
   useSettledSessionTransientReconcile,
 } from './app-shell-effects';
 import { loadComposerDefaults, saveComposerDefaults } from './composer-defaults';
-import { useAppShellSessionList } from './use-app-shell-session-list';
 import { useAppShellComposerAttachments } from './use-app-shell-composer-attachments';
+import { useAppShellSessionWorkspace } from './use-app-shell-session-workspace';
 
 function connectionsEqual(a: LlmConnection[], b: LlmConnection[]): boolean {
   if (a.length !== b.length) return false;
@@ -156,8 +154,30 @@ export function AppShell({
     upsertSessionSummary,
     markSessionRunningOptimistic,
     markSessionReadLocally,
-  } = useAppShellSessionList(toastApi);
-  const [activeId, setActiveIdState] = useState<string | undefined>();
+    activeId,
+    activeIdRef,
+    setActiveId,
+    startNewSession,
+    clearOwnedSessionState,
+    messages,
+    setMessages,
+    messageLoadPending,
+    setMessageLoadPending,
+    messageRetryPendingRef,
+    stopPendingRef,
+    sessionUiState,
+    liveTurnBySessionRef,
+    sessionEventHealthBySessionRef,
+    setMessageLoadErrorBySession,
+    setMessageRetryPendingBySession,
+    setStopPendingBySession,
+    setLiveTurnBySession,
+    setPermissionBySession,
+    setSessionEventHealthBySession,
+    setPendingPermissionModeBySession,
+    setPendingSessionModelBySession,
+    clearTurnTransientState,
+  } = useAppShellSessionWorkspace(toastApi);
   const attachmentDraftKey = activeId ?? 'new-session';
   const {
     pendingAttachments,
@@ -171,25 +191,6 @@ export function AppShell({
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
   const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
   const navSelectionRef = useRef<NavSelection>(navSelection);
-  const [messages, setMessages] = useState<StoredMessage[]>([]);
-  const [messageLoadPending, setMessageLoadPending] = useState(false);
-  const messageRetryPendingRef = useRef<Set<string>>(new Set());
-  const stopPendingRef = useRef<Set<string>>(new Set());
-  const {
-    state: sessionUiState,
-    liveTurnBySessionRef,
-    sessionEventHealthBySessionRef,
-    setMessageLoadErrorBySession,
-    setMessageRetryPendingBySession,
-    setStopPendingBySession,
-    setLiveTurnBySession,
-    setPermissionBySession,
-    setSessionEventHealthBySession,
-    setPendingPermissionModeBySession,
-    setPendingSessionModelBySession,
-    clearSessionUiState,
-    clearTurnTransientState,
-  } = useAppShellSessionUiState();
   const {
     messageLoadErrorBySession,
     messageRetryPendingBySession,
@@ -268,7 +269,6 @@ export function AppShell({
     });
   }
   const composerRef = useRef<ComposerHandle>(null);
-  const activeIdRef = useRef<string | undefined>(undefined);
   const rendererMountedRef = useRef(true);
   const projectPickerPendingRef = useRef(false);
   const projectPickerRequestRef = useRef(0);
@@ -543,12 +543,10 @@ export function AppShell({
   }
 
   function clearSessionRendererState(sessionId: string): void {
-    messageRetryPendingRef.current.delete(sessionId);
-    stopPendingRef.current.delete(sessionId);
+    clearOwnedSessionState(sessionId);
     clearPendingTurnActionsForSession(sessionId);
     pendingPermissionModeChangesRef.current.delete(sessionId);
     pendingSessionModelChangesRef.current.delete(sessionId);
-    clearSessionUiState(sessionId);
   }
 
   const sessionRowActionHandlers = createAppShellSessionRowActions({
@@ -824,19 +822,6 @@ export function AppShell({
     sessionListWidth,
     setSessionListWidth,
   });
-
-  function setActiveId(next: string | undefined): void {
-    // Clear here, not in the read effect: a layout-effect clear would wipe an
-    // optimistic first message before the first paint.
-    if (!next) {
-      setMessageLoadPending(false);
-    } else if (next !== activeIdRef.current) {
-      setMessages([]);
-      setMessageLoadPending(true);
-    }
-    activeIdRef.current = next;
-    setActiveIdState(next);
-  }
 
   function isAutomationsSurfaceActive(): boolean {
     return navSelectionRef.current.section === 'automations';
@@ -1181,11 +1166,9 @@ export function AppShell({
   }
 
   async function createSession() {
-    setActiveId(undefined);
+    startNewSession();
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
-    setMessageLoadPending(false);
-    setMessages([]);
     // New-task affordances reset to the empty-state composer; move focus
     // there so the user can start typing immediately.
     window.requestAnimationFrame(() => composerRef.current?.focus());

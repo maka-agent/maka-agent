@@ -147,6 +147,7 @@ describe('permission response IPC boundary', () => {
       'app-shell.tsx',
       'app-shell-stop-action.ts',
       'app-shell-chat-actions.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     // Match `async function stop()` body up to its closing brace.
     const stop = renderer.match(/async function stop\(\)\s*\{[\s\S]*?\n  \}/);
@@ -311,6 +312,7 @@ describe('permission response IPC boundary', () => {
       'app-shell.tsx',
       'app-shell-effects.ts',
       'use-app-shell-session-list.ts',
+      'use-app-shell-session-workspace.ts',
     ]);
     const setActiveId = renderer.match(/function setActiveId\(next: string \| undefined\): void \{[\s\S]*?\n  \}/);
     const refreshSessions = renderer.match(/async function refreshSessions\(\)(?:: Promise<SessionSummary\[]>)? \{[\s\S]*?\n  \}/);
