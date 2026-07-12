@@ -6,7 +6,7 @@ Status: Phase 1–4 skeleton landed (compile-safe, tested). The production
 `SessionManager.sendMessage` hot path is **unchanged**; the v2 seam exists
 in parallel so future work can migrate onto it incrementally.
 
-Source plan: `docs/runtime-v2-architecture-evolution.md`.
+Source plan: `docs/archive/runtime-v2-architecture-evolution.md`.
 
 ## What landed
 

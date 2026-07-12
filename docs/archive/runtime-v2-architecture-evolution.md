@@ -1,5 +1,7 @@
 # Runtime v2 Architecture Evolution
 
+> Archived on 2026-07-13. This proposal records the route to the current runtime; it is not current architecture authority. Start with `ARCHITECTURE.md`.
+
 This document proposes a long-term evolution path for Maka's agent runtime. It
 is written for developers who need to understand why the runtime needs another
 architecture pass, what should stay stable, and how the codebase can move there

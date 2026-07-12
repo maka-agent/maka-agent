@@ -48,8 +48,8 @@ These documents include target-state design or work that is not fully implemente
 
 ## Historical material
 
-- [Runtime kernel extraction](./runtime-kernel.md)
-- [Runtime v2 architecture evolution](./runtime-v2-architecture-evolution.md)
+- [Runtime kernel extraction](./archive/runtime-kernel.md)
+- [Runtime v2 architecture evolution](./archive/runtime-v2-architecture-evolution.md)
 - [Runtime v2 implementation notes](./archive/runtime-v2-implementation-notes.md)
 - [Documentation archive](./archive/README.md)
 

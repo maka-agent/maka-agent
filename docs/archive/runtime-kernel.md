@@ -1,5 +1,7 @@
 # Runtime Kernel Extraction
 
+> Archived on 2026-07-13. This is a point-in-time extraction record, not current architecture authority. Start with `ARCHITECTURE.md`.
+
 This document explains the runtime-kernel work in this change set: what changed,
 why it was needed, what stayed stable, and how it was verified.
 

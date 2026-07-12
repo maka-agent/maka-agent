@@ -96,8 +96,8 @@ Read `1 → 4 → 5 → 6`. Chapter 6 depends on the Event Log, TaskRun projecti
 
 The “code map” in each deep-dive article is the preferred implementation entry point. Earlier design and evolution material remains available in:
 
-- [`docs/runtime-kernel.md`](./docs/runtime-kernel.md)
-- [`docs/runtime-v2-architecture-evolution.md`](./docs/runtime-v2-architecture-evolution.md)
+- [`docs/archive/runtime-kernel.md`](./docs/archive/runtime-kernel.md)
+- [`docs/archive/runtime-v2-architecture-evolution.md`](./docs/archive/runtime-v2-architecture-evolution.md)
 - [`docs/archive/runtime-v2-implementation-notes.md`](./docs/archive/runtime-v2-implementation-notes.md)
 
 Those documents provide historical design context and implementation notes. The six chapters indexed here are the narrative entry point for current backend mechanisms.

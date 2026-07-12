@@ -19,7 +19,7 @@ startup-recovery responsibilities behind explicit internal boundaries.
 | AgentRun execution | Moved the heavy turn execution lifecycle from `SessionManager.sendMessage()` into internal `AgentRun.execute()`, including user-message append, backend stream drive, status projection, abort/failure handling, and durable trace writes. |
 | Startup recovery | Made `recoverInterruptedSessions()` prefer the AgentRun ledger when available, repairing stale non-terminal runs and preserving the legacy message/turn-state fallback for older sessions. |
 
-See `docs/runtime-kernel.md` for the design rationale, boundaries, and
+See `docs/archive/runtime-kernel.md` for the historical design rationale, boundaries, and
 verification details.
 
 ### Hardening phases 1-5

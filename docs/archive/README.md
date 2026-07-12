@@ -29,6 +29,8 @@ Tracked `notes/` files were retired as an undocumented parallel authority. Point
 
 The dated runtime and sandbox files are completed execution plans. Each file records the pull request that landed its implementation.
 
+`runtime-kernel.md` and `runtime-v2-architecture-evolution.md` preserve the extraction rationale and evolution proposal that led to the current runtime. Current authority starts at `ARCHITECTURE.md`.
+
 `runtime-v2-implementation-notes.md` records the initial Phase 1–4 runtime skeleton and is superseded by the backend architecture chapters and current source.
 
 `agent-runtime-codex-sandbox-alignment.md` and `agent-runtime-codex-sandbox-todo.md` preserve the original sandbox discussion and phased checklist. Stable boundaries now live beside the runtime implementation; remaining work is tracked in issue #843.
