@@ -703,6 +703,7 @@ export const Composer = forwardRef<
               <UiButton
                 className="maka-button"
                 variant="default"
+                size="sm"
                 type="button"
                 disabled={props.stopPending}
                 onClick={() => {

@@ -1,9 +1,7 @@
 /**
  * PR-COMPOSER-CONSTANT-FOOTPRINT-0 (issue #740):
  * lock the Composer's constant vertical footprint so the empty composer can't
- * drift back to the ~200px that ate a quarter of an 820px window — AND lock that
- * no state selector, no second DOM-class source, and no token override can
- * re-introduce an idle/active geometry switch.
+ * drift back to the ~200px that ate a quarter of an 820px window.
  *
  * The cut is static — no `[data-compact]` state machine, no idle/active mode.
  * The Composer is the highest-frequency surface and sits at the bottom of the
@@ -14,37 +12,33 @@
  * COMPOSER_MAX_HEIGHT in @maka/ui), so content-driven "expand" is the textarea's
  * own growth — no enter/leave transition, no reduced-motion special-casing.
  *
- * The <form> carries TWO class aliases — `.maka-composer` AND `.composer` — so
- * a "single source" claim must cover both: .composer owns the padding, and
- * .maka-composer must NOT re-add it. The textarea's min-height must come from
- * CSS (var(--h-composer-min)), not a Tailwind min-h-* utility that could win if
- * the CSS rule is removed.
+ * Stability is locked at two layers:
+ *   (a) FORM GEOMETRY — five rest levers pinned exactly-once, plus the <form>'s
+ *       second class .maka-composer must NOT re-add padding (single source).
+ *   (b) TOOLBAR GEOMETRY — the send button (size="icon-sm", h-8/32px) and the
+ *       stop button (size="sm", h-8/32px) share the same height, so swapping
+ *       send→stop on streaming does NOT change the toolbar height (a prior 4px
+ *       jump from stop defaulting to md/h-9 is now fixed).
  *
- * Six invariants pin the vertical budget (each measured against the 820px
- * window: composer outer 200px, inner 128px, textarea 56px):
+ * This contract does NOT attempt to lock "no state selector can ever change
+ * the footprint" via a property blacklist — CSS selectors are unbounded (compound
+ * aliases, pseudo-elements, display/border-width changes), so such a guard is
+ * fail-open and dishonest. #740's "no mode switch" is upheld by product code
+ * (no [data-compact] state is introduced) + the two stability layers above;
+ * a future state rule that re-introduces a footprint switch is a review
+ * responsibility, not a static-scan one.
  *
- *   1. --h-composer-min (textarea min-height) is 44px, not 56px.
- *   2. .composer vertical padding is var(--space-2) (8px) top + bottom; .maka-
- *      composer declares NO padding (single source for the form's two classes).
- *   3. .maka-composer-inner padding-block is var(--space-2)/var(--space-1-5)
- *      (8/6px) with a var(--space-1-5) (6px) gap, not 10/8px + 10px.
- *   4. .composerActions margin-top is var(--space-1) (4px), not 8px.
- *   5. .maka-composer-textarea min-height is var(--h-composer-min) (CSS), and
- *      its className carries no Tailwind min-h-* utility (TSX).
- *   6. No state selector on .composer / .maka-composer / .maka-composer-inner
- *      (state = :hover/:focus-within/[data-…], but NOT ::before/::after which
- *      are the streaming sweep pseudo-elements) declares any vertical-geometry
- *      property — padding* (shorthand + all physical/logical longhands), gap*,
- *      margin* (shorthand + longhands), height/block-size/max-* and min-*, or a
- *      local --h-composer-min override. This is the core #740 lock: an
- *      idle/active mode switch is impossible if no state selector can change
- *      the footprint. (State selectors may still change border/box-shadow/
- *      background/color/position/overflow — those don't affect the form height.)
- *
- * Combined invariants 1–5 drop an empty composer from ~200px to ~164px (≥18%).
- * Each lever is pinned exactly-once (a later rest block, a selector-list
- * companion, OR a same-block duplicate would all win the cascade) so a
- * regression is caught before it ships.
+ * Six invariants (820px window baseline: composer outer 200px, inner 128px,
+ * textarea 56px → 200/128/56 tightened to ~164/104/44):
+ *   1. --h-composer-min is 44px.
+ *   2. .composer padding is var(--space-2) var(--space-6) var(--space-2);
+ *      .maka-composer (the form's other class) declares NO padding.
+ *   3. .maka-composer-inner padding is var(--space-2) var(--space-3)
+ *      var(--space-1-5); gap is var(--space-1-5).
+ *   4. .composerActions margin-top is var(--space-1).
+ *   5. .maka-composer-textarea min-height is var(--h-composer-min) (CSS) and
+ *      its className carries no Tailwind min-h-* (TSX).
+ *   6. send + stop buttons both use an h-8 size (icon-sm or sm, 32px).
  */
 
 import { strict as assert } from 'node:assert';
@@ -74,49 +68,41 @@ function declarationsIn(body: string, prop: string): string[] {
   return [...body.matchAll(re)].map((m) => m[1].trim().replace(/\s+/g, ' '));
 }
 
-function restBlocks(css: string, subjectSelector: string): string[] {
+/** The subject of a selector — the last simple-selector sequence after any
+ *  combinator (descendant ` `, child `>`, sibling `+`/`~`). `.composer .inner`
+ *  → `.inner`; `.maka-composer.composer` → `.maka-composer.composer`. */
+function subjectOf(sel: string): string {
+  const parts = sel.split(/\s(?:[>+~]\s)?\s|\s/).filter(Boolean);
+  return parts[parts.length - 1] ?? sel;
+}
+
+/** Classes on the subject (`.foo.bar` → [`.foo`, `.bar`]). Hyphenated names
+ *  stay one class (`.maka-composer` ≠ `.maka` + `.composer`). */
+function subjectClasses(sel: string): string[] {
+  return [...subjectOf(sel).matchAll(/\.([\w-]+)/g)].map((m) => `.${m[1]}`);
+}
+
+/** Rest blocks whose subject carries `subjectClass` and has no state pseudo /
+ *  attribute. Matching by SUBJECT (not whole-selector equality) catches a
+ *  compound alias like `.maka-composer.composer { padding }` that a strict
+ *  `.composer` equality would miss, while excluding descendant selectors whose
+ *  subject is a different element (`.composer .maka-composer-inner`). */
+function restBlocks(css: string, subjectClass: string): string[] {
   const blocks: string[] = [];
   for (const [prelude, body] of styleRules(css)) {
     if (!prelude || prelude.startsWith('@')) continue;
     const selectors = prelude.split(',').map((s) => s.trim());
-    if (selectors.some((sel) => sel === subjectSelector && !/[:[]/.test(sel))) {
+    if (selectors.some((sel) => subjectClasses(sel).includes(subjectClass) && !/[:[]/.test(subjectOf(sel)))) {
       blocks.push(body);
     }
   }
   return blocks;
 }
 
-function assertExactlyOnce(css: string, selector: string, prop: string, expected: string, label: string): void {
-  const decls = restBlocks(css, selector).flatMap((b) => declarationsIn(b, prop));
-  assert.equal(decls.length, 1, `${label}: ${prop} must be declared exactly once (a later rest block, a selector-list companion, OR a same-block duplicate would all win the cascade); got ${decls.length}: ${JSON.stringify(decls)}`);
+function assertExactlyOnce(css: string, subjectClass: string, prop: string, expected: string, label: string): void {
+  const decls = restBlocks(css, subjectClass).flatMap((b) => declarationsIn(b, prop));
+  assert.equal(decls.length, 1, `${label}: ${prop} must be declared exactly once on a rest block whose subject carries ${subjectClass} (a later rest block, a selector-list companion, a compound alias, OR a same-block duplicate would all win the cascade); got ${decls.length}: ${JSON.stringify(decls)}`);
   assert.equal(decls[0], expected, `${label}: ${prop} must be ${expected}; got ${decls[0]}`);
-}
-
-/** State-selector blocks: any selector referencing .composer / .maka-composer /
- *  .maka-composer-inner WITH a state pseudo/attribute, but NOT ::before/::after
- *  (those are the streaming sweep pseudo-elements — their height/position is the
- *  sweep line, not the composer footprint). */
-function stateComposerBlocks(css: string): string[] {
-  const blocks: string[] = [];
-  for (const [prelude, body] of styleRules(css)) {
-    if (!prelude || prelude.startsWith('@')) continue;
-    const selectors = prelude.split(',').map((s) => s.trim());
-    if (selectors.some((sel) => /(^|\s)(?:\.maka-composer-inner|\.composer|\.maka-composer)(?![\w-])/.test(sel) && /[:[]/.test(sel) && !/::(?:before|after)/.test(sel))) {
-      blocks.push(body);
-    }
-  }
-  return blocks;
-}
-
-/** Any vertical-geometry property + a local --h-composer-min override.
- *  padding/gap/margin cover shorthand + all physical/logical longhands
- *  (padding-block-start/end, margin-block-start/end, …); height/block-size/
- *  max-* and min-* cover explicit box height; --h-composer-min covers a state rule
- *  locally overriding the token that drives textarea min-height. */
-const GEO_PROP_RE = /(?:^|[;\n])\s*(?:padding(?:-block(?:-start|-end)?|-inline(?:-start|-end)?|-top|-right|-bottom|-left)?|gap|row-gap|column-gap|margin(?:-block(?:-start|-end)?|-inline(?:-start|-end)?|-top|-right|-bottom|-left)?|height|block-size|max-height|max-block-size|min-height|min-block-size|--h-composer-min)\s*:/gi;
-
-function geoDeclarationsIn(body: string): string[] {
-  return [...body.matchAll(GEO_PROP_RE)].map((m) => m[0].trim().replace(/\s+/g, ' '));
 }
 
 describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
@@ -125,17 +111,17 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     assertCustomPropPinnedOnce(tokens, '--h-composer-min', '44px', 'maka-tokens.css');
   });
 
-  it('.composer rest padding is var(--space-2) var(--space-6) var(--space-2) AND .maka-composer declares no padding (form carries both classes — single source)', async () => {
+  it('.composer rest padding is var(--space-2) var(--space-6) var(--space-2) AND .maka-composer (form alias) declares no padding (single source)', async () => {
     const css = stripCssComments(await readAllRendererCss());
     assertExactlyOnce(css, '.composer', 'padding', 'var(--space-2) var(--space-6) var(--space-2)', '.composer padding');
-    const makaComposerPadding = restBlocks(css, '.maka-composer').flatMap((b) => declarationsIn(b, 'padding'));
-    assert.equal(makaComposerPadding.length, 0, `.maka-composer must not declare padding (the <form> carries .maka-composer + .composer; .composer is the single padding source); got ${JSON.stringify(makaComposerPadding)}`);
+    const makaPadding = restBlocks(css, '.maka-composer').flatMap((b) => declarationsIn(b, 'padding'));
+    assert.equal(makaPadding.length, 0, `.maka-composer must not declare padding (the <form> carries .maka-composer + .composer; .composer is the single source); got ${JSON.stringify(makaPadding)}`);
   });
 
   it('.maka-composer-inner rest padding + gap are the constant footprint', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    assertExactlyOnce(css, '.composer .maka-composer-inner', 'padding', 'var(--space-2) var(--space-3) var(--space-1-5)', '.maka-composer-inner padding');
-    assertExactlyOnce(css, '.composer .maka-composer-inner', 'gap', 'var(--space-1-5)', '.maka-composer-inner gap');
+    assertExactlyOnce(css, '.maka-composer-inner', 'padding', 'var(--space-2) var(--space-3) var(--space-1-5)', '.maka-composer-inner padding');
+    assertExactlyOnce(css, '.maka-composer-inner', 'gap', 'var(--space-1-5)', '.maka-composer-inner gap');
   });
 
   it('.composerActions rest margin-top is var(--space-1) (4px)', async () => {
@@ -145,20 +131,24 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
 
   it('.maka-composer-textarea min-height is var(--h-composer-min) (CSS) AND its className carries no Tailwind min-h-* (TSX single source)', async () => {
     const css = stripCssComments(await readAllRendererCss());
-    assertExactlyOnce(css, '.composer .maka-composer-textarea', 'min-height', 'var(--h-composer-min)', '.maka-composer-textarea min-height');
+    assertExactlyOnce(css, '.maka-composer-textarea', 'min-height', 'var(--h-composer-min)', '.maka-composer-textarea min-height');
     const source = await readFile(COMPOSER_TSX, 'utf8');
     const textareaLine = source.split('\n').find((l) => l.includes('maka-composer-textarea'));
     assert.ok(textareaLine, 'maka-composer-textarea className line not found in composer.tsx');
     assert.doesNotMatch(textareaLine!, /min-h-[a-z0-9]+/i, '.maka-composer-textarea className must not carry a Tailwind min-h-* utility (CSS min-height: var(--h-composer-min) is the single source)');
   });
 
-  it('no state selector on .composer/.maka-composer/.maka-composer-inner changes vertical geometry or overrides --h-composer-min (no idle/active mode switch)', async () => {
-    const css = stripCssComments(await readAllRendererCss());
-    const geoDecls = stateComposerBlocks(css).flatMap((b) => geoDeclarationsIn(b));
-    assert.equal(geoDecls.length, 0, `state selectors on .composer/.maka-composer/.maka-composer-inner must not change vertical geometry or override --h-composer-min (no idle/active mode switch per #740); found: ${JSON.stringify(geoDecls)}`);
+  it('send (icon-sm) and stop (sm) buttons share h-8/32px — toolbar height is stable across normal/streaming (no 4px chat-boundary jump)', async () => {
+    const source = await readFile(COMPOSER_TSX, 'utf8');
+    const sendBlock = source.match(/<UiButton[\s\S]*?maka-composer-send-button[\s\S]*?<\/UiButton>/);
+    assert.ok(sendBlock, 'send button block not found');
+    assert.match(sendBlock[0], /size="icon-sm"/, 'send button must use size="icon-sm" (h-8/32px)');
+    const stopBlock = source.match(/props\.streaming\s*\?\s*\(\s*<UiButton[\s\S]*?<\/UiButton>/);
+    assert.ok(stopBlock, 'stop button block (streaming branch) not found');
+    assert.match(stopBlock[0], /size="(?:icon-sm|sm)"/, 'stop button must use size="icon-sm" or size="sm" (h-8/32px), NOT default md (h-9/36px) which jumps the chat boundary 4px when streaming swaps send→stop');
   });
 
-  it('negative cases: same-block duplicate, selector-list companion, state [data-compact] height + token override + ::before sweep exclusion, .maka-composer padding return, textarea min-h-* return', () => {
+  it('negative cases: same-block duplicate, selector-list companion, compound .maka-composer.composer padding return, .maka-composer padding return, textarea min-h-* return, stop md return', () => {
     const sameBlock = '.composer { padding: var(--space-2) var(--space-6) var(--space-2); padding: var(--space-3) var(--space-6) var(--space-4); }';
     assert.throws(
       () => assertExactlyOnce(sameBlock, '.composer', 'padding', 'var(--space-2) var(--space-6) var(--space-2)', '.composer padding'),
@@ -171,15 +161,17 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
       /var\(--space-3\)/,
       'a selector-list companion setting padding must be caught',
     );
-    const stateHeight = '.composer[data-compact="true"] { height: 120px; }';
-    assert.equal(stateComposerBlocks(stateHeight).flatMap((b) => geoDeclarationsIn(b)).length, 1, 'a .composer[data-compact] height override must be flagged end-to-end');
-    const stateTokenOverride = '.composer[data-compact="true"] { --h-composer-min: 32px; }';
-    assert.equal(stateComposerBlocks(stateTokenOverride).flatMap((b) => geoDeclarationsIn(b)).length, 1, 'a .composer[data-compact] --h-composer-min override must be flagged (it drives textarea min-height)');
-    const sweep = '.maka-composer-inner[data-streaming="true"]::before { height: 1px; top: 0; }';
-    assert.equal(stateComposerBlocks(sweep).flatMap((b) => geoDeclarationsIn(b)).length, 0, '::before/::after state pseudo-elements must NOT be flagged (streaming sweep, not footprint)');
+    const compound = '.maka-composer.composer { padding: var(--space-3) var(--space-6) var(--space-4); }';
+    assert.throws(
+      () => assertExactlyOnce(compound, '.composer', 'padding', 'var(--space-2) var(--space-6) var(--space-2)', '.composer padding'),
+      /var\(--space-3\)/,
+      'a compound alias .maka-composer.composer setting padding must be caught (subject carries .composer)',
+    );
     const makaReturn = '.maka-composer { padding: var(--space-4) var(--space-6); }';
-    assert.equal(restBlocks(makaReturn, '.maka-composer').flatMap((b) => declarationsIn(b, 'padding')).length, 1, 'a .maka-composer padding return must be caught (form carries both classes)');
+    assert.equal(restBlocks(makaReturn, '.maka-composer').flatMap((b) => declarationsIn(b, 'padding')).length, 1, 'a .maka-composer padding return must be caught (form alias)');
     const tsxReturn = '          className="maka-composer-textarea min-h-11 resize-none"';
     assert.match(tsxReturn, /min-h-[a-z0-9]+/i, 'a returned textarea min-h-* utility must be caught');
+    const stopMdReturn = 'props.streaming ? (\n  <UiButton\n    className="maka-button"\n    variant="default"\n    type="button"\n  >\n    停止\n  </UiButton>\n)';
+    assert.doesNotMatch(stopMdReturn, /size="(icon-sm|sm)"/, 'a stop button defaulting to md (no size) must be caught (h-9/36px ≠ send h-8/32px)');
   });
 });

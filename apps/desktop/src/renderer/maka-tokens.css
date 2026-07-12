@@ -1265,17 +1265,6 @@
 
   /* ---- Composer --------------------------------------------------- */
 
-  .maka-composer {
-    /* PR-UI-LAYOUT-8: remove the visible 1px divider between chat
-     * surface and composer — on the warm canvas the divider read as
-     * a strong horizontal line slicing the panel. The composer's
-     * own border + rounded chrome below is sufficient visual
-     * separation; no extra line needed.
-     *
-     * #740/#546: padding moved to .composer in styles/composer.css as the
-     * single source (this rule is now background-only). */
-    background: var(--background);
-  }
   .maka-composer[data-drag-active="true"] .maka-composer-inner {
     border-color: oklch(from var(--focus-ring) l c h / 0.46);
     background: oklch(from var(--focus-ring) 0.98 calc(c * 0.20) h / 0.35);
