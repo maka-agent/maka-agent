@@ -80,6 +80,7 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('previews the send-time memory prompt context from the core helper', async () => {
     const src = await readSettingsCombinedSource();
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
     const css = await readRendererContractCss();
     const pageBlock = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
@@ -104,6 +105,8 @@ describe('local MEMORY.md Settings UI contract', () => {
     assert.match(pageBlock, /已复制模型上下文预览/);
     assert.match(pageBlock, /props\.copyPending \? '复制中…' : '复制上下文'/);
     assert.match(pageBlock, /disabled=\{!props\.preview \|\| props\.copyPending\}/);
+    assert.match(page, /preview=\{localMemoryPromptPreview\}/);
+    assert.match(page, /onCopy=\{copyLocalMemoryPromptPreview\}/);
     assert.match(css, /\.settingsMemoryPromptPreview/);
     assert.match(css, /\.settingsMemoryPromptPreviewBudget/);
   });
@@ -182,12 +185,15 @@ describe('local MEMORY.md Settings UI contract', () => {
 
   it('gives repeated workspace-instruction row actions file-specific accessible names', async () => {
     const src = await readSettingsCombinedSource();
+    const page = await readRepo('apps/desktop/src/renderer/settings/memory-settings-page.tsx');
     const memoryPage = src.match(/function MemorySettingsPage\([\s\S]*?function MemoryEntryList/)?.[0] ?? '';
 
     assert.match(memoryPage, /aria-label=\{`打开项目指令文件 \$\{file\.file\}`\}/);
     assert.match(memoryPage, /aria-label=\{`创建项目指令文件 \$\{file\.file\}`\}/);
     assert.match(memoryPage, /props\.onOpen\(file\.file\)/);
     assert.match(memoryPage, /props\.onCreate\(file\.file\)/);
+    assert.match(page, /onOpen=\{openWorkspaceInstructionFile\}/);
+    assert.match(page, /onCreate=\{createWorkspaceInstructionFile\}/);
   });
 
   it('gates local memory file actions with visible per-action pending feedback', async () => {
