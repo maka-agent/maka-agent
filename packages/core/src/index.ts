@@ -33,8 +33,10 @@ export type {
   StorageRef,
   AttachmentRef,
   AttachmentIngestItem,
+  CompleteStopReason,
 } from './events.js';
 export {
+  failureClassFromCompleteStopReason,
   TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,

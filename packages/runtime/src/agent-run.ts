@@ -11,7 +11,7 @@ import type {
   UserMessage,
 } from '@maka/core/session';
 import type { UserMessageInput } from '@maka/core/runtime-inputs';
-import type { SessionEvent } from '@maka/core/events';
+import { failureClassFromCompleteStopReason, type SessionEvent } from '@maka/core/events';
 import type { AgentBackend, BackendSendInput } from '@maka/core/backend-types';
 import type { RunTraceEvent } from './run-trace.js';
 import type { SessionStore, StopSessionInput } from './session-manager.js';
@@ -1040,8 +1040,8 @@ function turnStatusFromEvent(event: SessionEvent): { status: TurnRecord['status'
       return { status: 'failed', errorClass: event.reason ?? event.code ?? 'unknown' };
     case 'complete':
       if (event.stopReason === 'user_stop') return { status: 'aborted' };
-      if (event.stopReason === 'error') return { status: 'failed', errorClass: 'runtime_error' };
-      if (event.stopReason === 'step_limit') return { status: 'failed', errorClass: 'tool_step_cap_reached' };
+      const errorClass = failureClassFromCompleteStopReason(event.stopReason);
+      if (errorClass) return { status: 'failed', errorClass };
       if (event.stopReason === 'permission_handoff') return { status: 'running' };
       return { status: 'completed' };
     default:

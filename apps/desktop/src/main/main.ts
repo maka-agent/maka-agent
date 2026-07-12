@@ -53,6 +53,7 @@ import {
   normalizeSessionSendCommand,
   normalizeStopSessionInput,
 } from './permission-response-guard.js';
+import { turnFailureMessageFromSessionEvent } from './turn-stream-outcome.js';
 import { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { CodexSubscriptionService } from './oauth/codex-subscription-service.js';
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
@@ -1756,15 +1757,7 @@ async function streamEvents(
       if (event.type === 'abort' || (event.type === 'complete' && event.stopReason === 'user_stop')) {
         turnAborted = true;
       }
-      if (event.type === 'error') {
-        turnError = event.message ?? event.reason ?? 'turn error';
-      }
-      // A non-throwing error finish (e.g. content-filter) arrives as
-      // complete{stopReason:'error'} with no separate `error` event — record it
-      // so goal continuation is skipped (and `ok` is not mis-reported true).
-      if (event.type === 'complete' && event.stopReason === 'error') {
-        turnError = turnError ?? 'turn ended in error';
-      }
+      turnError = turnError ?? turnFailureMessageFromSessionEvent(event);
       safeSendToRenderer(`sessions:event:${sessionId}`, event);
       openGateway.publishSessionEvent(sessionId, event);
       if (isStatusChangingSessionEvent(event)) {

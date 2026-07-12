@@ -5,6 +5,7 @@ import type {
   ToolOutputStream,
   ToolResultContent,
 } from '@maka/core/events';
+import { failureClassFromCompleteStopReason } from '@maka/core/events';
 import { STEP_LIMIT_NOTICE_TEXT, type StoredMessage, type SystemNoteMessage } from '@maka/core/session';
 import type { ContextBudgetDiagnostic } from '@maka/core/usage-stats/types';
 import type { ThinkingLevel } from '@maka/core/model-thinking';
@@ -224,7 +225,7 @@ export async function submitPromptToTranscript(input: {
       // (self-sufficient, not reliant on the session-status backstop).
       if (
         event.type === 'complete'
-        && (event.stopReason === 'error' || event.stopReason === 'step_limit')
+        && failureClassFromCompleteStopReason(event.stopReason) !== undefined
       ) {
         errored = true;
       }

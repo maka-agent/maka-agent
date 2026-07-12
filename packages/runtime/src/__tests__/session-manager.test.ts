@@ -2991,6 +2991,33 @@ describe('SessionManager permission mode updates', () => {
     expect(childTerminalEvents).toHaveLength(1);
   });
 
+  test('spawnChildAgent preserves step-limit failure without a run store', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new EventBackend(ctx, [
+      { type: 'complete', stopReason: 'step_limit' },
+    ]));
+    const manager = new SessionManager({
+      store,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(6_844),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    const result = await manager.spawnChildAgent(session.id, {
+      turnId: 'child-turn',
+      parentRunId: 'parent-run',
+      spec: { id: LOCAL_READ_AGENT_ID, name: 'Researcher', systemPrompt: 'read only' },
+      prompt: 'inspect',
+    });
+
+    expect(result.status).toBe('failed');
+    expect(result.failureClass).toBe('tool_step_cap_reached');
+  });
+
   test('spawnChildAgent summarizes high-volume child output without returning the full stream', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

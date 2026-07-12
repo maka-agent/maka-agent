@@ -2381,6 +2381,47 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('aborting during post-stream persistence wins over step-limit completion', async () => {
+    const loop = countingToolLoopModel();
+    const gate = makeGate();
+    let usagePersistenceStarted = false;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        if (message.type !== 'token_usage') return;
+        usagePersistenceStarted = true;
+        await gate.promise;
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      maxSteps: 1,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const events: SessionEvent[] = [];
+    const sendPromise = (async () => {
+      for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+        events.push(event);
+      }
+    })();
+
+    await waitFor(() => usagePersistenceStarted);
+    await backend.stop('user_stop');
+    gate.release();
+    await sendPromise;
+
+    assert.equal(events.some((event) => event.type === 'abort' && event.reason === 'user_stop'), true);
+    assert.equal(
+      events.some((event) => event.type === 'complete' && event.stopReason === 'step_limit'),
+      false,
+    );
+  });
+
   test('provider error mid-step still persists the streamed partial text (partialOutputRetained)', async () => {
     // Codex P1: the non-abort error exit (provider failure / watchdog timeout)
     // must flush the in-flight step's partial accumulators just like the abort

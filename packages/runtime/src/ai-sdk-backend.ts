@@ -1120,10 +1120,10 @@ export class AiSdkBackend implements AgentBackend {
 
         // With an explicit maxSteps, `finishReason === 'tool-calls'` means the
         // model wanted another tool step but the configured budget stopped it.
-        const finishReasonForGrace = await result.finishReason.catch(() => 'stop');
+        const finishReason = await result.finishReason.catch(() => 'stop');
         const stepLimit = this.maxSteps;
-        const stepLimitReached = stepLimit !== undefined && finishReasonForGrace === 'tool-calls';
-        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReasonForGrace);
+        const stepLimitReached = stepLimit !== undefined && finishReason === 'tool-calls';
+        rawFinishReason = rawFinishReason ?? rawFinishReasonString(finishReason);
         if (stepLimitReached && runtimeSteps < stepLimit) {
           runtimeSteps = stepLimit;
         }
@@ -1238,7 +1238,9 @@ export class AiSdkBackend implements AgentBackend {
           // best-effort; ai-sdk usage promise may reject on abort
         }
 
-        const finishReason = await result.finishReason.catch(() => 'stop');
+        // Nothing may await between this check and terminal emission: Stop must
+        // win even when it arrives during post-stream usage persistence.
+        if (this.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
         const stopReason = this.maxSteps !== undefined && finishReason === 'tool-calls'
           ? 'step_limit'
           : this.mapFinishReason(finishReason);

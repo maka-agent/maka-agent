@@ -31,7 +31,11 @@
  *   - own model-history projection (Phase 7) or tool-event actions (Phase 5).
  */
 
-import type { CompleteEvent, SessionEvent } from '@maka/core/events';
+import {
+  failureClassFromCompleteStopReason,
+  type CompleteEvent,
+  type SessionEvent,
+} from '@maka/core/events';
 import type { PermissionDecision } from '@maka/core/backend-types';
 import { isTerminalRuntimeEvent, type RuntimeEvent, type RuntimeEventStatus } from '@maka/core/runtime-event';
 
@@ -60,20 +64,8 @@ export type CompleteStopReason = CompleteEvent['stopReason'];
  * may be incomplete. Phase 5+ may introduce a richer `waiting`/`handoff` status.
  */
 export function mapCompleteStopReason(reason: CompleteStopReason): RuntimeEventStatus {
-  switch (reason) {
-    case 'user_stop':
-      return 'aborted';
-    case 'error':
-    case 'step_limit':
-      return 'failed';
-    case 'end_turn':
-    case 'max_tokens':
-    case 'plan_handoff':
-    case 'permission_handoff':
-      return 'completed';
-    default:
-      return 'completed';
-  }
+  if (reason === 'user_stop') return 'aborted';
+  return failureClassFromCompleteStopReason(reason) ? 'failed' : 'completed';
 }
 
 /**
@@ -399,7 +391,8 @@ function completeRuntimeEvent(
   const stateDelta: Record<string, unknown> = { stopReason };
   if (status === 'failed') {
     stateDelta.failureClass = memory.failureClass
-      ?? (stopReason === 'step_limit' ? 'tool_step_cap_reached' : 'runtime_error');
+      ?? failureClassFromCompleteStopReason(stopReason)
+      ?? 'runtime_error';
   }
   if (status === 'aborted') stateDelta.abortSource = stopReason;
   return {
