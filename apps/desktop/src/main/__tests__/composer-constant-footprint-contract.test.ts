@@ -138,14 +138,11 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     assert.doesNotMatch(textareaLine!, /min-h-[a-z0-9]+/i, '.maka-composer-textarea className must not carry a Tailwind min-h-* utility (CSS min-height: var(--h-composer-min) is the single source)');
   });
 
-  it('send (icon-sm) and stop (sm) buttons share h-8/32px — toolbar height is stable across normal/streaming (no 4px chat-boundary jump)', async () => {
+  it('stop button uses an h-8 size (icon-sm or sm, 32px) — streaming toolbar height matches send (icon-sm/32px, locked by control-height-converge-contract), no 4px chat-boundary jump', async () => {
     const source = await readFile(COMPOSER_TSX, 'utf8');
-    const sendBlock = source.match(/<UiButton[\s\S]*?maka-composer-send-button[\s\S]*?<\/UiButton>/);
-    assert.ok(sendBlock, 'send button block not found');
-    assert.match(sendBlock[0], /size="icon-sm"/, 'send button must use size="icon-sm" (h-8/32px)');
     const stopBlock = source.match(/props\.streaming\s*\?\s*\(\s*<UiButton[\s\S]*?<\/UiButton>/);
     assert.ok(stopBlock, 'stop button block (streaming branch) not found');
-    assert.match(stopBlock[0], /size="(?:icon-sm|sm)"/, 'stop button must use size="icon-sm" or size="sm" (h-8/32px), NOT default md (h-9/36px) which jumps the chat boundary 4px when streaming swaps send→stop');
+    assert.match(stopBlock[0], /size="(?:icon-sm|sm)"/, 'stop button must use size="icon-sm" or size="sm" (h-8/32px), NOT default md (h-9/36px) which jumps the chat boundary 4px when streaming swaps send→stop; send is locked to 32px by control-height-converge-contract (.maka-composer-send-button height = --h-control-lg = 32px)');
   });
 
   it('negative cases: same-block duplicate, selector-list companion, compound .maka-composer.composer padding return, .maka-composer padding return, textarea min-h-* return, stop md return', () => {
@@ -172,6 +169,8 @@ describe('PR-COMPOSER-CONSTANT-FOOTPRINT-0 contract (issue #740)', () => {
     const tsxReturn = '          className="maka-composer-textarea min-h-11 resize-none"';
     assert.match(tsxReturn, /min-h-[a-z0-9]+/i, 'a returned textarea min-h-* utility must be caught');
     const stopMdReturn = 'props.streaming ? (\n  <UiButton\n    className="maka-button"\n    variant="default"\n    type="button"\n  >\n    停止\n  </UiButton>\n)';
-    assert.doesNotMatch(stopMdReturn, /size="(icon-sm|sm)"/, 'a stop button defaulting to md (no size) must be caught (h-9/36px ≠ send h-8/32px)');
+    const stopMdBlock = stopMdReturn.match(/props\.streaming\s*\?\s*\(\s*<UiButton[\s\S]*?<\/UiButton>/);
+    assert.ok(stopMdBlock, 'stop block extraction must work on the fixture');
+    assert.throws(() => assert.match(stopMdBlock[0]!, /size="(?:icon-sm|sm)"/), 'a stop button defaulting to md (no size) must be caught end-to-end (h-9/36px ≠ send h-8/32px)');
   });
 });
