@@ -71,7 +71,27 @@ test('long session opens pinned to bottom and stays pinned while geometry settle
 async function climbToTop(page: import('@playwright/test').Page) {
   return await page.evaluate(async () => {
     const scroller = document.querySelector('.maka-chatViewport') as HTMLElement;
-    const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const started = performance.now();
+    // Self-imposed deadline well under the 60s test timeout: a stalled or
+    // crawling compositor must produce a diagnosable assertion failure with
+    // the numbers below, never a test-timeout hang inside this evaluate
+    // ("Target page ... closed" says nothing).
+    const deadline = started + 30_000;
+    let frames = 0;
+    let maxFrameGapMs = 0;
+    const frame = () => new Promise<void>((resolve) => {
+      const t0 = performance.now();
+      let done = false;
+      const finish = () => {
+        if (done) return;
+        done = true;
+        maxFrameGapMs = Math.max(maxFrameGapMs, performance.now() - t0);
+        resolve();
+      };
+      requestAnimationFrame(() => requestAnimationFrame(() => { frames += 2; finish(); }));
+      // Watchdog: never wait on a compositor that stopped ticking.
+      setTimeout(finish, 2_000);
+    });
     scroller.scrollTop = scroller.scrollHeight;
     await frame();
     const heights = new Set<number>([scroller.scrollHeight]);
@@ -79,6 +99,7 @@ async function climbToTop(page: import('@playwright/test').Page) {
     // Viewport-sized steps, like a fast user scroll. The cap is a runaway
     // guard far above the honest step count.
     for (; steps < 120; steps++) {
+      if (performance.now() > deadline) break;
       scroller.scrollBy(0, -scroller.clientHeight);
       await frame();
       heights.add(scroller.scrollHeight);
@@ -89,17 +110,26 @@ async function climbToTop(page: import('@playwright/test').Page) {
       distinctHeights: [...heights],
       steps,
       honestSteps: Math.ceil(scroller.scrollHeight / scroller.clientHeight),
+      frames,
+      maxFrameGapMs: Math.round(maxFrameGapMs),
+      elapsedMs: Math.round(performance.now() - started),
+      timedOut: performance.now() > deadline,
     };
   });
 }
 
 function expectHonestClimb(run: Awaited<ReturnType<typeof climbToTop>>): void {
-  expect(run.atTop).toBe(true);
+  const diagnostics = JSON.stringify(run);
+  // A climb that hit the deadline or was paced by the watchdog instead of
+  // real frames proves nothing about geometry — fail with the frame stats.
+  expect(run.timedOut, diagnostics).toBe(false);
+  expect(run.maxFrameGapMs, diagnostics).toBeLessThan(2_000);
+  expect(run.atTop, diagnostics).toBe(true);
   // One height for the whole climb: no placeholder inflated mid-scroll.
-  expect(run.distinctHeights).toHaveLength(1);
+  expect(run.distinctHeights, diagnostics).toHaveLength(1);
   // And the climb took the honest number of steps — the "endless scroll"
   // symptom was precisely needing ~2x more.
-  expect(run.steps).toBeLessThanOrEqual(run.honestSteps + 2);
+  expect(run.steps, diagnostics).toBeLessThanOrEqual(run.honestSteps + 2);
 }
 
 test('scrolling a settled long session to the top never inflates the document', async ({ longTranscriptWindow: page }) => {
