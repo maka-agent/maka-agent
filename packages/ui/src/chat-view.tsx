@@ -367,8 +367,10 @@ export function ChatView(props: {
   //   markdown-body chunk commits, every bubble is the plain-text Suspense
   //   fallback (~7.5px taller per turn). Awaiting the import is NOT enough —
   //   the Suspense retry is a low-priority render that can commit after an
-  //   idle callback — so the DOM is the authority, polled with a bounded
-  //   timeout that degrades to warming anyway (e.g. chunk load failure).
+  //   idle callback — so the DOM is the authority, polled until it settles.
+  //   No warm-anyway deadline: warming a layout the markdown commit is about
+  //   to replace would re-create the drift, and if the chunk never loads the
+  //   un-warmed placeholder geometry is the least of the session's problems.
   const hasTurns = turns.length > 0;
   useEffect(() => {
     if (!hasTurns) return;
@@ -377,10 +379,9 @@ export function ChatView(props: {
     let disposed = false;
     let cancelWarmup: (() => void) | undefined;
     let pollTimer: number | undefined;
-    let attempts = 0;
     const warmOnceSettled = () => {
       if (disposed) return;
-      if (root.querySelector('.maka-markdown-pending') && attempts++ < 50) {
+      if (root.querySelector('.maka-markdown-pending')) {
         pollTimer = window.setTimeout(warmOnceSettled, 100);
         return;
       }
