@@ -356,9 +356,11 @@ export function ChatView(props: {
   // turn's real height replaces the 250px `contain-intrinsic-size` estimate.
   // Without this, scrolling up through never-rendered history keeps inflating
   // the document and the top recedes ("endless scroll"). Keyed on hasTurns so
-  // the walk starts when history arrives, without re-walking per message, and
-  // on mode (like the follower above) because leaving chat unmounts the
-  // scroller — the rebuilt `.maka-turn` nodes have no remembered sizes.
+  // the walk starts when history arrives, without re-walking per message.
+  // Section switches need no dependency here: since #831 ChatView mounts only
+  // for sessions, so leaving chat unmounts the component with its scroll DOM
+  // and returning re-runs every effect against the rebuilt `.maka-turn` nodes
+  // (which have no remembered sizes — the E2E mode-switch test locks this).
   // Gated so sizes are remembered from the FINAL layout, not a transient one
   // (a stale remembered size gets re-corrected on every viewport arrival —
   // exactly the drift this walk exists to remove):
@@ -397,7 +399,7 @@ export function ChatView(props: {
       window.clearTimeout(pollTimer);
       cancelWarmup?.();
     };
-  }, [props.activeSession?.id, props.mode, hasTurns]);
+  }, [props.activeSession?.id, hasTurns]);
 
   useEffect(() => {
     const target = props.scrollTargetTurn;
